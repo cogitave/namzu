@@ -159,17 +159,21 @@
  */
 
 import type {
+	OpenTerminalOptions,
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxEnvironment,
+	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
+	SandboxNetworkPolicy,
 	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
 	SandboxWalkFilesOptions,
+	TerminalSession,
 } from '@namzu/sdk'
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
@@ -177,18 +181,24 @@ import type { SandboxRetirementObservation } from '../remote-execution-controlle
 import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
 import {
 	type EgressProfileLabel,
+	type KubernetesEgressConfig,
+	type KubernetesPerSandboxEgressConfig,
 	assertEgressPolicyIsEnforceable,
 	assertEgressProfileIsUsable,
-	assertWorkspaceCarriesNoPerSandboxEgress,
+	assertPerSandboxEgressIsUsable,
 	composeAdditionalPodLabels,
 	egressProfileLabel,
 } from './egress-policy.js'
 import {
 	type KubernetesGuestEvidence,
+	KubernetesGuestPinRefusedError,
 	type KubernetesGuestRestart,
+	type KubernetesPinnedGuestIdentity,
+	type KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceGuestGoneError,
 	type KubernetesWorkspaceIdentity,
 	KubernetesWorkspaceReplacedError,
+	freezePinnedIdentity,
 } from './identity.js'
 import {
 	DEFAULT_AGENT_PORT,
@@ -196,6 +206,7 @@ import {
 	type KubernetesAgentAddressMode,
 	type KubernetesBackendInternalConfig,
 	type KubernetesBoundPod,
+	type KubernetesEgressBoundary,
 	type KubernetesSandboxBinding,
 	ReadinessPollTimeout,
 	type SandboxTemplateCopy,
@@ -226,6 +237,7 @@ import {
 import {
 	HOLDER_EPOCH_ANNOTATION_KEY,
 	type HolderEpochReading,
+	type JsonPatchOperation,
 	OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY,
 	POD_TEMPLATE_HASH_ANNOTATION_KEY,
 	type PodResource,
@@ -245,6 +257,12 @@ import {
 	sandboxCollectionPath,
 	sandboxPath,
 } from './objects.js'
+import {
+	KubernetesOwnerUidMissingError,
+	type PerSandboxPolicyFence,
+	buildAdmissionFence,
+	buildPerSandboxPolicySetter,
+} from './per-sandbox-policy.js'
 import {
 	KubernetesSandboxDestroyedError,
 	type KubernetesSandboxHandle,
@@ -271,8 +289,15 @@ import {
 	type KubernetesStartDetachedOptions,
 	type KubernetesWorkspaceTerminal,
 	flushUnsupportedError,
+	guestMismatchOf,
 	guestWhenReserved,
+	isUnauthorizedRefusal,
 } from './transport.js'
+import {
+	perSandboxWorkspaceLabels,
+	reverifyPerSandboxEgress,
+	withoutPerSandboxLabel,
+} from './workspace-per-sandbox.js'
 
 /**
  * Thrown when a workspace's `SandboxTemplate` does not describe a block disk
@@ -335,7 +360,11 @@ export class KubernetesWorkspaceMismatchError extends Error {
 		/** The Sandbox found standing under this workspace's name. */
 		readonly sandboxName: string,
 		/** Which configured field the standing object disagrees with. */
-		readonly field: 'sandboxTemplateName' | 'egressProfile' | 'runtimeClassName',
+		readonly field:
+			| 'sandboxTemplateName'
+			| 'egressProfile'
+			| 'perSandboxLabel'
+			| 'runtimeClassName',
 		/**
 		 * What the configuration asked for. `key=value` for `egressProfile`,
 		 * because the KEY is configurable too and the value alone would not
@@ -487,7 +516,7 @@ export class KubernetesWorkspacePreconditionError extends Error {
  * as a decimal string, and an integer because a fractional epoch would
  * round-trip through the annotation as something other than what was passed.
  */
-function assertHolderEpoch(epoch: number | undefined, where: string): number | undefined {
+export function assertHolderEpoch(epoch: number | undefined, where: string): number | undefined {
 	if (epoch === undefined) return undefined
 	if (!Number.isSafeInteger(epoch) || epoch < 0) {
 		throw new Error(
@@ -663,6 +692,29 @@ export interface KubernetesWorkspaceTransitionOptions {
 	 */
 	readonly epoch?: number
 	/**
+	 * The exact Sandbox this call is about, by `metadata.uid` — what a host
+	 * retained from {@link KubernetesWorkspace.identity} or
+	 * {@link inspectKubernetesWorkspace}.
+	 *
+	 * The workspace id is a deterministic NAME: if the Sandbox the host meant
+	 * was deleted and another created under the same name, the name now
+	 * addresses a stranger's disk. With this set, the JSON patch of
+	 * {@link suspendKubernetesWorkspace} carries `test /metadata/uid` and the
+	 * DELETE of {@link deleteKubernetesWorkspace} carries `preconditions.uid`,
+	 * so the API server refuses the write itself. A different owner rejects
+	 * with {@link KubernetesWorkspaceReplacedError}, changes nothing and is
+	 * never retried against the new owner; an object already gone still counts
+	 * as deleted.
+	 *
+	 * Read by the two standalone verbs. A handle's own verbs ignore it and
+	 * fence every write with the uid they bound, which they do without being
+	 * asked. Omitted, a standalone call is conditioned on nothing about
+	 * identity, as before. `volumeClaimUids` is not read here: the claims are
+	 * owned by the Sandbox, so the uid is the identity a write can be
+	 * conditioned on — check claims with {@link openKubernetesWorkspace}.
+	 */
+	readonly expectedIdentity?: KubernetesWorkspaceExpectedIdentity
+	/**
 	 * Write the SandboxTemplate's CURRENT `spec.podTemplate` onto the
 	 * workspace as it wakes, keeping its disk — see
 	 * {@link KubernetesWorkspace.templateRevision}.
@@ -799,6 +851,25 @@ export interface KubernetesQuiesceOptions {
 	 * and still serving.
 	 */
 	readonly graceMs?: number
+	/**
+	 * Look, and touch nothing. With `true` the call resolves (with a report
+	 * of `rounds: 0`, `stopped: []`, scope `pid-namespace`) only when the
+	 * guest confirms its whole PID namespace holds nothing but init and the
+	 * agent, and otherwise rejects with `KubernetesQuiesceBusyError` naming
+	 * what was seen. It never signals a process, never marks an execution
+	 * and never waits, so a busy guest is exactly as it was and the caller
+	 * can retry later.
+	 *
+	 * Needs the guest feature `quiesce-idle`: against an older agent the
+	 * call rejects with `KubernetesQuiesceUnsupportedError` and sends
+	 * nothing, because that agent would ignore this field and run the
+	 * stopping quiesce. Cannot be combined with `graceMs` (a `TypeError`).
+	 * An agent that cannot see its whole namespace, or cannot classify a
+	 * `/proc` entry, rejects with `KubernetesQuiesceUnconfirmedError`
+	 * rather than reporting idle. Captured when the call is made, before
+	 * any await.
+	 */
+	readonly onlyIfIdle?: boolean
 	readonly signal?: AbortSignal
 }
 
@@ -904,6 +975,23 @@ export type KubernetesWorkspaceOrigin = 'created' | 'adopted-running' | 'resumed
  * contract that every other backend would then have to answer for, and no
  * `deleteDisk` field on the shared `SandboxDestroyOptions`.
  */
+/**
+ * What {@link KubernetesWorkspace.pinGuest} returns: the data-plane subset of
+ * a workspace, every call authenticated against one guest.
+ */
+export interface KubernetesPinnedGuest {
+	/** The identity this view is pinned to, frozen. */
+	readonly expected: KubernetesPinnedGuestIdentity
+	exec(command: string, argv?: string[], options?: SandboxExecOptions): Promise<SandboxExecResult>
+	readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer>
+	writeFile(path: string, content: string | Buffer): Promise<void>
+	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
+	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
+	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
+	/** As {@link KubernetesWorkspace.quiesce}, without the lifecycle queue: it is the guest's, not the workspace's. */
+	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
+}
+
 export interface KubernetesWorkspace extends Sandbox {
 	/**
 	 * How this handle came by its workspace — see
@@ -1214,8 +1302,38 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * `KubernetesQuiesceUnconfirmedError` when a process would not stop (the
 	 * message names its pid), and with `KubernetesQuiesceUnsupportedError`
 	 * against an image whose agent predates the op.
+	 *
+	 * `{ onlyIfIdle: true }` is the read-only variant: see
+	 * {@link KubernetesQuiesceOptions.onlyIfIdle}. It rejects with
+	 * `KubernetesQuiesceBusyError` when anything is running.
 	 */
 	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
+	/**
+	 * A non-owning view of this workspace that talks ONLY to the guest the
+	 * caller authenticated, and refuses (never rebinds) if it changed.
+	 *
+	 * `expected` names the Sandbox, the pod and the agent process
+	 * ({@link KubernetesPinnedGuestIdentity}); read them off `identity` after
+	 * a call the guest answered. A missing or empty field throws
+	 * `KubernetesPinIncompleteError` here, synchronously.
+	 *
+	 * Every call on the view first compares `identity` with `expected` and
+	 * refuses with `KubernetesGuestPinRefusedError` (`identity-changed`)
+	 * before dialing; then it sends the request inside the guest agent's
+	 * `pinned` envelope, which the agent compares with its own boot id BEFORE
+	 * dispatch, so a guest that is not the pinned one runs nothing
+	 * (`guest-replaced`, carrying the id of the agent that refused). A guest
+	 * agent that does not advertise `pinned-guest` refuses the call
+	 * (`guest-unsupported`) instead of serving it unpinned. A fenced agent
+	 * that IS the pinned one answers `KubernetesAgentRetiringError`, with its
+	 * id on `guestBootId`.
+	 *
+	 * The view owns nothing: it has no `destroy`, `suspend` or `resume`, never
+	 * retires the pod, and a later `suspend()` of this workspace makes its
+	 * calls refuse. It reads its pinned values once; mutating `expected`
+	 * afterwards changes nothing.
+	 */
+	pinGuest(expected: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest
 	/**
 	 * Put everything this workspace has written onto its disk, now.
 	 *
@@ -1734,6 +1852,8 @@ export function assertAdoptedWorkspaceMatchesConfig(
 	expected: {
 		readonly sandboxTemplateName: string
 		readonly profile?: EgressProfileLabel
+		/** The per-sandbox selector label the configuration stamps, key and value. */
+		readonly perSandboxLabel?: EgressProfileLabel
 		readonly runtimeClassName?: string
 	},
 ): void {
@@ -1757,6 +1877,19 @@ export function assertAdoptedWorkspaceMatchesConfig(
 				`${profile.key}=${profile.value}`,
 				carried === undefined ? undefined : `${profile.key}=${carried}`,
 				`kubernetes: Sandbox ${sandboxName} in namespace ${namespace} already exists, and its spec.podTemplate carries ${profile.key}: ${carried === undefined ? '(absent)' : JSON.stringify(carried)} rather than the configured egress profile ${JSON.stringify(profile.value)}. The translated policy's podSelector matches that label as well as the template one, so this object's pod is not selected by the policy this call just verified — and since each profile needs its own policy object, a pod carrying no profile label at all is selected by none of them, while create() would have reported the boundary verified. A standing workspace's pod labels are not rewritten underneath it by an ordinary adopt, so the mismatch is named instead. Three ways out, and only the last one costs the disk: reopen it with refreshPodTemplate: true, which rewrites spec.podTemplate — profile label and all — on the one Suspended → Running transition and is the supported way to move a workspace between profiles; or point config.egress.profile at ${carried === undefined ? 'the profile this object was built under (none was)' : JSON.stringify(carried)}; or delete the Sandbox — which takes its disk with it — and create it again under ${JSON.stringify(profile.value)}.`,
+			)
+		}
+	}
+	const perSandboxLabel = expected.perSandboxLabel
+	if (perSandboxLabel !== undefined) {
+		const carried = podTemplate?.metadata?.labels?.[perSandboxLabel.key]
+		if (carried !== perSandboxLabel.value) {
+			throw new KubernetesWorkspaceMismatchError(
+				sandboxName,
+				'perSandboxLabel',
+				`${perSandboxLabel.key}=${perSandboxLabel.value}`,
+				carried === undefined ? undefined : `${perSandboxLabel.key}=${carried}`,
+				`kubernetes: Sandbox ${sandboxName} in namespace ${namespace} already exists, and its spec.podTemplate carries ${perSandboxLabel.key}: ${carried === undefined ? '(absent)' : JSON.stringify(carried)} rather than ${JSON.stringify(perSandboxLabel.value)}. config.egress.perSandbox is configured, and every per-sandbox policy selects a pod by exactly that label — a workspace created before the option was set carries none, so a policy written for it would select nothing while setNetworkPolicy reported the grant applied. A standing workspace's pod labels are not rewritten underneath it by an ordinary adopt, so the mismatch is named instead. Reopen it with refreshPodTemplate: true, which rewrites spec.podTemplate — the label included — on the one Suspended → Running transition, or unset config.egress.perSandbox, or delete the Sandbox — which takes its disk with it — and create it again.`,
 			)
 		}
 	}
@@ -1824,17 +1957,15 @@ export async function createKubernetesWorkspace(
 	options: KubernetesWorkspaceOptions,
 ): Promise<KubernetesWorkspace> {
 	options.signal?.throwIfAborted()
-	// `config.egress.perSandbox` is the one part of `config.egress` this path
-	// cannot honour at all, and it is refused FIRST — before readiness, before
-	// the client, before any request. It configures `setNetworkPolicy`, which
-	// a workspace handle never carries: nothing in the create path below
-	// composes a per-sandbox pod label or tracks an owner uid for one, and
-	// the option exists to make the method present on a TASK handle. Accepting
-	// it here and omitting the method is the silent downgrade every other
-	// refusal in `egress-policy.ts` exists to prevent, so it is refused by
-	// name rather than validated: `assertPerSandboxEgressIsUsable` would
-	// check a config this path serves no purpose for and report it as usable.
-	assertWorkspaceCarriesNoPerSandboxEgress(config.egress)
+	// `config.egress.perSandbox` is honoured here exactly as on a task handle:
+	// the workspace's pod template carries the per-sandbox selector label, the
+	// Sandbox owns every policy written for it, and the handle serves
+	// `setNetworkPolicy`. A value the backend can never honour — an engine
+	// with no hostname concept, an unnamed fence, a selector key the API
+	// server would refuse — is decidable from config alone and is refused
+	// first, before readiness, before the client, before any request. With
+	// `perSandbox` unset this is a no-op and nothing below changes.
+	assertPerSandboxEgressIsUsable(config.egress)
 	const readiness = resolveKubernetesReadiness(config)
 	const namespace = config.namespace
 	const name = workspaceSandboxName(options.workspaceId)
@@ -1889,6 +2020,19 @@ export async function createKubernetesWorkspace(
 		)
 		await egressBoundary?.verifyNamedObject(options.signal)
 	}
+	// Per-sandbox egress: the fence that bounds what this host may write is
+	// proved BEFORE the POST and before any adopt patch, so a workspace is
+	// never opened, woken or created under a configuration whose fence does
+	// not enforce. `undefined` — and not one extra request — without it.
+	const perSandboxEgress =
+		config.egress?.perSandbox !== undefined
+			? { ...config.egress, perSandbox: config.egress.perSandbox }
+			: undefined
+	const openFence =
+		perSandboxEgress !== undefined
+			? buildAdmissionFence(client, perSandboxEgress.perSandbox, namespace)
+			: undefined
+	await openFence?.assertApplied(options.signal)
 
 	// Read and validate BEFORE anything is created, so a template that cannot
 	// carry a workspace fails with nothing to clean up.
@@ -1921,7 +2065,8 @@ export async function createKubernetesWorkspace(
 	// workspace onto a new profile is `refreshPodTemplate: true`, which
 	// rewrites `/spec/podTemplate` with exactly these labels.
 	const profile = egressProfileLabel(config.egress)
-	const profilePodLabels = composeAdditionalPodLabels(config.egress)
+	const perSandboxLabels = perSandboxWorkspaceLabels(config.egress, name)
+	const profilePodLabels = composeAdditionalPodLabels(config.egress, perSandboxLabels)
 	const workspacePodLabels = sandboxPodLabels(template, templateName, profilePodLabels)
 	const workspaceSubject = `to open workspace ${options.workspaceId} as Sandbox ${name} in namespace ${namespace}`
 	const verifyIngress = buildIngressVerifier(client, config)
@@ -1935,7 +2080,14 @@ export async function createKubernetesWorkspace(
 	// reason the ingress check is, and on the adopt path before any resume
 	// patch — a workspace whose egress stopped being bounded is refused asleep
 	// rather than woken up to be refused.
-	await egressBoundary?.verifyUnion(workspacePodLabels, workspaceSubject, options.signal)
+	// Without the per-sandbox label when one is configured: the only policy
+	// that selects a pod BY that key and value is this workspace's own, which
+	// a standing workspace already has and which the post-write union check
+	// (against the full labels) judged when it was written. Judged here
+	// against the BASELINE it would read as a widening and refuse to reopen
+	// every workspace that holds a grant.
+	const unionLabels = withoutPerSandboxLabel(workspacePodLabels, perSandboxLabels)
+	await egressBoundary?.verifyUnion(unionLabels, workspaceSubject, options.signal)
 
 	// The pod template this call would write, and its revision — built once,
 	// from the same overlays `buildSandboxBody` applies below, because the
@@ -1952,8 +2104,9 @@ export async function createKubernetesWorkspace(
 	)
 
 	let adopted: AdoptedWorkspace | undefined
+	let createdUid: string | undefined
 	try {
-		await client.request(
+		const created = await client.request<SandboxResource>(
 			'POST',
 			sandboxCollectionPath(namespace),
 			// No shutdownTime: a workspace carries no expiry — see the module
@@ -1981,6 +2134,7 @@ export async function createKubernetesWorkspace(
 			}),
 			options.signal,
 		)
+		createdUid = created?.metadata?.uid
 	} catch (err) {
 		if (!(err instanceof KubernetesConflictError)) throw err
 		adopted = await adoptExistingWorkspace(
@@ -1994,6 +2148,14 @@ export async function createKubernetesWorkspace(
 				// were built from, so the object is checked against exactly
 				// the label this call would have stamped.
 				...(profile !== undefined ? { profile } : {}),
+				...(perSandboxLabels !== undefined
+					? {
+							perSandboxLabel: {
+								key: Object.keys(perSandboxLabels)[0] as string,
+								value: name,
+							},
+						}
+					: {}),
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
@@ -2001,7 +2163,42 @@ export async function createKubernetesWorkspace(
 			epoch,
 			options.refreshPodTemplate === true ? refresh : undefined,
 			options.signal,
+			perSandboxEgress !== undefined && openFence !== undefined
+				? async (uid) => {
+						await reverifyPerSandboxEgress({
+							client,
+							namespace,
+							sandboxName: name,
+							ownerUid: uid,
+							egress: perSandboxEgress,
+							fence: openFence,
+							...(options.signal !== undefined ? { signal: options.signal } : {}),
+						})
+					}
+				: undefined,
 		)
+	}
+	// A workspace this call just created has no policy of its own yet, but a
+	// same-named one deleted a moment ago may have left one the garbage
+	// collector has not reached: it selects this label value, so it is
+	// dropped now that the new uid is known. A reply with no uid skips it, and
+	// the handle refuses `setNetworkPolicy` for the same reason.
+	if (
+		adopted === undefined &&
+		perSandboxEgress !== undefined &&
+		openFence !== undefined &&
+		typeof createdUid === 'string' &&
+		createdUid !== ''
+	) {
+		await reverifyPerSandboxEgress({
+			client,
+			namespace,
+			sandboxName: name,
+			ownerUid: createdUid,
+			egress: perSandboxEgress,
+			fence: openFence,
+			...(options.signal !== undefined ? { signal: options.signal } : {}),
+		})
 	}
 
 	return await openWorkspaceHandle({
@@ -2023,6 +2220,15 @@ export async function createKubernetesWorkspace(
 		// would patch the egress profile off the very pod the configured
 		// policy selects.
 		...(Object.keys(profilePodLabels).length > 0 ? { podLabels: profilePodLabels } : {}),
+		...(perSandboxEgress !== undefined
+			? {
+					perSandboxEgress: {
+						egress: perSandboxEgress,
+						boundary: egressBoundary,
+						podLabels: workspacePodLabels,
+					},
+				}
+			: {}),
 		// A create wrote the revision it just computed; an adopt reports
 		// whatever the standing object carries, which is `undefined` for one
 		// created before the annotation existed.
@@ -2086,11 +2292,13 @@ async function adoptExistingWorkspace(
 	expected: {
 		readonly sandboxTemplateName: string
 		readonly profile?: EgressProfileLabel
+		readonly perSandboxLabel?: EgressProfileLabel
 		readonly runtimeClassName?: string
 	},
 	epoch: number | undefined,
 	refresh: PodTemplateRefresh | undefined,
 	signal?: AbortSignal,
+	reverifyPerSandbox?: (ownerUid: string) => Promise<void>,
 ): Promise<AdoptedWorkspace> {
 	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
 	const existing = await readSandboxObject(target, signal)
@@ -2120,6 +2328,9 @@ async function adoptExistingWorkspace(
 			? {}
 			: {
 					...(expected.profile !== undefined ? { profile: expected.profile } : {}),
+					...(expected.perSandboxLabel !== undefined
+						? { perSandboxLabel: expected.perSandboxLabel }
+						: {}),
 					...(expected.runtimeClassName !== undefined
 						? { runtimeClassName: expected.runtimeClassName }
 						: {}),
@@ -2131,6 +2342,17 @@ async function adoptExistingWorkspace(
 	// superseded opener patches nothing and starts no pod.
 	if (epoch !== undefined)
 		assertHolderEpochAllows(target, 'createKubernetesWorkspace', epoch, reading)
+	// Per-sandbox egress, before any patch for the reason the refusals above
+	// are: the fence is proved again and every policy this Sandbox does not
+	// own is dropped, so a workspace is never woken under a grant it did not
+	// consent to. See `workspace-per-sandbox.ts` for the rule.
+	if (reverifyPerSandbox !== undefined) {
+		const uid = existing?.metadata?.uid
+		if (typeof uid !== 'string' || uid === '') {
+			throw new KubernetesOwnerUidMissingError(name, namespace)
+		}
+		await reverifyPerSandbox(uid)
+	}
 	if (refreshing && refresh !== undefined) {
 		// Both BEFORE the patch, and both against the SANDBOX's
 		// volumeClaimTemplates rather than the template's: those are
@@ -2337,6 +2559,66 @@ interface WorkspaceWriteTarget {
 	readonly namespace: string
 	readonly name: string
 	readonly workspaceId: string
+	/**
+	 * The Sandbox `metadata.uid` every write to this target must land on, when
+	 * the caller knows one: a handle's is the uid it bound, the standalone
+	 * verbs' is `expectedIdentity.sandboxUid`.
+	 *
+	 * The workspace NAME is deterministic, so it identifies whatever Sandbox
+	 * stands under it now — including a stranger that replaced the one the
+	 * caller meant. With a uid here, a patch carries `test /metadata/uid` and
+	 * a DELETE carries `preconditions.uid`, so the API server refuses the
+	 * write itself rather than this process hoping its last read is current.
+	 * Read through a getter by a handle, because the handle learns its uid at
+	 * its first bind and not before; absent, a write is conditioned on
+	 * nothing about identity, exactly as it always was.
+	 */
+	readonly expectedSandboxUid?: string
+}
+
+/** The `expectedSandboxUid` a standalone verb's options carry, validated. */
+function expectedUidOf(options?: KubernetesWorkspaceTransitionOptions): {
+	readonly expectedSandboxUid?: string
+} {
+	const identity = options?.expectedIdentity
+	if (identity === undefined) return {}
+	if (typeof identity.sandboxUid !== 'string' || identity.sandboxUid === '') {
+		throw new TypeError(
+			'kubernetes: expectedIdentity.sandboxUid must be a non-empty string — an empty uid would be a fence that fences nothing.',
+		)
+	}
+	return { expectedSandboxUid: identity.sandboxUid }
+}
+
+/**
+ * Refuse a write whose target is not the Sandbox the caller meant.
+ *
+ * Decided off the read the write is conditioned on, so the refusal is raised
+ * BEFORE any request that could mutate. The same uid then rides in the write
+ * itself, which is what makes the check hold against a replacement landing
+ * between this read and that write.
+ */
+function assertSandboxUidStands(
+	target: WorkspaceWriteTarget,
+	standing: string | undefined,
+	options?: ErrorOptions,
+): void {
+	const expected = target.expectedSandboxUid
+	if (expected === undefined || standing === expected) return
+	throw new KubernetesWorkspaceReplacedError(
+		target.workspaceId,
+		target.name,
+		expected,
+		standing,
+		options,
+	)
+}
+
+/** The `test` clause that pins a JSON patch to the Sandbox the caller meant. */
+function sandboxUidTests(target: WorkspaceWriteTarget): readonly JsonPatchOperation[] {
+	return target.expectedSandboxUid === undefined
+		? []
+		: [{ op: 'test', path: '/metadata/uid', value: target.expectedSandboxUid }]
 }
 
 /** One GET of the Sandbox, which is where every condition is read from. */
@@ -2436,17 +2718,24 @@ async function writeOperatingMode(
 	gate?: HolderEpochReading,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
-	if (epoch === undefined) {
+	// Nothing to write is nothing to condition: the stamp-only write exists to
+	// move the epoch, and without one it has no mutation in it at all.
+	if (epoch === undefined && mode === undefined) return
+	if (epoch === undefined && target.expectedSandboxUid === undefined) {
 		if (mode === undefined) return
 		await target.client.request('PATCH', path, operatingModePatch(mode), signal)
 		return
 	}
 	let reading = gate ?? readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
 	for (let attempt = 1; ; attempt += 1) {
-		assertHolderEpochAllows(target, operation, epoch, reading)
+		// Identity before epoch: a stranger under this name is not this
+		// caller's workspace, whatever epoch it happens to carry.
+		assertSandboxUidStands(target, reading.sandboxUid)
+		if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
 		const patch = buildHolderEpochPatch({
 			reading,
-			epoch,
+			...(epoch !== undefined ? { epoch } : {}),
+			tests: sandboxUidTests(target),
 			...(mode !== undefined
 				? { operatingMode: mode, operatingModeChangedAt: new Date().toISOString() }
 				: {}),
@@ -2458,6 +2747,10 @@ async function writeOperatingMode(
 			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
 			const next = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+			// A replacement that landed between the read and the write is what
+			// the uid `test` refused. It is never retried against the new
+			// owner: this is the refusal, not a race to win.
+			assertSandboxUidStands(target, next.sandboxUid)
 			const unmoved =
 				next.annotation === reading.annotation &&
 				next.resourceVersion === reading.resourceVersion &&
@@ -2477,7 +2770,7 @@ async function writeOperatingMode(
  * but next to the object it describes is how `templateCurrent` starts
  * reporting drift that does not exist.
  */
-interface PodTemplateRefresh {
+export interface PodTemplateRefresh {
 	readonly podTemplate: SandboxPodTemplate
 	readonly hash: string
 	/**
@@ -2501,7 +2794,7 @@ interface PodTemplateRefresh {
  * every create POSTs, so `templateCurrent` would report drift that no refresh
  * could clear.
  */
-function buildPodTemplateRefresh(
+export function buildPodTemplateRefresh(
 	template: SandboxTemplateCopy,
 	sandboxTemplateName: string,
 	runtimeClassName?: string,
@@ -2576,11 +2869,15 @@ async function writeRefreshedPodTemplate(
 	const path = sandboxPath(target.namespace, target.name)
 	let reading = gate
 	for (let attempt = 1; ; attempt += 1) {
+		assertSandboxUidStands(target, reading.sandboxUid)
 		if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
 		const patch = buildHolderEpochPatch({
 			reading,
 			...(epoch !== undefined ? { epoch } : {}),
-			tests: [{ op: 'test', path: '/spec/operatingMode', value: 'Suspended' }],
+			tests: [
+				...sandboxUidTests(target),
+				{ op: 'test', path: '/spec/operatingMode', value: 'Suspended' },
+			],
 			annotations: { [POD_TEMPLATE_HASH_ANNOTATION_KEY]: refresh.hash },
 			podTemplate: refresh.podTemplate,
 			operatingMode: 'Running',
@@ -2605,6 +2902,7 @@ async function writeRefreshedPodTemplate(
 			// — the patch did not apply and nothing changed.
 			if (sandbox === undefined) throw err
 			const next = readHolderEpoch(sandbox.metadata)
+			assertSandboxUidStands(target, next.sandboxUid)
 			if (operatingModeOf(sandbox) !== 'Suspended') {
 				// Somebody resumed it first. If they also took the workspace
 				// over, this caller hears THAT rather than being handed a pod
@@ -2646,7 +2944,8 @@ async function deleteSandboxObject(
 	gate?: HolderEpochReading,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
-	if (epoch === undefined) {
+	const expectedUid = target.expectedSandboxUid
+	if (epoch === undefined && expectedUid === undefined) {
 		try {
 			await target.client.request('DELETE', path, undefined, signal)
 		} catch (err) {
@@ -2656,7 +2955,9 @@ async function deleteSandboxObject(
 	}
 	let reading = gate
 	for (let attempt = 1; ; attempt += 1) {
-		if (reading === undefined) {
+		// The epoch needs the object's current version for its precondition;
+		// the uid alone does not, because it is the precondition.
+		if (reading === undefined && epoch !== undefined) {
 			let sandbox: SandboxResource | undefined
 			try {
 				sandbox = await readSandboxObject(target, signal)
@@ -2666,8 +2967,11 @@ async function deleteSandboxObject(
 			}
 			reading = readHolderEpoch(sandbox?.metadata)
 		}
-		assertHolderEpochAllows(target, operation, epoch, reading)
-		if (reading.resourceVersion === undefined) {
+		if (reading !== undefined) {
+			assertSandboxUidStands(target, reading.sandboxUid)
+			if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
+		}
+		if (epoch !== undefined && reading?.resourceVersion === undefined) {
 			// Unreachable against a real API server, which sets it on every
 			// object it serves — and a bodyless DELETE here would be an
 			// UNFENCED delete of somebody's disk, which is the one thing this
@@ -2683,7 +2987,12 @@ async function deleteSandboxObject(
 				{
 					apiVersion: 'v1',
 					kind: 'DeleteOptions',
-					preconditions: { resourceVersion: reading.resourceVersion },
+					preconditions: {
+						...(reading?.resourceVersion !== undefined
+							? { resourceVersion: reading.resourceVersion }
+							: {}),
+						...(expectedUid !== undefined ? { uid: expectedUid } : {}),
+					},
 				},
 				signal,
 			)
@@ -2691,8 +3000,21 @@ async function deleteSandboxObject(
 		} catch (err) {
 			if (err instanceof KubernetesAlreadyGoneError) return
 			if (!(err instanceof KubernetesConflictError)) throw err
+			// A 409 is either the version moving (epoch path: re-read and try
+			// again) or the uid precondition refusing a stranger. Look, and
+			// let the uid decide: a different owner is the refusal and is
+			// never retried against.
+			let standing: SandboxResource | undefined
+			try {
+				standing = await readSandboxObject(target, signal)
+			} catch (readErr) {
+				if (readErr instanceof KubernetesAlreadyGoneError) return
+				throw readErr
+			}
+			assertSandboxUidStands(target, standing?.metadata?.uid, { cause: err })
+			if (epoch === undefined) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
-			reading = undefined
+			reading = readHolderEpoch(standing?.metadata)
 		}
 	}
 }
@@ -3017,7 +3339,7 @@ export async function deleteKubernetesWorkspace(
 	// workspace and calling this would otherwise take the new holder's disk,
 	// and nothing brings a disk back.
 	await deleteSandboxObject(
-		{ client, namespace, name, workspaceId },
+		{ client, namespace, name, workspaceId, ...expectedUidOf(options) },
 		'deleteKubernetesWorkspace',
 		epoch,
 		options?.signal,
@@ -3065,7 +3387,7 @@ export async function suspendKubernetesWorkspace(
 	const readiness = resolveKubernetesReadiness(config)
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	await writeOperatingMode(
-		{ client, namespace, name, workspaceId },
+		{ client, namespace, name, workspaceId, ...expectedUidOf(options) },
 		'suspendKubernetesWorkspace',
 		'Suspended',
 		epoch,
@@ -3115,6 +3437,19 @@ interface WorkspaceHandleOptions {
 	 * with nothing on that path to notice.
 	 */
 	readonly podLabels?: Readonly<Record<string, string>>
+	/**
+	 * Present exactly when `config.egress.perSandbox` is configured: what the
+	 * handle needs to serve `setNetworkPolicy` and to re-verify on a resume.
+	 * `podLabels` is the FULL label set the pod carries, per-sandbox label
+	 * included, which is what the post-write union check selects with.
+	 */
+	readonly perSandboxEgress?: {
+		readonly egress: KubernetesEgressConfig & {
+			readonly perSandbox: KubernetesPerSandboxEgressConfig
+		}
+		readonly boundary: KubernetesEgressBoundary | undefined
+		readonly podLabels: Readonly<Record<string, string>>
+	}
 	/** The revision the bound object carries — see `templateRevision`. */
 	readonly templateRevision?: string
 	/** The revision the template read at open would produce — see `templateCurrent`. */
@@ -3218,7 +3553,18 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	const { client, namespace, name, workspaceId, readiness } = options
 	const id = name as SandboxId
 	/** What every fenced write addresses, and what a refusal names. */
-	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
+	const target: WorkspaceWriteTarget = {
+		client,
+		namespace,
+		name,
+		workspaceId,
+		// A getter, because the uid is learned at the first bind and every
+		// write after it must carry it. Before that the handle has no uid to
+		// pin, which is the only window it writes unpinned.
+		get expectedSandboxUid() {
+			return sandboxUid
+		},
+	}
 	/**
 	 * The epoch this handle writes under when a call passes none.
 	 *
@@ -4480,6 +4826,88 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
+	 * Per-sandbox egress on this handle — present exactly when
+	 * `config.egress.perSandbox` is configured, which is what makes
+	 * `setNetworkPolicy` PRESENT here and absent otherwise (presence follows
+	 * configuration, never a probe).
+	 *
+	 * The fence is replaced, not reused, on every resume: its memo is "proved
+	 * once", and a resume is precisely the moment that is no longer enough.
+	 * The setter delegates to whichever one is current. Setters are cached per
+	 * Sandbox uid, because a policy is NAMED after the uid and its write queue
+	 * has to outlive one call.
+	 */
+	const perSandboxEgress = options.perSandboxEgress
+	let currentFence: PerSandboxPolicyFence | undefined =
+		perSandboxEgress !== undefined
+			? buildAdmissionFence(client, perSandboxEgress.egress.perSandbox, namespace)
+			: undefined
+	const delegatingFence: PerSandboxPolicyFence = {
+		assertApplied: async (signal) => {
+			await currentFence?.assertApplied(signal)
+		},
+	}
+	const policySetters = new Map<string, (policy: SandboxNetworkPolicy) => Promise<void>>()
+	/**
+	 * The Sandbox that owns every policy this handle writes, as the cluster
+	 * reports it NOW. A different uid than the one this handle bound is a
+	 * workspace deleted and created again under the same name: refused, the
+	 * way every other call on such a handle is, rather than writing a grant
+	 * the new disk's owner never consented to.
+	 */
+	const resolvePolicyOwner = async (signal?: AbortSignal): Promise<string> => {
+		const standing = await readSandboxObject(target, signal)
+		const uid = standing?.metadata?.uid
+		if (standing === undefined) {
+			throw new KubernetesWorkspaceReplacedError(workspaceId, name, sandboxUid, undefined)
+		}
+		if (typeof uid !== 'string' || uid === '') {
+			throw new KubernetesOwnerUidMissingError(name, namespace)
+		}
+		if (sandboxUid !== undefined && uid !== sandboxUid) {
+			throw new KubernetesWorkspaceReplacedError(workspaceId, name, sandboxUid, uid)
+		}
+		return uid
+	}
+	const setNetworkPolicy =
+		perSandboxEgress === undefined
+			? undefined
+			: async (policy: SandboxNetworkPolicy): Promise<void> => {
+					// Serialised with the transitions: a write racing a resume would
+					// run under the fence the resume is about to replace, and one
+					// racing a destroy would name an owner that is going away.
+					await serialise(async () => {
+						if (state === 'deleted')
+							throw new KubernetesSandboxDestroyedError('setNetworkPolicy', name)
+						const uid = await resolvePolicyOwner()
+						let setter = policySetters.get(uid)
+						if (setter === undefined) {
+							setter = buildPerSandboxPolicySetter({
+								client,
+								fence: delegatingFence,
+								namespace,
+								egress: perSandboxEgress.egress,
+								owner: { kind: 'Sandbox', name, uid },
+								selectorValue: name,
+								...(perSandboxEgress.boundary !== undefined
+									? {
+											verifyUnion: (written, signal) =>
+												perSandboxEgress.boundary?.verifyUnionWith(
+													perSandboxEgress.podLabels,
+													`the per-sandbox policy ${written.name} written for Sandbox ${name} in namespace ${namespace}`,
+													written,
+													signal,
+												) ?? Promise.resolve(),
+										}
+									: {}),
+							})
+							policySetters.set(uid, setter)
+						}
+						await setter(policy)
+					})
+				}
+
+	/**
 	 * Wake the workspace if it is asleep, then bring a session up on it.
 	 *
 	 * The mode is READ before the patch rather than patched blind, for the
@@ -4531,6 +4959,31 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// the object says it was built from, including a refresh another
 		// process applied while this handle slept.
 		templateRevision = readPodTemplateHash(current?.metadata)
+		// Per-sandbox egress, before ANY patch: a fresh fence, then every
+		// policy this Sandbox does not own dropped — see
+		// `workspace-per-sandbox.ts` for the rule. A fence that does not
+		// verify refuses the resume with the workspace still suspended, and
+		// nothing written; a policy this Sandbox owns is kept.
+		if (perSandboxEgress !== undefined && current !== undefined) {
+			const uid = current.metadata?.uid
+			if (typeof uid !== 'string' || uid === '') {
+				throw new KubernetesOwnerUidMissingError(name, namespace)
+			}
+			if (sandboxUid !== undefined && uid !== sandboxUid) {
+				throw new KubernetesWorkspaceReplacedError(workspaceId, name, sandboxUid, uid)
+			}
+			const fence = buildAdmissionFence(client, perSandboxEgress.egress.perSandbox, namespace)
+			await reverifyPerSandboxEgress({
+				client,
+				namespace,
+				sandboxName: name,
+				ownerUid: uid,
+				egress: perSandboxEgress.egress,
+				fence,
+				...(signal !== undefined ? { signal } : {}),
+			})
+			currentFence = fence
+		}
 		if (woke && refreshPodTemplate) {
 			// The template is re-read HERE rather than remembered from the
 			// open: the whole point of the option is to pick up an edit made
@@ -5058,10 +5511,156 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			'quiesce',
 			async (handle) =>
 				await admittedTransport('quiesce', handle).quiesce(
-					quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {},
+					{
+						...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+						...(quiesceOptions?.onlyIfIdle === true ? { idleOnly: true } : {}),
+					},
 					quiesceOptions?.signal,
 				),
 		)
+
+	/**
+	 * The pinned view over this handle — see {@link KubernetesWorkspace.pinGuest}.
+	 *
+	 * It owns a sibling transport (built by `pinnedTo`) for the live session's
+	 * pod and a Sandbox around it, made on first use and reused while the live
+	 * session's transport is the one it was built from. The sibling has no
+	 * `refreshHandle`, so nothing it does can follow a replaced pod, and the
+	 * Sandbox's `release` does nothing and its unconfirmed-cancellation hook
+	 * keeps the pod: a view is not allowed to retire what it does not own.
+	 */
+	const buildPinnedGuest = (expected: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest => {
+		let built:
+			| {
+					readonly parent: KubernetesAgentTransport
+					readonly transport: KubernetesAgentTransport
+					readonly sandbox: KubernetesSandboxHandle
+			  }
+			| undefined
+		const refuse = (
+			reason: ConstructorParameters<typeof KubernetesGuestPinRefusedError>[0],
+			actual: KubernetesWorkspaceIdentity | undefined,
+			field: ConstructorParameters<typeof KubernetesGuestPinRefusedError>[4],
+			fresh?: string,
+			cause?: unknown,
+		): KubernetesGuestPinRefusedError =>
+			new KubernetesGuestPinRefusedError(
+				reason,
+				workspaceId,
+				expected,
+				actual,
+				field,
+				fresh,
+				cause !== undefined ? { cause } : undefined,
+			)
+		/** Compared before anything is dialed. The guest's own check is the authority; this one is free. */
+		const resolve = (operation: string) => {
+			const actual = identityNow()
+			if (state !== 'running' || session === undefined || actual.podUid === undefined) {
+				throw refuse('identity-changed', actual, 'podUid')
+			}
+			if (actual.sandboxUid !== expected.sandboxUid) {
+				throw refuse('identity-changed', actual, 'sandboxUid')
+			}
+			if (actual.podUid !== expected.podUid) throw refuse('identity-changed', actual, 'podUid')
+			// Not yet heard from is not "changed": the guest compares it itself.
+			if (actual.guestBootId !== undefined && actual.guestBootId !== expected.guestBootId) {
+				throw refuse('identity-changed', actual, 'guestBootId')
+			}
+			for (const [claim, uid] of Object.entries(expected.volumeClaimUids ?? {})) {
+				if (actual.volumeClaimUids[claim] !== uid) {
+					throw refuse('identity-changed', actual, 'volumeClaimUids')
+				}
+			}
+			const parent = admittedTransport(operation, session)
+			if (built === undefined || built.parent !== parent) {
+				const transport = parent.pinnedTo(expected.guestBootId)
+				built = {
+					parent,
+					transport,
+					sandbox: buildKubernetesSandbox({
+						name,
+						rootDir: options.rootDir,
+						transport,
+						release: async () => {},
+						onUnconfirmedCancellation: async () => ({
+							accepted: false,
+							reason: 'pinned-view-keeps-the-pod',
+						}),
+					}),
+				}
+			}
+			return built
+		}
+		const translate = (err: unknown): unknown => {
+			if (err instanceof KubernetesGuestPinRefusedError) return err
+			const replaced = guestMismatchOf(err)
+			if (replaced !== undefined) {
+				return refuse('guest-replaced', undefined, undefined, replaced.guestBootId, err)
+			}
+			if (isUnauthorizedRefusal(err))
+				return refuse('pod-replaced', undefined, undefined, undefined, err)
+			return err
+		}
+		const pinned = async <T>(
+			operation: string,
+			run: (view: {
+				transport: KubernetesAgentTransport
+				sandbox: KubernetesSandboxHandle
+			}) => Promise<T>,
+			signal?: AbortSignal,
+		): Promise<T> => {
+			const view = resolve(operation)
+			try {
+				if (!(await view.transport.supportsPinnedGuest(signal))) {
+					throw refuse('guest-unsupported', undefined, undefined)
+				}
+				return await run(view)
+			} catch (err) {
+				throw translate(err)
+			}
+		}
+		return Object.freeze({
+			expected,
+			exec: async (command: string, argv?: string[], execOptions?: SandboxExecOptions) =>
+				await pinned('exec', async (view) => await view.sandbox.exec(command, argv, execOptions)),
+			readFile: async (path: string, readOptions?: SandboxReadFileOptions) =>
+				await pinned('readFile', async (view) => await view.sandbox.readFile(path, readOptions)),
+			writeFile: async (path: string, content: string | Buffer) =>
+				await pinned('writeFile', async (view) => await view.sandbox.writeFile(path, content)),
+			listFiles: async (rootPath: string) =>
+				await pinned('listFiles', async (view) => await view.sandbox.listFiles(rootPath)),
+			openTerminal: async (terminalOptions: OpenTerminalOptions) =>
+				await pinned(
+					'openTerminal',
+					async (view) => await view.sandbox.openTerminal(terminalOptions),
+				),
+			openTcpConnection: async (connectOptions: SandboxTcpConnectOptions) =>
+				await pinned(
+					'openTcpConnection',
+					async (view) => await view.sandbox.openTcpConnection(connectOptions),
+				),
+			quiesce: async (quiesceOptions?: KubernetesQuiesceOptions) => {
+				// Copied before any await, like the workspace's own.
+				if (
+					quiesceOptions?.onlyIfIdle !== undefined &&
+					typeof quiesceOptions.onlyIfIdle !== 'boolean'
+				) {
+					throw new TypeError('kubernetes: quiesce({ onlyIfIdle }) must be a boolean')
+				}
+				const request = {
+					...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+					...(quiesceOptions?.onlyIfIdle === true ? { idleOnly: true } : {}),
+				}
+				const signal = quiesceOptions?.signal
+				return await pinned(
+					'quiesce',
+					async (view) => await view.transport.quiesce(request, signal),
+					signal,
+				)
+			},
+		})
+	}
 
 	/**
 	 * Tell the host about a gap a suspend went ahead over.
@@ -5307,6 +5906,9 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		get identity(): KubernetesWorkspaceIdentity {
 			return identityNow()
 		},
+		pinGuest(input: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest {
+			return buildPinnedGuest(freezePinnedIdentity(input))
+		},
 		onGuestRestart(listener: (event: KubernetesGuestRestart) => void): () => void {
 			restartListeners.add(listener)
 			return () => {
@@ -5329,6 +5931,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 		rootDir: options.rootDir,
 		environment,
+		...(setNetworkPolicy !== undefined ? { setNetworkPolicy } : {}),
 
 		async exec(
 			command: string,
@@ -5568,7 +6171,25 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// racing the suspend that follows it would be a quiesce of a pod the
 			// patch has already taken away, and one racing a resume would ask
 			// the old pod to stop the new one's processes.
-			return await serialise(async () => await quiesceNow(quiesceOptions))
+			//
+			// The options are copied HERE, synchronously, before the queue is
+			// awaited: a caller that mutates its object after calling cannot
+			// change what is sent, in particular cannot turn an idle-only
+			// request into a stopping one.
+			if (
+				quiesceOptions?.onlyIfIdle !== undefined &&
+				typeof quiesceOptions.onlyIfIdle !== 'boolean'
+			) {
+				throw new TypeError('kubernetes: quiesce({ onlyIfIdle }) must be a boolean')
+			}
+			const request: KubernetesQuiesceOptions = Object.freeze({
+				...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+				...(quiesceOptions?.onlyIfIdle !== undefined
+					? { onlyIfIdle: quiesceOptions.onlyIfIdle }
+					: {}),
+				...(quiesceOptions?.signal !== undefined ? { signal: quiesceOptions.signal } : {}),
+			})
+			return await serialise(async () => await quiesceNow(request))
 		},
 
 		async flush(flushOptions?: KubernetesFlushOptions): Promise<KubernetesFlushReport> {

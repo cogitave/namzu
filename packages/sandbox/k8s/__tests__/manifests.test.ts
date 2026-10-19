@@ -22,6 +22,14 @@ import { describe, expect, it } from 'vitest'
 import { parseAllDocuments } from 'yaml'
 
 import { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from '../../src/backends/kubernetes/egress-policy.js'
+import {
+	COMPANION_OPERATIONS,
+	PERMITTED_HOSTS_PARAM_KIND,
+	PERMITTED_HOSTS_VALIDATIONS,
+	PERMITTED_HOSTS_VARIABLES,
+	parsePermittedHosts,
+	permittedHostsFenceNames,
+} from '../../src/backends/kubernetes/per-sandbox-fence.js'
 import { PER_SANDBOX_POLICY_NAME_PREFIX } from '../../src/backends/kubernetes/per-sandbox-policy.js'
 // The pool-only path's own verb list, imported from the backend rather than
 // copied here. This constant pins `rbac-claimant.yaml` to a list — and the
@@ -139,6 +147,7 @@ describe('every manifest parses as YAML', () => {
 		'rbac.yaml',
 		'rbac-per-sandbox-egress.yaml',
 		'validatingadmissionpolicy-cilium.yaml',
+		'validatingadmissionpolicy-cilium-permitted-hosts.yaml',
 		'rbac-claimant.yaml',
 	])('%s', (fileName) => {
 		expect(() => loadYaml(fileName)).not.toThrow()
@@ -155,6 +164,7 @@ describe('no manifest contains an inline secret value', () => {
 		'rbac.yaml',
 		'rbac-per-sandbox-egress.yaml',
 		'validatingadmissionpolicy-cilium.yaml',
+		'validatingadmissionpolicy-cilium-permitted-hosts.yaml',
 		'rbac-claimant.yaml',
 	])('%s', (fileName) => {
 		assertNoInlineSecrets(fileName, loadYaml(fileName))
@@ -1183,6 +1193,14 @@ const PATH_BUILDERS: Readonly<
 		resource: 'validatingadmissionpolicybindings',
 		kind: 'object',
 	},
+	// The operator-pinned permitted-hosts parameter (#617): one core
+	// `ConfigMap`, read by `per-sandbox-fence.ts` before a grant and never
+	// written. Core-group, so the empty apiGroup.
+	configMapPath: {
+		apiGroup: '',
+		resource: 'configmaps',
+		kind: 'object',
+	},
 }
 
 /**
@@ -1309,6 +1327,26 @@ const CLAIM_PATH_SOURCE_EXEMPTIONS: readonly SourceDeclaration[] = [
 		file: 'workspace.ts',
 		reason:
 			'the WORKSPACE backend: a `Sandbox` a host creates, suspends, resumes and deletes itself, plus the claims, pods and PVCs those transitions read. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`, whose `sandboxes` writes are exactly what this grant withholds. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
+		file: 'workspace-observe.ts',
+		reason:
+			'the WORKSPACE read side: `inspectKubernetesWorkspace`, `openKubernetesWorkspace` and `reconcileKubernetesWorkspace` GET one workspace\'s Sandbox, its PVCs and its pod and write nothing. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
+		file: 'workspace-allocate.ts',
+		reason:
+			'the WORKSPACE allocation path: `allocateKubernetesWorkspace` POSTs one `Sandbox` a host owns, `recoverKubernetesWorkspaceAllocation` GETs it back, and `resolveKubernetesExecutionProfile` GETs the SandboxTemplate. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`, whose `sandboxes` create is exactly what this grant withholds. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
+		file: 'workspace-per-sandbox.ts',
+		reason:
+			'the WORKSPACE side of per-sandbox egress (#618): it lists the namespace\'s `CiliumNetworkPolicies` and deletes the ones that select a workspace but are not owned by its Sandbox. Reached only from `createKubernetesWorkspace` and a workspace handle whose config carries `egress.perSandbox`, never from a pooled claimant host, and the verbs it uses are exactly the ones `rbac-per-sandbox-egress.yaml` adds (delete) beside the `list` the default Role already grants. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
+		file: 'per-sandbox-fence.ts',
+		reason:
+			'the per-sandbox egress fence check and its operator-pinned host set (#617), reached only from `per-sandbox-policy.ts`, so only through `Sandbox.setNetworkPolicy` on a handle whose config carries `egress.perSandbox`. It reads one `ConfigMap` that an operator names in `permittedHostsParam`; the Role that grants that read is in `validatingadmissionpolicy-cilium-permitted-hosts.yaml`, and a claimant host that holds this Role does not configure the capability and never reaches this file.',
 	},
 	{
 		file: 'per-sandbox-policy.ts',
@@ -3065,5 +3103,99 @@ describe('validatingadmissionpolicy-cilium.yaml', () => {
 		// and one bound with `Warn` would leave the host's write access
 		// unbounded while looking fenced.
 		expect(bindingSpec.validationActions).toEqual(['Deny'])
+	})
+})
+
+
+describe('validatingadmissionpolicy-cilium-permitted-hosts.yaml', () => {
+	const docs = loadYaml('validatingadmissionpolicy-cilium-permitted-hosts.yaml') as Record<
+		string,
+		unknown
+	>[]
+	const policy = docs.find((d) => d.kind === 'ValidatingAdmissionPolicy') as Record<string, unknown>
+	const binding = docs.find((d) => d.kind === 'ValidatingAdmissionPolicyBinding') as Record<
+		string,
+		unknown
+	>
+	const configMap = docs.find((d) => d.kind === 'ConfigMap') as Record<string, unknown>
+	const role = docs.find((d) => d.kind === 'Role') as Record<string, unknown>
+	const spec = policy.spec as Record<string, unknown>
+	const normalize = (text: unknown): string => String(text).replace(/\s+/g, ' ').trim()
+
+	it('is the companion the backend looks for, by name', () => {
+		const main = (
+			loadYaml('validatingadmissionpolicy-cilium.yaml') as Record<string, unknown>[]
+		).find((d) => d.kind === 'ValidatingAdmissionPolicy') as Record<string, unknown>
+		const mainName = (main.metadata as { name: string }).name
+		const names = permittedHostsFenceNames({
+			engine: 'cilium',
+			admissionPolicyName: mainName,
+		})
+		expect((policy.metadata as { name: string }).name).toBe(names.policyName)
+		expect((binding.metadata as { name: string }).name).toBe(names.bindingName)
+		expect((binding.spec as { policyName: string }).policyName).toBe(names.policyName)
+	})
+
+	it('carries the paramKind, variables and validation the backend compares verbatim', () => {
+		expect(spec.paramKind).toEqual(PERMITTED_HOSTS_PARAM_KIND)
+		expect(
+			(spec.variables as { name: string; expression: string }[]).map((v) => ({
+				name: v.name,
+				expression: normalize(v.expression),
+			})),
+		).toEqual(
+			PERMITTED_HOSTS_VARIABLES.map((v) => ({ name: v.name, expression: normalize(v.expression) })),
+		)
+		expect(
+			(spec.validations as { expression: string }[]).map((v) => normalize(v.expression)),
+		).toEqual(PERMITTED_HOSTS_VALIDATIONS.map((v) => normalize(v.expression)))
+	})
+
+	it('fails closed, covers CREATE and UPDATE and not DELETE, and denies', () => {
+		expect(spec.failurePolicy).toBe('Fail')
+		const rules = (spec.matchConstraints as { resourceRules: Record<string, unknown>[] })
+			.resourceRules
+		expect(rules).toHaveLength(1)
+		expect(new Set(rules[0]?.operations as string[])).toEqual(new Set(COMPANION_OPERATIONS))
+		expect((binding.spec as { validationActions: string[] }).validationActions).toEqual(['Deny'])
+	})
+
+	it('binds a NAMED parameter that denies when it is missing, and the example ConfigMap is that one', () => {
+		const paramRef = (binding.spec as { paramRef: Record<string, unknown> }).paramRef
+		expect(paramRef.parameterNotFoundAction).toBe('Deny')
+		expect(paramRef.selector).toBeUndefined()
+		expect(paramRef.name).toBe((configMap.metadata as { name: string }).name)
+		expect(paramRef.namespace).toBe((configMap.metadata as { namespace: string }).namespace)
+	})
+
+	it('bounds the same identity as the main fence', () => {
+		const main = (
+			loadYaml('validatingadmissionpolicy-cilium.yaml') as Record<string, unknown>[]
+		).find((d) => d.kind === 'ValidatingAdmissionPolicy') as Record<string, unknown>
+		expect(
+			((spec.matchConditions as { expression: string }[])[0] as { expression: string }).expression,
+		).toBe(
+			((main.spec as { matchConditions: { expression: string }[] }).matchConditions[0] as {
+				expression: string
+			}).expression,
+		)
+	})
+
+	it('has an example ConfigMap the backend parses', () => {
+		const parsed = parsePermittedHosts(
+			{ name: 'x', namespace: 'y' },
+			configMap,
+		)
+		expect(parsed.ports.has(443)).toBe(true)
+		expect(parsed.hosts.size).toBeGreaterThan(0)
+	})
+
+	it('grants the host a read of that one ConfigMap and nothing else', () => {
+		const rules = role.rules as Record<string, unknown>[]
+		expect(rules).toHaveLength(1)
+		expect(rules[0]?.apiGroups).toEqual([''])
+		expect(rules[0]?.resources).toEqual(['configmaps'])
+		expect(rules[0]?.verbs).toEqual(['get'])
+		expect(rules[0]?.resourceNames).toEqual([(configMap.metadata as { name: string }).name])
 	})
 })

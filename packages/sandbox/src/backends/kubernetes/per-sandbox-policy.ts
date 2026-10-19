@@ -46,7 +46,11 @@
  * operator's own baseline policy. So before the FIRST write, this module
  * proves an operator applied a `ValidatingAdmissionPolicy` and its binding,
  * and refuses with {@link KubernetesAdmissionFenceMissingError}, having
- * written nothing, if either is absent. The shipped example
+ * written nothing, if either is absent — and with
+ * {@link KubernetesAdmissionFenceInertError}, naming the field, if either
+ * exists and would not enforce (see `per-sandbox-fence.ts`: the same
+ * standard the `no-network` baseline's named-object check holds its own
+ * object to). The shipped example
  * (`k8s/manifests/validatingadmissionpolicy-cilium.yaml`) bounds the host
  * identity to this name prefix, an owner reference whose uid the name has to
  * match, ONE selector label whose VALUE is that owner's own name (the shape
@@ -55,6 +59,18 @@
  * (`matchPattern: '*'` is a `toFQDNs` rule and is not an allowlist), the
  * kube-dns rule on port 53, no address-based or entity-based peers and no
  * ingress.
+ *
+ * ## Verified after every write
+ *
+ * Reading the object back proves the object is the one that was sent. It says
+ * nothing about the BOUNDARY, which is the union of every policy selecting the
+ * pod: a policy applied between this sandbox's create and its grant that
+ * allows more is invisible to a read-back of this one. So after the read-back
+ * the union is enumerated again, against the baseline translation plus the
+ * policy just written (`unionEgressAllowance`), and if anything allows more
+ * the object is deleted before the error is thrown — the per-sandbox
+ * analogue of the baseline's "no sandbox is handed back". An empty list is not
+ * re-checked: a deletion only narrows.
  *
  * ## Union, not replacement
  *
@@ -89,6 +105,7 @@ import {
 	assertHostsFitNarrowing,
 	assertUsableHost,
 	buildCiliumEgressManifest,
+	narrowedHostPorts,
 	perSandboxEgressLabelKey,
 	verifyEgressPolicyApplied,
 } from './egress-policy.js'
@@ -108,6 +125,17 @@ import {
 	validatingAdmissionPolicyBindingPath,
 	validatingAdmissionPolicyPath,
 } from './objects.js'
+import {
+	KubernetesAdmissionFenceInertError,
+	KubernetesPermittedHostsError,
+	KubernetesPermittedHostsParamError,
+	type PermittedHosts,
+	assertFenceEnforces,
+	assertPermittedHostsFenceEnforces,
+	assertWithinPermittedHosts,
+	permittedHostsFenceNames,
+	readPermittedHosts,
+} from './per-sandbox-fence.js'
 
 /**
  * Every per-sandbox policy's name starts with this, and the shipped admission
@@ -224,6 +252,15 @@ export class KubernetesAdmissionFenceMissingError extends Error {
  */
 export { KubernetesNetworkPolicyHostError }
 
+// The fence's content checks and the operator-pinned host set live in
+// `per-sandbox-fence.ts`; their errors are re-exported here so every import
+// path a per-sandbox refusal is caught by keeps resolving from one module.
+export {
+	KubernetesAdmissionFenceInertError,
+	KubernetesPermittedHostsError,
+	KubernetesPermittedHostsParamError,
+}
+
 /**
  * One `allowedHosts` entry, validated and canonicalised to the bytes a
  * `CiliumNetworkPolicy` should carry.
@@ -286,18 +323,21 @@ export interface PerSandboxPolicyFence {
 export function buildAdmissionFence(
 	client: KubernetesClient,
 	perSandbox: KubernetesPerSandboxEgressConfig,
+	namespace: string,
 ): PerSandboxPolicyFence {
 	const policyName = perSandbox.admissionPolicyName
 	const bindingName = perSandbox.admissionPolicyBindingName ?? `${policyName}-binding`
+	const param = perSandbox.permittedHostsParam
+	const companion = param === undefined ? undefined : permittedHostsFenceNames(perSandbox)
 	let applied: Promise<void> | undefined
 	const read = async (
 		kind: 'ValidatingAdmissionPolicy' | 'ValidatingAdmissionPolicyBinding',
 		name: string,
 		path: string,
 		signal?: AbortSignal,
-	): Promise<void> => {
+	): Promise<unknown> => {
 		try {
-			await client.request('GET', path, undefined, signal)
+			return await client.request('GET', path, undefined, signal)
 		} catch (err) {
 			if (err instanceof KubernetesAlreadyGoneError) {
 				throw new KubernetesAdmissionFenceMissingError(kind, name, path)
@@ -311,21 +351,47 @@ export function buildAdmissionFence(
 			throw err
 		}
 	}
+	const readPair = async (
+		policy: string,
+		binding: string,
+		signal?: AbortSignal,
+	): Promise<{
+		policyName: string
+		policy: unknown
+		bindingName: string
+		binding: unknown
+	}> => ({
+		policyName: policy,
+		policy: await read(
+			'ValidatingAdmissionPolicy',
+			policy,
+			validatingAdmissionPolicyPath(policy),
+			signal,
+		),
+		bindingName: binding,
+		binding: await read(
+			'ValidatingAdmissionPolicyBinding',
+			binding,
+			validatingAdmissionPolicyBindingPath(binding),
+			signal,
+		),
+	})
 	return {
 		async assertApplied(signal) {
+			// Existence first, then CONTENT, and both memoized together on
+			// success: the baseline's named-object check does the same, and a
+			// fence that existed but would not enforce is refused here, with
+			// the field that failed, before anything is written.
 			applied ??= (async () => {
-				await read(
-					'ValidatingAdmissionPolicy',
-					policyName,
-					validatingAdmissionPolicyPath(policyName),
-					signal,
-				)
-				await read(
-					'ValidatingAdmissionPolicyBinding',
-					bindingName,
-					validatingAdmissionPolicyBindingPath(bindingName),
-					signal,
-				)
+				assertFenceEnforces(await readPair(policyName, bindingName, signal), namespace, perSandbox)
+				if (param !== undefined && companion !== undefined) {
+					assertPermittedHostsFenceEnforces(
+						await readPair(companion.policyName, companion.bindingName, signal),
+						namespace,
+						perSandbox,
+						param,
+					)
+				}
 			})().catch((err: unknown) => {
 				applied = undefined
 				throw err
@@ -352,6 +418,41 @@ export interface PerSandboxPolicySetterOptions {
 	 * config, through the one resolver.
 	 */
 	readonly selectorValue: string
+	/**
+	 * The post-write union check: given the policy just written and read back,
+	 * prove that the union of every policy selecting the pod is still the
+	 * baseline plus that policy, and throw if any other one allows more.
+	 * Absent when the deployment opted out of union verification
+	 * (`egress.verify: 'named-object-only'`), exactly as the create path's
+	 * union check is.
+	 */
+	readonly verifyUnion?: (
+		written: KubernetesTranslatedEgressPolicy,
+		signal?: AbortSignal,
+	) => Promise<void>
+}
+
+/**
+ * Raised when a per-sandbox policy was written, FAILED a post-write check, and
+ * the attempt to remove it failed too. The refusal that triggered the removal
+ * is `cause`; the policy may still be in force, and the message says so,
+ * because the one thing a caller must not conclude is that the refusal left the
+ * cluster as it found it.
+ */
+export class KubernetesPerSandboxPolicyNotRemovedError extends Error {
+	override readonly name = 'KubernetesPerSandboxPolicyNotRemovedError'
+
+	constructor(
+		readonly policyName: string,
+		readonly path: string,
+		readonly refusal: unknown,
+		readonly removal: unknown,
+	) {
+		super(
+			`kubernetes: the per-sandbox policy ${policyName} (${path}) failed verification after it was written (${refusal instanceof Error ? refusal.message : String(refusal)}) and removing it failed too (${removal instanceof Error ? removal.message : String(removal)}). It may still be in force: delete it by hand. The sandbox's own destruction also removes it, because the policy is owned by the sandbox's claim.`,
+			{ cause: refusal },
+		)
+	}
 }
 
 /**
@@ -366,7 +467,7 @@ export interface PerSandboxPolicySetterOptions {
 export function buildPerSandboxPolicySetter(
 	options: PerSandboxPolicySetterOptions,
 ): (policy: SandboxNetworkPolicy) => Promise<void> {
-	const { client, fence, namespace, egress, owner, selectorValue } = options
+	const { client, fence, namespace, egress, owner, selectorValue, verifyUnion } = options
 	const perSandbox = egress.perSandbox
 	const labelKey = perSandboxEgressLabelKey(egress)
 	if (labelKey === undefined) {
@@ -419,7 +520,27 @@ export function buildPerSandboxPolicySetter(
 		// gone means its owner was deleted underneath the call and this
 		// sandbox is already being destroyed. The refusal is still right; only
 		// its advice belongs to the other caller.
-		await verifyEgressPolicyApplied(client, translated)
+		//
+		// Then the boundary, not only the object: what the pod can now reach is
+		// the union of every policy selecting it, and the read-back above says
+		// nothing about a policy applied between this sandbox's create and this
+		// grant. A failure of EITHER check removes what was just written, the
+		// way the baseline's create-path checks release the claim they were
+		// about to hand back: an unverified grant left in force is the state
+		// both checks exist to prevent. A policy that held an earlier,
+		// verified list is removed too — falling back to the baseline is the
+		// narrower of the two wrong answers.
+		try {
+			await verifyEgressPolicyApplied(client, translated)
+			await verifyUnion?.(translated)
+		} catch (refusal) {
+			try {
+				await remove()
+			} catch (removal) {
+				throw new KubernetesPerSandboxPolicyNotRemovedError(name, path, refusal, removal)
+			}
+			throw refusal
+		}
 	}
 
 	const remove = async (): Promise<void> => {
@@ -485,6 +606,20 @@ export function buildPerSandboxPolicySetter(
 			if (hosts.length === 0) {
 				await remove()
 				return
+			}
+			// The operator-pinned set, read per call: it is the operator's to
+			// edit, and a stale copy would refuse (or grant) against a list that
+			// is no longer the reviewed one. Only a grant is checked — a removal
+			// can only narrow, and the companion policy does not cover DELETE
+			// for the same reason, so a missing parameter never blocks a revoke.
+			if (perSandbox.permittedHostsParam !== undefined) {
+				const param = perSandbox.permittedHostsParam
+				const permitted: PermittedHosts = await readPermittedHosts(client, param)
+				assertWithinPermittedHosts(param, permitted, hosts, (host) =>
+					perSandbox.narrowing === undefined
+						? undefined
+						: narrowedHostPorts(host, perSandbox.narrowing),
+				)
 			}
 			await write(translate(hosts))
 		})

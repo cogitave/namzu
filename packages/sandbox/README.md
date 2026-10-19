@@ -810,10 +810,10 @@ security boundary the host relied on.
 The kubernetes backend serves that contract when — and only when —
 `egress.perSandbox` is configured: the method is PRESENT on a task handle
 then and absent otherwise, which is the same omit-rather-than-ignore rule read
-from the other side. A `KubernetesWorkspace` handle never carries it, and
-`createKubernetesWorkspace` refuses a config that sets the option (with
-`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request)
-rather than omitting a method the config asked for. Configured, each
+from the other side. A `KubernetesWorkspace` handle carries it too when
+`createKubernetesWorkspace` is given the option: the `Sandbox` owns the
+policies and the pod template carries the selector label (see
+`docs/sdk/kubernetes-sandbox.md`). Configured, each
 `setNetworkPolicy` call writes one
 `CiliumNetworkPolicy` for that sandbox alone, named after the claim's uid,
 selecting one per-sandbox pod label, owned by the claim so the cluster
@@ -827,9 +827,22 @@ them is refused by design rather than by accident: an applied
 `ValidatingAdmissionPolicy` and its binding, which the backend proves before
 its first write and which bound what the host may write, and a separate RBAC
 file granting the policy-write verbs the default Role deliberately withholds.
-Whether such a policy is ENFORCED is a property of the cluster's CNI and is
-not measured anywhere in this repository. See
-`docs/sdk/kubernetes-sandbox.md`.
+The per-sandbox path is verified as strictly as the `no-network` baseline, side
+by side: the fence is read back by content (the binding attaches this policy
+and includes `Deny`, the policy fails closed and covers every verb, the
+binding's namespace selection covers the sandboxes' namespace, and
+`perSandbox.hostIdentity`, when set, is the identity the policy matches), so an
+`Audit`-only or mis-attached fence is refused with
+`KubernetesAdmissionFenceInertError` naming the field, with nothing written;
+`perSandbox.permittedHostsParam` pins the hosts and ports a host may grant in an
+operator-owned `ConfigMap`, enforced at admission by a companion policy and
+checked locally first; and after every write the union of the policies
+selecting the pod is re-checked against baseline plus the written policy, and
+the written policy is deleted if anything else allows more. Whether any of it is
+ENFORCED is a property of the cluster's CNI and is not measured anywhere in this
+repository: `k8s/scripts/per-sandbox-egress-check.mjs` is the probe for a Cilium
+cluster that enforces FQDN policy, and it reports SNI as unenforced unless asked
+to test it. See `docs/sdk/kubernetes-sandbox.md`.
 
 ## Documentation
 

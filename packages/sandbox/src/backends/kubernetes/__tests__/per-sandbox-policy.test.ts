@@ -53,32 +53,35 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { Sandbox } from '@namzu/sdk'
 
-import { createKubernetesWorkspace as createWorkspaceFromPublicConfig } from '../../../index.js'
 import {
 	DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY,
+	KubernetesEgressPolicyUnionError,
 	KubernetesPerSandboxEgressConfigError,
-	KubernetesWorkspacePerSandboxEgressConfigError,
 	PER_SANDBOX_NARROWING_REFUSAL,
 	buildCiliumEgressManifest,
 	composeAdditionalPodLabels,
 } from '../egress-policy.js'
 import { type KubernetesBackendInternalConfig, buildKubernetesBackend } from '../index.js'
 import {
+	KubernetesAdmissionFenceInertError,
 	KubernetesAdmissionFenceMissingError,
 	KubernetesAdmissionFenceUnreadableError,
 	KubernetesNetworkPolicyHostError,
 	KubernetesOwnerUidMissingError,
+	KubernetesPerSandboxPolicyNotRemovedError,
+	KubernetesPermittedHostsError,
+	KubernetesPermittedHostsParamError,
 	PER_SANDBOX_POLICY_NAME_PREFIX,
 	perSandboxPolicyName,
 	perSandboxPolicyOwnerReference,
 } from '../per-sandbox-policy.js'
-import { createKubernetesWorkspace } from '../workspace.js'
 import {
 	type FakeApiServer,
 	type RecordedRequest,
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
+import { type FenceObjects, shippedFence, specOf } from './fixtures/fence-objects.js'
 import { stubLoopbackDns } from './fixtures/loopback-dns.js'
 import { type ScriptedAgent, startScriptedAgent } from './fixtures/scripted-agent.js'
 
@@ -134,7 +137,11 @@ interface ClusterOptions {
 	 * policy read with a 403, which is what the namespaced Role WITHOUT the
 	 * cluster-scoped one in the same file produces.
 	 */
-	readonly fence?: 'both' | 'no-policy' | 'no-binding' | 'unreadable'
+	readonly fence?: 'both' | 'no-policy' | 'no-binding' | 'unreadable' | 'no-companion-policy'
+	/** Answer a DELETE of a per-sandbox policy with this status instead of deleting it. */
+	readonly deleteStatus?: number
+	/** The operator's baseline object. Defaults to `deny-all`'s. */
+	readonly baseline?: Record<string, unknown>
 	/** What a read-back of a written per-sandbox policy answers with. */
 	readonly readBack?: (written: Record<string, unknown>) => unknown
 	/** Claim uid per claim name. Defaults to a name-derived uid. */
@@ -153,25 +160,55 @@ function uidFromName(name: string): string {
 /** The policies this cluster is holding, keyed by name — the writes, as applied. */
 type PolicyStore = Map<string, Record<string, unknown>>
 
-async function startCluster(
-	options: ClusterOptions = {},
-): Promise<{ server: FakeApiServer; policies: PolicyStore }> {
+async function startCluster(options: ClusterOptions = {}): Promise<{
+	server: FakeApiServer
+	policies: PolicyStore
+	/** The admission objects as the cluster holds them; a test edits these live. */
+	fence: FenceObjects
+	/** Further CiliumNetworkPolicies in the namespace, listed beside this host's own. */
+	others: Record<string, unknown>[]
+	/** The permitted-hosts ConfigMap; `undefined` answers 404, `'forbidden'` 403. */
+	param: { current: Record<string, unknown> | undefined | 'forbidden' }
+}> {
 	const policies: PolicyStore = new Map()
+	const fenceObjects = shippedFence()
+	const others: Record<string, unknown>[] = []
+	const param: { current: Record<string, unknown> | undefined | 'forbidden' } = {
+		current: fenceObjects.configMap,
+	}
 	const uidFor = options.uidFor ?? uidFromName
 	const fence = options.fence ?? 'both'
 	const api = await startFakeApiServer((req: RecordedRequest) => {
 		// The admission fence, read before the first write.
 		if (req.path.includes('/validatingadmissionpolicybindings/')) {
-			return fence === 'no-binding' ? { status: 404, body: {} } : { status: 200, body: {} }
+			if (req.path.endsWith('-hosts-binding'))
+				return { status: 200, body: fenceObjects.companionBinding }
+			return fence === 'no-binding'
+				? { status: 404, body: {} }
+				: { status: 200, body: fenceObjects.binding }
 		}
 		if (req.path.includes('/validatingadmissionpolicies/')) {
+			if (req.path.endsWith('-hosts')) {
+				return fence === 'no-companion-policy'
+					? { status: 404, body: {} }
+					: { status: 200, body: fenceObjects.companionPolicy }
+			}
 			if (fence === 'no-policy') return { status: 404, body: {} }
 			if (fence === 'unreadable') return { status: 403, body: {} }
-			return { status: 200, body: {} }
+			return { status: 200, body: fenceObjects.policy }
+		}
+		if (req.path.includes('/configmaps/')) {
+			if (param.current === 'forbidden') return { status: 403, body: {} }
+			return param.current === undefined
+				? { status: 404, body: {} }
+				: { status: 200, body: param.current }
 		}
 		// The per-sandbox policies this backend writes.
 		if (req.path.includes('/ciliumnetworkpolicies')) {
 			const name = req.path.slice(req.path.lastIndexOf('/') + 1)
+			if (req.method === 'GET' && name === 'ciliumnetworkpolicies') {
+				return { status: 200, body: { items: [...policies.values(), ...others] } }
+			}
 			if (req.method === 'POST') {
 				const body = req.body as Record<string, unknown>
 				const written = (body.metadata as { name: string }).name
@@ -187,6 +224,7 @@ async function startCluster(
 				return { status: 200, body: policies.get(name) }
 			}
 			if (req.method === 'DELETE') {
+				if (options.deleteStatus !== undefined) return { status: options.deleteStatus, body: {} }
 				const existed = policies.delete(name)
 				return existed ? { status: 200, body: {} } : { status: 404, body: {} }
 			}
@@ -196,10 +234,10 @@ async function startCluster(
 		}
 		// The configured BASELINE — the named-object check and the union check.
 		if (req.method === 'GET' && req.path.includes('/networkpolicies/')) {
-			return { status: 200, body: BASELINE_POLICY }
+			return { status: 200, body: options.baseline ?? BASELINE_POLICY }
 		}
 		if (req.method === 'GET' && req.path.endsWith('/networkpolicies')) {
-			return { status: 200, body: { items: [BASELINE_POLICY] } }
+			return { status: 200, body: { items: [options.baseline ?? BASELINE_POLICY] } }
 		}
 		if (req.method === 'POST' && req.path.endsWith('/sandboxclaims')) {
 			const body = req.body as { metadata: { name: string } }
@@ -241,7 +279,7 @@ async function startCluster(
 		if (req.method === 'DELETE') return { status: 200, body: {} }
 		return { status: 404, body: {} }
 	})
-	return { server: api, policies }
+	return { server: api, policies, fence: fenceObjects, others, param }
 }
 
 function config(
@@ -338,75 +376,6 @@ describe('presence follows configuration', () => {
 				}),
 			),
 		).toThrow(KubernetesPerSandboxEgressConfigError)
-	})
-
-	it('refuses the same option on a workspace, which never carries the method at all', async () => {
-		const started = await startCluster()
-		server = started.server
-
-		// A workspace handle is built without the setter, because nothing in
-		// its create path composes a per-sandbox pod label or tracks an owner
-		// uid for one. So a config this path cannot serve is REFUSED by name
-		// rather than accepted with the method omitted: omitted, the caller
-		// would believe it had narrowed a workspace's egress and nothing
-		// anywhere would say otherwise — the "reads as applied, denies what it
-		// names" failure every refusal in `egress-policy.ts` exists to
-		// prevent, one level up.
-		const failure = await createKubernetesWorkspace(config(), {
-			workspaceId: 'refused-workspace',
-			workingDirectory: '/workspace',
-		}).then(
-			() => undefined,
-			(err: unknown) => err as Error,
-		)
-
-		expect(failure).toBeInstanceOf(KubernetesWorkspacePerSandboxEgressConfigError)
-		expect(failure?.message).toContain('config.egress.perSandbox')
-		expect(failure?.message).toContain('KubernetesWorkspace cannot carry the capability')
-		// Before ANY request — not merely before a policy write: the refusal is
-		// decidable from config alone, so it costs no round trip, and nothing
-		// is created, patched or left standing behind it.
-		expect(server.requests).toHaveLength(0)
-	})
-
-	it('refuses it through the PUBLIC verb too, with nothing sent', async () => {
-		const started = await startCluster()
-		server = started.server
-
-		// The entry point a consumer actually calls, and the one the changeset
-		// names: `createKubernetesWorkspace` from the package root. It maps the
-		// public config to this backend's own and forwards `egress` verbatim,
-		// so the case above is what a consumer gets — but "the wrapper forwards
-		// it unchanged" is a claim about the wrapper, and this is the wrapper,
-		// so it is pinned separately rather than inferred.
-		//
-		// No cluster is needed and none is contacted: the refusal is decidable
-		// from config alone, before readiness is resolved and before the client
-		// is built. `access` points at the fake server anyway, so a call that
-		// DID reach the network would be recorded here rather than failing
-		// against an address nothing answers — which would make "no requests"
-		// true for the wrong reason.
-		const failure = await createWorkspaceFromPublicConfig(
-			{
-				tier: 'microvm',
-				service: 'kubernetes',
-				namespace: NAMESPACE,
-				access: { server: server.url, getToken: async () => 'sa-token' },
-				sandboxTemplateName: TEMPLATE,
-				egress: {
-					policy: { kind: 'deny-all' },
-					perSandbox: { engine: 'cilium', admissionPolicyName: ADMISSION_POLICY },
-				},
-			},
-			{ workspaceId: 'refused-public-workspace', workingDirectory: '/workspace' },
-		).then(
-			() => undefined,
-			(err: unknown) => err as Error,
-		)
-
-		expect(failure).toBeInstanceOf(KubernetesWorkspacePerSandboxEgressConfigError)
-		expect(failure?.message).toContain('config.egress.perSandbox')
-		expect(server.requests).toHaveLength(0)
 	})
 })
 
@@ -758,7 +727,11 @@ describe('the admission fence', () => {
 		const policies: Map<string, Record<string, unknown>> = new Map()
 		server = await startFakeApiServer((req: RecordedRequest) => {
 			if (req.path.includes('/validatingadmissionpolic')) {
-				return fencePresent ? { status: 200, body: {} } : { status: 404, body: {} }
+				if (!fencePresent) return { status: 404, body: {} }
+				return {
+					status: 200,
+					body: req.path.includes('bindings') ? shippedFence().binding : shippedFence().policy,
+				}
 			}
 			if (req.path.includes('/ciliumnetworkpolicies')) {
 				if (req.method === 'POST') {
@@ -767,6 +740,9 @@ describe('the admission fence', () => {
 					return { status: 201, body: req.body }
 				}
 				const name = req.path.slice(req.path.lastIndexOf('/') + 1)
+				if (name === 'ciliumnetworkpolicies') {
+					return { status: 200, body: { items: [...policies.values()] } }
+				}
 				const stored = policies.get(name)
 				return stored === undefined ? { status: 404, body: {} } : { status: 200, body: stored }
 			}
@@ -1154,5 +1130,798 @@ describe('fifty sandboxes at once', () => {
 		expect(server.matching('GET', '/validatingadmissionpolicies/')).toHaveLength(1)
 
 		await Promise.all(sandboxes.map(async (sandbox) => await sandbox.destroy()))
+	})
+})
+
+// ---------------------------------------------------------------------------
+// #617 — the per-sandbox path verified as strictly as the `no-network` baseline
+// ---------------------------------------------------------------------------
+//
+// What these prove, and what they cannot: the CONTENT of the fence objects is
+// compared field by field, the permitted-hosts parameter is read and enforced
+// locally, and the union of the policies selecting the pod is re-checked after
+// every write. What they do not prove is that any of it is ENFORCED by a data
+// plane, or that the companion policy's CEL refuses what it claims against a
+// real API server; see `k8s/scripts/per-sandbox-egress-check.mjs`.
+
+function perSandboxConfig(
+	perSandbox: Record<string, unknown> = {},
+	egress: Record<string, unknown> = {},
+): KubernetesBackendInternalConfig {
+	return config({
+		egress: {
+			policy: { kind: 'deny-all' },
+			...egress,
+			perSandbox: {
+				engine: 'cilium' as const,
+				admissionPolicyName: ADMISSION_POLICY,
+				...perSandbox,
+			},
+		},
+	})
+}
+
+const REGISTRY = 'registry.npmjs.org'
+
+describe('the fence is verified by content, not by existence (#617)', () => {
+	type Edit = (fence: FenceObjects) => void
+	const refusals: ReadonlyArray<readonly [string, string, Edit]> = [
+		[
+			'an Audit-only binding',
+			'spec.validationActions',
+			(f) => {
+				specOf(f.binding).validationActions = ['Audit']
+			},
+		],
+		[
+			'a Warn-only binding',
+			'spec.validationActions',
+			(f) => {
+				specOf(f.binding).validationActions = ['Warn']
+			},
+		],
+		[
+			'a binding that names another policy',
+			'spec.policyName',
+			(f) => {
+				specOf(f.binding).policyName = 'some-other-policy'
+			},
+		],
+		[
+			'failurePolicy: Ignore',
+			'spec.failurePolicy',
+			(f) => {
+				specOf(f.policy).failurePolicy = 'Ignore'
+			},
+		],
+		[
+			'a failurePolicy the server left unset',
+			'spec.failurePolicy',
+			(f) => {
+				// biome-ignore lint/performance/noDelete: absent, not undefined
+				delete specOf(f.policy).failurePolicy
+			},
+		],
+		[
+			'a binding whose namespace selector names another namespace',
+			'spec.matchResources.namespaceSelector',
+			(f) => {
+				specOf(f.binding).matchResources = {
+					namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'elsewhere' } },
+				}
+			},
+		],
+		[
+			'a binding whose namespace selector cannot be decided from the automatic label',
+			'spec.matchResources.namespaceSelector',
+			(f) => {
+				specOf(f.binding).matchResources = {
+					namespaceSelector: { matchLabels: { team: 'sandboxes' } },
+				}
+			},
+		],
+		[
+			'a binding that excludes DELETE of ciliumnetworkpolicies',
+			'spec.matchResources.excludeResourceRules',
+			(f) => {
+				specOf(f.binding).matchResources = {
+					excludeResourceRules: [
+						{
+							apiGroups: ['cilium.io'],
+							apiVersions: ['*'],
+							operations: ['DELETE'],
+							resources: ['ciliumnetworkpolicies'],
+						},
+					],
+				}
+			},
+		],
+		[
+			'a binding whose resource rules leave UPDATE out',
+			'spec.matchResources.resourceRules',
+			(f) => {
+				specOf(f.binding).matchResources = {
+					resourceRules: [
+						{
+							apiGroups: ['cilium.io'],
+							apiVersions: ['v2'],
+							operations: ['CREATE', 'DELETE'],
+							resources: ['ciliumnetworkpolicies'],
+						},
+					],
+				}
+			},
+		],
+		[
+			'a binding scoped to objects carrying a label the host can leave off',
+			'spec.matchResources.objectSelector',
+			(f) => {
+				specOf(f.binding).matchResources = { objectSelector: { matchLabels: { audited: 'yes' } } }
+			},
+		],
+		[
+			'a policy that does not match DELETE',
+			'spec.matchConstraints.resourceRules',
+			(f) => {
+				specOf(f.policy).matchConstraints = {
+					resourceRules: [
+						{
+							apiGroups: ['cilium.io'],
+							apiVersions: ['v2'],
+							operations: ['CREATE', 'UPDATE'],
+							resources: ['ciliumnetworkpolicies'],
+						},
+					],
+				}
+			},
+		],
+		[
+			'a policy that validates nothing',
+			'spec.validations',
+			(f) => {
+				specOf(f.policy).validations = []
+			},
+		],
+	]
+
+	it.each(refusals)(
+		'refuses %s, naming the field, with nothing written',
+		async (_label, field, edit) => {
+			const started = await startCluster()
+			server = started.server
+			edit(started.fence)
+			const sandbox = await acquire()
+
+			const failure = await sandbox
+				.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+				.catch((err: unknown) => err)
+
+			expect(failure).toBeInstanceOf(KubernetesAdmissionFenceInertError)
+			expect((failure as KubernetesAdmissionFenceInertError).field).toBe(field)
+			expect((failure as Error).message).toContain(field)
+			expect(policyWrites(server)).toHaveLength(0)
+			await sandbox.destroy()
+		},
+	)
+
+	it('passes a correct fence, and one whose binding also audits', async () => {
+		const started = await startCluster()
+		server = started.server
+		specOf(started.fence.binding).validationActions = ['Deny', 'Audit']
+		const sandbox = await acquire()
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })).resolves.toBeUndefined()
+		expect(policyWrites(server).some((w) => w.method === 'POST')).toBe(true)
+		await sandbox.destroy()
+	})
+
+	it('also refuses the DELETE of an inert fence', async () => {
+		const started = await startCluster()
+		server = started.server
+		specOf(started.fence.binding).validationActions = ['Audit']
+		const sandbox = await acquire()
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [] })).rejects.toBeInstanceOf(
+			KubernetesAdmissionFenceInertError,
+		)
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('is not memoized when it failed, and is memoized once it passed', async () => {
+		const started = await startCluster()
+		server = started.server
+		specOf(started.fence.binding).validationActions = ['Audit']
+		const sandbox = await acquire()
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })).rejects.toBeInstanceOf(
+			KubernetesAdmissionFenceInertError,
+		)
+		specOf(started.fence.binding).validationActions = ['Deny']
+		await sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+		await sandbox.setNetworkPolicy?.({ allowedHosts: ['files.example.org'] })
+
+		// Two failed-then-passed reads, then nothing more.
+		expect(server.matching('GET', '/validatingadmissionpolicies/')).toHaveLength(2)
+		await sandbox.destroy()
+	})
+
+	describe('hostIdentity', () => {
+		const identity = 'system:serviceaccount:namzu-sandboxes:namzu-sandbox-host'
+
+		it('passes when the policy names exactly that identity', async () => {
+			const started = await startCluster()
+			server = started.server
+			const sandbox = await acquire(perSandboxConfig({ hostIdentity: identity }))
+
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] }),
+			).resolves.toBeUndefined()
+			await sandbox.destroy()
+		})
+
+		it('refuses when the policy names another user, with nothing written', async () => {
+			const started = await startCluster()
+			server = started.server
+			const sandbox = await acquire(
+				perSandboxConfig({ hostIdentity: 'system:serviceaccount:other:host' }),
+			)
+
+			const failure = await sandbox
+				.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+				.catch((err: unknown) => err)
+
+			expect(failure).toBeInstanceOf(KubernetesAdmissionFenceInertError)
+			expect((failure as KubernetesAdmissionFenceInertError).field).toBe('spec.matchConditions')
+			expect(policyWrites(server)).toHaveLength(0)
+			await sandbox.destroy()
+		})
+
+		it('does not check the identity when none is configured', async () => {
+			const started = await startCluster()
+			server = started.server
+			specOf(started.fence.policy).matchConditions = [
+				{ name: 'someone-else', expression: "request.userInfo.username == 'nobody'" },
+			]
+			const sandbox = await acquire()
+
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] }),
+			).resolves.toBeUndefined()
+			await sandbox.destroy()
+		})
+
+		it('is refused during wiring when it is empty or space-padded', async () => {
+			server = (await startCluster()).server
+			for (const hostIdentity of ['', ' x']) {
+				expect(() => buildKubernetesBackend(perSandboxConfig({ hostIdentity }))).toThrow(
+					KubernetesPerSandboxEgressConfigError,
+				)
+			}
+		})
+	})
+})
+
+describe('permittedHostsParam (#617)', () => {
+	const param = { name: 'namzu-per-sandbox-permitted-hosts', namespace: NAMESPACE }
+	const pinned = (extra: Record<string, unknown> = {}) =>
+		perSandboxConfig({
+			permittedHostsParam: param,
+			narrowing: { ports: [443] },
+			...extra,
+		})
+	const setData = (
+		started: { param: { current: Record<string, unknown> | undefined | 'forbidden' } },
+		data: Record<string, unknown>,
+	) => {
+		started.param.current = { metadata: { name: param.name }, data }
+	}
+	const GOOD = {
+		hosts: 'login.example.com\napi.example.com\nexample.com\n',
+		patterns: '*.example.com\n',
+		ports: '443\n',
+	}
+
+	it('writes a grant inside the set, on a port inside it', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const sandbox = await acquire(pinned())
+
+		await sandbox.setNetworkPolicy?.({ allowedHosts: ['login.example.com', '.example.com'] })
+
+		expect([...started.policies.values()]).toHaveLength(1)
+		await sandbox.destroy()
+	})
+
+	it('refuses, locally and with nothing written, a host outside the set', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const sandbox = await acquire(pinned())
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: ['login.example.com', 'evil.example.net'] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPermittedHostsError)
+		expect((failure as KubernetesPermittedHostsError).hosts).toEqual(['evil.example.net'])
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('refuses a domain entry whose pattern is not listed, because it is a name plus a pattern', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, { ...GOOD, patterns: '' })
+		const sandbox = await acquire(pinned())
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: ['.example.com'] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPermittedHostsError)
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('refuses a port outside the set', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const sandbox = await acquire(pinned({ narrowing: { ports: [443, 8443] } }))
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPermittedHostsError)
+		expect((failure as KubernetesPermittedHostsError).ports).toEqual([8443])
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('refuses a grant that restricts no port at all, because every port is outside any list', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const noPorts = perSandboxConfig({ permittedHostsParam: param })
+		const sandbox = await acquire(noPorts)
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPermittedHostsError)
+		expect((failure as KubernetesPermittedHostsError).unrestrictedPortsFor).toEqual([
+			'login.example.com',
+		])
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('reads the ConfigMap on every grant, so an edit is honoured on the next call', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const sandbox = await acquire(pinned())
+
+		await sandbox.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+		setData(started, { ...GOOD, hosts: 'api.example.com\n' })
+		await expect(
+			sandbox.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] }),
+		).rejects.toBeInstanceOf(KubernetesPermittedHostsError)
+		await sandbox.destroy()
+	})
+
+	const unusable: ReadonlyArray<
+		readonly [string, (s: Awaited<ReturnType<typeof startCluster>>) => void]
+	> = [
+		[
+			'a missing ConfigMap',
+			(s) => {
+				s.param.current = undefined
+			},
+		],
+		[
+			'an unreadable ConfigMap',
+			(s) => {
+				s.param.current = 'forbidden'
+			},
+		],
+		[
+			'a ConfigMap with no data',
+			(s) => {
+				s.param.current = { metadata: { name: 'x' } }
+			},
+		],
+		['a missing key', (s) => setData(s, { hosts: GOOD.hosts, ports: GOOD.ports })],
+		[
+			'a host with trailing whitespace',
+			(s) => setData(s, { ...GOOD, hosts: 'login.example.com \n' }),
+		],
+		[
+			'a host that is not a hostname',
+			(s) => setData(s, { ...GOOD, hosts: 'https://login.example.com\n' }),
+		],
+		['a domain entry in hosts', (s) => setData(s, { ...GOOD, hosts: '.example.com\n' })],
+		['a pattern that is not *.domain', (s) => setData(s, { ...GOOD, patterns: 'example.com\n' })],
+		['a pattern over a whole suffix', (s) => setData(s, { ...GOOD, patterns: '*.com\n' })],
+		['a port that is not a number', (s) => setData(s, { ...GOOD, ports: 'https\n' })],
+		['a port out of range', (s) => setData(s, { ...GOOD, ports: '70000\n' })],
+	]
+
+	it.each(unusable)('refuses every grant on %s, with nothing written', async (_label, arrange) => {
+		const started = await startCluster()
+		server = started.server
+		arrange(started)
+		const sandbox = await acquire(pinned())
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPermittedHostsParamError)
+		expect(policyWrites(server)).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('does not block the revoke: an empty list needs no parameter', async () => {
+		const started = await startCluster()
+		server = started.server
+		setData(started, GOOD)
+		const sandbox = await acquire(pinned())
+		await sandbox.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+
+		started.param.current = undefined
+		await sandbox.setNetworkPolicy?.({ allowedHosts: [] })
+
+		expect(started.policies.size).toBe(0)
+		expect(server.matching('GET', '/configmaps/')).toHaveLength(1)
+		await sandbox.destroy()
+	})
+
+	describe('the companion fence', () => {
+		type Edit = (fence: FenceObjects) => void
+		const refusals: ReadonlyArray<readonly [string, string, Edit]> = [
+			[
+				'a binding with no parameter',
+				'spec.paramRef',
+				(f) => {
+					// biome-ignore lint/performance/noDelete: absent, not undefined
+					delete specOf(f.companionBinding).paramRef
+				},
+			],
+			[
+				'a binding that names another ConfigMap',
+				'spec.paramRef.name',
+				(f) => {
+					specOf(f.companionBinding).paramRef = {
+						...(specOf(f.companionBinding).paramRef as object),
+						name: 'some-other-map',
+					}
+				},
+			],
+			[
+				'a binding that allows when the parameter is missing',
+				'spec.paramRef.parameterNotFoundAction',
+				(f) => {
+					specOf(f.companionBinding).paramRef = {
+						...(specOf(f.companionBinding).paramRef as object),
+						parameterNotFoundAction: 'Allow',
+					}
+				},
+			],
+			[
+				'a binding that selects its parameter instead of naming it',
+				'spec.paramRef.selector',
+				(f) => {
+					specOf(f.companionBinding).paramRef = {
+						...(specOf(f.companionBinding).paramRef as object),
+						selector: {},
+					}
+				},
+			],
+			[
+				'an Audit-only companion binding',
+				'spec.validationActions',
+				(f) => {
+					specOf(f.companionBinding).validationActions = ['Audit']
+				},
+			],
+			[
+				'a companion policy that fails open',
+				'spec.failurePolicy',
+				(f) => {
+					specOf(f.companionPolicy).failurePolicy = 'Ignore'
+				},
+			],
+			[
+				'a companion policy of another parameter kind',
+				'spec.paramKind',
+				(f) => {
+					specOf(f.companionPolicy).paramKind = { apiVersion: 'v1', kind: 'Secret' }
+				},
+			],
+			[
+				'a companion policy whose validation was loosened',
+				'spec.validations',
+				(f) => {
+					specOf(f.companionPolicy).validations = [{ expression: 'true' }]
+				},
+			],
+			[
+				'a companion policy whose variables were edited',
+				'spec.variables',
+				(f) => {
+					const variables = specOf(f.companionPolicy).variables as { expression: string }[]
+					variables[1] = {
+						...variables[1],
+						expression: "params.data.hosts.split('\\n') + ['*']",
+					} as never
+				},
+			],
+		]
+
+		it.each(refusals)('refuses %s, naming the field', async (_label, field, edit) => {
+			const started = await startCluster()
+			server = started.server
+			setData(started, GOOD)
+			edit(started.fence)
+			const sandbox = await acquire(pinned())
+
+			const failure = await sandbox
+				.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+				.catch((err: unknown) => err)
+
+			expect(failure).toBeInstanceOf(KubernetesAdmissionFenceInertError)
+			expect((failure as KubernetesAdmissionFenceInertError).field).toBe(field)
+			expect(policyWrites(server)).toHaveLength(0)
+			await sandbox.destroy()
+		})
+
+		it('refuses a missing companion policy as a missing fence', async () => {
+			const started = await startCluster({ fence: 'no-companion-policy' })
+			server = started.server
+			setData(started, GOOD)
+			const sandbox = await acquire(pinned())
+
+			const failure = await sandbox
+				.setNetworkPolicy?.({ allowedHosts: ['login.example.com'] })
+				.catch((err: unknown) => err)
+
+			expect(failure).toBeInstanceOf(KubernetesAdmissionFenceMissingError)
+			expect((failure as Error).message).toContain(`${ADMISSION_POLICY}-hosts`)
+			expect(policyWrites(server)).toHaveLength(0)
+			await sandbox.destroy()
+		})
+	})
+
+	it('changes nothing when unset: no ConfigMap read, no companion read', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire()
+
+		await sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+
+		expect(server.matching('GET', '/configmaps/')).toHaveLength(0)
+		expect(
+			server.requests.filter((r) => r.path.endsWith('-hosts') || r.path.endsWith('-hosts-binding')),
+		).toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('is refused during wiring when its name or namespace is empty', async () => {
+		server = (await startCluster()).server
+		for (const bad of [
+			{ name: '', namespace: NAMESPACE },
+			{ name: 'x', namespace: '' },
+			{ name: ' x', namespace: NAMESPACE },
+		]) {
+			expect(() => buildKubernetesBackend(perSandboxConfig({ permittedHostsParam: bad }))).toThrow(
+				KubernetesPerSandboxEgressConfigError,
+			)
+		}
+	})
+})
+
+describe('the union is re-checked after every write (#617)', () => {
+	/** A second CiliumNetworkPolicy selecting the same pods and allowing the whole world. */
+	const WORLD_POLICY = {
+		metadata: { name: 'someone-elses', namespace: NAMESPACE },
+		spec: {
+			endpointSelector: { matchLabels: TEMPLATE_LABEL },
+			egress: [{ toEntities: ['world'] }],
+		},
+	}
+
+	it('resolves when nothing else widens the pod', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire()
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })).resolves.toBeUndefined()
+
+		expect(started.policies.size).toBe(1)
+		expect(server.matching('GET', '/ciliumnetworkpolicies')).not.toHaveLength(0)
+		await sandbox.destroy()
+	})
+
+	it('deletes its own object and throws KubernetesEgressPolicyUnionError when a policy applied since allows more', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire()
+		// Applied between the sandbox's create and its grant.
+		started.others.push(WORLD_POLICY)
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+		expect((failure as KubernetesEgressPolicyUnionError).refusal).toBe('policy-widens-egress')
+		expect((failure as Error).message).toContain('someone-elses')
+		expect(started.policies.size).toBe(0)
+		expect(policyWrites(server).map((w) => w.method)).toContain('DELETE')
+		await sandbox.destroy()
+	})
+
+	it('removes a policy that held an earlier verified list when the replacement fails', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire()
+		await sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+		started.others.push(WORLD_POLICY)
+
+		await expect(
+			sandbox.setNetworkPolicy?.({ allowedHosts: ['files.example.org'] }),
+		).rejects.toBeInstanceOf(KubernetesEgressPolicyUnionError)
+
+		expect(started.policies.size).toBe(0)
+		await sandbox.destroy()
+	})
+
+	it('counts the baseline plus the grant as within bounds, a .domain entry included', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire(perSandboxConfig({ narrowing: { ports: [443], dnsNames: true } }))
+
+		await expect(
+			sandbox.setNetworkPolicy?.({ allowedHosts: ['.example.com', REGISTRY] }),
+		).resolves.toBeUndefined()
+		await sandbox.destroy()
+	})
+
+	it('needs no re-check for a removal, which only narrows', async () => {
+		const started = await startCluster()
+		server = started.server
+		const sandbox = await acquire()
+		await sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+		const listsBefore = server.matching('GET', '/ciliumnetworkpolicies').length
+		started.others.push(WORLD_POLICY)
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [] })).resolves.toBeUndefined()
+
+		expect(server.matching('GET', '/ciliumnetworkpolicies')).toHaveLength(listsBefore)
+		await sandbox.destroy()
+	})
+
+	it("is skipped under egress.verify: 'named-object-only', as the create path's is", async () => {
+		const started = await startCluster()
+		server = started.server
+		started.others.push(WORLD_POLICY)
+		const sandbox = await acquire(perSandboxConfig({}, { verify: 'named-object-only' }))
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })).resolves.toBeUndefined()
+		expect(started.policies.size).toBe(1)
+		await sandbox.destroy()
+	})
+
+	it('says so when the removal fails too, because the policy may still be in force', async () => {
+		const started = await startCluster({ deleteStatus: 403 })
+		server = started.server
+		const sandbox = await acquire()
+		started.others.push(WORLD_POLICY)
+
+		const failure = await sandbox
+			.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesPerSandboxPolicyNotRemovedError)
+		expect((failure as KubernetesPerSandboxPolicyNotRemovedError).refusal).toBeInstanceOf(
+			KubernetesEgressPolicyUnionError,
+		)
+		expect((failure as Error).message).toContain('may still be in force')
+		await sandbox.destroy()
+	})
+
+	describe('under the no-network baseline this capability is for', () => {
+		const NO_NETWORK = {
+			metadata: { name: `${TEMPLATE}-egress`, namespace: NAMESPACE },
+			spec: {
+				podSelector: { matchLabels: TEMPLATE_LABEL },
+				policyTypes: ['Egress'],
+				egress: [],
+			},
+		}
+		const narrowedConfig = () =>
+			config({
+				egress: {
+					policy: { kind: 'no-network' },
+					perSandbox: {
+						engine: 'cilium' as const,
+						admissionPolicyName: ADMISSION_POLICY,
+						narrowing: { ports: [443], dnsNames: true },
+					},
+				},
+			})
+
+		it('counts baseline plus the narrowed grant as the boundary', async () => {
+			const started = await startCluster({ baseline: NO_NETWORK })
+			server = started.server
+			const sandbox = await acquire(narrowedConfig())
+
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY, '.example.com'] }),
+			).resolves.toBeUndefined()
+			await sandbox.destroy()
+		})
+
+		it('refuses a second policy that opens DNS to every name beside the narrowed grant', async () => {
+			const started = await startCluster({ baseline: NO_NETWORK })
+			server = started.server
+			const sandbox = await acquire(narrowedConfig())
+			started.others.push({
+				metadata: { name: 'open-dns', namespace: NAMESPACE },
+				spec: {
+					endpointSelector: { matchLabels: TEMPLATE_LABEL },
+					egress: [
+						{
+							toEndpoints: [
+								{
+									matchLabels: {
+										'k8s:io.kubernetes.pod.namespace': 'kube-system',
+										'k8s:k8s-app': 'kube-dns',
+									},
+								},
+							],
+							toPorts: [
+								{
+									ports: [{ port: '53', protocol: 'ANY' }],
+									rules: { dns: [{ matchPattern: '*' }] },
+								},
+							],
+						},
+					],
+				},
+			})
+
+			const failure = await sandbox
+				.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })
+				.catch((err: unknown) => err)
+
+			expect(failure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+			expect((failure as Error).message).toContain('open-dns')
+			expect(started.policies.size).toBe(0)
+			await sandbox.destroy()
+		})
+	})
+
+	it('deletes the object when the read-back finds something else, too', async () => {
+		const started = await startCluster({
+			readBack: (written) => ({
+				...written,
+				spec: { ...(written.spec as object), egress: [{ toEntities: ['world'] }] },
+			}),
+		})
+		server = started.server
+		const sandbox = await acquire()
+
+		await expect(sandbox.setNetworkPolicy?.({ allowedHosts: [REGISTRY] })).rejects.toThrow(
+			/spec\.egress/,
+		)
+
+		expect(started.policies.size).toBe(0)
+		await sandbox.destroy()
 	})
 })

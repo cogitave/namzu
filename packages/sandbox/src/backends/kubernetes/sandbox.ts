@@ -26,15 +26,10 @@
  *    Presence follows configuration alone, never a probe of the cluster. See
  *    `per-sandbox-policy.ts`.
  *
- *    A WORKSPACE handle never carries it: `KubernetesWorkspace`'s create path
- *    builds its handle through `buildKubernetesSandbox` without this option,
- *    because it composes no per-sandbox pod label and tracks no owner uid for
- *    one. That is a property of the PATH and not of the configuration, so it
- *    is not answered by omission: `createKubernetesWorkspace` refuses a
- *    config carrying `egress.perSandbox` outright
- *    (`KubernetesWorkspacePerSandboxEgressConfigError`, before any request)
- *    rather than letting the option declare a capability the path never
- *    serves — see `workspace.ts`.
+ *    A WORKSPACE handle carries it on the same condition, built in
+ *    `workspace.ts` rather than here: the `Sandbox` is the owner, the pod
+ *    template carries the selector label, and a resume re-proves the fence —
+ *    see `workspace-per-sandbox.ts`.
  *
  * Absent on purpose, because the SDK's contract says a backend that cannot
  * honour an optional method must omit it rather than accept and ignore:

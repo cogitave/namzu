@@ -210,6 +210,21 @@ function guestIdentity() {
 //    running, including ones no registry owns, and leaves the agent
 //    serving `execute`, `read-file` and `write-file` so the host can still
 //    read the disk it has just made quiet. See `runQuiesce`.
+//  - `quiesce-idle` — the `quiesce` op accepts `{ idleOnly: true }`: it
+//    signals and marks NOTHING, answers `ok` with `rounds: 0` and
+//    `stopped: []` only when the whole PID namespace holds no process but
+//    init and this agent, and otherwise refuses with `quiesce_busy` and the
+//    processes it saw. A host sends the field only to a guest that
+//    advertises this string: an agent that predates it IGNORES unknown body
+//    fields and would run the stopping quiesce. See `runIdleCheck`.
+//  - `pinned-guest` — the `pinned` op wraps ONE ordinary request as
+//    `{ op: 'pinned', body: { expectedGuestBootId, request: { op, body } } }`
+//    and dispatches it only when `expectedGuestBootId` equals THIS agent's
+//    {@link GUEST_BOOT_ID}; otherwise it answers `guest_mismatch:<fresh id>`
+//    and runs nothing. It is a distinct op, not a field, because an agent
+//    that predates it answers `unknown_op: pinned` while it would IGNORE an
+//    unknown field and serve the request on whatever guest it is. See
+//    `dispatchPinned`.
 //  - `flush` — the `flush` op runs `syncfs(2)` over the workspace mount, so
 //    a host that is about to take the pod away can make the dirty pages of
 //    everything written through this guest — by `write-file` AND by a
@@ -226,8 +241,10 @@ const AGENT_FEATURES = [
 	'read-file-stream',
 	'sessions',
 	'quiesce',
+	'quiesce-idle',
 	'flush',
 	'guest-boot-id',
+	'pinned-guest',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -4250,10 +4267,203 @@ async function runQuiesce(graceMs, budget = {}) {
 	return { ok: true, scope, graceMs, rounds, stopped: [...stopped.values()] }
 }
 
+// --- quiesce, idle-only: asking whether the guest is quiet -----------------
+
+/** How many busy processes one refusal names; the rest are only counted. */
+const IDLE_CHECK_MAX_REPORTED = 32
+
+/**
+ * How `/proc/<pid>/stat` (or a task's) classifies, for the idle check.
+ * Unlike {@link readProcessStat}, whose bare catch folds every failure into
+ * "gone", this tells the three apart: `gone` (ENOENT/ESRCH: the process
+ * exited between the listing and the read, so it is absent), `unreadable`
+ * (any other failure, or a line this agent cannot parse: nothing can be said
+ * about the process) and `ok` with the parsed line.
+ */
+async function classifyStatFile(file, pid) {
+	let raw
+	try {
+		raw = await fs.readFile(file, 'utf8')
+	} catch (error) {
+		if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return { kind: 'gone' }
+		return { kind: 'unreadable', reason: error?.code ?? error?.message ?? 'read failed' }
+	}
+	const stat = parseProcessStat(pid, raw)
+	if (stat === undefined || stat.state === '') {
+		return { kind: 'unreadable', reason: 'unparseable stat line' }
+	}
+	return { kind: 'ok', stat }
+}
+
+/**
+ * Whether a ZOMBIE leader still has a running thread.
+ *
+ * A thread-group leader that exited while other threads run reads `Z` in
+ * `/proc/<pid>/stat` even though the group is still executing, and the
+ * ordinary quiesce scan skips it for exactly that reason. Here it is the
+ * case the check exists for, so the leader's `task/` directory is read:
+ * every non-zombie thread makes the group busy, and a `task/` that cannot be
+ * read or classified refuses rather than counting as idle.
+ */
+async function zombieGroupState(pid) {
+	let tids
+	try {
+		tids = await fs.readdir(`/proc/${pid}/task`)
+	} catch (error) {
+		if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return { kind: 'gone' }
+		return { kind: 'unreadable', reason: error?.code ?? error?.message ?? 'task list failed' }
+	}
+	for (const entry of tids) {
+		const tid = Number(entry)
+		if (!Number.isInteger(tid) || tid <= 0) continue
+		const thread = await classifyStatFile(`/proc/${pid}/task/${tid}/stat`, tid)
+		if (thread.kind === 'unreadable') return thread
+		if (thread.kind === 'ok' && thread.stat.state !== 'Z') {
+			return { kind: 'busy', command: thread.stat.command, state: thread.stat.state }
+		}
+	}
+	return { kind: 'gone' }
+}
+
+/** What the agent's own registries say is running or about to run. */
+function registryActivity() {
+	pruneExecutions()
+	const busy = []
+	for (const execution of executions.values()) {
+		// `reserved` and `starting` are a start dispatched whose process may
+		// not be in `/proc` yet; `running` is one that is. `terminal` and
+		// `exited` hold nothing.
+		if (['reserved', 'starting', 'running'].includes(execution.state)) {
+			busy.push({ source: 'execution', state: execution.state })
+		}
+	}
+	for (const record of sessions.values()) {
+		if (record.state !== 'exited') busy.push({ source: 'session', state: String(record.state) })
+	}
+	return busy
+}
+
+/**
+ * The idle-only quiesce: look, and touch nothing.
+ *
+ * Never signals, never marks an execution, never waits. It answers the one
+ * question a host has before a maintenance action: is anything running?
+ *
+ *  - Scope must be `pid-namespace`. An agent that is not the init of its
+ *    namespace's child cannot see the whole namespace, so it cannot confirm
+ *    idleness and refuses (`quiesce_idle_scope_narrowed`).
+ *  - Every pid but 1 and this process counts, whatever its uid or session.
+ *    That is WIDER than the stopping quiesce's candidate scan (which fences
+ *    on this agent's uid and session): a process that quiesce would leave
+ *    alone is still a process writing to the disk.
+ *  - A zombie counts as absent unless it is a leader with a live thread.
+ *  - A `/proc` read that cannot be classified refuses
+ *    (`quiesce_idle_unclassifiable`), never counts as idle.
+ *  - A start the registries hold that `/proc` may not show yet is busy.
+ *
+ * The new-start gate (`quiescing`) is raised for the scan so nothing is
+ * admitted while it reads; that is a refusal of NEW work for milliseconds,
+ * not a signal or a mark. The registries are read before and after.
+ */
+async function runIdleCheck() {
+	const scope = quiesceScope()
+	if (scope !== 'pid-namespace') {
+		return {
+			ok: false,
+			error: 'quiesce_idle_scope_narrowed',
+			message:
+				'this agent is not the init of its PID namespace (or NAMZU_AGENT_QUIESCE_SCOPE=owned-sessions), so it cannot see every process and cannot confirm the guest is idle',
+		}
+	}
+	const busy = []
+	let busyTotal = 0
+	const noteBusy = (entry) => {
+		busyTotal += 1
+		if (busy.length < IDLE_CHECK_MAX_REPORTED) busy.push(entry)
+	}
+	const unclassifiable = (what, reason) => ({
+		ok: false,
+		error: 'quiesce_idle_unclassifiable',
+		message: `quiesce idle check could not classify ${what} (${reason}); refused rather than counted as idle`,
+	})
+	const registriesBefore = registryActivity()
+	let entries
+	try {
+		entries = await fs.readdir('/proc')
+	} catch (error) {
+		return unclassifiable('/proc', error?.code ?? error?.message ?? 'readdir failed')
+	}
+	for (const entry of entries) {
+		const pid = Number(entry)
+		if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue
+		const result = await classifyStatFile(`/proc/${pid}/stat`, pid)
+		if (result.kind === 'gone') continue
+		if (result.kind === 'unreadable') return unclassifiable(`pid ${pid}`, result.reason)
+		if (result.stat.state === 'Z') {
+			const group = await zombieGroupState(pid)
+			if (group.kind === 'unreadable') return unclassifiable(`pid ${pid} threads`, group.reason)
+			if (group.kind === 'busy') {
+				noteBusy({ pid, command: result.stat.command, state: 'Z', thread: group.command })
+			}
+			continue
+		}
+		noteBusy({ pid, command: result.stat.command, state: result.stat.state })
+	}
+	// Read again: a start admitted before the gate went up lands in the
+	// registry, not yet in the listing above.
+	const registries = [...registriesBefore, ...registryActivity()].filter(
+		(item, index, all) =>
+			all.findIndex((other) => other.source === item.source && other.state === item.state) ===
+			index,
+	)
+	if (busyTotal === 0 && registries.length === 0) {
+		return { ok: true, scope, graceMs: 0, rounds: 0, stopped: [] }
+	}
+	return {
+		ok: false,
+		error: 'quiesce_busy',
+		message: `the guest is not idle: ${busyTotal} process(es) and ${registries.length} registry entr${registries.length === 1 ? 'y' : 'ies'} found; nothing was signalled or marked`,
+		busy,
+		busyTotal,
+		registries,
+	}
+}
+
 /** The `quiesce` op: validate, run, and refuse rather than resolve. */
 async function handleQuiesce(socket, body) {
 	if (process.platform === 'win32') {
 		writeFrame(socket, { ok: false, error: 'quiesce_unsupported_platform' })
+		return
+	}
+	if (body?.idleOnly !== undefined && typeof body.idleOnly !== 'boolean') {
+		writeFrame(socket, {
+			ok: false,
+			error: 'quiesce_invalid_idle_only',
+			message: `idleOnly must be a boolean, got ${typeof body.idleOnly}`,
+		})
+		return
+	}
+	if (body?.idleOnly === true) {
+		if (body.graceMs !== undefined) {
+			writeFrame(socket, {
+				ok: false,
+				error: 'quiesce_invalid_idle_only',
+				message: 'idleOnly signals nothing, so graceMs has no meaning with it',
+			})
+			return
+		}
+		quiescing = true
+		try {
+			writeFrame(socket, await runIdleCheck())
+		} catch (error) {
+			writeFrame(socket, {
+				ok: false,
+				error: 'quiesce_idle_unclassifiable',
+				message: error instanceof Error ? error.message : String(error),
+			})
+		} finally {
+			if (!terminating) quiescing = false
+		}
 		return
 	}
 	const requested = body?.graceMs
@@ -5200,8 +5410,68 @@ function handleConnection(socket) {
 	}
 }
 
+/**
+ * The `pinned` envelope: authenticate the guest BEFORE anything is
+ * dispatched.
+ *
+ * The comparison is the first thing that happens after the credential gate
+ * (which `handleConnection` already ran on the outer frame), so a refused
+ * pin reaches no handler: nothing is reserved, written, read, opened or
+ * signalled. The refusal always names this agent's own boot id, and says
+ * whether the agent is fenced, so a caller can tell a replacement (a
+ * different id, nobody fenced) from a fenced agent that is still the one it
+ * pinned (same id, `agent_retiring`, returned by the inner dispatch).
+ *
+ * The reply shape follows the inner op: a stream op's caller reads a stream,
+ * so an attach is refused in the stream's own `{type:'error'}` grammar,
+ * exactly as the retiring fence does.
+ */
+function dispatchPinned(socket, req) {
+	const body = req?.body
+	const expected = body?.expectedGuestBootId
+	const inner = body?.request
+	const refuseWith = (error, extra) => {
+		const stream = inner?.op === 'attach-execution' || inner?.op === 'attach-session'
+		if (stream) {
+			writeFrame(socket, { type: 'error', error, ...guestIdentity(), ...extra })
+			writeTerminator(socket)
+		} else {
+			writeFrame(socket, { ok: false, error, ...guestIdentity(), ...extra })
+		}
+		socket.end()
+	}
+	if (
+		typeof expected !== 'string' ||
+		expected === '' ||
+		inner === null ||
+		typeof inner !== 'object' ||
+		typeof inner.op !== 'string' ||
+		inner.op === 'pinned' ||
+		inner.op === 'healthz'
+	) {
+		refuseWith('bad_pinned_request', {})
+		return
+	}
+	if (expected !== GUEST_BOOT_ID) {
+		refuseWith(`guest_mismatch:${GUEST_BOOT_ID}`, agentRetiring ? { retiring: true } : {})
+		return
+	}
+	// The fence's own refusal, but carrying the id: the caller pinned THIS
+	// process, so it learns that the process it trusted is the one that is
+	// fenced, not that it was replaced.
+	if (agentRetiring && inner.op !== 'cancel-execution') {
+		refuseWith('agent_retiring', { retiring: true })
+		return
+	}
+	dispatch(socket, { op: inner.op, ...(inner.body !== undefined ? { body: inner.body } : {}) })
+}
+
 function dispatch(socket, req) {
 	const op = req?.op
+	if (op === 'pinned') {
+		dispatchPinned(socket, req)
+		return
+	}
 	if (op === 'healthz') {
 		writeFrame(socket, {
 			ok: !agentRetiring,

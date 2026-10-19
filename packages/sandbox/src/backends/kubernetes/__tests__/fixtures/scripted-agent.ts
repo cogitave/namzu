@@ -155,6 +155,19 @@ export interface ScriptedAgent {
 	 * dialing leaves this untouched, which is how "no dial" is asserted. */
 	readonly connections: readonly ScriptedAgentConnection[]
 	/**
+	 * Every request that PASSED the gates and would have run: past the token
+	 * check and, for a `pinned` envelope, past the boot-id comparison, with
+	 * the wrapper removed. `healthz` is not here. A guest that refused a pin
+	 * leaves this untouched, which is how "nothing was dispatched" is asserted.
+	 */
+	readonly dispatched: readonly Record<string, unknown>[]
+	/**
+	 * Raise the fence the way a `cancellation_unconfirmed` answer does:
+	 * `healthz` says `retiring` and every op but `cancel-execution` is
+	 * refused with `agent_retiring`. Cleared only by `setToken`.
+	 */
+	fence(): void
+	/**
 	 * Bind to a different token, as a resumed pod's fresh agent does — and
 	 * with it, be a fresh AGENT: a new pod is a new process, which has fenced
 	 * nothing, so this also clears the fence a `cancellation_unconfirmed`
@@ -283,6 +296,7 @@ export async function startScriptedAgent(
 ): Promise<ScriptedAgent> {
 	const requests: Record<string, unknown>[] = []
 	const connections: ScriptedAgentConnection[] = []
+	const dispatched: Record<string, unknown>[] = []
 	let stdout = options.stdout ?? DEPRIVILEGED_PROC_STATUS
 	const exitCode = options.exitCode ?? 0
 	let token = options.token
@@ -355,7 +369,7 @@ export async function startScriptedAgent(
 		socket.on('data', (chunk: Buffer) => {
 			for (const payload of reader.push(chunk)) {
 				if (payload.length === 0) continue
-				const request = JSON.parse(payload) as Record<string, unknown>
+				let request = JSON.parse(payload) as Record<string, unknown>
 				if (streaming !== undefined) {
 					// The only event a case needs answered: a host reaping a
 					// terminal waits on `exited`, and the real agent's PTY
@@ -371,7 +385,7 @@ export async function startScriptedAgent(
 					continue
 				}
 				requests.push(request)
-				const op = request.op
+				let op = request.op
 				if (op === 'healthz' && healthzRefusal !== undefined) {
 					// The gate's answer, not `dispatch`'s: a named reason and
 					// no fence flag, because the frame never reached the code
@@ -407,6 +421,34 @@ export async function startScriptedAgent(
 					}
 					continue
 				}
+				// The `pinned` envelope, as `dispatchPinned` in the agent does it:
+				// after the credential gate and before anything is dispatched, a
+				// boot id that is not this agent's is refused with the fresh one.
+				// A scripted guest that does not advertise `pinned-guest` is an
+				// OLD one and answers `unknown_op: pinned` below.
+				if (op === 'pinned' && options.features?.includes('pinned-guest')) {
+					const pin = (request.body ?? {}) as {
+						expectedGuestBootId?: string
+						request?: { op?: string; body?: unknown }
+					}
+					const inner = pin.request ?? {}
+					if (pin.expectedGuestBootId !== guestBootId) {
+						answer(socket, {
+							ok: false,
+							error: `guest_mismatch:${String(guestBootId)}`,
+							...identity(),
+							...(retiring ? { retiring: true } : {}),
+						})
+						continue
+					}
+					if (retiring && inner.op !== 'cancel-execution') {
+						answer(socket, { ok: false, error: 'agent_retiring', retiring: true, ...identity() })
+						continue
+					}
+					request = { op: inner.op, body: inner.body, token: request.token }
+					op = inner.op
+				}
+				if (op !== 'healthz' && op !== 'pinned') dispatched.push(request)
 				// `dispatch`'s own gate: `cancel-execution` goes through a
 				// fence (it is how a host asks about the command that raised
 				// it) and everything else is refused by name.
@@ -604,6 +646,10 @@ export async function startScriptedAgent(
 		port,
 		requests,
 		connections,
+		dispatched,
+		fence: () => {
+			retiring = true
+		},
 		setToken: (next) => {
 			token = next
 			retiring = false

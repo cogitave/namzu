@@ -1,0 +1,148 @@
+# The OPT-IN companion to validatingadmissionpolicy-cilium.yaml: an
+# operator-pinned set of the hostnames and ports a sandbox host may grant
+# (`config.egress.perSandbox.permittedHostsParam`).
+#
+# WHY IT IS A SEPARATE FILE. The main fence bounds the SHAPE of what the host
+# may write, not WHICH names: any host holding the write verbs can grant any
+# syntactically valid `toFQDNs` entry. This policy closes that. It is a second
+# policy rather than a change to the first because the first is already
+# applied in clusters, and a host that does not configure `permittedHostsParam`
+# must see exactly what it saw before. Applying this file changes nothing for
+# a host that does not name the parameter below; a host that DOES name it
+# refuses to write until it has proved this policy and its binding.
+#
+# WHAT IT ENFORCES. For the same host identity as the main fence, every
+# CREATE and UPDATE of a CiliumNetworkPolicy:
+#   - every egress rule carrying `toFQDNs` must also carry `toPorts`, and every
+#     port in them must be listed in the parameter's `ports` -- a rule with no
+#     `toPorts` is every port on the named hosts, which is outside any list;
+#   - every `toFQDNs` entry must be a `matchName` listed in `hosts`, or a
+#     `matchPattern` listed in `patterns`. A `.example.com` grant is both
+#     `example.com` and `*.example.com`, so the domain needs a line in each.
+# A DELETE is NOT covered, on purpose: a delete never widens, and a missing
+# parameter must not make `setNetworkPolicy([])` -- the revoke -- impossible.
+#
+# THE PARAMETER is the ConfigMap below: one entry per line, three keys. The
+# backend reads the same object and refuses locally, with a precise error and
+# nothing written, any call outside it; this policy stays the authority.
+# `parameterNotFoundAction: Deny` makes a missing ConfigMap refuse every grant
+# instead of admitting them all.
+#
+# THE BACKEND PROVES THIS OBJECT before its first write (the policy and binding
+# names are the main policy's with `-hosts` appended, and `-hosts-binding`):
+# it compares the stored policy's `paramKind`, `variables` and `validations` to
+# the ones in per-sandbox-fence.ts verbatim, and the binding's `paramRef` to the
+# configured ConfigMap. EDIT the expressions below and the backend refuses the
+# fence as one it cannot vouch for. What you may edit: the identity in
+# `matchConditions` (set `perSandbox.hostIdentity` to the same value and the
+# backend checks it), the namespace in the binding, and the ConfigMap itself.
+#
+# NOT MEASURED HERE: whether these CEL expressions refuse what they claim
+# against a real API server. Run them against a cluster with the
+# CiliumNetworkPolicy CRD installed (no data plane needed) the way the main
+# fence's header describes, before relying on them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: namzu-per-sandbox-permitted-hosts
+  namespace: namzu-sandboxes
+data:
+  # Exact hostnames, one per line, lowercase.
+  hosts: |
+    login.example.com
+    api.example.com
+  # `*.<domain>` over at least two labels, one per line. Empty when no domain
+  # entry is permitted.
+  patterns: |
+    *.example.com
+  # TCP ports, one per line.
+  ports: |
+    443
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: namzu-per-sandbox-egress-hosts
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [cilium.io]
+        apiVersions: [v2]
+        operations: [CREATE, UPDATE]
+        resources: [ciliumnetworkpolicies]
+  matchConditions:
+    - name: only-the-namzu-sandbox-host
+      expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:namzu-sandboxes:namzu-sandbox-host'
+  variables:
+    - name: egress
+      expression: >-
+        has(object.spec) && has(object.spec.egress) ? object.spec.egress : []
+    - name: names
+      expression: "params.data.hosts.split('\\n')"
+    - name: patterns
+      expression: "params.data.patterns.split('\\n')"
+    - name: ports
+      expression: "params.data.ports.split('\\n')"
+  validations:
+    - expression: >-
+        variables.egress.all(r, !has(r.toFQDNs) || (has(r.toPorts) &&
+        size(r.toPorts) > 0 && r.toPorts.all(p, has(p.ports) &&
+        size(p.ports) > 0 && p.ports.all(q, q.port in variables.ports)) &&
+        r.toFQDNs.all(f, (has(f.matchName) && f.matchName in variables.names) ||
+        (has(f.matchPattern) && f.matchPattern in variables.patterns))))
+      message: >-
+        a toFQDNs rule may name only hosts and ports listed in the
+        operator-pinned ConfigMap, and must carry toPorts
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: namzu-per-sandbox-egress-hosts-binding
+spec:
+  policyName: namzu-per-sandbox-egress-hosts
+  validationActions: [Deny]
+  # A binding with no parameter pins nothing, and one that admits when the
+  # parameter is missing admits every grant: both are refused by the backend.
+  paramRef:
+    name: namzu-per-sandbox-permitted-hosts
+    namespace: namzu-sandboxes
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: namzu-sandboxes
+---
+# The host's read of the parameter: `get` on this one ConfigMap and nothing
+# else. The admission controller reads it with its own identity; this is for
+# the backend's local check.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namzu-sandbox-host-permitted-hosts
+  namespace: namzu-sandboxes
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [namzu-per-sandbox-permitted-hosts]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namzu-sandbox-host-permitted-hosts
+  namespace: namzu-sandboxes
+subjects:
+  - kind: ServiceAccount
+    name: namzu-sandbox-host
+    namespace: namzu-sandboxes
+roleRef:
+  kind: Role
+  name: namzu-sandbox-host-permitted-hosts
+  apiGroup: rbac.authorization.k8s.io

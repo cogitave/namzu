@@ -83,6 +83,7 @@ import {
 	type GuestReplyIdentity,
 	type KillSessionRequest,
 	MIN_STREAM_HEARTBEAT_MS,
+	type PinnedRequest,
 	type QuiesceRequest,
 	READ_FILE_STREAM_FEATURE,
 	type ReadFileRequest,
@@ -243,6 +244,10 @@ export type AgentRequest = (
 	// whose `healthz` named {@link FLUSH_FEATURE}.
 	| { readonly op: 'flush'; readonly body: FlushRequest }
 	| { readonly op: 'healthz' }
+	// The pin envelope. Never built by a caller: {@link
+	// VsockTransportOptions.pinnedGuestBootId} wraps every other request in
+	// it at the one point a credential is folded in.
+	| { readonly op: 'pinned'; readonly body: PinnedRequest }
 ) &
 	// Intersected, not repeated per arm: the credential is orthogonal to
 	// the op, and every arm may carry it. Optional and additive, so a host
@@ -441,6 +446,16 @@ export interface VsockTransportOptions {
 	 * bind token — cannot change when the container is restarted in place.
 	 */
 	readonly onGuestReply?: (reply: GuestReplyIdentity) => void
+	/**
+	 * Pin every request this transport sends (every op but `healthz`) to the
+	 * guest agent process with this boot id: each is wrapped in the `pinned`
+	 * op, which the agent refuses before dispatch when its own id differs.
+	 *
+	 * The caller must have checked {@link PINNED_GUEST_FEATURE} first: an
+	 * older agent answers `unknown_op: pinned` and runs nothing, which is the
+	 * safe failure, but it is not a message anyone should have to decode.
+	 */
+	readonly pinnedGuestBootId?: string
 	/**
 	 * The largest `writeFile` body this transport will accept, in raw
 	 * bytes. Default {@link DEFAULT_MAX_WRITE_FILE_BYTES} (1 GiB).
@@ -915,6 +930,7 @@ export class VsockAgentTransport {
 	private guestFeatureList?: readonly string[]
 	private readonly permanentDialFailure?: (error: unknown) => boolean
 	private readonly onExecTiming?: (timing: FirecrackerTransportTiming) => void
+	private readonly pinnedGuestBootId?: string
 
 	constructor(handle: SandboxAgentHandle, options: VsockTransportOptions = {}) {
 		this.handle = handle
@@ -935,6 +951,9 @@ export class VsockAgentTransport {
 		}
 		this.permanentDialFailure = options.permanentDialFailure
 		this.onExecTiming = options.onExecTiming
+		if (options.pinnedGuestBootId !== undefined) {
+			this.pinnedGuestBootId = options.pinnedGuestBootId
+		}
 	}
 
 	/**
@@ -1271,6 +1290,18 @@ export class VsockAgentTransport {
 	 * a request built for those arms passes through unchanged.
 	 */
 	private withCredential(req: AgentRequest): AgentRequest {
+		const pinned = this.pinnedGuestBootId
+		if (pinned !== undefined && req.op !== 'healthz' && req.op !== 'pinned') {
+			const { token: _token, op, ...rest } = req as AgentRequest & { token?: string }
+			const inner = { op, ...('body' in rest ? { body: (rest as { body?: unknown }).body } : {}) }
+			const wrapped: AgentRequest = {
+				op: 'pinned',
+				body: { expectedGuestBootId: pinned, request: inner },
+			}
+			return this.handle.kind === 'tcp' && this.handle.token !== undefined
+				? { ...wrapped, token: this.handle.token }
+				: wrapped
+		}
 		if (this.handle.kind === 'tcp' && this.handle.token !== undefined) {
 			return { ...req, token: this.handle.token }
 		}

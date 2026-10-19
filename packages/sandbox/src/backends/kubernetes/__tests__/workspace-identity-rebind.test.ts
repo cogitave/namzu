@@ -138,7 +138,14 @@ async function handleClusterRequest(req: RecordedRequest): Promise<FakeApiReply>
 	}
 	if (req.method === 'POST' && req.path.endsWith('/sandboxes')) return { status: 201, body: {} }
 	if (req.method === 'PATCH' && req.path.includes('/sandboxes/')) {
-		const mode = (req.body as { spec?: { operatingMode?: string } }).spec?.operatingMode
+		// A handle that knows its Sandbox uid pins the write to it, so the
+		// patch arrives as a JSON Patch list; one that does not sends a merge
+		// patch. Both carry the same mode.
+		const mode = Array.isArray(req.body)
+			? (req.body as { path: string; value?: string }[]).find(
+					(op) => op.path === '/spec/operatingMode',
+				)?.value
+			: (req.body as { spec?: { operatingMode?: string } }).spec?.operatingMode
 		if (mode === 'Suspended') operatingMode = 'Suspended'
 		if (mode === 'Running') operatingMode = 'Running'
 		return { status: 200, body: {} }
@@ -160,7 +167,7 @@ async function handleClusterRequest(req: RecordedRequest): Promise<FakeApiReply>
 		return {
 			status: 200,
 			body: {
-				metadata: { name: WORKSPACE_NAME, uid: sandboxUid },
+				metadata: { name: WORKSPACE_NAME, uid: sandboxUid, resourceVersion: '1' },
 				// The disk is on the SANDBOX's own spec, as the controller
 				// stores it (`volumeClaimTemplates` is CEL-immutable there),
 				// and that is where the claim NAMES are read from — not from

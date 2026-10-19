@@ -90,6 +90,27 @@ import {
 } from './backends/kubernetes/index.js'
 import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
 import {
+	type KubernetesExecutionProfile,
+	type KubernetesExecutionProfileOptions,
+	type KubernetesWorkspaceAllocateOptions,
+	type KubernetesWorkspaceAllocationRecoverOptions,
+	type KubernetesWorkspaceAllocationRecovery,
+	type KubernetesWorkspaceAllocationResult,
+	allocateKubernetesWorkspace as allocateWorkspaceOnCluster,
+	recoverKubernetesWorkspaceAllocation as recoverAllocationOnCluster,
+	resolveKubernetesExecutionProfile as resolveProfileOnCluster,
+} from './backends/kubernetes/workspace-allocate.js'
+import {
+	type KubernetesWorkspaceClosure,
+	type KubernetesWorkspaceInspectOptions,
+	type KubernetesWorkspaceInspection,
+	type KubernetesWorkspaceOpenOptions,
+	type KubernetesWorkspaceReconcileOptions,
+	inspectKubernetesWorkspace as inspectWorkspaceOnCluster,
+	openKubernetesWorkspace as openWorkspaceOnCluster,
+	reconcileKubernetesWorkspace as reconcileWorkspaceOnCluster,
+} from './backends/kubernetes/workspace-observe.js'
+import {
 	type KubernetesWorkspace,
 	type KubernetesWorkspaceOptions,
 	type KubernetesWorkspaceSummary,
@@ -208,6 +229,7 @@ export type {
 	KubernetesEgressVerification,
 	KubernetesOnlyEgressPolicy,
 	KubernetesPerSandboxEgressConfig,
+	KubernetesPermittedHostsParam,
 } from './backends/kubernetes/egress-policy.js'
 // Per-sandbox egress — `config.egress.perSandbox`, which makes
 // `Sandbox.setNetworkPolicy` PRESENT on a kubernetes TASK handle instead of
@@ -221,20 +243,26 @@ export type {
 // `KubernetesOwnerUidMissingError` is the fourth, and the only one raised
 // from an ACQUIRE — the object this backend created reported no uid, so a
 // policy written for it would be an orphan.
-// `KubernetesWorkspacePerSandboxEgressConfigError` is the fifth: the same
-// option reaching `createKubernetesWorkspace`, whose handle never carries
-// `setNetworkPolicy` — refused there rather than accepted and ignored.
+// `KubernetesWorkspacePerSandboxEgressConfigError` is deprecated: it used to
+// refuse the same option on `createKubernetesWorkspace`, whose handle now
+// carries `setNetworkPolicy`, so nothing throws it any more.
 // See `backends/kubernetes/per-sandbox-policy.ts` — and, for
 // `KubernetesNetworkPolicyHostError`, which the config-level translation
 // refuses the same entries with, `backends/kubernetes/egress-policy.ts`.
 export { KubernetesPerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { KubernetesWorkspacePerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
 export { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from './backends/kubernetes/egress-policy.js'
+export { KUBERNETES_PER_SANDBOX_PROFILE_VARIANT } from './backends/kubernetes/workspace-per-sandbox.js'
+export type { FenceObjectKind } from './backends/kubernetes/per-sandbox-fence.js'
 export {
+	KubernetesAdmissionFenceInertError,
 	KubernetesAdmissionFenceMissingError,
 	KubernetesAdmissionFenceUnreadableError,
 	KubernetesNetworkPolicyHostError,
 	KubernetesOwnerUidMissingError,
+	KubernetesPerSandboxPolicyNotRemovedError,
+	KubernetesPermittedHostsError,
+	KubernetesPermittedHostsParamError,
 	PER_SANDBOX_POLICY_NAME_PREFIX,
 } from './backends/kubernetes/per-sandbox-policy.js'
 // The default label key `KubernetesEgressConfig.profile` is written under.
@@ -303,6 +331,10 @@ export {
 } from './backends/kubernetes/sandbox.js'
 export {
 	KubernetesAgentAddressUnresolvableError,
+	// The guest agent compared its boot id with a pinned request's and refused
+	// before dispatching anything. Reaches a caller as
+	// `KubernetesGuestPinRefusedError` through a pinned view.
+	KubernetesAgentGuestMismatchError,
 	// A guest that has fenced itself refuses one CALL here, not the
 	// workspace: the Firecracker tier's mapping of the same refusal retires
 	// the sandbox, which on a workspace would take the pod away from every
@@ -369,11 +401,16 @@ export type {
 } from './backends/kubernetes/workspace.js'
 export type { KubernetesQuiesceReport } from './backends/kubernetes/transport.js'
 export {
+	KubernetesQuiesceBusyError,
+	type KubernetesQuiesceBusyProcess,
+	type KubernetesQuiesceBusyRegistryEntry,
 	KubernetesQuiesceUnconfirmedError,
 	KubernetesQuiesceUnsupportedError,
 } from './backends/kubernetes/transport.js'
 export {
 	QUIESCE_FEATURE,
+	PINNED_GUEST_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 } from './backends/firecracker/protocol.js'
@@ -518,15 +555,67 @@ export type {
 export type {
 	KubernetesGuestEvidence,
 	KubernetesGuestRestart,
+	KubernetesGuestPinRefusal,
 	KubernetesGuestRestartReason,
+	KubernetesPinnedGuestIdentity,
+	KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceIdentity,
+	KubernetesWorkspaceIdentityMismatch,
 } from './backends/kubernetes/identity.js'
+export type {
+	KubernetesObservedAllocation,
+	KubernetesWorkspaceAllocation,
+	KubernetesWorkspaceAllocationMismatch,
+} from './backends/kubernetes/allocation.js'
+export {
+	KubernetesExecutionProfileDriftError,
+	KubernetesWorkspaceAllocationConflictError,
+	KubernetesWorkspaceAllocationMismatchError,
+} from './backends/kubernetes/allocation.js'
+export type {
+	KubernetesAllocationUnknownReason,
+	KubernetesExecutionProfile,
+	KubernetesExecutionProfileOptions,
+	KubernetesWorkspaceAllocateOptions,
+	KubernetesWorkspaceAllocationReceipt,
+	KubernetesWorkspaceAllocationRecoverOptions,
+	KubernetesWorkspaceAllocationRecovery,
+	KubernetesWorkspaceAllocationResult,
+	KubernetesWorkspaceAllocationUnknown,
+} from './backends/kubernetes/workspace-allocate.js'
+export {
+	ALLOCATION_ID_ANNOTATION_KEY,
+	ALLOCATION_SCOPE_ANNOTATION_KEY,
+	EXECUTION_PROFILE_ANNOTATION_KEY,
+} from './backends/kubernetes/objects.js'
+export type {
+	KubernetesWorkspaceClosure,
+	KubernetesWorkspaceClosureState,
+	KubernetesWorkspaceInspectOptions,
+	KubernetesWorkspaceInspection,
+	KubernetesWorkspaceObservationOptions,
+	KubernetesWorkspaceOpenOptions,
+	KubernetesWorkspaceReconcileOptions,
+} from './backends/kubernetes/workspace-observe.js'
+export { KubernetesWorkspaceReadyTimeoutError } from './backends/kubernetes/workspace-observe.js'
+// Pinning one guest: `workspace.pinGuest(identity)` and the two errors a host
+// catches by class — an identity that cannot pin (nothing was created) and a
+// pinned call that was refused (nothing ran).
+export {
+	KubernetesGuestPinRefusedError,
+	KubernetesPinIncompleteError,
+} from './backends/kubernetes/identity.js'
+export type { KubernetesPinnedGuest } from './backends/kubernetes/workspace.js'
 export {
 	// The command's outcome is unknown AND the guest it ran in is gone. A
 	// subclass of `RemoteCancellationUnknownError`, so a host catching the
 	// base class keeps catching it; what it adds is which guest the command
 	// started on and which one is there now.
 	KubernetesWorkspaceGuestGoneError,
+	// The workspace a host retained is not what stands under its name:
+	// another Sandbox uid, no Sandbox, another claim uid or owner. Raised by
+	// `openKubernetesWorkspace` before anything is created, woken or written.
+	KubernetesWorkspaceIdentityMismatchError,
 	// A different Sandbox now stands under the workspace's deterministic
 	// name, or none does. The handle refuses rather than following it — the
 	// disk behind the name is not the disk it was opened on.
@@ -1714,6 +1803,107 @@ export async function suspendKubernetesWorkspace(
 	options?: KubernetesWorkspaceSuspendOptions,
 ): Promise<void> {
 	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Resolve and fingerprint what a workspace created from `config` would run —
+ * the pod template with this backend's overlays, the template's disks, the
+ * egress policy translated from `config.egress` and the ingress settings —
+ * without creating anything. One GET: the SandboxTemplate — plus, when
+ * `config.egress.perSandbox` is configured, the reads that prove its admission
+ * fence (a configuration whose fence does not enforce is refused and yields no
+ * fingerprint), and the result then carries `variant:
+ * 'core/no-network+per-sandbox'`.
+ *
+ * Persist the result, then pass its `fingerprint` as
+ * `allocation.executionProfile` to {@link allocateKubernetesWorkspace}.
+ */
+export async function resolveKubernetesExecutionProfile(
+	config: KubernetesBackendConfig,
+	options?: KubernetesExecutionProfileOptions,
+): Promise<KubernetesExecutionProfile> {
+	return await resolveProfileOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Create a workspace exactly once, bound to the allocation the host recorded
+ * first. Unlike `createKubernetesWorkspace` it never adopts a same-name
+ * object (typed `KubernetesWorkspaceAllocationConflictError`, nothing
+ * touched), never resumes compute, and never retries the create.
+ *
+ * `{ outcome: 'created' }` carries a receipt with the new Sandbox's uid — an
+ * acknowledgement, not readiness. `{ outcome: 'unknown' }` means the request
+ * was sent and no usable reply came back; settle it with
+ * `recoverKubernetesWorkspaceAllocation`.
+ */
+export async function allocateKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceAllocateOptions,
+): Promise<KubernetesWorkspaceAllocationResult> {
+	return await allocateWorkspaceOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * After an `unknown` allocation: one read-only GET, answered as `created`
+ * (with the receipt), `absent` or `different`. See
+ * `KubernetesWorkspaceAllocationRecovery` for what `absent` does and does not
+ * promise.
+ */
+export async function recoverKubernetesWorkspaceAllocation(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceAllocationRecoverOptions,
+): Promise<KubernetesWorkspaceAllocationRecovery> {
+	return await recoverAllocationOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Look at a workspace by id: its Sandbox uid, volume-claim uids, live pod,
+ * operating mode and holder epoch. GET requests only — it never creates,
+ * wakes, patches or deletes — and it resolves `undefined` when no Sandbox
+ * stands under the id.
+ *
+ * `epoch` is required: a workspace held at a higher epoch belongs to another
+ * process, and a superseded host is refused with
+ * `KubernetesWorkspacePreconditionError` rather than shown it.
+ */
+export async function inspectKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options: KubernetesWorkspaceInspectOptions,
+): Promise<KubernetesWorkspaceInspection | undefined> {
+	return await inspectWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Authenticate the identity a host retained against what stands under the
+ * workspace id, and with `waitForReady` wait — under one `readyTimeoutMs`
+ * deadline — for its volume claims and its guest. Never creates, wakes or
+ * writes; a suspended workspace is returned as suspended.
+ *
+ * A different Sandbox or claim is `KubernetesWorkspaceIdentityMismatchError`;
+ * a `resourceVersion` or `Ready` condition that moves while waiting is
+ * ordinary progress and never is. Running out of time is
+ * `KubernetesWorkspaceReadyTimeoutError`, and cancelling rejects with the
+ * signal's reason.
+ */
+export async function openKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceOpenOptions,
+): Promise<KubernetesWorkspaceInspection> {
+	return await openWorkspaceOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * After a restart, what became of the workspace a host retained: `live`,
+ * `suspended`, `absent` or `replaced`. One GET-only pass; a different Sandbox
+ * or claim is the answer `replaced`, not an error, and a read that did not
+ * answer rejects rather than reading as `absent`.
+ */
+export async function reconcileKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceReconcileOptions,
+): Promise<KubernetesWorkspaceClosure> {
+	return await reconcileWorkspaceOnCluster(kubernetesInternalConfig(config), options)
 }
 
 /**

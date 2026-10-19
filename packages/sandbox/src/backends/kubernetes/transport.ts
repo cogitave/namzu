@@ -43,8 +43,11 @@ import {
 	type ExecRequest,
 	ExecResultAccumulator,
 	FLUSH_FEATURE,
+	GUEST_MISMATCH_REFUSAL,
 	type GuestReplyIdentity,
+	PINNED_GUEST_FEATURE,
 	QUIESCE_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 	SESSIONS_FEATURE,
@@ -124,9 +127,61 @@ export class KubernetesAgentRetiringError extends Error {
 
 	constructor(
 		message = 'kubernetes tcp transport: the guest agent has fenced itself (agent_retiring) because an earlier process group’s shutdown could not be confirmed. A command of unknown state may still be running in that pod and nothing on this side can end it: only a new pod clears the fence, and until the pod is replaced every call except healthz and cancel-execution meets this same refusal — reads, writes, terminals and tcp connections included. Nothing was changed on the cluster by this refusal and this handle was not retired. On a persistent workspace, call suspend() and then resume() when you are ready for the live terminals and background processes in that pod to go down; on a task sandbox, destroy() it and take another.',
+		/**
+		 * The agent process that is fenced, when the refusal named it. Only a
+		 * request sent through a pinned view carries one: it is how a caller
+		 * tells "the guest I pinned is the one that is fenced" (the same id)
+		 * from "a different guest stands there" (a `guest_mismatch`).
+		 */
+		readonly guestBootId?: string,
 	) {
 		super(message)
 	}
+}
+
+/**
+ * The guest agent refused a pinned request before dispatching it because its
+ * own boot id is not the one the request was pinned to. Nothing ran.
+ *
+ * `guestBootId` is the id of the agent that answered, so a caller can tell a
+ * replacement (a new id) from a refusal that has nothing to do with identity.
+ * `retiring` is true when that agent is also fenced.
+ */
+export class KubernetesAgentGuestMismatchError extends Error {
+	override readonly name = 'KubernetesAgentGuestMismatchError'
+
+	constructor(
+		readonly guestBootId: string | undefined,
+		readonly retiring = false,
+	) {
+		super(
+			`kubernetes tcp transport: the guest agent refused a pinned request before dispatching it (${GUEST_MISMATCH_REFUSAL}): its boot id is ${guestBootId ?? 'unreported'}, not the one the request was pinned to. Nothing ran.`,
+		)
+	}
+}
+
+/**
+ * The fresh guest boot id carried by a pinned refusal, wherever in an error's
+ * cause chain it sits — the control-plane path throws the class above, and
+ * every other path throws a plain `Error` whose message is the guest's error
+ * text, `guest_mismatch:<id>`.
+ */
+export function guestMismatchOf(
+	error: unknown,
+): { readonly guestBootId: string | undefined; readonly retiring: boolean } | undefined {
+	let current: unknown = error
+	for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
+		if (current instanceof KubernetesAgentGuestMismatchError) {
+			return { guestBootId: current.guestBootId, retiring: current.retiring }
+		}
+		const prefix = `${GUEST_MISMATCH_REFUSAL}:`
+		if (current.message.startsWith(prefix)) {
+			const id = current.message.slice(prefix.length).trim()
+			return { guestBootId: id === '' ? undefined : id, retiring: false }
+		}
+		current = current.cause
+	}
+	return undefined
 }
 
 /**
@@ -350,7 +405,7 @@ function refusedWith(response: unknown, error: string): boolean {
  * output is quoted into a message, does not equal it. The chain is walked
  * because the retry wrapper and the stream paths wrap rather than replace.
  */
-function isUnauthorizedRefusal(error: unknown): boolean {
+export function isUnauthorizedRefusal(error: unknown): boolean {
 	let current: unknown = error
 	for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
 		if (current instanceof KubernetesAgentUnauthorizedError) return true
@@ -461,7 +516,19 @@ async function requestChecked(
 ): Promise<unknown> {
 	const response = await wire.request(request, signal)
 	if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
-	if (isAgentRetiring(response)) throw new KubernetesAgentRetiringError()
+	if (isAgentRetiring(response)) {
+		throw new KubernetesAgentRetiringError(undefined, guestBootIdOf(response))
+	}
+	if (response && typeof response === 'object') {
+		const value = response as { ok?: unknown; error?: unknown; retiring?: unknown }
+		if (
+			value.ok === false &&
+			typeof value.error === 'string' &&
+			value.error.startsWith(`${GUEST_MISMATCH_REFUSAL}:`)
+		) {
+			throw new KubernetesAgentGuestMismatchError(guestBootIdOf(response), value.retiring === true)
+		}
+	}
 	return response
 }
 
@@ -1314,6 +1381,76 @@ export class KubernetesQuiesceUnconfirmedError extends Error {
 	}
 }
 
+/** One thing the guest found running when an idle-only quiesce looked. */
+export interface KubernetesQuiesceBusyProcess {
+	readonly pid: number
+	/** The kernel's short name for the executable, never its command line. */
+	readonly command: string
+	/** The `/proc` state letter (`R`, `S`, `D`, `Z`...). `Z` here is a zombie leader with a live thread. */
+	readonly state: string
+}
+
+/** A start the agent's registries hold that `/proc` may not show yet. */
+export interface KubernetesQuiesceBusyRegistryEntry {
+	readonly source: 'execution' | 'session'
+	readonly state: string
+}
+
+/**
+ * Thrown by `quiesce({ onlyIfIdle: true })` when the guest is not idle.
+ *
+ * An answer, not a failure: nothing was signalled, marked or stopped, the
+ * guest is exactly as it was, and `busy` says what was seen so the caller can
+ * decide to retry later. `busy` is capped (the guest names at most 32
+ * processes); `busyTotal` counts them all.
+ */
+export class KubernetesQuiesceBusyError extends Error {
+	override readonly name = 'KubernetesQuiesceBusyError'
+
+	constructor(
+		readonly busy: readonly KubernetesQuiesceBusyProcess[],
+		readonly busyTotal: number,
+		readonly registries: readonly KubernetesQuiesceBusyRegistryEntry[],
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+function busyDetail(reply: Record<string, unknown>): {
+	busy: KubernetesQuiesceBusyProcess[]
+	busyTotal: number
+	registries: KubernetesQuiesceBusyRegistryEntry[]
+} {
+	const rows = (value: unknown): Record<string, unknown>[] =>
+		Array.isArray(value)
+			? value.filter(
+					(entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object',
+				)
+			: []
+	const busy = rows(reply.busy).flatMap((row): KubernetesQuiesceBusyProcess[] =>
+		typeof row.pid === 'number'
+			? [
+					{
+						pid: row.pid,
+						command: typeof row.command === 'string' ? row.command : '',
+						state: typeof row.state === 'string' ? row.state : '',
+					},
+				]
+			: [],
+	)
+	const registries = rows(reply.registries).flatMap((row): KubernetesQuiesceBusyRegistryEntry[] =>
+		row.source === 'execution' || row.source === 'session'
+			? [{ source: row.source, state: typeof row.state === 'string' ? row.state : '' }]
+			: [],
+	)
+	return {
+		busy,
+		busyTotal: typeof reply.busyTotal === 'number' ? reply.busyTotal : busy.length,
+		registries,
+	}
+}
+
 /** What the guest stopped, and how widely it was allowed to look. */
 export interface KubernetesQuiesceReport {
 	/** Every process signalled, with the last signal it was actually sent. */
@@ -1479,6 +1616,8 @@ export class KubernetesAgentTransport {
 	private readonly refreshHandle?: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>
 	/** Simple pass-through operations share one transport instance. */
 	private wire: VsockAgentTransport
+	/** What {@link pinnedTo} builds a sibling from: everything but the hooks that follow or report a pod. */
+	private readonly siblingOptions: KubernetesTransportOptions
 
 	constructor(handle: KubernetesAgentHandle, options: KubernetesTransportOptions = {}) {
 		const { onTiming, refreshHandle, onGuestReply, ...transportOptions } = options
@@ -1508,7 +1647,32 @@ export class KubernetesAgentTransport {
 		}
 		this.onTiming = onTiming
 		this.refreshHandle = refreshHandle
+		this.siblingOptions = { ...transportOptions, ...(onTiming !== undefined ? { onTiming } : {}) }
 		this.wire = new VsockAgentTransport(handle, this.wireOptions(handle))
+	}
+
+	/**
+	 * A separate transport for the guest this one is bound to RIGHT NOW,
+	 * whose every request is pinned to the agent process `guestBootId`.
+	 *
+	 * Never rebinds: it has no `refreshHandle`, so a refused token or a dead
+	 * address ends the call where it stands, and it holds its own copy of the
+	 * handle, so a rebind of THIS transport later cannot move it onto another
+	 * pod. It reports no guest identity back either, so a pinned call cannot
+	 * move the observer a workspace uses to detect restarts. Pair it with
+	 * {@link supportsPinnedGuest}: against an agent without the feature the
+	 * `pinned` op is refused as unknown, and nothing is dispatched.
+	 */
+	pinnedTo(guestBootId: string): KubernetesAgentTransport {
+		return new KubernetesAgentTransport(
+			{ ...this.handle },
+			{ ...this.siblingOptions, pinnedGuestBootId: guestBootId },
+		)
+	}
+
+	/** Whether the guest serves the `pinned` op; see {@link PINNED_GUEST_FEATURE}. */
+	async supportsPinnedGuest(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(PINNED_GUEST_FEATURE)
 	}
 
 	/**
@@ -2164,17 +2328,31 @@ export class KubernetesAgentTransport {
 	 * process would not stop, and the reply names its pid.
 	 */
 	async quiesce(
-		options: { readonly graceMs?: number } = {},
+		options: { readonly graceMs?: number; readonly idleOnly?: boolean } = {},
 		signal?: AbortSignal,
 	): Promise<KubernetesQuiesceReport> {
+		const idleOnly = options.idleOnly === true
+		if (idleOnly && options.graceMs !== undefined) {
+			throw new TypeError(
+				'kubernetes: quiesce({ onlyIfIdle: true }) signals nothing, so graceMs has no meaning with it',
+			)
+		}
 		await this.assertQuiesceSupported(signal)
+		// Checked BEFORE anything is sent: an agent without the feature
+		// ignores `idleOnly` and would run the stopping quiesce.
+		if (idleOnly && !(await this.supportsQuiesceIdle(signal))) {
+			throw this.quiesceIdleUnsupported()
+		}
 		const reply = (await this.withRebind(
 			async () =>
 				await requestChecked(
 					this.wire,
 					{
 						op: 'quiesce',
-						body: { ...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}) },
+						body: {
+							...(idleOnly ? { idleOnly: true } : {}),
+							...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}),
+						},
 					},
 					signal,
 				),
@@ -2186,6 +2364,15 @@ export class KubernetesAgentTransport {
 		// is one image, not two, so it is the unsupported error rather than a
 		// second name for the same fact — see {@link assertQuiesceSupported}.
 		if (refusal.startsWith('unknown_op')) throw this.quiesceUnsupported()
+		if (idleOnly && refusal === 'quiesce_busy') {
+			const seen = busyDetail(reply)
+			throw new KubernetesQuiesceBusyError(
+				seen.busy,
+				seen.busyTotal,
+				seen.registries,
+				`kubernetes: the guest is not idle (${seen.busyTotal} process(es), ${seen.registries.length} registry entr${seen.registries.length === 1 ? 'y' : 'ies'}). Nothing was signalled, marked or stopped; retry later.`,
+			)
+		}
 		const detail = typeof reply.message === 'string' ? `: ${reply.message}` : ''
 		throw new KubernetesQuiesceUnconfirmedError(
 			refusal,
@@ -2272,6 +2459,18 @@ export class KubernetesAgentTransport {
 	 */
 	async supportsQuiesce(signal?: AbortSignal): Promise<boolean> {
 		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_FEATURE)
+	}
+
+	/** Whether the guest's `quiesce` accepts `idleOnly`; see {@link QUIESCE_IDLE_FEATURE}. */
+	async supportsQuiesceIdle(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_IDLE_FEATURE)
+	}
+
+	private quiesceIdleUnsupported(): KubernetesQuiesceUnsupportedError {
+		return new KubernetesQuiesceUnsupportedError(
+			QUIESCE_IDLE_FEATURE,
+			`kubernetes: this workspace's guest agent does not advertise the '${QUIESCE_IDLE_FEATURE}' healthz feature, so it would ignore the idle-only request and run the ordinary quiesce, which signals and kills what is running. Nothing was sent. Rebuild the workspace image from this Namzu release, or call quiesce() without onlyIfIdle if stopping the work is acceptable.`,
+		)
 	}
 
 	private async assertQuiesceSupported(signal?: AbortSignal): Promise<void> {

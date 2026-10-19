@@ -306,11 +306,10 @@ kubectl apply -f manifests/validatingadmissionpolicy-cilium.yaml
 kubectl apply -f manifests/rbac-per-sandbox-egress.yaml
 ```
 
-They are prerequisites for the TASK path only: `setNetworkPolicy` is present
-on a task sandbox handle and never on a `KubernetesWorkspace`, whose create
-call refuses a config carrying `egress.perSandbox`
-(`KubernetesWorkspacePerSandboxEgressConfigError`) rather than accepting an
-option it would never use. See `docs/sdk/kubernetes-sandbox.md`.
+They are prerequisites for every handle that serves `setNetworkPolicy`: a
+task sandbox and a `KubernetesWorkspace`, both when `egress.perSandbox` is
+configured. A workspace proves the fence before it is created or opened and
+again on every resume. See `docs/sdk/kubernetes-sandbox.md`.
 
 The first is the admission FENCE: it bounds what the host ServiceAccount may
 write to this namespace's `CiliumNetworkPolicies` — a name of
@@ -343,6 +342,28 @@ being allowed to write unproven. Apply the RBAC without the fence and the host
 holds unbounded write access to every policy in the namespace; the backend
 refuses to write until the fence exists, which covers the host that follows
 its own config and not an attacker holding its token.
+
+The backend does not stop at "the fence exists". Before its first write it
+reads both admission objects and refuses (`KubernetesAdmissionFenceInertError`,
+naming the field, nothing written) a binding whose `validationActions` lacks
+`Deny`, that names another policy, whose namespace selection leaves the
+sandboxes' namespace out, or that excludes a verb; and a policy whose
+`failurePolicy` is not `Fail`. Set `egress.perSandbox.hostIdentity` to the
+identity in the policy's `matchConditions` to have that checked too.
+
+**To also pin WHICH hostnames and ports a host may grant**, apply the optional
+companion and name its ConfigMap in `egress.perSandbox.permittedHostsParam`:
+
+```sh
+kubectl apply -f manifests/validatingadmissionpolicy-cilium-permitted-hosts.yaml
+```
+
+Edit the ConfigMap in that file (`hosts`, `patterns`, `ports`, one entry per
+line), the identity in its `matchConditions` and the namespaces. It covers
+`CREATE` and `UPDATE` only, so a missing ConfigMap never blocks
+`setNetworkPolicy([])`. Hosts that do not set `permittedHostsParam` see no
+change. The backend compares the companion's expressions verbatim; edit them
+and it refuses the fence.
 
 The same label-domain prerequisite as `egress.profile` applies: the
 per-sandbox selector key defaults to `sandbox.namzu.ai/per-sandbox-egress`,
@@ -449,7 +470,7 @@ node scripts/egress-check.mjs \
   --policy no-network --in-cluster
 ```
 
-**`ingress-check.mjs` and `egress-check.mjs` are the two scripts whose result
+**`ingress-check.mjs`, `egress-check.mjs` and `per-sandbox-egress-check.mjs` are the three scripts whose result
 depends on the CNI, not only on the objects the API server accepted.** A cluster that accepts
 `NetworkPolicy` and enforces none of it — the stock local kind cluster is one
 — accepts `networkpolicy.yaml` and still answers the probe, so the script
@@ -465,6 +486,29 @@ probe target and deletes it, disk included, however the run ends — including
 when the create itself fails, because a create that gets as far as POSTing the
 Sandbox and then fails suspends it rather than removing it and nothing in the
 cluster reaps that. Point `--workspace-id` at a name nobody's files live under.
+
+`per-sandbox-egress-check.mjs` is the one for a per-sandbox hostname grant,
+and it needs a cluster that enforces Cilium FQDN policy specifically:
+
+```sh
+node scripts/per-sandbox-egress-check.mjs \
+  --namespace namzu-sandboxes --template namzu-task --pool namzu-task-pool \
+  --host login.example.com [--cname-host www.example.com] \
+  [--tls-server-names] --in-cluster
+```
+
+It creates a task sandbox on a `no-network` baseline, and asserts from inside
+the guest, behind two positive controls: before any grant the host neither
+resolves nor connects; after `setNetworkPolicy([host])` it resolves and
+connects on 443 while the same host on another port, an ungranted name and a
+fixed public address are refused, and a host reached through a CNAME chain is
+admitted; after `setNetworkPolicy([])` the first state holds again. With
+`--tls-server-names` it also presents a different SNI to the allowed address
+and requires the handshake to be refused; without it the script prints SNI as
+`UNENFORCED` and does not count that as a pass, because a distribution may
+accept a `serverNames` rule and never apply it. It cannot observe the
+resolver's answer to a refused search-suffix query, nor the admission rule's
+CEL, and it was not run against an enforcing cluster when it was written.
 
 `egress-check.mjs` reads the same way and makes the same demand of its own
 controls: before any real probe it dials the pod's own agent port on

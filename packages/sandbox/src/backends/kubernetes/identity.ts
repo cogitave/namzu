@@ -54,6 +54,81 @@ export interface KubernetesWorkspaceIdentity {
 }
 
 /**
+ * The identity a host retained for a workspace, to be authenticated against
+ * what stands under the workspace's deterministic name before anything is
+ * written or reported.
+ *
+ *  - `sandboxUid` — the Sandbox object. The decisive field: a delete and
+ *    re-create under the same id changes it, and the disk with it.
+ *  - `volumeClaimUids` — optional, keyed by `volumeClaimTemplates` entry name.
+ *    Checked by {@link openKubernetesWorkspace} and
+ *    {@link reconcileKubernetesWorkspace}; an entry that is absent from the
+ *    cluster is "not there yet", not "replaced". Lifecycle writes pin the
+ *    Sandbox uid alone, because the claims are owned by the Sandbox.
+ */
+export interface KubernetesWorkspaceExpectedIdentity {
+	readonly sandboxUid: string
+	readonly volumeClaimUids?: Readonly<Record<string, string>>
+}
+
+/** Which part of a retained identity did not hold. */
+export type KubernetesWorkspaceIdentityMismatch =
+	| 'sandbox-absent'
+	| 'sandbox-uid'
+	| 'volume-claim-uid'
+	| 'volume-claim-owner'
+
+/**
+ * Thrown by {@link openKubernetesWorkspace} when what stands under the
+ * workspace's name is not the workspace the host retained.
+ *
+ * The refusal is about OWNERSHIP and nothing else. A `resourceVersion` that
+ * moved, a `Ready` condition that flipped and a condition left over from an
+ * earlier generation are the controller doing its work and never raise this;
+ * it needs a different Sandbox uid, a Sandbox that is gone, a claim with a
+ * different uid than the one retained, or a claim owned by another Sandbox.
+ * Nothing was created, woken or written to reach it, and it is terminal:
+ * retrying finds the same stranger.
+ */
+export class KubernetesWorkspaceIdentityMismatchError extends Error {
+	override readonly name = 'KubernetesWorkspaceIdentityMismatchError'
+
+	constructor(
+		readonly workspaceId: string,
+		readonly sandboxName: string,
+		readonly mismatch: KubernetesWorkspaceIdentityMismatch,
+		/** The uid that was retained for the thing that differs. */
+		readonly expected: string | undefined,
+		/** The uid standing there now; `undefined` when nothing does. */
+		readonly actual: string | undefined,
+		/** The `volumeClaimTemplates` entry, for the two claim mismatches. */
+		readonly claim?: string,
+	) {
+		super(
+			`kubernetes: workspace ${workspaceId} (Sandbox ${sandboxName}) is not the workspace this host retained — ${describeMismatch(mismatch, expected, actual, claim)}. Nothing was created, woken or written. The name is deterministic, so what stands under it now is not the disk the retained identity names; decide what the other one is worth before using it.`,
+		)
+	}
+}
+
+function describeMismatch(
+	mismatch: KubernetesWorkspaceIdentityMismatch,
+	expected: string | undefined,
+	actual: string | undefined,
+	claim: string | undefined,
+): string {
+	if (mismatch === 'sandbox-absent') {
+		return `no Sandbox stands there (retained uid ${String(expected)})`
+	}
+	if (mismatch === 'sandbox-uid') {
+		return `its Sandbox has uid ${String(actual)}, the retained one is ${String(expected)}`
+	}
+	if (mismatch === 'volume-claim-uid') {
+		return `its volume claim "${String(claim)}" has uid ${String(actual)}, the retained one is ${String(expected)}`
+	}
+	return `its volume claim "${String(claim)}" (uid ${String(actual)}) is owned by a different Sandbox than ${String(expected)}`
+}
+
+/**
  * Why the guest a handle is talking to is not the guest it was talking to.
  *
  *  - `pod-replaced` — a different pod. The controller replaced it (a resume
@@ -258,4 +333,139 @@ function describeEvidence(evidence: KubernetesGuestEvidence): string {
 	}
 	if (evidence === 'unknown') return 'the guest could not be identified at all'
 	return 'the guest is unchanged'
+}
+
+/**
+ * The whole guest a caller authenticated, to be handed to
+ * `workspace.pinGuest()`: the retained workspace identity
+ * ({@link KubernetesWorkspaceExpectedIdentity}, the same shape
+ * `openKubernetesWorkspace` takes) plus the two things only the guest side
+ * can say — the pod the agent runs in and the agent process itself.
+ *
+ * Every one of `sandboxUid`, `podUid` and `guestBootId` is REQUIRED, and a
+ * missing or empty one is refused with {@link KubernetesPinIncompleteError}
+ * rather than treated as "any": a pin that quietly matched everything the
+ * caller left blank would authenticate nothing. Read them off
+ * `workspace.identity` once a call has been answered, because
+ * `guestBootId` is `undefined` until the guest has spoken.
+ */
+export interface KubernetesPinnedGuestIdentity extends KubernetesWorkspaceExpectedIdentity {
+	readonly podUid: string
+	readonly guestBootId: string
+}
+
+/**
+ * `workspace.pinGuest()` was given an identity that cannot pin anything.
+ * Thrown synchronously, before a view exists; nothing was sent.
+ */
+export class KubernetesPinIncompleteError extends Error {
+	override readonly name = 'KubernetesPinIncompleteError'
+
+	constructor(
+		/** The fields that were absent, not a non-empty string, or malformed. */
+		readonly missing: readonly string[],
+	) {
+		super(
+			`kubernetes: pinGuest() needs a complete guest identity and was given one without ${missing.join(', ')}. A pin that left a field blank would match whatever stands there, which authenticates nothing. Read sandboxUid, podUid and guestBootId from workspace.identity after a call has been answered by the guest you mean to pin.`,
+		)
+	}
+}
+
+/** Why a pinned view refused a call. */
+export type KubernetesGuestPinRefusal =
+	/** The workspace's own identity no longer equals the pinned one. Checked before anything is dialed. */
+	| 'identity-changed'
+	/** The guest answered that it is a different agent process. It dispatched nothing. */
+	| 'guest-replaced'
+	/** The pod the view was pinned to refused its token: another pod stands there. */
+	| 'pod-replaced'
+	/** The guest agent is too old to authenticate a request, so a pin would silently not pin. Nothing was sent. */
+	| 'guest-unsupported'
+
+/**
+ * Thrown by every call on a pinned view when the guest behind the workspace
+ * is not the one the view was pinned to.
+ *
+ * It means the call did NOT run: either the host refused before dialing
+ * (`identity-changed`, `guest-unsupported`) or the guest agent compared its
+ * boot id first and dispatched nothing (`guest-replaced`), or the token was
+ * refused unread (`pod-replaced`). The view never rebinds, so the same call
+ * will keep refusing; pin the new guest if that is what you want.
+ *
+ * `freshGuestBootId` is the id of the agent that refused, when it said:
+ * different from `expected.guestBootId` means replaced, and an agent that
+ * answers `KubernetesAgentRetiringError` with the SAME id is fenced, not
+ * replaced.
+ */
+export class KubernetesGuestPinRefusedError extends Error {
+	override readonly name = 'KubernetesGuestPinRefusedError'
+
+	constructor(
+		readonly reason: KubernetesGuestPinRefusal,
+		readonly workspaceId: string,
+		readonly expected: KubernetesPinnedGuestIdentity,
+		/** The workspace's identity at the time, for `identity-changed`. */
+		readonly actual: KubernetesWorkspaceIdentity | undefined,
+		/** Which pinned field differed, for `identity-changed`. */
+		readonly field: 'sandboxUid' | 'volumeClaimUids' | 'podUid' | 'guestBootId' | undefined,
+		/** The boot id of the agent that answered, for `guest-replaced`. */
+		readonly freshGuestBootId: string | undefined,
+		options?: ErrorOptions,
+	) {
+		super(describePinRefusal(reason, workspaceId, expected, field, freshGuestBootId), options)
+	}
+}
+
+function describePinRefusal(
+	reason: KubernetesGuestPinRefusal,
+	workspaceId: string,
+	expected: KubernetesPinnedGuestIdentity,
+	field: string | undefined,
+	fresh: string | undefined,
+): string {
+	const head = `kubernetes: this view of workspace ${workspaceId} is pinned to guest ${expected.guestBootId} in pod ${expected.podUid}`
+	if (reason === 'identity-changed') {
+		return `${head}, and the workspace's ${field ?? 'identity'} is no longer the pinned one. Nothing was sent. A pinned view never rebinds; pin the new guest if that is the one you mean.`
+	}
+	if (reason === 'guest-replaced') {
+		return `${head}, but the agent that answered is ${fresh ?? 'a different process'}. It compared its boot id before dispatching, so nothing ran. A pinned view never rebinds; pin the new guest if that is the one you mean.`
+	}
+	if (reason === 'pod-replaced') {
+		return `${head}, but that pod refused the pinned token, so a different pod stands there now. Nothing ran. A pinned view never rebinds; pin the new guest if that is the one you mean.`
+	}
+	return `${head}, but its guest agent does not advertise the 'pinned-guest' feature, so it would serve a request on whatever guest it is. Nothing was sent. Rebuild the workspace image from this Namzu release.`
+}
+
+/** A non-empty string, which is what every pinned identity field must be. */
+function isIdentityString(value: unknown): value is string {
+	return typeof value === 'string' && value !== ''
+}
+
+/**
+ * Validate and freeze a pin request, copying it first: the caller's object is
+ * not read again after this returns, so mutating it cannot loosen a pin.
+ */
+export function freezePinnedIdentity(
+	input: KubernetesPinnedGuestIdentity,
+): KubernetesPinnedGuestIdentity {
+	const source = (input ?? {}) as Partial<KubernetesPinnedGuestIdentity>
+	const missing: string[] = []
+	if (!isIdentityString(source.sandboxUid)) missing.push('sandboxUid')
+	if (!isIdentityString(source.podUid)) missing.push('podUid')
+	if (!isIdentityString(source.guestBootId)) missing.push('guestBootId')
+	let claims: Record<string, string> | undefined
+	if (source.volumeClaimUids !== undefined) {
+		claims = {}
+		for (const [name, uid] of Object.entries(source.volumeClaimUids)) {
+			if (!isIdentityString(uid)) missing.push(`volumeClaimUids.${name}`)
+			else claims[name] = uid
+		}
+	}
+	if (missing.length > 0) throw new KubernetesPinIncompleteError(missing)
+	return Object.freeze({
+		sandboxUid: source.sandboxUid as string,
+		podUid: source.podUid as string,
+		guestBootId: source.guestBootId as string,
+		...(claims !== undefined ? { volumeClaimUids: Object.freeze(claims) } : {}),
+	})
 }

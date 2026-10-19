@@ -1777,6 +1777,80 @@ members and none of them is "suspended", and `destroyed` is the only one
 meaning "cannot serve a call". The `suspended` flag is what tells the
 recoverable state from the final one.
 
+### A caller can pin one guest, and a changed guest runs nothing
+
+A workspace handle follows a replaced pod on purpose, so a caller that has
+authenticated ONE guest (the pod, the agent process in it, the disk) cannot
+use the handle itself to make a later write fail closed: the transport would
+follow the rebind and the write meant for guest A would land in guest B.
+`workspace.pinGuest(expected)` returns a view that does not.
+
+```ts sketch
+import { KubernetesGuestPinRefusedError } from '@namzu/sandbox'
+
+const { sandboxUid, podUid, guestBootId } = workspace.identity // after a call the guest answered
+const pinned = workspace.pinGuest({ sandboxUid, podUid, guestBootId })
+
+try {
+  await pinned.writeFile('/workspace/result.json', body)
+} catch (err) {
+  if (err instanceof KubernetesGuestPinRefusedError) {
+    // err.reason: 'identity-changed' | 'guest-replaced' | 'pod-replaced' | 'guest-unsupported'
+    // err.freshGuestBootId: the agent that answered, when it said
+  }
+}
+```
+
+The view has `exec`, `readFile`, `writeFile`, `listFiles`, `openTerminal`,
+`openTcpConnection` and `quiesce`, and nothing that owns the workspace: no
+`suspend`, `resume` or `destroy`, and an unconfirmed cancellation never
+retires the pod. `expected` takes the same shape `openKubernetesWorkspace`
+does (`sandboxUid`, optional `volumeClaimUids`) plus `podUid` and
+`guestBootId`. A missing or empty `sandboxUid`, `podUid` or `guestBootId` (or an
+empty claim uid) throws `KubernetesPinIncompleteError` from `pinGuest`, naming
+the fields, because a pin that matched whatever the caller left blank
+authenticates nothing. The object is copied and frozen when you call it.
+
+Every call checks twice, and neither check can be skipped:
+
+1. **The host, before it dials.** The workspace's `identity` is compared with
+   `expected` (`sandboxUid`, `podUid`, each pinned claim uid, and `guestBootId`
+   once a reply has reported one). A difference refuses with
+   `reason: 'identity-changed'` and `field`, and nothing is sent. A suspended
+   workspace refuses the same way.
+2. **The guest, before it dispatches.** The request is sent inside a distinct
+   `pinned` envelope, `{ op: 'pinned', body: { expectedGuestBootId, request:
+   { op, body } } }`, with the bind token outside it as usual. The agent
+   compares `expectedGuestBootId` with its own boot id straight after the
+   credential check and before any handler, so a mismatch reserves, reads,
+   writes, opens and signals nothing. It answers `guest_mismatch:<its id>`
+   with the same id on the frame's `guestBootId`, and the view throws
+   `reason: 'guest-replaced'` with `freshGuestBootId` set.
+
+It never rebinds. A pod that refuses the pinned token is `reason:
+'pod-replaced'`, and the view does not re-read the Sandbox; call `pinGuest`
+again with the identity you mean. Nothing a pinned call does feeds the
+workspace's restart detection or `onGuestRestart`.
+
+**Telling fencing from replacement.** A fenced agent still answers a pinned
+request, with `agent_retiring` and its own `guestBootId` (and `retiring:
+true` on a mismatch). The view surfaces the former as
+`KubernetesAgentRetiringError` with `guestBootId` set: the same id as the one
+pinned means the guest you pinned is the fenced one; a different id arrives as
+`guest-replaced`.
+
+**Old agents refuse, they do not downgrade.** The envelope is a new op rather
+than an extra field on every request, because an agent that predates it
+ignores unknown fields and would serve a pinned request on whatever guest it
+is. The guest advertises `pinned-guest` (`PINNED_GUEST_FEATURE`) in `healthz`,
+and the view checks it before sending anything but `healthz`: against an image
+without it every call rejects with `reason: 'guest-unsupported'` and the guest
+runs nothing. Rebuild the workspace image from this release to use a pin.
+Un-pinned calls are untouched, and an old host keeps working against a new
+agent. The boot id compared is the agent process's own (the `guestBootId` on
+every authenticated reply), not the kernel's `boot_id`, which a VM runtime
+shares across the restart this exists to expose.
+
 ### A resume can bring the current pod template with it
 
 A `Sandbox` carries its own copy of `spec.podTemplate`, taken once in the
@@ -1951,8 +2025,8 @@ None of the three creates a pod, dials an agent or resumes anything.
 | Verb | What it sends | What it never does |
 |---|---|---|
 | `listKubernetesWorkspaces(config, { signal })` | One `GET` of the `sandboxes` collection | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
-| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
-| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch, expectedIdentity })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
+| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch, expectedIdentity })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
 
 Both writing verbs take an optional [holder
 epoch](#a-holder-epoch-fences-every-lifecycle-write), which is where a
@@ -2201,6 +2275,304 @@ rather than late and the error stands rather than being retried.
 
 **No new RBAC.** The `patch` verb covers every patch type, and the shipped
 `Role` already grants `patch` and `delete` on `sandboxes`.
+
+### A write is pinned to the Sandbox it was meant for
+
+The workspace id is a deterministic **name**, so it addresses whichever
+Sandbox stands under it *now*. If the workspace a host recorded last week was
+deleted and another created under the same id, a stale handle's `suspend()`
+or `destroy({ deleteDisk: true })` would land on the stranger, and an epoch
+does not help when the stranger carries none or a lower one.
+
+- **A handle pins every write it sends** to the `metadata.uid` it bound, with
+  no option to set: the JSON patch starts with `test /metadata/uid`, and a
+  `DELETE` carries `preconditions.uid`. A different Sandbox is refused with
+  `KubernetesWorkspaceReplacedError`, nothing on the cluster changes, and the
+  write is never retried against the new owner. The same uid rides in the
+  request, so a replacement landing between the handle's read and its write
+  is refused by the API server rather than by this process's last look. A
+  handle that has not yet bound a pod has no uid to pin and writes as before.
+- **The standalone verbs take it as `expectedIdentity`**, which is what a
+  host that kept `workspace.identity.sandboxUid` across a restart passes:
+
+```ts
+import {
+  KubernetesWorkspaceReplacedError,
+  deleteKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+try {
+  await deleteKubernetesWorkspace(cluster, 'ada-main', {
+    expectedIdentity: { sandboxUid: '5c0f9b1e-6f0a-4c52-9a38-0c1d7f3a2b10' },
+  })
+} catch (error) {
+  if (error instanceof KubernetesWorkspaceReplacedError) {
+    // Another workspace stands under this id. Nothing was deleted.
+    console.warn(`now ${String(error.actualSandboxUid)}`)
+  } else {
+    throw error
+  }
+}
+```
+
+An object that is already gone still counts as deleted. `expectedIdentity`
+pins the Sandbox uid only; its claims are owned by the Sandbox, so the uid is
+the identity a write can be conditioned on. Omitted, a standalone call is
+conditioned on nothing about identity, as before.
+
+### Inspecting, opening and reconciling a retained workspace
+
+`createKubernetesWorkspace` is create-or-adopt and resumes what it adopts, so
+it cannot answer "is this still the workspace I recorded?" without first
+starting a pod for what may be someone else's disk. Three verbs answer from
+the cluster alone. **Every request they send is a `GET`**: nothing is created,
+woken, patched or deleted. They need `get` on `sandboxes`,
+`persistentvolumeclaims` and `pods`.
+
+| Verb | Answers |
+|---|---|
+| `inspectKubernetesWorkspace(config, workspaceId, { epoch, expectedAllocation? })` | The Sandbox uid, each claim uid, the live pod uid, the operating mode, the stored epoch and whether the guest is ready; `undefined` when nothing stands there |
+| `openKubernetesWorkspace(config, { workspaceId, identity, epoch, waitForReady, expectedAllocation? })` | The same, after authenticating the exact retained identity; with `waitForReady`, after waiting for it |
+| `reconcileKubernetesWorkspace(config, { workspaceId, identity, epoch?, expectedAllocation? })` | A closure state: `live`, `suspended`, `absent` or `replaced` |
+
+```ts
+import {
+  KubernetesWorkspaceIdentityMismatchError,
+  KubernetesWorkspaceReadyTimeoutError,
+  openKubernetesWorkspace,
+  reconcileKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// What the host stored from `workspace.identity` last time.
+const retained = {
+  sandboxUid: '5c0f9b1e-6f0a-4c52-9a38-0c1d7f3a2b10',
+  volumeClaimUids: { workspace: '0d2b3c64-7a6e-4a53-8b43-2f1e0a9c7d11' },
+}
+
+const closure = await reconcileKubernetesWorkspace(cluster, {
+  workspaceId: 'ada-main',
+  identity: retained,
+})
+
+if (closure.state === 'live') {
+  try {
+    const opened = await openKubernetesWorkspace(cluster, {
+      workspaceId: 'ada-main',
+      identity: retained,
+      epoch: 6,
+      waitForReady: true,
+    })
+    console.log(opened.identity.podUid)
+  } catch (error) {
+    if (error instanceof KubernetesWorkspaceIdentityMismatchError) {
+      console.warn(`not the workspace we kept: ${error.mismatch}`)
+    } else if (error instanceof KubernetesWorkspaceReadyTimeoutError) {
+      console.warn(`still waiting for ${error.waitingFor.join(', ')}`)
+    } else {
+      throw error
+    }
+  }
+}
+```
+
+**Ownership and readiness are different questions.** Ownership is decided by
+uids and by nothing else. A `resourceVersion` that moved, a `Ready` condition
+that flipped, and a `Ready: True` the controller wrote for an earlier
+generation (its `observedGeneration` is below the object's `generation`) are
+the controller working: none of them is ever read as a change of owner, and a
+stale `Ready` is not counted as ready. What `openKubernetesWorkspace` refuses
+with `KubernetesWorkspaceIdentityMismatchError` is a real replacement, and
+`mismatch` says which: `sandbox-absent`, `sandbox-uid`, `volume-claim-uid` or
+`volume-claim-owner` (a claim whose owner references name another Sandbox).
+
+**`waitForReady`** polls under one deadline, `readyTimeoutMs`, for every
+volume claim to exist and for the Sandbox to be `Ready` for its current
+generation with a live pod behind it. A claim that does not exist yet is
+waited for; every claim uid seen is retained across passes, so a claim or a
+Sandbox replaced *during* the wait is a refusal and not a longer wait. A
+suspended workspace is returned as suspended at once: opening never wakes
+anything. The outcomes never share a class: a mismatch is
+`KubernetesWorkspaceIdentityMismatchError`, running out of time is
+`KubernetesWorkspaceReadyTimeoutError` (with `waitingFor` and the last
+observation), cancelling `signal` rejects with the signal's reason, and a
+read that got no answer rejects as itself. An unanswered read is never
+turned into `absent`, `replaced` or "not ready".
+
+**`epoch`** is the holder fence of the previous section applied to a read: a
+workspace held at a higher epoch refuses with
+`KubernetesWorkspacePreconditionError`, so a superseded host does not act on
+another process's workspace. `reconcileKubernetesWorkspace` takes it
+optionally, and answers `replaced` (a different Sandbox, or a different
+claim) as a state, not an error, because for a host closing its books that is
+the answer.
+
+These verbs return what was observed, not a handle. To use the workspace,
+call `createKubernetesWorkspace` once `reconcile` says `live` or `suspended`
+and the identity on the returned handle matches; the window between the two
+calls is why every write the handle then sends is pinned to its uid (above).
+
+### Allocating a workspace without adopting it
+
+`createKubernetesWorkspace` is create-or-adopt: a same-name object is taken
+over and its pod may be resumed before the call returns. A host that records
+its intent *before* creating something durable, and later has to prove that
+what it finds is exactly what it created, needs three other verbs.
+
+| Verb | Does |
+|---|---|
+| `resolveKubernetesExecutionProfile(config, { sandboxTemplateName?, signal? })` | Resolves and fingerprints what a workspace from this config would run. One `GET` (the SandboxTemplate); creates nothing |
+| `allocateKubernetesWorkspace(config, { workspaceId, allocation, epoch?, sandboxTemplateName?, signal? })` | ONE create. Never adopts, never resumes, never retries |
+| `recoverKubernetesWorkspaceAllocation(config, { workspaceId, allocation, epoch?, signal? })` | After an unknown create: one read-only `GET`, answered `created`, `absent` or `different` |
+
+```ts
+import {
+  allocateKubernetesWorkspace,
+  openKubernetesWorkspace,
+  recoverKubernetesWorkspaceAllocation,
+  resolveKubernetesExecutionProfile,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// 1. Resolve, and persist the result BEFORE any create is sent.
+const profile = await resolveKubernetesExecutionProfile(cluster)
+const allocation = {
+  id: 'alloc-2f6c',
+  scopeFingerprint: 'tenant-7/project-3',
+  executionProfile: profile.fingerprint,
+}
+
+// 2. One create.
+const result = await allocateKubernetesWorkspace(cluster, {
+  workspaceId: 'ada-main',
+  allocation,
+  epoch: 1,
+})
+
+// 3. An unknown reply is settled by reading, never by sending again.
+const sandboxUid =
+  result.outcome === 'created'
+    ? result.receipt.sandboxUid
+    : await recoverKubernetesWorkspaceAllocation(cluster, {
+        workspaceId: 'ada-main',
+        allocation,
+        epoch: 1,
+      }).then((r) => (r.state === 'created' ? r.receipt.sandboxUid : undefined))
+
+// 4. Later opens prove it is still that allocation.
+if (sandboxUid !== undefined) {
+  await openKubernetesWorkspace(cluster, {
+    workspaceId: 'ada-main',
+    identity: { sandboxUid },
+    epoch: 1,
+    expectedAllocation: allocation,
+  })
+}
+```
+
+**What `allocate` does.** After the same read-only egress, ingress and
+block-disk checks `createKubernetesWorkspace` makes, it sends one `POST`. If
+`allocation.executionProfile` is given and the profile resolves to something
+else now, it throws `KubernetesExecutionProfileDriftError` and sends no
+create. The `POST` carries the allocation annotations, the holder epoch when
+one is passed and the pod-template revision, so the object is bound from the
+moment it exists. Outcomes:
+
+- `{ outcome: 'created', receipt }`: the API server accepted the create.
+  `receipt.sandboxUid` is the new object's `metadata.uid`. This is an
+  acknowledgement, **not readiness**: no pod, disk or guest has been waited
+  for. Use `openKubernetesWorkspace({ waitForReady: true })` for that.
+- A `409`: `KubernetesWorkspaceAllocationConflictError`. The standing object
+  is not read, adopted, woken or modified.
+- `{ outcome: 'unknown', reason }`: the request was sent and no usable reply
+  came back (`timeout`, `connection`, `server-error` for a 5xx, `aborted` when
+  the caller's signal fired, `unreadable-reply` for a 2xx without a uid). The
+  object may or may not exist. **The `POST` is never repeated.**
+- Any other answer (401, 403, 404, other 4xx) rejects as itself; the server
+  answered and nothing was created.
+
+The only request `allocate` sends that is not a `GET` is that one `POST`:
+there is no `PATCH`, so nothing is resumed or woken.
+
+**Recovering from `unknown`.** `recoverKubernetesWorkspaceAllocation` reads
+the Sandbox and compares it with the allocation: `created` (with the receipt
+the lost reply would have been), `absent`, or `different` (`mismatch` says
+which part, `observed` carries what the object reports). A read that got no
+answer rejects as itself and is never reported as `absent`. `absent` is a
+point-in-time answer: a create still in flight at the API server could land
+after the read. Allocating again with the **same** allocation is safe, since a
+late landing turns it into the typed conflict and recovery then says
+`created`; a different allocation under the same workspace id is not.
+
+**`expectedAllocation`** on `inspectKubernetesWorkspace`,
+`openKubernetesWorkspace` and `reconcileKubernetesWorkspace` takes the same
+`{ id, scopeFingerprint, executionProfile? }`. A Sandbox under the id whose
+annotations or copied pod template differ is refused with
+`KubernetesWorkspaceAllocationMismatchError`, whose `mismatch` is
+`allocation-id`, `scope-fingerprint`, `execution-profile` or
+`template-content`; a Sandbox with no allocation annotations at all is an
+`allocation-id` mismatch with `actual` undefined. The identity answer keeps
+priority (`reconcile` still answers `replaced` for another uid), absence still
+resolves `undefined` / `absent`, `execution-profile` is compared only when
+given, and nothing is written to reach any of these.
+`template-content` is the check on the *copy*: the canonical hash of the
+`spec.podTemplate` the Sandbox carries must equal the pod-template revision
+annotation written in the same create. It catches a copy edited afterwards;
+it does not compare against the SandboxTemplate as it is now, because an edit
+to the template reaches only later workspaces and is not drift of this one. A
+refresh that rewrites the copy and its revision together passes. `inspect`
+also reports the stored values as `allocation`.
+
+**The annotations are a public contract.** They live on the Sandbox's own
+`metadata.annotations`, are written once in the create `POST` and never patched
+by this backend afterwards (a refresh, resume, suspend or epoch write leaves
+them alone), and a workspace made by `createKubernetesWorkspace` carries none.
+
+| Annotation | Value |
+|---|---|
+| `sandbox.namzu.ai/allocation-id` | `allocation.id`, verbatim |
+| `sandbox.namzu.ai/allocation-scope` | `allocation.scopeFingerprint`, verbatim; never interpreted, compared for equality only |
+| `sandbox.namzu.ai/execution-profile` | The profile fingerprint, `sha256:<hex>` |
+
+`id` and `scopeFingerprint` must be non-empty strings of at most 1024
+characters.
+
+**The fingerprint.** `profile.fingerprint` is `sha256:` followed by the hex
+SHA-256 of `JSON.stringify(canonical(profile.content))`, where `canonical`
+sorts every object's keys by UTF-16 code unit, drops members whose value is
+`undefined`, keeps arrays in order, and `JSON.stringify` adds no whitespace.
+`profile.content` is what the host should persist: `version` (1), `namespace`,
+`sandboxTemplateName`, `podTemplate` (the template's pod template after this
+backend's overlays: the template label, the egress profile label, the
+configured `runtimeClassName`), `volumeClaimTemplates`, `egress` (the policy
+translated from `config.egress`: `kind`, `policyKind`, `name`, `manifest`; or
+`null`) and `ingress` (the verification settings). The network policies are the
+ones this backend would **verify**, derived from configuration; policy objects
+an operator applied on the cluster are checked by `allocate` before its create,
+not fingerprinted. `profile.podTemplateHash` is the same hash `templateRevision`
+reports.
 
 ### A command can outlive the connection watching it
 
@@ -2509,8 +2881,8 @@ block at their defaults.
 
 **The guest has to advertise it.** `healthz` answers with a `features` list,
 whose full vocabulary is `["write-file-parts", "execution-attach",
-"stream-heartbeat", "read-file-stream", "sessions", "quiesce", "flush",
-"guest-boot-id"]` — and a given reply may carry fewer than these, because the
+"stream-heartbeat", "read-file-stream", "sessions", "quiesce", "quiesce-idle",
+"flush", "guest-boot-id", "pinned-guest"]` — and a given reply may carry fewer than these, because the
 list is what that guest can actually do: an image with no `sync` to run drops
 `flush` rather than advertising one it cannot perform. A host asking for any
 session verb against an image whose list has no `sessions` is refused with
@@ -2652,6 +3024,45 @@ would be wrong is the one where somebody would be tempted to set it.
 guest narrowed itself, just before the patch goes out. The sibling of
 `onQuiesceUnsupported`, for the same reason — the one path that cannot read the
 report must not be the one that silently under-delivers.
+
+**Asking whether the guest is idle, without stopping anything.**
+`quiesce({ onlyIfIdle: true })` is the read-only variant, for a host that wants
+to know a workspace is quiet before a maintenance action and must not stop
+running work to find out. It never signals a process, never marks an
+execution and never waits. It resolves with a report (`scope:
+'pid-namespace'`, `rounds: 0`, `stopped: []`, `graceMs: 0`) only when the guest
+confirms that its whole PID namespace holds nothing but init and the agent;
+otherwise it rejects with `KubernetesQuiesceBusyError`, which carries `busy`
+(up to 32 processes: `pid`, kernel short name, `/proc` state), `busyTotal` and
+`registries`, so the caller can retry later. The guest is left exactly as it
+was.
+
+What counts as busy is stricter than what the stopping quiesce signals, because
+a process that quiesce would leave alone is still a process writing to the disk:
+every pid but 1 and the agent counts, whatever its uid or session. A zombie
+counts as absent unless it is a thread-group leader with a thread that still
+runs (the leader reads `Z` while the group executes). A start the agent has
+dispatched that `/proc` may not show yet counts too: an execution that is
+`reserved`, `starting` or `running`, and any session that has not exited. A
+`/proc` entry that cannot be read or classified, or an agent that cannot see its
+whole namespace (`NAMZU_AGENT_QUIESCE_SCOPE=owned-sessions`, or not started by
+the namespace's init), rejects with `KubernetesQuiesceUnconfirmedError`
+(`reason: 'quiesce_idle_unclassifiable'` or `'quiesce_idle_scope_narrowed'`)
+rather than reporting idle. While it reads, the agent refuses NEW starts with
+`quiesce_in_progress` for those few milliseconds, so an idle answer means
+nothing was admitted during the look.
+
+It needs the guest feature `quiesce-idle`. An agent that predates it ignores
+unknown request fields and would run the stopping quiesce, so the host checks
+`healthz` first and, without the feature, rejects with
+`KubernetesQuiesceUnsupportedError` (`feature: 'quiesce-idle'`) having sent
+nothing. The wire is backward compatible in both directions: the request is the
+same `quiesce` op with `body: { idleOnly: true }`, a stopping `quiesce()` sends
+exactly what it always did, and an older guest keeps serving it. `onlyIfIdle`
+cannot be combined with `graceMs` (`TypeError`), and the options are copied when
+the call is made, before any await, so mutating the object afterwards cannot
+turn the request into a stopping one. `suspend({ quiesce })` does not take the
+option.
 
 **A suspend already in flight cannot be joined into a quiesce.** Concurrent
 `suspend()` calls share one transition: the second caller awaits the first
@@ -2980,12 +3391,11 @@ woken up to be refused. A missing, drifted or over-wide policy fails the call
 and no workspace is created — the network boundary on a long-lived sandbox is
 the policy, not the agent's bind token.
 
-**One option is refused here rather than run.** `egress.perSandbox` does not
-bound a workspace's egress — it makes `setNetworkPolicy` present on a TASK
-handle, and a workspace never carries one — so a config that sets it is
-refused with `KubernetesWorkspacePerSandboxEgressConfigError` before the first
-request, instead of being accepted and ignored. See
-[per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox).
+**`egress.perSandbox` is honoured here as on a task handle.** The workspace's
+pod template carries the per-sandbox selector label, the `Sandbox` owns the
+policies, and the handle serves `setNetworkPolicy`. See
+[per-sandbox egress on a workspace](#per-sandbox-egress-on-a-workspace). With
+the option unset nothing on this path changes.
 
 **It is verified against the template the workspace is built from**, which is
 `options.sandboxTemplateName` when given and `config.sandboxTemplateName`
@@ -3782,7 +4192,8 @@ design rather than by accident:**
    — a `ValidatingAdmissionPolicy` and its binding. The backend `GET`s both
    before its first write and refuses with
    `KubernetesAdmissionFenceMissingError`, having written nothing, if either
-   is absent. An unbound policy is checked separately from the policy itself
+   is absent, and then reads their CONTENT (see
+   [what is verified](#per-sandbox-egress-what-is-verified)). An unbound policy is checked separately from the policy itself
    because a `ValidatingAdmissionPolicy` with no binding validates nothing at
    all and reads, from the object alone, exactly like one that is enforced. A
    read the API server REFUSES — a `403`/`401`, which is what applying the
@@ -3921,24 +4332,200 @@ anything outside the `namzu-sbx-<uid>` names the fence admits — and cannot
 reach a pod other than the one its policy is owned by. What it CAN do, by
 design, is add allowances to its own sandbox's pod: that is what the
 capability is. The [union check](#verify-never-trust) sees such a policy
-because it enumerates every policy selecting the pod's labels, but it runs
-at ACQUIRE — before any `setNetworkPolicy` write for that sandbox exists —
-so it is a check on the boundary a sandbox starts under, not a continuous
-audit of one the host narrows or widens later.
+because it enumerates every policy selecting the pod's labels, and it runs
+at ACQUIRE and again after every `setNetworkPolicy` write, against the
+baseline plus what was just written; see
+[what is verified](#per-sandbox-egress-what-is-verified).
 
-**Workspaces do not carry this capability, and are refused it rather than
-left without it.** A `KubernetesWorkspace` wraps the same handle, built
-without the setter: nothing in its create path composes a per-sandbox label
-or tracks an owner uid for one, so `setNetworkPolicy` is absent there as it
-was everywhere before this change. That is a fact about the PATH and not
-about the configuration, so `createKubernetesWorkspace` does not simply
-ignore the option — a config carrying `egress.perSandbox` is refused with
-`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request
-and before anything is created. A host that wired a workspace deployment with
-`perSandbox` therefore learns it at the call rather than believing it
-narrowed an egress it never touched. Creating task sandboxes with that config
-is unaffected: the method is present there, and a host that wants both passes
-a config without `perSandbox` to `createKubernetesWorkspace`.
+**Workspaces carry it too.** See
+[per-sandbox egress on a workspace](#per-sandbox-egress-on-a-workspace).
+`KubernetesWorkspacePerSandboxEgressConfigError`, which used to refuse the
+option there, is deprecated and never thrown.
+
+#### Per-sandbox egress on a workspace
+
+`createKubernetesWorkspace` and `allocateKubernetesWorkspace` accept
+`egress.perSandbox`, and a workspace handle then has `setNetworkPolicy`
+(presence follows configuration, as on a task handle).
+
+- **Label.** The per-sandbox label is composed by `composeAdditionalPodLabels`
+  onto the workspace's directly created `Sandbox` pod template. Its value is
+  the Sandbox's name, `namzu-ws-<workspaceId>`, which is known before the POST
+  and does not change when the pod is replaced.
+- **Owner.** The `Sandbox` owns every policy it is given: `ownerReferences`
+  names its uid, and the policy is called `namzu-sbx-<sandbox uid>`.
+  `destroy({ deleteDisk: true })` and `deleteKubernetesWorkspace` delete the
+  Sandbox and the cluster's garbage collector removes the policy; this backend
+  sends no policy DELETE. The default `destroy()` only suspends, so the policy
+  stays.
+- **Write.** `setNetworkPolicy` is the task handle's writer: fence read,
+  optional permitted-hosts check, create or patch, read-back that deep-equals
+  what was sent, then the union of every policy selecting the pod re-checked
+  against the baseline plus the written policy, deleting the written one if it
+  widens. It is serialised with the handle's transitions, re-reads the Sandbox
+  each call, and refuses with `KubernetesWorkspaceReplacedError` when the uid
+  is not the one the handle bound, and with `KubernetesOwnerUidMissingError`
+  when the cluster reports none. It may be called while the workspace is
+  suspended; the policy applies when the pod comes back.
+- **Open.** The fence is proved before the create POST, and before any adopt
+  patch. An adopted workspace whose pod template lacks the label is refused
+  with `KubernetesWorkspaceMismatchError { field: 'perSandboxLabel' }`, patching
+  nothing; `refreshPodTemplate: true` rewrites the template with the label.
+
+**Suspend and resume, deterministically.** Before any patch, on a resume and on
+an open of an existing workspace, the backend:
+
+1. Reads the admission fence from scratch (no memo). A fence that is missing or
+   would not enforce refuses the resume with the workspace still suspended and
+   nothing written.
+2. Deletes every `namzu-sbx-*` policy that selects this workspace's label value
+   and that this Sandbox does not own (no `ownerReferences` entry of kind
+   `Sandbox` with this name and the uid the cluster reports now). Such a
+   policy belongs to a workspace deleted and created again under the same name
+   and not yet garbage-collected. A freshly created workspace gets the same
+   sweep once the create reply's uid is known.
+3. Keeps a policy this Sandbox owns, unchanged. A suspend is not a revocation:
+   call `setNetworkPolicy({ allowedHosts: [] })` before suspending to drop the
+   grant.
+
+The baseline union check on open runs against the pod's labels without the
+per-sandbox label, so a workspace holding a grant under a Cilium baseline can
+be reopened; the grant itself was union-checked when it was written.
+
+**Execution profile.** `resolveKubernetesExecutionProfile` and
+`allocateKubernetesWorkspace` read the fence first, so a configuration whose
+fence is missing or inert yields no fingerprint. With `perSandbox` the content
+gains `perSandbox` (engine, selector key, fence and binding names, host
+identity, permitted-hosts parameter, narrowing), so the fingerprint differs from
+the same configuration without it; over a core `no-network` baseline the profile
+also reports `variant: 'core/no-network+per-sandbox'` (exported as
+`KUBERNETES_PER_SANDBOX_PROFILE_VARIANT`). Without `perSandbox` the content and
+the fingerprint are exactly what they were. The per-sandbox label's value is the
+Sandbox's name, which the profile does not know: the fingerprint is
+independent of it, and `podTemplateHash` is per workspace only when
+`options.workspaceId` is passed.
+
+**Not proven here.** Enforcement. A pod reaching an allowed host and not a
+denied one needs a cluster whose CNI enforces `CiliumNetworkPolicy` FQDN rules;
+this is tested against a fake API server, like the task path.
+
+### Per-sandbox egress: what is verified
+
+The baseline and the per-sandbox path are held to one standard: the backend
+reads what the cluster stored and compares it to what it relies on, field by
+field, and refuses with a named error before anything is sent. Side by side:
+
+| Property | `no-network` baseline | per-sandbox path |
+|---|---|---|
+| The object exists | `KubernetesEgressPolicyNotAppliedError` | `KubernetesAdmissionFenceMissingError` (policy, binding, and the companion when pinned) |
+| The object is the intended one, by content | the named `NetworkPolicy` is compared to the translation (`KubernetesEgressPolicyMismatchError`) | the fence is compared to what the writer relies on (`KubernetesAdmissionFenceInertError`, carrying `field`, `expected`, `actual`); the written `CiliumNetworkPolicy` is read back and compared to what was sent |
+| The union of every policy selecting the pod | at acquire, against the translation | at acquire against the baseline, and after every write against baseline plus the written policy (`KubernetesEgressPolicyUnionError`) |
+| What the object may reach | the translation | the shipped fence's shape bounds, plus the operator-pinned hosts and ports when `permittedHostsParam` is set |
+| A failed check | no sandbox is handed back; the claim is released | the policy just written is deleted before the error is thrown |
+| Enforcement by a data plane | not proven here; `egress-check.mjs` on an enforcing cluster | not proven here; `per-sandbox-egress-check.mjs` on a Cilium cluster that enforces FQDN policy |
+
+**The fence is checked by content.** Before the first write, and memoized on
+success like the named-object check, the backend reads the
+`ValidatingAdmissionPolicy` and its binding and requires: the binding's
+`policyName` to be `admissionPolicyName`; `validationActions` to include `Deny`
+(`Audit` and `Warn` log and admit; `[Deny, Audit]` passes); the policy's
+`failurePolicy` to be `Fail`; the policy to match `CREATE`, `UPDATE` and
+`DELETE` of `cilium.io/v2` `ciliumnetworkpolicies` and to carry at least one
+validation; the binding not to exclude any of those verbs and to carry no
+`objectSelector` (the host chooses its objects' labels); and the binding's
+namespace selection to cover `config.namespace`. A binding whose
+`namespaceSelector` is decidable only from labels other than the automatic
+`kubernetes.io/metadata.name` is refused as unprovable rather than assumed. The
+error names the field that failed, and nothing is written. With
+`perSandbox.hostIdentity` set (for example
+`system:serviceaccount:namzu-sandboxes:namzu-sandbox-host`), the policy must also
+carry exactly one `matchCondition`, `request.userInfo.username == '<identity>'`:
+a fence that names another user never matches this host, and a host that
+authenticates as something other than the shipped ServiceAccount is the usual
+way to get one. Unset, the identity is not checked.
+
+What this does not prove is that the policy's CEL refuses what it claims: that
+is measured against an API server (see the manifest's header), not derivable
+from the stored object.
+
+**Pinning the hosts and ports a host may grant.** The shipped fence bounds the
+shape of a grant, not its names. Set `perSandbox.permittedHostsParam: { name,
+namespace }` and apply
+`k8s/manifests/validatingadmissionpolicy-cilium-permitted-hosts.yaml`: a
+companion policy (`<admissionPolicyName>-hosts`, binding
+`<admissionPolicyName>-hosts-binding`) bound to a `ConfigMap` whose
+`data.hosts` (exact names), `data.patterns` (`*.domain`) and `data.ports` list
+one entry per line. At admission it refuses a `toFQDNs` entry that is not
+listed, and any `toFQDNs` rule that carries no `toPorts` or a port that is not
+listed. A `.example.com` grant is both `example.com` and `*.example.com`, so the
+domain needs a line in each of `hosts` and `patterns`. With the option set:
+
+- the fence check also proves the companion: its `paramKind`, `variables` and
+  `validations` are compared verbatim to the ones this version ships (an
+  edited expression is a fence the backend cannot vouch for), and the binding
+  must reference this ConfigMap by name (not select it), and deny when it is
+  missing;
+- every `setNetworkPolicy` call with a non-empty list reads the ConfigMap and
+  refuses locally, with `KubernetesPermittedHostsError` and nothing written, a
+  host or port outside it. A `narrowing` that sets no port for a host is a
+  port outside any list, so `narrowing.ports` or `hostPorts` is required;
+- a missing, unreadable or malformed ConfigMap refuses every grant with
+  `KubernetesPermittedHostsParamError`. The grammar is the writer's own
+  (`assertUsableHost`), and an entry with surrounding whitespace is refused
+  because the admission rule compares entries byte for byte;
+- `setNetworkPolicy([])` needs no parameter: the companion matches `CREATE`
+  and `UPDATE` only, because a deletion never widens, and a missing parameter
+  must not make the revoke impossible.
+
+The admission rule is the authority; the local check gives a precise error
+instead of an opaque 403. Unset, none of this runs, the companion is not read,
+and the emitted manifests are unchanged. The host needs `get` on that one
+ConfigMap (the companion file includes the Role).
+
+**The union is re-checked after every write.** After the read-back, the backend
+enumerates every `NetworkPolicy` and `CiliumNetworkPolicy` selecting the pod's
+labels and requires that none allows more than the baseline translation plus
+the policy just written. If one does, for instance a policy applied between the
+sandbox's create and its grant, the backend deletes its own object and throws
+`KubernetesEgressPolicyUnionError`; a failed read-back is handled the same
+way. A policy that held an earlier, verified list is deleted too: falling back
+to the baseline is the narrower of the two wrong answers. If that deletion
+fails as well, `KubernetesPerSandboxPolicyNotRemovedError` says the policy may
+still be in force (the sandbox's destruction collects it). `setNetworkPolicy([])`
+is not re-checked, because a deletion only narrows. `egress.verify:
+'named-object-only'` skips the re-check, as it skips the create-path union.
+
+**What remains unverifiable without a cluster that enforces.** That the allowed
+host resolves and connects on 443, that the same host on another port, an
+ungranted name and a fixed public address are refused, that a host reached
+through a CNAME chain is admitted, that SNI is enforced when
+`narrowing.tlsServerNames` is on, and that revoking restores the baseline are
+all statements about a data plane. `k8s/scripts/per-sandbox-egress-check.mjs`
+asserts them from inside a real task sandbox, behind two positive controls, and
+exits non-zero on a positive that fails or a negative that connects. Without
+`--tls-server-names` it prints SNI as `UNENFORCED` rather than passing it, since
+some managed Cilium distributions enforce `toFQDNs` but document no L7 or SNI
+enforcement and accept a `serverNames` rule they never apply. It has not been
+run against an enforcing cluster, and the local kind cluster enforces no policy,
+so every refusal row fails there by design.
+
+**Deriving `dnsNames.searchSuffixes`.** `narrowing.dnsNames` allows the allowed
+host's lookups under the three cluster suffixes
+(`<namespace>.svc.<clusterDomain>`, `svc.<clusterDomain>`, `<clusterDomain>`).
+Kubelet appends the node's own `search` domains after those, and a query for
+`github.com.<node-domain>` that the narrowed rule does not name is refused by the
+DNS proxy. Read the list from the same place the guest does: the `search` line
+of `/etc/resolv.conf` in a pod from the same template (`kubectl exec` into a
+sandbox, or run `cat /etc/resolv.conf` in a throwaway pod in the namespace),
+and list every domain after the three cluster ones in
+`dnsNames.searchSuffixes`. How a refused search-suffix query is answered
+(`REFUSED` or `NXDOMAIN`) and what that does to a glibc or musl search walk is a
+property of the cluster's resolver and the guest's C library; Cilium's own
+documentation warns that some images (musl, as in Alpine) stop trying the
+search list after the first refusal, which breaks the bare-name lookup too.
+This repository has not measured either; the acceptance probe above is where
+to observe it. A `searchSuffixes: 'from-guest'` option that reads the guest's
+file at acquire is not implemented.
 
 ### Verify, never trust
 
@@ -4098,8 +4685,10 @@ backend's own `createKubernetesClient`, and ran the real
 about whether anything enforced the object afterwards, which the paragraph
 above still governs.
 
-`k8s/scripts/egress-check.mjs` is the live check, and it is the only thing that
-speaks to enforcement: it creates a sandbox under the configured kind and dials
+`k8s/scripts/egress-check.mjs` is the live check for the baseline kinds (the
+per-sandbox path has its own,
+[`per-sandbox-egress-check.mjs`](#per-sandbox-egress-what-is-verified)), and
+they are the only things that speak to enforcement: it creates a sandbox under the configured kind and dials
 from inside the guest — a public address, the instance-metadata address, the
 platform endpoint, a private address, optionally the API server's service IP,
 and another sandbox pod. Two positive controls run first (a TCP dial of the
@@ -4656,7 +5245,7 @@ needs — `validatingadmissionpolicy-cilium.yaml` and
 `rbac-per-sandbox-egress.yaml`, which are applied together or not at all and
 which no other capability reads — plus a `kind-overlay/`
 for local development — explicitly **not** a security boundary, see that
-overlay's own header comment), and six scripts under `k8s/scripts/` that
+overlay's own header comment), and seven scripts under `k8s/scripts/` that
 each measure one acceptance criterion below against a live cluster and print
 a `[PASS]`/`[FAIL]` line plus the measured number
 (`k8s/scripts/capability-check.mjs` additionally prints the guest's
@@ -4684,9 +5273,10 @@ is the right one.
 | 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |
 | 6. The agent port is shut to a pod that is not the host | `k8s/scripts/ingress-check.mjs` | the probe fails to connect | — | — | — |
 | 7. Egress is bounded by the configured kind | `k8s/scripts/egress-check.mjs` | every "must be closed" probe fails to connect, and `public-internet` reaches a public address | — | — | — |
+| 8. A per-sandbox hostname grant is enforced, and revoked | `k8s/scripts/per-sandbox-egress-check.mjs` (needs a Cilium cluster that enforces FQDN policy) | the granted host resolves and connects on 443; another port, an ungranted name and a fixed address are refused; the baseline holds again after `setNetworkPolicy([])`; SNI is reported `UNENFORCED` unless probed | — | — | — |
 
-Rows 6 and 7 need a cluster whose CNI enforces `NetworkPolicy`. On one that
-does not — the stock local `kind` cluster — both scripts report FAIL by
+Rows 6 to 8 need a cluster whose CNI enforces `NetworkPolicy`. On one that
+does not — the stock local `kind` cluster — those scripts report FAIL by
 design; see [Ingress](#what-no-test-here-can-prove) and
 [Egress](#what-no-egress-test-here-can-prove). Row 7 also needs
 `config.egress` set to the kind being probed, and it does not cover the

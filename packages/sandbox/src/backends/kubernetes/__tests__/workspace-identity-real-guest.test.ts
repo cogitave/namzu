@@ -245,7 +245,14 @@ function handleClusterRequest(req: RecordedRequest): FakeApiReply {
 	}
 	if (req.method === 'POST' && req.path.endsWith('/sandboxes')) return { status: 201, body: {} }
 	if (req.method === 'PATCH' && req.path.includes('/sandboxes/')) {
-		const mode = (req.body as { spec?: { operatingMode?: string } }).spec?.operatingMode
+		// A handle that knows its Sandbox uid pins the write to it, so the
+		// patch arrives as a JSON Patch list; one that does not sends a merge
+		// patch. Both carry the same mode.
+		const mode = Array.isArray(req.body)
+			? (req.body as { path: string; value?: string }[]).find(
+					(op) => op.path === '/spec/operatingMode',
+				)?.value
+			: (req.body as { spec?: { operatingMode?: string } }).spec?.operatingMode
 		if (mode === 'Suspended') operatingMode = 'Suspended'
 		if (mode === 'Running') operatingMode = 'Running'
 		return { status: 200, body: {} }
@@ -260,7 +267,7 @@ function handleClusterRequest(req: RecordedRequest): FakeApiReply {
 		return {
 			status: 200,
 			body: {
-				metadata: { name: WORKSPACE_NAME, uid: SANDBOX_UID },
+				metadata: { name: WORKSPACE_NAME, uid: SANDBOX_UID, resourceVersion: '1' },
 				spec: { operatingMode, volumeClaimTemplates: TEMPLATE.spec.volumeClaimTemplates },
 				status: {
 					conditions: [readyCondition(operatingMode === 'Suspended' ? 'False' : 'True')],

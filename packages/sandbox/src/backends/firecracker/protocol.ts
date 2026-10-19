@@ -459,6 +459,48 @@ export interface KillSessionRequest {
  */
 export const QUIESCE_FEATURE = 'quiesce'
 
+/**
+ * The `healthz` feature string an agent advertises when its `quiesce` op
+ * accepts `{ idleOnly: true }`: look at the guest, signal and mark nothing,
+ * and refuse with `quiesce_busy` unless the whole PID namespace is idle.
+ *
+ * It is its own string, not implied by {@link QUIESCE_FEATURE}, because an
+ * agent that predates it IGNORES unknown body fields: sent `idleOnly` it
+ * would run the stopping quiesce and kill the work the caller asked not to
+ * touch. A host therefore sends the field only to a guest that advertised
+ * this, and an older guest (which advertises `quiesce` alone) keeps working
+ * for the stopping mode unchanged.
+ */
+export const QUIESCE_IDLE_FEATURE = 'quiesce-idle'
+
+/**
+ * The `healthz` feature string an agent advertises when it serves the
+ * `pinned` op: one ordinary request wrapped with the guest boot id the
+ * caller expects, dispatched only if the agent's own id equals it.
+ *
+ * A distinct op rather than an extra field on every request, because an
+ * agent that predates it IGNORES unknown fields and would serve a pinned
+ * request on whatever guest it happens to be, which is precisely what a
+ * pin exists to prevent. An older agent answers `unknown_op: pinned`
+ * instead, and a host that checked this feature first never sends it.
+ */
+export const PINNED_GUEST_FEATURE = 'pinned-guest'
+
+/** What the `pinned` op carries: the expected guest and the request to run on it. */
+export interface PinnedRequest {
+	/** The agent process the caller authenticated. Refused when the agent's own id differs. */
+	readonly expectedGuestBootId: string
+	/** One ordinary request. Never `pinned` or `healthz`. */
+	readonly request: { readonly op: string; readonly body?: unknown }
+}
+
+/**
+ * The refusal an agent answers a pinned request with when its own boot id
+ * is not the one expected. The `error` text is `guest_mismatch:<its id>` and
+ * the same id is on the frame's `guestBootId`; nothing was dispatched.
+ */
+export const GUEST_MISMATCH_REFUSAL = 'guest_mismatch'
+
 /** Stop everything. `graceMs` bounds ONE round's SIGTERM window. */
 export interface QuiesceRequest {
 	/**
@@ -468,6 +510,11 @@ export interface QuiesceRequest {
 	 * 1000ms. It is NOT the pod's `terminationGracePeriodSeconds`.
 	 */
 	readonly graceMs?: number
+	/**
+	 * Only look: signal nothing, mark nothing, wait for nothing. Requires
+	 * {@link QUIESCE_IDLE_FEATURE}, and cannot be combined with `graceMs`.
+	 */
+	readonly idleOnly?: boolean
 }
 
 /**
