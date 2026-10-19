@@ -14,6 +14,7 @@ import type { AuthorizationGateConfig } from '../../../types/authorization/index
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
+import type { SandboxProvider } from '../../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
@@ -619,5 +620,93 @@ describe('park recording stays off the hot path', () => {
 		// unconditionally would triple a long turn's checkpoint writes to
 		// describe a park that never happened.
 		expect(await findPendingCheckpoint(h.log, { turnId: run.id })).toBeNull()
+	})
+})
+
+describe('an approval resumed under a deferred sandbox', () => {
+	/** Parks on the destructive call in "process 1", returns what "process 2" resumes from. */
+	async function parked() {
+		const h = await harness()
+		const parkedTurn = await drainQuery({
+			...baseParams(
+				h,
+				new MockLLMProvider({
+					turns: [{ toolCalls: [{ name: 'delete_row', args: { id: 9 } }] }],
+				}),
+				pauseOnReview,
+			),
+			messages: [createUserMessage('delete row 9')],
+		})
+		const state = await stateOf(h, parkedTurn.id)
+		return { h, checkpointId: state?.checkpointId }
+	}
+
+	function resumeParams(
+		h: Harness,
+		checkpointId: string | undefined,
+		create: SandboxProvider['create'],
+	) {
+		return {
+			...baseParams(h, new MockLLMProvider({ turns: [{ text: 'after' }] }), pauseOnReview),
+			messages: [],
+			resumeFromCheckpoint: checkpointId,
+			pendingDecision: { action: 'approve_tools' as const },
+			retry: false as const,
+			sandboxProvider: {
+				id: 'resume-sandbox',
+				name: 'Resume sandbox',
+				environment: 'basic' as const,
+				create,
+			},
+			turnConfig: {
+				...baseParams(h, new MockLLMProvider(), pauseOnReview).turnConfig,
+				sandbox: { acquire: 'concurrent' as const },
+			},
+		}
+	}
+
+	it('does not run the approved call when the sandbox cannot be acquired', async () => {
+		const { h, checkpointId } = await parked()
+		const resumed = await drainQuery(
+			resumeParams(h, checkpointId, async () => {
+				throw new Error('no capacity on resume')
+			}) as never,
+		)
+		expect(h.calls).toEqual([])
+		expect(resumed.lastError).toContain('no capacity on resume')
+	})
+
+	it('holds the approved call until the sandbox exists', async () => {
+		const { h, checkpointId } = await parked()
+		const trace: string[] = []
+		await drainQuery(
+			resumeParams(h, checkpointId, async () => {
+				// Later than any work the resume could do without waiting.
+				await new Promise((resolve) => setTimeout(resolve, 20))
+				trace.push('sandbox')
+				return {
+					id: 'e3a4fd0a-2a8d-4c5c-9d17-2a43e9f6c3a1',
+					status: 'ready',
+					rootDir: '/workspace',
+					environment: 'basic',
+					exec: async () => ({
+						stdout: '',
+						stderr: '',
+						exitCode: 0,
+						durationMs: 0,
+						timedOut: false,
+					}),
+					writeFile: async () => {},
+					readFile: async () => Buffer.alloc(0),
+					listFiles: async () => [],
+					destroy: async () => {},
+				} as never
+			}) as never,
+			(event) => {
+				if (event.type === 'tool_executing') trace.push('tool')
+			},
+		)
+		expect(trace).toEqual(['sandbox', 'tool'])
+		expect(h.calls).toEqual(['delete:9'])
 	})
 })

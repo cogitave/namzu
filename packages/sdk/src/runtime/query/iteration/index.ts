@@ -54,6 +54,7 @@ import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import { parseStructuredResultJson } from '../../../utils/structured-result-json.js'
 import { createCallbackInference } from '../callback-inference.js'
+import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
@@ -1895,6 +1896,12 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 				} catch (err) {
 					const cancelled = this.ctx.abortController.signal.aborted
+					// A deferred sandbox that was cancelled or ran out of time. The
+					// turn settles it as `cancelled` / `timeout` in `query()`, which is
+					// not a failure of this iteration: it is recorded the way a turn
+					// stopped by its own abort or timeout is (a cancelled step, no
+					// error span), so the ledger and the stop reason agree.
+					const sandboxStopped = err instanceof SandboxAcquisitionStopped
 
 					// This iteration gets a step too, and it is the one the
 					// argument three hundred lines above was actually about.
@@ -1955,12 +1962,13 @@ export class IterationOrchestrator {
 							startedAt: stepStartedAt,
 							usageBefore,
 							costBefore,
-							unfinished: cancelled
-								? { finishReason: 'cancelled' }
-								: {
-										finishReason: 'error',
-										failure: describeStepFailure(err, this.ctx.provider.id),
-									},
+							unfinished:
+								cancelled || sandboxStopped
+									? { finishReason: 'cancelled' }
+									: {
+											finishReason: 'error',
+											failure: describeStepFailure(err, this.ctx.provider.id),
+										},
 						})
 					}
 
@@ -2036,6 +2044,11 @@ export class IterationOrchestrator {
 							}
 							continue
 						}
+					}
+
+					if (sandboxStopped) {
+						if (iterationActivity) this.ctx.activityStore.complete(iterationActivity.id)
+						throw err
 					}
 
 					if (iterationActivity) {

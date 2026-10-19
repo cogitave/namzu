@@ -88,6 +88,20 @@ export interface TurnConfig {
 		 * behaviour every sandboxed turn had before this existed.
 		 */
 		workspace?: 'ephemeral' | 'working-directory'
+		/**
+		 * When the turn acquires its sandbox. Absent means `'eager'`: acquired,
+		 * and waited for, before the input guardrails and the first model
+		 * request.
+		 *
+		 * `'concurrent'` starts at the same point but lets the first model
+		 * request go out while the provider allocates; the first tool call
+		 * waits for the handle. `'on-first-use'` does not start until the first
+		 * tool call. Either way `sandbox_created` is emitted when the handle
+		 * arrives, and a failure or timeout ends the turn with the stop reason
+		 * an eager acquisition would have produced, at the first tool call or
+		 * at turn end, whichever comes first.
+		 */
+		acquire?: 'eager' | 'concurrent' | 'on-first-use'
 	}
 
 	/**

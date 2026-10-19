@@ -104,6 +104,13 @@ import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
 import { CheckpointManager, findPendingCheckpoint } from './checkpoint.js'
+import {
+	type DeferredSandbox,
+	type SandboxAcquireMode,
+	type SandboxAcquisitionStop,
+	SandboxAcquisitionStopped,
+	createDeferredSandbox,
+} from './deferred-sandbox.js'
 import type { EventTranslator } from './events.js'
 import { finalizeTurn } from './finalize-turn.js'
 import { GuardCoordinator } from './guard.js'
@@ -1825,6 +1832,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			})
 
 			let sandbox: Sandbox | undefined
+			/** Set only for `sandbox.acquire: 'concurrent' | 'on-first-use'`. */
+			let deferredSandbox: DeferredSandbox | undefined
+			/** How a stopped acquisition settles the turn; set where the provider is known. */
+			let applyAcquisitionStop: (acquisition: SandboxAcquisitionStop) => void = () => {}
 			// Decided during checkpoint restore, executed after the sandbox
 			// exists — the approved tools may well need it.
 			let pendingResume: PendingResumePlan | null = null
@@ -2300,6 +2311,20 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					yield* eventTranslator.drainPending()
 				}
 
+				// Checked whether or not a provider is present: a host that mistypes the
+				// option should hear about it before it wires a provider in, not after.
+				const acquireMode: SandboxAcquireMode = turnConfig.sandbox?.acquire ?? 'eager'
+				if (
+					acquireMode !== 'eager' &&
+					acquireMode !== 'concurrent' &&
+					acquireMode !== 'on-first-use'
+				) {
+					throw new NamzuError({
+						code: 'invalid_config',
+						message: `sandbox.acquire must be 'eager', 'concurrent' or 'on-first-use'; received ${String(acquireMode)}`,
+						details: { acquire: String(acquireMode) },
+					})
+				}
 				// --- Sandbox lifecycle: create before iteration loop ---
 				if (params.sandboxProvider) {
 					const rootAtCwd = turnConfig.sandbox?.workspace === 'working-directory'
@@ -2331,40 +2356,60 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 							},
 						})
 					}
-					const acquisition = await acquireSandbox({
-						provider: params.sandboxProvider,
-						config: {
-							...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
-							...(rootAtCwd && params.additionalDirectories?.length
-								? { additionalDirectories: params.additionalDirectories }
-								: {}),
-							timeoutMs: turnConfig.sandbox?.timeoutMs,
-							memoryLimitMb: turnConfig.sandbox?.memoryLimitMb,
-							maxProcesses: turnConfig.sandbox?.maxProcesses,
-						},
-						signal: ctx.abortController.signal,
-						timeoutMs: guard.remainingUntilTimeoutMs(),
-						teardownTimeoutMs: sandboxTeardownTimeoutMs,
-						onLateTeardown: (result) => {
-							if (result.kind === 'destroyed') {
-								ctx.log.info('Late sandbox allocation was destroyed after the turn stopped', {
+					const sandboxProvider = params.sandboxProvider
+					const startAcquisition = (signal: AbortSignal) =>
+						acquireSandbox({
+							provider: sandboxProvider,
+							config: {
+								...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
+								...(rootAtCwd && params.additionalDirectories?.length
+									? { additionalDirectories: params.additionalDirectories }
+									: {}),
+								timeoutMs: turnConfig.sandbox?.timeoutMs,
+								memoryLimitMb: turnConfig.sandbox?.memoryLimitMb,
+								maxProcesses: turnConfig.sandbox?.maxProcesses,
+							},
+							signal,
+							timeoutMs: guard.remainingUntilTimeoutMs(),
+							teardownTimeoutMs: sandboxTeardownTimeoutMs,
+							onLateTeardown: (result) => {
+								if (result.kind === 'destroyed') {
+									ctx.log.info('Late sandbox allocation was destroyed after the turn stopped', {
+										[NAMZU.TURN_ID]: ctx.turnId,
+									})
+									return
+								}
+								ctx.log.error('Late sandbox allocation did not stop cleanly', {
 									[NAMZU.TURN_ID]: ctx.turnId,
+									...errorAttributes(result.error),
 								})
-								return
-							}
-							ctx.log.error('Late sandbox allocation did not stop cleanly', {
-								[NAMZU.TURN_ID]: ctx.turnId,
-								...errorAttributes(result.error),
-							})
-						},
-					})
-					if (acquisition.kind !== 'created') {
+							},
+						})
+					const publishSandbox = async (acquired: Sandbox): Promise<void> => {
+						sandbox = acquired
+						toolExecutor.setSandbox(acquired)
+
+						await eventTranslator.emitEvent({
+							type: 'sandbox_created',
+							turnId: ctx.turnId,
+							sandboxId: acquired.id,
+							environment: acquired.environment,
+						})
+					}
+					const logSandboxCreated = (acquired: Sandbox): void => {
+						ctx.log.info('Sandbox created for run', {
+							'namzu.sandbox.id': acquired.id,
+							'namzu.execution.environment': acquired.environment,
+							'namzu.runtime.root_dir': acquired.rootDir,
+						})
+					}
+					applyAcquisitionStop = (acquisition) => {
 						if (acquisition.createPending) {
 							ctx.log.warn(
 								'Sandbox creation was unsettled when the turn stopped; any returned handle will be released, but a remote allocation hidden behind a lost response requires provider-side reconciliation or a fleet reaper',
 								{
 									[NAMZU.TURN_ID]: ctx.turnId,
-									'namzu.sandbox.provider_id': params.sandboxProvider.id,
+									'namzu.sandbox.provider_id': sandboxProvider.id,
 								},
 							)
 						}
@@ -2374,32 +2419,40 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 							ctx.recorder.setStopReason('timeout')
 							ctx.log.warn('Sandbox creation exhausted the turn timeout', {
 								[NAMZU.TURN_ID]: ctx.turnId,
-								'namzu.sandbox.provider_id': params.sandboxProvider.id,
+								'namzu.sandbox.provider_id': sandboxProvider.id,
 								...errorAttributes(acquisition.error),
 							})
 						}
-						yield* resultAssembler.completeTurn(rootSpan)
-						// The turn HAS settled, so the outer `finally` must not read
-						// this as an abandonment — it would persist a second time.
-						settled = true
-						return await resultAssembler.finalize()
 					}
-					sandbox = acquisition.sandbox
-					toolExecutor.setSandbox(sandbox)
-
-					await eventTranslator.emitEvent({
-						type: 'sandbox_created',
-						turnId: ctx.turnId,
-						sandboxId: sandbox.id,
-						environment: sandbox.environment,
-					})
-					yield* eventTranslator.drainPending()
-
-					ctx.log.info('Sandbox created for run', {
-						'namzu.sandbox.id': sandbox.id,
-						'namzu.execution.environment': sandbox.environment,
-						'namzu.runtime.root_dir': sandbox.rootDir,
-					})
+					if (acquireMode === 'eager') {
+						const acquisition = await startAcquisition(ctx.abortController.signal)
+						if (acquisition.kind !== 'created') {
+							applyAcquisitionStop(acquisition)
+							yield* resultAssembler.completeTurn(rootSpan)
+							// The turn HAS settled, so the outer `finally` must not read
+							// this as an abandonment — it would persist a second time.
+							settled = true
+							return await resultAssembler.finalize()
+						}
+						await publishSandbox(acquisition.sandbox)
+						yield* eventTranslator.drainPending()
+						logSandboxCreated(acquisition.sandbox)
+					} else {
+						// The handle is published, and `sandbox_created` emitted, when
+						// the provider answers. Until then the executor holds tool
+						// admission on the gate, so nothing runs without it.
+						const deferred = createDeferredSandbox({
+							turnSignal: ctx.abortController.signal,
+							acquire: startAcquisition,
+							publish: async (acquired) => {
+								await publishSandbox(acquired)
+								logSandboxCreated(acquired)
+							},
+						})
+						deferredSandbox = deferred
+						toolExecutor.setSandboxGate(() => deferred.ensure())
+						if (acquireMode === 'concurrent') deferred.start()
+					}
 				}
 
 				// Before the first model call: the cheapest place to refuse, since
@@ -2525,6 +2578,14 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 				yield* iterationOrchestrator.runLoop()
 
+				// A turn that never needed the sandbox still settles it: a failure or
+				// a timeout ends the turn the way an eager acquisition would have, and
+				// a handle that arrives after that is released by the lifecycle.
+				if (deferredSandbox) {
+					await deferredSandbox.settle()
+					yield* eventTranslator.drainPending()
+				}
+
 				yield* finalizeTurn({
 					ctx,
 					params,
@@ -2536,6 +2597,16 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					rootSpan,
 				})
 			} catch (err) {
+				// A deferred acquisition stopped (cancelled, or out of time) and the
+				// turn found out at its first tool call or at its end. Settled the
+				// way the eager path settles it, with nothing else to report.
+				if (err instanceof SandboxAcquisitionStopped) {
+					applyAcquisitionStop(err.acquisition)
+					yield* eventTranslator.drainPending()
+					yield* resultAssembler.completeTurn(rootSpan)
+					settled = true
+					return await resultAssembler.finalize()
+				}
 				// Another turn is active in this session: nothing of this turn was
 				// written, so there is nothing to settle. The caller gets the
 				// refusal itself.
@@ -2546,6 +2617,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				yield* eventTranslator.drainPending()
 				yield* resultAssembler.handleError(err, rootSpan)
 			} finally {
+				// A pending acquisition is withdrawn and awaited first, so a handle
+				// that arrives now is either published (and released below) or
+				// handed to the late-teardown path. Nothing is left allocated.
+				await deferredSandbox?.cancel()
 				yield* releaseTurnResources({
 					ctx,
 					eventTranslator,
