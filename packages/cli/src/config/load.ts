@@ -4,12 +4,14 @@
  * Resolution order (highest priority first):
  *   1. CLI flags (handled by Commander, merged in `cli.ts`)
  *   2. Environment variables prefixed `NAMZU_`
- *   3. Project config: `./namzu.config.json` (TS variant added in a later
+ *   3. Local config: `./namzu.config.local.json`, the project's own file that
+ *      git ignores; where "don't ask again" answers are written
+ *   4. Project config: `./namzu.config.json` (TS variant added in a later
  *      milestone when a build step is justified)
- *   4. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
- *   5. Built-in defaults from `schema.ts`
+ *   5. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
+ *   6. Built-in defaults from `schema.ts`
  *
- * This module owns steps 2–5. CLI-flag merging happens in `cli.ts`, where
+ * This module owns steps 2–6. CLI-flag merging happens in `cli.ts`, where
  * Commander knows what was explicitly set rather than merely defaulted.
  *
  * A file that is not there contributes nothing, and that is a default. A file
@@ -38,7 +40,7 @@ import {
 	narrower,
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
-import type { PermissionsConfig } from '../permissions/rules.js'
+import { type PermissionsConfig, mergePermissionTables } from '../permissions/rules.js'
 import { homePath } from '../tui/person-terms.js'
 import {
 	COMPOSER_TRIGGER_IDS,
@@ -133,6 +135,8 @@ export type ConfigSource =
 	| { readonly kind: 'default' }
 	| { readonly kind: 'user-file'; readonly path: string }
 	| { readonly kind: 'project-file'; readonly path: string }
+	/** The project's git-ignored local file, over the project file; see {@link LOCAL_CONFIG_FILE}. */
+	| { readonly kind: 'local-file'; readonly path: string }
 	/**
 	 * A selected profile, and the file it was declared in.
 	 *
@@ -213,6 +217,7 @@ function resolveConfigWithProvenance(
 		'config.yaml',
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
+	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
@@ -224,13 +229,24 @@ function resolveConfigWithProvenance(
 	// provider, exfiltrate the operator's Entra token to that endpoint. So it is
 	// dropped from the project layer before validation — accepted only from the
 	// user and managed layers, where where-to-send and which-credential-to-spend
-	// is the operator's call, not the workspace's. `model: auto` and `routing`
-	// get the same treatment: they choose which provider and model receive the
+	// is the operator's call, not the workspace's. `model: auto`, `routing` and
+	// `smallModel` get the same treatment: they choose which provider and model receive the
 	// conversation, and a repo must not redirect that. (A project profile still
 	// carries it only when the operator selects that profile by name, an explicit
 	// choice, not a drive-by.)
 	const projectCfg = mode.includeProject
-		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision', 'model', 'routing'])
+		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, [
+				'decision',
+				'model',
+				'routing',
+				'smallModel',
+			])
+		: {}
+	// The project's own file that git ignores: a person's answers for this
+	// folder. Read under the same trust as the project file and held to the
+	// same limits, since a folder that arrives as an archive can carry one.
+	const localCfg = mode.includeProject
+		? readJsonIfExists(localPath, LOCAL_FILE_LABEL, ['decision', 'model', 'routing'])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
@@ -244,6 +260,7 @@ function resolveConfigWithProvenance(
 		[
 			[userCfg, userPath],
 			[projectCfg, projectPath],
+			[localCfg, localPath],
 			[managedCfg, managedPath],
 		],
 		mode.deferUnknownProfile,
@@ -253,6 +270,7 @@ function resolveConfigWithProvenance(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
+		constantLayer(localCfg, { kind: 'local-file', path: localPath }),
 		// After both files and before the environment. A profile is a
 		// deliberate choice about a set of settings, so it beats the ambient
 		// values in the file it came from; a variable is a statement about this
@@ -302,7 +320,7 @@ function assertAutoModelHasDefault(config: NamzuCliConfig, provenance: ConfigPro
 
 /** One file's `permissions` table, as it was written. */
 export interface PermissionLayer {
-	readonly source: 'user-file' | 'project-file' | 'managed'
+	readonly source: 'user-file' | 'project-file' | 'local-file' | 'managed'
 	readonly path: string
 	readonly permissions: PermissionsConfig
 	/**
@@ -332,6 +350,7 @@ export function readPermissionLayers(
 		'config.yaml',
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
+	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 	const layers: PermissionLayer[] = []
 	for (const [source, path, config] of [
@@ -340,6 +359,11 @@ export function readPermissionLayers(
 			'project-file',
 			projectPath,
 			opts.includeProject === false ? {} : readJsonIfExists(projectPath, PROJECT_FILE_LABEL),
+		],
+		[
+			'local-file',
+			localPath,
+			opts.includeProject === false ? {} : readJsonIfExists(localPath, LOCAL_FILE_LABEL),
 		],
 		['managed', managedPath, readJsonIfExists(managedPath, shortHomePath(managedPath))],
 	] as const) {
@@ -487,6 +511,16 @@ function readYamlIfExists(path: string): MutableConfig {
 
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
 const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+
+/**
+ * The project's local config: the same settings as the project file, kept out
+ * of git. It is where a "don't ask again" answer is written, the way the
+ * reference terminal writes its own local settings file, and it sits over
+ * the project file in the cascade (user < project < local < profile < env <
+ * managed).
+ */
+export const LOCAL_CONFIG_FILE = 'namzu.config.local.json'
+const LOCAL_FILE_LABEL = 'namzu.config.local.json in this project'
 
 /** A path for a person to read: home as `~`, the way every other path on screen is shown. */
 export function shortHomePath(path: string): string {
@@ -661,6 +695,16 @@ const SKILLS_CONFIG_KEYS: readonly string[] = [
 	'suggestMinToolCalls',
 ]
 
+/** The keys one `hooks` entry may carry. */
+const HOOK_ENTRY_KEYS: readonly string[] = [
+	'command',
+	'matcher',
+	'timeoutMs',
+	'if',
+	'once',
+	'statusMessage',
+]
+
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
 		if (typeof v === 'string' && isFormatName(v)) return v
@@ -689,6 +733,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (Array.isArray(v)) return v as PermissionChecksConfig
 		return invalidConfigValue(context, [], 'must be a list')
 	},
+	// Derived from the layers' `permissions` tables while the cascade merges;
+	// a file that wrote it would be claiming to be several layers at once.
+	permissionLayers: (_v, context) =>
+		invalidConfigValue(context, [], 'is worked out from the permissions tables; remove it'),
 	// Every declared profile is checked when its file loads, not only when it is
 	// selected. Typed config in a lower-precedence layer cannot become valid
 	// merely because another layer happens to win today. Unknown profile keys
@@ -920,9 +968,12 @@ const CONFIG_READERS: ConfigReaders = {
 					command?: unknown
 					matcher?: unknown
 					timeoutMs?: unknown
+					if?: unknown
+					once?: unknown
+					statusMessage?: unknown
 				}
 				for (const key of Object.keys(entry)) {
-					if (key !== 'command' && key !== 'matcher' && key !== 'timeoutMs') {
+					if (!HOOK_ENTRY_KEYS.includes(key)) {
 						return invalidConfigValue(
 							context,
 							[event, index, key],
@@ -952,15 +1003,80 @@ const CONFIG_READERS: ConfigReaders = {
 						'must be a positive integer',
 					)
 				}
+				if (raw.if !== undefined && (typeof raw.if !== 'string' || raw.if.trim().length === 0)) {
+					return invalidConfigValue(context, [event, index, 'if'], 'must be a non-empty string')
+				}
+				if (raw.once !== undefined && typeof raw.once !== 'boolean') {
+					return invalidConfigValue(context, [event, index, 'once'], 'must be true or false')
+				}
+				if (
+					raw.statusMessage !== undefined &&
+					(typeof raw.statusMessage !== 'string' || raw.statusMessage.trim().length === 0)
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'statusMessage'],
+						'must be a non-empty string',
+					)
+				}
 				parsed.push({
 					command: raw.command,
 					...(raw.matcher !== undefined ? { matcher: raw.matcher } : {}),
 					...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs } : {}),
+					...(raw.if !== undefined ? { if: raw.if } : {}),
+					...(raw.once !== undefined ? { once: raw.once } : {}),
+					...(raw.statusMessage !== undefined ? { statusMessage: raw.statusMessage } : {}),
 				})
 			}
 			out[event] = parsed
 		}
 		return out as HooksConfig
+	},
+	// Shape only; the interactive terminal is the one reader. A mapping with
+	// a typo still refuses, because a line that silently never shows is worse.
+	statusLine: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as {
+			type?: unknown
+			command?: unknown
+			padding?: unknown
+			refreshInterval?: unknown
+		}
+		for (const key of Object.keys(v)) {
+			if (!STATUS_LINE_KEYS.includes(key)) {
+				return invalidConfigValue(
+					context,
+					[key],
+					`is not a statusLine setting (${STATUS_LINE_KEYS.join(', ')})`,
+				)
+			}
+		}
+		if (raw.type !== undefined && raw.type !== 'command')
+			return invalidConfigValue(context, ['type'], 'must be command')
+		if (typeof raw.command !== 'string' || raw.command.trim().length === 0)
+			return invalidConfigValue(context, ['command'], 'must be a non-empty string')
+		if (
+			raw.padding !== undefined &&
+			(typeof raw.padding !== 'number' || !Number.isInteger(raw.padding) || raw.padding < 0)
+		)
+			return invalidConfigValue(context, ['padding'], 'must be a whole number, 0 or more')
+		if (
+			raw.refreshInterval !== undefined &&
+			(typeof raw.refreshInterval !== 'number' ||
+				!Number.isFinite(raw.refreshInterval) ||
+				raw.refreshInterval < 1)
+		)
+			return invalidConfigValue(
+				context,
+				['refreshInterval'],
+				'must be a number of seconds, 1 or more',
+			)
+		return {
+			command: raw.command,
+			...(raw.type !== undefined ? { type: 'command' as const } : {}),
+			...(raw.padding !== undefined ? { padding: raw.padding } : {}),
+			...(raw.refreshInterval !== undefined ? { refreshInterval: raw.refreshInterval } : {}),
+		}
 	},
 	browser: (v, context) => readBrowserConfig(v, context),
 	web: (v, context) => {
@@ -1351,6 +1467,17 @@ const CONFIG_READERS: ConfigReaders = {
 		)
 	},
 	routing: (v, context) => readRoutingConfig(v, context),
+	smallModel: (v, context) => {
+		// One token: no whitespace and no control character, which no model id holds.
+		const named = typeof v === 'string' ? v.trim() : ''
+		if (named.length > 0 && [...named].every((char) => !/\s/u.test(char) && char >= ' '))
+			return named
+		return invalidConfigValue(
+			context,
+			[],
+			'must be a model id, or "provider/model" (for example "anthropic/claude-haiku-4-5")',
+		)
+	},
 	schedule: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1457,13 +1584,14 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
 		else if (Array.isArray(raw.notifications)) {
 			const invalidIndex = raw.notifications.findIndex(
-				(event) => event !== 'turn-settled' && event !== 'approval-required',
+				(event) =>
+					event !== 'turn-settled' && event !== 'approval-required' && event !== 'idle-prompt',
 			)
 			if (invalidIndex >= 0) {
 				return invalidConfigValue(
 					context,
 					['notifications', invalidIndex],
-					'must be one of "turn-settled" or "approval-required"',
+					'must be one of "turn-settled", "approval-required" or "idle-prompt"',
 				)
 			}
 			notifications = raw.notifications as readonly TerminalNotificationEvent[]
@@ -1472,8 +1600,18 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 
 		const method = raw.notificationMethod
-		if (method !== undefined && method !== 'osc9' && method !== 'bel') {
-			return invalidConfigValue(context, ['notificationMethod'], 'must be "osc9" or "bel"')
+		if (
+			method !== undefined &&
+			method !== 'osc9' &&
+			method !== 'bel' &&
+			method !== 'kitty' &&
+			method !== 'ghostty'
+		) {
+			return invalidConfigValue(
+				context,
+				['notificationMethod'],
+				'must be "osc9", "bel", "kitty" or "ghostty"',
+			)
 		}
 
 		return {
@@ -1508,6 +1646,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// author wrote — from a shell profile, with nothing in the config file to
 	// show for it.
 	permissionChecks: undefined,
+	// Derived from the files' tables, never set from outside.
+	permissionLayers: undefined,
 	// The SET of profiles is not env-settable — it is the thing being chosen
 	// BETWEEN, and a variable that could replace it could hand a shell a
 	// profile the files never declared. `NAMZU_PROFILE` selects one of the
@@ -1554,12 +1694,17 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Chooses which provider and model receive the conversation; a file declares it.
 	model: undefined,
 	routing: undefined,
+	// Chooses which model receives conversation text for side jobs; a file declares it.
+	smallModel: undefined,
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,
 	// What typed words do in the operator's own composer: a file decision,
 	// never a variable a shell profile could carry invisibly.
 	composerTriggers: undefined,
+	// Runs a command with the operator's authority, like `hooks`: a file
+	// decision, never a variable a shell profile could carry invisibly.
+	statusLine: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
@@ -1721,8 +1866,20 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 } {
 	const out: MutableConfig = {}
 	const provenance: { -readonly [K in keyof NamzuCliConfig]?: ConfigSource } = {}
+	const permissionTables: PermissionsConfig[] = []
 	for (const layer of layers) {
 		for (const key of Object.keys(layer.config) as (keyof NamzuCliConfig)[]) {
+			if (key === 'permissions' && layer.config.permissions) {
+				// Joined, not replaced: a project's table must not erase a user's
+				// deny, nor a managed table the rules below it. See
+				// `compilePermissionLayers`.
+				permissionTables.push(layer.config.permissions)
+				out.permissions = mergePermissionTables(permissionTables)
+				out.permissionLayers = [...permissionTables]
+				provenance[key] = layer.sourceFor(key)
+				provenance.permissionLayers = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'browser' && layer.config.browser) {
 				// Merged, not replaced: see `mergeBrowserConfig`.
 				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
@@ -1753,6 +1910,8 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 // ---------------------------------------------------------------------------
 // routing
 // ---------------------------------------------------------------------------
+
+const STATUS_LINE_KEYS: readonly string[] = ['type', 'command', 'padding', 'refreshInterval']
 
 const ROUTING_KEYS: readonly string[] = ['default', 'tiers', 'strategy', 'thresholds', 'timeoutMs']
 
@@ -1943,7 +2102,10 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 function isProjectSource(source: ConfigSource): boolean {
 	return (
 		source.kind === 'project-file' ||
-		(source.kind === 'profile' && basename(source.path) === 'namzu.config.json')
+		source.kind === 'local-file' ||
+		(source.kind === 'profile' &&
+			(basename(source.path) === 'namzu.config.json' ||
+				basename(source.path) === LOCAL_CONFIG_FILE))
 	)
 }
 

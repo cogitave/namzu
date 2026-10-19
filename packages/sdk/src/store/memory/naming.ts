@@ -1,3 +1,4 @@
+import { sep } from 'node:path'
 import { NamzuError } from '../../types/errors/index.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
@@ -192,4 +193,16 @@ export function withOptionalFields(
 		...(description !== undefined ? { description } : {}),
 		...(type !== undefined ? { type } : {}),
 	}
+}
+
+/**
+ * The path of one entry file: `dir`, a separator, `stem`, `extension`, before
+ * the caller resolves it. Written as plain concatenation on purpose. A static
+ * file tracer (the kind standalone-output builds use) evaluates
+ * `path.resolve(dir, `${stem}.ext`)` with an unknown `dir` as a wildcard and
+ * lists every `.ext` file under the repository as a runtime asset; it does not
+ * evaluate string concatenation, so this form leaves it nothing to expand.
+ */
+export function entryPath(dir: string, stem: string, extension: string): string {
+	return dir + sep + stem + extension
 }

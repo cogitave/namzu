@@ -65,7 +65,10 @@ function history(path: string, body: string): Message[] {
 				{
 					id: 'w',
 					type: 'function',
-					function: { name: 'write', arguments: JSON.stringify({ path, content: body }) },
+					function: {
+						name: 'write',
+						arguments: JSON.stringify({ path, content: body }),
+					},
 				},
 			],
 		},
@@ -79,12 +82,21 @@ function history(path: string, body: string): Message[] {
 					type: 'function',
 					function: {
 						name: 'edit',
-						arguments: JSON.stringify({ path, old_string: 'beta', new_string: 'gamma' }),
+						arguments: JSON.stringify({
+							path,
+							old_string: 'beta',
+							new_string: 'gamma',
+						}),
 					},
 				},
 			],
 		},
-		{ role: 'tool', toolCallId: 'e', content: 'Edited: 1 replacement(s)', isError: false },
+		{
+			role: 'tool',
+			toolCallId: 'e',
+			content: 'Edited: 1 replacement(s)',
+			isError: false,
+		},
 	]
 }
 
@@ -132,7 +144,7 @@ it('takes no drift note from a refused mutation, and keeps the reference it had'
 		// path has moved, and this ledger has no method for it — so the call is
 		// skipped, the mutation is refused exactly as it was before, and the
 		// entry survives rather than being withheld on a flag nobody holds.
-		await writeFile(path, 'ALPHA\nbeta\n')
+		await writeFile(path, 'alpha\nBETA\n')
 		const refused = await EditTool.execute(
 			{ path, old_string: 'beta', new_string: 'gamma' },
 			context,

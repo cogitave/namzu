@@ -8,6 +8,7 @@ import {
 	validateConnectorMaxResponseBytes,
 	validateConnectorTimeoutMs,
 } from '../http-operation.js'
+import { isSameSiteRedirect } from './page.js'
 import {
 	type WebFetchProvider,
 	WebFetchRefusedError,
@@ -304,6 +305,31 @@ export class GuardedFetchProvider implements WebFetchProvider {
 					const next = new URL(location, current)
 					cancelResponseBody(response, new Error('following redirect'))
 					operation.throwIfStopped()
+					if (request.redirects === 'same-host' && !isSameSiteRedirect(current, next)) {
+						// Handed back, not followed. It is still checked: a caller that
+						// goes there next goes through this guard again, but a target
+						// that can never be fetched is better refused here than offered.
+						try {
+							await this.assertAllowed(next.toString(), operation)
+						} catch (err) {
+							operation.throwIfStopped()
+							if (err instanceof WebFetchRefusedError) {
+								throw new WebFetchRefusedError(
+									`A redirect from "${current.toString()}" pointed at "${next.toString()}", which was refused: ${err.message}`,
+									{ url: next.toString(), reason: 'redirect-target' },
+								)
+							}
+							throw err
+						}
+						return {
+							url: current.toString(),
+							status: response.status,
+							body: '',
+							truncated: false,
+							redirects,
+							redirect: { url: next.toString(), status: response.status },
+						}
+					}
 					try {
 						current = await this.assertAllowed(next.toString(), operation)
 					} catch (err) {

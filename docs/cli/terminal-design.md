@@ -35,6 +35,9 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
+A [custom status line](status-line.md), when `statusLine` is configured, is drawn on the
+rows above this line, and the quiet `shift+tab to cycle` reminder then stays off.
+
 One line sits directly below the composer's lower rule, with no blank row between
 them. It follows the reference terminal agent's item order and wording; its
 items are joined by a dim ` · `, left to right:
@@ -59,6 +62,16 @@ items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
+- **The context meter**, dim `12% until auto-compact`, after the effort label
+  and only once the context is within 20,000 tokens of the point where older
+  history is summarised (the reference's rule). The percentage counts down to
+  that point, not to the end of the window, and the point is the kernel's own
+  trigger (`resolveTriggerThreshold`: the window less up to 20,000 tokens for
+  the reply less 13,000, so 167,000 tokens of a 200,000-token window). With
+  auto-compact off it reads `Context low (N% remaining) · Run /compact to
+  compact & continue` in red, counted against the whole window (no CLI
+  strategy turns it off today). Nothing shows before that: the always-on gauge
+  stays removed.
 - **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
   separate `N shells running` line that used to sit under the footer, and it
   hides with the composer surface (a permission or child view owning the
@@ -95,7 +108,7 @@ The keys the hints name:
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
-reminder, the effort label, the shell pill, the pull request item, the quiet
+reminder, the context meter, the effort label, the shell pill, the pull request item, the quiet
 reminder, and only then does the mode truncate. Whole items go, never half of
 one (the reference clips its row at the edge, which can show half a word).
 Where no composer is on screen (a picker, the trust prompt, a stopped start) the
@@ -783,6 +796,24 @@ than JavaScript string length. Narrow screens put the description beneath the
 label and reduce the visible page to leave room for navigation. The selected
 row can show additional detail without hiding its current marker.
 
+A call that asks several questions, or one question that takes several answers
+(a multiple choice), is a card of its own rather than the plain chooser, laid
+out like the reference's. A tab for each question shows its header and a mark
+(`☐`, `☒` once answered), and a last `✓ Submit` tab reviews the answers
+together. On a question, `↑↓` move and Enter chooses: a single choice moves on
+to the next question by itself, a multiple choice is toggled with Space or
+Enter and left from its last row (`Next`, `Review` or, for a lone question,
+`Submit`). The focused option's `preview`, when it has one, is shown beneath
+the list in the muted colour (six lines at most). `Something else…` is typed
+in place: Enter keeps the text, Esc puts the old text back. `←→` (or Shift+Tab
+and Tab) move between questions and keep what was chosen. The review tab says
+`You have not answered all questions` when one was left alone, and offers
+`Submit answers` or `Cancel`; the questions left alone are reported to the
+model as not answered, never guessed. Esc skips the whole call (as does
+`Cancel`), Ctrl+C stops the turn. One line per answered question is written to
+the transcript when the card closes. A lone single choice keeps the plain
+chooser above.
+
 Command, settings, goal, skill, branch and commit menus accept text filtering.
 Digits belong to the search query in these menus. Arrow keys navigate and
 Enter applies an available selection; non-searchable menus keep their numeric
@@ -916,6 +947,30 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **Launch flags**: `--provider` with a name Namzu does not know says so above the picker; `--model` with a name the provider does not list warns once the session starts; `/model` with a name it cannot find reads "No model called ... is available to you, so the model was not changed." and leaves only that line in the transcript.
 - **One glossary** (`person-terms.ts`) names the concepts: "reply" where the kernel says turn, "conversation" for session, "summarising the conversation" for compaction, "on this computer" for host. Sizes are `1.2 MB`, spans `20s`, counts are pluralised.
 
+## The terminal title
+
+The terminal's own title (the tab or window name) says what the conversation is,
+as in the reference terminal, whose rule was read from its code. It is set with
+OSC 0, which sets the window title and the icon name, ended by BEL:
+
+- **What it says:** a glyph, a space, then the name. The name is the one a person
+  gave the conversation with `/rename`; else the title the
+  [small model](small-model.md#conversation-titles) wrote; else `Namzu`. It is
+  shown on one line (control characters and line breaks are removed) and cut at
+  100 characters.
+- **The glyph** is `✳` while the interface waits for input and `◐` while a turn
+  runs. The reference alternates `◐` and `◑` every 960 ms while it is busy and
+  the terminal has focus; Namzu does not track terminal focus, so it shows the
+  one busy glyph and writes the title only when the text changes.
+- **When it is written:** when the interface opens, when the name or the
+  generated title changes (`/rename`, the first message's title, `/resume`, a new
+  conversation), and when a turn starts or ends.
+- **On exit** it is reset with an empty OSC 0 (`ESC ] 0 ; BEL`), including when
+  the process exits abnormally, so the shell's own title comes back.
+- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1` (the reference's
+  `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`). Nothing is written to a stream that is
+  not a terminal.
+
 ## Terminal boundaries
 
 A command entered with `!` runs in the operator's shell. Its captured output reaches the next model request as an observation in user-role context; text printed by that command has no system-prompt authority. The CLI still shows the result in the transcript.
@@ -972,6 +1027,12 @@ notice replaces the writing area. The detailed error remains in scrollback;
 Esc or one Ctrl+C closes the application so the operator can repair the named
 file and restart. A startup refusal does not create an unscoped session or
 silently replace an installation identity.
+
+## Terminal notifications
+
+Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; the reference's 60 000 ms rule). Nothing in a notice carries conversation text.
+
+`tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL; the reference's terminator was not traced.
 
 ## Paste and response boundaries
 

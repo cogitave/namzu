@@ -66,7 +66,7 @@ describe('guarded web fetch cancellation reaches a real turn', () => {
 						{
 							id: 'call_web_fetch',
 							name: 'web_fetch',
-							args: { url: 'https://example.com/' },
+							args: { url: 'https://example.com/', prompt: 'what is on the page' },
 						},
 					],
 					finishReason: 'tool_calls',

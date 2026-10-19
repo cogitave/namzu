@@ -23,6 +23,7 @@ import { InMemoryMemoryIndex, searchMemoryEntries, selectMemorySearchCandidates 
 import {
 	MemoryNameConflictError,
 	assertOptionalMemoryFields,
+	entryPath,
 	isMemoryName,
 	nameHolder,
 	withOptionalFields,
@@ -228,7 +229,7 @@ export class DiskMemoryStore implements ConditionalMemoryStore {
 
 	private contentPath(location: StorageLocation, id: MemoryId): string {
 		assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
-		const path = resolve(location.contentDir, `${id}.json`)
+		const path = resolve(entryPath(location.contentDir, id, '.json'))
 		if (dirname(path) !== location.contentDir) {
 			invalidContent(id, 'resolved path escapes the content directory', { field: 'id' })
 		}

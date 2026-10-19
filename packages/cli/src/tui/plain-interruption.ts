@@ -338,10 +338,13 @@ export function describePlainInterruption(
  */
 export interface ProviderWaitNotice {
 	readonly what: string
-	/** Wall-clock time the next try starts. */
-	readonly retryAt: number
-	readonly attempt: number
-	readonly maxRetries: number
+	/**
+	 * Wall-clock time the next try starts. The three retry fields are absent on a
+	 * notice that is not a retry (a hook's own status line): it has no clock.
+	 */
+	readonly retryAt?: number
+	readonly attempt?: number
+	readonly maxRetries?: number
 }
 
 export function describeProviderWait(
@@ -378,6 +381,7 @@ export function describeProviderWait(
 
 /** The dim half of the row: ` Retrying in 5s · attempt 2/10`, recomputed against the clock. */
 export function describeProviderWaitClock(notice: ProviderWaitNotice, now: number): string {
+	if (notice.retryAt === undefined) return ''
 	const left = Math.max(0, Math.ceil((notice.retryAt - now) / 1000)) * 1000
 	return `Retrying in ${formatSpan(left)} · attempt ${notice.attempt}/${notice.maxRetries}`
 }

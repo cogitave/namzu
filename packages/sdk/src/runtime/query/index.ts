@@ -331,6 +331,17 @@ export interface QueryParams {
 	maxToolConcurrency?: number
 	/** Per-turn cumulative tool attempt limit, including nested calls and retries. Unset is unlimited. Re-supply on resume; durable reservations are never refunded. */
 	maxToolCalls?: number
+	/**
+	 * How many times in a row the loop nudges the model to carry on after a
+	 * reply was cut off at its output limit, before the turn stops with an
+	 * error naming the limit. The count restarts after any call that finishes
+	 * on its own.
+	 *
+	 * Unset keeps the earlier behaviour: nudge every time, bounded only by
+	 * `maxIterations`. Opt-in because a cap is a stop a host did not have
+	 * before; `0` stops at the first cut-off.
+	 */
+	maxOutputContinuations?: number
 
 	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
@@ -339,6 +350,18 @@ export interface QueryParams {
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+	/**
+	 * Cap on the COMBINED model-visible text of every tool result one assistant
+	 * message produced. Defaults to {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE}
+	 * (200,000 characters); `0` disables it. When a batch exceeds it, the
+	 * largest results are replaced, largest first, by a short preview that
+	 * names where the full text was kept, until the batch fits. The
+	 * replacement is written into the result before it reaches the history, so
+	 * it never changes afterwards and the prompt-cache prefix stays stable.
+	 * Tools that bound their own output (`selfLimitingOutput`) are never
+	 * replaced.
+	 */
+	maxToolOutputCharsPerMessage?: number
 	/**
 	 * Screens to run against every tool result. The turn builds its manager
 	 * from `toolsets` and gives it this policy.
@@ -726,6 +749,13 @@ export interface QueryParams {
 	 * started. See `BaseAgentConfig.inboundMessages` for what it closes.
 	 */
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
+	/**
+	 * Hidden reminders a host feeds into the conversation, asked for before
+	 * every model request of the turn. Opt-in: omitted, a turn carries none.
+	 * See {@link ReminderSource}.
+	 */
+	reminders?: import('./reminders.js').ReminderSource
+
 	/**
 	 * Wake a background-task hold when operator input is available, without draining it.
 	 * Resolve immediately if input is already pending. Otherwise wait for its arrival;
@@ -1407,6 +1437,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: params.maxToolOutputChars }
 					: {}),
+				...(params.maxToolOutputCharsPerMessage !== undefined
+					? {
+							maxToolOutputCharsPerMessage: params.maxToolOutputCharsPerMessage,
+						}
+					: {}),
 				...(params.toolResultGuardrails !== undefined
 					? { toolResultGuardrails: params.toolResultGuardrails }
 					: {}),
@@ -1474,9 +1509,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// Normalised once, defaults applied. A host that passes a partial
 		// object — a strategy and a window, nothing else — used to reach the
 		// phase with `triggerThreshold` undefined, and `usage < undefined` is
-		// false: the pass ran on every iteration and the salience strategy fell
-		// through to the stale-result clearing it exists to replace. The eval
-		// suite that passed exactly that object found it.
+		// false: the pass ran on every iteration. An absent threshold now means
+		// the derived trigger (`resolveTriggerThreshold`), resolved where it is
+		// compared.
 		const compactionConfig = params.compactionConfig
 			? CompactionConfigSchema.parse(params.compactionConfig)
 			: undefined
@@ -1635,7 +1670,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// would leak exactly that way.
 			...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 			compactionConfig,
+			...(params.maxOutputContinuations !== undefined
+				? { maxOutputContinuations: params.maxOutputContinuations }
+				: {}),
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+			...(params.reminders ? { reminders: params.reminders } : {}),
 			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),
 			...(params.resumeFromCheckpoint ? { resumedInput: queuedForThisRun } : {}),
 			...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
@@ -1666,6 +1705,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			agentBus: params.agentBus,
 			verificationGate,
 			pluginManager: params.pluginManager,
+			...(params.parentSessionId !== undefined ? { parentSessionId: params.parentSessionId } : {}),
+			...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
 		})
 
 		const tracer = getTracer()
@@ -2489,6 +2530,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					params,
 					eventTranslator,
 					takeSteps: () => iterationOrchestrator.getSteps(),
+					turnEndHooksFired: () => iterationOrchestrator.turnEndHooksFired,
 					workingStateManager,
 					resultAssembler,
 					rootSpan,

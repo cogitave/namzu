@@ -55,6 +55,7 @@ export interface AuthoredQuestionOption {
 	readonly label: string
 	readonly description?: string
 	readonly recommended?: boolean
+	readonly preview?: string
 }
 
 /** A label's last parenthesised group, ASCII "(…)" or full-width "（…）". */
@@ -75,7 +76,10 @@ interface TrailingGroup {
 function trailingGroup(label: string): TrailingGroup | null {
 	const match = TRAILING_GROUP.exec(label)
 	if (!match) return null
-	return { base: (match[1] ?? '').trim(), text: (match[2] ?? match[3] ?? '').trim() }
+	return {
+		base: (match[1] ?? '').trim(),
+		text: (match[2] ?? match[3] ?? '').trim(),
+	}
 }
 
 /**
@@ -126,6 +130,7 @@ function isMarker(grouped: readonly { option: Working; group: TrailingGroup }[])
 
 interface Working {
 	label: string
+	readonly preview?: string
 	readonly recommended: boolean
 	/**
 	 * The label ended in "(Recommended)", which came off. That was the marker,
@@ -154,6 +159,7 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 			recommended: option.recommended ?? english,
 			hadEnglishMarker: removed,
 			description: option.description,
+			...(option.preview !== undefined ? { preview: option.preview } : {}),
 		}
 	})
 
@@ -190,6 +196,7 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 		id: `opt_${index + 1}`,
 		label: option.label,
 		...(option.description !== undefined ? { description: option.description } : {}),
+		...(option.preview !== undefined ? { preview: option.preview } : {}),
 		...(option.recommended ? { recommended: true } : {}),
 	}))
 }

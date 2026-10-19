@@ -27,7 +27,13 @@ import type { DetectedProvider, Preferences } from '../integrations/providers/in
 import { ensureRegistered } from '../integrations/providers/register.js'
 import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 import { openSessions, startConversation } from '../integrations/sessions/store.js'
-import type { AgentEvent, AgentSession, AgentSessionOptions, SendOptions } from '../tui/agent.js'
+import type {
+	AgentEvent,
+	AgentSession,
+	AgentSessionOptions,
+	PermissionFn,
+	SendOptions,
+} from '../tui/agent.js'
 import { appendMemoryWithStatus } from './store.js'
 
 let root: string
@@ -503,11 +509,17 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
 	const { session } = await makeSession(false)
 	const events: AgentEvent[] = []
+	// `.namzu/MEMORY.md` is a protected path: a write there is asked about in
+	// every mode, auto included, so the person answers yes for this one.
+	const approve = vi.fn<PermissionFn>(async () => ({ kind: 'approve' }))
 	for await (const event of session.send([createUserMessage('Update project memory.')], {
 		extraSystem: 'EXPLICIT_OPERATOR_SYSTEM_GUIDANCE',
+		onPermission: approve,
 	}))
 		events.push(event)
 	expect(events.some((event) => event.kind === 'error')).toBe(false)
+	expect(approve).toHaveBeenCalledTimes(1)
+	expect(approve.mock.calls[0]?.[0].toolCalls[0]?.escalation?.protectedPaths).toEqual([projectPath])
 	expect(readFileSync(projectPath, 'utf8')).toBe('PROJECT_AFTER_TOOL_WRITE\n')
 	expect(requests).toHaveLength(2)
 	for (const request of requests) {
@@ -676,7 +688,10 @@ it('refreshes stored memory and tasks as user context on a real paused-turn resu
 	const projectPath = join(cwd, '.namzu', 'MEMORY.md')
 	writeFileSync(projectPath, 'PROJECT_MEMORY_BEFORE_RESUME')
 	const scripted = new MockLLMProvider({
-		turns: [{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] }, { text: 'Resumed.' }],
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'printf marker' } }] },
+			{ text: 'Resumed.' },
+		],
 		onRequest: (params) => requests.push({ ...params, messages: structuredClone(params.messages) }),
 	})
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
@@ -750,7 +765,10 @@ it('refreshes stored memory and tasks as user context on a real paused-turn resu
 it('keeps one stored-index snapshot across model steps and refreshes it on the next send', async () => {
 	let memoryPath = ''
 	const scripted = new MockLLMProvider({
-		turns: [{ toolCalls: [{ name: 'bash', args: { command: 'pwd' } }] }, { text: 'Checked.' }],
+		turns: [
+			{ toolCalls: [{ name: 'bash', args: { command: 'printf marker' } }] },
+			{ text: 'Checked.' },
+		],
 		onRequest: (params) => {
 			requests.push({ ...params, messages: structuredClone(params.messages) })
 			if (requests.length === 1) {

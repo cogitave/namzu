@@ -19,3 +19,13 @@
  */
 export const AUTO_CONTINUATION_USER_MESSAGE =
 	'Continue exactly where you left off. Do not repeat content you already wrote — pick up at the next token.'
+
+/**
+ * The nudge for a reply cut off while the model was still reasoning, before
+ * it wrote any text or called a tool. There is no partial answer to pick up,
+ * so this one asks for a shorter think instead of a continuation. Like
+ * {@link AUTO_CONTINUATION_USER_MESSAGE}, it is transparent when a turn's
+ * result is assembled.
+ */
+export const REASONING_CUT_USER_MESSAGE =
+	'The output limit was reached while you were still reasoning, before any text or tool call. Continue from the conversation above: think much more briefly and give your answer or next tool call well within the limit.'

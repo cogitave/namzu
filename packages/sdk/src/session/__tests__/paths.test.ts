@@ -243,6 +243,7 @@ describe('SessionPaths', () => {
 		expect(paths.taskFile(at, fixtureId.task('k'))).toBe(
 			`${project}/${root}/tasks/${fixtureId.task('k')}.json`,
 		)
+		expect(paths.planFile(at)).toBe(`${project}/${root}/plans/plan.md`)
 		expect(paths.feedbackFile(at, fixtureId.message('m'))).toBe(
 			`${project}/${root}/feedback/${fixtureId.message('m')}.json`,
 		)

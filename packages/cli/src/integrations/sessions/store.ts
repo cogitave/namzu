@@ -894,6 +894,57 @@ export async function setTitle(s: CliSessions, sessionId: SessionId, title: stri
 }
 
 /**
+ * Record a title a model wrote, unless there is already one worth keeping.
+ *
+ * Stored as a derived title: `/rename` (a named one) always shows in its
+ * place, and removing the name falls back to it. Nothing a person chose is
+ * replaced, and a conversation is titled once. The check and the write happen
+ * under the writer lease, so a rename that lands meanwhile is not overwritten.
+ * Refuses (rejects) while a turn holds the lease; the caller tries again when
+ * the turn ends.
+ */
+export async function recordGeneratedTitle(
+	s: CliSessions,
+	sessionId: SessionId,
+	title: string,
+): Promise<boolean> {
+	await requireConversationInScope(s, sessionId, 'title conversation')
+	const trimmed = title.trim()
+	if (trimmed === '') return false
+	const log = openConversationLog(s, sessionId)
+	const lease = await claimLease(log, 'title conversation')
+	let written = false
+	try {
+		const facts = await readConversationFacts(s, sessionId, 'tolerant')
+		const worthKeeping =
+			facts?.title !== undefined && facts.title.length > 0 && facts.title !== 'Conversation'
+		if (facts && !facts.named && !worthKeeping) {
+			await log.append(lease, {
+				type: 'session_updated',
+				title: trimmed,
+				titleSource: 'derived',
+			})
+			written = true
+		}
+	} finally {
+		await log.release(lease)
+	}
+	if (written) await refreshIndex(s, sessionId)
+	return written
+}
+
+/** The title a conversation shows and whether a person chose it, for the terminal title. */
+export async function titlesOf(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<{ readonly named?: string; readonly generated?: string }> {
+	const facts = await readConversationFacts(s, sessionId, 'tolerant')
+	if (!facts || facts.title === undefined || facts.title.length === 0) return {}
+	if (facts.named) return { named: facts.title }
+	return facts.title === 'Conversation' ? {} : { generated: facts.title }
+}
+
+/**
  * Seed a conversation that has no turns yet with a history, as one
  * `compaction` record outside any turn: the fold starts from its summary, so
  * the new conversation's context is exactly `messages`. Used by forks.

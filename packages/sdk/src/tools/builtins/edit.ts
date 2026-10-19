@@ -5,8 +5,8 @@ import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
-import { fingerprintContent, staleFileError } from './content-fingerprint.js'
-import { applyEdit, normalizeEditInput } from './edit-apply.js'
+import { fingerprintContent, staleFileError, unreadFileError } from './content-fingerprint.js'
+import { type NormalizedEditInput, applyEdit, normalizeEditInput } from './edit-apply.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 
@@ -151,7 +151,10 @@ export function dryRunEdit(
 ): { success: true; content: string } | { success: false; error: string } {
 	const parsed = inputSchema.safeParse(input)
 	if (!parsed.success) {
-		return { success: false, error: parsed.error.issues.map((issue) => issue.message).join('; ') }
+		return {
+			success: false,
+			error: parsed.error.issues.map((issue) => issue.message).join('; '),
+		}
 	}
 	const normalized = normalizeEditInput(parsed.data)
 	if (!normalized.success) return normalized
@@ -161,7 +164,10 @@ export function dryRunEdit(
 				operation.operation === 'replace' && operation.oldString === operation.newString,
 		)
 	) {
-		return { success: false, error: 'old_string and new_string are identical — no change needed' }
+		return {
+			success: false,
+			error: 'old_string and new_string are identical — no change needed',
+		}
 	}
 	const result = applyEdit(content, normalized.operations)
 	return result.success ? { success: true, content: result.content } : result
@@ -249,7 +255,10 @@ const modelInputSchema: Record<string, unknown> = {
 						type: 'string',
 						description: 'Exact text from the file at this point in the sequence.',
 					},
-					new_string: { type: 'string', description: 'Exact replacement text.' },
+					new_string: {
+						type: 'string',
+						description: 'Exact replacement text.',
+					},
 					replace_all: {
 						type: 'boolean',
 						description: 'Replace every occurrence of this old_string.',
@@ -322,6 +331,46 @@ function recordDrift(context: ToolContext, key: string): void {
 	context.fileReadTracker?.recordDriftObserved?.(key)
 }
 
+type EditAdmission =
+	| { success: false; output: ''; error: string }
+	| { success: true; result: ReturnType<typeof applyEdit> }
+
+/**
+ * Decide whether this edit may run against the body now on disk, and apply it.
+ *
+ * Two rules, in this order:
+ *
+ * 1. A file the session never read is refused. The model is about to rewrite
+ *    text it has not seen, which is the commonest source of a wrong patch. A
+ *    host that supplies no tracker has no ledger to ask and is not refused.
+ * 2. A file that moved since the read is refused UNLESS every operation is a
+ *    text replacement that still applies to the current body — uniquely,
+ *    unless `replace_all` was asked for. A formatter run between the read and
+ *    the edit then costs nothing. An insertion by line number is never
+ *    recovered: the line it named may now be a different line.
+ */
+function admitAgainstRead(
+	context: ToolContext,
+	key: string,
+	content: string,
+	operations: readonly NormalizedEditInput[],
+): EditAdmission {
+	const tracker = context.fileReadTracker
+	if (tracker && !tracker.hasRead(key)) {
+		return { success: false, output: '', error: unreadFileError(key, 'edit') }
+	}
+	const seen = tracker?.fingerprint?.(key)
+	const applied = applyEdit(content, operations)
+	if (seen !== undefined && seen !== fingerprintContent(content)) {
+		const recoverable = applied.success && operations.every((o) => o.operation === 'replace')
+		if (!recoverable) {
+			recordDrift(context, key)
+			return { success: false, output: '', error: staleFileError(key) }
+		}
+	}
+	return { success: true, result: applied }
+}
+
 const EDIT_SHAPES =
 	'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.'
 
@@ -381,7 +430,10 @@ export const EditTool = defineTool({
 	 * decide this by matching two names.
 	 */
 	presentResult(_input: EditInput, result: ToolResult) {
-		return { kind: 'generic' as const, label: result.output?.split('\n')[0] ?? '' }
+		return {
+			kind: 'generic' as const,
+			label: result.output?.split('\n')[0] ?? '',
+		}
 	},
 
 	async execute(input: EditInput, context) {
@@ -439,12 +491,9 @@ export const EditTool = defineTool({
 			if (context.sandbox) {
 				const buffer = await context.sandbox.readFile(parsed.data.path)
 				const content = buffer.toString('utf-8')
-				const seen = context.fileReadTracker?.fingerprint?.(parsed.data.path)
-				if (seen !== undefined && seen !== fingerprintContent(content)) {
-					recordDrift(context, parsed.data.path)
-					return { success: false as const, output: '', error: staleFileError(parsed.data.path) }
-				}
-				const result = applyEdit(content, normalized.operations)
+				const admitted = admitAgainstRead(context, parsed.data.path, content, normalized.operations)
+				if (!admitted.success) return admitted
+				const result = admitted.result
 				if (!result.success) {
 					return { success: false as const, output: '', error: result.error }
 				}
@@ -454,7 +503,11 @@ export const EditTool = defineTool({
 				return {
 					success: true as const,
 					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
-					data: { path: parsed.data.path, replacements: result.replacements, sandboxed: true },
+					data: {
+						path: parsed.data.path,
+						replacements: result.replacements,
+						sandboxed: true,
+					},
 					facts: {
 						kind: 'edit' as const,
 						path: parsed.data.path,
@@ -466,12 +519,9 @@ export const EditTool = defineTool({
 			const hostPath = filePath as string
 			const content = await readFile(hostPath, 'utf-8')
 
-			const seen = context.fileReadTracker?.fingerprint?.(hostPath)
-			if (seen !== undefined && seen !== fingerprintContent(content)) {
-				recordDrift(context, hostPath)
-				return { success: false as const, output: '', error: staleFileError(hostPath) }
-			}
-			const result = applyEdit(content, normalized.operations)
+			const admitted = admitAgainstRead(context, hostPath, content, normalized.operations)
+			if (!admitted.success) return admitted
+			const result = admitted.result
 			if (!result.success) return { success: false as const, output: '', error: result.error }
 
 			// Temp file, fsync, rename — a reader sees the old body or the new

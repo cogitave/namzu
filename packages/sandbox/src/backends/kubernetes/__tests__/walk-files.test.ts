@@ -510,7 +510,8 @@ describe.skipIf(IS_WINDOWS)('the glob and grep builtins over a kubernetes sandbo
 		pattern: '^7:42$',
 		case_sensitive: true,
 		context_lines: 0,
-		max_results: 100,
+		output_mode: 'content' as const,
+		offset: 0,
 		...extra,
 	})
 

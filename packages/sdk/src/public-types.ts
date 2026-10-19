@@ -204,6 +204,7 @@ export type {
 	Disposable,
 	RunAgentOptions,
 	RunAgentResult,
+	SupervisorResumeTarget,
 } from './agents/index.js'
 
 export type {
@@ -457,7 +458,10 @@ export type {
 
 export type {
 	GuardedFetchConfig,
+	WebContentExtractor,
+	WebExtractRequest,
 	WebFetchProvider,
+	WebFetchRedirectPolicy,
 	WebFetchRefusalReason,
 	WebFetchRequest,
 	WebFetchResult,

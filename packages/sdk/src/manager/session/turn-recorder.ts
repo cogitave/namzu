@@ -1,4 +1,7 @@
-import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
+import {
+	AUTO_CONTINUATION_USER_MESSAGE,
+	REASONING_CUT_USER_MESSAGE,
+} from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveModelPricing } from '../../pricing/index.js'
@@ -567,7 +570,12 @@ export class TurnRecorder {
 				if (msg.content !== null) chunks.push(msg.content)
 				continue
 			}
-			if (msg.role === 'user' && msg.content === AUTO_CONTINUATION_USER_MESSAGE) continue
+			if (
+				msg.role === 'user' &&
+				(msg.content === AUTO_CONTINUATION_USER_MESSAGE ||
+					msg.content === REASONING_CUT_USER_MESSAGE)
+			)
+				continue
 			break
 		}
 		if (chunks.length > 0) this.#turn.result = chunks.reverse().join('')

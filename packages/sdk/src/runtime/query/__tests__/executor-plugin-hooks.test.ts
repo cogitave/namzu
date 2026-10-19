@@ -433,7 +433,7 @@ describe('ToolExecutor plugin hooks', () => {
 		}
 	})
 
-	it('threads modified input through chained pre_tool_use modify hooks', async () => {
+	it('takes the last of several pre_tool_use rewrites, each hook having seen the original', async () => {
 		const seenInputs: unknown[] = []
 		const executeMock = vi.fn(async (_name, input) => {
 			seenInputs.push(input)
@@ -486,12 +486,12 @@ describe('ToolExecutor plugin hooks', () => {
 		await exec.executeBatch(buildResponse('echo', { original: true }))
 		expect(seenInputs).toEqual([
 			['hook1-saw', { original: true }],
-			['hook2-saw', { step: 1 }],
+			['hook2-saw', { original: true }],
 			{ step: 2 },
 		])
 	})
 
-	it('carries modified input into synthetic skip outcome (modify -> skip chain)', async () => {
+	it('carries the rewritten input into a synthetic skip outcome (modify beside skip)', async () => {
 		const executeMock = vi.fn(async () => ({
 			success: true,
 			output: 'should-not-run',
@@ -539,7 +539,7 @@ describe('ToolExecutor plugin hooks', () => {
 		expect(batch.results[0]?.output).toBe('Tool echo skipped by plugin: after patch')
 		expect(seenInputs).toEqual([
 			['hook1', { original: true }],
-			['hook2', { patched: true }],
+			['hook2', { original: true }],
 		])
 		// Synthetic tool_executing event should carry the modified input, not the original.
 		const executingEvent = emitted.find((e) => e.type === 'tool_executing')

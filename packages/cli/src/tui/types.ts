@@ -18,6 +18,7 @@ import type {
 	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
+	StatusLineConfig,
 	TuiConfig,
 	TurnLimitsConfig,
 	WebConfig,
@@ -95,6 +96,11 @@ export interface TuiContext {
 	readonly version: string
 	/** Exact durable conversation requested by `namzu resume <id>`. */
 	readonly initialConversationId?: string
+	/**
+	 * `namzu --resume` with no title that matches: open the `/resume` picker once
+	 * the screen is ready, pre-filtered by `query` when one was given.
+	 */
+	readonly openResumePicker?: { readonly query?: string }
 	/** Required Pal owner for a Pal CLI launch; the durable log pins its profile revision. */
 	readonly palId?: string
 	/**
@@ -139,6 +145,8 @@ export interface TuiContext {
 	readonly composerTriggers?: ComposerTriggersConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
+	/** See `NamzuCliConfig.smallModel`. */
+	readonly smallModel?: string
 	/**
 	 * The browser the session mounts, with canonical site keys and `*`
 	 * filled in. Absent: no browser tools (the config switched it off, or an
@@ -147,6 +155,8 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
+	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */
+	readonly statusLine?: StatusLineConfig
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */

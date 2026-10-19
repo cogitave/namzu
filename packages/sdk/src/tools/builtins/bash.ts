@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
@@ -51,11 +52,46 @@ const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
  *
  * So the tool declares a ceiling and the executor is given a deadline above
  * it (see `timeoutMs` on the definition), which makes this the only clock
- * that can fire in practice. A request past the ceiling is REFUSED rather
- * than quietly clamped: the model asked for something specific, and silently
- * giving it a different number is how it learns to distrust the answer.
+ * that can fire in practice. A request past the ceiling is CLAMPED to it, as
+ * the reference terminal does: the command still runs, and a timeout reports
+ * the deadline that was actually applied, so the number the model sees on a
+ * timeout is the one that fired.
  */
 const MAX_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_MAX_TIMEOUT_MS', 10 * 60 * 1000)
+
+/**
+ * Background work switched off for this process: a command that outruns its
+ * timeout is killed, as it was before it could be moved to the background, and
+ * `run_in_background` is refused. Read at each call so a host can flip it.
+ */
+export const DISABLE_BACKGROUND_TASKS_ENV = 'NAMZU_DISABLE_BACKGROUND_TASKS'
+
+function backgroundTasksDisabled(): boolean {
+	const value = process.env[DISABLE_BACKGROUND_TASKS_ENV]?.trim().toLowerCase()
+	return value !== undefined && value !== '' && value !== '0' && value !== 'false'
+}
+
+/**
+ * A command that is only waiting (`sleep 30`, also as the head of a chain)
+ * has nothing to keep running when its time is up, so it is still stopped.
+ */
+function startsWithSleep(command: string): boolean {
+	const head = command
+		.split(/&&|\|\||;|\||\n/)[0]
+		?.trim()
+		.split(/\s+/)[0]
+	return head === 'sleep'
+}
+
+/**
+ * What the model is told when a foreground command outran its timeout and was
+ * moved to the background instead of being stopped. Exported so the test
+ * states the same words.
+ */
+export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
+	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
+	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Await it with wait_for_job: {"id":"${jobId}"}, read its output with job action "read" (id "${jobId}"), or stop it with job action "kill". Its output so far is above.`
+}
 
 const inputSchema = z.object({
 	command: z
@@ -73,10 +109,14 @@ const inputSchema = z.object({
 	timeout: z
 		.preprocess(
 			(v) => (typeof v === 'string' ? Number(v) : v),
-			z.number().positive().max(MAX_BASH_TIMEOUT_MS).default(DEFAULT_BASH_TIMEOUT_MS),
+			z
+				.number()
+				.positive()
+				.default(DEFAULT_BASH_TIMEOUT_MS)
+				.transform((ms) => Math.min(ms, MAX_BASH_TIMEOUT_MS)),
 		)
 		.describe(
-			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and await it with \`wait_for_job\`, rather than holding the turn open.`,
+			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and await it with \`wait_for_job\`, rather than holding the turn open. A foreground command still running when the timeout elapses is moved to a background job (and reported as such) instead of being stopped, where the host has background jobs.`,
 		),
 	run_in_background: z
 		.boolean()
@@ -93,6 +133,21 @@ const inputSchema = z.object({
 })
 
 type BashInput = z.infer<typeof inputSchema>
+
+/**
+ * Whether this exact call only reads. A background job, or a command that
+ * leaves the sandbox, is never read-only whatever its line says.
+ */
+function bashInputIsReadOnly(input: BashInput | undefined): boolean {
+	// Asked with no input to describe the tool in general (a roster, an export).
+	if (typeof input?.command !== 'string') return false
+	if (input.run_in_background === true || input.dangerously_disable_sandbox === true) return false
+	try {
+		return isReadOnlyCommandLine(input.command, hostCommandShell().dialect)
+	} catch {
+		return false
+	}
+}
 
 const MAX_SHELL_PROGRESS_CHARS = 160
 
@@ -147,7 +202,10 @@ function shellProgress(report?: (message: string) => void) {
 }
 
 /** A progress callback for {@link execHostShell}: one line, per stream, coalesced. */
-export type ExecHostShellProgress = (report: { stream: 'stdout' | 'stderr'; data: string }) => void
+export type ExecHostShellProgress = (report: {
+	stream: 'stdout' | 'stderr'
+	data: string
+}) => void
 
 /**
  * Keep the shell's process group until inherited pipes close. Node's exec
@@ -170,8 +228,22 @@ export function execHostShell(
 		shell?: CommandShell
 		signal?: AbortSignal
 		onOutput?: ExecHostShellProgress
+		/**
+		 * Asked once, at the deadline, instead of killing the command. Given the
+		 * LIVE child and what it has written so far, it may take the process over
+		 * and return a job id; the command then keeps running, this call settles
+		 * with `backgroundedJobId` set, and nothing here touches the process
+		 * again (not on a later Stop, not on its exit). Returning `undefined`, or
+		 * throwing, leaves the deadline to kill the command as it always did.
+		 */
+		onTimeout?: (running: {
+			child: ReturnType<typeof spawnHostShell>
+			initialOutput: readonly { stream: 'stdout' | 'stderr'; text: string }[]
+		}) => string | undefined
 	},
 ): Promise<{
+	/** Set when `onTimeout` took the process over; the command was not stopped. */
+	backgroundedJobId?: string
 	stdout: string
 	stderr: string
 	/** Bytes captured on each stream, before decoding; absent from a runner that does not count them. */
@@ -249,19 +321,31 @@ export function execHostShell(
 		child.stdout?.on('data', onStdout)
 		child.stderr?.on('data', onStderr)
 		let spawned = false
-		child.once('spawn', () => {
+		const onSpawn = () => {
 			spawned = true
-		})
-		child.once('error', (error: NodeJS.ErrnoException) => {
+		}
+		child.once('spawn', onSpawn)
+		const onError = (error: NodeJS.ErrnoException) => {
 			// Same words as a background job that cannot start.
 			failure ??= spawned
 				? error
 				: Object.assign(
-						new Error(describeSpawnFailure(error, options.cwd), { cause: error }),
+						new Error(describeSpawnFailure(error, options.cwd), {
+							cause: error,
+						}),
 						error.code === undefined ? {} : { code: error.code },
 					)
-		})
-		child.once('close', (code, signal) => {
+		}
+		child.once('error', onError)
+		const decodeCapture = (stream: 'stdout' | 'stderr') => {
+			const state = captures[stream]
+			const bytes = Buffer.concat(state.chunks, state.bytes)
+			// Do not flush an incomplete character cut by our byte cap.
+			const decoder = createHostOutputDecoder()
+			const text = decoder.write(bytes)
+			return state.truncated ? text : text + decoder.end()
+		}
+		const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
 			closed = true
 			disposeAbort?.()
 			clearTimeout(deadline)
@@ -276,14 +360,6 @@ export function execHostShell(
 			for (const stream of ['stdout', 'stderr'] as const) {
 				const data = captures[stream].decoder.end()
 				if (data) options.onOutput?.({ stream, data })
-			}
-			const decodeCapture = (stream: 'stdout' | 'stderr') => {
-				const state = captures[stream]
-				const bytes = Buffer.concat(state.chunks, state.bytes)
-				// Do not flush an incomplete character cut by our byte cap.
-				const decoder = createHostOutputDecoder()
-				const text = decoder.write(bytes)
-				return state.truncated ? text : text + decoder.end()
 			}
 			const stdout = decodeCapture('stdout')
 			const stderr = decodeCapture('stderr')
@@ -300,7 +376,9 @@ export function execHostShell(
 				failure ??
 				(cause === 'caller'
 					? Object.assign(
-							new Error('The operation was aborted', { cause: options.signal?.reason }),
+							new Error('The operation was aborted', {
+								cause: options.signal?.reason,
+							}),
 							{
 								name: 'AbortError',
 								code: 'ABORT_ERR',
@@ -321,8 +399,41 @@ export function execHostShell(
 					timedOut: cause === 'timeout',
 				}),
 			)
-		})
-		const deadline = setTimeout(() => cancel('timeout'), options.timeout)
+		}
+		child.once('close', onClose)
+		const deadline = setTimeout(() => {
+			if (options.onTimeout && !closed && cause === undefined) {
+				let jobId: string | undefined
+				try {
+					jobId = options.onTimeout({
+						child,
+						initialOutput: (['stdout', 'stderr'] as const)
+							.map((stream) => ({ stream, text: decodeCapture(stream) }))
+							.filter((part) => part.text !== ''),
+					})
+				} catch {
+					// A host that cannot take the process over leaves the kill in place.
+				}
+				if (jobId !== undefined) {
+					// The registry owns the process from here: stop listening to it,
+					// so a later Stop or its exit is not this call's business.
+					closed = true
+					disposeAbort?.()
+					child.stdout?.off('data', onStdout)
+					child.stderr?.off('data', onStderr)
+					child.off('close', onClose)
+					child.off('error', onError)
+					child.off('spawn', onSpawn)
+					resolve({
+						backgroundedJobId: jobId,
+						stdout: decodeCapture('stdout'),
+						stderr: decodeCapture('stderr'),
+					})
+					return
+				}
+			}
+			cancel('timeout')
+		}, options.timeout)
 		deadline.unref?.()
 		if (options.signal) {
 			disposeAbort = subscribeToAbort(options.signal, () => cancel('caller'))
@@ -372,9 +483,12 @@ const BashToolBase = defineTool({
 	// confirms it only by id; see `ToolDefinition.sandboxEscapeArgument`.
 	sandboxEscapeArgument: 'dangerously_disable_sandbox',
 	permissions: ['shell_execute'],
-	readOnly: false,
+	// A line made only of vetted read-only commands (`ls`, `cat`, `git status`,
+	// `git diff`, ...) needs no prompt and may run beside other reads; see
+	// `authorization/readonly-commands.ts`. Anything else is not read-only.
+	readOnly: (input: BashInput) => bashInputIsReadOnly(input),
 	destructive: (input: BashInput) => isDangerousCommand(input.command),
-	concurrencySafe: false,
+	concurrencySafe: (input: BashInput) => bashInputIsReadOnly(input),
 	// Above the ceiling the input schema accepts, so the executor's deadline
 	// is a backstop rather than a second clock racing this tool's own. It used
 	// to be undefined, which meant the executor's generic default applied —
@@ -421,6 +535,14 @@ const BashToolBase = defineTool({
 				output: '',
 				error:
 					'dangerously_disable_sandbox cannot be combined with run_in_background: a job started on the host would outlive the approval given for this one call. Run it in the foreground.',
+			}
+		}
+
+		if (input.run_in_background && backgroundTasksDisabled()) {
+			return {
+				success: false,
+				output: '',
+				error: `Background jobs are switched off here (${DISABLE_BACKGROUND_TASKS_ENV}). Run the command in the foreground, or raise \`timeout\` up to the tool maximum.`,
 			}
 		}
 
@@ -578,19 +700,66 @@ const BashToolBase = defineTool({
 		// the sandbox, and for what it therefore does not catch.
 		const inherited = scrubInheritedEnv()
 
+		// Where a job registry can take the process over, running out of time
+		// moves the command to the background instead of killing it: a build
+		// stopped at two minutes loses everything it did. Nowhere else (no
+		// registry, a sandboxed turn, a one-off sandbox escape, a plain wait)
+		// is there anything to hand the process to, so those keep the kill.
+		const adopt = context.backgroundJobs?.adopt?.bind(context.backgroundJobs)
+		const canMoveToBackground =
+			adopt !== undefined &&
+			context.sandbox === undefined &&
+			!backgroundTasksDisabled() &&
+			!startsWithSleep(input.command)
+
 		try {
-			const { stdout, stderr, stdoutBytes, stderrBytes } = await execHostShell(input.command, {
-				cwd: context.workingDirectory,
-				timeout: input.timeout,
-				env: { ...inherited.env, ...context.env },
-				maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
-				signal: context.abortSignal,
-				onOutput,
-			})
+			const { stdout, stderr, stdoutBytes, stderrBytes, backgroundedJobId } = await execHostShell(
+				input.command,
+				{
+					cwd: context.workingDirectory,
+					timeout: input.timeout,
+					env: { ...inherited.env, ...context.env },
+					maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
+					signal: context.abortSignal,
+					onOutput,
+					...(canMoveToBackground
+						? {
+								onTimeout: ({ child, initialOutput }) =>
+									adopt({
+										command: input.command,
+										child,
+										workingDirectory: context.workingDirectory,
+										initialOutput,
+									}).id,
+							}
+						: {}),
+				},
+			)
+			if (backgroundedJobId !== undefined) {
+				return {
+					success: true,
+					output: [
+						formatShellOutput(stdout, stderr),
+						movedToBackgroundMessage(backgroundedJobId, input.timeout),
+					]
+						.filter(Boolean)
+						.join('\n\n'),
+					data: {
+						jobId: backgroundedJobId,
+						background: true,
+						timedOut: true,
+						movedToBackground: true,
+					},
+					facts: { kind: 'command', command: input.command, background: true },
+				}
+			}
 			return {
 				success: true,
 				output: formatShellOutput(stdout, stderr) || '(no output)',
-				data: { exitCode: 0, ...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}) },
+				data: {
+					exitCode: 0,
+					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
+				},
 				facts: commandFacts({
 					command: input.command,
 					exitCode: 0,

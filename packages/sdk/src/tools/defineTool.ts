@@ -27,7 +27,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	/** Whether this exact call only observes state; conservative for unknown inputs. */
 	readOnly: boolean | ((input: z.infer<S>) => boolean)
 	destructive: boolean | ((input: z.infer<S>) => boolean)
-	concurrencySafe: boolean
+	/** Whether this exact call may run beside others; a function decides per call. */
+	concurrencySafe: boolean | ((input: z.infer<S>) => boolean)
 	/** Whether this exact call sends the screen to the provider; see {@link ToolDefinition.capturesScreen}. */
 	capturesScreen?: boolean | ((input: z.infer<S>) => boolean)
 	/** Whether this exact call always needs a person's approval; see {@link ToolDefinition.requiresApproval}. */
@@ -36,6 +37,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	metadata?: Readonly<Record<string, unknown>>
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
 	executionBarrier?: boolean
+	/** The tool bounds its own output; see {@link ToolDefinition.selfLimitingOutput}. */
+	selfLimitingOutput?: boolean
 	tier?: string
 	/**
 	 * How this tool's call and result should be shown; see
@@ -152,6 +155,9 @@ export function defineTool<S extends z.ZodType>(
 		...(options.executionBarrier !== undefined
 			? { executionBarrier: options.executionBarrier }
 			: {}),
+		...(options.selfLimitingOutput !== undefined
+			? { selfLimitingOutput: options.selfLimitingOutput }
+			: {}),
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly:
@@ -160,7 +166,10 @@ export function defineTool<S extends z.ZodType>(
 			typeof options.destructive === 'function'
 				? options.destructive
 				: constantDestructive(options.destructive as boolean),
-		isConcurrencySafe: () => options.concurrencySafe,
+		isConcurrencySafe:
+			typeof options.concurrencySafe === 'function'
+				? options.concurrencySafe
+				: () => options.concurrencySafe as boolean,
 		...(options.capturesScreen !== undefined
 			? {
 					capturesScreen:

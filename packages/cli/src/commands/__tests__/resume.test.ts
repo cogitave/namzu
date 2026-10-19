@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CliSessions } from '../../integrations/sessions/store.js'
 import { listRecent, loadResumableConversation } from '../../integrations/sessions/store.js'
-import { resolveResume } from '../resume.js'
+import { resolveResume, resolveTuiResume } from '../resume.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	listRecent: vi.fn(),
@@ -205,5 +205,84 @@ describe('no store at all', () => {
 		const out = await resolveResume(null, { continueLast: false, sessionId: null }, CWD)
 
 		expect(out.kind).toBe('fresh')
+	})
+})
+
+describe('interactive --continue / --resume', () => {
+	const ID = '11de68ce-02f2-49e4-a7e4-7f29355d7aaf'
+	const messages = [{ role: 'user', content: 'hi', timestamp: 0 }] as never
+
+	function titled(...rows: readonly [string, string][]) {
+		vi.mocked(listRecent).mockResolvedValue(
+			rows.map(([id, title], i) => ({
+				id: id as never,
+				title,
+				named: true,
+				updatedAt: `2026-08-0${i + 1}T00:00:00Z`,
+				count: 2,
+			})),
+		)
+	}
+
+	it('starts fresh when neither flag is given', async () => {
+		expect(await resolveTuiResume(sessions, { continueLast: false, resume: null }, CWD)).toEqual({
+			kind: 'fresh',
+		})
+	})
+
+	it('--continue opens the most recent conversation here', async () => {
+		recent(ID, '16209b19-849b-4d93-a8f9-eca83fa41092')
+		vi.mocked(loadResumableConversation).mockResolvedValue(messages)
+		expect(await resolveTuiResume(sessions, { continueLast: true, resume: null }, CWD)).toEqual({
+			kind: 'open',
+			sessionId: ID,
+		})
+	})
+
+	it('--continue refuses when there is nothing to continue', async () => {
+		recent()
+		const out = await resolveTuiResume(sessions, { continueLast: true, resume: null }, CWD)
+		expect(out.kind).toBe('error')
+	})
+
+	it('--resume with no value opens the picker, unfiltered', async () => {
+		expect(await resolveTuiResume(sessions, { continueLast: false, resume: true }, CWD)).toEqual({
+			kind: 'picker',
+		})
+	})
+
+	it('--resume with an id resumes that conversation, or refuses', async () => {
+		vi.mocked(loadResumableConversation).mockResolvedValueOnce(messages)
+		expect(await resolveTuiResume(sessions, { continueLast: false, resume: ID }, CWD)).toEqual({
+			kind: 'open',
+			sessionId: ID,
+		})
+		vi.mocked(loadResumableConversation).mockRejectedValueOnce(new Error('not found'))
+		const out = await resolveTuiResume(sessions, { continueLast: false, resume: ID }, CWD)
+		expect(out.kind).toBe('error')
+	})
+
+	it('--resume with a title that names exactly one conversation resumes it', async () => {
+		titled([ID, 'billing fix'], ['16209b19-849b-4d93-a8f9-eca83fa41092', 'other'])
+		expect(
+			await resolveTuiResume(sessions, { continueLast: false, resume: 'billing fix' }, CWD),
+		).toEqual({ kind: 'open', sessionId: ID })
+	})
+
+	it('--resume with an ambiguous or unknown title opens the picker with that search', async () => {
+		titled([ID, 'dup'], ['16209b19-849b-4d93-a8f9-eca83fa41092', 'dup'])
+		expect(await resolveTuiResume(sessions, { continueLast: false, resume: 'dup' }, CWD)).toEqual({
+			kind: 'picker',
+			query: 'dup',
+		})
+		expect(await resolveTuiResume(sessions, { continueLast: false, resume: 'nope' }, CWD)).toEqual({
+			kind: 'picker',
+			query: 'nope',
+		})
+	})
+
+	it('refuses both flags together', async () => {
+		const out = await resolveTuiResume(sessions, { continueLast: true, resume: ID }, CWD)
+		expect(out.kind).toBe('error')
 	})
 })

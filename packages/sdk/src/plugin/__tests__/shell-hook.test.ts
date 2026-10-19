@@ -173,13 +173,13 @@ describe('shellHookVerdict', () => {
 		})
 	})
 
-	it('cannot block after the fact: 2 on a post or turn event carries on, and is logged', () => {
+	it('has nothing to block on an observational event: 2 carries on, and is logged', () => {
 		const warn = vi.fn()
 		const log = { warn } as unknown as Parameters<typeof shellHookVerdict>[3]
-		expect(shellHookVerdict('post_tool_use', entry, { ...ok, exitCode: 2 }, log)).toEqual({
+		expect(shellHookVerdict('turn_start', entry, { ...ok, exitCode: 2 }, log)).toEqual({
 			action: 'continue',
 		})
-		expect(shellHookVerdict('turn_end', entry, { ...ok, exitCode: 2 }, log)).toEqual({
+		expect(shellHookVerdict('session_end', entry, { ...ok, exitCode: 2 }, log)).toEqual({
 			action: 'continue',
 		})
 		expect(warn).toHaveBeenCalledTimes(2)

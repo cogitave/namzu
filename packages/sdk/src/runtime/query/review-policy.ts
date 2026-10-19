@@ -229,6 +229,26 @@ export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
 	'Refused: a call in this batch runs a command whose own program name is decided at runtime (a substitution or a variable stands for it), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Write the program name literally; compute what needs computing in the arguments instead.'
 
 /**
+ * What the model is told when a batch writes a protected path (a git hook, a
+ * shell rc file, editor or tool configuration, the project's `.namzu`
+ * directory) and nobody can be asked.
+ *
+ * Refused in every mode, `auto` included: a write there runs later, outside
+ * the turn, with the operator's rights, so an answer given before the call
+ * existed (a mode, a rule, "approve all") is not an answer about it.
+ */
+export const PROTECTED_PATH_UNATTENDED_REFUSAL =
+	"Refused: a call in this batch writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Leave those files alone, or tell the user what change you need so they can make it."
+
+/**
+ * What the model is told when a batch removes something catastrophic (the
+ * root, the home directory, the working directory or a parent of it, a glob
+ * across directories, a target a variable may empty) and nobody can be asked.
+ */
+export const DANGEROUS_REMOVAL_UNATTENDED_REFUSAL =
+	'Refused: a call in this batch removes something this check treats as catastrophic (the file system root, a top-level or home directory, the working directory or a parent of it, a glob across directories, or a target a variable or substitution may leave empty), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Name the exact directory to remove with a literal path.'
+
+/**
  * What the model is told when a batch would show it the operator's screen for
  * the first time in a session and nobody can be asked.
  */
@@ -248,6 +268,21 @@ export const SCREEN_CONSENT_DECLINED_FEEDBACK =
  */
 export interface ScreenConsentRecord {
 	readonly sessions: Set<string>
+}
+
+/** Whether the call writes a protected path or removes something catastrophic. */
+function reachesAFloor(tc: ToolCallSummary): boolean {
+	return (
+		(tc.escalation?.protectedPaths?.length ?? 0) > 0 ||
+		tc.escalation?.dangerousRemoval !== undefined
+	)
+}
+
+/** The refusal for a batch that reaches a floor and cannot be asked about it. */
+function floorRefusal(toolCalls: readonly ToolCallSummary[]): string {
+	return toolCalls.some((tc) => (tc.escalation?.protectedPaths?.length ?? 0) > 0)
+		? PROTECTED_PATH_UNATTENDED_REFUSAL
+		: DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
 }
 
 /** The batch a person is asked about. */
@@ -339,6 +374,16 @@ export interface ReviewPolicyOptions {
 	 * `capturesScreen` declaration, read from `registry`; nothing without one.
 	 */
 	readonly capturesScreen?: (name: string, input: unknown) => boolean
+	/**
+	 * The one write `plan` mode lets through: a host that gives plan mode a plan
+	 * file says here which call writes it. In `plan`, a call this accepts is not
+	 * a change — it is neither refused nor asked about — unless a rule asked to
+	 * review it, in which case it is put to the person like a read outside the
+	 * roots. Every other write stays refused. Omitted (the default), `plan`
+	 * refuses every change, as it always has; the option does nothing in any
+	 * other mode.
+	 */
+	readonly planModeWrite?: (call: ToolCallSummary) => boolean
 }
 
 /**
@@ -350,6 +395,23 @@ export interface ReviewPolicyOptions {
 function isSkillGranted(tc: ToolCallSummary): boolean {
 	return (
 		tc.skillGrant !== undefined &&
+		!tc.authorization?.explicitReview &&
+		tc.authorization?.decision !== 'deny' &&
+		!tc.isDestructive &&
+		tc.escalation === undefined &&
+		tc.requiresApproval !== true
+	)
+}
+
+/**
+ * Whether a `pre_tool_use` hook's `allow` may stand in for a person on this
+ * call. The same bar as a skill's grant, repeated here so that a mark on a
+ * persisted or host-built summary cannot carry more than the kernel gave it.
+ */
+function isHookGranted(tc: ToolCallSummary): boolean {
+	return (
+		tc.hookGrant !== undefined &&
+		tc.hookPermission?.decision !== 'ask' &&
 		!tc.authorization?.explicitReview &&
 		tc.authorization?.decision !== 'deny' &&
 		!tc.isDestructive &&
@@ -422,7 +484,16 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (answer.kind === 'approve-all') remembered.all = true
 			answered = answer
 		}
-		if (!batchNeedsReview(request.toolCalls, exempt)) {
+		// The plan file, in `plan`: the one write that is not a change. A rule
+		// that asked for review keeps the call in the batch, so it is asked.
+		const isPlanFileWrite = (tc: ToolCallSummary): boolean =>
+			mode === 'plan' &&
+			options.planModeWrite?.(tc) === true &&
+			tc.authorization?.decision !== 'deny'
+		const reviewable = request.toolCalls.filter(
+			(tc) => !(isPlanFileWrite(tc) && !tc.authorization?.explicitReview),
+		)
+		if (!batchNeedsReview(reviewable, exempt)) {
 			return { action: 'approve_tools' }
 		}
 		// A batch of nothing but non-destructive file edits is the case
@@ -450,7 +521,13 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// to do, and the question such a path gets is the same in every mode that
 		// lets reads run. It goes on to that question below; `strict` still
 		// refuses it, since no rule can approve a path outside the roots.
-		if (mode === 'plan' && !onlyReadsOutsideRoots(request.toolCalls, exempt)) {
+		if (
+			mode === 'plan' &&
+			!onlyReadsOutsideRoots(
+				reviewable.filter((tc) => !isPlanFileWrite(tc)),
+				exempt,
+			)
+		) {
 			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		}
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
@@ -471,6 +548,9 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				// This opt-in confirms only the sandbox escape. A different call in
 				// the batch, or another boundary on this same call, still needs a
 				// person; the early return must not approve that boundary too.
+				if (request.toolCalls.some(reachesAFloor)) {
+					return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+				}
 				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
 					return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
 				}
@@ -494,6 +574,24 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			// reaches the next escape, which is asked about above regardless.
 			if (answer.kind === 'approve-all') remembered.all = true
 			return { action: 'approve_tools', confirmedEscalations: escapes }
+		}
+		// A write to a protected path, or a removal of something catastrophic,
+		// is a question for a person, every time, in every mode that got this
+		// far: `auto` and a remembered "approve all" were answers given before
+		// the call existed. With nobody to ask it is refused, not approved.
+		if (request.toolCalls.some(reachesAFloor)) {
+			if (!prompt) return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+			const answer = await ask()
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
+				}
+			}
+			// Latches for the ordinary calls that follow, never for the next floor.
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools' }
 		}
 		// A path outside the roots is a question for a person, every time,
 		// like an escape: `auto` and a remembered "approve all" were answers
@@ -571,15 +669,18 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					(mode === 'accept-edits' && ACCEPT_EDITS_TOOLS.has(tc.name))
 				),
 		)
+		const skillsHonoured = options.skillGrants !== 'ignore'
 		if (
 			answered === undefined &&
-			options.skillGrants !== 'ignore' &&
 			needsPerson.length > 0 &&
-			needsPerson.every(isSkillGranted)
+			needsPerson.every((tc) => isHookGranted(tc) || (skillsHonoured && isSkillGranted(tc)))
 		) {
+			const byHook = needsPerson.filter(isHookGranted).map((tc) => tc.id)
+			const bySkill = needsPerson.filter((tc) => !isHookGranted(tc)).map((tc) => tc.id)
 			return {
 				action: 'approve_tools',
-				skillGranted: needsPerson.map((tc) => tc.id),
+				...(bySkill.length > 0 ? { skillGranted: bySkill } : {}),
+				...(byHook.length > 0 ? { hookGranted: byHook } : {}),
 			}
 		}
 		const answer = await ask()

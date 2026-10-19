@@ -83,6 +83,44 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('shows a hook’s own status text while it runs, and nothing for a hook without one', () => {
+		const executing = (statusMessage?: string) =>
+			({
+				type: 'plugin_hook_executing',
+				hookEvent: 'post_tool_use',
+				pluginId: 'p',
+				...(statusMessage ? { statusMessage } : {}),
+				...env,
+			}) as unknown as SessionEvent
+		expect(toAgentEvent(executing('Formatting the file'), presenter)).toEqual({
+			kind: 'hook-status',
+			text: 'Formatting the file',
+		})
+		expect(toAgentEvent(executing(), presenter)).toBeNull()
+	})
+
+	it('puts a hook that stopped the turn, or warned the operator, in the transcript', () => {
+		const completed = (result: object) =>
+			({
+				type: 'plugin_hook_completed',
+				hookEvent: 'post_tool_use',
+				pluginId: 'p',
+				result,
+				...env,
+			}) as unknown as SessionEvent
+		expect(
+			toAgentEvent(completed({ action: 'continue', halt: { reason: 'change freeze' } }), presenter),
+		).toEqual({
+			kind: 'hook-notice',
+			text: 'A hook stopped this turn: change freeze',
+		})
+		expect(toAgentEvent(completed({ action: 'continue', notice: 'careful' }), presenter)).toEqual({
+			kind: 'hook-notice',
+			text: 'A hook says: careful',
+		})
+		expect(toAgentEvent(completed({ action: 'continue' }), presenter)).toBeNull()
+	})
+
 	it('maps tool_executing to tool-start with a command summary', () => {
 		const ev = {
 			type: 'tool_executing',

@@ -17,10 +17,12 @@ The kernel.
 * [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.
+* [Compaction trigger, circuit breaker and output limits](context-limits.md) - The derived summary trigger, the opt-in breaker on failing or refilling compaction, the output-limit continuation cap and the smaller-output retry.
 * [Manual compaction](manual-compaction.md) - Retain removed originals before publishing a host-requested history replacement.
 * [Host contracts of a turn](host-contracts.md) - Carried-history repair, attachment cancellation, project instructions, session storage paths and topic lifecycle.
 
 * [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
+* [Hidden reminders](reminders.md) - The opt-in channel a host feeds with text the model reads before each request, recorded in the conversation, with the history a source reads to set its own cadence.
 * [Request-only step context](step-context.md) - Changing observations after history (step context, working memory, `context` contributions), separate from system policy and operator intent.
 
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.
@@ -66,10 +68,11 @@ The kernel.
 * [Container-tier egress](sandbox-egress.md) - The internal-network topology that makes the docker tier's allowlist a kernel boundary rather than a proxy environment variable, the two images to build, the reach a sandbox keeps, and what is stated rather than measured.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
+* [File tools - reads, edits and searches](file-tool-limits.md) - The read size and token caps, the read-before-edit rule, grep output modes and paging, and the combined result budget for one assistant message.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
 * [Advisory context](advisory-context.md) - Public trajectory records, source attribution, bounded text and consultation limits.
 * [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.
-* [Asking the user a question](user-questions.md) - The `ask_user_question` tool: its input, the `recommended` flag on an option, how a recommendation marker written into a label is taken out in any language, what the host is handed and the answer the model reads back.
+* [Asking the user a question](user-questions.md) - The `ask_user_question` tool: its input (one to four related questions per call), the `recommended` flag and `preview` on an option, how a recommendation marker written into a label is taken out in any language, what the host is handed and the answer the model reads back.
 * [Tool handoff](tool-handoff.md) - How a tool stops the turn for a person: `ToolResult.handoff`, the checkpoint and `turn_paused` after the batch is committed, resuming, and why a delegated child fails instead.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the turn's working memory by key, so it stays in front of the model across compaction.
 * [Structured memory](memory.md) - Typed records, one Markdown file per memory with a generated index, store isolation, cross-process coordination, lexical search, lifecycle tools and bounded optional recall.
@@ -78,7 +81,7 @@ The kernel.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.
 * [Delegation events](delegation-events.md) - What the kernel says when a turn delegates to a child session, which fields a host may act on, which are captions for a screen, and what the logs keep.
 * [Cross-session peer messaging (SDK)](peer-messaging.md) - The live-session registry, the namzu-peer/1 transport and the runtime-context rendering a delivered message or notice.
-* [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, and the JSON a shell hook reads on stdin.
+* [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, the exit codes and JSON a shell hook answers with, and the limits on what a hook may decide.
 * [Skills and allowed-tools](skills.md) - Loading a SKILL.md through the skill tool, the directory a host tells the model a skill's files are in, and allowed-tools as a turn-scoped pre-approval that never narrows the tool set.
 * [The bash tool](bash-tool.md) - Which shell the bash tool runs a command in, on the host and in a sandbox, and how the permission rules follow that choice.
 * [How command lines are read](command-lines.md) - The one bash lexer behind command-line permission rules and skill Bash(<pattern>) grants, and when it calls a line opaque.
@@ -125,6 +128,7 @@ The kernel.
 * [The MCP toolset](mcp-toolset.md) - mcpToolset(client, options): two live toolsets from a connected MCP server, with mcp__<server>__<rest> naming, deferred resource tools, and list_changed and reconnect updates.
 
 * [Tool-result screening](tool-result-screening.md) - The registry boundary that judges a result before anything reads it, the four verdicts, what the two shipped screens decide and refuse to decide, and how a turn, a registry and the CLI each choose which ones apply.
+* [The web tools](web-tools.md) - web_fetch (url, prompt, offset), pages as markdown, the content extractor seam, the fifteen-minute page cache, redirects to another host handed back, and web_search's missing backend.
 
 * [Agent client protocol](agent-client-protocol.md) - Stdio prompt, permission, cancellation, scoped history and explicit host extensions.
 * [Decision models](decision.md) - Provider-agnostic System-1 decision models (yes/no, choice, score) and the Azure AI Foundry driver.

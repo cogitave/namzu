@@ -23,13 +23,19 @@
  * one inherited from the host's own environment. A hook that needs "which
  * turn" has it exactly when there is one.
  *
- * Its exit code is its answer:
+ * Its answer is the exit code and, on exit `0`, an optional JSON object on
+ * stdout. The exit codes:
  *
- * - `0` — carry on.
- * - `2` — **block.** Before a tool (`pre_tool_use`) the call is skipped and the
- *   model is told why, with the hook's stderr as the reason. On any other
- *   event a 2 is reported and the turn carries on: there is nothing left to
- *   block once the tool has run or the turn has started.
+ * - `0` — carry on. On `user_prompt_submit`, plain (non-JSON) stdout becomes
+ *   context for the model.
+ * - `2` — **block**, read per event: before a tool (`pre_tool_use`) the call is
+ *   skipped and the model is told why, with the hook's stderr as the reason;
+ *   on `user_prompt_submit` the turn ends; on `turn_end` and `subagent_stop`
+ *   the stderr is fed back to the model and the turn goes on; on
+ *   `pre_compact` a compaction the context did not force is cancelled; on
+ *   `post_tool_use` and `post_tool_use_failure` the stderr is shown to the
+ *   model with that call's result. On every other event a 2 is reported and
+ *   the turn carries on.
  * - anything else — the hook's own failure. Reported through the logger,
  *   never blocking. A formatter that crashed must not stop the agent editing,
  *   and a script missing its interpreter (127) must not read as "forbidden".
@@ -37,12 +43,41 @@
  * `2` rather than any non-zero, because a verdict and a failure are different
  * facts and one exit code cannot carry both.
  *
- * ## What a hook cannot do here
+ * ## The JSON answer
  *
- * Modify a tool's input or replace its result. The hook protocol allows both
- * (`modify`, `replace`); this adapter exposes neither, because a shell command
- * that rewrites what the model asked for deserves its own design and audit,
- * not a JSON field on stdout nobody reviewed.
+ * Exit `0` with a JSON object on stdout carries the fields below. Output that
+ * does not start with `{` is plain text and is not read as JSON; output that
+ * starts with `{` but does not parse, or has a field of the wrong type, is
+ * reported and ignored, and the call carries on.
+ *
+ * - `continue: false` with `stopReason` — stop the turn after the current
+ *   step; `stopReason` is shown to the operator.
+ * - `decision: "block"` with `reason` — refuse; `decision: "approve"` allows a
+ *   tool call or a permission request.
+ * - `systemMessage` — a warning for the operator, reported through the logger.
+ * - `suppressOutput` — keep this hook's stdout out of the debug log.
+ * - `hookSpecificOutput` with `hookEventName` naming this event (Namzu's
+ *   name or the reference spelling `PreToolUse`, `Stop`, ...):
+ *   `permissionDecision` (`allow`, `deny` or `ask`) with
+ *   `permissionDecisionReason`, `updatedInput` and `additionalContext` for
+ *   `pre_tool_use`; `additionalContext` for `user_prompt_submit`,
+ *   `post_tool_use`, `post_tool_use_failure`, `turn_end`, `subagent_stop`,
+ *   `session_start`, `notification`; and for `permission_request` a `decision`
+ *   `{ behavior: "allow" }` or `{ behavior: "deny", message, interrupt }`.
+ *
+ * ## What a hook may decide, and what it may not
+ *
+ * A hook may rewrite a tool call's input (`updatedInput`) and answer a
+ * permission question. Both stay inside the kernel's own rules:
+ *
+ * - `updatedInput` goes through the same validation as a model-supplied
+ *   input, and the rewritten call is then checked by the authorization gate
+ *   and the review policy as it now reads.
+ * - `allow` stands in for a person's yes only on a call that would have been
+ *   asked about because it changes something. It never covers a sandbox
+ *   escape, a path outside the roots, a call the tool always asks about, a
+ *   call a rule sent to review explicitly, or a destructive one, and it
+ *   never reopens what a rule denied. `deny` always wins over `allow`.
  *
  * ## Bounds
  *
@@ -53,13 +88,18 @@
  * {@link attachShellHooks}, and the refusal names the new one: a hook that
  * silently stopped firing is worse than a config that fails to load.
  *
- * Each hook has a deadline (`timeoutMs`, default 30 s, capped at ten minutes)
+ * Each hook has a deadline (`timeoutMs`, default ten minutes, also the cap)
  * and its output is captured to a bound. A hook that times out is reported
  * and does not block: one that could not answer in time has not answered no.
  */
 
 import type { spawn } from 'node:child_process'
 
+import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
+import {
+	SKILL_TOOL_NAME_ALIASES,
+	permissionPatternToRegExpSource,
+} from '../authorization/skill-grant.js'
 import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
@@ -67,7 +107,9 @@ import type {
 	PluginHookContext,
 	PluginHookDefinition,
 	PluginHookEvent,
+	PluginHookPermission,
 	PluginHookResult,
+	PluginNotificationInfo,
 } from '../types/plugin/index.js'
 import { RENAMED_PLUGIN_HOOK_EVENTS } from '../types/plugin/index.js'
 import { asPluginId } from '../utils/id.js'
@@ -87,6 +129,9 @@ export type ShellHookEvent = Extract<
 	| 'session_end'
 	| 'pre_tool_use'
 	| 'post_tool_use'
+	| 'post_tool_use_failure'
+	| 'permission_request'
+	| 'notification'
 	| 'pre_compact'
 	| 'post_compact'
 	| 'subagent_stop'
@@ -100,6 +145,9 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'session_end',
 	'pre_tool_use',
 	'post_tool_use',
+	'post_tool_use_failure',
+	'permission_request',
+	'notification',
 	'pre_compact',
 	'post_compact',
 	'subagent_stop',
@@ -111,10 +159,27 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 export interface ShellHookEntry {
 	/** Run with `sh -c`, in the working directory, with the event JSON on stdin. */
 	readonly command: string
-	/** Tool names this applies to: `*`, a name, or `a|b|prefix*`. Absent means every tool. */
+	/**
+	 * What this applies to. On a tool event (and `permission_request`) the tool
+	 * name; on `notification` the notification type. `*` or absent matches
+	 * everything; a list of names (`a|b`, `a,b`, each optionally ending in `*`
+	 * as a prefix) matches those; anything else is a regular expression tested
+	 * against the name.
+	 */
 	readonly matcher?: string
 	/** Deadline in milliseconds; default `DEFAULT_SHELL_HOOK_TIMEOUT_MS`, capped at `MAX_SHELL_HOOK_TIMEOUT_MS`. */
 	readonly timeoutMs?: number
+	/**
+	 * A permission-rule filter on a tool event: `bash(git *)` runs the hook
+	 * only for a `bash` call whose command matches, `edit` for any `edit`.
+	 * Checked before the process is spawned. A filter that cannot be read
+	 * runs the hook, so a guard is never switched off by a typo.
+	 */
+	readonly if?: string
+	/** Run once in a session, then never again in it. */
+	readonly once?: boolean
+	/** Text for the operator's status line while the hook runs. */
+	readonly statusMessage?: string
 }
 
 /** Event → entries, the shape a host's config file carries. */
@@ -125,15 +190,20 @@ export type ShellHooksConfig = {
 /** The plugin id host shell hooks register under when the host names none. */
 export const SHELL_HOOKS_PLUGIN_ID: PluginId = asPluginId('6d6f6bec-9d54-485b-90ca-52edbac1009d')
 
-export const DEFAULT_SHELL_HOOK_TIMEOUT_MS = 30_000
+export const DEFAULT_SHELL_HOOK_TIMEOUT_MS = 600_000
 export const MAX_SHELL_HOOK_TIMEOUT_MS = 10 * 60_000
 /** Captured output bound per stream. */
 const MAX_CAPTURE_BYTES = 64 * 1024
 
 /**
- * `matcher` against a tool name: `*`, or a `|`-separated list of names, each
- * of which may end in `*`. Case-sensitive, because tool names are. A matcher
- * on an event with no tool (`turn_start`) matches nothing unless it is `*`.
+ * `matcher` against a name (a tool's, or a notification's type).
+ *
+ * Empty or `*` matches everything. A list of names separated by `|` or `,`
+ * matches exactly, each part optionally ending in `*` as a prefix (the
+ * spelling this adapter has always taken). Anything else is a regular
+ * expression, tested unanchored against the name; one that does not compile
+ * matches nothing. Case-sensitive, because tool names are. A matcher on an
+ * event that has no name (`turn_start`) matches nothing unless it is `*`.
  */
 export function shellHookMatches(
 	matcher: string | undefined,
@@ -141,13 +211,64 @@ export function shellHookMatches(
 ): boolean {
 	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return true
 	if (toolName === undefined) return false
-	return matcher.split('|').some((part) => {
-		const candidate = part.trim()
-		if (candidate.length === 0) return false
-		return candidate.endsWith('*')
-			? toolName.startsWith(candidate.slice(0, -1))
-			: toolName === candidate
-	})
+	const parts = matcher.split(/[|,]/).map((part) => part.trim())
+	if (parts.every((part) => /^[A-Za-z0-9_.:-]+\*?$/.test(part))) {
+		return parts.some((candidate) =>
+			candidate.endsWith('*')
+				? toolName.startsWith(candidate.slice(0, -1))
+				: toolName === candidate,
+		)
+	}
+	try {
+		return new RegExp(matcher).test(toolName)
+	} catch {
+		return false
+	}
+}
+
+/**
+ * A hook's `if` against one tool call: `Tool` or `Tool(pattern)`. The tool
+ * part is case-insensitive and takes the names skills write (`Bash`,
+ * `Read`). A pattern is matched against a shell tool's command line and only
+ * there; for a tool with no command line the filter cannot be read, which
+ * runs the hook.
+ */
+export function shellHookIfMatches(
+	filter: string | undefined,
+	toolName: string | undefined,
+	toolInput: unknown,
+): boolean {
+	if (filter === undefined || filter.trim() === '') return true
+	if (toolName === undefined) return true
+	const shape = /^([A-Za-z0-9_.-]+)(?:\(([\s\S]*)\))?$/.exec(filter.trim())
+	if (!shape) return true
+	const written = (shape[1] ?? '').toLowerCase()
+	const tool = SKILL_TOOL_NAME_ALIASES[written] ?? written
+	if (tool !== toolName.toLowerCase()) return false
+	const specifier = shape[2]?.trim()
+	if (specifier === undefined || specifier === '' || specifier.replaceAll('*', '') === '')
+		return true
+	if (tool !== 'bash') return true
+	const line =
+		toolInput !== null && typeof toolInput === 'object'
+			? (toolInput as Record<string, unknown>).command
+			: undefined
+	if (typeof line !== 'string') return false
+	const pattern = specifier.endsWith(':*') ? `${specifier.slice(0, -2)} *` : specifier
+	try {
+		const matcher = new RegExp(permissionPatternToRegExpSource(pattern))
+		const decomposed = decomposeCommandLine(line, 'sh')
+		// A line the reader cannot see through may run the very command the
+		// filter names, so the hook runs. A filter only ever narrows when the
+		// whole line is visible and none of its commands matches.
+		if (decomposed.opaque) return true
+		const candidates = [...decomposed.segments, ...decodedCommands(line, 'sh')].map((each) =>
+			each.trim(),
+		)
+		return candidates.some((each) => matcher.test(each))
+	} catch {
+		return true
+	}
 }
 
 /** What one hook run came back with, before it is mapped to a verdict. */
@@ -180,6 +301,10 @@ export interface ShellHookInput {
 		readonly output: string
 		readonly error?: string
 	}
+	/** On `notification`: what the host is telling the operator. */
+	readonly notification?: PluginNotificationInfo
+	/** On `turn_end` and `subagent_stop`: an earlier answer already kept this turn going. */
+	readonly stopHookActive?: boolean
 }
 
 /** Run one hook command to completion, bounded by its deadline and capture. */
@@ -204,6 +329,16 @@ export function runShellHook(
 		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
 		...(input.toolInput !== undefined ? { tool_input: input.toolInput } : {}),
 		...(input.toolResult !== undefined ? { tool_result: input.toolResult } : {}),
+		...(input.event === 'post_tool_use_failure' && input.toolResult?.error !== undefined
+			? { error: input.toolResult.error }
+			: {}),
+		...(input.notification !== undefined
+			? {
+					notification_type: input.notification.type,
+					message: input.notification.message,
+				}
+			: {}),
+		...(input.stopHookActive === true ? { stop_hook_active: true } : {}),
 	})
 	const toolPath = pathOf(input.toolInput)
 	// A hook outside a turn must not see a turn id, including one the host
@@ -323,6 +458,167 @@ function pathOf(toolInput: unknown): string | undefined {
 	return undefined
 }
 
+/** The reference spelling of each event name, which a hook's JSON may use. */
+const REFERENCE_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
+	user_prompt_submit: 'UserPromptSubmit',
+	session_start: 'SessionStart',
+	session_end: 'SessionEnd',
+	pre_tool_use: 'PreToolUse',
+	post_tool_use: 'PostToolUse',
+	post_tool_use_failure: 'PostToolUseFailure',
+	permission_request: 'PermissionRequest',
+	notification: 'Notification',
+	pre_compact: 'PreCompact',
+	post_compact: 'PostCompact',
+	subagent_stop: 'SubagentStop',
+	turn_end: 'Stop',
+}
+
+/** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
+interface ShellHookReading {
+	/** Refuse (or, on a stop event, keep going; on `pre_compact`, cancel). */
+	block?: string
+	permission?: PluginHookPermission
+	updatedInput?: Record<string, unknown>
+	context?: string
+	halt?: { reason: string }
+	notice?: string
+	/** The hook asked for its stdout to stay out of the debug log. */
+	suppressOutput?: boolean
+	/** Why the JSON was set aside, when it was. */
+	invalid?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Read a hook's stdout as its JSON answer, or `undefined` when it is plain
+ * text. Strict about types the way the contract is: a wrong type anywhere
+ * sets the whole object aside rather than half-obeying it, so a typo in a
+ * guard's `decision` is reported instead of silently becoming "continue".
+ */
+function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookReading | undefined {
+	const text = stdout.trim()
+	if (!text.startsWith('{')) return undefined
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(text)
+	} catch (error) {
+		return {
+			invalid: `stdout starts with "{" but is not valid JSON (${(error as Error).message})`,
+		}
+	}
+	if (!isRecord(parsed)) return { invalid: 'stdout JSON is not an object' }
+	const optionalString = (
+		key: string,
+		from: Record<string, unknown> = parsed,
+	): string | undefined => (typeof from[key] === 'string' ? (from[key] as string) : undefined)
+	const wrongType = (
+		key: string,
+		type: 'string' | 'boolean',
+		from: Record<string, unknown> = parsed,
+	) => {
+		const value = from[key]
+		if (value === undefined) return undefined
+		const fits = type === 'string' ? typeof value === 'string' : typeof value === 'boolean'
+		return fits ? undefined : `\`${key}\` must be a ${type}`
+	}
+
+	for (const [key, type] of [
+		['continue', 'boolean'],
+		['suppressOutput', 'boolean'],
+		['stopReason', 'string'],
+		['reason', 'string'],
+		['systemMessage', 'string'],
+	] as const) {
+		const problem = wrongType(key, type)
+		if (problem) return { invalid: problem }
+	}
+	if (
+		parsed.decision !== undefined &&
+		parsed.decision !== 'approve' &&
+		parsed.decision !== 'block'
+	) {
+		return { invalid: '`decision` must be "approve" or "block"' }
+	}
+
+	const reading: ShellHookReading = {}
+	if (parsed.suppressOutput === true) reading.suppressOutput = true
+	const systemMessage = optionalString('systemMessage')
+	if (systemMessage) reading.notice = systemMessage
+	if (parsed.continue === false) {
+		reading.halt = {
+			reason: optionalString('stopReason') ?? 'Stopped by a hook',
+		}
+	}
+	const reason = optionalString('reason')
+	if (parsed.decision === 'block') reading.block = reason ?? 'Blocked by hook'
+	if (parsed.decision === 'approve')
+		reading.permission = { decision: 'allow', ...(reason ? { reason } : {}) }
+
+	const specific = parsed.hookSpecificOutput
+	if (specific === undefined) return reading
+	if (!isRecord(specific)) return { invalid: '`hookSpecificOutput` must be an object' }
+	const named = specific.hookEventName
+	if (typeof named !== 'string') {
+		return { invalid: '`hookSpecificOutput` is missing its `hookEventName`' }
+	}
+	if (named !== event && named !== REFERENCE_EVENT_NAMES[event]) {
+		return {
+			invalid: `\`hookSpecificOutput.hookEventName\` is "${named}" but this hook ran for ${event}`,
+		}
+	}
+	for (const [key, type] of [
+		['permissionDecisionReason', 'string'],
+		['additionalContext', 'string'],
+	] as const) {
+		const problem = wrongType(key, type, specific)
+		if (problem) return { invalid: `hookSpecificOutput: ${problem}` }
+	}
+	const additional = optionalString('additionalContext', specific)
+	if (additional && additional.trim().length > 0) reading.context = additional.trim()
+
+	if (event === 'pre_tool_use') {
+		const decision = specific.permissionDecision
+		const why = optionalString('permissionDecisionReason', specific)
+		if (decision !== undefined) {
+			if (decision === 'deny') reading.block = why ?? reason ?? 'Blocked by hook'
+			else if (decision === 'allow' || decision === 'ask') {
+				reading.permission = { decision, ...(why ? { reason: why } : {}) }
+			} else if (decision !== 'defer') {
+				return {
+					invalid: '`permissionDecision` must be "allow", "deny" or "ask"',
+				}
+			}
+			// "defer" hands the decision to a separate permission service the kernel
+			// does not have: nothing is decided, and the ordinary rules apply.
+		}
+		if (specific.updatedInput !== undefined) {
+			if (!isRecord(specific.updatedInput)) return { invalid: '`updatedInput` must be an object' }
+			reading.updatedInput = specific.updatedInput
+		}
+	}
+	if (event === 'permission_request') {
+		const decision = specific.decision
+		if (!isRecord(decision)) {
+			return {
+				invalid: '`decision` must be {"behavior":"allow"} or {"behavior":"deny","message":"..."}',
+			}
+		}
+		if (decision.behavior === 'allow') {
+			reading.permission = { decision: 'allow' }
+		} else if (decision.behavior === 'deny') {
+			reading.block = optionalString('message', decision) ?? 'Denied by hook'
+			if (decision.interrupt === true) reading.halt = { reason: reading.block }
+		} else {
+			return { invalid: '`decision.behavior` must be "allow" or "deny"' }
+		}
+	}
+	return reading
+}
+
 /**
  * The verdict, from the outcome and the event. Pure apart from the logger,
  * so the mapping — the part that decides what the model is told — is
@@ -349,31 +645,157 @@ export function shellHookVerdict(
 		log.warn('hook timed out', attrs)
 		return { action: 'continue' }
 	}
-	if (outcome.exitCode === 0) {
-		// On the prompt event, what the hook printed is context for the
-		// model — the branch, the time, a ticket. Everywhere else stdout is
-		// the operator's to read and the model's business not at all.
-		const text = outcome.stdout.trim()
-		if (event === 'user_prompt_submit' && text.length > 0) return { action: 'annotate', text }
-		return { action: 'continue' }
-	}
 	if (outcome.exitCode === 2) {
 		const reason =
 			outcome.stderr.trim() || outcome.stdout.trim() || `blocked by hook \`${entry.command}\``
-		if (event === 'pre_tool_use' || event === 'user_prompt_submit')
-			return { action: 'skip', reason }
-		log.warn('hook returned 2 on an event it cannot block', {
+		switch (event) {
+			case 'pre_tool_use':
+			case 'user_prompt_submit':
+			// Fed back to the model, and the turn goes on: the model is not
+			// finished until the hook is satisfied.
+			case 'turn_end':
+			case 'subagent_stop':
+			case 'pre_compact':
+				return { action: 'skip', reason }
+			// The call has run. What the hook has to say rides with its result.
+			case 'post_tool_use':
+			case 'post_tool_use_failure':
+				return { action: 'continue', context: reason }
+			default:
+				log.warn('hook returned 2 on an event it cannot block', {
+					...attrs,
+					'namzu.hook.reason': reason,
+				})
+				return { action: 'continue' }
+		}
+	}
+	if (outcome.exitCode !== 0) {
+		log.warn('hook failed', {
 			...attrs,
-			'namzu.hook.reason': reason,
+			'namzu.hook.exit': outcome.exitCode ?? -1,
+			'namzu.hook.stderr': outcome.stderr.trim().slice(0, 500),
 		})
 		return { action: 'continue' }
 	}
-	log.warn('hook failed', {
-		...attrs,
-		'namzu.hook.exit': outcome.exitCode ?? -1,
-		'namzu.hook.stderr': outcome.stderr.trim().slice(0, 500),
-	})
-	return { action: 'continue' }
+
+	// Exit 0.
+	const text = outcome.stdout.trim()
+	const reading = readShellHookJson(event, outcome.stdout)
+	if (reading === undefined) {
+		// On the prompt event, what the hook printed is context for the
+		// model — the branch, the time, a ticket. Everywhere else stdout is
+		// the operator's to read and the model's business not at all.
+		if (event === 'user_prompt_submit' && text.length > 0) return { action: 'annotate', text }
+		return { action: 'continue' }
+	}
+	if (reading.invalid !== undefined) {
+		log.warn('hook output ignored', {
+			...attrs,
+			'namzu.hook.problem': reading.invalid,
+		})
+		return { action: 'continue' }
+	}
+	if (!reading.suppressOutput) {
+		log.debug('hook output', {
+			...attrs,
+			'namzu.hook.stdout': text.slice(0, 500),
+		})
+	}
+	if (reading.notice) {
+		log.warn('hook warning', { ...attrs, 'namzu.hook.notice': reading.notice })
+	}
+	const notes = {
+		...(reading.context !== undefined ? { context: reading.context } : {}),
+		...(reading.halt !== undefined ? { halt: reading.halt } : {}),
+		...(reading.notice !== undefined ? { notice: reading.notice } : {}),
+	}
+	switch (event) {
+		case 'pre_tool_use': {
+			// A stop request also withholds the call: the hook asked for nothing
+			// further to happen.
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block, ...notes }
+			if (reading.updatedInput !== undefined) {
+				return {
+					action: 'modify',
+					input: reading.updatedInput,
+					...(reading.permission ? { permission: reading.permission } : {}),
+					...notes,
+				}
+			}
+			return {
+				action: 'continue',
+				...(reading.permission ? { permission: reading.permission } : {}),
+				...notes,
+			}
+		}
+		case 'user_prompt_submit': {
+			const block = reading.block ?? reading.halt?.reason
+			if (block !== undefined) return { action: 'skip', reason: block }
+			return reading.context !== undefined
+				? { action: 'annotate', text: reading.context }
+				: { action: 'continue' }
+		}
+		case 'post_tool_use':
+		case 'post_tool_use_failure': {
+			// The call has run, so a "block" cannot undo it: its reason is what the
+			// model is told about the result.
+			const context = [reading.block, reading.context].filter(Boolean).join('\n')
+			return {
+				action: 'continue',
+				...(context.length > 0 ? { context } : {}),
+				...(reading.halt ? { halt: reading.halt } : {}),
+				...(reading.notice ? { notice: reading.notice } : {}),
+			}
+		}
+		case 'turn_end':
+		case 'subagent_stop': {
+			// A stop request outranks keeping the turn going.
+			if (reading.halt) {
+				return {
+					action: 'continue',
+					halt: reading.halt,
+					...(reading.notice ? { notice: reading.notice } : {}),
+				}
+			}
+			const feedback = reading.block ?? reading.context
+			return feedback !== undefined
+				? {
+						action: 'skip',
+						reason: feedback,
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+				: {
+						action: 'continue',
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+		}
+		case 'pre_compact':
+			return reading.block !== undefined
+				? { action: 'skip', reason: reading.block, ...notes }
+				: { action: 'continue', ...notes }
+		case 'permission_request': {
+			if (reading.block !== undefined) {
+				return {
+					action: 'skip',
+					reason: reading.block,
+					...(reading.halt ? { halt: reading.halt } : {}),
+				}
+			}
+			return {
+				action: 'continue',
+				...(reading.permission ? { permission: reading.permission } : {}),
+			}
+		}
+		default:
+			// Nothing here can be changed by a verdict, but a stop request still
+			// can end the turn, and a warning still reaches the operator.
+			return {
+				action: 'continue',
+				...(reading.halt ? { halt: reading.halt } : {}),
+				...(reading.notice ? { notice: reading.notice } : {}),
+			}
+	}
 }
 
 export interface ShellHookOptions {
@@ -389,12 +811,23 @@ export function createShellHook(
 	options: ShellHookOptions,
 ): PluginHookDefinition {
 	const log = options.log ?? NOOP_LOGGER
+	// `once` is per definition, and a definition is per session: the manager
+	// is built for one session and its hooks are attached to it.
+	let spent = false
 	// The shell verdict branches on `event`, but TypeScript cannot retain that
 	// correlation across the async handler closure and the union of events.
 	return {
 		event,
+		...(entry.statusMessage !== undefined ? { statusMessage: entry.statusMessage } : {}),
 		handler: async (context: PluginHookContext) => {
-			if (!shellHookMatches(entry.matcher, context.toolName)) return { action: 'continue' }
+			if (spent) return { action: 'continue' }
+			// A notification is matched on its type; every other event on the tool.
+			const subject = event === 'notification' ? context.notification?.type : context.toolName
+			if (!shellHookMatches(entry.matcher, subject)) return { action: 'continue' }
+			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput)) {
+				return { action: 'continue' }
+			}
+			if (entry.once === true) spent = true
 			const outcome = await runShellHook(
 				entry,
 				{
@@ -423,6 +856,8 @@ export function createShellHook(
 								},
 							}
 						: {}),
+					...(context.notification !== undefined ? { notification: context.notification } : {}),
+					...(context.stopHookActive === true ? { stopHookActive: true } : {}),
 				},
 				context.signal,
 			)
@@ -433,9 +868,8 @@ export function createShellHook(
 
 /**
  * Register every entry on the manager, in file order within an event. The
- * manager runs `post_*` hooks in reverse, as it does for plugins, so a
- * formatter registered last runs first after a write. Returns how many were
- * attached.
+ * manager starts all of an event's hooks together and reads their answers in
+ * that order. Returns how many were attached.
  *
  * Throws, before registering anything, when the config names a renamed event
  * (`run_start` and the rest); the message names the event that replaced it.
