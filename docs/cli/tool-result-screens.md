@@ -97,9 +97,9 @@ registry, and this CLI builds that registry with the same screens.
 The correspondence screen refuses a result that IS the request — a server or a
 tool answering a call with the text of the call. It deliberately leaves alone:
 
-- **This process's own unframed tools.** `web_fetch` returns a page body, and a
-  page whose body is the URL it was fetched from is a true result from a
-  working tool. The scope is the untrusted FRAME rather than who mounted the
+- **This process's own unframed tools.** `web_fetch` returns a page's text (or a
+  model's answer from it), and a page whose body is the URL it was fetched from
+  is a true result from a working tool. The scope is the untrusted FRAME rather than who mounted the
   tool, so a host tool that frames its own result — the CLI's own remote Exa
   search does — is judged, and one that frames nothing is not.
 - **An empty result**, a **failed call**, and a result that is not a string.

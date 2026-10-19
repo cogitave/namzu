@@ -999,6 +999,11 @@ export interface SessionWorkflows {
 	readonly reset: () => void
 }
 
+/** Most bytes of a page `web_fetch` reads (the reference reads ten mebibytes). */
+const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+/** Most tokens of answer the small model gives to a question about a page. */
+const WEB_EXTRACT_MAX_TOKENS = 8192
+
 export interface AgentSession {
 	/**
 	 * Requests beside the conversation, on a small model: its title and the
@@ -2998,7 +3003,34 @@ export async function createAgentSession(
 	// Requests beside the conversation (its title, the answer `web_fetch` extracts)
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
-	const webCapability = options.web?.fetch ? { fetch: new GuardedFetchProvider() } : undefined
+	const webCapability = options.web?.fetch
+		? {
+				// A page may be ten mebibytes, as in the reference; the guard's own
+				// default is two.
+				fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
+				// The answer to a prompt about a page comes from the small model. It is
+				// read at call time: the model exists once the delegation runtime does,
+				// and a page fetched without one is returned as markdown instead.
+				extract: {
+					extract: async (request: {
+						readonly signal?: AbortSignal
+						readonly sessionId: string
+						readonly turnId: string
+						readonly instruction: string
+						readonly body: string
+					}) =>
+						sideModel?.ask({
+							sessionId: request.sessionId as SessionId,
+							turnId: request.turnId as TurnId,
+							instruction: request.instruction,
+							body: request.body,
+							maxTokens: WEB_EXTRACT_MAX_TOKENS,
+							signal: request.signal ?? new AbortController().signal,
+							timing: 'in-turn',
+						}),
+				},
+			}
+		: undefined
 	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).

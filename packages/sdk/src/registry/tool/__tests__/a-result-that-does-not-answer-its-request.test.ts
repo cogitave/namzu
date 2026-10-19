@@ -504,7 +504,10 @@ describe('the scope', () => {
 
 		const result = await r.execute(
 			'web_fetch',
-			{ url: 'https://docs.internal.example.com/rollback-procedure' },
+			{
+				url: 'https://docs.internal.example.com/rollback-procedure',
+				prompt: 'what is the rollback procedure',
+			},
 			CTX,
 		)
 
@@ -732,7 +735,10 @@ describe('the tools this SDK ships', () => {
 					? [
 							[
 								'web_fetch',
-								{ url: 'https://docs.internal.example.com/rollback-procedure' },
+								{
+									url: 'https://docs.internal.example.com/rollback-procedure',
+									prompt: 'what is the rollback procedure',
+								},
 							] as const,
 						]
 					: []),
@@ -814,7 +820,10 @@ describe('the tools this SDK ships', () => {
 
 		const fetched = await registry.execute(
 			'web_fetch',
-			{ url: 'https://docs.internal.example.com/rollback-procedure' },
+			{
+				url: 'https://docs.internal.example.com/rollback-procedure',
+				prompt: 'what is the rollback procedure',
+			},
 			ctx,
 		)
 		const echoed = await registry.execute('bash', { command: `echo ${JSON.stringify(QUERY)}` }, ctx)
@@ -841,7 +850,10 @@ describe('the tools this SDK ships', () => {
 
 		const result = await registry.execute(
 			'web_fetch',
-			{ url: 'https://docs.internal.example.com/rollback-procedure' },
+			{
+				url: 'https://docs.internal.example.com/rollback-procedure',
+				prompt: 'what is the rollback procedure',
+			},
 			ctx,
 		)
 

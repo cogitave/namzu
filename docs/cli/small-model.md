@@ -1,19 +1,20 @@
 ---
 type: Reference
 title: The small model for side jobs
-description: The smallModel config key, how a side job picks its model, what it is used for (conversation titles), how its tokens are counted, and why it never blocks or fails a turn.
+description: The smallModel config key, how a side job picks its model, what it is used for (conversation titles, the answer web_fetch extracts), how its tokens are counted, and why it never blocks or fails a turn.
 resource: packages/cli/src/integrations/small-model/side-model.ts
-tags: [cli, config, models, titles]
+tags: [cli, config, models, titles, web]
 status: stable
 ---
 
 # The small model for side jobs
 
 Some work happens beside a conversation and does not need the conversation's
-model: naming the conversation. That is a short request, and on a large model it would cost more than the work is
-worth. Namzu runs it on a small model, as the reference terminal does with its
+model: naming the conversation, and answering a question about a web page. Both
+are short requests, and on a large model they would cost more than the work is
+worth. Namzu runs them on a small model, as the reference terminal does with its
 small fast model. The reference's behaviour was read from its code
-(`generate_session_title`, the small fast model it takes from
+(`generate_session_title`, `web_fetch_apply`, the small fast model it takes from
 `ANTHROPIC_SMALL_FAST_MODEL`).
 
 ## Which model
@@ -51,8 +52,9 @@ smallModel: anthropic/claude-haiku-4-5
 | Side job | When | Request |
 | --- | --- | --- |
 | [Conversation title](#conversation-titles) | After the first message of a conversation | No tools, 60 tokens |
+| The answer `web_fetch` extracts ([web tools](../sdk/web-tools.md)) | When a page is fetched with a `prompt` | No tools, 8192 tokens |
 
-The live label of a running background agent is a second side request of the same
+The live label of a running background agent is a third side request of the same
 kind, but it runs on the agent's own model and is described in
 [Delegated work](delegated-work.md).
 
@@ -63,14 +65,17 @@ made, every caller does what it did before the job existed:
 
 - no credential for the small model's provider, a listing that does not answer, a
   request that errors or is cancelled, an empty reply: the title stays the first
-  message.
+  message, and `web_fetch` returns the page as markdown instead of an answer;
+- the turn's token limit has no room for it: the request is not made.
 
 Nothing is shown to the person when a side job fails.
 
 ## Its tokens are counted
 
 A side request is spend of the turn it belongs to, so it is charged to that
-turn's token ledger, the way a [live label](delegated-work.md) is. A title is asked at the same time
+turn's token ledger, the way a [live label](delegated-work.md) is. A request made
+in the turn (the page answer) is admitted against the turn's limit first and
+counted with the usage the provider reported. A title is asked at the same time
 as the turn's own first request, while the turn's account is busy, so it runs now
 and its usage is counted when the turn's request has closed. A session with no
 delegation runtime has no ledger to count on and makes no side request.
