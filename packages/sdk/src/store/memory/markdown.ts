@@ -38,6 +38,7 @@ import {
 	MemoryContentRejectedError,
 	MemoryNameConflictError,
 	assertOptionalMemoryFields,
+	entryPath,
 	isMemoryName,
 	nameHolder,
 	slugifyMemoryName,
@@ -327,7 +328,7 @@ export class MarkdownMemoryStore implements ConditionalMemoryStore {
 
 	private memoryPath(dir: string, name: string): string {
 		if (!isMemoryName(name)) invalidFile(join(dir, `${name}.md`), 'name is not a memory name')
-		const path = resolve(dir, `${name}.md`)
+		const path = resolve(entryPath(dir, name, '.md'))
 		if (dirname(path) !== dir) invalidFile(path, 'resolved path escapes the memory directory')
 		return path
 	}
