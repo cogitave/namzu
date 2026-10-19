@@ -783,6 +783,24 @@ than JavaScript string length. Narrow screens put the description beneath the
 label and reduce the visible page to leave room for navigation. The selected
 row can show additional detail without hiding its current marker.
 
+A call that asks several questions, or one question that takes several answers
+(a multiple choice), is a card of its own rather than the plain chooser, laid
+out like the reference's. A tab for each question shows its header and a mark
+(`☐`, `☒` once answered), and a last `✓ Submit` tab reviews the answers
+together. On a question, `↑↓` move and Enter chooses: a single choice moves on
+to the next question by itself, a multiple choice is toggled with Space or
+Enter and left from its last row (`Next`, `Review` or, for a lone question,
+`Submit`). The focused option's `preview`, when it has one, is shown beneath
+the list in the muted colour (six lines at most). `Something else…` is typed
+in place: Enter keeps the text, Esc puts the old text back. `←→` (or Shift+Tab
+and Tab) move between questions and keep what was chosen. The review tab says
+`You have not answered all questions` when one was left alone, and offers
+`Submit answers` or `Cancel`; the questions left alone are reported to the
+model as not answered, never guessed. Esc skips the whole call (as does
+`Cancel`), Ctrl+C stops the turn. One line per answered question is written to
+the transcript when the card closes. A lone single choice keeps the plain
+chooser above.
+
 Command, settings, goal, skill, branch and commit menus accept text filtering.
 Digits belong to the search query in these menus. Arrow keys navigate and
 Enter applies an available selection; non-searchable menus keep their numeric

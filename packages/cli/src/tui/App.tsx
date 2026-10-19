@@ -226,6 +226,8 @@ import {
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
+import { QuestionDialog } from './QuestionDialog.js'
+import { needsQuestionDialog } from './question-dialog.js'
 import {
 	Composer,
 	type ComposerDraft,
@@ -2259,6 +2261,24 @@ export function App({
 			if (next) setJobSurface(null)
 			scheduleReviewPromptRef.current = next
 			setScheduleReviewPromptState(next)
+		},
+		[setJobSurface],
+	)
+	/**
+	 * `ask_user_question` as a card: several questions in one call, or one that
+	 * takes several answers. A lone single choice stays the plain chooser.
+	 */
+	const [questionDialog, setQuestionDialogState] = useState<{
+		readonly token: number
+		readonly question: UserQuestion
+	} | null>(null)
+	const questionDialogRef = useRef<typeof questionDialog>(null)
+	const questionDialogTokenRef = useRef(0)
+	const setQuestionDialog = useCallback(
+		(next: typeof questionDialog) => {
+			if (next) setJobSurface(null)
+			questionDialogRef.current = next
+			setQuestionDialogState(next)
 		},
 		[setJobSurface],
 	)
@@ -5172,6 +5192,7 @@ export function App({
 		jobSurface === null &&
 		permission === null &&
 		saveSkillPrompt === null &&
+		questionDialog === null &&
 		scheduleReviewPrompt === null &&
 		textPrompt === null &&
 		choicePicker === null &&
@@ -5225,9 +5246,14 @@ export function App({
 	// it also swallows the main input handler's keys while it is open, so it has to
 	// close: otherwise the request on screen could not be answered.
 	useEffect(() => {
-		if (permission !== null || saveSkillPrompt !== null || scheduleReviewPrompt !== null)
+		if (
+			permission !== null ||
+			saveSkillPrompt !== null ||
+			questionDialog !== null ||
+			scheduleReviewPrompt !== null
+		)
 			setScrollOpen(false)
-	}, [permission, saveSkillPrompt, scheduleReviewPrompt])
+	}, [permission, saveSkillPrompt, questionDialog, scheduleReviewPrompt])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
@@ -6572,6 +6598,18 @@ export function App({
 				}
 				closeLiveReply()
 				questionRef.current = { question, resolve }
+				if (needsQuestionDialog(question)) {
+					const entry = { token: (questionDialogTokenRef.current += 1), question }
+					const onAbort = () => {
+						if (questionDialogRef.current === entry) setQuestionDialog(null)
+						resolveQuestion({ kind: 'abort' })
+					}
+					signal?.addEventListener('abort', onAbort, { once: true })
+					setJobSurface(null)
+					setQuestionDialog(entry)
+					sendTerminalNotification({ kind: 'approval-required' })
+					return
+				}
 				const values = [
 					...question.options.map((option) => option.id),
 					...(question.allowFreeText ? [FREE_TEXT_ANSWER] : []),
@@ -6610,10 +6648,28 @@ export function App({
 			closeLiveReply,
 			sendTerminalNotification,
 			setChoicePicker,
+			setQuestionDialog,
 			setSelectedChoice,
 			setJobSurface,
 			resolveQuestion,
 		],
+	)
+	/**
+	 * The card's answer. It answers from its own key handler, which Ink calls
+	 * before App's, so the card is taken down a tick later: clearing the ref
+	 * now would hand the same Esc or Ctrl+C to App, which reads it as an
+	 * interrupt of the turn this answer is for.
+	 */
+	const finishQuestionDialog = useCallback(
+		(answer: QuestionAnswer, summary: readonly string[]) => {
+			const entry = questionDialogRef.current
+			queueMicrotask(() => {
+				if (questionDialogRef.current === entry) setQuestionDialog(null)
+			})
+			for (const line of summary) pushMessage('system', line, false, '?')
+			resolveQuestion(answer)
+		},
+		[pushMessage, resolveQuestion, setQuestionDialog],
 	)
 	const submitChildMessage = useCallback(
 		async (viewId: string, text: string) => {
@@ -10879,7 +10935,12 @@ export function App({
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
-			if ((saveSkillPromptRef.current || scheduleReviewPromptRef.current) && permission === null)
+			if (
+				(saveSkillPromptRef.current ||
+					questionDialogRef.current ||
+					scheduleReviewPromptRef.current) &&
+				permission === null
+			)
 				return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
@@ -11915,6 +11976,7 @@ export function App({
 		permission !== null ||
 		scheduleReviewPrompt !== null ||
 		saveSkillPrompt !== null ||
+		questionDialog !== null ||
 		agentSurface !== null ||
 		jobSurface !== null ||
 		textPrompt !== null ||
@@ -12154,6 +12216,7 @@ export function App({
 									permission === null &&
 									textPrompt === null &&
 									saveSkillPrompt === null &&
+									questionDialog === null &&
 									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
@@ -12164,6 +12227,7 @@ export function App({
 									permission !== null ||
 									textPrompt !== null ||
 									saveSkillPrompt !== null ||
+									questionDialog !== null ||
 									scheduleReviewPrompt !== null
 								}
 							/>
@@ -12217,6 +12281,14 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								rows={terminal.rows}
 								onAnswer={saveSkillPrompt.resolve}
+							/>
+						) : null}
+						{questionDialog && permission === null && scheduleReviewPrompt === null ? (
+							<QuestionDialog
+								key={questionDialog.token}
+								question={questionDialog.question}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								onAnswer={finishQuestionDialog}
 							/>
 						) : null}
 						{scheduleReviewPrompt && permission === null ? (
@@ -12311,6 +12383,7 @@ export function App({
 								choicePicker === null &&
 								copyPicker === null &&
 								saveSkillPrompt === null &&
+								questionDialog === null &&
 								scheduleReviewPrompt === null &&
 								!scrollOpen &&
 								!childSurfaceOpen
@@ -12318,6 +12391,7 @@ export function App({
 							hidden={
 								permission !== null ||
 								saveSkillPrompt !== null ||
+								questionDialog !== null ||
 								scheduleReviewPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
@@ -12348,6 +12422,7 @@ export function App({
 								hidden={
 									permission !== null ||
 									saveSkillPrompt !== null ||
+									questionDialog !== null ||
 									scheduleReviewPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
