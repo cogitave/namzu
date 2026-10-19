@@ -47,8 +47,11 @@ class DyingLog extends sdk.DiskSessionLog {
 const sessionLog = new DyingLog({
   sessionId: ids.sessionId, file: paths.sessionLog(locator), sessionDir: paths.sessionDir(locator),
 })
-// A short lease: the next process may take the session soon after the kill.
-const lease = await sessionLog.claim({ holder: 'handoff:' + process.pid, ttlMs: 400 })
+// Long enough that a loaded machine cannot expire it before the turn pauses:
+// this supplied lease is never renewed, and importing the SDK plus preparing
+// the turn can take longer than any short TTL when the host is busy. The test
+// ends the dead holder's lease itself after the kill.
+const lease = await sessionLog.claim({ holder: 'handoff:' + process.pid, ttlMs: 10 * 60_000 })
 const tools = sdk.toolset('handoff-worker', [{ name: 'open_page', description: 'opens a page', inputSchema: z.object({}), execute: async () => {
   await appendFile(join(root, 'ran'), 'x')
   return {
@@ -103,11 +106,15 @@ it('resumes a handoff pause in a new process after the first was killed', async 
 	)
 	expect(signal, output).toBe('SIGKILL')
 	expect(await readFile(join(root, 'ran'), 'utf8')).toBe('x')
-	// Past the dead holder's lease.
-	await new Promise((resolve) => setTimeout(resolve, 500))
 
 	const paths = new SessionPaths({ home: join(root, 'home'), slug: 'handoff' })
 	const sessionLog = DiskSessionLog.at(paths, { sessionId: ids.sessionId })
+	// The holder is dead and never released. A supervisor that has seen it die
+	// ends its holding; waiting for a wall-clock expiry would only measure how
+	// fast the machine is.
+	const dead = await sessionLog.lease()
+	expect(dead?.holder).toMatch(/^handoff:/)
+	if (dead) await sessionLog.release(dead)
 	const before = (await sessionLog.readAll()).entries.map((entry) => entry.record)
 	const paused = before.at(-1) as { type: string; handoff?: { reason: string } }
 	expect(paused.type).toBe('turn_paused')
