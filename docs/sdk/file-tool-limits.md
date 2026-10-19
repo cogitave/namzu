@@ -1,0 +1,96 @@
+---
+type: Reference
+title: File tools - reads, edits and searches
+description: The size and token caps on read, the read-before-edit rule, the grep output modes and paging, and the combined result budget for one assistant message.
+resource: packages/sdk/src/tools/builtins/read-file.ts
+tags: [sdk, tools, read, edit, grep, budget]
+status: stable
+generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
+---
+
+# File tools: reads, edits and searches
+
+These are the limits the built-in `read`, `edit`, `write` and `grep` tools apply, and the budget the
+runtime applies to the results of one assistant message. The numbers follow the reference terminal
+(read from its code); each section names where this kernel differs.
+
+## read
+
+| Rule | Value |
+| --- | --- |
+| Lines returned with no window | 2000 |
+| Largest file returned when no window is named | 262,144 bytes (256 KiB) |
+| Largest result | 25,000 estimated tokens |
+| A window's text, in bytes | at most 25,000 x 128 |
+| Token estimate | characters / 4; characters / 2 for `.json`, `.jsonl`, `.jsonc` |
+
+A window is `readRange` or `limit`. A caller that names one has chosen its size, so the 256 KiB rule
+does not apply; the token rule does.
+
+- A file over 256 KiB with no window is refused before it is loaded. The error says to use `offset` and
+  `limit`, or to search, and names `allow_large`.
+- A result over 25,000 tokens, on the first page of an unwindowed read, is cut to the leading lines that fit.
+  The page ends with `[Truncated: PARTIAL view ...]` naming how many lines were shown and the exact next
+  call (`offset=N limit=N`, 0-indexed like this tool's `offset`). A file whose lines are too long to page
+  gets a character excerpt and says it cannot be paged by line.
+- Any other read over 25,000 tokens (a window, or an `offset` past the start) is refused with the count.
+- `allow_large: true` lifts both caps for that one call to four times their size. The reference lifts them to
+  "what still fits in the context left this turn"; this kernel does not track that room, so the factor is
+  fixed. A read still over the lifted caps is refused and says so.
+- `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
+
+`read` declares `selfLimitingOutput: true` ([ToolDefinition](tool-execution.md)): the turn's default per-result
+cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its
+bound. A host that sets `maxToolOutputChars` explicitly still bounds it.
+
+## edit and write
+
+`edit` refuses a file the session has not read: `<path> has not been read yet. Read it first, then redo the
+edit. Nothing was written.` `write` already refused an existing file it had not read. Both consult the
+turn's `fileReadTracker`; a host that supplies none is not refused, because it has nothing to ask. A windowed
+read counts as a read here (the ledger records the whole body), where the reference refuses an edit after a
+partial view.
+
+A file that changed since the read is compared by content fingerprint, not by modification time, so a touch
+that leaves the bytes alone is not drift. When the content did change, an `edit` whose every operation is a
+text replacement is still applied if `old_string` still matches the current content uniquely (or, with
+`replace_all`, still matches). Otherwise it is refused as stale and the model is told to read again. An
+insertion by line number is never recovered, because the line it named may be a different line now. `write`
+has no `old_string` and is always refused on drift.
+
+## grep
+
+`output_mode` is `files_with_matches` (default), `content` or `count`.
+
+| Mode | Returns |
+| --- | --- |
+| `files_with_matches` | `Found N files`, then the paths, newest modification time first, ties by path |
+| `content` | `path:line:text` (`path-line-text` for context lines, `--` between groups) |
+| `count` | `path:N` per file, then the total across files |
+
+`head_limit` (default 250, `0` for none) bounds the entries, which are paths, output lines or count rows
+depending on the mode. `offset` skips entries first, to page. A page that cut results off reports
+`limit: N` and `offset: N`. In `content` mode the search stops when the page is full and says more may
+follow, rather than reading another file to prove it. A matching or context line over 500 characters is
+printed as `[Omitted long matching line]` or `[Omitted long context line]`. `max_results` is deprecated and
+means `head_limit` when that is absent.
+
+This is the kernel's own walker, not ripgrep: files over 5 MB, binaries and symlinks are skipped, and at most
+20,000 entries are examined (the search reports itself incomplete past that). A sandbox reports no
+modification times, so its file list is in path order.
+
+## The combined result budget
+
+`maxToolOutputCharsPerMessage` (`QueryParams`, `QueryAgentConfig`; default 200,000 characters, `0` disables)
+bounds the text of all results from one assistant message together. Each result is already bounded by
+`maxToolOutputChars` (40,000), so this matters for a wide parallel batch: eight 40,000-character results are
+320,000.
+
+When a batch is over, the largest results are replaced, largest first and earlier call first among equals,
+until it fits. A replacement is the first 2,000 characters and the path where the full text is kept (spilled
+now, or the path it already had). Results that are not text alone (rich content, structured output) and tools
+with `selfLimitingOutput` are not replaced and not counted.
+
+The replacement is written into the result when the batch settles, before the result becomes a history
+message, so it is what every later request carries. Nothing is decided again on a later turn, so a
+prompt-cache prefix over it stays valid. The `tool_completed` event keeps the result as the tool returned it.

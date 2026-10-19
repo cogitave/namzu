@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-19
+
+- **Creation** [File tools - reads, edits and searches](sdk/file-tool-limits.md): `read` refuses a file over 256 KiB with no window and cuts a result over 25,000 estimated tokens to a first page naming the next call, with `allow_large` and `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS`; `edit` refuses a file the session has not read and still applies after the file moved when `old_string` still matches uniquely; `grep` defaults to the list of matching files, newest first, with `content` and `count` modes, `head_limit` (250), `offset` and a 500-column cap; one assistant message's results are held to `maxToolOutputCharsPerMessage` (200,000), largest replaced first. Read from the reference's code. `.changeset/file-tool-limits.md`, **major** for `@namzu/sdk`.
+
 ## 2026-10-18
 
 - **Update** [Slash commands](cli/slash-commands.md), [Launch flags](cli/launch-flags.md), [Tool boundary](cli/tool-boundary.md), [Workflows in the CLI](cli/workflows.md) and [Browser](cli/browser.md): the permission prompt and Shift+Tab follow the reference, read from its code. The cycle is `prompt`, `accept-edits`, `plan`, `auto` (only when the launch allowed it: `--yolo`, `--dangerously-skip-permissions`, `--permission-mode auto`, the new `--allow-dangerously-skip-permissions`, or `auto` chosen by name), `prompt`. "Yes, allow all tools for this conversation" is removed from the terminal's prompts, together with the `a` key and the footer reading `bypass permissions on` without a mode change; the prompt now offers Yes, No and at most one answer valid for the whole prompt: switch to accept edits for an edit, or remember a plain command, a host or an MCP tool for the session. Desktop and ACP keep `approve-all`. `.changeset/permission-answers.md`.
