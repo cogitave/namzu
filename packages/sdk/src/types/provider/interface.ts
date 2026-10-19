@@ -23,6 +23,19 @@ export interface LLMProvider {
 	supportsHostedWebSearchFor?(model: string, mode: 'live' | 'cached'): boolean
 
 	/**
+	 * Whether `model` reads images. `capabilities.supportsVision` is a statement
+	 * about the DRIVER (does it map image parts onto the wire); this is about the
+	 * MODEL behind it, which only the driver's catalogue can know: one driver
+	 * serves vision and text-only models side by side, and a text-only model
+	 * refuses the whole request when it finds an image in it.
+	 *
+	 * Answer `false` only when the model is known to be text-only. Absent, or
+	 * `true`, means "send images": the runtime also recovers from a refusal, so a
+	 * driver with no catalogue loses nothing by omitting this.
+	 */
+	supportsImageInputFor?(model: string): boolean
+
+	/**
 	 * Retry behaviour this DRIVER wants, when the generic default is wrong
 	 * for the vendor behind it.
 	 *

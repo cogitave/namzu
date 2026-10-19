@@ -132,3 +132,4 @@ The kernel.
 
 * [Agent client protocol](agent-client-protocol.md) - Stdio prompt, permission, cancellation, scoped history and explicit host extensions.
 * [Decision models](decision.md) - Provider-agnostic System-1 decision models (yes/no, choice, score) and the Azure AI Foundry driver.
+* [Text-only models and images](text-only-models-and-images.md) - How a conversation that holds an image keeps working on a model that cannot read one.

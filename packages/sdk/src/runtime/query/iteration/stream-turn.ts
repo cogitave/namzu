@@ -237,6 +237,8 @@ export async function* streamProviderTurn(
 	announceAs?: import('../../../types/ids/index.js').MessageId,
 	imageRecovery?: {
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
+		/** The model refused the request for holding an image it cannot read; the retry sent none. */
+		readonly onTextOnlyModel?: (model: string | undefined) => void | Promise<void>
 	},
 	captureRequest = false,
 	/** The session the turn belongs to, named on the chat span as `gen_ai.conversation.id`. */
@@ -363,6 +365,7 @@ export async function* streamProviderTurn(
 					streamParams,
 					imageRecovery.onAccepted,
 					observeRequest,
+					imageRecovery.onTextOnlyModel,
 				)
 			: provider.chatStream(streamParams)
 	) as AsyncIterable<StreamChunk>

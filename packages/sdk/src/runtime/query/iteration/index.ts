@@ -15,7 +15,7 @@ import {
 } from '../../../constants/tools/index.js'
 import { withStreamedMessageIdentity } from '../../../manager/session/streamed-message-identity.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
-import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
+import { modelReadsImages, resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
@@ -188,6 +188,37 @@ export class IterationOrchestrator {
 	}
 	/** Rich tool blocks already reported; durable history is scanned every turn. */
 	private readonly warnedRichToolResults = new Set<string>()
+	/** Models that refused a request for holding an image; they get none for the rest of the run. */
+	private readonly textOnlyModels = new Set<string>()
+
+	/** Whether a request for `model` may carry images: the driver's catalogue and this run's own evidence agree. */
+	private modelReadsImages(model: string): boolean {
+		return !this.textOnlyModels.has(model) && modelReadsImages(this.ctx.provider, model)
+	}
+
+	/**
+	 * A provider refused a request for holding an image its model cannot read, and
+	 * the retry without images was accepted. Stop sending images to it, and say so
+	 * once, so the host can remember the model beyond this run.
+	 */
+	private async noteTextOnlyModel(model: string | undefined): Promise<void> {
+		const key = model ?? ''
+		if (this.textOnlyModels.has(key)) return
+		this.textOnlyModels.add(key)
+		this.ctx.log.warn('Capability mismatch: the model cannot read images', {
+			[GENAI.SYSTEM]: this.ctx.provider.id,
+			[GENAI.REQUEST_MODEL]: key,
+		})
+		await this.ctx.emitEvent?.({
+			type: 'capability_warning',
+			turnId: this.ctx.recorder.turnId,
+			capability: 'vision',
+			contentSource: 'history',
+			providerId: this.ctx.provider.id,
+			...(model !== undefined ? { model } : {}),
+			message: `Model '${model ?? 'unknown'}' on provider '${this.ctx.provider.id}' refused a request that held an image, so images are left out of its requests. They stay in the conversation and are sent again to a model that reads them.`,
+		})
+	}
 	/**
 	 * The previous iteration held a `stopWhen` decision open for a worker.
 	 *
@@ -814,6 +845,7 @@ export class IterationOrchestrator {
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
 					appendWorkContext(shaping, messages, iterationNum, step)
 					if (closingDirective) messages.push(closingDirective)
@@ -989,6 +1021,7 @@ export class IterationOrchestrator {
 						stepMessageId,
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
+							onTextOnlyModel: (rejected) => this.noteTextOnlyModel(rejected),
 						},
 						Boolean(
 							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
@@ -2700,6 +2733,7 @@ export class IterationOrchestrator {
 			const finalMessages = projectRequestRichContent(
 				this.projectObservations(finalHistory),
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+				{ imagesReadable: this.modelReadsImages(model) },
 			)
 			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
@@ -2746,8 +2780,12 @@ export class IterationOrchestrator {
 				signal: this.ctx.abortController.signal,
 			} satisfies import('../../../types/provider/index.js').ChatCompletionParams
 			const response = await collectChatCompletion(
-				streamWithProviderRejectedImageRecovery(this.ctx.provider, finalParams, (identity) =>
-					this.acceptProviderRejectedImage(identity),
+				streamWithProviderRejectedImageRecovery(
+					this.ctx.provider,
+					finalParams,
+					(identity) => this.acceptProviderRejectedImage(identity),
+					undefined,
+					(rejected) => this.noteTextOnlyModel(rejected),
 				),
 			)
 

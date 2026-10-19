@@ -512,6 +512,11 @@ export function withProviderFallback(
 					member.provider.capabilities?.supportsHostedWebSearch === true &&
 					(member.provider.supportsHostedWebSearchFor?.(member.model ?? model, mode) ?? true),
 			),
+		// The request is made of the head's model first, so that is the one whose
+		// answer decides; a member further down that cannot read an image refuses
+		// it, and the runtime's recovery sends the request again without images.
+		supportsImageInputFor: (model: string) =>
+			first.provider.supportsImageInputFor?.(first.model ?? model) ?? true,
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
 		// Present on the chain wrapper for the same reason the menu method is:

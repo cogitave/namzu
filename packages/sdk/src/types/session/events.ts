@@ -714,9 +714,16 @@ type CoreSessionEvent =
 			sessionId: SessionId
 			turnId?: TurnId
 			capability: 'tools' | 'vision' | 'documents'
-			/** Present when the mismatch was produced after a tool executed. */
-			contentSource?: 'tool-result'
+			/**
+			 * Present when the mismatch was not about the user's own message:
+			 * `'tool-result'` after a tool executed; `'history'` when the model
+			 * itself turned out not to read images (see `model`) and the images
+			 * already in the conversation were left out of the request.
+			 */
+			contentSource?: 'tool-result' | 'history'
 			providerId: string
+			/** The model that cannot read images, when the warning is about one model rather than the driver. */
+			model?: string
 			message: string
 	  }
 	/**

@@ -326,6 +326,11 @@ export function withProviderRetry(
 						provider.supportsHostedWebSearchFor?.(model, mode) ?? false,
 				}
 			: {}),
+		...(provider.supportsImageInputFor
+			? {
+					supportsImageInputFor: (model: string) => provider.supportsImageInputFor?.(model) ?? true,
+				}
+			: {}),
 		...(provider.reasoningEffortLevelsFor
 			? {
 					reasoningEffortLevelsFor: (

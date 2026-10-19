@@ -34,7 +34,8 @@ interface RichOccurrence {
 	readonly source: 'user' | 'tool'
 	readonly kind: RichKind
 	readonly bytes: number
-	readonly reason: 'budget' | 'provider-rejected' | 'invalid-image'
+	readonly mediaType?: string
+	readonly reason: 'budget' | 'provider-rejected' | 'invalid-image' | 'model-text-only'
 }
 
 export interface RequestImageIdentity {
@@ -65,6 +66,24 @@ const invalidUserImageMarker = (): string =>
 const invalidToolImageMarker = (): string =>
 	`[image omitted from this model request because the producing tool returned encoded bytes that are not a complete supported raster matching the declared media type. ${toolRecovery} Correct the image source before presenting it again.]`
 
+/** `12 KB`-style size of an encoded payload, so the model can tell a thumbnail from a full screenshot. */
+function describeEncodedSize(base64Length: number): string {
+	const bytes = Math.floor((base64Length * 3) / 4)
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * What stands in for an image the current model cannot read. It says so, and
+ * what the image was, because the model otherwise sees a tool that reported
+ * success next to nothing and tends to retry it or claim to have seen the screen.
+ */
+const textOnlyImageMarker = (mediaType: string | undefined, base64Length: number): string =>
+	`[image omitted: the current model cannot read images${
+		mediaType ? ` (${mediaType}, ${describeEncodedSize(base64Length)})` : ''
+	}]`
+
 function assertInlineAttachment(
 	attachment: MessageAttachment,
 ): asserts attachment is Exclude<MessageAttachment, { readonly type: 'stored' }> {
@@ -75,7 +94,10 @@ function assertInlineAttachment(
 	}
 }
 
-function collectRichOccurrences(messages: readonly Message[]): RichOccurrence[] {
+function collectRichOccurrences(
+	messages: readonly Message[],
+	imagesReadable: boolean,
+): RichOccurrence[] {
 	const occurrences: RichOccurrence[] = []
 
 	for (const [messageIndex, message] of messages.entries()) {
@@ -88,13 +110,17 @@ function collectRichOccurrences(messages: readonly Message[]): RichOccurrence[] 
 					source: 'user',
 					kind: attachment.type === 'document' ? 'document' : 'image',
 					bytes: attachment.data.length,
+					mediaType: attachment.mediaType,
 					reason:
-						attachment.type !== 'document' && attachment.modelOmission?.reason === 'invalid-image'
-							? 'invalid-image'
+						attachment.type !== 'document' && !imagesReadable
+							? 'model-text-only'
 							: attachment.type !== 'document' &&
-									attachment.modelOmission?.reason === 'provider-rejected'
-								? 'provider-rejected'
-								: 'budget',
+									attachment.modelOmission?.reason === 'invalid-image'
+								? 'invalid-image'
+								: attachment.type !== 'document' &&
+										attachment.modelOmission?.reason === 'provider-rejected'
+									? 'provider-rejected'
+									: 'budget',
 				})
 			}
 			continue
@@ -109,12 +135,15 @@ function collectRichOccurrences(messages: readonly Message[]): RichOccurrence[] 
 				source: 'tool',
 				kind: block.type,
 				bytes: block.data.length,
+				mediaType: block.mediaType,
 				reason:
-					block.type === 'image' && block.modelOmission?.reason === 'invalid-image'
-						? 'invalid-image'
-						: block.type === 'image' && block.modelOmission?.reason === 'provider-rejected'
-							? 'provider-rejected'
-							: 'budget',
+					block.type === 'image' && !imagesReadable
+						? 'model-text-only'
+						: block.type === 'image' && block.modelOmission?.reason === 'invalid-image'
+							? 'invalid-image'
+							: block.type === 'image' && block.modelOmission?.reason === 'provider-rejected'
+								? 'provider-rejected'
+								: 'budget',
 			})
 		}
 	}
@@ -130,11 +159,13 @@ function appendTextMarkers(content: string, markers: readonly string[]): string 
 
 function appendMarkers(content: string, occurrences: readonly RichOccurrence[]): string {
 	const markers = occurrences.map((occurrence) =>
-		occurrence.reason === 'provider-rejected'
-			? rejectedUserImageMarker()
-			: occurrence.reason === 'invalid-image'
-				? invalidUserImageMarker()
-				: userMarker(occurrence.kind),
+		occurrence.reason === 'model-text-only'
+			? textOnlyImageMarker(occurrence.mediaType, occurrence.bytes)
+			: occurrence.reason === 'provider-rejected'
+				? rejectedUserImageMarker()
+				: occurrence.reason === 'invalid-image'
+					? invalidUserImageMarker()
+					: userMarker(occurrence.kind),
 	)
 	return appendTextMarkers(content, markers)
 }
@@ -148,8 +179,12 @@ function appendMarkers(content: string, occurrences: readonly RichOccurrence[]):
  * original array when nothing is omitted makes the no-op and exact-boundary
  * cases observable and keeps the common path allocation-free.
  */
-export function projectRequestRichContent(messages: Message[], maxBytes: number): Message[] {
-	const occurrences = collectRichOccurrences(messages)
+export function projectRequestRichContent(
+	messages: Message[],
+	maxBytes: number,
+	options: { readonly imagesReadable?: boolean } = {},
+): Message[] {
+	const occurrences = collectRichOccurrences(messages, options.imagesReadable ?? true)
 	if (occurrences.length === 0) return messages
 
 	const omitted = new Map<number, Map<number, RichOccurrence>>()
@@ -163,9 +198,7 @@ export function projectRequestRichContent(messages: Message[], maxBytes: number)
 	}
 
 	for (const occurrence of occurrences) {
-		if (occurrence.reason === 'provider-rejected' || occurrence.reason === 'invalid-image') {
-			omit(occurrence)
-		}
+		if (occurrence.reason !== 'budget') omit(occurrence)
 	}
 
 	let total = occurrences.reduce(
@@ -206,11 +239,13 @@ export function projectRequestRichContent(messages: Message[], maxBytes: number)
 					? {
 							type: 'text',
 							text:
-								occurrence.reason === 'provider-rejected'
-									? rejectedToolImageMarker()
-									: occurrence.reason === 'invalid-image'
-										? invalidToolImageMarker()
-										: toolMarker(occurrence.kind),
+								occurrence.reason === 'model-text-only'
+									? textOnlyImageMarker(occurrence.mediaType, occurrence.bytes)
+									: occurrence.reason === 'provider-rejected'
+										? rejectedToolImageMarker()
+										: occurrence.reason === 'invalid-image'
+											? invalidToolImageMarker()
+											: toolMarker(occurrence.kind),
 						}
 					: block
 			})
@@ -219,6 +254,21 @@ export function projectRequestRichContent(messages: Message[], maxBytes: number)
 
 		return message
 	})
+}
+
+/** Whether the provider-bound request carries an image anywhere, in a user attachment or a tool result. */
+export function requestHasImages(messages: readonly Message[]): boolean {
+	for (const message of messages) {
+		if (message.role === 'user') {
+			for (const attachment of message.attachments ?? []) {
+				if (attachment.type !== 'stored' && attachment.type !== 'document') return true
+			}
+			continue
+		}
+		if (message.role !== 'tool' || !Array.isArray(message.content)) continue
+		if (message.content.some((block) => block.type === 'image')) return true
+	}
+	return false
 }
 
 function sameImage(

@@ -1,4 +1,5 @@
 import { isProviderRequestError } from '../../../provider/errors.js'
+import { isImageInputRefusal } from '../../../provider/image-input-refusal.js'
 import type { Message } from '../../../types/message/index.js'
 import type {
 	ChatCompletionParams,
@@ -8,7 +9,9 @@ import type {
 import {
 	type RequestImageIdentity,
 	findSingleRequestImage,
+	projectRequestRichContent,
 	projectRequestWithoutImage,
+	requestHasImages,
 } from '../request-rich-content.js'
 
 const IMAGE_REJECTION_PATTERNS: readonly RegExp[] = [
@@ -65,16 +68,18 @@ export async function* streamWithProviderRejectedImageRecovery(
 	params: ChatCompletionParams,
 	onAccepted: (identity: RequestImageIdentity) => Promise<void>,
 	onRequest?: (messages: readonly Message[]) => void,
+	onTextOnlyModel?: (model: string | undefined) => void | Promise<void>,
 ): AsyncIterable<StreamChunk> {
 	const candidate = findSingleRequestImage(params.messages)
 	onRequest?.(params.messages)
-	if (candidate === null) {
+	if (candidate === null && !requestHasImages(params.messages)) {
 		yield* provider.chatStream(params)
 		return
 	}
 
 	let produced = false
 	let confidence: ImageRejectionConfidence | null = null
+	let textOnly = false
 	try {
 		for await (const chunk of provider.chatStream(params)) {
 			if (isAcceptedChunk(chunk)) produced = true
@@ -83,11 +88,37 @@ export async function* streamWithProviderRejectedImageRecovery(
 		return
 	} catch (error) {
 		throwIfAborted(params.signal)
-		confidence = classifyProviderRejectedImageError(error)
-		if (produced || confidence === null) throw error
+		if (produced) throw error
+		// A model that reads text only refuses the request however many images
+		// it holds, so this is not about one bad image: every image goes.
+		textOnly = isImageInputRefusal(error)
+		if (!textOnly) {
+			confidence = candidate === null ? null : classifyProviderRejectedImageError(error)
+			if (confidence === null) throw error
+		}
 	}
 
 	throwIfAborted(params.signal)
+	if (textOnly) {
+		// One retry, without any image. The stored conversation is untouched, so
+		// a model that does read images gets them again.
+		const messages = projectRequestRichContent(params.messages, 0, { imagesReadable: false })
+		onRequest?.(messages)
+		let accepted = false
+		let reportedError = false
+		for await (const chunk of provider.chatStream({ ...params, messages })) {
+			if (chunk.error !== undefined) reportedError = true
+			if (!accepted && isAcceptedChunk(chunk)) {
+				throwIfAborted(params.signal)
+				await onTextOnlyModel?.(params.model)
+				accepted = true
+			}
+			yield chunk
+		}
+		if (!accepted && !reportedError) await onTextOnlyModel?.(params.model)
+		return
+	}
+	if (candidate === null) return
 	const retryParams: ChatCompletionParams = {
 		...params,
 		messages: projectRequestWithoutImage(params.messages, candidate),
