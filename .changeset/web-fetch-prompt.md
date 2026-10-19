@@ -1,6 +1,6 @@
 ---
 "@namzu/sdk": major
-"@namzu/cli": minor
+"@namzu/cli": major
 ---
 
 `web_fetch` now works like the reference terminal's WebFetch, which changes its input and its default output.
@@ -13,3 +13,5 @@ What breaks, and what to do:
 - Fetched pages are cached for 15 minutes per URL, per fetch provider. URLs longer than 2000 characters, with credentials, or with a host that has no dot are refused before any request.
 
 In the CLI, `web_fetch` (with `web.fetch: true`) answers the prompt with the small model (see `smallModel`), reads up to 10 MiB per page, and counts that request on the turn's token ledger; if the small model cannot answer, the model gets the page as markdown.
+
+There is no switch in the CLI for the old output of `web_fetch`; a caller that needs the raw body fetches it another way (for example `bash` with `curl`).
