@@ -90,7 +90,11 @@ import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory, splitWorkingMemoryForRequest } from './phases/working-memory.js'
-import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import {
+	type TextOnlyModelRecovery,
+	type TextOnlyModelRefusal,
+	streamWithProviderRejectedImageRecovery,
+} from './provider-rejected-image.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import {
 	type StepShaping,
@@ -141,6 +145,11 @@ const CLOSING_RESPONSE_GUIDANCE =
 	'Give a concise response using only what the available evidence supports. Attribute unverified statements to their source instead of presenting them as observed facts. If evidence is missing or conflicting, state what cannot be established. Do not claim unfinished work is complete. Do not request any more tool calls.'
 
 export { awaitedJobGraceMs, settleGraceMs } from './outstanding-work.js'
+
+/** One provider's model, as {@link IterationOrchestrator} remembers it. */
+function textOnlyKey(providerId: string, model: string): string {
+	return `${providerId}\u0000${model}`
+}
 
 export class IterationOrchestrator {
 	private ctx: IterationContext
@@ -194,12 +203,41 @@ export class IterationOrchestrator {
 		debug: (message) => this.ctx.log.debug(message),
 		onMediaRemoved: (removal) => this.noteMediaRemoved(removal),
 	})
-	/** Models that refused a request for holding an image; they get none for the rest of the run. */
+	/**
+	 * Provider and model pairs that refused a request for holding an image; they
+	 * get none for the rest of the run. Keyed by both: one model id can be served
+	 * by two members of a fallback chain, and only the one that refused is known.
+	 */
 	private readonly textOnlyModels = new Set<string>()
+
+	/**
+	 * The member a request for `model` goes to first. A fallback chain keeps
+	 * serving from the member it last moved to, so that member, not the head,
+	 * is the one whose reading of images counts.
+	 */
+	private servingModel(model: string): { readonly providerId: string; readonly model: string } {
+		const serving = this.ctx.servingMember?.()
+		return {
+			providerId: serving?.providerId ?? this.ctx.provider.id,
+			model: serving?.model ?? model,
+		}
+	}
 
 	/** Whether a request for `model` may carry images: the driver's catalogue and this run's own evidence agree. */
 	private modelReadsImages(model: string): boolean {
-		return !this.textOnlyModels.has(model) && modelReadsImages(this.ctx.provider, model)
+		const serving = this.servingModel(model)
+		return (
+			!this.textOnlyModels.has(textOnlyKey(serving.providerId, serving.model)) &&
+			modelReadsImages(this.ctx.provider, model)
+		)
+	}
+
+	/** What a request for `model` does when its model turns out to read text only. */
+	private textOnlyRecovery(model: string): TextOnlyModelRecovery {
+		return {
+			servedBy: () => this.servingModel(model),
+			onAccepted: (refused) => this.noteTextOnlyModel(refused),
+		}
 	}
 
 	/**
@@ -207,22 +245,23 @@ export class IterationOrchestrator {
 	 * the retry without images was accepted. Stop sending images to it, and say so
 	 * once, so the host can remember the model beyond this run.
 	 */
-	private async noteTextOnlyModel(model: string | undefined): Promise<void> {
-		const key = model ?? ''
+	private async noteTextOnlyModel(refused: TextOnlyModelRefusal): Promise<void> {
+		const key = textOnlyKey(refused.providerId, refused.model ?? '')
 		if (this.textOnlyModels.has(key)) return
 		this.textOnlyModels.add(key)
+		const { providerId, model } = refused
 		this.ctx.log.warn('Capability mismatch: the model cannot read images', {
-			[GENAI.SYSTEM]: this.ctx.provider.id,
-			[GENAI.REQUEST_MODEL]: key,
+			[GENAI.SYSTEM]: providerId,
+			[GENAI.REQUEST_MODEL]: model ?? '',
 		})
 		await this.ctx.emitEvent?.({
 			type: 'capability_warning',
 			turnId: this.ctx.recorder.turnId,
 			capability: 'vision',
 			contentSource: 'history',
-			providerId: this.ctx.provider.id,
+			providerId,
 			...(model !== undefined ? { model } : {}),
-			message: `Model '${model ?? 'unknown'}' on provider '${this.ctx.provider.id}' refused a request that held an image, so images are left out of its requests. They stay in the conversation and are sent again to a model that reads them.`,
+			message: `Model '${model ?? 'unknown'}' on provider '${providerId}' refused a request that held an image, so images are left out of its requests. They stay in the conversation and are sent again to a model that reads them.`,
 		})
 	}
 	/**
@@ -1027,7 +1066,7 @@ export class IterationOrchestrator {
 						stepMessageId,
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
-							onTextOnlyModel: (rejected) => this.noteTextOnlyModel(rejected),
+							textOnly: this.textOnlyRecovery(stepModel),
 							repair: this.requestRepair,
 						},
 						Boolean(
@@ -2808,7 +2847,7 @@ export class IterationOrchestrator {
 					finalParams,
 					(identity) => this.acceptProviderRejectedImage(identity),
 					undefined,
-					(rejected) => this.noteTextOnlyModel(rejected),
+					this.textOnlyRecovery(model),
 					this.requestRepair,
 				),
 			)

@@ -1,25 +1,40 @@
 import { isProviderRequestError } from './errors.js'
 
 /**
- * Wording providers use when they refuse a request because it carries an image
- * and the model behind it reads text only. There is no shared error code for
- * this: each vendor writes its own sentence, so the match is by phrase, and it
- * is only applied to a 400-class `bad_request` where the alternative is a hard
- * failure anyway.
+ * Wording providers use when they refuse a request because the MODEL reads text
+ * only. There is no shared error code for this: each vendor writes its own
+ * sentence, so the match is by phrase.
+ *
+ * Every pattern names the model's input as text-only, or says the model does not
+ * take image input at all. A 400 about one image (its size, its format, its URL)
+ * or about text somewhere else in the request (a tool message, an output
+ * format) is not this, and must not match: the caller drops every image and
+ * stops sending any to the model for the rest of the conversation.
  */
 const IMAGE_INPUT_REFUSAL_PATTERNS: readonly RegExp[] = [
-	// "Beam supports text input only. This conversation contains an image."
-	/\btext[- ]only\b/i,
-	/\b(?:supports?|accepts?|takes?|handles?)\s+(?:only\s+)?text\b/i,
-	/\bcontains?\s+an?\s+image\b.{0,120}\b(?:remove|text)\b/i,
-	// "does not support image input", "doesn't support vision", "no vision support"
-	/\b(?:does\s?n[o']t|do\s+not|cannot|can['’]t|not)\s+(?:support|accept|handle|process|read|understand)\w*\s+(?:image|vision|multimodal|visual|picture)/i,
-	/\b(?:image|vision|multimodal|visual)\s+(?:input|content|inputs|understanding|modality)\b.{0,60}\b(?:not\s+(?:supported|enabled|available|allowed)|unsupported)/i,
-	/\bimages?\s+(?:are|is)\s+(?:not\s+supported|unsupported|not\s+allowed)\b/i,
-	// Chat-completions servers that only know text parts.
-	/\bimage_url\b.{0,60}\b(?:only\s+supported\s+by|not\s+supported|unsupported)/i,
-	/\bunknown\s+variant\b.{0,10}\bimage_url\b/i,
-	/\binvalid\s+content\s+type\b.{0,60}\bimage/i,
+	// Zen: "Beam supports text input only. This conversation contains an image."
+	/\btext\s+inputs?\s+only\b/i,
+	/\bonly\s+(?:supports?|accepts?)\s+text\s+inputs?\b/i,
+	/\bonly\s+text\s+inputs?\s+(?:is|are)\s+(?:supported|accepted|allowed)\b/i,
+	// "This model is text-only", "a text-only model"
+	/\btext[- ]only\s+model\b/i,
+	/\bmodel\b[^.;]{0,40}\bis\s+(?:a\s+)?text[- ]only\b/i,
+	// Local model servers: "<model> does not support images", "Model does not
+	// support images. Please use a model that does." Also "doesn't support vision",
+	// "does not support image input", "does not support multimodal inputs".
+	/\b(?:does\s?n[o'’]t|do\s+not|cannot|can[’']t)\s+(?:support|accept)\s+(?:images|vision)\b(?![/\w-])/i,
+	/\b(?:does\s?n[o'’]t|do\s+not|cannot|can[’']t)\s+(?:support|accept|process|handle)\s+(?:image|vision|multimodal|visual)\s+inputs?\b/i,
+	// A local inference server: "image input is not supported - hint: ... mmproj". The
+	// sentence must end there or name the model: "image input is not supported
+	// on streaming" is a restriction of the endpoint, not of the model.
+	/\b(?:image|vision|multimodal)\s+inputs?\s+(?:is|are)\s+(?:not\s+supported|unsupported)(?:\s+(?:by|for)\s+(?:this|the)\s+model)?\s*(?:$|[.;:,!)\-])/i,
+	/\bimages\s+(?:is|are)\s+not\s+supported(?:\s+(?:by|for)\s+(?:this|the)\s+model)?\s*(?:$|[.;:,!)\-])/i,
+	// A serving engine: "<model> is not a multimodal model"
+	/\bis\s+not\s+a\s+(?:multimodal|vision)\s+model\b/i,
+	// A chat-completions API: "Invalid content type. image_url is only supported by certain models."
+	/\bimage_url\b.{0,40}\bonly\s+supported\s+by\s+certain\s+models\b/i,
+	// A chat-completions server that only knows text parts: "unknown variant `image_url`, expected `text`"
+	/\bunknown\s+variant\s+\W?image_url\W?,?\s+expected\s+\W?text\b/i,
 ]
 
 /** Whether a provider's refusal text says "this model cannot take images". */

@@ -2860,9 +2860,14 @@ export async function createAgentSession(
 	// for every screenshot while each click reported success — the model
 	// acting on a screen it never saw. Mounted as a diagnostic that says so,
 	// without starting the desktop host at all.
+	//
+	// Asked of the driver only. Whether the MODEL reads images is not fixed for
+	// this session object: Auto routes each turn to its own model, and this
+	// conversation can learn a model is text-only. That is `turnReadsImages`,
+	// read per turn below, so the tool comes back for a model that reads images.
 	const computerUseProviderRefusal =
 		options.enableComputerUse === true && computerUsePackage?.state === 'present'
-			? computerUseUnavailableReason(provider, model)
+			? computerUseUnavailableReason(provider)
 			: undefined
 	if (computerUseProviderRefusal !== undefined) {
 		// Mounted so the roster still names it, but never offered to the model:
@@ -3406,7 +3411,10 @@ export async function createAgentSession(
 				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
 				const childProvider = await providerForModel(invokingSessionId, providerId, selectedModel)
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
-				return childProvider
+				// What this conversation learned about text-only models reaches its
+				// children. A child that finds one out for itself pays one refused
+				// request in its own run; its warning does not reach this session.
+				return textOnlyModels.informing(childProvider)
 			},
 			configureWebSearch: (childProvider, childModel, toolsets) => {
 				if (webSearch.mode === 'off') return undefined
@@ -4505,6 +4513,10 @@ export async function createAgentSession(
 		get imageAttachmentsSupported() {
 			const current = providerForSession(scope.sessionId)
 			// Declared by the driver, then narrowed by what is known of this model.
+			// Under Auto the model is chosen per turn, after the picture is attached,
+			// so the session's own model says nothing about who will read it; the
+			// turn leaves the picture out if its model cannot read it.
+			if (options.routing) return current.capabilities?.supportsVision
 			return textOnlyModels.reads(current, model) ? current.capabilities?.supportsVision : false
 		},
 		get documentAttachmentsSupported() {
@@ -5264,7 +5276,10 @@ export async function createAgentSession(
 								// A routed turn has no fallback chain, like a pinned resume.
 								fallbackProviders: autoRoute
 									? []
-									: fallbackPlan.build(currentToken, turnScope.sessionId),
+									: fallbackPlan.build(currentToken, turnScope.sessionId).map((member) => ({
+											...member,
+											provider: textOnlyModels.informing(member.provider),
+										})),
 								model: autoRoute?.model ?? model,
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
