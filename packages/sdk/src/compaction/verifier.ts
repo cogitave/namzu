@@ -3,6 +3,7 @@ import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type { Message, MessageAttachment, ToolResultBlock } from '../types/message/index.js'
+import { classifyProviderError } from '../types/provider/errors.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { WorkingStateManager } from './manager.js'
 import { serializeState } from './serializer.js'
@@ -83,6 +84,23 @@ function* conversationExcerpt(messages: readonly Message[]): Generator<string> {
 			}
 		}
 	}
+}
+
+/** Verifier requests dropped to a shorter excerpt before the extracted state stands alone. */
+const MAX_VERIFIER_HEAD_TRUNCATIONS = 3
+
+/** What stands where the older half of a verifier excerpt was cut. */
+const EXCERPT_TRUNCATED_PLACEHOLDER = '[earlier conversation truncated for compaction retry]'
+
+/** Drop the older half of an excerpt, keeping the newer half behind a placeholder. */
+function truncateExcerptHead(excerpt: string): string {
+	const body = excerpt.startsWith(EXCERPT_TRUNCATED_PLACEHOLDER)
+		? excerpt.slice(EXCERPT_TRUNCATED_PLACEHOLDER.length).trimStart()
+		: excerpt
+	let kept = body.slice(Math.floor(body.length / 2))
+	const first = kept.charCodeAt(0)
+	if (first >= 0xdc00 && first <= 0xdfff) kept = kept.slice(1)
+	return `${EXCERPT_TRUNCATED_PLACEHOLDER}\n\n${kept}`
 }
 
 function truncateMessages(messages: readonly Message[], budget: number): string {
@@ -237,26 +255,45 @@ async function buildVerifiedSummaryWithProvider(
 		return serialized
 	}
 
-	const verificationMessages: Message[] = [
-		{
-			role: 'system' as const,
-			content: withInstructions(VERIFICATION_PROMPT, instructions),
-		},
-		{
-			role: 'user' as const,
-			content: `## Structured State\n\n${serialized}\n\n## Conversation Excerpt\n\n${conversationExcerpt}`,
-		},
-	]
-
-	const response = await collectChatCompletion(
-		provider.chatStream({
-			model: model ?? '',
-			messages: verificationMessages,
-			maxTokens: config.llmVerificationMaxTokens,
-			temperature: 0,
-			...(signal ? { signal } : {}),
-		}),
-	)
+	// The verifier's own request can overflow a small window. The reference
+	// terminal answers that with a ladder: send less, and when nothing is left to
+	// cut, work from everything it already has. Here "less" is the older half of
+	// the excerpt dropped behind a placeholder, at most three times, and
+	// "everything it already has" is the extracted state, which the verifier only
+	// ever adds to.
+	let excerpt = conversationExcerpt
+	let truncations = 0
+	let response: Awaited<ReturnType<typeof collectChatCompletion>>
+	for (;;) {
+		const verificationMessages: Message[] = [
+			{
+				role: 'system' as const,
+				content: withInstructions(VERIFICATION_PROMPT, instructions),
+			},
+			{
+				role: 'user' as const,
+				content: `## Structured State\n\n${serialized}\n\n## Conversation Excerpt\n\n${excerpt}`,
+			},
+		]
+		try {
+			response = await collectChatCompletion(
+				provider.chatStream({
+					model: model ?? '',
+					messages: verificationMessages,
+					maxTokens: config.llmVerificationMaxTokens,
+					temperature: 0,
+					...(signal ? { signal } : {}),
+				}),
+			)
+			break
+		} catch (error) {
+			if (signal?.aborted) throw error
+			if (classifyProviderError(error).code !== 'context_length_exceeded') throw error
+			if (truncations >= MAX_VERIFIER_HEAD_TRUNCATIONS) return serialized
+			truncations++
+			excerpt = truncateExcerptHead(excerpt)
+		}
+	}
 
 	onUsage?.(response.usage)
 

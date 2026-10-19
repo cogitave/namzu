@@ -53,6 +53,14 @@ describe('compaction gives up after repeated failures', () => {
 		expect(causes(events)).toEqual(['shed_nothing', 'shed_nothing', 'shed_nothing', 'breaker_open'])
 	})
 
+	it('is silent for the person: the event carries no line to show', async () => {
+		const { ctx, events } = context({ breaker: true, reducer: () => undefined })
+		for (let i = 0; i < 4; i++) await runCompactionCheck(ctx)
+		const open = events.find((e) => e.type === 'compaction_failed' && e.cause === 'breaker_open')
+		expect(open).toBeDefined()
+		expect(open).not.toHaveProperty('error')
+	})
+
 	it('without the opt-in keeps trying on every iteration', async () => {
 		const { ctx, calls } = context({ breaker: false, reducer: () => undefined })
 		for (let i = 0; i < 6; i++) await runCompactionCheck(ctx)
@@ -81,6 +89,11 @@ describe('compaction that keeps refilling stops the turn', () => {
 		}
 		expect(made.calls()).toBe(3)
 		expect(compactionBreaker(made.ctx)?.stop).toMatch(/filled up again/)
+		// Names the cause and a step that keeps the conversation; never "start over".
+		expect(compactionBreaker(made.ctx)?.stop).toMatch(/smaller parts/)
+		expect(compactionBreaker(made.ctx)?.stop).not.toMatch(
+			/\/clear|\/new|start fresh|new (?:session|conversation)/i,
+		)
 		expect(causes(made.events)).toEqual(['refilling'])
 	})
 

@@ -38,6 +38,37 @@ function expectPlain(text: string): void {
 	for (const pattern of MACHINE) expect(text).not.toMatch(pattern)
 }
 
+describe('a conversation the model cannot hold', () => {
+	it('keeps the conversation: no /new, no /clear, no start over', () => {
+		const text = describePlainInterruption(
+			failed({
+				explanation: { id: 'provider.context_overflow', message: 'x', hint: 'y' },
+				providerError: { kind: 'context_overflow', providerId: 'openai' },
+			}),
+		)
+		expect(text).toBe(
+			'This conversation is too long for the model, and Namzu could not shorten it enough. Try again, or pick a model with more room with /model.',
+		)
+		expect(text).not.toMatch(/\/new|\/clear|start (?:a )?new|start fresh|start over/i)
+	})
+
+	it('adds the compaction cause on the debug line only', () => {
+		const event = failed({
+			message: 'prompt is too long · automatic compaction failed: reducer backend down',
+			explanation: {
+				id: 'provider.context_overflow',
+				message: 'The prompt is larger than the model can accept.',
+				hint: 'Compaction ran and could not make enough room.',
+			},
+			providerError: { kind: 'context_overflow', providerId: 'openai' },
+		})
+		expect(describePlainInterruption(event)).not.toContain('automatic compaction failed')
+		expect(describePlainInterruption(event, { debug: true })).toContain(
+			'automatic compaction failed: reducer backend down',
+		)
+	})
+})
+
 describe('an error in the terminal app', () => {
 	it('names the product and a next step for a rejected key, with no ids or labels', () => {
 		const text = describePlainInterruption(

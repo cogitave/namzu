@@ -7062,6 +7062,9 @@ export function toAgentEvent(
 				reclaimedTokens: event.reclaimedTokens,
 			}
 		case 'compaction_failed':
+			// Silent for the person, as in the reference terminal: three failed passes
+			// only stop proactive compaction, and a real overflow still gets relief.
+			if (event.cause === 'breaker_open') return null
 			return {
 				kind: 'context',
 				text: describeCompactionFailure(event),
@@ -7128,14 +7131,12 @@ function describeCompactionFailure(event: {
 			// one would be worse than silence.
 			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
 		case 'breaker_open':
-			return (
-				event.error ??
-				'Automatic compaction stopped after three failed attempts. Run /compact yourself, or start fresh with /clear.'
-			)
+			// Never shown (the mapper above returns no row for it); kept so the switch stays exhaustive.
+			return 'automatic compaction paused for this reply after repeated attempts that shed nothing'
 		case 'refilling':
 			return (
 				event.error ??
-				'The context filled up again right after being compacted, three times in a row. Read big files in smaller parts, or start fresh with /clear.'
+				'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large for the context window. Try reading it in smaller parts.'
 			)
 	}
 }

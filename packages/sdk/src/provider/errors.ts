@@ -260,6 +260,19 @@ const OVERFLOW_BODY_PATTERNS: readonly RegExp[] = [
 	// length" — so a pattern anchored on "exceeded" misses it entirely.
 	/exceeds?\s+(?:the\s+)?(?:model'?s?\s+)?context\s+(?:length|window|size)/i,
 	/context\s+(?:length|window|size)\s+exceed/i,
+	// The reference terminal's own list matches the bare phrase "context
+	// window". Here it must sit next to a verb that says the request did not
+	// fit ("larger than the model context window of N tokens"), so a 400 that
+	// only names the window ("does not support this parameter with the 1M
+	// context window beta") stays an invalid request. The same pattern lives in
+	// `types/provider/errors.ts` (`codeFromMessage`), which also gates it on the
+	// status; keep them equal.
+	/(?:exceed\w*|too (?:long|large|big)|larger than|longer than|over the|beyond|maximum|overflow\w*)\b[^.]{0,60}context window|context window[^.]{0,60}\b(?:exceed\w*|too (?:long|large|big)|larger than|longer than|over the|beyond|maximum|overflow\w*)/i,
+	// "input length and `max_tokens` exceed context limit: A + B > C". The
+	// prompt may fit and only the requested output not; the loop tries a smaller
+	// `max_tokens` first (readOutputOverflow) and falls back to shedding history
+	// when there is no room for a useful reply, which needs this to classify.
+	/input length and `?max_tokens`? exceed context limit/i,
 ]
 
 /** Does this response body say the request did not fit the window? */
