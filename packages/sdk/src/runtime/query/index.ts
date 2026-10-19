@@ -351,6 +351,18 @@ export interface QueryParams {
 	 */
 	maxToolOutputChars?: number
 	/**
+	 * Cap on the COMBINED model-visible text of every tool result one assistant
+	 * message produced. Defaults to {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE}
+	 * (200,000 characters); `0` disables it. When a batch exceeds it, the
+	 * largest results are replaced, largest first, by a short preview that
+	 * names where the full text was kept, until the batch fits. The
+	 * replacement is written into the result before it reaches the history, so
+	 * it never changes afterwards and the prompt-cache prefix stays stable.
+	 * Tools that bound their own output (`selfLimitingOutput`) are never
+	 * replaced.
+	 */
+	maxToolOutputCharsPerMessage?: number
+	/**
 	 * Screens to run against every tool result. The turn builds its manager
 	 * from `toolsets` and gives it this policy.
 	 *
@@ -1417,6 +1429,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					: {}),
 				...(params.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: params.maxToolOutputChars }
+					: {}),
+				...(params.maxToolOutputCharsPerMessage !== undefined
+					? {
+							maxToolOutputCharsPerMessage: params.maxToolOutputCharsPerMessage,
+						}
 					: {}),
 				...(params.toolResultGuardrails !== undefined
 					? { toolResultGuardrails: params.toolResultGuardrails }

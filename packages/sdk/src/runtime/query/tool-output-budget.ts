@@ -19,6 +19,19 @@ import { digest, spillManifest } from '../../store/evidence/format.js'
 export const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 40_000
 
 /**
+ * Cap on the COMBINED model-visible text of every tool result one assistant
+ * message produced.
+ *
+ * The per-result cap alone lets eight parallel calls put 320,000 characters in
+ * front of the model at once. This is the bound on the whole batch; see
+ * {@link fitResultsToMessageBudget}.
+ */
+export const DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE = 200_000
+
+/** Size of the preview that stands in for a result replaced to fit the message budget. */
+export const MESSAGE_BUDGET_PREVIEW_CHARS = 2_000
+
+/**
  * Opening of the line that points at a spilled output.
  *
  * A constant rather than a phrase repeated in two files, because the line
@@ -298,7 +311,10 @@ function spill(
 		writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 })
 		try {
 			const manifest = spillManifest(bytes)
-			writeFileSync(`${path}.manifest.json`, manifest, { flag: 'wx', mode: 0o600 })
+			writeFileSync(`${path}.manifest.json`, manifest, {
+				flag: 'wx',
+				mode: 0o600,
+			})
 			return { path, integrity: digest(manifest) }
 		} catch {
 			onError?.('The full output was retained, but its integrity manifest could not be written.')
@@ -322,5 +338,103 @@ function spill(
 				: detail,
 		)
 		return undefined
+	}
+}
+
+export interface MessageBudgetItem {
+	readonly toolCallId: string
+	readonly toolName: string
+	readonly output: string
+	/** False for a result that must stay as the tool produced it. */
+	readonly replaceable: boolean
+}
+
+export interface MessageBudgetReplacement {
+	readonly output: string
+	readonly originalLength: number
+	readonly spillPath?: string
+}
+
+export interface FitResultsToMessageBudgetOptions {
+	readonly maxChars: number
+	readonly spillDir?: string | undefined
+	readonly onError?: (message: string) => void
+}
+
+const SPILL_LINE = new RegExp(`^${SPILL_MARKER} .+$`, 'm')
+
+/**
+ * Hold one assistant message's combined tool results under a cap.
+ *
+ * Replaceable results are replaced largest first, each by a short preview that
+ * names where its full text is kept, until the total is within `maxChars`. A
+ * result already spilled keeps the path it was given; one that was not is
+ * spilled now. Results that are not replaceable are left alone and are not
+ * counted, because nothing here could reduce them.
+ *
+ * The caller writes the replacement into the result BEFORE the result reaches
+ * the history. From then on it is just the message's content, so it is the
+ * same on every later request and a prompt-cache prefix over it stays valid;
+ * nothing is decided again on a later turn.
+ *
+ * Returns only the results that changed, keyed by `toolCallId`. Ties keep the
+ * earlier call, so the same batch always yields the same replacements.
+ */
+export function fitResultsToMessageBudget(
+	items: readonly MessageBudgetItem[],
+	opts: FitResultsToMessageBudgetOptions,
+): Map<string, MessageBudgetReplacement> {
+	const replaced = new Map<string, MessageBudgetReplacement>()
+	if (!Number.isFinite(opts.maxChars) || opts.maxChars <= 0) return replaced
+
+	const candidates = items.filter((item) => item.replaceable)
+	let total = candidates.reduce((sum, item) => sum + item.output.length, 0)
+	if (total <= opts.maxChars) return replaced
+
+	const bySize = candidates
+		.map((item, index) => ({ item, index }))
+		.sort((a, b) => b.item.output.length - a.item.output.length || a.index - b.index)
+
+	for (const { item } of bySize) {
+		if (total <= opts.maxChars) break
+		const replacement = previewForMessageBudget(item, opts)
+		if (replacement.output.length >= item.output.length) continue
+		total -= item.output.length - replacement.output.length
+		replaced.set(item.toolCallId, replacement)
+	}
+	return replaced
+}
+
+function previewForMessageBudget(
+	item: MessageBudgetItem,
+	opts: FitResultsToMessageBudgetOptions,
+): MessageBudgetReplacement {
+	const spilledAt = SPILL_LINE.exec(item.output)?.[0]
+	if (spilledAt !== undefined) {
+		const output = [
+			safeHead(item.output, MESSAGE_BUDGET_PREVIEW_CHARS / 2),
+			'',
+			`[... omitted: this message's tool results together were over the ${opts.maxChars.toLocaleString()}-character budget ...]`,
+			spilledAt,
+		].join('\n')
+		return {
+			output,
+			originalLength: item.output.length,
+			spillPath: spilledAt.slice(SPILL_MARKER.length + 1),
+		}
+	}
+	const budgeted = applyToolOutputBudget({
+		toolName: item.toolName,
+		// A distinct name: the spill file is keyed by it and opened exclusively.
+		toolUseId: `${item.toolCallId}:message-budget`,
+		output: item.output,
+		maxChars: MESSAGE_BUDGET_PREVIEW_CHARS,
+		spillDir: opts.spillDir,
+		...(opts.onError ? { onError: opts.onError } : {}),
+	})
+	return {
+		output: budgeted.output,
+		originalLength: item.output.length,
+		...(budgeted.spillPath ? { spillPath: budgeted.spillPath } : {}),
 	}
 }

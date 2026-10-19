@@ -79,9 +79,11 @@ import { savedPresentation } from './saved-presentation.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+	DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE,
 	type ToolOutputBudgetResult,
 	applyToolOutputBudget,
 	describeDroppedContent,
+	fitResultsToMessageBudget,
 	measureContentBytes,
 } from './tool-output-budget.js'
 
@@ -421,6 +423,8 @@ export interface ToolExecutorConfig {
 	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+	/** See QueryParams.maxToolOutputCharsPerMessage. */
+	maxToolOutputCharsPerMessage?: number
 	/** See QueryParams.retainedToolPreviewChars; applies to the recorded host output. */
 	retainedToolPreviewChars?: number
 
@@ -1092,7 +1096,10 @@ export class ToolExecutor {
 	 * outside one.
 	 */
 	private unknownProgramOf(
-		tool: { commandArgument?: string; commandDialect?: ToolDefinition['commandDialect'] },
+		tool: {
+			commandArgument?: string
+			commandDialect?: ToolDefinition['commandDialect']
+		},
 		input: Record<string, unknown>,
 		sandboxed: boolean,
 	): string | undefined {
@@ -1397,6 +1404,8 @@ export class ToolExecutor {
 			})
 		}
 
+		this.fitBatchToMessageBudget(results)
+
 		// isError and rich content were computed and then discarded here: the
 		// tuple narrowed to {toolCallId, output} BEFORE the message was built,
 		// so the failure signal and any image block were structurally lost at
@@ -1406,6 +1415,51 @@ export class ToolExecutor {
 		)
 
 		return { messages, results, observations }
+	}
+
+	/**
+	 * Hold the batch's combined result text under the per-message cap.
+	 *
+	 * Runs once, on the settled batch and before the results become history
+	 * messages, so what it writes is what every later request replays.
+	 */
+	private fitBatchToMessageBudget(results: ToolCallOutcome[]): void {
+		const maxChars =
+			this.config.maxToolOutputCharsPerMessage ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE
+		const replacements = fitResultsToMessageBudget(
+			results.map((r) => ({
+				toolCallId: r.toolCallId,
+				toolName: r.toolName,
+				output: r.output,
+				// A result carrying rich content or a structured-output copy is
+				// not text the model reads alone, and a self-limiting tool has
+				// already decided its own size.
+				replaceable:
+					r.content === undefined &&
+					r.structuredResultJson === undefined &&
+					this.config.tools.get(r.toolName)?.selfLimitingOutput !== true,
+			})),
+			{
+				maxChars,
+				spillDir: this.outputDirectory(),
+				onError: (message) =>
+					this.log.warn('Failed to retain a tool output replaced for the message budget', {
+						[NAMZU.TURN_ID]: this.config.turnId,
+						'exception.message': message,
+					}),
+			},
+		)
+		if (replacements.size === 0) return
+		for (const [i, r] of results.entries()) {
+			const replacement = replacements.get(r.toolCallId)
+			if (replacement === undefined) continue
+			results[i] = { ...r, output: replacement.output }
+		}
+		this.log.warn("Tool results exceeded the message's combined budget", {
+			[NAMZU.TURN_ID]: this.config.turnId,
+			'namzu.runtime.replaced_count': replacements.size,
+			'namzu.runtime.message_budget_chars': maxChars,
+		})
 	}
 
 	/**
@@ -2099,7 +2153,11 @@ export class ToolExecutor {
 				]
 			}
 		}
-		const maxToolOutputChars = this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS
+		// A tool that bounds its own output is exempt from the DEFAULT per-result
+		// cap only; a host that set the cap explicitly still gets it.
+		const maxToolOutputChars =
+			this.config.maxToolOutputChars ??
+			(executedDefinition?.selfLimitingOutput === true ? 0 : DEFAULT_MAX_TOOL_OUTPUT_CHARS)
 		const sourceOutput = output
 		// This owner-bound channel follows the selected receipt after both result
 		// screening and post-tool replacement. ToolResult.data and raw input can

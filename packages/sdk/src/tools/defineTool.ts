@@ -36,6 +36,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	metadata?: Readonly<Record<string, unknown>>
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
 	executionBarrier?: boolean
+	/** The tool bounds its own output; see {@link ToolDefinition.selfLimitingOutput}. */
+	selfLimitingOutput?: boolean
 	tier?: string
 	/**
 	 * How this tool's call and result should be shown; see
@@ -151,6 +153,9 @@ export function defineTool<S extends z.ZodType>(
 		...(options.terminal !== undefined ? { terminal: options.terminal } : {}),
 		...(options.executionBarrier !== undefined
 			? { executionBarrier: options.executionBarrier }
+			: {}),
+		...(options.selfLimitingOutput !== undefined
+			? { selfLimitingOutput: options.selfLimitingOutput }
 			: {}),
 		category: options.category,
 		permissions: options.permissions,

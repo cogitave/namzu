@@ -97,6 +97,7 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	/** See {@link QueryParams.maxOutputContinuations}. */
 	maxOutputContinuations?: QueryParams['maxOutputContinuations']
 	maxToolOutputChars?: number
+	maxToolOutputCharsPerMessage?: number
 	retainedToolPreviewChars?: QueryParams['retainedToolPreviewChars']
 	/**
 	 * Cap on the RICH channel of a single tool result, in base64 characters.

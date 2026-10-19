@@ -32,7 +32,12 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 			agentId: 'test',
 			agentName: 'test',
 			workingDirectory: cwd,
-			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10000, tokenBudget: 100000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 5,
+				timeoutMs: 10000,
+				tokenBudget: 100000,
+			},
 			sessionId: fixtureId.session('file-observations'),
 			topicId: fixtureId.topic('file-observations'),
 			projectId: fixtureId.project('file-observations'),
@@ -44,7 +49,15 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 			provider: new MockLLMProvider({
 				onRequest: ({ messages }) => requests.push([...messages]),
 				turns: [
-					{ toolCalls: [{ id: 'w', name: 'write', args: { path, content: 'alpha\nbeta\n' } }] },
+					{
+						toolCalls: [
+							{
+								id: 'w',
+								name: 'write',
+								args: { path, content: 'alpha\nbeta\n' },
+							},
+						],
+					},
 					{ text: 'created' },
 				],
 			}),
@@ -57,7 +70,7 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 			false,
 		)
 		expect(await readFile(path, 'utf8')).toBe('alpha\nbeta\n')
-		await writeFile(path, 'ALPHA\nbeta\n')
+		await writeFile(path, 'alpha\nBETA\n')
 		const second = await drainQuery({
 			...base,
 			messages: [...first.messages, { role: 'user', content: 'Change beta to gamma' }],
@@ -65,7 +78,11 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 				turns: [
 					{
 						toolCalls: [
-							{ id: 'e', name: 'edit', args: { path, old_string: 'beta', new_string: 'gamma' } },
+							{
+								id: 'e',
+								name: 'edit',
+								args: { path, old_string: 'beta', new_string: 'gamma' },
+							},
 						],
 					},
 					{ text: 'stopped' },
@@ -74,7 +91,7 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 		})
 		const refusal = second.messages.find((m) => m.role === 'tool' && m.toolCallId === 'e')
 		expect(refusal?.content).toContain('changed on disk')
-		expect(await readFile(path, 'utf8')).toBe('ALPHA\nbeta\n')
+		expect(await readFile(path, 'utf8')).toBe('alpha\nBETA\n')
 		const third = await drainQuery({
 			...base,
 			messages: [
@@ -86,7 +103,11 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 					{ toolCalls: [{ id: 'r', name: 'read', args: { path } }] },
 					{
 						toolCalls: [
-							{ id: 'e2', name: 'edit', args: { path, old_string: 'beta', new_string: 'gamma' } },
+							{
+								id: 'e2',
+								name: 'edit',
+								args: { path, old_string: 'BETA', new_string: 'gamma' },
+							},
 						],
 					},
 					{ text: 'done' },
@@ -94,7 +115,7 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 			}),
 		})
 		expect(third.stopReason).toBe('end_turn')
-		expect(await readFile(path, 'utf8')).toBe('ALPHA\ngamma\n')
+		expect(await readFile(path, 'utf8')).toBe('alpha\ngamma\n')
 	} finally {
 		await removeTempDirs([cwd])
 	}
@@ -120,7 +141,12 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 			agentId: 'test',
 			agentName: 'test',
 			workingDirectory: cwd,
-			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10000, tokenBudget: 100000 },
+			turnConfig: {
+				model: 'mock',
+				maxIterations: 5,
+				timeoutMs: 10000,
+				tokenBudget: 100000,
+			},
 			sessionId: fixtureId.session('file-chain'),
 			topicId: fixtureId.topic('file-chain'),
 			projectId: fixtureId.project('file-chain'),
@@ -132,10 +158,22 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 			provider: new MockLLMProvider({
 				onRequest: ({ messages }) => requests.push([...messages]),
 				turns: [
-					{ toolCalls: [{ id: 'w', name: 'write', args: { path, content: 'alpha\nbeta\n' } }] },
 					{
 						toolCalls: [
-							{ id: 'e', name: 'edit', args: { path, old_string: 'beta', new_string: 'gamma' } },
+							{
+								id: 'w',
+								name: 'write',
+								args: { path, content: 'alpha\nbeta\n' },
+							},
+						],
+					},
+					{
+						toolCalls: [
+							{
+								id: 'e',
+								name: 'edit',
+								args: { path, old_string: 'beta', new_string: 'gamma' },
+							},
 						],
 					},
 					{ text: 'done' },
@@ -148,7 +186,12 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 			{ path, bodyInCall: 'w', observedFingerprint: expect.any(String) },
 		])
 		expect(entriesIn(requests[2])).toEqual([
-			{ path, bodyInCall: 'w', editsInCalls: ['e'], observedFingerprint: expect.any(String) },
+			{
+				path,
+				bodyInCall: 'w',
+				editsInCalls: ['e'],
+				observedFingerprint: expect.any(String),
+			},
 		])
 		expect(String(requests[2]?.at(-1)?.content)).not.toContain('gamma')
 		expect(first.messages.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
@@ -167,7 +210,11 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 				turns: [
 					{
 						toolCalls: [
-							{ id: 'e2', name: 'edit', args: { path, old_string: 'alpha', new_string: 'delta' } },
+							{
+								id: 'e2',
+								name: 'edit',
+								args: { path, old_string: 'alpha', new_string: 'delta' },
+							},
 						],
 					},
 					{ toolCalls: [{ id: 'r', name: 'read', args: { path } }] },
@@ -187,7 +234,12 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 		// none — and what comes back is the read's own entry, naming the receipt
 		// the current body is visible in.
 		expect(entriesIn(requestsAfterDrift[2])).toEqual([
-			{ path, kind: 'read', bodyInCall: 'r', observedFingerprint: expect.any(String) },
+			{
+				path,
+				kind: 'read',
+				bodyInCall: 'r',
+				observedFingerprint: expect.any(String),
+			},
 		])
 		expect(fileReadTracker.editChain?.(path)).toBeUndefined()
 		expect(fileReadTracker.driftObserved?.(path)).toBe(false)

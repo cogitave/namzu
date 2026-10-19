@@ -119,7 +119,12 @@ export interface BackgroundJobRegistryRef {
 		id: string
 		status: string
 	}
-	get(id: string): { id: string; status: string; exitCode?: number; error?: string }
+	get(id: string): {
+		id: string
+		status: string
+		exitCode?: number
+		error?: string
+	}
 	/**
 	 * Take over a process the caller already started and is waiting on, so a
 	 * foreground command that outran its timeout can keep running as a job
@@ -1116,6 +1121,15 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * their external effects have stopped, and does not imply success.
 	 */
 	executionBarrier?: boolean
+	/**
+	 * The tool bounds its own output (a paged read, say), so the turn's default
+	 * per-result cap does not apply to it and its result is never replaced to
+	 * fit the per-message budget.
+	 *
+	 * Only the DEFAULT is lifted. A host that sets `maxToolOutputChars`
+	 * explicitly still bounds this tool's result by it.
+	 */
+	selfLimitingOutput?: boolean
 }
 
 /**

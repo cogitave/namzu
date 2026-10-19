@@ -39,7 +39,7 @@ these records for bounded recovery across explicitly authorized settled turns.
 `QueryParams.retainedToolPreviewChars` optionally separates the spill threshold
 from the size of its retained preview. It is also accepted by `resumeSession` and
 `QueryAgentConfig`. The ordinary `maxToolOutputChars` cap (default 40,000)
-still decides whether text overflows; results below it pass through unchanged.
+still decides whether text overflows; results below it pass through unchanged. One assistant message's results together are also bounded, by `maxToolOutputCharsPerMessage` (default 200,000); see [File tools](file-tool-limits.md#the-combined-result-budget).
 After the full host output and its integrity manifest are saved, a positive
 preview setting can reduce the head/tail text carried on subsequent requests.
 The preview includes omission and recovery lines, counts UTF-16 code units,

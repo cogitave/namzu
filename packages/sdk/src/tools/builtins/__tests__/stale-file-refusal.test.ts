@@ -92,7 +92,12 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		writeFileSync(file, 'alpha\nBETA WAS REWRITTEN\n')
 
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir, tracker),
 		)
 
@@ -105,7 +110,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect(readFileSync(file, 'utf-8')).toBe('alpha\nBETA WAS REWRITTEN\n')
 	})
 
-	it('refuses a still-matching anchor after an unrelated same-size external edit', async () => {
+	it('still applies when the text to replace is unchanged and unique after an unrelated external edit', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		const tracker = trackerOver(new Map())
@@ -115,9 +120,74 @@ describe('an edit against a file that moved is refused, not applied', () => {
 			{ path: file, old_string: 'beta', new_string: 'gamma' },
 			contextWith(dir, tracker),
 		)
+		expect(result.success).toBe(true)
+		expect(readFileSync(file, 'utf8')).toBe('ALPHA\ngamma\n')
+	})
+
+	it('refuses when the external edit left the text to replace ambiguous', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+		writeFileSync(file, 'beta\nalpha\nbeta\n')
+		const result = await EditTool.execute(
+			{ path: file, old_string: 'beta', new_string: 'gamma' },
+			contextWith(dir, tracker),
+		)
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('changed on disk')
-		expect(readFileSync(file, 'utf8')).toBe('ALPHA\nbeta\n')
+		expect(readFileSync(file, 'utf8')).toBe('beta\nalpha\nbeta\n')
+	})
+
+	it('applies a replace_all after drift when every occurrence is still found', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'beta\nalpha\n')
+		writeFileSync(file, 'beta\nALPHA\nbeta\n')
+		const result = await EditTool.execute(
+			{
+				path: file,
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: true,
+			},
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(true)
+		expect(readFileSync(file, 'utf8')).toBe('gamma\nALPHA\ngamma\n')
+	})
+
+	it('never recovers an insertion by line number after drift', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+		writeFileSync(file, 'new first line\nalpha\nbeta\n')
+		const result = await EditTool.execute(
+			{ path: file, insertLine: 1, new_string: 'inserted' },
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
+		expect(readFileSync(file, 'utf8')).toBe('new first line\nalpha\nbeta\n')
+	})
+
+	it('treats a touch that leaves the body byte-identical as no drift at all', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\nbeta\n')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\nbeta\n')
+		writeFileSync(file, 'alpha\nbeta\nbeta\n')
+		// Ambiguous on purpose: if the touch counted as drift this would be
+		// refused as stale; as no drift it reaches the uniqueness check instead.
+		const result = await EditTool.execute(
+			{ path: file, old_string: 'beta', new_string: 'gamma' },
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).not.toContain('changed on disk')
 	})
 
 	it('checks sandbox drift and advances its observation after successful edits', async () => {
@@ -126,11 +196,11 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		tracker.recordRead('doc.md', 'alpha\nbeta\n')
 		const context = contextWith('/sandbox', tracker, backend.sandbox)
 		const edit = { path: 'doc.md', old_string: 'beta', new_string: 'gamma' }
-		backend.externalWrite('ALPHA\nbeta\n')
+		backend.externalWrite('ALPHA\nBETA\n')
 		expect((await EditTool.execute(edit, context)).success).toBe(false)
 		expect(backend.writes()).toBe(0)
 		tracker.recordRead('doc.md', backend.body())
-		expect((await EditTool.execute(edit, context)).success).toBe(true)
+		expect((await EditTool.execute({ ...edit, old_string: 'BETA' }, context)).success).toBe(true)
 		expect(
 			(
 				await EditTool.execute(
@@ -151,7 +221,12 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		tracker.recordRead(file, 'alpha\nbeta\n')
 
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir, tracker),
 		)
 
@@ -169,13 +244,23 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		const context = contextWith(dir, tracker)
 
 		const first = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			context,
 		)
 		// Without re-fingerprinting after a successful write, this second edit
 		// would see its own predecessor's output as someone else's drift.
 		const second = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'alpha', new_string: 'omega', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'alpha',
+				new_string: 'omega',
+				replace_all: false,
+			},
 			context,
 		)
 
@@ -191,23 +276,47 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		// `fingerprint` is optional. A host that never captured one must not
 		// have every edit refused.
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir),
 		)
 
 		expect(result.success).toBe(true)
 	})
 
-	it('proceeds when the path was never read, so there is nothing to be stale against', async () => {
+	it('refuses a file the session never read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
 
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir, trackerOver(new Map())),
 		)
 
-		expect(result.success).toBe(true)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('has not been read yet')
+		expect(result.error).toContain('Nothing was written')
+		expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\nbeta\n')
+	})
+
+	it('refuses an unread sandbox file too', async () => {
+		const backend = sandboxOver('alpha\nbeta\n')
+		const result = await EditTool.execute(
+			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma' },
+			contextWith('/sandbox', trackerOver(new Map()), backend.sandbox),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('has not been read yet')
+		expect(backend.writes()).toBe(0)
 	})
 })
 
@@ -360,7 +469,7 @@ describe('a refusal reports the drift it just saw, and nothing more', () => {
 		writeFileSync(file, 'alpha\nbeta\n')
 		const tracker = noticing()
 		tracker.recordRead(file, 'alpha\nbeta\n')
-		writeFileSync(file, 'ALPHA\nbeta\n')
+		writeFileSync(file, 'ALPHA\nBETA\n')
 
 		const context = contextWith(dir, tracker)
 		expect(
@@ -382,7 +491,7 @@ describe('a refusal reports the drift it just saw, and nothing more', () => {
 		const tracker = noticing()
 		tracker.recordRead('doc.md', 'alpha\nbeta\n')
 		const context = contextWith('/host-is-not-the-sandbox', tracker, backend.sandbox)
-		backend.externalWrite('ALPHA\nbeta\n')
+		backend.externalWrite('ALPHA\nBETA\n')
 
 		expect(
 			(await EditTool.execute({ path: 'doc.md', old_string: 'beta', new_string: 'gamma' }, context))
@@ -414,8 +523,8 @@ describe('a refusal reports the drift it just saw, and nothing more', () => {
 	})
 })
 
-describe('drift admission precedes anchor matching', () => {
-	it('refuses when someone changed an unrelated part of the file', async () => {
+describe('a moved file is refused only when the edit no longer applies', () => {
+	it('refuses when someone changed the part of the file the edit anchors on', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		writeFileSync(file, 'alpha\nbeta\n')
@@ -423,18 +532,21 @@ describe('drift admission precedes anchor matching', () => {
 		const tracker = trackerOver(new Map())
 		tracker.recordRead(file, 'alpha\nbeta\n')
 
-		// Matching syntax does not establish that the edit still makes sense
-		// against an externally changed document.
-		writeFileSync(file, 'alpha\nbeta\nan unrelated new line\n')
+		writeFileSync(file, 'alpha\nBETA\nan unrelated new line\n')
 
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir, tracker),
 		)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('changed on disk')
-		expect(readFileSync(file, 'utf-8')).toBe('alpha\nbeta\nan unrelated new line\n')
+		expect(readFileSync(file, 'utf-8')).toBe('alpha\nBETA\nan unrelated new line\n')
 	})
 
 	it('reports a genuinely wrong anchor as wrong, not as drift', async () => {
@@ -449,7 +561,12 @@ describe('drift admission precedes anchor matching', () => {
 		// the agent to re-read would send it to look for a change that never
 		// happened.
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'nowhere', new_string: 'x', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'nowhere',
+				new_string: 'x',
+				replace_all: false,
+			},
 			contextWith(dir, tracker),
 		)
 
@@ -472,7 +589,12 @@ describe('drift admission precedes anchor matching', () => {
 		writeFileSync(file, 'alpha\nbeta\nbeta\n')
 
 		const result = await EditTool.execute(
-			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			{
+				path: 'doc.md',
+				old_string: 'beta',
+				new_string: 'gamma',
+				replace_all: false,
+			},
 			contextWith(dir, tracker),
 		)
 

@@ -28,3 +28,8 @@ export function fingerprintContent(content: string): string {
 export function staleFileError(path: string, operation: 'edit' | 'write' = 'edit'): string {
 	return `${path} changed on disk after you read it, so this ${operation} was based on a stale copy and was not applied. Read the file again and redo the ${operation} against its current contents. Nothing was written.`
 }
+
+/** What a mutation tool tells the agent when the session never read the file. */
+export function unreadFileError(path: string, operation: 'edit' | 'write' = 'edit'): string {
+	return `${path} has not been read yet. Read it first, then redo the ${operation}. Nothing was written.`
+}
