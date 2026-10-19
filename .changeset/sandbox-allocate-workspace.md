@@ -1,7 +1,0 @@
----
-"@namzu/sandbox": minor
----
-
-A host can now create a Kubernetes workspace without adopting or waking anything, and prove later that what it finds is what it created. `allocateKubernetesWorkspace` sends one create and never retries it: a same-name object is a `KubernetesWorkspaceAllocationConflictError` and is left untouched, the pod is never resumed, and the result carries the new Sandbox's uid as an acknowledgement, not as readiness. The allocation id, a scope fingerprint and an execution-profile fingerprint are stored in the create request as the annotations `sandbox.namzu.ai/allocation-id`, `sandbox.namzu.ai/allocation-scope` and `sandbox.namzu.ai/execution-profile`. `resolveKubernetesExecutionProfile` computes the profile fingerprint (pod template with this backend's overlays, disks, translated egress policy, ingress settings) from one read, so the host can persist it before the create. A create that gets no usable reply returns `{ outcome: 'unknown' }`; `recoverKubernetesWorkspaceAllocation` settles it by reading (`created`, `absent` or `different`).
-
-`inspectKubernetesWorkspace`, `openKubernetesWorkspace` and `reconcileKubernetesWorkspace` accept `expectedAllocation` and refuse a Sandbox whose annotations or copied pod template differ with `KubernetesWorkspaceAllocationMismatchError`. A call that does not pass it behaves as before; `inspectKubernetesWorkspace` results gain an `allocation` field. Nothing to change for existing callers.
