@@ -45,6 +45,7 @@ import {
 	FLUSH_FEATURE,
 	type GuestReplyIdentity,
 	QUIESCE_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 	SESSIONS_FEATURE,
@@ -1314,6 +1315,76 @@ export class KubernetesQuiesceUnconfirmedError extends Error {
 	}
 }
 
+/** One thing the guest found running when an idle-only quiesce looked. */
+export interface KubernetesQuiesceBusyProcess {
+	readonly pid: number
+	/** The kernel's short name for the executable, never its command line. */
+	readonly command: string
+	/** The `/proc` state letter (`R`, `S`, `D`, `Z`...). `Z` here is a zombie leader with a live thread. */
+	readonly state: string
+}
+
+/** A start the agent's registries hold that `/proc` may not show yet. */
+export interface KubernetesQuiesceBusyRegistryEntry {
+	readonly source: 'execution' | 'session'
+	readonly state: string
+}
+
+/**
+ * Thrown by `quiesce({ onlyIfIdle: true })` when the guest is not idle.
+ *
+ * An answer, not a failure: nothing was signalled, marked or stopped, the
+ * guest is exactly as it was, and `busy` says what was seen so the caller can
+ * decide to retry later. `busy` is capped (the guest names at most 32
+ * processes); `busyTotal` counts them all.
+ */
+export class KubernetesQuiesceBusyError extends Error {
+	override readonly name = 'KubernetesQuiesceBusyError'
+
+	constructor(
+		readonly busy: readonly KubernetesQuiesceBusyProcess[],
+		readonly busyTotal: number,
+		readonly registries: readonly KubernetesQuiesceBusyRegistryEntry[],
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+function busyDetail(reply: Record<string, unknown>): {
+	busy: KubernetesQuiesceBusyProcess[]
+	busyTotal: number
+	registries: KubernetesQuiesceBusyRegistryEntry[]
+} {
+	const rows = (value: unknown): Record<string, unknown>[] =>
+		Array.isArray(value)
+			? value.filter(
+					(entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object',
+				)
+			: []
+	const busy = rows(reply.busy).flatMap((row): KubernetesQuiesceBusyProcess[] =>
+		typeof row.pid === 'number'
+			? [
+					{
+						pid: row.pid,
+						command: typeof row.command === 'string' ? row.command : '',
+						state: typeof row.state === 'string' ? row.state : '',
+					},
+				]
+			: [],
+	)
+	const registries = rows(reply.registries).flatMap((row): KubernetesQuiesceBusyRegistryEntry[] =>
+		row.source === 'execution' || row.source === 'session'
+			? [{ source: row.source, state: typeof row.state === 'string' ? row.state : '' }]
+			: [],
+	)
+	return {
+		busy,
+		busyTotal: typeof reply.busyTotal === 'number' ? reply.busyTotal : busy.length,
+		registries,
+	}
+}
+
 /** What the guest stopped, and how widely it was allowed to look. */
 export interface KubernetesQuiesceReport {
 	/** Every process signalled, with the last signal it was actually sent. */
@@ -2164,17 +2235,31 @@ export class KubernetesAgentTransport {
 	 * process would not stop, and the reply names its pid.
 	 */
 	async quiesce(
-		options: { readonly graceMs?: number } = {},
+		options: { readonly graceMs?: number; readonly idleOnly?: boolean } = {},
 		signal?: AbortSignal,
 	): Promise<KubernetesQuiesceReport> {
+		const idleOnly = options.idleOnly === true
+		if (idleOnly && options.graceMs !== undefined) {
+			throw new TypeError(
+				'kubernetes: quiesce({ onlyIfIdle: true }) signals nothing, so graceMs has no meaning with it',
+			)
+		}
 		await this.assertQuiesceSupported(signal)
+		// Checked BEFORE anything is sent: an agent without the feature
+		// ignores `idleOnly` and would run the stopping quiesce.
+		if (idleOnly && !(await this.supportsQuiesceIdle(signal))) {
+			throw this.quiesceIdleUnsupported()
+		}
 		const reply = (await this.withRebind(
 			async () =>
 				await requestChecked(
 					this.wire,
 					{
 						op: 'quiesce',
-						body: { ...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}) },
+						body: {
+							...(idleOnly ? { idleOnly: true } : {}),
+							...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}),
+						},
 					},
 					signal,
 				),
@@ -2186,6 +2271,15 @@ export class KubernetesAgentTransport {
 		// is one image, not two, so it is the unsupported error rather than a
 		// second name for the same fact — see {@link assertQuiesceSupported}.
 		if (refusal.startsWith('unknown_op')) throw this.quiesceUnsupported()
+		if (idleOnly && refusal === 'quiesce_busy') {
+			const seen = busyDetail(reply)
+			throw new KubernetesQuiesceBusyError(
+				seen.busy,
+				seen.busyTotal,
+				seen.registries,
+				`kubernetes: the guest is not idle (${seen.busyTotal} process(es), ${seen.registries.length} registry entr${seen.registries.length === 1 ? 'y' : 'ies'}). Nothing was signalled, marked or stopped; retry later.`,
+			)
+		}
 		const detail = typeof reply.message === 'string' ? `: ${reply.message}` : ''
 		throw new KubernetesQuiesceUnconfirmedError(
 			refusal,
@@ -2272,6 +2366,18 @@ export class KubernetesAgentTransport {
 	 */
 	async supportsQuiesce(signal?: AbortSignal): Promise<boolean> {
 		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_FEATURE)
+	}
+
+	/** Whether the guest's `quiesce` accepts `idleOnly`; see {@link QUIESCE_IDLE_FEATURE}. */
+	async supportsQuiesceIdle(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_IDLE_FEATURE)
+	}
+
+	private quiesceIdleUnsupported(): KubernetesQuiesceUnsupportedError {
+		return new KubernetesQuiesceUnsupportedError(
+			QUIESCE_IDLE_FEATURE,
+			`kubernetes: this workspace's guest agent does not advertise the '${QUIESCE_IDLE_FEATURE}' healthz feature, so it would ignore the idle-only request and run the ordinary quiesce, which signals and kills what is running. Nothing was sent. Rebuild the workspace image from this Namzu release, or call quiesce() without onlyIfIdle if stopping the work is acceptable.`,
+		)
 	}
 
 	private async assertQuiesceSupported(signal?: AbortSignal): Promise<void> {

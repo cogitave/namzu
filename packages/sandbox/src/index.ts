@@ -379,11 +379,15 @@ export type {
 } from './backends/kubernetes/workspace.js'
 export type { KubernetesQuiesceReport } from './backends/kubernetes/transport.js'
 export {
+	KubernetesQuiesceBusyError,
+	type KubernetesQuiesceBusyProcess,
+	type KubernetesQuiesceBusyRegistryEntry,
 	KubernetesQuiesceUnconfirmedError,
 	KubernetesQuiesceUnsupportedError,
 } from './backends/kubernetes/transport.js'
 export {
 	QUIESCE_FEATURE,
+	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
 } from './backends/firecracker/protocol.js'

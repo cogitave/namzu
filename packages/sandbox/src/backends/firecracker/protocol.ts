@@ -459,6 +459,20 @@ export interface KillSessionRequest {
  */
 export const QUIESCE_FEATURE = 'quiesce'
 
+/**
+ * The `healthz` feature string an agent advertises when its `quiesce` op
+ * accepts `{ idleOnly: true }`: look at the guest, signal and mark nothing,
+ * and refuse with `quiesce_busy` unless the whole PID namespace is idle.
+ *
+ * It is its own string, not implied by {@link QUIESCE_FEATURE}, because an
+ * agent that predates it IGNORES unknown body fields: sent `idleOnly` it
+ * would run the stopping quiesce and kill the work the caller asked not to
+ * touch. A host therefore sends the field only to a guest that advertised
+ * this, and an older guest (which advertises `quiesce` alone) keeps working
+ * for the stopping mode unchanged.
+ */
+export const QUIESCE_IDLE_FEATURE = 'quiesce-idle'
+
 /** Stop everything. `graceMs` bounds ONE round's SIGTERM window. */
 export interface QuiesceRequest {
 	/**
@@ -468,6 +482,11 @@ export interface QuiesceRequest {
 	 * 1000ms. It is NOT the pod's `terminationGracePeriodSeconds`.
 	 */
 	readonly graceMs?: number
+	/**
+	 * Only look: signal nothing, mark nothing, wait for nothing. Requires
+	 * {@link QUIESCE_IDLE_FEATURE}, and cannot be combined with `graceMs`.
+	 */
+	readonly idleOnly?: boolean
 }
 
 /**

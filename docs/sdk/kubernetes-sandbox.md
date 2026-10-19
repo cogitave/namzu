@@ -2660,8 +2660,8 @@ block at their defaults.
 
 **The guest has to advertise it.** `healthz` answers with a `features` list,
 whose full vocabulary is `["write-file-parts", "execution-attach",
-"stream-heartbeat", "read-file-stream", "sessions", "quiesce", "flush",
-"guest-boot-id"]` — and a given reply may carry fewer than these, because the
+"stream-heartbeat", "read-file-stream", "sessions", "quiesce", "quiesce-idle",
+"flush", "guest-boot-id"]` — and a given reply may carry fewer than these, because the
 list is what that guest can actually do: an image with no `sync` to run drops
 `flush` rather than advertising one it cannot perform. A host asking for any
 session verb against an image whose list has no `sessions` is refused with
@@ -2803,6 +2803,45 @@ would be wrong is the one where somebody would be tempted to set it.
 guest narrowed itself, just before the patch goes out. The sibling of
 `onQuiesceUnsupported`, for the same reason — the one path that cannot read the
 report must not be the one that silently under-delivers.
+
+**Asking whether the guest is idle, without stopping anything.**
+`quiesce({ onlyIfIdle: true })` is the read-only variant, for a host that wants
+to know a workspace is quiet before a maintenance action and must not stop
+running work to find out. It never signals a process, never marks an
+execution and never waits. It resolves with a report (`scope:
+'pid-namespace'`, `rounds: 0`, `stopped: []`, `graceMs: 0`) only when the guest
+confirms that its whole PID namespace holds nothing but init and the agent;
+otherwise it rejects with `KubernetesQuiesceBusyError`, which carries `busy`
+(up to 32 processes: `pid`, kernel short name, `/proc` state), `busyTotal` and
+`registries`, so the caller can retry later. The guest is left exactly as it
+was.
+
+What counts as busy is stricter than what the stopping quiesce signals, because
+a process that quiesce would leave alone is still a process writing to the disk:
+every pid but 1 and the agent counts, whatever its uid or session. A zombie
+counts as absent unless it is a thread-group leader with a thread that still
+runs (the leader reads `Z` while the group executes). A start the agent has
+dispatched that `/proc` may not show yet counts too: an execution that is
+`reserved`, `starting` or `running`, and any session that has not exited. A
+`/proc` entry that cannot be read or classified, or an agent that cannot see its
+whole namespace (`NAMZU_AGENT_QUIESCE_SCOPE=owned-sessions`, or not started by
+the namespace's init), rejects with `KubernetesQuiesceUnconfirmedError`
+(`reason: 'quiesce_idle_unclassifiable'` or `'quiesce_idle_scope_narrowed'`)
+rather than reporting idle. While it reads, the agent refuses NEW starts with
+`quiesce_in_progress` for those few milliseconds, so an idle answer means
+nothing was admitted during the look.
+
+It needs the guest feature `quiesce-idle`. An agent that predates it ignores
+unknown request fields and would run the stopping quiesce, so the host checks
+`healthz` first and, without the feature, rejects with
+`KubernetesQuiesceUnsupportedError` (`feature: 'quiesce-idle'`) having sent
+nothing. The wire is backward compatible in both directions: the request is the
+same `quiesce` op with `body: { idleOnly: true }`, a stopping `quiesce()` sends
+exactly what it always did, and an older guest keeps serving it. `onlyIfIdle`
+cannot be combined with `graceMs` (`TypeError`), and the options are copied when
+the call is made, before any await, so mutating the object afterwards cannot
+turn the request into a stopping one. `suspend({ quiesce })` does not take the
+option.
 
 **A suspend already in flight cannot be joined into a quiesce.** Concurrent
 `suspend()` calls share one transition: the second caller awaits the first

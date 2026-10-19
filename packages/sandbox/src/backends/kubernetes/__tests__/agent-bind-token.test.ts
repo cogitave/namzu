@@ -363,6 +363,7 @@ describe('preset per-instance token', () => {
 			'read-file-stream',
 			'sessions',
 			'quiesce',
+			'quiesce-idle',
 			'flush',
 			'guest-boot-id',
 		])

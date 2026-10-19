@@ -824,6 +824,25 @@ export interface KubernetesQuiesceOptions {
 	 * and still serving.
 	 */
 	readonly graceMs?: number
+	/**
+	 * Look, and touch nothing. With `true` the call resolves (with a report
+	 * of `rounds: 0`, `stopped: []`, scope `pid-namespace`) only when the
+	 * guest confirms its whole PID namespace holds nothing but init and the
+	 * agent, and otherwise rejects with `KubernetesQuiesceBusyError` naming
+	 * what was seen. It never signals a process, never marks an execution
+	 * and never waits, so a busy guest is exactly as it was and the caller
+	 * can retry later.
+	 *
+	 * Needs the guest feature `quiesce-idle`: against an older agent the
+	 * call rejects with `KubernetesQuiesceUnsupportedError` and sends
+	 * nothing, because that agent would ignore this field and run the
+	 * stopping quiesce. Cannot be combined with `graceMs` (a `TypeError`).
+	 * An agent that cannot see its whole namespace, or cannot classify a
+	 * `/proc` entry, rejects with `KubernetesQuiesceUnconfirmedError`
+	 * rather than reporting idle. Captured when the call is made, before
+	 * any await.
+	 */
+	readonly onlyIfIdle?: boolean
 	readonly signal?: AbortSignal
 }
 
@@ -1239,6 +1258,10 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * `KubernetesQuiesceUnconfirmedError` when a process would not stop (the
 	 * message names its pid), and with `KubernetesQuiesceUnsupportedError`
 	 * against an image whose agent predates the op.
+	 *
+	 * `{ onlyIfIdle: true }` is the read-only variant: see
+	 * {@link KubernetesQuiesceOptions.onlyIfIdle}. It rejects with
+	 * `KubernetesQuiesceBusyError` when anything is running.
 	 */
 	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
 	/**
@@ -5194,7 +5217,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			'quiesce',
 			async (handle) =>
 				await admittedTransport('quiesce', handle).quiesce(
-					quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {},
+					{
+						...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+						...(quiesceOptions?.onlyIfIdle === true ? { idleOnly: true } : {}),
+					},
 					quiesceOptions?.signal,
 				),
 		)
@@ -5704,7 +5730,25 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// racing the suspend that follows it would be a quiesce of a pod the
 			// patch has already taken away, and one racing a resume would ask
 			// the old pod to stop the new one's processes.
-			return await serialise(async () => await quiesceNow(quiesceOptions))
+			//
+			// The options are copied HERE, synchronously, before the queue is
+			// awaited: a caller that mutates its object after calling cannot
+			// change what is sent, in particular cannot turn an idle-only
+			// request into a stopping one.
+			if (
+				quiesceOptions?.onlyIfIdle !== undefined &&
+				typeof quiesceOptions.onlyIfIdle !== 'boolean'
+			) {
+				throw new TypeError('kubernetes: quiesce({ onlyIfIdle }) must be a boolean')
+			}
+			const request: KubernetesQuiesceOptions = Object.freeze({
+				...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+				...(quiesceOptions?.onlyIfIdle !== undefined
+					? { onlyIfIdle: quiesceOptions.onlyIfIdle }
+					: {}),
+				...(quiesceOptions?.signal !== undefined ? { signal: quiesceOptions.signal } : {}),
+			})
+			return await serialise(async () => await quiesceNow(request))
 		},
 
 		async flush(flushOptions?: KubernetesFlushOptions): Promise<KubernetesFlushReport> {
