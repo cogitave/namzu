@@ -226,8 +226,6 @@ import {
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
-import { QuestionDialog } from './QuestionDialog.js'
-import { needsQuestionDialog } from './question-dialog.js'
 import {
 	Composer,
 	type ComposerDraft,
@@ -244,6 +242,7 @@ import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
 import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
+import { QuestionDialog } from './QuestionDialog.js'
 import { ResumePicker } from './ResumePicker.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
@@ -351,6 +350,7 @@ import {
 	pluginStartupState,
 } from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
+import { needsQuestionDialog } from './question-dialog.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
@@ -6599,7 +6599,8 @@ export function App({
 				closeLiveReply()
 				questionRef.current = { question, resolve }
 				if (needsQuestionDialog(question)) {
-					const entry = { token: (questionDialogTokenRef.current += 1), question }
+					questionDialogTokenRef.current += 1
+					const entry = { token: questionDialogTokenRef.current, question }
 					const onAbort = () => {
 						if (questionDialogRef.current === entry) setQuestionDialog(null)
 						resolveQuestion({ kind: 'abort' })
