@@ -2339,9 +2339,9 @@ woken, patched or deleted. They need `get` on `sandboxes`,
 
 | Verb | Answers |
 |---|---|
-| `inspectKubernetesWorkspace(config, workspaceId, { epoch })` | The Sandbox uid, each claim uid, the live pod uid, the operating mode, the stored epoch and whether the guest is ready; `undefined` when nothing stands there |
-| `openKubernetesWorkspace(config, { workspaceId, identity, epoch, waitForReady })` | The same, after authenticating the exact retained identity; with `waitForReady`, after waiting for it |
-| `reconcileKubernetesWorkspace(config, { workspaceId, identity, epoch? })` | A closure state: `live`, `suspended`, `absent` or `replaced` |
+| `inspectKubernetesWorkspace(config, workspaceId, { epoch, expectedAllocation? })` | The Sandbox uid, each claim uid, the live pod uid, the operating mode, the stored epoch and whether the guest is ready; `undefined` when nothing stands there |
+| `openKubernetesWorkspace(config, { workspaceId, identity, epoch, waitForReady, expectedAllocation? })` | The same, after authenticating the exact retained identity; with `waitForReady`, after waiting for it |
+| `reconcileKubernetesWorkspace(config, { workspaceId, identity, epoch?, expectedAllocation? })` | A closure state: `live`, `suspended`, `absent` or `replaced` |
 
 ```ts
 import {
@@ -2426,6 +2426,153 @@ These verbs return what was observed, not a handle. To use the workspace,
 call `createKubernetesWorkspace` once `reconcile` says `live` or `suspended`
 and the identity on the returned handle matches; the window between the two
 calls is why every write the handle then sends is pinned to its uid (above).
+
+### Allocating a workspace without adopting it
+
+`createKubernetesWorkspace` is create-or-adopt: a same-name object is taken
+over and its pod may be resumed before the call returns. A host that records
+its intent *before* creating something durable, and later has to prove that
+what it finds is exactly what it created, needs three other verbs.
+
+| Verb | Does |
+|---|---|
+| `resolveKubernetesExecutionProfile(config, { sandboxTemplateName?, signal? })` | Resolves and fingerprints what a workspace from this config would run. One `GET` (the SandboxTemplate); creates nothing |
+| `allocateKubernetesWorkspace(config, { workspaceId, allocation, epoch?, sandboxTemplateName?, signal? })` | ONE create. Never adopts, never resumes, never retries |
+| `recoverKubernetesWorkspaceAllocation(config, { workspaceId, allocation, epoch?, signal? })` | After an unknown create: one read-only `GET`, answered `created`, `absent` or `different` |
+
+```ts
+import {
+  allocateKubernetesWorkspace,
+  openKubernetesWorkspace,
+  recoverKubernetesWorkspaceAllocation,
+  resolveKubernetesExecutionProfile,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// 1. Resolve, and persist the result BEFORE any create is sent.
+const profile = await resolveKubernetesExecutionProfile(cluster)
+const allocation = {
+  id: 'alloc-2f6c',
+  scopeFingerprint: 'tenant-7/project-3',
+  executionProfile: profile.fingerprint,
+}
+
+// 2. One create.
+const result = await allocateKubernetesWorkspace(cluster, {
+  workspaceId: 'ada-main',
+  allocation,
+  epoch: 1,
+})
+
+// 3. An unknown reply is settled by reading, never by sending again.
+const sandboxUid =
+  result.outcome === 'created'
+    ? result.receipt.sandboxUid
+    : await recoverKubernetesWorkspaceAllocation(cluster, {
+        workspaceId: 'ada-main',
+        allocation,
+        epoch: 1,
+      }).then((r) => (r.state === 'created' ? r.receipt.sandboxUid : undefined))
+
+// 4. Later opens prove it is still that allocation.
+if (sandboxUid !== undefined) {
+  await openKubernetesWorkspace(cluster, {
+    workspaceId: 'ada-main',
+    identity: { sandboxUid },
+    epoch: 1,
+    expectedAllocation: allocation,
+  })
+}
+```
+
+**What `allocate` does.** After the same read-only egress, ingress and
+block-disk checks `createKubernetesWorkspace` makes, it sends one `POST`. If
+`allocation.executionProfile` is given and the profile resolves to something
+else now, it throws `KubernetesExecutionProfileDriftError` and sends no
+create. The `POST` carries the allocation annotations, the holder epoch when
+one is passed and the pod-template revision, so the object is bound from the
+moment it exists. Outcomes:
+
+- `{ outcome: 'created', receipt }`: the API server accepted the create.
+  `receipt.sandboxUid` is the new object's `metadata.uid`. This is an
+  acknowledgement, **not readiness**: no pod, disk or guest has been waited
+  for. Use `openKubernetesWorkspace({ waitForReady: true })` for that.
+- A `409`: `KubernetesWorkspaceAllocationConflictError`. The standing object
+  is not read, adopted, woken or modified.
+- `{ outcome: 'unknown', reason }`: the request was sent and no usable reply
+  came back (`timeout`, `connection`, `server-error` for a 5xx, `aborted` when
+  the caller's signal fired, `unreadable-reply` for a 2xx without a uid). The
+  object may or may not exist. **The `POST` is never repeated.**
+- Any other answer (401, 403, 404, other 4xx) rejects as itself; the server
+  answered and nothing was created.
+
+The only request `allocate` sends that is not a `GET` is that one `POST`:
+there is no `PATCH`, so nothing is resumed or woken.
+
+**Recovering from `unknown`.** `recoverKubernetesWorkspaceAllocation` reads
+the Sandbox and compares it with the allocation: `created` (with the receipt
+the lost reply would have been), `absent`, or `different` (`mismatch` says
+which part, `observed` carries what the object reports). A read that got no
+answer rejects as itself and is never reported as `absent`. `absent` is a
+point-in-time answer: a create still in flight at the API server could land
+after the read. Allocating again with the **same** allocation is safe, since a
+late landing turns it into the typed conflict and recovery then says
+`created`; a different allocation under the same workspace id is not.
+
+**`expectedAllocation`** on `inspectKubernetesWorkspace`,
+`openKubernetesWorkspace` and `reconcileKubernetesWorkspace` takes the same
+`{ id, scopeFingerprint, executionProfile? }`. A Sandbox under the id whose
+annotations or copied pod template differ is refused with
+`KubernetesWorkspaceAllocationMismatchError`, whose `mismatch` is
+`allocation-id`, `scope-fingerprint`, `execution-profile` or
+`template-content`; a Sandbox with no allocation annotations at all is an
+`allocation-id` mismatch with `actual` undefined. The identity answer keeps
+priority (`reconcile` still answers `replaced` for another uid), absence still
+resolves `undefined` / `absent`, `execution-profile` is compared only when
+given, and nothing is written to reach any of these.
+`template-content` is the check on the *copy*: the canonical hash of the
+`spec.podTemplate` the Sandbox carries must equal the pod-template revision
+annotation written in the same create. It catches a copy edited afterwards;
+it does not compare against the SandboxTemplate as it is now, because an edit
+to the template reaches only later workspaces and is not drift of this one. A
+refresh that rewrites the copy and its revision together passes. `inspect`
+also reports the stored values as `allocation`.
+
+**The annotations are a public contract.** They live on the Sandbox's own
+`metadata.annotations`, are written once in the create `POST` and never patched
+by this backend afterwards (a refresh, resume, suspend or epoch write leaves
+them alone), and a workspace made by `createKubernetesWorkspace` carries none.
+
+| Annotation | Value |
+|---|---|
+| `sandbox.namzu.ai/allocation-id` | `allocation.id`, verbatim |
+| `sandbox.namzu.ai/allocation-scope` | `allocation.scopeFingerprint`, verbatim; never interpreted, compared for equality only |
+| `sandbox.namzu.ai/execution-profile` | The profile fingerprint, `sha256:<hex>` |
+
+`id` and `scopeFingerprint` must be non-empty strings of at most 1024
+characters.
+
+**The fingerprint.** `profile.fingerprint` is `sha256:` followed by the hex
+SHA-256 of `JSON.stringify(canonical(profile.content))`, where `canonical`
+sorts every object's keys by UTF-16 code unit, drops members whose value is
+`undefined`, keeps arrays in order, and `JSON.stringify` adds no whitespace.
+`profile.content` is what the host should persist: `version` (1), `namespace`,
+`sandboxTemplateName`, `podTemplate` (the template's pod template after this
+backend's overlays: the template label, the egress profile label, the
+configured `runtimeClassName`), `volumeClaimTemplates`, `egress` (the policy
+translated from `config.egress`: `kind`, `policyKind`, `name`, `manifest`; or
+`null`) and `ingress` (the verification settings). The network policies are the
+ones this backend would **verify**, derived from configuration; policy objects
+an operator applied on the cluster are checked by `allocate` before its create,
+not fingerprinted. `profile.podTemplateHash` is the same hash `templateRevision`
+reports.
 
 ### A command can outlive the connection watching it
 

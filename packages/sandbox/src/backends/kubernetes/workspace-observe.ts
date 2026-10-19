@@ -30,6 +30,14 @@
 
 import { OperationDeadline, OperationDeadlineExpired } from '../readiness.js'
 import {
+	type KubernetesObservedAllocation,
+	type KubernetesWorkspaceAllocation,
+	KubernetesWorkspaceAllocationMismatchError,
+	assertAllocation,
+	firstAllocationMismatch,
+	observedAllocation,
+} from './allocation.js'
+import {
 	type KubernetesWorkspaceExpectedIdentity,
 	type KubernetesWorkspaceIdentity,
 	type KubernetesWorkspaceIdentityMismatch,
@@ -71,6 +79,13 @@ export interface KubernetesWorkspaceObservationOptions {
 /** {@link inspectKubernetesWorkspace}'s options. */
 export interface KubernetesWorkspaceInspectOptions extends KubernetesWorkspaceObservationOptions {
 	/**
+	 * The allocation this host expects. A Sandbox under the id whose
+	 * allocation annotations or copied pod template differ is refused with
+	 * `KubernetesWorkspaceAllocationMismatchError`; absence still resolves
+	 * `undefined`, because there is nothing to compare.
+	 */
+	readonly expectedAllocation?: KubernetesWorkspaceAllocation
+	/**
 	 * The holder epoch this reader acts under. A workspace held at a HIGHER
 	 * epoch refuses it with `KubernetesWorkspacePreconditionError`: a
 	 * superseded host must not conclude anything about a workspace that
@@ -94,6 +109,11 @@ export interface KubernetesWorkspaceInspection {
 	/** The stored holder epoch; `0` for a workspace that never carried one. */
 	readonly holderEpoch: number
 	/**
+	 * The allocation annotations as stored; every field `undefined` for a
+	 * workspace not made by `allocateKubernetesWorkspace`.
+	 */
+	readonly allocation: KubernetesObservedAllocation
+	/**
 	 * The Sandbox reports `Ready` for its CURRENT generation AND a live pod
 	 * stands under it. A `Ready: True` the controller wrote for an earlier
 	 * generation does not count.
@@ -111,6 +131,11 @@ export interface KubernetesWorkspaceOpenOptions extends KubernetesWorkspaceObser
 	/** The holder epoch this host acts under — see {@link KubernetesWorkspaceInspectOptions.epoch}. */
 	readonly epoch: number
 	/**
+	 * The allocation this host expects, checked after the Sandbox uid: a
+	 * mismatch is `KubernetesWorkspaceAllocationMismatchError`.
+	 */
+	readonly expectedAllocation?: KubernetesWorkspaceAllocation
+	/**
 	 * Poll, under ONE deadline (`readyTimeoutMs`), until every volume claim
 	 * exists and the guest is ready. A suspended workspace is returned at
 	 * once — opening never wakes anything, so there is nothing to wait for.
@@ -126,6 +151,13 @@ export interface KubernetesWorkspaceReconcileOptions extends KubernetesWorkspace
 	readonly identity: KubernetesWorkspaceExpectedIdentity
 	/** When given, a workspace held at a higher epoch refuses the reconcile. */
 	readonly epoch?: number
+	/**
+	 * The allocation this host expects. Checked after the identity, so a
+	 * `replaced` answer still wins; a Sandbox that IS the retained one but
+	 * carries a different allocation or template content throws
+	 * `KubernetesWorkspaceAllocationMismatchError`.
+	 */
+	readonly expectedAllocation?: KubernetesWorkspaceAllocation
 }
 
 /**
@@ -274,6 +306,7 @@ function inspectionOf(
 			guestBootId: undefined,
 		},
 		holderEpoch: readHolderEpoch(seen.sandbox.metadata).epoch ?? 0,
+		allocation: observedAllocation(seen.sandbox),
 		ready:
 			mode === 'Running' &&
 			isReadyForCurrentGeneration(seen.sandbox) &&
@@ -350,6 +383,24 @@ function assertEpochAllows(
 	)
 }
 
+function assertExpectedAllocation(
+	workspaceId: string,
+	name: string,
+	sandbox: SandboxResource,
+	expected: KubernetesWorkspaceAllocation | undefined,
+): void {
+	if (expected === undefined) return
+	const mismatch = firstAllocationMismatch(sandbox, expected)
+	if (mismatch === undefined) return
+	throw new KubernetesWorkspaceAllocationMismatchError(
+		workspaceId,
+		name,
+		mismatch.kind,
+		mismatch.expected,
+		mismatch.actual,
+	)
+}
+
 function clientFor(config: KubernetesBackendInternalConfig): KubernetesClient {
 	return createKubernetesClient(clientAccess(config), clientOptions(config))
 }
@@ -374,10 +425,14 @@ export async function inspectKubernetesWorkspace(
 	if (epoch === undefined) {
 		throw new TypeError('kubernetes: inspectKubernetesWorkspace needs an epoch.')
 	}
+	if (options.expectedAllocation !== undefined) {
+		assertAllocation(options.expectedAllocation, 'inspectKubernetesWorkspace')
+	}
 	const name = workspaceSandboxName(workspaceId)
 	const seen = await observe(clientFor(config), config.namespace, name, options.signal)
 	if (seen === undefined) return undefined
 	assertEpochAllows('inspectKubernetesWorkspace', workspaceId, name, epoch, seen.sandbox)
+	assertExpectedAllocation(workspaceId, name, seen.sandbox, options.expectedAllocation)
 	return inspectionOf(workspaceId, name, seen)
 }
 
@@ -402,6 +457,9 @@ export async function openKubernetesWorkspace(
 	options.signal?.throwIfAborted()
 	const { workspaceId } = options
 	assertRetained(options.identity, 'openKubernetesWorkspace')
+	if (options.expectedAllocation !== undefined) {
+		assertAllocation(options.expectedAllocation, 'openKubernetesWorkspace')
+	}
 	const epoch = assertHolderEpoch(options.epoch, 'openKubernetesWorkspace')
 	if (epoch === undefined)
 		throw new TypeError('kubernetes: openKubernetesWorkspace needs an epoch.')
@@ -439,6 +497,7 @@ export async function openKubernetesWorkspace(
 			)
 		}
 		assertEpochAllows('openKubernetesWorkspace', workspaceId, name, epoch, seen.sandbox)
+		assertExpectedAllocation(workspaceId, name, seen.sandbox, options.expectedAllocation)
 		for (const [claimName, claim] of seen.claims) trusted[claimName] = claim.uid
 		return inspectionOf(workspaceId, name, seen)
 	}
@@ -496,6 +555,9 @@ export async function reconcileKubernetesWorkspace(
 	options.signal?.throwIfAborted()
 	const { workspaceId } = options
 	assertRetained(options.identity, 'reconcileKubernetesWorkspace')
+	if (options.expectedAllocation !== undefined) {
+		assertAllocation(options.expectedAllocation, 'reconcileKubernetesWorkspace')
+	}
 	const epoch = assertHolderEpoch(options.epoch, 'reconcileKubernetesWorkspace')
 	const name = workspaceSandboxName(workspaceId)
 	const seen = await observe(clientFor(config), config.namespace, name, options.signal)
@@ -518,6 +580,7 @@ export async function reconcileKubernetesWorkspace(
 	if (epoch !== undefined) {
 		assertEpochAllows('reconcileKubernetesWorkspace', workspaceId, name, epoch, seen.sandbox)
 	}
+	assertExpectedAllocation(workspaceId, name, seen.sandbox, options.expectedAllocation)
 	return {
 		state: inspection.operatingMode === 'Suspended' ? 'suspended' : 'live',
 		workspaceId,

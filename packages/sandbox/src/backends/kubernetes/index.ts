@@ -691,6 +691,12 @@ export interface KubernetesEgressBoundary {
 	 */
 	verifyNamedObject(signal?: AbortSignal): Promise<void>
 	/**
+	 * The translated policy itself — the same one-per-boundary translation
+	 * both checks compare against. Read-only: nothing is created or fetched
+	 * from the cluster. `resolveKubernetesExecutionProfile` fingerprints it.
+	 */
+	translatedPolicy(): Promise<KubernetesTranslatedEgressPolicy>
+	/**
 	 * Enumerate every policy selecting THIS pod and refuse when any of them
 	 * allows egress the translation does not. A no-op under
 	 * `egress.verify: 'named-object-only'`.
@@ -776,6 +782,7 @@ export function buildEgressBoundary(
 	// resolves and a per-check throw would surface from a cache lookup.
 	const perSandboxKey = perSandboxEgressLabelKey(egress)
 	return {
+		translatedPolicy: translate,
 		async verifyNamedObject(signal) {
 			namedObject ??= (async () => {
 				await verifyEgressPolicyApplied(client, await translate(), signal)

@@ -90,6 +90,17 @@ import {
 } from './backends/kubernetes/index.js'
 import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
 import {
+	type KubernetesExecutionProfile,
+	type KubernetesExecutionProfileOptions,
+	type KubernetesWorkspaceAllocateOptions,
+	type KubernetesWorkspaceAllocationRecoverOptions,
+	type KubernetesWorkspaceAllocationRecovery,
+	type KubernetesWorkspaceAllocationResult,
+	allocateKubernetesWorkspace as allocateWorkspaceOnCluster,
+	recoverKubernetesWorkspaceAllocation as recoverAllocationOnCluster,
+	resolveKubernetesExecutionProfile as resolveProfileOnCluster,
+} from './backends/kubernetes/workspace-allocate.js'
+import {
 	type KubernetesWorkspaceClosure,
 	type KubernetesWorkspaceInspectOptions,
 	type KubernetesWorkspaceInspection,
@@ -544,6 +555,32 @@ export type {
 	KubernetesWorkspaceIdentity,
 	KubernetesWorkspaceIdentityMismatch,
 } from './backends/kubernetes/identity.js'
+export type {
+	KubernetesObservedAllocation,
+	KubernetesWorkspaceAllocation,
+	KubernetesWorkspaceAllocationMismatch,
+} from './backends/kubernetes/allocation.js'
+export {
+	KubernetesExecutionProfileDriftError,
+	KubernetesWorkspaceAllocationConflictError,
+	KubernetesWorkspaceAllocationMismatchError,
+} from './backends/kubernetes/allocation.js'
+export type {
+	KubernetesAllocationUnknownReason,
+	KubernetesExecutionProfile,
+	KubernetesExecutionProfileOptions,
+	KubernetesWorkspaceAllocateOptions,
+	KubernetesWorkspaceAllocationReceipt,
+	KubernetesWorkspaceAllocationRecoverOptions,
+	KubernetesWorkspaceAllocationRecovery,
+	KubernetesWorkspaceAllocationResult,
+	KubernetesWorkspaceAllocationUnknown,
+} from './backends/kubernetes/workspace-allocate.js'
+export {
+	ALLOCATION_ID_ANNOTATION_KEY,
+	ALLOCATION_SCOPE_ANNOTATION_KEY,
+	EXECUTION_PROFILE_ANNOTATION_KEY,
+} from './backends/kubernetes/objects.js'
 export type {
 	KubernetesWorkspaceClosure,
 	KubernetesWorkspaceClosureState,
@@ -1759,6 +1796,53 @@ export async function suspendKubernetesWorkspace(
 	options?: KubernetesWorkspaceSuspendOptions,
 ): Promise<void> {
 	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Resolve and fingerprint what a workspace created from `config` would run —
+ * the pod template with this backend's overlays, the template's disks, the
+ * egress policy translated from `config.egress` and the ingress settings —
+ * without creating anything. One GET: the SandboxTemplate.
+ *
+ * Persist the result, then pass its `fingerprint` as
+ * `allocation.executionProfile` to {@link allocateKubernetesWorkspace}.
+ */
+export async function resolveKubernetesExecutionProfile(
+	config: KubernetesBackendConfig,
+	options?: KubernetesExecutionProfileOptions,
+): Promise<KubernetesExecutionProfile> {
+	return await resolveProfileOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Create a workspace exactly once, bound to the allocation the host recorded
+ * first. Unlike `createKubernetesWorkspace` it never adopts a same-name
+ * object (typed `KubernetesWorkspaceAllocationConflictError`, nothing
+ * touched), never resumes compute, and never retries the create.
+ *
+ * `{ outcome: 'created' }` carries a receipt with the new Sandbox's uid — an
+ * acknowledgement, not readiness. `{ outcome: 'unknown' }` means the request
+ * was sent and no usable reply came back; settle it with
+ * `recoverKubernetesWorkspaceAllocation`.
+ */
+export async function allocateKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceAllocateOptions,
+): Promise<KubernetesWorkspaceAllocationResult> {
+	return await allocateWorkspaceOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * After an `unknown` allocation: one read-only GET, answered as `created`
+ * (with the receipt), `absent` or `different`. See
+ * `KubernetesWorkspaceAllocationRecovery` for what `absent` does and does not
+ * promise.
+ */
+export async function recoverKubernetesWorkspaceAllocation(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceAllocationRecoverOptions,
+): Promise<KubernetesWorkspaceAllocationRecovery> {
+	return await recoverAllocationOnCluster(kubernetesInternalConfig(config), options)
 }
 
 /**

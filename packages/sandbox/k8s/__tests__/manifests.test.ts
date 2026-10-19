@@ -1316,6 +1316,11 @@ const CLAIM_PATH_SOURCE_EXEMPTIONS: readonly SourceDeclaration[] = [
 			'the WORKSPACE read side: `inspectKubernetesWorkspace`, `openKubernetesWorkspace` and `reconcileKubernetesWorkspace` GET one workspace\'s Sandbox, its PVCs and its pod and write nothing. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
 	},
 	{
+		file: 'workspace-allocate.ts',
+		reason:
+			'the WORKSPACE allocation path: `allocateKubernetesWorkspace` POSTs one `Sandbox` a host owns, `recoverKubernetesWorkspaceAllocation` GETs it back, and `resolveKubernetesExecutionProfile` GETs the SandboxTemplate. Workspaces are never pooled (docs/sdk/kubernetes-sandbox.md), so a host whose requests this Role is for never reaches it — the deployment that does needs `rbac.yaml`, whose `sandboxes` create is exactly what this grant withholds. Scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',
+	},
+	{
 		file: 'per-sandbox-policy.ts',
 		reason:
 			'the per-sandbox egress writer, reached only through `Sandbox.setNetworkPolicy` — present when `config.egress.perSandbox` is configured — which writes, patches and deletes one `CiliumNetworkPolicy` for a single sandbox and reads the cluster-scoped admission fence that bounds each write. Writes on a policy resource and the cluster-scoped read that gates them are exactly what this grant withholds: the opt-in file that adds them, `rbac-per-sandbox-egress.yaml`, binds the default Role\'s ServiceAccount rather than a claimant host\'s. A host holding this Role therefore does not configure that capability and never reaches this file, and scanning it here would demand the pool-only constant cover a path that is deliberately not on it.',

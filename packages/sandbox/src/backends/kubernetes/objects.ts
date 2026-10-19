@@ -581,6 +581,70 @@ export function podTemplateHash(podTemplate: SandboxPodTemplate): string {
 }
 
 /**
+ * `sha256:<hex>` over any JSON-serialisable value, taken over its CANONICAL
+ * form: object keys sorted by code unit at every depth, `undefined` members
+ * dropped, arrays kept in order, then `JSON.stringify` with no whitespace.
+ *
+ * {@link podTemplateHash} and the execution-profile fingerprint both go
+ * through it, so two hosts on the same release computing it over the same
+ * content get the same string whatever order their objects were built in.
+ */
+export function canonicalFingerprint(value: unknown): string {
+	const digest = createHash('sha256')
+		.update(JSON.stringify(canonicalJson(value)))
+		.digest('hex')
+	return `sha256:${digest}`
+}
+
+/**
+ * Backend-owned annotation carrying the ALLOCATION ID a workspace was created
+ * for by `allocateKubernetesWorkspace`: the host's own immutable identifier
+ * for "this allocation", chosen and persisted by the host BEFORE the create.
+ *
+ * Public contract. Written once, in the create POST, and never patched by
+ * this backend afterwards — a refresh, a resume, a suspend or an epoch write
+ * merges other annotations and leaves it alone. Absent on a workspace made
+ * by `createKubernetesWorkspace`.
+ *
+ * Same prefix as {@link HOLDER_EPOCH_ANNOTATION_KEY}.
+ */
+export const ALLOCATION_ID_ANNOTATION_KEY = 'sandbox.namzu.ai/allocation-id'
+
+/**
+ * Backend-owned annotation carrying the host's SCOPE FINGERPRINT for the
+ * allocation: an opaque string naming what the workspace is for (tenant,
+ * project, session — the host decides). The backend never interprets it; it
+ * only stores it and compares it for equality. Written with, and under the
+ * same rules as, {@link ALLOCATION_ID_ANNOTATION_KEY}.
+ */
+export const ALLOCATION_SCOPE_ANNOTATION_KEY = 'sandbox.namzu.ai/allocation-scope'
+
+/**
+ * Backend-owned annotation carrying the EXECUTION PROFILE FINGERPRINT the
+ * workspace was allocated under: the `sha256:<hex>` that
+ * `resolveKubernetesExecutionProfile` returns. Written with, and under the
+ * same rules as, {@link ALLOCATION_ID_ANNOTATION_KEY}.
+ */
+export const EXECUTION_PROFILE_ANNOTATION_KEY = 'sandbox.namzu.ai/execution-profile'
+
+/** What a Sandbox's allocation annotations say; each `undefined` when absent. */
+export interface AllocationReading {
+	readonly id: string | undefined
+	readonly scopeFingerprint: string | undefined
+	readonly executionProfile: string | undefined
+}
+
+/** Read the three allocation annotations off an object's metadata. */
+export function readAllocation(meta: KubernetesObjectMeta | undefined): AllocationReading {
+	const annotations = meta?.annotations
+	return {
+		id: annotations?.[ALLOCATION_ID_ANNOTATION_KEY],
+		scopeFingerprint: annotations?.[ALLOCATION_SCOPE_ANNOTATION_KEY],
+		executionProfile: annotations?.[EXECUTION_PROFILE_ANNOTATION_KEY],
+	}
+}
+
+/**
  * One RFC 6902 operation, in the only three shapes this backend sends.
  *
  * `test` is the condition, `add` is every mutation. `add` rather than

@@ -2647,7 +2647,7 @@ async function writeOperatingMode(
  * but next to the object it describes is how `templateCurrent` starts
  * reporting drift that does not exist.
  */
-interface PodTemplateRefresh {
+export interface PodTemplateRefresh {
 	readonly podTemplate: SandboxPodTemplate
 	readonly hash: string
 	/**
@@ -2671,7 +2671,7 @@ interface PodTemplateRefresh {
  * every create POSTs, so `templateCurrent` would report drift that no refresh
  * could clear.
  */
-function buildPodTemplateRefresh(
+export function buildPodTemplateRefresh(
 	template: SandboxTemplateCopy,
 	sandboxTemplateName: string,
 	runtimeClassName?: string,
