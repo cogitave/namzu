@@ -199,6 +199,8 @@ export interface IterationContext {
 	readonly taskRouter?: TaskRouterConfig
 
 	readonly compactionConfig?: CompactionConfig
+	/** See `QueryParams.maxOutputContinuations`. */
+	readonly maxOutputContinuations?: number
 
 	/**
 	 * What the driver said this model's context window is, resolved once.

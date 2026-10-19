@@ -127,6 +127,26 @@ export interface CompactionVerificationOptions {
 	 * only for explicit unbounded compatibility.
 	 */
 	readonly streamIdleTimeoutMs?: number
+	/**
+	 * What the person asked the summary to pay attention to, in their words
+	 * (`/compact keep the failing test names`). Given to the verifier model as
+	 * a request to add whatever of it the extracted state lacks. Naming
+	 * instructions makes the model step run even when `llmVerification` is off,
+	 * because it is the only step that can act on free text.
+	 */
+	readonly instructions?: string
+}
+
+/** Longest instruction text passed on; a pasted page is not an instruction. */
+export const MAX_COMPACTION_INSTRUCTIONS_CHARS = 2_000
+
+function withInstructions(prompt: string, instructions: string | undefined): string {
+	const text = instructions?.trim().slice(0, MAX_COMPACTION_INSTRUCTIONS_CHARS)
+	if (!text) return prompt
+	return `${prompt}
+
+The person who asked for this summary also said what it must keep: ${text}
+Treat that as part of "important information". If the structured state lacks something it asks for and the excerpt has it, list that too.`
 }
 
 export async function buildVerifiedSummary(
@@ -157,6 +177,7 @@ export async function buildVerifiedSummary(
 		onUsage,
 		model,
 		options.signal,
+		options.instructions,
 	)
 }
 
@@ -174,6 +195,7 @@ export async function buildVerifiedSummaryWithBoundedProvider(
 	onUsage?: UsageSink,
 	model?: string,
 	signal?: AbortSignal,
+	instructions?: string,
 ): Promise<string> {
 	signal?.throwIfAborted()
 	return await buildVerifiedSummaryWithProvider(
@@ -184,6 +206,7 @@ export async function buildVerifiedSummaryWithBoundedProvider(
 		onUsage,
 		model,
 		signal,
+		instructions,
 	)
 }
 
@@ -195,14 +218,16 @@ async function buildVerifiedSummaryWithProvider(
 	onUsage?: UsageSink,
 	model?: string,
 	signal?: AbortSignal,
+	instructions?: string,
 ): Promise<string> {
 	const serialized = serializeState(manager.getState())
+	const steered = Boolean(instructions?.trim())
 
-	if (manager.slotCount() >= config.richStateThreshold) {
+	if (!steered && manager.slotCount() >= config.richStateThreshold) {
 		return serialized
 	}
 
-	if (!config.llmVerification) {
+	if (!steered && !config.llmVerification) {
 		return serialized
 	}
 
@@ -215,7 +240,7 @@ async function buildVerifiedSummaryWithProvider(
 	const verificationMessages: Message[] = [
 		{
 			role: 'system' as const,
-			content: VERIFICATION_PROMPT,
+			content: withInstructions(VERIFICATION_PROMPT, instructions),
 		},
 		{
 			role: 'user' as const,

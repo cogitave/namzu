@@ -48,6 +48,8 @@ export function describeTurnStop(
 			return 'Stopped: the next model request was refused.'
 		case 'structured_output_failed':
 			return 'Stopped: the reply did not match the required format.'
+		case 'output_limit':
+			return 'Stopped: the reply kept hitting the output limit. Ask for a smaller piece of the work.'
 		case 'answer_rejected':
 			return 'Stopped: the final answer was not accepted.'
 		case 'input_guardrail':

@@ -373,6 +373,7 @@ const historyReasons = new Set([
 	'plan_rejected',
 	'step_refused',
 	'structured_output_failed',
+	'output_limit',
 	'answer_rejected',
 	'input_guardrail',
 	'output_guardrail',

@@ -1,4 +1,7 @@
-import { resolveContextWindow } from '../../../../compaction/context-window.js'
+import {
+	resolveContextWindow,
+	resolveTriggerThreshold,
+} from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import {
 	type CompactionPlan,
@@ -19,6 +22,11 @@ import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { applyLifecycleHookResults } from '../../plugin-hooks.js'
+import {
+	COMPACTION_FAILURE_MESSAGE,
+	COMPACTION_REFILL_MESSAGE,
+	compactionBreaker,
+} from './compaction-breaker.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
@@ -169,6 +177,7 @@ async function commitToolResultClear(
 	ctx.recorder.clearLastPromptTokens?.()
 	await emitToolResultClear(ctx, plan)
 	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
+	compactionBreaker(ctx)?.recordRelief()
 }
 
 /**
@@ -312,6 +321,7 @@ async function declined(
 	messages: number,
 	error?: string,
 ): Promise<void> {
+	compactionBreaker(ctx)?.recordFailure()
 	await ctx.emitEvent?.({
 		type: 'compaction_failed',
 		turnId: ctx.recorder.turnId,
@@ -320,6 +330,32 @@ async function declined(
 		messages,
 		...(error !== undefined ? { error } : {}),
 	})
+}
+
+/**
+ * The third refill in a row: stop the turn instead of compacting again.
+ * Returns true when this pass must not run. Only with `circuitBreaker`.
+ */
+async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
+	const breaker = compactionBreaker(ctx)
+	if (!breaker) return false
+	// Already announced: the turn is on its way out; do not say it twice.
+	if (breaker.stop !== undefined) return true
+	if (!breaker.wouldTrip(ctx.recorder.currentIteration)) return false
+	ctx.log.warn('Compaction keeps refilling — stopping the turn', {
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
+		[NAMZU.ITERATION]: ctx.recorder.currentIteration,
+	})
+	breaker.stopTurn(COMPACTION_REFILL_MESSAGE)
+	await ctx.emitEvent?.({
+		type: 'compaction_failed',
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
+		cause: 'refilling',
+		messages: ctx.recorder.messages.length,
+		error: COMPACTION_REFILL_MESSAGE,
+	})
+	return true
 }
 
 /**
@@ -456,6 +492,7 @@ async function applyReducer(
 		reduction.contextWindowTokens,
 		measurement.windowSource,
 	)
+	compactionBreaker(ctx)?.recordCompaction(ctx.recorder.currentIteration)
 }
 
 /**
@@ -573,10 +610,30 @@ async function runCompactionCheckInner(
 	// The salience strategy starts holding the context at `softTarget`,
 	// well before the summary trigger; every other strategy waits for it.
 	const salience = config.strategy === 'salience'
-	const startAt = salience
-		? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, config.triggerThreshold)
-		: config.triggerThreshold
+	const maxOutputTokens = ctx.providerCapabilities?.maxOutputTokens
+	const trigger = resolveTriggerThreshold(config.triggerThreshold, budget, maxOutputTokens)
+	const startAt = salience ? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, trigger) : trigger
 	if (!options?.force && usage < startAt) return
+
+	// Three failed passes in a row: stop trying for the rest of the turn, and
+	// say so once. A pass the provider forced is never gated.
+	const breaker = compactionBreaker(ctx)
+	if (breaker?.failuresOpen && !options?.force) {
+		if (breaker.takeFailureNotice()) {
+			ctx.log.warn('Compaction failed three times in a row — switched off for this turn', {
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
+			})
+			await ctx.emitEvent?.({
+				type: 'compaction_failed',
+				turnId: ctx.recorder.turnId,
+				iteration: ctx.recorder.currentIteration,
+				cause: 'breaker_open',
+				messages: ctx.recorder.messages.length,
+				error: COMPACTION_FAILURE_MESSAGE,
+			})
+		}
+		return
+	}
 
 	pass.attempted = true
 	pass.tokensBefore = estimatedTokens
@@ -609,6 +666,7 @@ async function runCompactionCheckInner(
 		ctx.contextReducer ??
 		(config.strategy === 'sliding-window' ? createSlidingWindowReducer() : undefined)
 	if (reducer) {
+		if (!options?.force && (await stopOnRefill(ctx))) return
 		await applyReducer(
 			ctx,
 			reducer,
@@ -635,7 +693,7 @@ async function runCompactionCheckInner(
 		'namzu.runtime.window': budget,
 		'namzu.runtime.window_source': window.source,
 		'namzu.runtime.usage': Math.round(usage * 100),
-		'namzu.runtime.trigger_threshold': config.triggerThreshold,
+		'namzu.runtime.trigger_threshold': trigger,
 		'namzu.runtime.slot_count': manager.slotCount(),
 	})
 
@@ -668,6 +726,7 @@ async function runCompactionCheckInner(
 			messages: ctx.recorder.messages,
 			config,
 			contextWindowTokens: budget,
+			...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 			estimatedTokens,
 			...(openTasks ? { openTasks } : {}),
 		})
@@ -676,10 +735,7 @@ async function runCompactionCheckInner(
 		}
 		// Under the trigger, the working set was the whole pass: the summary
 		// path is for the trigger, not for the soft target.
-		if (
-			!options?.force &&
-			(estimatedTokens - working.reclaimedTokens) / budget < config.triggerThreshold
-		) {
+		if (!options?.force && (estimatedTokens - working.reclaimedTokens) / budget < trigger) {
 			return
 		}
 	}
@@ -687,6 +743,7 @@ async function runCompactionCheckInner(
 		messages: ctx.recorder.messages,
 		config,
 		contextWindowTokens: budget,
+		...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 		estimatedTokens,
 		...(options?.force ? { force: true } : {}),
 	})
@@ -712,6 +769,7 @@ async function runCompactionCheckInner(
 		messages,
 		config,
 		contextWindowTokens: budget,
+		...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 		estimatedTokens,
 		skipToolResultClear: true,
 		...(options?.force ? { force: true } : {}),
@@ -748,6 +806,14 @@ async function runCompactionCheckInner(
 		// Clearing may have been useful even though no safe summary cut exists.
 		// There is no opaque provider wait on this path, so publish that single
 		// complete edit now rather than discarding it.
+		if (stagedClear) {
+			await commitToolResultClear(ctx, stagedClear, budget, window.source, pass.reason)
+		}
+		return
+	}
+
+	if (!options?.force && (await stopOnRefill(ctx))) {
+		// A clear staged for this pass is still a useful edit.
 		if (stagedClear) {
 			await commitToolResultClear(ctx, stagedClear, budget, window.source, pass.reason)
 		}
@@ -910,4 +976,5 @@ async function runCompactionCheckInner(
 		reachedResetThreshold: reachedReset,
 	})
 	await emitContextUsageSnapshot(ctx, newEstimate, budget, window.source)
+	compactionBreaker(ctx)?.recordCompaction(ctx.recorder.currentIteration)
 }

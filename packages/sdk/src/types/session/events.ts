@@ -279,11 +279,17 @@ type CoreSessionEvent =
 			 *   `tool_result`, so it was refused wholesale rather than sent to
 			 *   a provider that rejects the pairing. A reducer bug, and one
 			 *   `findSafeTrimIndex` exists to prevent.
+			 * - `breaker_open` — only with `compactionConfig.circuitBreaker`:
+			 *   three passes in a row failed, so automatic compaction is off for
+			 *   the rest of the turn. Sent once. `messages` is the live count.
+			 * - `refilling` — only with `compactionConfig.circuitBreaker`: the
+			 *   context filled back up within three iterations of a compaction,
+			 *   three times in a row, and the turn is stopping. Sent once.
 			 */
-			cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair'
+			cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair' | 'breaker_open' | 'refilling'
 			/** Unchanged, and stated so a reader need not infer it. */
 			messages: number
-			/** Present only for `reducer_threw`. */
+			/** For `reducer_threw`, the reducer's message; for `breaker_open` and `refilling`, the one line to show. */
 			error?: string
 	  }
 	| {

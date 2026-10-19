@@ -181,7 +181,8 @@ export type SlashAction =
 	 * the action itself async would push that through every command. The
 	 * command decides; `App` performs and reports.
 	 */
-	| { kind: 'compact' }
+	/** `instructions` is the free text after `/compact`, in the person's words. */
+	| { kind: 'compact'; instructions?: string }
 	/** Choose a raw source region from the latest available assistant output. */
 	| { kind: 'copy' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
@@ -357,9 +358,8 @@ export interface SlashContext {
 		/**
 		 * How full the context is, when the turn knows: the numerator and the
 		 * window with their provenance, from the `usage` event. Absent when
-		 * the turn resolved no window. Printed here, on request, rather than in
-		 * the footer — the persistent gauge was removed on purpose for a
-		 * quieter frame, and `/cost` is where a person asks.
+		 * the turn resolved no window. Printed here, on request; the footer shows
+		 * only the narrow warning in `context-meter.ts`, near the summary point.
 		 */
 		readonly context?: {
 			readonly tokens: number
@@ -1294,10 +1294,16 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'compact',
 		description: 'Summarise the older half of this conversation to free up context.',
 		help: {
-			usage: ['/compact'],
-			details: ['Summarising uses a model call to condense older messages.'],
+			usage: ['/compact [what to keep]'],
+			details: [
+				'Summarising condenses older messages.',
+				'Text after the command says what the summary must keep, and uses a model call.',
+			],
 		},
-		action: () => ({ kind: 'compact' }),
+		action: (_ctx, args) => {
+			const instructions = args.join(' ').trim()
+			return instructions.length > 0 ? { kind: 'compact', instructions } : { kind: 'compact' }
+		},
 	},
 	{
 		name: 'copy',

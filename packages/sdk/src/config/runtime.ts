@@ -41,8 +41,16 @@ export const CompactionConfigSchema = z.object({
 	 * window-pressure instead of being a silent no-op.
 	 */
 	contextWindowTokens: z.number().int().positive().optional(),
-	/** Fraction of the context window at which a compaction pass fires. */
-	triggerThreshold: z.number().min(0).max(1).default(0.7),
+	/**
+	 * Fraction of the context window at which older history is summarised.
+	 *
+	 * Absent, the trigger is derived from the window: the window less room for
+	 * the reply (the model's output cap, at most 20,000 tokens) less a
+	 * 13,000-token buffer, so 83.5% of a 200,000-token window and 96.7% of a
+	 * 1,000,000-token one (see `resolveTriggerThreshold`). It used to default
+	 * to a flat `0.7`; pass that to keep the earlier behaviour.
+	 */
+	triggerThreshold: z.number().min(0).max(1).optional(),
 	/**
 	 * Fraction the pass must get the context BELOW to be worth keeping.
 	 *
@@ -58,6 +66,19 @@ export const CompactionConfigSchema = z.object({
 	 * failure mode once the trigger actually fires.
 	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
+	/**
+	 * Give up on automatic compaction when it stops working.
+	 *
+	 * Three failed passes in a row switch it off for the rest of the turn.
+	 * Three compactions in a row, each followed by the window filling again
+	 * within three iterations, stop the turn: the loop refills the context
+	 * faster than a summary can empty it. Each is announced once, as a
+	 * `compaction_failed` event.
+	 *
+	 * Off unless set. Without it a pass that sheds nothing is retried on every
+	 * iteration, and a turn that refills the window is never stopped for it.
+	 */
+	circuitBreaker: z.boolean().optional(),
 	keepRecentMessages: z.number().int().positive().default(4),
 	/**
 	 * Size the retained tail by TOKENS instead of by message count.

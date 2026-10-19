@@ -105,6 +105,47 @@ export function lookupContextWindow(model: string | undefined): number | undefin
 	return undefined
 }
 
+/** Output room the trigger keeps free: the model's output cap, at most this many tokens. */
+export const TRIGGER_OUTPUT_RESERVE_CAP_TOKENS = 20_000
+/** Extra headroom below the reserved window before a summary is due. */
+export const TRIGGER_BUFFER_TOKENS = 13_000
+/**
+ * The derived trigger never drops below this fraction of the window. The
+ * reference subtracts 33,000 tokens outright; on a window under about 66,000
+ * that is most of it (or more than all of it), and a summary on every
+ * iteration is not a trigger.
+ */
+export const MIN_DERIVED_TRIGGER_FRACTION = 0.5
+
+/**
+ * The fraction of the window at which older history is summarised.
+ *
+ * A host that set `triggerThreshold` gets exactly that. Otherwise the
+ * trigger is the one Claude Code uses: the window, less room kept for the
+ * reply (the model's output cap, at most 20,000 tokens), less a 13,000-token
+ * buffer. On a 200,000-token window that is 167,000 tokens (83.5%); on a
+ * 1,000,000-token window, 967,000 (96.7%).
+ *
+ * `maxOutputTokens` is what the driver declares for the model; absent, the
+ * full 20,000 is reserved.
+ */
+export function resolveTriggerThreshold(
+	configured: number | undefined,
+	windowTokens: number,
+	maxOutputTokens?: number,
+): number {
+	if (configured !== undefined) return configured
+	if (!(windowTokens > 0)) return MIN_DERIVED_TRIGGER_FRACTION
+	const reserve = Math.min(
+		maxOutputTokens !== undefined && maxOutputTokens > 0
+			? maxOutputTokens
+			: TRIGGER_OUTPUT_RESERVE_CAP_TOKENS,
+		TRIGGER_OUTPUT_RESERVE_CAP_TOKENS,
+	)
+	const fraction = (windowTokens - reserve - TRIGGER_BUFFER_TOKENS) / windowTokens
+	return Math.min(1, Math.max(MIN_DERIVED_TRIGGER_FRACTION, fraction))
+}
+
 export interface ResolvedContextWindow {
 	readonly tokens: number
 	/**

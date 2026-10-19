@@ -94,6 +94,8 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	toolTimeoutMs?: number
 	toolRetryBackoff?: QueryParams['toolRetryBackoff']
 	maxToolConcurrency?: number
+	/** See {@link QueryParams.maxOutputContinuations}. */
+	maxOutputContinuations?: QueryParams['maxOutputContinuations']
 	maxToolOutputChars?: number
 	retainedToolPreviewChars?: QueryParams['retainedToolPreviewChars']
 	/**

@@ -1388,3 +1388,16 @@ describe('/config entry', () => {
 		})
 	})
 })
+
+describe('/compact with instructions', () => {
+	it('carries the free text after the command', () => {
+		expect(runSlash('/compact keep the failing test names', context())).toEqual({
+			kind: 'compact',
+			instructions: 'keep the failing test names',
+		})
+	})
+
+	it('bare /compact has none', () => {
+		expect(runSlash('/compact', context())).toEqual({ kind: 'compact' })
+	})
+})

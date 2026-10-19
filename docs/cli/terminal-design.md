@@ -59,6 +59,16 @@ items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
+- **The context meter**, dim `12% until auto-compact`, after the effort label
+  and only once the context is within 20,000 tokens of the point where older
+  history is summarised (the reference's rule). The percentage counts down to
+  that point, not to the end of the window, and the point is the kernel's own
+  trigger (`resolveTriggerThreshold`: the window less up to 20,000 tokens for
+  the reply less 13,000, so 167,000 tokens of a 200,000-token window). With
+  auto-compact off it reads `Context low (N% remaining) · Run /compact to
+  compact & continue` in red, counted against the whole window (no CLI
+  strategy turns it off today). Nothing shows before that: the always-on gauge
+  stays removed.
 - **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
   separate `N shells running` line that used to sit under the footer, and it
   hides with the composer surface (a permission or child view owning the
@@ -95,7 +105,7 @@ The keys the hints name:
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
-reminder, the effort label, the shell pill, the pull request item, the quiet
+reminder, the context meter, the effort label, the shell pill, the pull request item, the quiet
 reminder, and only then does the mode truncate. Whole items go, never half of
 one (the reference clips its row at the edge, which can show half a word).
 Where no composer is on screen (a picker, the trust prompt, a stopped start) the

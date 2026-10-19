@@ -45,6 +45,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	resolveTriggerThreshold,
 	resolveWorkflowLimits,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
@@ -295,6 +296,7 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { contextMeter } from './context-meter.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
@@ -1438,8 +1440,9 @@ export function App({
 		cost: CostInfo
 		/**
 		 * See the `usage` event: absent when the turn resolved no window. Read
-		 * by `/cost`, not by the footer — the persistent gauge was removed on
-		 * purpose (iteration 168) and the compaction tests pin its absence.
+		 * by `/cost`, and by the footer only once the window is within 20,000
+		 * tokens of the summary point (`context-meter.ts`) — the always-on gauge
+		 * was removed on purpose (iteration 168).
 		 */
 		context?: {
 			tokens: number
@@ -5284,7 +5287,10 @@ export function App({
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
 					softTarget: 0.5,
-					triggerThreshold: 0.7,
+					triggerThreshold: resolveTriggerThreshold(
+						undefined,
+						usage?.context?.windowTokens ?? 200_000,
+					),
 					...compactionTally,
 				}
 			: null,
@@ -9942,7 +9948,7 @@ export function App({
 								// The same lossless record `runTurn` reads — including an earlier
 								// compaction summary and attachments. The transcript is only its
 								// rendered view and is never reverse-engineered into history.
-								const result = await session.compact(modelHistoryRef.current)
+								const result = await session.compact(modelHistoryRef.current, slash.instructions)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
@@ -12553,6 +12559,16 @@ export function App({
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
+						contextMeter={
+							usage?.context
+								? contextMeter({
+										tokens: usage.context.tokens,
+										windowTokens: usage.context.windowTokens,
+										// The CLI's strategies (structured, salience) both summarise on their own.
+										autoCompact: true,
+									})
+								: null
+						}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:

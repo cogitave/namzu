@@ -75,6 +75,7 @@ const configRoutes = {
 	toolTimeoutMs: 'query',
 	toolRetryBackoff: 'query',
 	maxToolConcurrency: 'query',
+	maxOutputContinuations: 'query',
 	maxToolOutputChars: 'query',
 	retainedToolPreviewChars: 'query',
 	maxToolContentBytes: 'query',

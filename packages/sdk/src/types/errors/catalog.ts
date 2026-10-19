@@ -165,7 +165,7 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		id: 'provider.context_overflow',
 		when: (facts) => facts.code === 'context_length_exceeded',
 		message: 'The prompt is larger than the model can accept.',
-		hint: 'Compaction ran and could not make enough room. Lower `compactionConfig.triggerThreshold`, reduce `keepRecentMessages`, or cap large tool outputs so history stops growing faster than it can be shed.',
+		hint: 'Compaction ran and could not make enough room. Set a lower `compactionConfig.triggerThreshold`, reduce `keepRecentMessages`, or cap large tool outputs so history stops growing faster than it can be shed.',
 	},
 	{
 		id: 'provider.unavailable',

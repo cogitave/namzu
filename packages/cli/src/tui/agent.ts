@@ -1121,7 +1121,11 @@ export interface AgentSession {
 	 * Session close cancels and settles an in-flight pass before releasing the
 	 * provider/tool resources it may still use.
 	 */
-	readonly compact: (messages: readonly Message[]) => Promise<CompactionResult | null>
+	readonly compact: (
+		messages: readonly Message[],
+		/** What the person asked the summary to keep, from `/compact <text>`. */
+		instructions?: string,
+	) => Promise<CompactionResult | null>
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -4339,7 +4343,7 @@ export async function createAgentSession(
 			return reasoningEffortDefault
 		},
 		...(reasoningSettled ? { reasoningSettled } : {}),
-		compact: (messages) =>
+		compact: (messages, instructions) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
@@ -4349,6 +4353,7 @@ export async function createAgentSession(
 					provider: providerForSession(sessionId),
 					model,
 					signal,
+					...(instructions ? { instructions } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -5845,13 +5850,22 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // `contextWindowTokens` is deliberately omitted: the SDK resolves the window
 // from `turnConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
+/**
+ * Nudges allowed in a row after a reply is cut off at its output limit, as in
+ * the reference terminal. The kernel's default is no cap, so the CLI asks.
+ */
+const MAX_OUTPUT_CONTINUATIONS = 3
+
 const COMPACTION_CONFIG = {
 	strategy: 'salience' as const,
+	// Give up on compaction that keeps failing or keeps refilling, and say so
+	// once. The kernel leaves this off, so the CLI asks.
+	circuitBreaker: true,
 	// On, and this is the CLI making a choice rather than taking a default.
 	// A session's transcript is the only record of what was compacted away;
 	// the size trade this costs is the operator's to see and turn off.
 	recordShedHistory: true,
-	triggerThreshold: 0.7,
+	// No `triggerThreshold`: the kernel derives it from the model's window.
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,
 	// Reclaim from stale tool output before summarizing. A CLI session is
@@ -6053,6 +6067,7 @@ async function* runTurn({
 	const readsOnly = declaredReadOnly(turnManager)
 	try {
 		const events = query({
+			maxOutputContinuations: MAX_OUTPUT_CONTINUATIONS,
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
@@ -6866,7 +6881,7 @@ function describeCompaction(event: {
  * rather than making them wonder what survived.
  */
 function describeCompactionFailure(event: {
-	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair'
+	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair' | 'breaker_open' | 'refilling'
 	messages: number
 	error?: string
 }): string {
@@ -6883,6 +6898,16 @@ function describeCompactionFailure(event: {
 			// No suggested action, because there is none for the user. Offering
 			// one would be worse than silence.
 			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
+		case 'breaker_open':
+			return (
+				event.error ??
+				'Automatic compaction stopped after three failed attempts. Run /compact yourself, or start fresh with /clear.'
+			)
+		case 'refilling':
+			return (
+				event.error ??
+				'The context filled up again right after being compacted, three times in a row. Read big files in smaller parts, or start fresh with /clear.'
+			)
 	}
 }
 

@@ -118,6 +118,9 @@ async function runCase(input) {
 			compactionConfig: {
 				strategy: input.strategy,
 				contextWindowTokens: 8_000,
+				// The claim is about what a summary keeps at a 70% trigger on a tiny
+				// window; the derived default trigger is half of such a window.
+				triggerThreshold: 0.7,
 				keepRecentMessages: 2,
 				llmVerification: false,
 			},

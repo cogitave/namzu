@@ -1505,6 +1505,7 @@ export {
 // consumer (`SpanProcessorLike`, then `CompactNowInput` and `CompactionResult`).
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
+export { resolveTriggerThreshold } from './compaction/context-window.js'
 export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,

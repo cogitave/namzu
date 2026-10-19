@@ -17,6 +17,7 @@ The kernel.
 * [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.
 
 * [Schedules](schedules.md) - The schedule time engine and evaluator (cron, DST, catch-up) and the schedule and session_loop tools over host callbacks.
+* [Compaction trigger, circuit breaker and output limits](context-limits.md) - The derived summary trigger, the opt-in breaker on failing or refilling compaction, the output-limit continuation cap and the smaller-output retry.
 * [Manual compaction](manual-compaction.md) - Retain removed originals before publishing a host-requested history replacement.
 * [Host contracts of a turn](host-contracts.md) - Carried-history repair, attachment cancellation, project instructions, session storage paths and topic lifecycle.
 
