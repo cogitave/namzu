@@ -54,7 +54,8 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 */
 	readonly retryAfter?: 'exact' | 'floor'
 	/**
-	 * Also retry a stream that failed AFTER it produced text or reasoning.
+	 * Also retry a stream that failed AFTER it produced text.
+	 * (A stream that produced only reasoning is always retried.)
 	 *
 	 * Off by default, because the decorator cannot un-emit: the consumer has
 	 * already seen those deltas. When on, the retry notice carries
@@ -83,10 +84,33 @@ export interface WithProviderRetryOptions {
 }
 
 /**
+ * A chunk that carries a fragment of a reasoning block and nothing a consumer
+ * would have to take back: no text, tool call, hosted tool, citation or finish.
+ */
+function isReasoningOnly(chunk: StreamChunk): boolean {
+	const d = chunk.delta
+	return (
+		d.reasoning !== undefined &&
+		!d.content &&
+		!d.toolCalls?.length &&
+		d.toolCallEnd === undefined &&
+		d.hostedTool === undefined &&
+		d.citation === undefined &&
+		d.textPart === undefined &&
+		chunk.textParts === undefined &&
+		chunk.finishReason === undefined
+	)
+}
+
+/**
  * Wrap a provider so transient failures are retried with exponential
  * backoff and full jitter.
  *
- * **Retry only before the first content chunk.** Once a delta has been
+ * **Retry only before the first content chunk.** Reasoning-only chunks do
+ * not count as content: a stream that fails after yielding nothing but
+ * reasoning is retried, and the notice carries `restart: true` so the consumer
+ * drops the thinking the failed attempt showed (the turn replaces reasoning
+ * blocks by index, and clears them on a restart). Once a text or tool-call delta has been
  * yielded the consumer has already emitted `text_delta` events and
  * appended to its buffer, so restarting the request would duplicate
  * output. A mid-stream failure is therefore surfaced, not retried — the
@@ -129,6 +153,11 @@ export function withProviderRetry(
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		for (let attempt = 0; ; attempt++) {
 			let produced = false
+			// Reasoning has streamed and nothing else has. The consumer holds
+			// reasoning by block index and has no text or tool call to repeat, so
+			// this is retryable without `retryMidStream`; the notice says
+			// `restart` so a host that showed the thinking drops it.
+			let reasoned = false
 			// A tool call or hosted tool began: past this point a restart could
 			// repeat work that is already underway, so it is never offered.
 			let acted = false
@@ -140,7 +169,10 @@ export function withProviderRetry(
 					const isErrorOnly =
 						chunk.error !== undefined && !chunk.delta.content && !chunk.delta.toolCalls?.length
 
-					if (!isErrorOnly) produced = true
+					if (!isErrorOnly) {
+						if (isReasoningOnly(chunk)) reasoned = true
+						else produced = true
+					}
 					if (chunk.delta.toolCalls?.length || chunk.delta.toolCallEnd || chunk.delta.hostedTool) {
 						acted = true
 					}
@@ -170,7 +202,8 @@ export function withProviderRetry(
 				const classified = classifyProviderError(err, provider.id)
 				const exhausted = attempt >= config.maxRetries
 
-				const restartable = produced && config.retryMidStream === true && !acted
+				const restartable =
+					(produced && config.retryMidStream === true && !acted) || (!produced && reasoned)
 				if ((produced && !restartable) || !classified.retryable || exhausted) {
 					log?.warn('Provider call failed', {
 						[GENAI.SYSTEM]: provider.id,
