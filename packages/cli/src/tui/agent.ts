@@ -349,6 +349,7 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
+import { terminalProviderRetry } from '../provider-retry.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -437,6 +438,11 @@ export type AgentEvent =
 			/** The kernel's classification: for example `rate_limit`, `server_error`, `network`. */
 			readonly code: string
 			readonly status?: number
+			/**
+			 * The failed attempt had already streamed some of the reply and the
+			 * request starts over: drop what the screen showed of it.
+			 */
+			readonly restart?: boolean
 	  }
 	| {
 			readonly kind: 'tool-progress'
@@ -834,6 +840,13 @@ export interface SendOptions {
 	 * never resumed an interrupted turn. A paused turn is never closed this way.
 	 */
 	readonly abandonInterrupted?: boolean
+	/**
+	 * The host can take back a reply it had begun to show (a screen that
+	 * redraws; a pipe cannot). Set, a stream that dies after some text starts
+	 * over and the host is told to drop what it showed (`provider-wait` with
+	 * `restart`); unset, such a stream stops the turn as it always did.
+	 */
+	readonly restartableOutput?: boolean
 	/**
 	 * Called before a batch of non-read-only tools runs. Resolves with the
 	 * user's decision. When omitted, prompt mode auto-approves because nobody
@@ -5279,6 +5292,9 @@ export function constructProvider(
 				apiKey: det?.apiKey ?? '',
 				baseURL: det?.baseUrl,
 				model,
+				// The kernel retries, counts and shows each try; the vendor SDK must not
+				// try again silently underneath.
+				maxRetries: 0,
 			})
 			return provider
 		}
@@ -5294,6 +5310,7 @@ export function constructProvider(
 				accountId: det.codex.accountId,
 				baseURL: det.baseUrl,
 				model,
+				maxRetries: 0,
 			})
 			return provider
 		}
@@ -5316,6 +5333,7 @@ export function constructProvider(
 				apiKey: det?.apiKey ?? '',
 				baseURL: det?.baseUrl,
 				model,
+				maxRetries: 0,
 			})
 			return provider
 		}
@@ -6045,6 +6063,7 @@ async function* runTurn({
 			turnId,
 			...(opts?.origin ? { origin: opts.origin } : {}),
 			...(opts?.abandonInterrupted ? { abandonInterrupted: true } : {}),
+			retry: terminalProviderRetry(opts?.restartableOutput === true),
 			// Omitted rather than empty when there is no tail. `query` treats the
 			// two the same, but an absent option reads as "this turn has no chain"
 			// where `[]` reads as "this turn has a chain with nothing in it".
@@ -6547,6 +6566,7 @@ export function toAgentEvent(
 				maxRetries: event.maxRetries,
 				code: event.code,
 				...(event.status !== undefined ? { status: event.status } : {}),
+				...(event.restart ? { restart: true } : {}),
 			}
 		case 'tool_progress':
 			return {

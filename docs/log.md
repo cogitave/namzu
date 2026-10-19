@@ -2,6 +2,8 @@
 
 ## 2026-10-19
 
+- **Creation** [Provider retry](sdk/provider-retry.md): the terminal retries a failed model call the way the reference terminal does, read from its code. Ten retries, a wait from half a second doubling to thirty-two plus up to a quarter more, a named `Retry-After` as a minimum, nothing waited for past a minute, `x-should-retry: false` believed, and a stream cut off after some text restarted with the half-drawn text taken back. The Working row shows `Retrying in 5s · attempt 2/10` and counts down. New opt-in `ProviderRetryConfig` fields `jitter`, `retryAfter` and `retryMidStream`, `ProviderRetryNotice.restart`, `provider_retry.restart`, `ProviderRequestError.shouldRetry`, and `maxRetries` on the OpenAI, Codex and DeepSeek drivers; no default changed. `.changeset/auto-retry-like-the-reference.md`.
+- **Update** [Terminal design](cli/terminal-design.md#plain-words-for-errors-and-status) and [Native provider admission](sdk/native-provider-capabilities.md): the retry line counts down and names the attempt out of ten; the OpenAI-family drivers no longer retry silently under the kernel's retry in the terminal.
 - **Update** [Terminal design](cli/terminal-design.md): a new message typed after a reply paused on a provider failure closes that reply and is sent on the model chosen now, instead of being refused with "This conversation already has a paused turn ()"; a pause that waits for a person is still refused, in one plain sentence with no turn id. `.changeset/paused-turn-model-switch.md`.
 
 ## 2026-10-18

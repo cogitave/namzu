@@ -113,7 +113,9 @@ async function start() {
 			subagents: { active: [] },
 		}),
 	)
-	messagesWire = await messagesService([{ status: 429 }])
+	// A wait of more than a minute is not slept through, so the reply stops on the rate limit at
+	// once instead of after the terminal's ten patient retries.
+	messagesWire = await messagesService([{ status: 429, retryAfter: '61' }])
 	chatWire = await chatService([{ text: 'Luna answers.' }])
 	const env: Record<string, string> = {}
 	for (const [key, value] of Object.entries(process.env))

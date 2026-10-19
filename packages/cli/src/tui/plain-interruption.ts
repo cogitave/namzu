@@ -329,10 +329,21 @@ export function describePlainInterruption(
 }
 
 /**
- * One line for the quiet stretch while the kernel waits before asking the
- * provider again. Said once, with the wait the provider asked for; it is not
- * a countdown.
+ * What the working row says while the kernel waits to ask the provider again:
+ * the sentence for the failure, and the clock it counts down to.
+ *
+ * The first two failures of a plain server fault read only "The request
+ * failed"; the specific sentence appears from the third try on, or at once
+ * when the cause is already plain (no connection, or a limit).
  */
+export interface ProviderWaitNotice {
+	readonly what: string
+	/** Wall-clock time the next try starts. */
+	readonly retryAt: number
+	readonly attempt: number
+	readonly maxRetries: number
+}
+
 export function describeProviderWait(
 	event: {
 		readonly delayMs: number
@@ -343,15 +354,30 @@ export function describeProviderWait(
 	},
 	providerId?: string,
 	baseUrl?: string,
-): string {
+	now: number = Date.now(),
+): ProviderWaitNotice {
 	const name = productName(providerId) ?? 'The provider'
 	const localAt = localEndpoint(providerId, baseUrl)
 	const limited = event.code === 'rate_limit' || event.status === 429
 	const offline = event.code === 'network' || event.code === 'timeout'
-	const what = limited
-		? `${name} is limiting requests.`
-		: offline
-			? `Namzu could not reach ${name}${localAt ? ` at ${localAt}` : ''}.`
-			: `${name} is having problems on its side.`
-	return `${what} Retrying in about ${formatSpan(event.delayMs)} (try ${event.attempt + 1} of ${event.maxRetries + 1}).`
+	const plain = limited || offline || event.attempt >= Math.min(3, event.maxRetries)
+	const what = !plain
+		? 'The request failed.'
+		: limited
+			? `${name} is limiting requests.`
+			: offline
+				? `Namzu could not reach ${name}${localAt ? ` at ${localAt}` : ''}.`
+				: `${name} is having problems on its side.`
+	return {
+		what,
+		retryAt: now + event.delayMs,
+		attempt: event.attempt,
+		maxRetries: event.maxRetries,
+	}
+}
+
+/** The dim half of the row: ` Retrying in 5s · attempt 2/10`, recomputed against the clock. */
+export function describeProviderWaitClock(notice: ProviderWaitNotice, now: number): string {
+	const left = Math.max(0, Math.ceil((notice.retryAt - now) / 1000)) * 1000
+	return `Retrying in ${formatSpan(left)} · attempt ${notice.attempt}/${notice.maxRetries}`
 }

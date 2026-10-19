@@ -6,8 +6,9 @@
  */
 
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
 import { shellRunningRows, shellToneColor } from './shell-cell.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -68,11 +69,21 @@ export interface LiveActivityProps {
 	 */
 	readonly waitingForYou?: boolean
 	/**
-	 * Why the reply is quiet when the provider asked us to wait or is being
-	 * retried ("<Provider> is limiting requests. Retrying in about 20s."). One row,
-	 * shown under Working, never a countdown.
+	 * Why the reply is quiet while the provider is being asked again: one row
+	 * under Working, the failure in the error colour and a dim
+	 * `Retrying in 5s · attempt 2/10` that counts down.
 	 */
-	readonly waitNotice?: string | null
+	readonly waitNotice?: ProviderWaitNotice | null
+}
+
+/** Redraws once a second while a retry is being waited out, so its countdown moves. */
+function useSecondTick(active: boolean): void {
+	const [, setTick] = useState(0)
+	useEffect(() => {
+		if (!active) return
+		const timer = setInterval(() => setTick((n) => n + 1), 1000)
+		return () => clearInterval(timer)
+	}, [active])
 }
 
 const MAX_VISIBLE_TOOLS = 3
@@ -112,6 +123,7 @@ export function LiveActivity({
 		pausedRef.current.total += Date.now() - pausedRef.current.since
 		pausedRef.current.since = null
 	}
+	useSecondTick(waitNotice !== null)
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
 		interval: 120,
@@ -157,7 +169,10 @@ export function LiveActivity({
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
 	const noticeRow = waitNotice ? (
 		<Box paddingLeft={2}>
-			<Text color={theme.status.warn}>⏳ {terminalDisplayText(waitNotice)}</Text>
+			<Text wrap="truncate-end">
+				<Text color={theme.status.error}>● {terminalDisplayText(waitNotice.what)}</Text>
+				<Text color={theme.text.muted}> · {describeProviderWaitClock(waitNotice, now)}</Text>
+			</Text>
 		</Box>
 	) : null
 	const waitingRow = waiting ? (

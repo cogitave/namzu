@@ -10,6 +10,8 @@ import type { AddressInfo } from 'node:net'
 export interface ScriptedStep {
 	/** Answer with this HTTP status instead of a reply. */
 	status?: number
+	/** The `retry-after` header of a failure answer, in seconds. Defaults to `0`. */
+	retryAfter?: string
 	text?: string
 }
 
@@ -74,7 +76,10 @@ export async function messagesService(script: ScriptedStep[]): Promise<ScriptedS
 		const steps = live.script
 		const step = steps[Math.min(requests.length - 1, steps.length - 1)] ?? { text: 'ok' }
 		if (step.status) {
-			res.writeHead(step.status, { 'content-type': 'application/json', 'retry-after': '0' })
+			res.writeHead(step.status, {
+				'content-type': 'application/json',
+				'retry-after': step.retryAfter ?? '0',
+			})
 			res.end(
 				JSON.stringify({
 					type: 'error',
@@ -126,7 +131,10 @@ export async function chatService(script: ScriptedStep[]): Promise<ScriptedServi
 		const steps = live.script
 		const step = steps[Math.min(requests.length - 1, steps.length - 1)] ?? { text: 'ok' }
 		if (step.status) {
-			res.writeHead(step.status, { 'content-type': 'application/json', 'retry-after': '0' })
+			res.writeHead(step.status, {
+				'content-type': 'application/json',
+				'retry-after': step.retryAfter ?? '0',
+			})
 			res.end(JSON.stringify({ error: { message: 'slow down', type: 'rate_limit_error' } }))
 			return
 		}
