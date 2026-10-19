@@ -1,6 +1,7 @@
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../../runtime/query/question-park.js'
+import { resumeSession } from '../../runtime/query/resume-session.js'
 import { CompletionInbox } from '../../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../../scheduler/local.js'
 import {
@@ -18,10 +19,13 @@ import type {
 } from '../../types/agent/index.js'
 import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../../types/agent/task.js'
+import { NamzuError } from '../../types/errors/index.js'
+import { type HITLResumeDecision, autoApproveHandler } from '../../types/hitl/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { deriveChildState } from '../../types/invocation/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
 import type { SessionEventListener } from '../../types/session/events.js'
+import type { TurnState } from '../../types/session/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import type { Logger } from '../../utils/logger.js'
@@ -71,6 +75,24 @@ export function countCompletedTasks(taskResults: readonly AgentTaskResult[]): nu
 	return taskResults.filter((t) => t.result.status === 'completed').length
 }
 
+/**
+ * Which paused turn {@link SupervisorAgent.resume} continues.
+ */
+export interface SupervisorResumeTarget {
+	/** The turn that ended in `turn_paused`. It keeps this id. */
+	readonly turnId: TurnId
+	/**
+	 * A specific checkpoint of that turn. Absent means the one an open
+	 * decision references, else the newest, as `resumeSession` chooses.
+	 */
+	readonly checkpointId?: TurnState['checkpointId']
+	/**
+	 * The answer to a park the checkpoint is waiting on. Without it a turn
+	 * parked on a decision is refused rather than stepped past.
+	 */
+	readonly pendingDecision?: HITLResumeDecision
+}
+
 /** @deprecated Example of supervised delegation; hosts can compose their own agent. */
 export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, SupervisorAgentResult> {
 	readonly type = 'supervisor' as const
@@ -110,10 +132,38 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		)
 	}
 
+	/**
+	 * Continue a turn that ended in `turn_paused`: the SAME `turnId`, from the
+	 * selected checkpoint, with the context folded from the session log.
+	 *
+	 * Takes what `run` takes and rebuilds the same delegation, budget and
+	 * scheduler wiring for the turn, then hands the turn to `resumeSession`.
+	 * `input.messages` is ignored: the transcript is the log's. `config` must
+	 * carry the `sessionLog` (and `checkpointStore`, if it is not the one
+	 * beside the log) the turn was written to.
+	 *
+	 * Emits the same `turn_paused` and terminal events as `run`, so a host
+	 * bounds its resumes by counting `turn_paused`. Rejects with a
+	 * `NamzuError` (`invalid_config`) when the turn is unknown, already
+	 * ended, has no checkpoint, or waits on a decision `target` does not
+	 * answer.
+	 */
+	async resume(
+		input: AgentInput,
+		config: SupervisorAgentConfig,
+		target: SupervisorResumeTarget,
+		listener?: SessionEventListener,
+	): Promise<SupervisorAgentResult> {
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener, target)),
+		)
+	}
+
 	private async runExclusive(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
 		listener?: SessionEventListener,
+		resume?: SupervisorResumeTarget,
 	): Promise<SupervisorAgentResult> {
 		const startTime = Date.now()
 		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
@@ -122,7 +172,14 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			)
 		}
 		const sessionId = config.sessionId
-		const turnId = this.createTurnId()
+		if (resume && !config.sessionLog) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message:
+					'SupervisorAgent.resume requires config.sessionLog: the log the paused turn was written to.',
+			})
+		}
+		const turnId = resume?.turnId ?? this.createTurnId()
 		this.bindTurn(sessionId, turnId, config.logger)
 		const topicId = config.topicId
 		const projectId = config.projectId
@@ -325,114 +382,115 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				this.metadata.id,
 			)
 
-			const turn = await drainQuery(
-				{
-					systemPrompt: config.systemPrompt,
-					skills: config.skills,
-					provider: config.provider,
-					toolsets,
-					...(config.toolResultGuardrails !== undefined
-						? { toolResultGuardrails: config.toolResultGuardrails }
+			const queryParams: Parameters<typeof drainQuery>[0] = {
+				systemPrompt: config.systemPrompt,
+				skills: config.skills,
+				provider: config.provider,
+				toolsets,
+				...(config.toolResultGuardrails !== undefined
+					? { toolResultGuardrails: config.toolResultGuardrails }
+					: {}),
+				...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
+				...(config.attachmentResolveTimeoutMs !== undefined
+					? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
+					: {}),
+				turnConfig: {
+					model: config.model,
+					tokenBudget: config.tokenBudget,
+					timeoutMs: config.timeoutMs,
+					...(config.sandbox ? { sandbox: config.sandbox } : {}),
+					...(config.streamIdleTimeoutMs !== undefined
+						? { streamIdleTimeoutMs: config.streamIdleTimeoutMs }
 						: {}),
-					...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
-					...(config.attachmentResolveTimeoutMs !== undefined
-						? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
+					...(config.maxRequestRichContentBytes !== undefined
+						? {
+								maxRequestRichContentBytes: config.maxRequestRichContentBytes,
+							}
 						: {}),
-					turnConfig: {
-						model: config.model,
-						tokenBudget: config.tokenBudget,
-						timeoutMs: config.timeoutMs,
-						...(config.sandbox ? { sandbox: config.sandbox } : {}),
-						...(config.streamIdleTimeoutMs !== undefined
-							? { streamIdleTimeoutMs: config.streamIdleTimeoutMs }
-							: {}),
-						...(config.maxRequestRichContentBytes !== undefined
-							? {
-									maxRequestRichContentBytes: config.maxRequestRichContentBytes,
-								}
-							: {}),
-						maxIterations: config.maxIterations,
-						temperature: config.temperature,
-						env: config.env,
-						...(config.pruneKeepLast !== undefined ? { pruneKeepLast: config.pruneKeepLast } : {}),
-						logger: this.log,
-						// See ReactiveAgent: a hand-listed literal drops what nobody
-						// remembered to add, and reports nothing when it does.
-						...(config.thinking ? { thinking: config.thinking } : {}),
-						...(config.effort ? { effort: config.effort } : {}),
-					},
-					questionParks,
-					pendingAnswers,
-					// How wide a fan-out actually runs. Absent leaves the kernel
-					// default — the same forwarding ReactiveAgent has always done,
-					// missing from the one agent whose job is delegation.
-					...(config.maxToolConcurrency !== undefined
-						? { maxToolConcurrency: config.maxToolConcurrency }
-						: {}),
-					agentId: this.metadata.id,
-					agentName: this.metadata.name,
-					workingDirectory: input.workingDirectory,
-					messages: input.messages,
-					signal: input.signal,
-					sessionId,
-					topicId,
-					projectId,
-					tenantId,
-					turnId,
-					...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
-					...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
-					depth: config.depth,
-					contextLevel: 'full',
-					onContextCreated: ({ planManager }) => {
-						planManagerRef = planManager
-					},
-					taskStore: input.taskStore,
-					runtimeToolOverrides: input.runtimeToolOverrides,
-					runtimeContext: input.runtimeContext,
-					taskScheduler: gateway,
-					budget,
-					completionInbox,
-					advisory: config.advisory,
-					invocationState: childInvocationState,
-					// HITL surface: forward optional review-time hooks so hosts can
-					// run "Ask before acting" supervisors instead of the default
-					// auto-approve. drainQuery falls back to autoApproveHandler
-					// when resumeHandler is omitted (= same behaviour as before).
-					...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-					...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
-					// Forwarded for the same reason the handler is. A capability the
-					// kernel honours in `drainQuery` but that never reaches the
-					// surface a host actually constructs is a capability nobody can
-					// use — which is the shape of defect this file has already been
-					// corrected for twice.
-					...(config.steering ? { steering: config.steering } : {}),
-					...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
-					...(config.durableInbound ? { durableInbound: config.durableInbound } : {}),
-					...(config.projectInstructionContext
-						? { projectInstructionContext: config.projectInstructionContext }
-						: {}),
-					...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
-					// The one hop between the config and the tool. `drainQuery`
-					// registers `structured_output` from this and the loop
-					// captures it, so the kernel never cared which archetype it
-					// came from — only `ReactiveAgent` was passing it.
-					...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
-					...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
-					...(config.sandboxTeardownTimeoutMs !== undefined
-						? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
-						: {}),
-					// Working-memory / compaction seam (optional; absent => unchanged
-					// run path, byte-identical for every existing consumer).
-					...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
-					...(config.workingMemoryProvider
-						? { workingMemoryProvider: config.workingMemoryProvider }
-						: {}),
-					...(config.paths ? { paths: config.paths } : {}),
-					...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
-					...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
+					maxIterations: config.maxIterations,
+					temperature: config.temperature,
+					env: config.env,
+					...(config.pruneKeepLast !== undefined ? { pruneKeepLast: config.pruneKeepLast } : {}),
+					logger: this.log,
+					// See ReactiveAgent: a hand-listed literal drops what nobody
+					// remembered to add, and reports nothing when it does.
+					...(config.thinking ? { thinking: config.thinking } : {}),
+					...(config.effort ? { effort: config.effort } : {}),
 				},
-				listener,
-			)
+				questionParks,
+				pendingAnswers,
+				// How wide a fan-out actually runs. Absent leaves the kernel
+				// default — the same forwarding ReactiveAgent has always done,
+				// missing from the one agent whose job is delegation.
+				...(config.maxToolConcurrency !== undefined
+					? { maxToolConcurrency: config.maxToolConcurrency }
+					: {}),
+				agentId: this.metadata.id,
+				agentName: this.metadata.name,
+				workingDirectory: input.workingDirectory,
+				messages: input.messages,
+				signal: input.signal,
+				sessionId,
+				topicId,
+				projectId,
+				tenantId,
+				turnId,
+				...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+				...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
+				depth: config.depth,
+				contextLevel: 'full',
+				onContextCreated: ({ planManager }) => {
+					planManagerRef = planManager
+				},
+				taskStore: input.taskStore,
+				runtimeToolOverrides: input.runtimeToolOverrides,
+				runtimeContext: input.runtimeContext,
+				taskScheduler: gateway,
+				budget,
+				completionInbox,
+				advisory: config.advisory,
+				invocationState: childInvocationState,
+				// HITL surface: forward optional review-time hooks so hosts can
+				// run "Ask before acting" supervisors instead of the default
+				// auto-approve. drainQuery falls back to autoApproveHandler
+				// when resumeHandler is omitted (= same behaviour as before).
+				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
+				// Forwarded for the same reason the handler is. A capability the
+				// kernel honours in `drainQuery` but that never reaches the
+				// surface a host actually constructs is a capability nobody can
+				// use — which is the shape of defect this file has already been
+				// corrected for twice.
+				...(config.steering ? { steering: config.steering } : {}),
+				...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
+				...(config.durableInbound ? { durableInbound: config.durableInbound } : {}),
+				...(config.projectInstructionContext
+					? { projectInstructionContext: config.projectInstructionContext }
+					: {}),
+				...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
+				// The one hop between the config and the tool. `drainQuery`
+				// registers `structured_output` from this and the loop
+				// captures it, so the kernel never cared which archetype it
+				// came from — only `ReactiveAgent` was passing it.
+				...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
+				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+				...(config.sandboxTeardownTimeoutMs !== undefined
+					? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
+					: {}),
+				// Working-memory / compaction seam (optional; absent => unchanged
+				// run path, byte-identical for every existing consumer).
+				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
+				...(config.workingMemoryProvider
+					? { workingMemoryProvider: config.workingMemoryProvider }
+					: {}),
+				...(config.paths ? { paths: config.paths } : {}),
+				...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
+				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
+			}
+
+			const turn = resume
+				? await this.resumeTurn(queryParams, config, resume, listener)
+				: await drainQuery(queryParams, listener)
 
 			const taskHandles = gateway.listTasks()
 			const taskResults = synthesizeTaskResults(taskHandles, {
@@ -469,5 +527,58 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		} finally {
 			completionInbox.close()
 		}
+	}
+
+	/**
+	 * The resumed counterpart of `drainQuery`: same params, so the wiring is
+	 * the one a fresh turn gets, handed to `resumeSession` rather than a
+	 * second copy of its machinery.
+	 */
+	private async resumeTurn(
+		queryParams: Parameters<typeof drainQuery>[0],
+		config: SupervisorAgentConfig,
+		resume: SupervisorResumeTarget,
+		listener?: SessionEventListener,
+	) {
+		const { messages: _messages, turnId: _turnId, ...rest } = queryParams
+		const sessionLog = config.sessionLog
+		if (
+			!sessionLog ||
+			!config.sessionId ||
+			!config.topicId ||
+			!config.projectId ||
+			!config.tenantId
+		) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: 'SupervisorAgent.resume requires config.sessionLog.',
+			})
+		}
+		const outcome = await resumeSession({
+			...rest,
+			resumeHandler: rest.resumeHandler ?? autoApproveHandler,
+			scope: {
+				tenantId: config.tenantId,
+				projectId: config.projectId,
+				topicId: config.topicId,
+				sessionId: config.sessionId,
+				turnId: resume.turnId,
+				...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+				...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
+			},
+			sessionLog,
+			...(resume.checkpointId ? { checkpointId: resume.checkpointId } : {}),
+			...(resume.pendingDecision ? { pendingDecision: resume.pendingDecision } : {}),
+			...(listener ? { listener } : {}),
+		})
+		if (outcome.resumed) return outcome.turn
+		throw new NamzuError({
+			code: 'invalid_config',
+			message:
+				outcome.reason === 'no-checkpoint'
+					? `Turn ${resume.turnId} has no checkpoint${resume.checkpointId ? ` ${resume.checkpointId}` : ''} to resume.`
+					: `Turn ${resume.turnId} is waiting on a decision; pass resume.pendingDecision.`,
+			details: { turnId: resume.turnId, reason: outcome.reason },
+		})
 	}
 }
