@@ -2,6 +2,7 @@
 
 ## 2026-10-19
 
+- **Update** [Bash tool](sdk/bash-tool.md): a `timeout` above the maximum is clamped to it instead of refused, as the reference terminal does; the command runs and a timeout message names the applied deadline. Not adopted: the reference's move of an overrunning foreground command to the background, which changes what a timeout does and is left for an owner decision. `.changeset/session-small-bash-timeout-clamp.md`.
 - **Update** [Launch flags](cli/launch-flags.md): interactive `namzu -c` / `--continue` and `-r` / `--resume [value]`, read from the reference terminal. `-c` opens the most recent conversation in the folder; `--resume` opens the picker, resumes by id, or by exact title, and otherwise opens the picker searched by the value. Deviation: a value is searched over the title and opening message of the 100 most recent conversations, and the reference's `--fork-session` has no counterpart. `.changeset/session-small-resume-flags.md`.
 
 ## 2026-10-18

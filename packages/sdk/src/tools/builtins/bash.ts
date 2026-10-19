@@ -51,9 +51,10 @@ const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
  *
  * So the tool declares a ceiling and the executor is given a deadline above
  * it (see `timeoutMs` on the definition), which makes this the only clock
- * that can fire in practice. A request past the ceiling is REFUSED rather
- * than quietly clamped: the model asked for something specific, and silently
- * giving it a different number is how it learns to distrust the answer.
+ * that can fire in practice. A request past the ceiling is CLAMPED to it, as
+ * the reference terminal does: the command still runs, and a timeout reports
+ * the deadline that was actually applied, so the number the model sees on a
+ * timeout is the one that fired.
  */
 const MAX_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_MAX_TIMEOUT_MS', 10 * 60 * 1000)
 
@@ -73,7 +74,11 @@ const inputSchema = z.object({
 	timeout: z
 		.preprocess(
 			(v) => (typeof v === 'string' ? Number(v) : v),
-			z.number().positive().max(MAX_BASH_TIMEOUT_MS).default(DEFAULT_BASH_TIMEOUT_MS),
+			z
+				.number()
+				.positive()
+				.default(DEFAULT_BASH_TIMEOUT_MS)
+				.transform((ms) => Math.min(ms, MAX_BASH_TIMEOUT_MS)),
 		)
 		.describe(
 			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and await it with \`wait_for_job\`, rather than holding the turn open.`,
