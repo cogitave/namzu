@@ -15,7 +15,9 @@ before it reaches the turn. `query()` applies it to every chain member unless
 `retry: false`. Which failures count is decided by the classification in
 `types/provider/errors.ts`: a 429, 408, 5xx (including 503 and 529), a socket
 reset, a DNS failure and a timeout are retryable; 400, 401, 403, 404 and a
-context overflow are not. An abort is never retried.
+context overflow are not. A response body the peer cut mid-stream (undici's
+`TypeError: terminated`) counts as a socket reset, also when a vendor wrapper
+dropped the socket error it carried. An abort is never retried.
 
 ## The options
 

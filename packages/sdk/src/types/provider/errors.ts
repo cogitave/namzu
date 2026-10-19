@@ -270,6 +270,14 @@ export function readOutputOverflow(err: unknown): OutputOverflowFigures | undefi
 	return undefined
 }
 
+/** Undici's `TypeError: terminated` anywhere on the chain: the body stream was cut. */
+function isUndiciTermination(err: unknown): boolean {
+	for (const link of causeChain(err)) {
+		if ((link as unknown) instanceof TypeError && link.message === 'terminated') return true
+	}
+	return false
+}
+
 /** Node/undici transport failures that mean "never reached the model". */
 const NETWORK_ERRNOS: ReadonlySet<string> = new Set([
 	'ECONNRESET',
@@ -566,8 +574,12 @@ export function classifyProviderError(
 		}
 	}
 
-	// `fetch` rejects with a bare TypeError on transport failure.
-	if (err instanceof TypeError && /fetch|network/i.test(message)) {
+	// `fetch` rejects with a bare TypeError on transport failure, and undici
+	// ends a response body the peer cut mid-stream with `TypeError:
+	// terminated`. Its socket error normally rides along as the cause and the
+	// errno walk above catches it, but a vendor SDK that re-wraps the stream
+	// error can drop that cause and leave only the bare word.
+	if ((err instanceof TypeError && /fetch|network/i.test(message)) || isUndiciTermination(err)) {
 		return new ProviderError({
 			code: 'network',
 			message,

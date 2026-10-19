@@ -67,6 +67,29 @@ describe('errno through the chain', () => {
 		})
 		expect(classifyProviderError(wrap('failed', timedOut)).code).toBe('timeout')
 	})
+
+	// Undici's own shape: the socket error rides along as the cause.
+	it('finds the socket error under a terminated body', () => {
+		const socket = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
+		const terminated = new TypeError('terminated', { cause: socket })
+		expect(classifyProviderError(terminated).code).toBe('network')
+	})
+
+	// A vendor wrapper that dropped the cause leaves only the word.
+	it('treats a bare terminated body as a transport failure, wrapped or not', () => {
+		for (const err of [
+			new TypeError('terminated'),
+			wrap('stream failed', new TypeError('terminated')),
+		]) {
+			const classified = classifyProviderError(err)
+			expect(classified.code).toBe('network')
+			expect(classified.retryable).toBe(true)
+		}
+	})
+
+	it('does not read "terminated" off a plain Error', () => {
+		expect(classifyProviderError(new Error('terminated')).code).toBe('unknown')
+	})
 })
 
 describe('retry-after through the chain', () => {
