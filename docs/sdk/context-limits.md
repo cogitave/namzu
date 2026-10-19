@@ -1,7 +1,7 @@
 ---
 type: Reference
-title: Compaction trigger, circuit breaker and output limits
-description: When the kernel summarises, when it gives up on compacting, and what it does when a reply is cut at its output limit.
+title: Compaction trigger, overflow recovery, circuit breaker and output limits
+description: When the kernel summarises, how it recovers from a context overflow, when it gives up on compacting, and what it does when a reply is cut at its output limit.
 resource: packages/sdk/src/compaction/context-window.ts
 tags: [sdk, compaction, context, output-limit]
 status: stable
@@ -10,7 +10,7 @@ generated:
   at: 2026-10-19
 ---
 
-# Compaction trigger, circuit breaker and output limits
+# Compaction trigger, overflow recovery, circuit breaker and output limits
 
 These rules follow the reference terminal agent (version 2.1.302), read from its code.
 
@@ -37,20 +37,67 @@ The `salience` strategy still starts shortening content at its soft target
 (`softTarget`, default 0.5, never above the trigger) and summarises only at the
 trigger. `resetThreshold` (0.4) is a diagnostic after a pass and is unchanged.
 
+## Recovering from a context overflow
+
+When the provider rejects a prompt as too long, the loop recovers on its own,
+in at most two reactive compactions per stuck point (the count restarts after a
+call that goes through):
+
+1. **First relief.** A forced compaction pass: the configured recent window
+   stays verbatim, stale tool results are cleared, the older history becomes a
+   summary. A pass that sheds under 500 estimated tokens and under 2% of the
+   prompt counts as no relief.
+2. **Deeper pass.** If the first relief shed too little, or the retry
+   overflowed again, one more pass runs with two changes. Tool results are
+   cleared even inside the recent window (the same placeholder, head, tail and
+   spill pointer a stale result gets, so a huge file read or command output
+   that sits in the newest messages no longer blocks relief), and, when at
+   least three round-groups remain, only the newest round-group is kept
+   verbatim. A round-group is an assistant message and everything up to the
+   next one, so a tool result stays with its call.
+
+The overflow is recognised from the provider's wording as well as its code:
+"prompt is too long", "input is too long for requested model", "context
+window", and "input length and `max_tokens` exceed context limit" all count
+(the last one first tries a smaller `max_tokens`, below).
+
+The summary call, when `llmVerification` or `/compact` instructions use one, has
+its own ladder: an overflow of its request is retried with the older half of
+the excerpt dropped behind "[earlier conversation truncated for compaction
+retry]", at most three times, and then the extracted state stands alone. A
+failed summary call of any other kind no longer replaces the overflow as the
+turn's error: the pass carries on with the extracted state, which the model
+step only adds to. Only `compactNow` and `/compact`, which the person asked for,
+still raise it.
+
+When both rungs are spent the turn ends with the provider's overflow error,
+settled exactly as before. If compaction itself errored along the way, the
+error's message ends in ` · automatic compaction failed: <cause>` (at most 300
+characters of the cause). The conversation is kept; nothing here asks the
+person to start a new one.
+
+Deviations from the reference terminal: the summary is the extracted working
+state, so there is no media-stripping retry (the verifier excerpt carries text
+and attachment captions only), and the token-gap-guided growth step becomes the
+halving of the excerpt. An oversized user message or attachment has no clearing
+mechanism and stays: only tool results are cleared.
+
 ## The circuit breaker
 
 `compactionConfig.circuitBreaker: true` (off unless set) adds two stops, per
 turn:
 
-- Three passes in a row that ran and shed nothing switch automatic compaction
-  off for the rest of the turn. A pass the provider forces by rejecting the
-  prompt is never gated. A `compaction_failed` event with `cause:
-  'breaker_open'` says so once; its `error` is the line to show.
+- Three passes in a row that ran and shed nothing switch off *proactive*
+  compaction for the rest of the turn. It is silent for the person, as in the
+  reference: a log line and one `compaction_failed` event with `cause:
+  'breaker_open'`, which carries no `error`. A pass the provider forces by
+  rejecting the prompt is never gated, so the recovery above still runs.
 - Three compactions in a row, each followed by the context reaching the
   trigger again within three iterations, stop the turn with stop reason
   `error` and a `compaction_failed` event with `cause: 'refilling'` (sent once;
-  `error` is the line to show, and it is the turn's last error). A file read
-  or tool output too big for the window is the usual cause.
+  `error` is the line to show, and it is the turn's last error). The line names
+  the cause (a file being read or a tool output too large for the window) and
+  suggests reading it in smaller parts; it never suggests starting over.
 
 The reference keeps these counts across the session; here they are per turn.
 

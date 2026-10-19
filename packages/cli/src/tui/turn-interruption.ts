@@ -136,6 +136,14 @@ export function describeTurnInterruption(event: Interruption): string {
 		rows.push(`Reason: ${line(rawReason)}`)
 	}
 
+	// The kernel appends " · automatic compaction failed: <cause>" to the
+	// overflow it gave up on when compaction itself errored. The provider's own
+	// sentence usually contains the rest of the message, which hides it from the
+	// rows above, so it is read out on its own.
+	const compactionCause = /automatic compaction failed: (.+)$/s.exec(rawReason)?.[1]
+	if (compactionCause)
+		rows.push(`Compaction: automatic compaction failed: ${line(compactionCause, 320)}`)
+
 	const retryAfter = retryAfterMs(event)
 	if (retryAfter !== undefined) {
 		rows.push(`Provider retry delay: at least ${duration(retryAfter)} from this failure.`)

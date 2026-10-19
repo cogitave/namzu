@@ -188,8 +188,8 @@ function copyFor(
 			}
 		case 'context':
 			return {
-				what: 'This conversation is too long for the model to read.',
-				next: 'Run /compact to summarise it, or start a new one with /new.',
+				what: 'This conversation is too long for the model, and Namzu could not shorten it enough.',
+				next: 'Try again, or pick a model with more room with /model.',
 			}
 		case 'content':
 			return {
