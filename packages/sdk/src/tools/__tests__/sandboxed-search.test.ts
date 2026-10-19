@@ -39,11 +39,16 @@ function fakeSandbox(files: Record<string, string>): Sandbox & { reads: string[]
 		}),
 		listFiles: vi.fn(async (root: string) =>
 			Object.keys(files)
-				.map((path) => ({ path: `${SANDBOX_ROOT}/${path}`, size: files[path]?.length ?? 0 }))
+				.map((path) => ({
+					path: `${SANDBOX_ROOT}/${path}`,
+					size: files[path]?.length ?? 0,
+				}))
 				.filter((entry) => entry.path.startsWith(`${root}/`)),
 		),
 		walkFiles: vi.fn(async function* (root: string, options: SandboxWalkFilesOptions) {
-			const matcher = new Minimatch(options.pattern ?? '**/*', { dot: options.includeHidden })
+			const matcher = new Minimatch(options.pattern ?? '**/*', {
+				dot: options.includeHidden,
+			})
 			for (const [path, content] of Object.entries(files)) {
 				const absolute = `${SANDBOX_ROOT}/${path}`
 				if (absolute.startsWith(`${root}/`) && matcher.match(absolute.slice(root.length + 1))) {
@@ -112,7 +117,8 @@ describe('grep inside a sandbox', () => {
 			pattern: 'needle',
 			case_sensitive: true,
 			context_lines: 0,
-			max_results: 50,
+			output_mode: 'content',
+			offset: 0,
 			...extra,
 		}) as never
 
@@ -161,7 +167,13 @@ describe('grep inside a sandbox', () => {
  */
 describe('ls inside a sandbox', () => {
 	const lsArgs = (over: Record<string, unknown> = {}) =>
-		({ path: '.', all: false, recursive: false, max_depth: 3, ...over }) as never
+		({
+			path: '.',
+			all: false,
+			recursive: false,
+			max_depth: 3,
+			...over,
+		}) as never
 
 	it('enumerates through the sandbox, not the host', async () => {
 		const sandbox = fakeSandbox({ 'src/a.ts': 'a', 'README.md': 'r' })
@@ -199,7 +211,11 @@ describe('ls inside a sandbox', () => {
 	})
 
 	it('hides dotfiles unless asked, at any depth', async () => {
-		const sandbox = fakeSandbox({ '.env': 'SECRET=1', 'src/.hidden/x.ts': 'x', 'src/a.ts': 'a' })
+		const sandbox = fakeSandbox({
+			'.env': 'SECRET=1',
+			'src/.hidden/x.ts': 'x',
+			'src/a.ts': 'a',
+		})
 
 		const hidden = await LsTool.execute(lsArgs({ recursive: true }), context(sandbox))
 		expect(hidden.output).not.toContain('.env')
