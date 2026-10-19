@@ -438,6 +438,7 @@ export class CodexProvider implements LLMProvider {
 			apiKey: config.accessToken,
 			baseURL: config.baseURL ?? DEFAULT_CODEX_BASE_URL,
 			timeout: config.timeout,
+			...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
 			defaultHeaders: {
 				...attributionHeaders(),
 				'ChatGPT-Account-Id': config.accountId,

@@ -58,6 +58,14 @@ host retry policies; a transport quota response is not a schema validation failu
 
 The rate-limit diagnostic reports provider delay without assuming retries occurred.
 
+## OpenAI, Codex and DeepSeek retry ownership
+
+These three drivers sit on the OpenAI vendor SDK, which retries twice by itself
+and out of sight. `OpenAIConfig.maxRetries`, `CodexConfig.maxRetries` and
+`DeepSeekConfig.maxRetries` pass a count through; left unset the vendor default
+(two) still applies. The terminal sets `0`, so the kernel's retry (counted,
+announced, cancellable) is the only one. See [Provider retry](provider-retry.md).
+
 ## Hosted web search admission
 
 `supportsHostedWebSearch: true` declares a native search wire implementation.

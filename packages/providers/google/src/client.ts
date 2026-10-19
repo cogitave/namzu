@@ -128,6 +128,7 @@ export class GoogleProvider implements LLMProvider {
 				status: res.status,
 				body,
 				retryAfter: res.headers.get('retry-after'),
+				shouldRetry: res.headers.get('x-should-retry'),
 				requestId: res.headers.get('x-request-id') ?? res.headers.get('x-goog-request-id'),
 			})
 		}

@@ -76,6 +76,8 @@ export class ProviderRequestError extends Error {
 	 * See {@link vendorDetail} for what is kept and what is scrubbed.
 	 */
 	public readonly detail?: string
+	/** The provider's `x-should-retry` verdict, when it sent one; see {@link ProviderRequestErrorInit.shouldRetry}. */
+	public readonly shouldRetry?: boolean
 
 	constructor(init: ProviderRequestErrorInit) {
 		super(buildProviderErrorMessage(init))
@@ -87,6 +89,7 @@ export class ProviderRequestError extends Error {
 		if (init.status !== undefined) this.status = init.status
 		if (init.retryAfterMs !== undefined) this.retryAfterMs = init.retryAfterMs
 		if (init.detail !== undefined) this.detail = init.detail
+		if (init.shouldRetry !== undefined) this.shouldRetry = init.shouldRetry
 	}
 }
 
@@ -273,6 +276,15 @@ export function bodySaysContextOverflow(body: string | undefined | null): boolea
  * a negative delay is worse than none, because a caller would treat it as
  * "retry immediately" against a provider that just asked it to wait.
  */
+/**
+ * `x-should-retry` is only read when it says `false`: that is the provider
+ * refusing a resend, and it outranks the status code. `true` changes nothing,
+ * because a retryable status is already retried.
+ */
+export function parseShouldRetry(value: string | null | undefined): false | undefined {
+	return value?.trim().toLowerCase() === 'false' ? false : undefined
+}
+
 export function parseRetryAfterMs(
 	headerValue: string | null | undefined,
 	now: number = Date.now(),
@@ -525,6 +537,7 @@ export function providerVendorError(input: {
 		input.retryAfter ?? vendorRetryAfter(error),
 		input.now ?? Date.now(),
 	)
+	const shouldRetry = parseShouldRetry(vendorHeader(error, ['x-should-retry']))
 	const fields = error as { type?: unknown; param?: unknown; requestID?: unknown } | null
 	// A message that already carries its body (Anthropic's) has the fields; one that is only the
 	// parsed sentence (OpenAI's) gets them from the SDK error's own properties.
@@ -544,6 +557,7 @@ export function providerVendorError(input: {
 		...(status !== undefined ? { status } : {}),
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
+		...(shouldRetry !== undefined ? { shouldRetry } : {}),
 	})
 }
 
@@ -605,6 +619,8 @@ export function providerHttpError(input: {
 	readonly retryAfter?: string | null
 	/** The response's request ID header, when the driver read one. */
 	readonly requestId?: string | null
+	/** The response's `x-should-retry` header, when the driver read one. */
+	readonly shouldRetry?: string | null
 	readonly now?: number
 }): ProviderRequestError {
 	const kind = classifyProviderHttpStatus(input.status, input.body)
@@ -621,6 +637,7 @@ export function providerHttpError(input: {
 			})
 		: vendorDetail(input.body)
 	const exactProviderCode = providerCode(input.body)
+	const shouldRetry = parseShouldRetry(input.shouldRetry)
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
@@ -628,5 +645,6 @@ export function providerHttpError(input: {
 		status: input.status,
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
+		...(shouldRetry !== undefined ? { shouldRetry } : {}),
 	})
 }
