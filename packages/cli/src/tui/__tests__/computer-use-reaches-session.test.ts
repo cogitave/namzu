@@ -12,7 +12,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { type LLMToolSchema, ToolManager, type Toolset } from '@namzu/sdk'
+import {
+	type LLMProvider,
+	type LLMToolSchema,
+	MockLLMProvider,
+	ProviderRegistry,
+	ToolManager,
+	type Toolset,
+} from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -108,6 +115,22 @@ vi.mock('@namzu/browser', () => ({
 	},
 }))
 
+// What `model: auto` routes the next turn to. Absent: the session's own model.
+const route = vi.hoisted(() => ({
+	target: undefined as { provider: string; model: string } | undefined,
+}))
+
+vi.mock('../../integrations/decision/routing.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/decision/routing.js')>()
+	return {
+		...actual,
+		routeModel: async (input: { config: { default: { provider: string; model: string } } }) => {
+			const target = route.target ?? input.config.default
+			return { tier: 'default', ...target, confidence: 1, reason: 'test' }
+		},
+	}
+})
+
 let queryToolNames: readonly string[] = []
 let queryTools: readonly LLMToolSchema[] = []
 let enforcedToolNames: readonly string[] = []
@@ -172,6 +195,7 @@ beforeEach(() => {
 	desktop.dispose.mockReset().mockResolvedValue(undefined)
 	desktop.execute.mockReset()
 	desktop.getDisplayGeometry.mockReset()
+	route.target = undefined
 })
 
 afterEach(async () => {
@@ -394,6 +418,63 @@ describe('computer use session reachability', () => {
 			// drain into the mocked kernel boundary
 		}
 		expect(queryToolNames).toContain('computer_use')
+	})
+
+	it('brings computer_use back when a turn moves from a text-only model to one that reads images', async () => {
+		// One driver, two models: the catalogue says `text-only-model` cannot read
+		// an image. The session starts on it, and Auto routes a later turn to a
+		// model that can.
+		const create = vi.spyOn(ProviderRegistry, 'create').mockImplementation(() => {
+			const provider: LLMProvider = Object.assign(new MockLLMProvider(), {
+				supportsImageInputFor: (model: string) => model !== 'text-only-model',
+			})
+			return { provider, capabilities: {} } as never
+		})
+		try {
+			const { createAgentSession } = await import('../agent.js')
+			const session = await createAgentSession(
+				{ ...prefs, providers: [{ id: 'anthropic', model: 'text-only-model' }] } as Preferences,
+				detected,
+				{
+					cwd: workDir,
+					enableComputerUse: true,
+					routing: { default: { provider: 'anthropic', model: 'text-only-model' } },
+				},
+			)
+			open.push(session)
+			// Under Auto the turn's model is not known when a picture is attached, so
+			// the session's own text-only model does not refuse it.
+			expect(session.imageAttachmentsSupported).not.toBe(false)
+
+			for await (const _ of session.send([{ role: 'user', content: 'a' } as never])) {
+				// drain into the mocked kernel boundary
+			}
+			// The model would act on screenshots it never saw.
+			expect(queryToolNames).not.toContain('computer_use')
+
+			route.target = { provider: 'anthropic', model: 'vision-model' }
+			for await (const _ of session.send([{ role: 'user', content: 'b' } as never])) {
+				// drain into the mocked kernel boundary
+			}
+			expect(queryToolNames).toContain('computer_use')
+
+			route.target = undefined
+			for await (const _ of session.send([{ role: 'user', content: 'c' } as never])) {
+				// drain into the mocked kernel boundary
+			}
+			expect(queryToolNames).not.toContain('computer_use')
+
+			// Without Auto the session's model is the one that reads the picture.
+			const pinned = await createAgentSession(
+				{ ...prefs, providers: [{ id: 'anthropic', model: 'text-only-model' }] } as Preferences,
+				detected,
+				{ cwd: workDir },
+			)
+			open.push(pinned)
+			expect(pinned.imageAttachmentsSupported).toBe(false)
+		} finally {
+			create.mockRestore()
+		}
 	})
 
 	it('sends the browser tools only while the browser has a usable engine', async () => {
