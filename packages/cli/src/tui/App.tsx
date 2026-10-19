@@ -438,6 +438,8 @@ import {
 	reviewPrompt,
 	runSlash,
 } from './slashCommands.js'
+import { StatusLineRows } from './status-line/StatusLineRows.js'
+import { useStatusLine } from './status-line/useStatusLine.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
@@ -5151,6 +5153,47 @@ export function App({
 		cwd: ctx.cwd,
 		enabled: stdout.isTTY === true && phase !== 'trust',
 		turnActive: state === 'thinking' || state === 'tool' || state === 'awaiting-permission',
+	})
+	// The operator's status line command (docs/cli/status-line.md). Runs only
+	// on a real terminal and only past the trust screen, which is where a
+	// project-defined command first becomes reachable.
+	const statusLineStartedAt = useRef(Date.now())
+	const statusLineText = useStatusLine({
+		config: ctx.statusLine,
+		enabled: stdout.isTTY === true && phase !== 'trust',
+		cwd: ctx.cwd,
+		columns: terminal.columns,
+		read: () => ({
+			sessionId: scopeRef.current?.sessionId,
+			cwd: ctx.cwd,
+			projectDir: trustedCwdRef.current,
+			addedDirs: ctx.additionalDirectories ?? [],
+			model: session?.modelSummary ?? null,
+			version: ctx.version,
+			permissionMode,
+			...(reasoningEffort ? { effort: reasoningEffort } : {}),
+			...(palDefinitionRef.current ? { agentName: palDefinitionRef.current.name } : {}),
+			pr: prStatus,
+			totalCostUsd: usage?.cost.totalCost ?? 0,
+			sessionStartedAt: statusLineStartedAt.current,
+			...(usage?.context
+				? {
+						context: {
+							tokens: usage.context.tokens,
+							windowTokens: usage.context.windowTokens,
+						},
+					}
+				: {}),
+		}),
+		triggers: [
+			usage?.totalTokens,
+			usage?.context?.tokens,
+			permissionMode,
+			session?.modelSummary,
+			reasoningEffort,
+			prStatus.kind === 'pr' ? `${prStatus.number}:${prStatus.review}` : prStatus.kind,
+			finalized.length,
+		],
 	})
 	const pendingInputItems = pendingSteers.map((input) => ({
 		text: input.prompt.recallText ?? input.prompt.text,
@@ -12413,6 +12456,9 @@ export function App({
 				{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
+				{phase === 'trust' || !showComposerSurface || statusLineText === undefined ? null : (
+					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
+				)}
 				{phase === 'trust' ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
@@ -12428,6 +12474,7 @@ export function App({
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}
+						restingHint={ctx.statusLine === undefined}
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}

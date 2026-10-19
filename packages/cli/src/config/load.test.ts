@@ -728,6 +728,55 @@ describe('hooks', () => {
 	})
 })
 
+describe('statusLine', () => {
+	it('reads a command with padding and a refresh interval, and refuses what it does not know', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			'statusLine:\n  type: command\n  command: ~/bin/line.sh\n  padding: 2\n  refreshInterval: 5\n',
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).statusLine).toEqual({
+			type: 'command',
+			command: '~/bin/line.sh',
+			padding: 2,
+			refreshInterval: 5,
+		})
+		for (const [bad, path] of [
+			['statusLine:\n  padding: 1\n', 'statusLine.command'],
+			['statusLine:\n  command: x\n  shell: zsh\n', 'statusLine.shell'],
+			['statusLine:\n  command: x\n  type: file\n', 'statusLine.type'],
+			['statusLine:\n  command: x\n  refreshInterval: 0\n', 'statusLine.refreshInterval'],
+			['statusLine:\n  command: x\n  padding: -1\n', 'statusLine.padding'],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
+	it('is not settable from the environment', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
+		expect(
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_STATUS_LINE: 'x' } }).statusLine,
+		).toBeUndefined()
+	})
+
+	it('comes from a project file only once the folder is trusted, as hooks do', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-statusline-'))
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-statusline-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ statusLine: { command: 'echo hi' } }),
+		)
+		expect(
+			loadBootstrapConfigWithProvenance({ home, cwd, env: {} }).config.statusLine,
+		).toBeUndefined()
+		expect(loadConfig({ home, cwd, env: {} }).statusLine).toEqual({
+			command: 'echo hi',
+		})
+	})
+})
+
 describe('compaction', () => {
 	it('reads the strategy and a window override, and refuses what it does not know', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))

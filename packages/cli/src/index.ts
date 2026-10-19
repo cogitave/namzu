@@ -78,5 +78,6 @@ export {
 	type PluginScope,
 	type TerminalNotificationEvent,
 	type TerminalNotificationMethod,
+	type StatusLineConfig,
 	type TuiConfig,
 } from './config/schema.js'

@@ -962,6 +962,52 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return out as HooksConfig
 	},
+	// Shape only; the interactive terminal is the one reader. A mapping with
+	// a typo still refuses, because a line that silently never shows is worse.
+	statusLine: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as {
+			type?: unknown
+			command?: unknown
+			padding?: unknown
+			refreshInterval?: unknown
+		}
+		for (const key of Object.keys(v)) {
+			if (!STATUS_LINE_KEYS.includes(key)) {
+				return invalidConfigValue(
+					context,
+					[key],
+					`is not a statusLine setting (${STATUS_LINE_KEYS.join(', ')})`,
+				)
+			}
+		}
+		if (raw.type !== undefined && raw.type !== 'command')
+			return invalidConfigValue(context, ['type'], 'must be command')
+		if (typeof raw.command !== 'string' || raw.command.trim().length === 0)
+			return invalidConfigValue(context, ['command'], 'must be a non-empty string')
+		if (
+			raw.padding !== undefined &&
+			(typeof raw.padding !== 'number' || !Number.isInteger(raw.padding) || raw.padding < 0)
+		)
+			return invalidConfigValue(context, ['padding'], 'must be a whole number, 0 or more')
+		if (
+			raw.refreshInterval !== undefined &&
+			(typeof raw.refreshInterval !== 'number' ||
+				!Number.isFinite(raw.refreshInterval) ||
+				raw.refreshInterval < 1)
+		)
+			return invalidConfigValue(
+				context,
+				['refreshInterval'],
+				'must be a number of seconds, 1 or more',
+			)
+		return {
+			command: raw.command,
+			...(raw.type !== undefined ? { type: 'command' as const } : {}),
+			...(raw.padding !== undefined ? { padding: raw.padding } : {}),
+			...(raw.refreshInterval !== undefined ? { refreshInterval: raw.refreshInterval } : {}),
+		}
+	},
 	browser: (v, context) => readBrowserConfig(v, context),
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
@@ -1560,6 +1606,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// What typed words do in the operator's own composer: a file decision,
 	// never a variable a shell profile could carry invisibly.
 	composerTriggers: undefined,
+	// Runs a command with the operator's authority, like `hooks`: a file
+	// decision, never a variable a shell profile could carry invisibly.
+	statusLine: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
@@ -1753,6 +1802,8 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 // ---------------------------------------------------------------------------
 // routing
 // ---------------------------------------------------------------------------
+
+const STATUS_LINE_KEYS: readonly string[] = ['type', 'command', 'padding', 'refreshInterval']
 
 const ROUTING_KEYS: readonly string[] = ['default', 'tiers', 'strategy', 'thresholds', 'timeoutMs']
 
