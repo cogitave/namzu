@@ -1090,18 +1090,20 @@ describe('matching hooks run in parallel and their answers combine', () => {
 	})
 
 	it('of several rewrites the last in order wins, and each hook saw the original input', async () => {
-		const seen = join(scratch, 'rewrite-seen')
+		// One file per hook: the two run in parallel, and a shared file interleaved their
+		// `cat >>` and `echo >>` appends into one unparseable line.
+		const seen = [join(scratch, 'rewrite-seen-1'), join(scratch, 'rewrite-seen-2')]
 		const { executions } = await run({
 			hooks: {
 				pre_tool_use: [
 					{
 						command: script(
-							`cat >> ${seen}\necho >> ${seen}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'first rewrite' } } })}\nEOF\n`,
+							`cat >> ${seen[0]}\necho >> ${seen[0]}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'first rewrite' } } })}\nEOF\n`,
 						),
 					},
 					{
 						command: script(
-							`cat >> ${seen}\necho >> ${seen}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'second rewrite' } } })}\nEOF\n`,
+							`cat >> ${seen[1]}\necho >> ${seen[1]}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'second rewrite' } } })}\nEOF\n`,
 						),
 					},
 				],
@@ -1111,11 +1113,7 @@ describe('matching hooks run in parallel and their answers combine', () => {
 		})
 		const { readFileSync } = await import('node:fs')
 		expect(executions).toEqual([{ tool: 'note', input: { text: 'second rewrite' } }])
-		const inputs = readFileSync(seen, 'utf8')
-			.trim()
-			.split('\n')
-			.filter(Boolean)
-			.map((line) => JSON.parse(line).tool_input)
+		const inputs = seen.map((file) => JSON.parse(readFileSync(file, 'utf8').trim()).tool_input)
 		expect(inputs).toEqual([{ text: 'original' }, { text: 'original' }])
 	})
 
