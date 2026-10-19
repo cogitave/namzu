@@ -91,8 +91,11 @@ export async function* streamWithProviderRejectedImageRecovery(
 	repair?: RequestRepair,
 ): AsyncIterable<StreamChunk> {
 	// Every send, including the retries below, goes through the request repair.
+	// They share one repair budget: the original request and its retries are
+	// one request to the person, and each resend is a paid call.
+	const session = repair?.session()
 	const send = (request: ChatCompletionParams): AsyncIterable<StreamChunk> =>
-		repair ? repair.stream(provider, request) : provider.chatStream(request)
+		repair ? repair.stream(provider, request, session) : provider.chatStream(request)
 	const candidate = findSingleRequestImage(params.messages)
 	onRequest?.(params.messages)
 	if (candidate === null && !requestHasImages(params.messages)) {

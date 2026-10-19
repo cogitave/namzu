@@ -202,6 +202,7 @@ export class IterationOrchestrator {
 	private readonly requestRepair = new RequestRepair({
 		debug: (message) => this.ctx.log.debug(message),
 		onMediaRemoved: (removal) => this.noteMediaRemoved(removal),
+		servedBy: () => this.ctx.servingMember?.(),
 	})
 	/**
 	 * Provider and model pairs that refused a request for holding an image; they
@@ -2728,13 +2729,23 @@ export class IterationOrchestrator {
 			[GENAI.SYSTEM]: this.ctx.provider.id,
 			'namzu.request.media_removed': removal.count,
 		})
+		const noun = removal.count === 1 ? 'a file' : `${removal.count} files`
+		const it = removal.count === 1 ? 'it' : 'they'
 		await this.ctx.emitEvent?.({
 			type: 'capability_warning',
 			turnId: this.ctx.recorder.turnId,
 			capability: removal.kind === 'document' ? 'documents' : 'vision',
-			contentSource: 'media-removed',
+			// The person's own latest attachment is named as such; a count limit is
+			// not a fault in any file.
+			contentSource: removal.current
+				? 'media-removed-current'
+				: removal.limit
+					? 'media-limit'
+					: 'media-removed',
 			providerId: this.ctx.provider.id,
-			message: `The provider could not process ${removal.count === 1 ? 'a file' : `${removal.count} files`} in this conversation, so ${removal.count === 1 ? 'it was' : 'they were'} left out of the request. The conversation still holds ${removal.count === 1 ? 'it' : 'them'}.`,
+			message: removal.limit
+				? `The conversation holds more files than the provider accepts at once, so ${noun} (the oldest) ${removal.count === 1 ? 'was' : 'were'} left out of the request. The conversation still holds ${it}.`
+				: `The provider could not process ${noun}${removal.current ? ' attached to your latest message' : ' in this conversation'}, so ${it} ${removal.count === 1 ? 'was' : 'were'} left out of the request. The conversation still holds ${it}.`,
 		})
 	}
 

@@ -20,6 +20,7 @@ import type {
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
+import { MAX_REPAIRS_PER_REQUEST } from '../iteration/request-repair.js'
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -42,7 +43,7 @@ const png = (tag: string) => ({
 
 /** Rejects a request with a 400 for as long as `reject` finds something wrong with it. */
 class RejectingProvider implements LLMProvider {
-	readonly id = 'fake'
+	id = 'fake'
 	readonly name = 'Fake'
 	readonly requests: ChatCompletionParams[] = []
 	constructor(private readonly reject: (params: ChatCompletionParams) => string | undefined) {}
@@ -194,11 +195,13 @@ describe('media the provider rejects', () => {
 	]
 
 	it('replaces only the message a named index points at, and says so once', async () => {
+		// The index counts the provider's own wire array, so the wire must be known.
 		const provider = new RejectingProvider((p) =>
 			wire(p).includes('-one')
 				? 'messages.0.content.1.image.source.base64: image exceeds the maximum size'
 				: undefined,
 		)
+		provider.id = 'anthropic'
 		const { result, events } = await run(provider, two())
 		expect(result.status).toBe('completed')
 		expect(provider.requests).toHaveLength(2)
@@ -266,5 +269,81 @@ describe('tool pairing', () => {
 			createUserMessage('next'),
 		])
 		expect(result.status).toBe('completed')
+	})
+})
+
+describe('the cost of a request the provider keeps rejecting', () => {
+	it('is bounded across the original send and its image retry', async () => {
+		const wordings = [
+			'Beam supports text input only. This conversation contains an image.',
+			'image could not be processed',
+			'Unsupported parameter: temperature is not supported with this model',
+		]
+		let n = 0
+		const provider = new RejectingProvider(() => wordings[n++ % wordings.length])
+		const messages = Array.from({ length: 12 }, (_, i) =>
+			createUserMessage(`m${i}`, [png(`bulk${i}`)]),
+		)
+		const { result } = await run(provider, messages, { temperature: 0.3 })
+		expect(result.status).toBe('failed')
+		expect(provider.requests.length).toBeLessThanOrEqual(2 + MAX_REPAIRS_PER_REQUEST)
+	})
+})
+
+describe('a structured-output format the provider rejects', () => {
+	it('ends as structured_output_failed, never as a wrong success', async () => {
+		const { z } = await import('zod')
+		const { MockLLMProvider } = await import('../../../provider/mock.js')
+		const inner = new MockLLMProvider({
+			turns: [{ text: 'a prose answer, not JSON' }],
+			capabilities: {
+				supportsTools: true,
+				supportsStreaming: true,
+				supportsFunctionCalling: true,
+				supportsNativeStructuredOutput: true,
+			},
+		})
+		const seen: unknown[] = []
+		const provider: LLMProvider = {
+			id: inner.id,
+			name: inner.name,
+			capabilities: inner.capabilities,
+			async *chatStream(params) {
+				seen.push(params.responseFormat)
+				if (params.responseFormat !== undefined) {
+					throw new ProviderRequestError({
+						kind: 'bad_request',
+						providerId: inner.id,
+						status: 400,
+						detail: 'response_format json_schema is not supported with this model',
+					})
+				}
+				yield* inner.chatStream(params)
+			},
+		}
+		const dir = await mkdtemp(join(tmpdir(), 'namzu-request-repair-'))
+		dirs.push(dir)
+		const result = await drainQuery({
+			provider,
+			toolsets: [],
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('Return a score')],
+			workingDirectory: dir,
+			sessionId: '1facb730-1762-4583-82ee-3b51eb21bcce' as SessionId,
+			topicId: '89b5ba11-b552-44f2-87bf-a506c57b9476' as TopicId,
+			projectId: 'ced4d0a7-6c32-4525-93ca-8dc8cd05140f' as ProjectId,
+			tenantId: 'd754cc0f-50c6-4bc4-8f2a-c5eb2bfdc657' as TenantId,
+			turnConfig: { model: 'mock', tokenBudget: 100_000, maxIterations: 5, timeoutMs: 10_000 },
+			structuredOutput: {
+				mode: 'native',
+				schema: z.object({ score: z.number() }),
+				maxRetries: 0,
+			},
+		} as never)
+		expect(seen[0]).toBeDefined()
+		expect(seen[1]).toBeUndefined()
+		expect(result.stopReason).toBe('structured_output_failed')
+		expect(result.structuredOutput).toBeUndefined()
 	})
 })
