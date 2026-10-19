@@ -344,11 +344,11 @@ function stripReasoning(messages: readonly Message[]): Message[] {
  * that driver's own serialisation. Exact for the two wires whose layout is
  * known; anything else returns undefined and the caller does not guess.
  *
- * - `anthropic`: system turns are left out; a run of consecutive tool results
+ * - the content-block wire: system turns are left out; a run of consecutive tool results
  *   is ONE user entry whose blocks are those results; every other message,
  *   including a user turn that follows tool results, is its own entry; a user
  *   entry's blocks are its text (when not empty) and then each attachment.
- * - `openai`: one entry per message, system included; only user attachments
+ * - the chat-completions wire: one entry per message, system included; only user attachments
  *   travel as media (tool results are sent as text); blocks are the text (when
  *   not empty) and then each attachment.
  */
