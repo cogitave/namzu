@@ -42,7 +42,11 @@ import { generateMessageId, generateToolCallId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { EmitEvent } from '../events.js'
 import type { RequestImageIdentity } from '../request-rich-content.js'
-import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import {
+	type TextOnlyModelRecovery,
+	streamWithProviderRejectedImageRecovery,
+} from './provider-rejected-image.js'
+import type { RequestRepair } from './request-repair.js'
 import {
 	type ParsedToolArguments,
 	capPartialArguments,
@@ -237,6 +241,10 @@ export async function* streamProviderTurn(
 	announceAs?: import('../../../types/ids/index.js').MessageId,
 	imageRecovery?: {
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
+		/** A model refused the request for holding an image it cannot read; the retry sent none. */
+		readonly textOnly?: TextOnlyModelRecovery
+		/** Repairs and resends a request the provider rejects as invalid. */
+		readonly repair?: RequestRepair
 	},
 	captureRequest = false,
 	/** The session the turn belongs to, named on the chat span as `gen_ai.conversation.id`. */
@@ -363,6 +371,8 @@ export async function* streamProviderTurn(
 					streamParams,
 					imageRecovery.onAccepted,
 					observeRequest,
+					imageRecovery.textOnly,
+					imageRecovery.repair,
 				)
 			: provider.chatStream(streamParams)
 	) as AsyncIterable<StreamChunk>

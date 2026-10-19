@@ -130,9 +130,28 @@ describe('an error in the terminal app', () => {
 			}),
 		)
 		expect(text.split('\n')).toEqual([
-			'OpenAI could not process this message. Send it again, or start a new conversation with /new.',
+			'OpenAI could not process this message. Change the message and send it again, or pick another model with /model.',
 			'OpenAI said: messages.0.content: Input should be a valid string',
 		])
+		expectPlain(text)
+	})
+
+	it('points an image refusal at /model and never at starting over', () => {
+		const text = describePlainInterruption(
+			failed({
+				message: 'zen (HTTP 400)',
+				providerError: {
+					kind: 'bad_request',
+					providerId: 'zen',
+					detail:
+						'Upstream request failed: [invalid_value] Beam supports text input only. This conversation contains an image.',
+				},
+			}),
+		)
+		expect(text.split('\n')[0]).toBe(
+			'Zen could not read an image in this conversation. Pick a model that can read images with /model.',
+		)
+		expect(text).not.toMatch(/\/new|send it again|new conversation/i)
 		expectPlain(text)
 	})
 

@@ -25,6 +25,18 @@ describe('capability notices', () => {
 		)
 	})
 
+	it('says a model that refused an image has its pictures left out, and how to get them back', () => {
+		const text = describeCapabilityNotice({
+			capability: 'vision',
+			contentSource: 'history',
+			providerId: 'zen',
+		})
+		expect(text).toBe(
+			'This model can’t read images, so Namzu is leaving pictures out of what it sends. They come back if you pick a model that reads images with /model.',
+		)
+		expect(text).not.toMatch(/\/new|new conversation/i)
+	})
+
 	it('says a provider without document support will not see the file', () => {
 		expect(describeCapabilityNotice({ capability: 'documents', providerId: 'deepseek' })).toBe(
 			'DeepSeek can’t read documents, so it won’t see the file you attached. Switch to a provider that reads documents to include it.',
@@ -155,5 +167,29 @@ describe('the kernel wording', () => {
 		const debug = withDebugDetail(plain, RAW, true)
 		expect(debug).toContain(plain)
 		expect(debug).toContain(RAW)
+	})
+})
+
+describe('a file the provider could not process', () => {
+	it('is named plainly, keeps the conversation, and never points at a new one', () => {
+		for (const capability of ['vision', 'documents'] as const) {
+			for (const contentSource of [
+				'media-removed',
+				'media-removed-current',
+				'media-limit',
+			] as const) {
+				const text = describeCapabilityNotice({ capability, contentSource })
+				expect(text).toContain('stay')
+				expect(text).not.toMatch(/\/new|\/clear|new conversation|start over/i)
+			}
+		}
+		const current = describeCapabilityNotice({
+			capability: 'vision',
+			contentSource: 'media-removed-current',
+		})
+		expect(current).toContain('just attached')
+		expect(
+			describeCapabilityNotice({ capability: 'vision', contentSource: 'media-limit' }),
+		).not.toMatch(/couldn’t be processed|corrupt/)
 	})
 })

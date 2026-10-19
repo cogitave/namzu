@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { modelReadsImages, resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type {
 	ComputerUseAction,
 	ComputerUseCapabilities,
@@ -105,10 +105,19 @@ export interface ComputerUseToolOptions {
  * {@link ComputerUseToolOptions.unavailableReason}.
  */
 export function computerUseUnavailableReason(
-	provider: Pick<LLMProvider, 'id' | 'capabilities'>,
+	provider: Pick<LLMProvider, 'id' | 'capabilities' | 'supportsImageInputFor'>,
+	model?: string,
 ): string | undefined {
-	if (resolveProviderCapabilities(provider).supportsToolResultImages) return undefined
-	return `The ${provider.id} provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can (for example Anthropic, Codex or Google) for computer use.`
+	if (!resolveProviderCapabilities(provider).supportsToolResultImages) {
+		return `The ${provider.id} provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can (for example Anthropic, Codex or Google) for computer use.`
+	}
+	// The driver can carry the image; the model behind it may still not read one.
+	// It would act on a screen it never saw, and the first screenshot would make
+	// the provider refuse every later request in the conversation.
+	if (model !== undefined && !modelReadsImages(provider, model)) {
+		return `The model ${model} cannot read images, so it would never see a screenshot. Use a model that reads images for computer use.`
+	}
+	return undefined
 }
 
 // ---------------------------------------------------------------------------

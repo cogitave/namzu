@@ -1,4 +1,5 @@
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
+import { TextOnlyModels } from '../integrations/providers/image-input.js'
 import { createOpenUrlTool } from '../integrations/web/open-url.js'
 import {
 	createWebSearchTool,
@@ -2848,11 +2849,22 @@ export async function createAgentSession(
 	let computerUseHost: SubprocessComputerUseHost | undefined
 	let computerUseTool: ReturnType<typeof createComputerUseTool> | undefined
 	let computerUseError: Error | undefined
+	// What this conversation has learned about which models read images, and
+	// whether the model answering the turn in flight does. A tool that exists to
+	// show the model a picture is suspended while it does not: `/model` and Auto
+	// both change the model between turns, so this is read live, per turn.
+	const textOnlyModels = new TextOnlyModels()
+	let turnReadsImages = textOnlyModels.reads(provider, model)
 	// The model sees the desktop only as an image in a tool result. A driver
 	// that declares it cannot carry one would hand the model a line of text
 	// for every screenshot while each click reported success — the model
 	// acting on a screen it never saw. Mounted as a diagnostic that says so,
 	// without starting the desktop host at all.
+	//
+	// Asked of the driver only. Whether the MODEL reads images is not fixed for
+	// this session object: Auto routes each turn to its own model, and this
+	// conversation can learn a model is text-only. That is `turnReadsImages`,
+	// read per turn below, so the tool comes back for a model that reads images.
 	const computerUseProviderRefusal =
 		options.enableComputerUse === true && computerUsePackage?.state === 'present'
 			? computerUseUnavailableReason(provider)
@@ -2882,8 +2894,9 @@ export async function createAgentSession(
 			// call with its limitation. Read live, so the tool appears once the
 			// host reports a control.
 			toolsets.push(
-				readyWhen(toolset('computer-use', [computerUseTool]), () =>
-					computerUseHasControl(candidate.capabilities),
+				readyWhen(
+					toolset('computer-use', [computerUseTool]),
+					() => turnReadsImages && computerUseHasControl(candidate.capabilities),
 				),
 			)
 			computerUseHost = candidate
@@ -3398,7 +3411,10 @@ export async function createAgentSession(
 				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
 				const childProvider = await providerForModel(invokingSessionId, providerId, selectedModel)
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
-				return childProvider
+				// What this conversation learned about text-only models reaches its
+				// children. A child that finds one out for itself pays one refused
+				// request in its own run; its warning does not reach this session.
+				return textOnlyModels.informing(childProvider)
 			},
 			configureWebSearch: (childProvider, childModel, toolsets) => {
 				if (webSearch.mode === 'off') return undefined
@@ -4495,7 +4511,13 @@ export async function createAgentSession(
 			return lastAutoRoute
 		},
 		get imageAttachmentsSupported() {
-			return providerForSession(scope.sessionId).capabilities?.supportsVision
+			const current = providerForSession(scope.sessionId)
+			// Declared by the driver, then narrowed by what is known of this model.
+			// Under Auto the model is chosen per turn, after the picture is attached,
+			// so the session's own model says nothing about who will read it; the
+			// turn leaves the picture out if its model cannot read it.
+			if (options.routing) return current.capabilities?.supportsVision
+			return textOnlyModels.reads(current, model) ? current.capabilities?.supportsVision : false
 		},
 		get documentAttachmentsSupported() {
 			return providerForSession(scope.sessionId).capabilities?.supportsDocuments
@@ -4968,6 +4990,8 @@ export async function createAgentSession(
 						const autoRoute = await autoRouteFor(messages, turnScope.sessionId, signal)
 						const turnWebSearch = autoRoute ? routedWebSearch(autoRoute) : nativeWebSearch
 						const turnSkills = await turnSkillsFor(autoRoute?.model ?? model)
+						const turnProvider = autoRoute?.provider ?? providerForSession(turnScope.sessionId)
+						turnReadsImages = textOnlyModels.reads(turnProvider, autoRoute?.model ?? model)
 						// `options.toolLoading === 'deferred'` is already baked into
 						// `sessionToolsets` (see its construction above) — availability
 						// is derived from the turn's own revealed-tool history now, not
@@ -5229,7 +5253,7 @@ export async function createAgentSession(
 						}
 						try {
 							for await (const event of runTurn({
-								provider: autoRoute?.provider ?? providerForSession(turnScope.sessionId),
+								provider: textOnlyModels.informing(turnProvider),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
 								compactionConfig: compactionConfigFor(options.compaction),
 								retainedToolPreviewChars: options.conversationSessions
@@ -5252,7 +5276,10 @@ export async function createAgentSession(
 								// A routed turn has no fallback chain, like a pinned resume.
 								fallbackProviders: autoRoute
 									? []
-									: fallbackPlan.build(currentToken, turnScope.sessionId),
+									: fallbackPlan.build(currentToken, turnScope.sessionId).map((member) => ({
+											...member,
+											provider: textOnlyModels.informing(member.provider),
+										})),
 								model: autoRoute?.model ?? model,
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
@@ -5316,7 +5343,18 @@ export async function createAgentSession(
 									task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 									task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 								},
-								onSessionEvent: options.onSessionEvent,
+								onSessionEvent: (event) => {
+									// A model that refused an image: remember it, so the next turn
+									// does not make the refused request again.
+									if (
+										event.type === 'capability_warning' &&
+										event.contentSource === 'history' &&
+										event.model !== undefined
+									) {
+										textOnlyModels.add(event.providerId, event.model)
+									}
+									options.onSessionEvent?.(event)
+								},
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 								...(options.sandbox?.teardownTimeoutMs !== undefined
 									? {

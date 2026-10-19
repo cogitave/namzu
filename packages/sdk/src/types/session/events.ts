@@ -717,9 +717,26 @@ type CoreSessionEvent =
 			sessionId: SessionId
 			turnId?: TurnId
 			capability: 'tools' | 'vision' | 'documents'
-			/** Present when the mismatch was produced after a tool executed. */
-			contentSource?: 'tool-result'
+			/**
+			 * Present when the mismatch was not about the user's own message:
+			 * `'tool-result'` after a tool executed; `'history'` when the model
+			 * itself turned out not to read images (see `model`) and the images
+			 * already in the conversation were left out of the request;
+			 * `'media-removed'` when the provider rejected an image or document
+			 * and it was left out of the request that then went through;
+			 * `'media-removed-current'` when that included a file attached to the
+			 * latest user message; `'media-limit'` when the oldest files were left
+			 * out only to fit a count the provider accepts.
+			 */
+			contentSource?:
+				| 'tool-result'
+				| 'history'
+				| 'media-removed'
+				| 'media-removed-current'
+				| 'media-limit'
 			providerId: string
+			/** The model that cannot read images, when the warning is about one model rather than the driver. */
+			model?: string
 			message: string
 	  }
 	/**

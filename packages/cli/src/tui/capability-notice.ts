@@ -15,13 +15,38 @@ export type CapabilityKind = 'tools' | 'vision' | 'documents'
 export interface CapabilityNoticeInput {
 	readonly capability: CapabilityKind
 	/** `'tool-result'` when the mismatch came from something a tool returned. */
-	readonly contentSource?: 'tool-result'
+	readonly contentSource?:
+		| 'tool-result'
+		| 'history'
+		| 'media-removed'
+		| 'media-removed-current'
+		| 'media-limit'
 	readonly providerId?: string
 }
 
 /** One sentence: what the provider cannot do, what Namzu did about it, and what the person can do. */
 export function describeCapabilityNotice(input: CapabilityNoticeInput): string {
 	const name = productName(input.providerId) ?? 'This provider'
+	if (input.contentSource === 'media-limit') {
+		// Not a fault in any file: the provider takes only so many at once.
+		return 'This conversation holds more pictures or files than this model accepts at once, so Namzu left the oldest out of what it sends. They stay in the conversation.'
+	}
+	if (input.contentSource === 'media-removed-current') {
+		// The person attached it just now, so say so rather than let it vanish quietly.
+		return input.capability === 'documents'
+			? 'The document you just attached couldn’t be processed, so Namzu left it out of this reply. It stays in the conversation; attach a corrected copy to try again.'
+			: 'The picture you just attached couldn’t be processed, so Namzu left it out of this reply. It stays in the conversation; attach a corrected copy to try again.'
+	}
+	if (input.contentSource === 'media-removed') {
+		// The provider refused a file and Namzu retried without it; the conversation keeps the file.
+		return input.capability === 'documents'
+			? 'A document in this conversation couldn’t be processed, so Namzu left it out of what it sends. It stays in the conversation; attach a corrected copy to try again.'
+			: 'A picture in this conversation couldn’t be processed, so Namzu left it out of what it sends. It stays in the conversation; attach a corrected copy to try again.'
+	}
+	if (input.contentSource === 'history') {
+		// The conversation keeps its pictures; only this model's requests lose them.
+		return 'This model can’t read images, so Namzu is leaving pictures out of what it sends. They come back if you pick a model that reads images with /model.'
+	}
 	if (input.contentSource === 'tool-result') {
 		return input.capability === 'documents'
 			? `${name} can’t read documents, so Namzu gave it a text note in place of a document a tool returned. Switch to a provider that reads documents to include it.`

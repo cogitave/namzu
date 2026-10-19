@@ -842,6 +842,17 @@ export class ZenProvider implements LLMProvider {
 		return this.model(model)?.contextWindow
 	}
 
+	/**
+	 * Whether `model` reads images. One Zen account serves vision and text-only
+	 * models side by side, and a text-only one refuses the whole request when the
+	 * conversation holds an image; the catalogue says which is which. A model the
+	 * catalogue does not know is assumed to read them.
+	 */
+	supportsImageInputFor(model: string): boolean {
+		const modalities = this.model(model)?.inputModalities
+		return modalities === undefined || modalities.includes('image')
+	}
+
 	/** The injected runtime catalogue as it stands now, or undefined for the bundled one alone. */
 	private runtimeCatalogue(): ZenCatalogue | undefined {
 		const source = this.config.catalogue

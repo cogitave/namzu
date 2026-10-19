@@ -15,7 +15,7 @@ import {
 } from '../../../constants/tools/index.js'
 import { withStreamedMessageIdentity } from '../../../manager/session/streamed-message-identity.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
-import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
+import { modelReadsImages, resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
@@ -96,7 +96,12 @@ import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory, splitWorkingMemoryForRequest } from './phases/working-memory.js'
-import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import {
+	type TextOnlyModelRecovery,
+	type TextOnlyModelRefusal,
+	streamWithProviderRejectedImageRecovery,
+} from './provider-rejected-image.js'
+import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import {
 	type StepShaping,
 	appendWorkContext,
@@ -147,6 +152,11 @@ const CLOSING_RESPONSE_GUIDANCE =
 
 export { awaitedJobGraceMs, settleGraceMs } from './outstanding-work.js'
 
+/** One provider's model, as {@link IterationOrchestrator} remembers it. */
+function textOnlyKey(providerId: string, model: string): string {
+	return `${providerId}\u0000${model}`
+}
+
 export class IterationOrchestrator {
 	private ctx: IterationContext
 	private advisoryTurn:
@@ -194,6 +204,73 @@ export class IterationOrchestrator {
 	}
 	/** Rich tool blocks already reported; durable history is scanned every turn. */
 	private readonly warnedRichToolResults = new Set<string>()
+	/** What this run has learned about requests its provider rejects as invalid, and how to repair them. */
+	private readonly requestRepair = new RequestRepair({
+		debug: (message) => this.ctx.log.debug(message),
+		onMediaRemoved: (removal) => this.noteMediaRemoved(removal),
+		servedBy: () => this.ctx.servingMember?.(),
+	})
+	/**
+	 * Provider and model pairs that refused a request for holding an image; they
+	 * get none for the rest of the run. Keyed by both: one model id can be served
+	 * by two members of a fallback chain, and only the one that refused is known.
+	 */
+	private readonly textOnlyModels = new Set<string>()
+
+	/**
+	 * The member a request for `model` goes to first. A fallback chain keeps
+	 * serving from the member it last moved to, so that member, not the head,
+	 * is the one whose reading of images counts.
+	 */
+	private servingModel(model: string): { readonly providerId: string; readonly model: string } {
+		const serving = this.ctx.servingMember?.()
+		return {
+			providerId: serving?.providerId ?? this.ctx.provider.id,
+			model: serving?.model ?? model,
+		}
+	}
+
+	/** Whether a request for `model` may carry images: the driver's catalogue and this run's own evidence agree. */
+	private modelReadsImages(model: string): boolean {
+		const serving = this.servingModel(model)
+		return (
+			!this.textOnlyModels.has(textOnlyKey(serving.providerId, serving.model)) &&
+			modelReadsImages(this.ctx.provider, model)
+		)
+	}
+
+	/** What a request for `model` does when its model turns out to read text only. */
+	private textOnlyRecovery(model: string): TextOnlyModelRecovery {
+		return {
+			servedBy: () => this.servingModel(model),
+			onAccepted: (refused) => this.noteTextOnlyModel(refused),
+		}
+	}
+
+	/**
+	 * A provider refused a request for holding an image its model cannot read, and
+	 * the retry without images was accepted. Stop sending images to it, and say so
+	 * once, so the host can remember the model beyond this run.
+	 */
+	private async noteTextOnlyModel(refused: TextOnlyModelRefusal): Promise<void> {
+		const key = textOnlyKey(refused.providerId, refused.model ?? '')
+		if (this.textOnlyModels.has(key)) return
+		this.textOnlyModels.add(key)
+		const { providerId, model } = refused
+		this.ctx.log.warn('Capability mismatch: the model cannot read images', {
+			[GENAI.SYSTEM]: providerId,
+			[GENAI.REQUEST_MODEL]: model ?? '',
+		})
+		await this.ctx.emitEvent?.({
+			type: 'capability_warning',
+			turnId: this.ctx.recorder.turnId,
+			capability: 'vision',
+			contentSource: 'history',
+			providerId,
+			...(model !== undefined ? { model } : {}),
+			message: `Model '${model ?? 'unknown'}' on provider '${providerId}' refused a request that held an image, so images are left out of its requests. They stay in the conversation and are sent again to a model that reads them.`,
+		})
+	}
 	/**
 	 * The previous iteration held a `stopWhen` decision open for a worker.
 	 *
@@ -823,6 +900,7 @@ export class IterationOrchestrator {
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
 					appendWorkContext(shaping, messages, iterationNum, step)
 					if (closingDirective) messages.push(closingDirective)
@@ -998,6 +1076,8 @@ export class IterationOrchestrator {
 						stepMessageId,
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
+							textOnly: this.textOnlyRecovery(stepModel),
+							repair: this.requestRepair,
 						},
 						Boolean(
 							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
@@ -2696,6 +2776,32 @@ export class IterationOrchestrator {
 			.some((t) => t.state !== 'completed' && t.state !== 'failed' && t.state !== 'canceled')
 	}
 
+	/** Media the provider could not process was left out of a request that then went through. */
+	private async noteMediaRemoved(removal: MediaRemoval): Promise<void> {
+		this.ctx.log.warn('Media the provider rejected was left out of the request', {
+			[GENAI.SYSTEM]: this.ctx.provider.id,
+			'namzu.request.media_removed': removal.count,
+		})
+		const noun = removal.count === 1 ? 'a file' : `${removal.count} files`
+		const it = removal.count === 1 ? 'it' : 'they'
+		await this.ctx.emitEvent?.({
+			type: 'capability_warning',
+			turnId: this.ctx.recorder.turnId,
+			capability: removal.kind === 'document' ? 'documents' : 'vision',
+			// The person's own latest attachment is named as such; a count limit is
+			// not a fault in any file.
+			contentSource: removal.current
+				? 'media-removed-current'
+				: removal.limit
+					? 'media-limit'
+					: 'media-removed',
+			providerId: this.ctx.provider.id,
+			message: removal.limit
+				? `The conversation holds more files than the provider accepts at once, so ${noun} (the oldest) ${removal.count === 1 ? 'was' : 'were'} left out of the request. The conversation still holds ${it}.`
+				: `The provider could not process ${noun}${removal.current ? ' attached to your latest message' : ' in this conversation'}, so ${it} ${removal.count === 1 ? 'was' : 'were'} left out of the request. The conversation still holds ${it}.`,
+		})
+	}
+
 	private async acceptProviderRejectedImage(identity: RequestImageIdentity): Promise<void> {
 		const repaired = markProviderRejectedImage(this.ctx.recorder.messages, identity)
 		if (repaired.count === 0) {
@@ -2753,6 +2859,7 @@ export class IterationOrchestrator {
 			const finalMessages = projectRequestRichContent(
 				this.projectObservations(finalHistory),
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+				{ imagesReadable: this.modelReadsImages(model) },
 			)
 			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
@@ -2799,8 +2906,13 @@ export class IterationOrchestrator {
 				signal: this.ctx.abortController.signal,
 			} satisfies import('../../../types/provider/index.js').ChatCompletionParams
 			const response = await collectChatCompletion(
-				streamWithProviderRejectedImageRecovery(this.ctx.provider, finalParams, (identity) =>
-					this.acceptProviderRejectedImage(identity),
+				streamWithProviderRejectedImageRecovery(
+					this.ctx.provider,
+					finalParams,
+					(identity) => this.acceptProviderRejectedImage(identity),
+					undefined,
+					this.textOnlyRecovery(model),
+					this.requestRepair,
 				),
 			)
 
