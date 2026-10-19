@@ -58,6 +58,19 @@ export const CompactionConfigSchema = z.object({
 	 * failure mode once the trigger actually fires.
 	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
+	/**
+	 * Give up on automatic compaction when it stops working.
+	 *
+	 * Three failed passes in a row switch it off for the rest of the turn.
+	 * Three compactions in a row, each followed by the window filling again
+	 * within three iterations, stop the turn: the loop refills the context
+	 * faster than a summary can empty it. Each is announced once, as a
+	 * `compaction_failed` event.
+	 *
+	 * Off unless set. Without it a pass that sheds nothing is retried on every
+	 * iteration, and a turn that refills the window is never stopped for it.
+	 */
+	circuitBreaker: z.boolean().optional(),
 	keepRecentMessages: z.number().int().positive().default(4),
 	/**
 	 * Size the retained tail by TOKENS instead of by message count.

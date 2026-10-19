@@ -331,6 +331,17 @@ export interface QueryParams {
 	maxToolConcurrency?: number
 	/** Per-turn cumulative tool attempt limit, including nested calls and retries. Unset is unlimited. Re-supply on resume; durable reservations are never refunded. */
 	maxToolCalls?: number
+	/**
+	 * How many times in a row the loop nudges the model to carry on after a
+	 * reply was cut off at its output limit, before the turn stops with an
+	 * error naming the limit. The count restarts after any call that finishes
+	 * on its own.
+	 *
+	 * Unset keeps the earlier behaviour: nudge every time, bounded only by
+	 * `maxIterations`. Opt-in because a cap is a stop a host did not have
+	 * before; `0` stops at the first cut-off.
+	 */
+	maxOutputContinuations?: number
 
 	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
@@ -1635,6 +1646,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// would leak exactly that way.
 			...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 			compactionConfig,
+			...(params.maxOutputContinuations !== undefined
+				? { maxOutputContinuations: params.maxOutputContinuations }
+				: {}),
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
 			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),
 			...(params.resumeFromCheckpoint ? { resumedInput: queuedForThisRun } : {}),

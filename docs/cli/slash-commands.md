@@ -47,7 +47,7 @@ explain why they cannot run and are checked again when selected.
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree. |
-| `/compact` | Summarise the older half of this conversation to free up context. |
+| `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |

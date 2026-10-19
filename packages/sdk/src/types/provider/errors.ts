@@ -224,6 +224,39 @@ function chainMessages(err: unknown): string[] {
 	return out
 }
 
+/**
+ * What a provider said when prompt plus requested output together passed the
+ * window: the prompt size, the output cap that was asked for, and the window.
+ */
+export interface OutputOverflowFigures {
+	readonly inputTokens: number
+	readonly maxTokens: number
+	readonly contextLimit: number
+}
+
+/**
+ * Read the "input length and `max_tokens` exceed context limit: A + B > C"
+ * wording from a failure, anywhere on its cause chain.
+ *
+ * Different from a prompt that is too long on its own: here the prompt fits
+ * and only the requested output does not, so the remedy is a smaller
+ * `max_tokens`, not a smaller history. `undefined` means the failure does not
+ * carry those figures.
+ */
+export function readOutputOverflow(err: unknown): OutputOverflowFigures | undefined {
+	const pattern = /input length and `?max_tokens`? exceed context limit: (\d+) \+ (\d+) > (\d+)/i
+	for (const message of chainMessages(err)) {
+		const match = pattern.exec(message)
+		if (!match) continue
+		const inputTokens = Number.parseInt(match[1] ?? '', 10)
+		const maxTokens = Number.parseInt(match[2] ?? '', 10)
+		const contextLimit = Number.parseInt(match[3] ?? '', 10)
+		if (![inputTokens, maxTokens, contextLimit].every(Number.isFinite)) continue
+		return { inputTokens, maxTokens, contextLimit }
+	}
+	return undefined
+}
+
 /** Node/undici transport failures that mean "never reached the model". */
 const NETWORK_ERRNOS: ReadonlySet<string> = new Set([
 	'ECONNRESET',

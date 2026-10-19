@@ -12,6 +12,12 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # `/compact` and original history
 
+`/compact` takes optional text, `/compact keep the failing test names`. The text
+is given to the model step of the summary as part of what to keep, and that step
+runs even where the project has `llmVerification` off, because it is the only
+step that can act on free text. Without text, `/compact` makes no model call, as
+before. The text is cut to 2,000 characters.
+
 In a recorded conversation, `/compact` retains removed original messages before
 installing or saving the summary. This includes user-provided details omitted
 from the summary. They remain searchable through `search_conversation` and
@@ -167,6 +173,9 @@ session. It labels whether the token count was measured by the provider or
 estimated by Namzu, and whether the window was declared or assumed. An
 approximate percentage is marked with `~`; missing measurements are reported
 as unavailable rather than zero.
+
+The footer also shows `N% until auto-compact` once the context is within
+20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
 
 `/context details` adds the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing
