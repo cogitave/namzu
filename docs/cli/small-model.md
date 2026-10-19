@@ -94,7 +94,8 @@ the first message of a conversation the small model is asked for a name:
   first 1500 characters, a marker, and its end.
 
 Only the first message of a conversation is named, once per launch, and a failed
-request lets the next message try again. The title is saved to the
+request lets the next message try again. The title appears at once in the
+[terminal title](terminal-design.md#the-terminal-title) and is saved to the
 conversation when no turn is holding its log (at the end of the turn, or when the
 queue is empty): a `session_updated` record with `titleSource: derived`.
 

@@ -443,6 +443,12 @@ import {
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
+import {
+	RESET_TERMINAL_TITLE_SEQUENCE,
+	setTerminalTitleSequence,
+	terminalTitleEnabled,
+	terminalTitleText,
+} from './terminal-title.js'
 import { theme } from './theme.js'
 import {
 	PAUSED_TURN_LINES,
@@ -2175,11 +2181,22 @@ export function App({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
+	// What the conversation is called: the name a person gave it, else the title
+	// the small model wrote. They feed the terminal title; `/resume` reads the same
+	// two from the log.
+	const [conversationNames, setConversationNames] = useState<{
+		readonly named?: string
+		readonly generated?: string
+	}>({})
+	const namesSessionRef = useRef<string | undefined>(undefined)
+	// A conversation is titled once per launch: the first message asks, and a
+	// failed ask frees the next message to try again.
 	const generatedTitleAttemptedRef = useRef(new Set<string>())
 	// A title written by the model while a turn held the log; saved when the turn ends.
 	const pendingGeneratedTitleRef = useRef<
 		{ readonly sessionId: SessionId; readonly title: string } | undefined
 	>(undefined)
+	const lastTerminalTitleRef = useRef<string | undefined>(undefined)
 	/**
 	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
 	 * reads later — the transcript writer, the question and permission
@@ -6156,7 +6173,8 @@ export function App({
 	 *
 	 * A side job: it runs beside the turn, never delays or fails it, and a
 	 * conversation that already has a name or a title is left alone. The title
-	 * is saved for `/resume` when the log is free.
+	 * shows at once in the terminal title and is saved for `/resume` when the log
+	 * is free.
 	 */
 	const startGeneratedTitle = useCallback(
 		(sideModel: SideModel | undefined, sessionId: SessionId, turnId: TurnId, message: string) => {
@@ -6181,6 +6199,11 @@ export function App({
 						return
 					}
 					pendingGeneratedTitleRef.current = { sessionId, title }
+					if (scopeRef.current?.sessionId === sessionId) {
+						setConversationNames((names) =>
+							names.named !== undefined ? names : { generated: title },
+						)
+					}
 					// Saved at the end of a turn (or now, if none is running), never
 					// while one starts: the turn's claim on the log does not wait.
 					if (activeTurnTokenRef.current === null && queuedRef.current.length === 0) {
@@ -6193,6 +6216,57 @@ export function App({
 		},
 		[flushGeneratedTitle],
 	)
+
+	// The names of whichever conversation is open, read when it changes: a resume,
+	// a new conversation and a clear all move `scopeRef`, and this follows it.
+	useEffect(() => {
+		const sessionId = scopeRef.current?.sessionId
+		if (sessionId === namesSessionRef.current) return
+		namesSessionRef.current = sessionId
+		setConversationNames({})
+		const sessions = sessionsRef.current
+		if (!sessionId || !sessions || !conversationMaterializedRef.current) return
+		// Read inside an async function so a store that cannot answer is a rejection
+		// here, never an error thrown into the render.
+		void (async () => titlesOf(sessions, sessionId))().then(
+			(titles) => {
+				if (namesSessionRef.current === sessionId) setConversationNames(titles)
+			},
+			() => undefined,
+		)
+	})
+
+	// The terminal's own title: the conversation's name, with a glyph that says
+	// whether a turn is running. Reset on exit so the shell's title comes back.
+	const terminalTitle = terminalTitleText({
+		...conversationNames,
+		busy: state !== 'idle',
+	})
+	// Only the terminal this process is attached to has a title of ours to set; an
+	// embedding that renders to another stream (a test harness, a pane) is left alone.
+	const titledStream = stdout === process.stdout && terminalTitleEnabled(process.env, stdout.isTTY)
+	useEffect(() => {
+		if (!titledStream) return
+		if (lastTerminalTitleRef.current === terminalTitle) return
+		lastTerminalTitleRef.current = terminalTitle
+		stdout.write(setTerminalTitleSequence(terminalTitle))
+	}, [terminalTitle, titledStream, stdout])
+	useEffect(() => {
+		const reset = () => {
+			if (lastTerminalTitleRef.current === undefined) return
+			lastTerminalTitleRef.current = undefined
+			try {
+				stdout.write(RESET_TERMINAL_TITLE_SEQUENCE)
+			} catch {
+				// The terminal is already gone; there is no title to restore.
+			}
+		}
+		process.once('exit', reset)
+		return () => {
+			process.removeListener('exit', reset)
+			reset()
+		}
+	}, [stdout])
 
 	/**
 	 * `/rename` (and the older `/title` alias): edit or set the name this
@@ -6226,6 +6300,7 @@ export function App({
 					return
 				}
 				await setTitle(sessions, scope.sessionId, clear ? '' : title)
+				setConversationNames(clear || title.trim() === '' ? {} : { named: title.trim() })
 				pushMessage(
 					'system',
 					clear
@@ -6291,7 +6366,12 @@ export function App({
 				return
 			}
 			void setTitle(sessions, prompt.sessionId, value).then(
-				() => pushMessage('system', `Named "${value.trim()}".`),
+				() => {
+					if (scopeRef.current?.sessionId === prompt.sessionId) {
+						setConversationNames(value.trim() === '' ? {} : { named: value.trim() })
+					}
+					pushMessage('system', `Named "${value.trim()}".`)
+				},
 				(error: unknown) =>
 					pushMessage('system', explainFailure(error, 'Could not save the name.')),
 			)
