@@ -424,19 +424,13 @@ export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
 				readonly event: E
 				readonly handler: (context: PluginHookContext) => Promise<PluginHookResultFor<E>>
 				/**
-				 * Lower runs first. Default 100.
+				 * Lower comes first in the answers. Default 100.
 				 *
-				 * Order was install order, which is neither declared nor stable — it
-				 * depends on when each plugin happened to be installed. That is fine
-				 * for hooks that only observe, and wrong for the ones that decide:
-				 * `executeHooks` SHORT-CIRCUITS on `skip` and `error`, so a hook that
-				 * denies a dangerous command only gets to deny it if it runs before
-				 * whatever else stops the chain. A guard that fires depending on
-				 * installation history is not a guard.
-				 *
-				 * Ties keep registration order, so plugins that never set a priority
-				 * behave exactly as before. Convention: guards below 100, observers
-				 * above.
+				 * The hooks of one event start together and none waits for another, so
+				 * priority no longer says who runs first; it says whose answer is read
+				 * first. The first refusal in that order is the one the model is told,
+				 * and of several rewrites the last in that order wins. Ties keep
+				 * registration order. Convention: guards below 100, observers above.
 				 */
 				readonly priority?: number
 				/**

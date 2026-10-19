@@ -88,7 +88,7 @@
  * {@link attachShellHooks}, and the refusal names the new one: a hook that
  * silently stopped firing is worse than a config that fails to load.
  *
- * Each hook has a deadline (`timeoutMs`, default 30 s, capped at ten minutes)
+ * Each hook has a deadline (`timeoutMs`, default ten minutes, also the cap)
  * and its output is captured to a bound. A hook that times out is reported
  * and does not block: one that could not answer in time has not answered no.
  */
@@ -190,7 +190,7 @@ export type ShellHooksConfig = {
 /** The plugin id host shell hooks register under when the host names none. */
 export const SHELL_HOOKS_PLUGIN_ID: PluginId = asPluginId('6d6f6bec-9d54-485b-90ca-52edbac1009d')
 
-export const DEFAULT_SHELL_HOOK_TIMEOUT_MS = 30_000
+export const DEFAULT_SHELL_HOOK_TIMEOUT_MS = 600_000
 export const MAX_SHELL_HOOK_TIMEOUT_MS = 10 * 60_000
 /** Captured output bound per stream. */
 const MAX_CAPTURE_BYTES = 64 * 1024
@@ -868,9 +868,8 @@ export function createShellHook(
 
 /**
  * Register every entry on the manager, in file order within an event. The
- * manager runs `post_*` hooks in reverse, as it does for plugins, so a
- * formatter registered last runs first after a write. Returns how many were
- * attached.
+ * manager starts all of an event's hooks together and reads their answers in
+ * that order. Returns how many were attached.
  *
  * Throws, before registering anything, when the config names a renamed event
  * (`run_start` and the rest); the message names the event that replaced it.

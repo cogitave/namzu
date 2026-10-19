@@ -998,3 +998,154 @@ describe('hook options in a real turn', () => {
 		)
 	})
 })
+
+describe('matching hooks run in parallel and their answers combine', () => {
+	const pre = (output: object) =>
+		printJson({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...output } })
+	const reviewing = (tools: readonly ToolDefinition[]) => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		return {
+			prompt,
+			resumeHandler: createReviewHandler({
+				mode: 'prompt',
+				prompt,
+				registry: {
+					get: (name: string) => tools.find((tool) => tool.name === name),
+					sourceOf: () => ({ id: 'test', kind: 'host_tool' as const }),
+				},
+			}),
+		}
+	}
+
+	it('starts them together: the first cannot finish until the second has run', async () => {
+		const gate = join(scratch, 'parallel-gate')
+		const { executions } = await run({
+			hooks: {
+				pre_tool_use: [
+					// Waits for the file the second hook writes. Run one after the other,
+					// it would wait for ever and the test would hit Vitest's own timeout.
+					{ command: script(`until [ -e ${gate} ]; do sleep 0.05; done\nexit 0\n`) },
+					{ command: script(`touch ${gate}\nexit 0\n`) },
+				],
+			},
+			turns: [toolCall('note', { text: 'x' }), { text: 'done' }],
+			resumeHandler: async () => ({ action: 'approve_tools' }),
+		})
+		expect(executions).toHaveLength(1)
+	})
+
+	it('a refusal stands whichever hook gives it, and the others still ran', async () => {
+		const ran = join(scratch, 'siblings-ran')
+		const harness = makeTools()
+		const { prompt, resumeHandler } = reviewing(harness.tools)
+		const { executions } = await run({
+			harness,
+			hooks: {
+				pre_tool_use: [
+					{
+						command: script(
+							`echo allow-hook >> ${ran}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } })}\nEOF\n`,
+						),
+					},
+					{
+						command: script(
+							`echo deny-hook >> ${ran}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no' } })}\nEOF\n`,
+						),
+					},
+					{ command: script(`echo third-hook >> ${ran}\nexit 0\n`) },
+				],
+			},
+			turns: [toolCall('note', { text: 'x' }), { text: 'done' }],
+			resumeHandler,
+		})
+		const { readFileSync } = await import('node:fs')
+		expect(executions).toEqual([])
+		expect(prompt).not.toHaveBeenCalled()
+		expect(readFileSync(ran, 'utf8').trim().split('\n').sort()).toEqual([
+			'allow-hook',
+			'deny-hook',
+			'third-hook',
+		])
+	})
+
+	it('ask outranks allow whichever comes first, and allow alone approves', async () => {
+		for (const order of [
+			['allow', 'ask'],
+			['ask', 'allow'],
+		] as const) {
+			const harness = makeTools()
+			const { prompt, resumeHandler } = reviewing(harness.tools)
+			await run({
+				harness,
+				hooks: {
+					pre_tool_use: order.map((permissionDecision) => ({
+						command: pre({ permissionDecision }),
+					})),
+				},
+				turns: [toolCall('note', { text: 'x' }), { text: 'done' }],
+				resumeHandler,
+			})
+			expect(prompt, order.join(' then ')).toHaveBeenCalledTimes(1)
+		}
+	})
+
+	it('of several rewrites the last in order wins, and each hook saw the original input', async () => {
+		const seen = join(scratch, 'rewrite-seen')
+		const { executions } = await run({
+			hooks: {
+				pre_tool_use: [
+					{
+						command: script(
+							`cat >> ${seen}\necho >> ${seen}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'first rewrite' } } })}\nEOF\n`,
+						),
+					},
+					{
+						command: script(
+							`cat >> ${seen}\necho >> ${seen}\ncat <<'EOF'\n${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { text: 'second rewrite' } } })}\nEOF\n`,
+						),
+					},
+				],
+			},
+			turns: [toolCall('note', { text: 'original' }), { text: 'done' }],
+			resumeHandler: async () => ({ action: 'approve_tools' }),
+		})
+		const { readFileSync } = await import('node:fs')
+		expect(executions).toEqual([{ tool: 'note', input: { text: 'second rewrite' } }])
+		const inputs = readFileSync(seen, 'utf8')
+			.trim()
+			.split('\n')
+			.filter(Boolean)
+			.map((line) => JSON.parse(line).tool_input)
+		expect(inputs).toEqual([{ text: 'original' }, { text: 'original' }])
+	})
+
+	it('joins the additionalContext of every hook', async () => {
+		const { provider } = await run({
+			hooks: {
+				post_tool_use: [
+					{
+						command: printJson({
+							hookSpecificOutput: {
+								hookEventName: 'PostToolUse',
+								additionalContext: 'from the linter',
+							},
+						}),
+					},
+					{
+						command: printJson({
+							hookSpecificOutput: {
+								hookEventName: 'PostToolUse',
+								additionalContext: 'from the audit log',
+							},
+						}),
+					},
+				],
+			},
+			turns: [toolCall('note', { text: 'x' }), { text: 'done' }],
+			resumeHandler: async () => ({ action: 'approve_tools' }),
+		})
+		const shown = seenBy(provider.requests, 1)
+		expect(shown).toContain('from the linter')
+		expect(shown).toContain('from the audit log')
+	})
+})

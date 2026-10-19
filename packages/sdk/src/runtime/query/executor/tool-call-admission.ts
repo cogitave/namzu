@@ -364,6 +364,12 @@ function interpretPreToolResults(
 	}
 	const withContext = (text: string): string =>
 		contexts.length === 0 ? text : `${text}\n\n${hookNote(contexts)}`
+	// The hooks ran side by side on the original input, and their answers are
+	// combined here. The first refusal (or failure) in registration order is the
+	// answer, whatever the others said; of several rewrites the last wins;
+	// `ask` outranks `allow`; every context is kept; every request to stop is
+	// passed on.
+	let refusal: { kind: 'skip' | 'error'; text: string } | undefined
 	for (const result of results) {
 		switch (result.action) {
 			case 'continue':
@@ -381,17 +387,11 @@ function interpretPreToolResults(
 			case 'skip':
 				if (result.context) contexts.push(result.context)
 				if (result.halt) requestHalt?.(result.halt.reason)
-				return {
-					kind: 'skip',
-					input: currentInput,
-					output: withContext(skippedToolResultText(toolName, result.reason)),
-				}
+				refusal ??= { kind: 'skip', text: skippedToolResultText(toolName, result.reason) }
+				continue
 			case 'error':
-				return {
-					kind: 'error',
-					input: currentInput,
-					output: `Error: ${result.message}`,
-				}
+				refusal ??= { kind: 'error', text: `Error: ${result.message}` }
+				continue
 			case 'retry':
 			case 'annotate':
 			// There is no result to replace yet. Rejecting loudly beats
@@ -406,6 +406,13 @@ function interpretPreToolResults(
 				const _exhaustive: never = result
 				throw new Error(`Unknown PluginHookResult: ${JSON.stringify(_exhaustive)}`)
 			}
+		}
+	}
+	if (refusal) {
+		return {
+			kind: refusal.kind,
+			input: currentInput,
+			output: refusal.kind === 'skip' ? withContext(refusal.text) : refusal.text,
 		}
 	}
 	return {

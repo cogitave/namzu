@@ -603,26 +603,34 @@ export async function* runToolReview(
 				},
 				ctx.emitEvent,
 			)
+			// The hooks answered side by side: a refusal from any of them stands,
+			// whatever the others allowed.
+			const refusal = answers.find((answer) => answer.action === 'skip')
 			for (const answer of answers) {
-				if (answer.action === 'skip') {
-					const reason = `Blocked by a permission_request hook: ${answer.reason}`
-					gateDenied.set(tc.id, reason)
-					tc.authorization = { decision: 'deny', reason }
-					await ctx.recorder.recordAudit({
-						what: { action: 'tool_call', tool: tc.name },
-						outcome: 'refused',
-						reason,
-					})
-					if (answer.halt) ctx.toolExecutor.requestHalt?.(answer.halt.reason)
-					break
+				if ((answer.action === 'continue' || answer.action === 'skip') && answer.halt) {
+					ctx.toolExecutor.requestHalt?.(answer.halt.reason)
 				}
-				if (answer.action === 'continue') {
-					if (answer.permission?.decision === 'allow' && hookMayAllow(tc)) {
-						tc.hookGrant = {
-							...(answer.permission.reason ? { reason: answer.permission.reason } : {}),
-						}
+			}
+			if (refusal?.action === 'skip') {
+				const reason = `Blocked by a permission_request hook: ${refusal.reason}`
+				gateDenied.set(tc.id, reason)
+				tc.authorization = { decision: 'deny', reason }
+				await ctx.recorder.recordAudit({
+					what: { action: 'tool_call', tool: tc.name },
+					outcome: 'refused',
+					reason,
+				})
+				continue
+			}
+			for (const answer of answers) {
+				if (
+					answer.action === 'continue' &&
+					answer.permission?.decision === 'allow' &&
+					hookMayAllow(tc)
+				) {
+					tc.hookGrant = {
+						...(answer.permission.reason ? { reason: answer.permission.reason } : {}),
 					}
-					if (answer.halt) ctx.toolExecutor.requestHalt?.(answer.halt.reason)
 				}
 			}
 		}

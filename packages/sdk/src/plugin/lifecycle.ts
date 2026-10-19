@@ -1068,116 +1068,42 @@ export class PluginLifecycleManager {
 			return []
 		}
 
-		const results: PluginHookResult[] = []
-		// Interrupt hooks are cleanup/notification observers. One extension's
-		// skip, error, retry, or timeout must not suppress the extensions that
-		// follow it, and none of those results can change the cancellation that
-		// already happened. Other hook events retain their existing flow-control
-		// semantics.
-		const observationalFanOut = event === 'turn_interrupt'
-
-		// Determine execution order: post_* hooks run backward (for cleanup semantics)
-		const isPost = event.startsWith('post_')
-
-		// For post_* hooks, we need to process in reverse order (last registered runs first)
-		const indicesToProcess: number[] = []
-		if (isPost) {
-			for (let i = handlers.length - 1; i >= 0; i--) {
-				indicesToProcess.push(i)
-			}
-		} else {
-			for (let i = 0; i < handlers.length; i++) {
-				indicesToProcess.push(i)
-			}
-		}
-
-		// Track input overlay so chained `modify` actions compose: each subsequent
-		// hook sees the input produced by the previous hook's modify.
-		let toolInputOverlay = context.toolInput
-
-		for (const idx of indicesToProcess) {
-			const hookEntry = handlers[idx]
-			if (!hookEntry) continue
-			const { pluginId, handler: handlerFn, statusMessage } = hookEntry
-			const hookContext: PluginHookContext = {
-				...context,
-				toolInput: toolInputOverlay,
-				pluginId,
-				event,
-			}
-
-			if (emitSessionEvent) {
-				await emitSessionEvent({
-					type: 'plugin_hook_executing',
-					sessionId: context.sessionId,
-					...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
-					pluginId,
-					hookEvent: event,
-					...(statusMessage !== undefined ? { statusMessage } : {}),
-				})
-				callerSignal?.throwIfAborted()
-			}
-
-			const start = performance.now()
-			let result: PluginHookResult
-
-			// The deadline timer is captured and cleared in `finally`.
-			// Without that it stayed armed after the hook resolved, and an
-			// armed timer keeps the Node event loop alive: hooks fire on
-			// every tool call and every model call, so a turn of twenty tool
-			// calls left twenty live timers and the process could not exit
-			// until the last one expired. Nothing failed — it just hung, for
-			// up to the timeout, every time.
-			const deadline = new AbortController()
-			const hookSignal = callerSignal
-				? AbortSignal.any([callerSignal, deadline.signal])
-				: deadline.signal
-			let timer: ReturnType<typeof setTimeout> | undefined
-			let onCallerAbort: (() => void) | undefined
-
-			try {
-				const races: Promise<PluginHookResult>[] = [
-					Promise.resolve().then(() => handlerFn({ ...hookContext, signal: hookSignal })),
-					new Promise<PluginHookResult>((_, reject) => {
-						timer = setTimeout(() => {
-							// Told, not just abandoned: a hook holding a socket
-							// open can close it.
-							deadline.abort()
-							reject(new Error('Hook timeout'))
-						}, this.hookTimeoutMs)
-					}),
-				]
-				if (callerSignal) {
-					races.push(
-						new Promise<PluginHookResult>((_, reject) => {
-							onCallerAbort = () => reject(callerSignal.reason)
-							callerSignal.addEventListener('abort', onCallerAbort, {
-								once: true,
-							})
-							if (callerSignal.aborted) onCallerAbort()
-						}),
-					)
-				}
-				result = await Promise.race(races)
-				callerSignal?.throwIfAborted()
-			} catch (err) {
-				// Cancellation belongs to the turn, not to the plugin. Turning it
-				// into a hook error would let the query continue after its caller
-				// withdrew authority and would report Stop as a plugin failure.
-				if (callerSignal?.aborted) throw callerSignal.reason
-				const message = toErrorMessage(err)
-				result = { action: 'error', message }
-			} finally {
-				if (timer !== undefined) clearTimeout(timer)
-				if (onCallerAbort) callerSignal?.removeEventListener('abort', onCallerAbort)
-			}
-
+		// Every matching hook starts at once, on the context the event carried,
+		// and the answers come back in registration (priority) order. Nothing
+		// short-circuits: a hook that refuses does not stop its siblings from
+		// running, and the caller decides how the answers combine (a refusal
+		// outranks an `ask`, which outranks an `allow`; of several rewrites the
+		// last in order wins; contexts are joined). The old chain ran them one
+		// by one, `post_*` in reverse, each seeing the previous hook's `modify`.
+		const entries = handlers.map((hookEntry) => ({
+			hookEntry,
+			hookContext: { ...context, pluginId: hookEntry.pluginId, event } as PluginHookContext,
+		}))
+		for (const { hookEntry } of entries) {
+			if (!emitSessionEvent) break
+			await emitSessionEvent({
+				type: 'plugin_hook_executing',
+				sessionId: context.sessionId,
+				...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
+				pluginId: hookEntry.pluginId,
+				hookEvent: event,
+				...(hookEntry.statusMessage !== undefined
+					? { statusMessage: hookEntry.statusMessage }
+					: {}),
+			})
 			callerSignal?.throwIfAborted()
-			const durationMs = Math.round(performance.now() - start)
-
+		}
+		const settled = await Promise.all(
+			entries.map(({ hookEntry, hookContext }) =>
+				this.runOneHook(hookEntry, hookContext, callerSignal),
+			),
+		)
+		callerSignal?.throwIfAborted()
+		const results: PluginHookResult[] = []
+		for (const { hookEntry, result, durationMs } of settled) {
 			this.emit({
 				type: 'plugin_hook_executed',
-				pluginId,
+				pluginId: hookEntry.pluginId,
 				hookEvent: event,
 				durationMs,
 			})
@@ -1188,30 +1114,89 @@ export class PluginLifecycleManager {
 					type: 'plugin_hook_completed',
 					sessionId: context.sessionId,
 					...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
-					pluginId,
+					pluginId: hookEntry.pluginId,
 					hookEvent: event,
 					result,
 				})
 				callerSignal?.throwIfAborted()
 			}
-
 			results.push(result)
+		}
+		return results
+	}
 
-			if (!observationalFanOut && result.action === 'modify') {
-				toolInputOverlay = result.input
-			}
+	/**
+	 * Run one hook to its answer: bounded by the manager's deadline and the
+	 * turn's own cancellation. A throw or a timeout is an `error` answer; the
+	 * turn's cancellation is rethrown, because it belongs to the turn.
+	 */
+	private async runOneHook(
+		hookEntry: {
+			pluginId: PluginId
+			handler: (context: PluginHookContext) => Promise<PluginHookResult>
+		},
+		hookContext: PluginHookContext,
+		callerSignal: AbortSignal | undefined,
+	): Promise<{ hookEntry: typeof hookEntry; result: PluginHookResult; durationMs: number }> {
+		const { handler: handlerFn } = hookEntry
+		const start = performance.now()
+		let result: PluginHookResult
 
-			// Handle flow control: check priority order: error > skip > retry > resume > modify > continue
-			// Short-circuit on error or skip; return immediately on resume or retry
-			if (!observationalFanOut && (result.action === 'error' || result.action === 'skip')) {
-				break
+		// The deadline timer is captured and cleared in `finally`.
+		// Without that it stayed armed after the hook resolved, and an
+		// armed timer keeps the Node event loop alive: hooks fire on
+		// every tool call and every model call, so a turn of twenty tool
+		// calls left twenty live timers and the process could not exit
+		// until the last one expired. Nothing failed — it just hung, for
+		// up to the timeout, every time.
+		const deadline = new AbortController()
+		const hookSignal = callerSignal
+			? AbortSignal.any([callerSignal, deadline.signal])
+			: deadline.signal
+		let timer: ReturnType<typeof setTimeout> | undefined
+		let onCallerAbort: (() => void) | undefined
+
+		try {
+			const races: Promise<PluginHookResult>[] = [
+				Promise.resolve().then(() => handlerFn({ ...hookContext, signal: hookSignal })),
+				new Promise<PluginHookResult>((_, reject) => {
+					timer = setTimeout(() => {
+						// Told, not just abandoned: a hook holding a socket
+						// open can close it.
+						deadline.abort()
+						reject(new Error('Hook timeout'))
+					}, this.hookTimeoutMs)
+				}),
+			]
+			if (callerSignal) {
+				races.push(
+					new Promise<PluginHookResult>((_, reject) => {
+						onCallerAbort = () => reject(callerSignal.reason)
+						callerSignal.addEventListener('abort', onCallerAbort, {
+							once: true,
+						})
+						if (callerSignal.aborted) onCallerAbort()
+					}),
+				)
 			}
-			if (!observationalFanOut && result.action === 'retry') {
-				break
-			}
+			result = await Promise.race(races)
+			callerSignal?.throwIfAborted()
+		} catch (err) {
+			// Cancellation belongs to the turn, not to the plugin. Turning it
+			// into a hook error would let the query continue after its caller
+			// withdrew authority and would report Stop as a plugin failure.
+			if (callerSignal?.aborted) throw callerSignal.reason
+			const message = toErrorMessage(err)
+			result = { action: 'error', message }
+		} finally {
+			if (timer !== undefined) clearTimeout(timer)
+			if (onCallerAbort) callerSignal?.removeEventListener('abort', onCallerAbort)
 		}
 
-		return results
+		callerSignal?.throwIfAborted()
+		const durationMs = Math.round(performance.now() - start)
+
+		return { hookEntry, result, durationMs }
 	}
 
 	private emit(event: PluginLifecycleEvent): void {

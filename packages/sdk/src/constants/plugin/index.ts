@@ -34,7 +34,7 @@ export const MAX_CONNECTORS_PER_PLUGIN = 10
 export const MAX_PERSONAS_PER_PLUGIN = 5
 
 /** Hook execution */
-export const HOOK_TIMEOUT_MS = 5_000
+export const HOOK_TIMEOUT_MS = 600_000
 
 /**
  * Priority a hook gets when it does not declare one.
