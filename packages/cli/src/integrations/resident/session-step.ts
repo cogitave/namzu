@@ -382,6 +382,7 @@ export function createResidentSessionStep(
 				...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 				...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 				...(ctx.config.web ? { web: ctx.config.web } : {}),
+				...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
 				...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 				...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
 				...(ctx.config.memory ? { memory: ctx.config.memory } : {}),

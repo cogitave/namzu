@@ -118,7 +118,8 @@ import {
 	writePreferences,
 	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
-import { displayConversationTitle } from '../integrations/sessions/display-title.js'
+import { generateTitle } from '../integrations/sessions/ai-title.js'
+import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -132,16 +133,19 @@ import {
 	loadConversation,
 	loadResumableConversation,
 	openSessions,
+	recordGeneratedTitle,
 	requireWritableConversation,
 	setTitle,
 	startConversation,
 	titleOf,
+	titlesOf,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import type { SideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -2171,6 +2175,11 @@ export function App({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
+	const generatedTitleAttemptedRef = useRef(new Set<string>())
+	// A title written by the model while a turn held the log; saved when the turn ends.
+	const pendingGeneratedTitleRef = useRef<
+		{ readonly sessionId: SessionId; readonly title: string } | undefined
+	>(undefined)
 	/**
 	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
 	 * reads later — the transcript writer, the question and permission
@@ -4456,6 +4465,7 @@ export function App({
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
+							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
@@ -6126,6 +6136,62 @@ export function App({
 			resetTranscript,
 			wakeGoalDriver,
 		],
+	)
+
+	/** Save a title the model wrote, once no turn holds the log. A busy log is tried again at the next turn's end. */
+	const flushGeneratedTitle = useCallback(async () => {
+		const pending = pendingGeneratedTitleRef.current
+		const sessions = sessionsRef.current
+		if (!pending || !sessions) return
+		try {
+			await recordGeneratedTitle(sessions, pending.sessionId, pending.title)
+			if (pendingGeneratedTitleRef.current === pending) pendingGeneratedTitleRef.current = undefined
+		} catch {
+			// The log is held by a turn; the turn's end calls this again.
+		}
+	}, [])
+
+	/**
+	 * After a conversation's first message, ask the small model for a name.
+	 *
+	 * A side job: it runs beside the turn, never delays or fails it, and a
+	 * conversation that already has a name or a title is left alone. The title
+	 * is saved for `/resume` when the log is free.
+	 */
+	const startGeneratedTitle = useCallback(
+		(sideModel: SideModel | undefined, sessionId: SessionId, turnId: TurnId, message: string) => {
+			const sessions = sessionsRef.current
+			if (!sideModel || !sessions || generatedTitleAttemptedRef.current.has(sessionId)) return
+			generatedTitleAttemptedRef.current.add(sessionId)
+			const typed = typedTextOf(message)
+			const text = typed.text.trim() ? typed.text : (typed.firstFile ?? '')
+			void (async () => {
+				try {
+					const existing = await titlesOf(sessions, sessionId)
+					if (existing.named !== undefined || existing.generated !== undefined) return
+					const title = await generateTitle({
+						sideModel,
+						sessionId,
+						turnId,
+						message: text,
+						signal: AbortSignal.timeout(30_000),
+					})
+					if (title === undefined) {
+						generatedTitleAttemptedRef.current.delete(sessionId)
+						return
+					}
+					pendingGeneratedTitleRef.current = { sessionId, title }
+					// Saved at the end of a turn (or now, if none is running), never
+					// while one starts: the turn's claim on the log does not wait.
+					if (activeTurnTokenRef.current === null && queuedRef.current.length === 0) {
+						await flushGeneratedTitle()
+					}
+				} catch {
+					generatedTitleAttemptedRef.current.delete(sessionId)
+				}
+			})()
+		},
+		[flushGeneratedTitle],
 	)
 
 	/**
@@ -7975,6 +8041,9 @@ export function App({
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
+					if (prompt.kind === 'human' && destination) {
+						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
+					}
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -8223,6 +8292,9 @@ export function App({
 				// The kernel recorded the turn in the session log as it ran; nothing is
 				// left to publish once the loop has unwound.
 				unsettledTurnGenerationsRef.current.delete(turnToken)
+				// Not while a queued message is about to start the next turn: both
+				// would claim the log, and the turn does not wait for the lease.
+				if (queuedRef.current.length === 0) void flushGeneratedTitle()
 				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {

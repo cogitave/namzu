@@ -817,6 +817,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
 					...(projectCtx.config.skills ? { skills: projectCtx.config.skills } : {}),
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
+					...(projectCtx.config.smallModel ? { smallModel: projectCtx.config.smallModel } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),

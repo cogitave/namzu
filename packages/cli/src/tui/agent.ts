@@ -295,6 +295,7 @@ import {
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import { type ConversationContext, ensureSessionStarted } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
+import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
@@ -999,6 +1000,12 @@ export interface SessionWorkflows {
 }
 
 export interface AgentSession {
+	/**
+	 * Requests beside the conversation, on a small model: its title and the
+	 * answer `web_fetch` extracts. Absent where a turn's ledger cannot count
+	 * them, in which case no such request is made.
+	 */
+	readonly sideModel?: SideModel
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
@@ -2002,6 +2009,8 @@ export interface AgentSessionOptions {
 	readonly sandbox?: SandboxConfig
 	/** See `NamzuCliConfig.web`. Absent means no web tool and no provider. */
 	readonly web?: WebConfig
+	/** See `NamzuCliConfig.smallModel`. Absent: the cheapest priced text model of the active provider. */
+	readonly smallModel?: string
 	/**
 	 * Mount `ask_user_question`. Only where somebody can answer: an
 	 * interactive terminal says `true`; a headless run leaves it absent, so
@@ -2986,6 +2995,9 @@ export async function createAgentSession(
 		webSearchTool = createWebSearchTool()
 		toolsets.push(toolset('web-search', [webSearchTool]))
 	}
+	// Requests beside the conversation (its title, the answer `web_fetch` extracts)
+	// on a small model. Present only where a turn's ledger can count them.
+	let sideModel: SideModel | undefined
 	const webCapability = options.web?.fetch ? { fetch: new GuardedFetchProvider() } : undefined
 	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
@@ -3107,6 +3119,25 @@ export async function createAgentSession(
 	const directChildReports = new Set<
 		(report: { readonly parentSessionId: string; readonly text: string }) => void
 	>()
+	/** A provider client for `providerId` on `selectedModel`, with this machine's credential for it. */
+	const providerForModel = async (
+		invokingSessionId: SessionId | undefined,
+		providerId: ProviderId,
+		selectedModel: string,
+	): Promise<LLMProvider> => {
+		if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
+			throw new Error('A delegated provider requires its invoking conversation.')
+		await ensureRegistered(providerId)
+		const credential = await currentCredentialFor(providerId)
+		return constructProvider(
+			providerId,
+			providerId === primary.id && credential
+				? { ...credential, apiKey: currentToken ?? credential.apiKey }
+				: credential,
+			selectedModel,
+			{ sessionId: invokingSessionId },
+		)
+	}
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -3261,18 +3292,7 @@ export async function createAgentSession(
 					? (selection.provider as ProviderId)
 					: ((turnRouteTarget?.provider as ProviderId | undefined) ?? primary.id)
 				const selectedModel = selection?.model ?? turnRouteTarget?.model ?? model
-				if (!invokingSessionId && (providerId === 'zen' || providerId === 'zen-go'))
-					throw new Error('A delegated provider requires its invoking conversation.')
-				await ensureRegistered(providerId)
-				const credential = await currentCredentialFor(providerId)
-				const childProvider = constructProvider(
-					providerId,
-					providerId === primary.id && credential
-						? { ...credential, apiKey: currentToken ?? credential.apiKey }
-						: credential,
-					selectedModel,
-					{ sessionId: invokingSessionId },
-				)
+				const childProvider = await providerForModel(invokingSessionId, providerId, selectedModel)
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
 				return childProvider
 			},
@@ -3314,6 +3334,26 @@ export async function createAgentSession(
 			authorizationGate: gateFor(sessionRules),
 		})
 		subagentRuntime = sub
+		sideModel = createSideModel({
+			active: () => ({
+				providerId: turnRouteTarget?.provider ?? primary.id,
+				model: turnRouteTarget?.model ?? model,
+			}),
+			configured: options.smallModel,
+			isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+			buildProvider: (sessionId, target) =>
+				providerForModel(sessionId, target.providerId as ProviderId, target.model),
+			offerable: (providerId, listed) => {
+				const found = findDetected(detected, providerId as ProviderId)
+				return (
+					found != null &&
+					canSelectModel(found.entry, found.apiKey, listed.id) &&
+					isOfferableModel(providerId, listed.id)
+				)
+			},
+			ledger: sub.sideLedger,
+			debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+		})
 		// The parent's own toolsets, and only ever these — and only where
 		// somebody is there to read it, the same condition `ask_user_question`
 		// mounts under further down. A child's roster is `buildTools` above,
@@ -3438,6 +3478,7 @@ export async function createAgentSession(
 			)
 		}
 		subagentRuntime = undefined
+		sideModel = undefined
 		// Sub-agents unavailable this session — non-fatal: `allowedAgentIds`
 		// stays empty and the chat still works. Silent until now, which was
 		// the wrong kind of non-fatal — an operator who expected delegation
@@ -4430,6 +4471,7 @@ export async function createAgentSession(
 					}))(workflowHost),
 				}
 			: {}),
+		...(sideModel ? { sideModel } : {}),
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,

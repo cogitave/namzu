@@ -79,7 +79,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-deepseek-capability-app-'))
 	roots.push(cwd)
 	const network = vi.fn(() => {
-		throw new Error('network must not be reached for a locally unsupported attachment')
+		throw new Error('network must not be reached with a locally unsupported attachment')
 	})
 	vi.stubGlobal('fetch', network)
 	const harness = render(<App ctx={{ cwd, version: '0.0.0-test' } as TuiContext} />)
@@ -107,5 +107,11 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	expect(rendered).not.toContain('Capability warning')
 	expect(rendered).toContain("Model 'deepseek-v4-flash' does not accept image input")
 	expect(rendered).toContain("Select 'deepseek-v4-flash-vision-exp'")
-	expect(network).not.toHaveBeenCalled()
+	// The image never leaves the machine. The conversation's title is asked of a
+	// small model beside the turn, and its model listing is a request of its own,
+	// but neither carries the attachment the provider refused locally.
+	const bodies = (network.mock.calls as unknown as [unknown, { body?: unknown } | undefined][])
+		.map(([, init]) => String(init?.body ?? ''))
+		.join('\n')
+	expect(bodies).not.toContain('AAAA')
 })

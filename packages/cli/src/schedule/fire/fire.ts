@@ -558,6 +558,7 @@ export async function runFire(
 		...(config.skills ? { skills: config.skills } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
+		...(config.smallModel ? { smallModel: config.smallModel } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),
 		...(config.memory ? { memory: config.memory } : {}),
 		sandbox:

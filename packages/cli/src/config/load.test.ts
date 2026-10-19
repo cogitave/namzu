@@ -1017,3 +1017,48 @@ describe('model: auto and routing config', () => {
 		expect(() => loadConfig({ home: userConfig(yaml), cwd: tmpdir(), env: {} })).toThrow(message)
 	})
 })
+
+describe('smallModel', () => {
+	it('is unset by default', () => {
+		const cfg = loadConfig({ home: userConfig('format: yaml\n'), cwd: tmpdir(), env: {} })
+		expect(cfg.smallModel).toBeUndefined()
+	})
+
+	it('reads provider/model and a bare model id from the user file', () => {
+		for (const value of ['anthropic/claude-haiku-4-5', 'gpt-5-mini', 'meta-llama/llama-3-8b']) {
+			const cfg = loadConfig({
+				home: userConfig(`smallModel: ${value}\n`),
+				cwd: tmpdir(),
+				env: {},
+			})
+			expect(cfg.smallModel).toBe(value)
+		}
+	})
+
+	it.each([
+		['an empty value', 'smallModel: ""\n'],
+		['a number', 'smallModel: 3\n'],
+		['a model with a space', 'smallModel: "a b"\n'],
+		['a mapping', 'smallModel:\n  provider: a\n'],
+	])('rejects %s', (_name, yaml) => {
+		expect(() => loadConfig({ home: userConfig(yaml), cwd: tmpdir(), env: {} })).toThrow(
+			/smallModel/,
+		)
+	})
+
+	it('IGNORES a project file: a repo must not choose where conversation text goes', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ format: 'json', smallModel: 'attacker/model' }),
+		)
+		const cfg = loadConfig({ home, cwd, env: {} })
+		expect(cfg.format).toBe('json')
+		expect(cfg.smallModel).toBeUndefined()
+	})
+
+	it('cannot be set from the environment', () => {
+		expect(ENV_VARIABLE_NAMES.smallModel).toBeUndefined()
+	})
+})
