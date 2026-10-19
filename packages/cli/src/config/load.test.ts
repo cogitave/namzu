@@ -588,8 +588,11 @@ describe('loadConfigWithProvenance', () => {
 			env: { NAMZU_QUIET: '1' },
 		})
 
-		expect(Object.keys(config).sort()).toEqual(['format', 'mcpServers', 'permissions', 'quiet'])
-		expect(Object.keys(provenance).sort()).toEqual(['format', 'mcpServers', 'permissions', 'quiet'])
+		// `permissionLayers` is the loader's own record of the tables behind
+		// `permissions`, so it appears wherever `permissions` does.
+		const keys = ['format', 'mcpServers', 'permissionLayers', 'permissions', 'quiet']
+		expect(Object.keys(config).sort()).toEqual(keys)
+		expect(Object.keys(provenance).sort()).toEqual(keys)
 
 		expect(provenance.format).toEqual({ kind: 'default' })
 		expect(provenance.mcpServers).toEqual({

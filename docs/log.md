@@ -2,6 +2,7 @@
 
 ## 2026-10-19
 
+- **Creation** [Permission layers and remembered answers](cli/permission-layers.md): the `permissions` tables of the user, project and managed files are joined instead of replaced, and a deny from any layer wins (ask over allow, deny over ask), as in the reference terminal's settings sources. `permissionLayers` is new on the loaded config. `.changeset/permission-layers.md`, **major** for `@namzu/cli`.
 - **Update** [Crossing the tool boundary](sdk/escalations.md) and [Where tools run](cli/tool-boundary.md): three safety floors follow the reference terminal, read from its code. A write to a protected path (`.git`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn`, `.config/git`, `.namzu`, shell startup files, `.gitconfig`, `.envrc`, `.npmrc`, `namzu.config.json` and the rest) is asked about in every mode, `auto` included, and refused with nobody to ask; a catastrophic `rm`/`rmdir` is read by its targets whatever the flags (`rm -fr /`, `rm -r -f ~`, `rm -rf "$DIR/"`, `..`, the working directory) and handled the same way; a shell command's own file operands and redirections are compared with the working directory like a file tool's path. New `ToolCallEscalation.protectedPaths` and `.dangerousRemoval`, audit actions `protected_path_write` and `dangerous_removal`. The old `rm -rf /` pattern stays in the dangerous-command floor. `.changeset/safety-floor.md`.
 
 ## 2026-10-18

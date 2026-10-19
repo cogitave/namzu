@@ -38,7 +38,7 @@ import {
 	narrower,
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
-import type { PermissionsConfig } from '../permissions/rules.js'
+import { type PermissionsConfig, mergePermissionTables } from '../permissions/rules.js'
 import { homePath } from '../tui/person-terms.js'
 import {
 	COMPOSER_TRIGGER_IDS,
@@ -689,6 +689,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (Array.isArray(v)) return v as PermissionChecksConfig
 		return invalidConfigValue(context, [], 'must be a list')
 	},
+	// Derived from the layers' `permissions` tables while the cascade merges;
+	// a file that wrote it would be claiming to be several layers at once.
+	permissionLayers: (_v, context) =>
+		invalidConfigValue(context, [], 'is worked out from the permissions tables; remove it'),
 	// Every declared profile is checked when its file loads, not only when it is
 	// selected. Typed config in a lower-precedence layer cannot become valid
 	// merely because another layer happens to win today. Unknown profile keys
@@ -1508,6 +1512,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// author wrote — from a shell profile, with nothing in the config file to
 	// show for it.
 	permissionChecks: undefined,
+	// Derived from the files' tables, never set from outside.
+	permissionLayers: undefined,
 	// The SET of profiles is not env-settable — it is the thing being chosen
 	// BETWEEN, and a variable that could replace it could hand a shell a
 	// profile the files never declared. `NAMZU_PROFILE` selects one of the
@@ -1721,8 +1727,20 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 } {
 	const out: MutableConfig = {}
 	const provenance: { -readonly [K in keyof NamzuCliConfig]?: ConfigSource } = {}
+	const permissionTables: PermissionsConfig[] = []
 	for (const layer of layers) {
 		for (const key of Object.keys(layer.config) as (keyof NamzuCliConfig)[]) {
+			if (key === 'permissions' && layer.config.permissions) {
+				// Joined, not replaced: a project's table must not erase a user's
+				// deny, nor a managed table the rules below it. See
+				// `compilePermissionLayers`.
+				permissionTables.push(layer.config.permissions)
+				out.permissions = mergePermissionTables(permissionTables)
+				out.permissionLayers = [...permissionTables]
+				provenance[key] = layer.sourceFor(key)
+				provenance.permissionLayers = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'browser' && layer.config.browser) {
 				// Merged, not replaced: see `mergeBrowserConfig`.
 				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
