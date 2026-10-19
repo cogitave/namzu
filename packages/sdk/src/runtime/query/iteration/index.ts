@@ -88,6 +88,7 @@ import {
 	measureContext,
 	relieveOverflow,
 	runCompactionCheck,
+	stopOnRefill,
 } from './phases/compaction.js'
 import { runHandoffPause } from './phases/handoff.js'
 import type { IterationContext } from './phases/index.js'
@@ -2031,6 +2032,18 @@ export class IterationOrchestrator {
 						!(err instanceof AnswerReviewFailure) &&
 						classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
 					) {
+						// The rapid-refill check comes first, before the first reactive relief
+						// of an overflow, as in the reference terminal. A relief that follows
+						// the previous compaction within the refill window counts toward the
+						// limit, so a tool that re-fills the window every time it is called
+						// stops the turn instead of being cleared and called again without end.
+						// The deeper rung of the same overflow is not counted again.
+						if (overflowReliefs === 0 && (await stopOnRefill(this.ctx))) {
+							if (iterationActivity) {
+								this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
+							}
+							if (this.stopForCompactionBreaker()) break
+						}
 						// A rung that sheds too little to change the verdict is not worth a
 						// provider call; climb to the next one at once.
 						let shed = false
@@ -2039,6 +2052,10 @@ export class IterationOrchestrator {
 							shed = await relieveOverflow(this.ctx, { deeper: overflowReliefs > 1 })
 						}
 						if (shed) {
+							// Clearing results is a compaction too: only summaries and reducers
+							// recorded themselves, so a clear-only relief was invisible to the
+							// breaker.
+							compactionBreaker(this.ctx)?.recordCompaction(iterationNum)
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,

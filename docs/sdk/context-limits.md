@@ -98,7 +98,12 @@ turn:
   'breaker_open'`, which carries no `error`. A pass the provider forces by
   rejecting the prompt is never gated, so the recovery above still runs.
 - Three compactions in a row, each followed by the context reaching the
-  trigger again within three iterations, stop the turn with stop reason
+  trigger again within three iterations, stop the turn. A relief of a context
+  overflow counts as a compaction, including one that only cleared tool
+  results, and the check runs before the first relief of each overflow (the
+  deeper rung of the same overflow is not counted again), as in the reference
+  terminal. A tool that fills the window on every call is stopped on the third
+  overflow, not after the cleared placeholders fill the window. The turn stops with stop reason
   `error` and a `compaction_failed` event with `cause: 'refilling'` (sent once;
   `error` is the line to show, and it is the turn's last error). The line names
   the cause (a file being read or a tool output too large for the window) and

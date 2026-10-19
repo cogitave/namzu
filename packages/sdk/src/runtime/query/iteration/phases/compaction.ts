@@ -430,8 +430,11 @@ async function declined(
 /**
  * The third refill in a row: stop the turn instead of compacting again.
  * Returns true when this pass must not run. Only with `circuitBreaker`.
+ * The loop also asks it before the first reactive relief of an overflow, as
+ * the reference terminal does (`rhr` runs first in its withheld-overflow
+ * handling), so a re-read loop made only of overflows is counted too.
  */
-async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
+export async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
 	const breaker = compactionBreaker(ctx)
 	if (!breaker) return false
 	// Already announced: the turn is on its way out; do not say it twice.
