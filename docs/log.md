@@ -6,6 +6,7 @@
 - **Update** [The review policy](sdk/review-policy.md): `planModeWrite`, the one write `plan` mode lets through.
 - **Creation** [Plan mode in the CLI](cli/plan-mode.md): plan mode follows the reference. The model may write exactly one file in plan mode (`<session>/plans/plan.md`), presents the plan with `exit_plan_mode`, and the person approves it in a box (auto-approve edits, ask before each edit, or keep planning with typed feedback); approving switches the mode through `applyPermissionMode`, writes the plan into the transcript and leaves the file. The terminal turns on the SDK's reminder channel for plan mode: a reminder when none was sent in the last 5 operator turns, full text on the 1st and every 5th, a note when the mode is left. `.changeset/cc-plan-mode.md`, **minor** for `@namzu/cli`.
 - **Update** [Session storage](cli/session-storage.md) and [Slash commands](cli/slash-commands.md): `plans/plan.md` joins the session directory, and Shift+Tab's description points at the approval as plan mode's way out.
+- **Creation** [Plan mode in the CLI](cli/plan-mode.md#reminders): the task-list nudge, on the same reminder channel. After 10 model turns without `task_create` or `task_update`, at most once per 10 model turns, the model is shown the current task list with a note that the task tools exist. `.changeset/cc-task-nudge.md`, **minor** for `@namzu/cli`.
 
 ## 2026-10-18
 

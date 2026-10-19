@@ -2032,7 +2032,7 @@ export interface AgentSessionOptions {
 	readonly planApproval?: boolean
 	/**
 	 * Feed each turn hidden reminders (`QueryParams.reminders`): the plan-mode
-	 * reminders when `planApproval` is on. Absent, a
+	 * reminders when `planApproval` is on, and the task-list nudge. Absent, a
 	 * turn carries none.
 	 */
 	readonly reminders?: boolean
@@ -5061,6 +5061,7 @@ export async function createAgentSession(
 												canAsk: Boolean(options.askUser && subagentRuntime),
 											}
 										: {}),
+									tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
 								})
 							: undefined
 						// An ephemeral session keeps its whole turn in memory: a fresh

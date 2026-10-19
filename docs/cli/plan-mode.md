@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Plan mode in the CLI
-description: What plan mode lets the model write, how it presents a plan and what the approval box offers, which mode each answer switches to, the hidden reminders that restate the rules, and what Desktop would still need.
+description: What plan mode lets the model write, how it presents a plan and what the approval box offers, which mode each answer switches to, the hidden reminders that restate the rules and nudge the task list, and what Desktop would still need.
 resource: packages/cli/src/plan/exit-plan-mode-tool.ts
 tags: [cli, plan-mode, permissions, reminders]
 status: stable
@@ -52,6 +52,8 @@ A turn in the terminal is fed hidden reminders through the SDK's [reminder chann
 - Leaving plan mode, by an approval or by Shift+Tab, sends one note that the mode is off and where the plan is.
 
 The full text says what the reference's says in other words: change nothing except the plan file, understand the request and look for code to reuse, settle on one approach, write context, approach, files, reuse and verification, and end the turn only by asking the user a question or by calling `exit_plan_mode`, never by asking in plain text whether the plan is fine.
+
+**Task-list nudge.** After 10 model turns (assistant messages) without `task_create` or `task_update`, and at most once per 10 model turns, the model is reminded that the task tools exist and shown the current list (`#<id>. [<status>] <subject>`). The counts come from the conversation, so they survive a resume and start again when compaction shed the history they were counting.
 
 ## What this does not do, and what is open
 
