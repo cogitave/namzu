@@ -11,8 +11,6 @@ export type FailureAction =
 	| 'new-conversation'
 	/** Close the stopped turn, keep working here, and put the message back in the box. */
 	| 'continue'
-	/** Carry the saved message and its files to a new conversation of the same project. */
-	| 'copy-to-new'
 
 export interface FriendlyFailure {
 	kind:

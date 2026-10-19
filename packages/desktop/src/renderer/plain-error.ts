@@ -60,7 +60,7 @@ const KNOWN: { match: RegExp; text: string }[] = [
 	// An older host words a refusal to close or repeat a paused reply as a statement about the connection.
 	{
 		match: /connection cannot (?:close|resume)[a-z ]* paused turns/i,
-		text: 'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+		text: 'Namzu can’t close this reply right now. Try again in a moment, or restart Namzu if it keeps happening.',
 	},
 	{
 		match: /\bunknown (?:project|conversation|pal)\b|does not belong to this (?:project|pal)/i,

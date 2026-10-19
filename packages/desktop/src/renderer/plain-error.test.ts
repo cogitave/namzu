@@ -105,13 +105,12 @@ describe('a refusal to close a paused reply', () => {
 	])('an older host’s %j reads as one plain sentence', (raw) => {
 		const { text } = plainError(new Error(raw), 'continue without this reply')
 		expect(text).toBe(
-			'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
+			'Namzu can’t close this reply right now. Try again in a moment, or restart Namzu if it keeps happening.',
 		)
-		expect(text).not.toMatch(/connection|turn/i)
+		expect(text).not.toMatch(/connection|turn|new conversation/i)
 	})
 	it('the host’s own sentence passes through unchanged', () => {
-		const own =
-			'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.'
+		const own = 'Namzu can’t read this conversation right now. Open it again.'
 		expect(plainError(new Error(own), 'continue without this reply')).toEqual({ text: own })
 	})
 })

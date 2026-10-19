@@ -889,7 +889,7 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 The sentence sits directly under the reply's work and is followed by the same quiet row a settled reply ends with
 (`MessageActions`, `turn-recovery.tsx`): the time first (when the reply stopped; the turn above draws no second clock), then **Retry** and **Copy** as icon buttons (Retry reads "Retry
 with *model*" when the model selected now is not the one that stopped), then any other way on as small muted text (**Open
-model settings**, **Continue without this reply**, **Copy to a new conversation**, **Start a new
+model settings**, **Continue without this reply**, **Start a new
 conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Details start closed for every failure
 the row has not shown before: the toggle is keyed on the conversation and the failure it describes (`recoveryKey`), so
 Details left open on one failure do not open on the next conversation's. Every item sits on one centre line with the settled row's
@@ -955,10 +955,7 @@ cause's own "Try again" and "Your message is saved" are dropped, and its labelle
 
 **Continue without this reply** works in a Pal as in any conversation: the Pal's session closes a
 paused turn with `abandonTurn` on its own conversation log (it needs no computer and runs nothing), then
-the message is back in the message box. A host that cannot close the turn says "Namzu can’t close this
-reply in this conversation. Copy your message to a new conversation instead." and the row adds **Copy to a
-new conversation**; the engine's own wording ("This connection cannot close paused turns") never reaches
-the screen. Covered by `e2e/ux-provider-replies.test.mjs` (a Pal fails with 500, 502 and 503, then the action
+the message is back in the message box. The host closes the turn through the conversation's own log even when the live session carries no close method of its own, so the action does not depend on which session object is running. An older engine's refusal ("This connection cannot close paused turns") is shown as "Namzu can’t close this reply right now. Try again in a moment, or restart Namzu if it keeps happening."; Namzu never asks the person to copy their message into a new conversation. Covered by `e2e/ux-provider-replies.test.mjs` (a Pal fails with 500, 502 and 503, then the action
 is clicked).
 
 **Changing the model after a stopped reply.** Choosing another model is an explicit decision, so a reply

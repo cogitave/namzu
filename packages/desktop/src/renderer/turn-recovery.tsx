@@ -12,7 +12,6 @@ const ACTION_LABEL: Record<OtherAction, string> = {
 	settings: 'Open model settings',
 	'new-conversation': 'Start a new conversation',
 	continue: 'Continue without this reply',
-	'copy-to-new': 'Copy to a new conversation',
 }
 
 /** The actions a set of failures offers, once each, with Retry only where it can really run. */

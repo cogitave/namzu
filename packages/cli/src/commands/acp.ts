@@ -1,6 +1,7 @@
 import {
 	ACPServer,
 	type AcpAgentGateway,
+	DiskSessionLog,
 	type ExternalRefTarget,
 	HostCommandRegistry,
 	type Message,
@@ -10,6 +11,7 @@ import {
 	type SessionEvent,
 	type SessionId,
 	type ToolPresenter,
+	abandonTurn,
 	asSessionId,
 	asTurnId,
 	createUserMessage,
@@ -1454,10 +1456,10 @@ export function createCliAcpRuntime(
 		},
 		abandonPausedTurn: async (sessionId, requestedCwd, turnId, options) => {
 			const record = await ensureSession(sessionId, requestedCwd, new AbortController().signal)
-			if (!record.conversations || !record.session.abandonTurn)
-				throw new Error(
-					'Namzu can’t close this reply in this conversation. Copy your message to a new conversation instead.',
-				)
+			// Closing a reply is one append to the conversation's own log; it needs no provider and no
+			// live-session method, so a session that does not carry one is closed through the log.
+			if (!record.conversations)
+				throw new Error('Namzu can’t read this conversation right now. Open it again.')
 			if (record.route) throw new Error('This conversation already has active work.')
 			const target = await deps.resolveSession(sessionId)
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
@@ -1478,13 +1480,19 @@ export function createCliAcpRuntime(
 					waiting.delete(row.decisionId)
 			}
 			if (waiting.size) throw new Error('This turn is waiting for a decision; answer it first.')
-			await record.session.abandonTurn(
-				asTurnId(pausedTurn),
-				'The person continued without the reply that stopped on a provider error.',
-				// Unless the person goes on with a different message, theirs goes back to the message
-				// box: the closed turn must not also reach the provider with it when they send it again.
-				{ withdrawMessages: options?.withdrawMessages !== false },
-			)
+			const reason = 'The person continued without the reply that stopped on a provider error.'
+			// Unless the person goes on with a different message, theirs goes back to the message
+			// box: the closed turn must not also reach the provider with it when they send it again.
+			const withdrawMessages = options?.withdrawMessages !== false
+			if (record.session.abandonTurn) {
+				await record.session.abandonTurn(asTurnId(pausedTurn), reason, { withdrawMessages })
+			} else {
+				await abandonTurn(target.sessionId, asTurnId(pausedTurn), reason, {
+					log: DiskSessionLog.at(record.conversations.paths, { sessionId: target.sessionId }),
+					index: record.conversations.index,
+					...(withdrawMessages ? { withdrawMessages: true } : {}),
+				})
+			}
 			return { closed: true as const }
 		},
 		modelSettings: async (provider, model, sessionId) => {
