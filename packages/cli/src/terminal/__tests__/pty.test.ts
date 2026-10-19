@@ -1,4 +1,5 @@
 import childProcess from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import {
 	buildPtyEnv,
@@ -9,6 +10,7 @@ import {
 	loadHostPty,
 	processesCarrying,
 	quietConptyHelper,
+	readSettledEnviron,
 } from '../pty.js'
 
 describe('buildPtyEnv', () => {
@@ -126,6 +128,42 @@ describe.skipIf(process.platform !== 'linux')('descendantsOf', () => {
 	})
 })
 
+/** Waits until `pid` runs `program`. No deadline: a program that never gets there hangs the test, and Vitest's timeout reports it. */
+async function execFinished(pid: number, program: string): Promise<void> {
+	while (!(await readFile(`/proc/${pid}/cmdline`, 'utf8')).startsWith(`${program}\0`)) {
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+}
+
+describe('readSettledEnviron', () => {
+	it('reads again past the empty moment inside exec', async () => {
+		const reads = ['', '', 'A=1\0NAMZU_TERMINAL_ID=t\0']
+		const read = async () => reads.shift() ?? 'unreachable'
+		expect(await readSettledEnviron(read)).toBe('A=1\0NAMZU_TERMINAL_ID=t\0')
+		expect(reads).toEqual([])
+	})
+
+	it('believes an environment that stays empty, after a bounded number of reads', async () => {
+		let count = 0
+		const read = async () => {
+			count++
+			return ''
+		}
+		expect(await readSettledEnviron(read)).toBe('')
+		expect(count).toBe(6)
+	})
+
+	it('reads a non-empty environment once', async () => {
+		let count = 0
+		const read = async () => {
+			count++
+			return 'A=1\0'
+		}
+		expect(await readSettledEnviron(read)).toBe('A=1\0')
+		expect(count).toBe(1)
+	})
+})
+
 describe.skipIf(process.platform !== 'linux')('processesCarrying', () => {
 	it('finds a program that left the tree at once by the marker it inherited', async () => {
 		const marker = `marker-${process.pid}`
@@ -141,6 +179,9 @@ describe.skipIf(process.platform !== 'linux')('processesCarrying', () => {
 				shell.stdout.once('data', (chunk: Buffer) => done(String(chunk))),
 			)
 			program = Number.parseInt(first, 10)
+			// The pid is printed just before `exec`; a scan that lands inside it is covered by
+			// `readSettledEnviron` below, so this one looks only once the program is `sleep`.
+			await execFinished(program, 'sleep')
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker)).toContain(program)
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', `${marker}-other`)).toEqual([])
 			expect(await processesCarrying('NAMZU_TERMINAL_ID', marker, 'darwin')).toEqual([])

@@ -184,6 +184,25 @@ export function killProcessTree(
  */
 export const TERMINAL_MARKER = 'NAMZU_TERMINAL_ID'
 
+/** How many times an empty environment is read again before it is believed. */
+const ENVIRON_REREADS = 5
+
+/**
+ * A process's environment, read again while it comes back empty. A process caught inside `execve`
+ * reads as empty for a moment, before the new image's environment is set up; measured on Linux,
+ * one read in ten straight after a program printed its pid, and one re-read after a yield always
+ * found it. A process whose environment really is empty (a kernel thread) cannot carry a marker,
+ * so giving up after a few reads loses nothing.
+ */
+export async function readSettledEnviron(read: () => Promise<string>): Promise<string> {
+	let environ = await read()
+	for (let reread = 0; environ === '' && reread < ENVIRON_REREADS; reread++) {
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		environ = await read()
+	}
+	return environ
+}
+
 /**
  * The processes whose starting environment holds `name=value`. Linux only, read from
  * `/proc/<pid>/environ`, which is readable for this user's own processes; elsewhere none.
@@ -205,7 +224,7 @@ export async function processesCarrying(
 		await Promise.all(
 			pids.slice(from, from + 64).map(async (pid) => {
 				try {
-					const environ = await readFile(`/proc/${pid}/environ`, 'utf8')
+					const environ = await readSettledEnviron(() => readFile(`/proc/${pid}/environ`, 'utf8'))
 					if (environ.split('\0').includes(entry)) found.push(Number(pid))
 				} catch {
 					/* Another user's process, or one that ended while the list was read. */
