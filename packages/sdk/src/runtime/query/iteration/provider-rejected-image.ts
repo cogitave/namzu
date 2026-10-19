@@ -55,6 +55,24 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 	if (signal?.aborted) throw signal.reason
 }
 
+/** The provider and model that refused a request for holding an image. */
+export interface TextOnlyModelRefusal {
+	readonly providerId: string
+	readonly model: string | undefined
+}
+
+/** See {@link streamWithProviderRejectedImageRecovery}. */
+export interface TextOnlyModelRecovery {
+	/**
+	 * Who is serving the request. A fallback chain reports its head's id and
+	 * moves between members, so without this the refusal would be filed against
+	 * a model that never saw the request. Read when the refusal arrives.
+	 */
+	readonly servedBy?: () => { readonly providerId: string; readonly model?: string }
+	/** The retry without images was accepted: `refused` cannot read images. */
+	readonly onAccepted: (refused: TextOnlyModelRefusal) => void | Promise<void>
+}
+
 /**
  * Retry one provider-invalid request without its only distinct image.
  *
@@ -68,7 +86,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 	params: ChatCompletionParams,
 	onAccepted: (identity: RequestImageIdentity) => Promise<void>,
 	onRequest?: (messages: readonly Message[]) => void,
-	onTextOnlyModel?: (model: string | undefined) => void | Promise<void>,
+	textOnly?: TextOnlyModelRecovery,
 ): AsyncIterable<StreamChunk> {
 	const candidate = findSingleRequestImage(params.messages)
 	onRequest?.(params.messages)
@@ -79,7 +97,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 
 	let produced = false
 	let confidence: ImageRejectionConfidence | null = null
-	let textOnly = false
+	let refused: TextOnlyModelRefusal | null = null
 	try {
 		for await (const chunk of provider.chatStream(params)) {
 			if (isAcceptedChunk(chunk)) produced = true
@@ -89,17 +107,26 @@ export async function* streamWithProviderRejectedImageRecovery(
 	} catch (error) {
 		throwIfAborted(params.signal)
 		if (produced) throw error
-		// A model that reads text only refuses the request however many images
-		// it holds, so this is not about one bad image: every image goes.
-		textOnly = isImageInputRefusal(error)
-		if (!textOnly) {
-			confidence = candidate === null ? null : classifyProviderRejectedImageError(error)
-			if (confidence === null) throw error
+		// A fault in one image (the server's own `invalid_image`, or wording that
+		// says an image could not be decoded) is about that image, not about the
+		// model, and it wins: the model reads images, so it keeps the others.
+		confidence = classifyProviderRejectedImageError(error)
+		if (confidence === null && isImageInputRefusal(error)) {
+			// A model that reads text only refuses the request however many images
+			// it holds, so every image goes. Named now, while the member that
+			// refused is still the one serving.
+			const served = textOnly?.servedBy?.()
+			refused = {
+				providerId: served?.providerId ?? provider.id,
+				model: served?.model ?? params.model,
+			}
+		} else if (confidence === null || candidate === null) {
+			throw error
 		}
 	}
 
 	throwIfAborted(params.signal)
-	if (textOnly) {
+	if (refused !== null) {
 		// One retry, without any image. The stored conversation is untouched, so
 		// a model that does read images gets them again.
 		const messages = projectRequestRichContent(params.messages, 0, { imagesReadable: false })
@@ -110,12 +137,12 @@ export async function* streamWithProviderRejectedImageRecovery(
 			if (chunk.error !== undefined) reportedError = true
 			if (!accepted && isAcceptedChunk(chunk)) {
 				throwIfAborted(params.signal)
-				await onTextOnlyModel?.(params.model)
+				await textOnly?.onAccepted(refused)
 				accepted = true
 			}
 			yield chunk
 		}
-		if (!accepted && !reportedError) await onTextOnlyModel?.(params.model)
+		if (!accepted && !reportedError) await textOnly?.onAccepted(refused)
 		return
 	}
 	if (candidate === null) return

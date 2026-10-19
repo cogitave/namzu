@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
+import { withProviderFallback } from '../../../provider/fallback.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
@@ -74,15 +75,30 @@ describe('projecting history for a model that cannot read images', () => {
 	})
 })
 
+const BEAM_REFUSAL =
+	'Upstream request failed: [invalid_value] Beam supports text input only. This conversation contains an image. Remove the image from the conversation and try again.'
+
+interface ModelAwareOptions {
+	readonly id?: string
+	/** What the refusal says, and the server's own code for it. */
+	readonly detail?: string
+	readonly providerCode?: string
+	/** Every request is throttled, so a fallback chain moves past this member. */
+	readonly throttled?: boolean
+}
+
 class ModelAwareProvider implements LLMProvider {
-	readonly id = 'model-aware'
+	readonly id: string
 	readonly name = 'Model aware'
 	readonly requests: ChatCompletionParams[] = []
 	constructor(
 		private readonly textOnly: ReadonlySet<string>,
 		/** Models that are not declared text-only but refuse images anyway. */
 		private readonly refuses: ReadonlySet<string> = new Set(),
-	) {}
+		private readonly options: ModelAwareOptions = {},
+	) {
+		this.id = options.id ?? 'model-aware'
+	}
 
 	supportsImageInputFor(model: string): boolean {
 		return !this.textOnly.has(model)
@@ -90,6 +106,14 @@ class ModelAwareProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		this.requests.push(params)
+		if (this.options.throttled) {
+			throw new ProviderRequestError({
+				kind: 'throttle',
+				providerId: this.id,
+				status: 429,
+				detail: 'slow down',
+			})
+		}
 		if (
 			this.refuses.has(params.model ?? '') &&
 			JSON.stringify(params.messages).includes(image.data)
@@ -98,8 +122,8 @@ class ModelAwareProvider implements LLMProvider {
 				kind: 'bad_request',
 				providerId: this.id,
 				status: 400,
-				detail:
-					'Upstream request failed: [invalid_value] Beam supports text input only. This conversation contains an image. Remove the image from the conversation and try again.',
+				...(this.options.providerCode ? { providerCode: this.options.providerCode } : {}),
+				detail: this.options.detail ?? BEAM_REFUSAL,
 			})
 		}
 		yield { id: 'a', delta: { content: 'ok' } }
@@ -107,13 +131,18 @@ class ModelAwareProvider implements LLMProvider {
 	}
 }
 
-async function run(provider: LLMProvider, model: string) {
+async function run(
+	provider: LLMProvider,
+	model: string,
+	fallbackProviders?: { provider: LLMProvider; model?: string }[],
+) {
 	const events: SessionEvent[] = []
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-text-only-'))
 	dirs.push(dir)
 	const result = await drainQuery(
 		{
 			provider,
+			...(fallbackProviders ? { fallbackProviders } : {}),
 			toolsets: [],
 			retry: { maxRetries: 0 },
 			turnConfig: {
@@ -186,5 +215,73 @@ describe('a text-only model inside a conversation that holds images', () => {
 		const { result } = await run(provider, 'beam')
 		expect(result.status).not.toBe('completed')
 		expect(provider.requests).toHaveLength(2)
+	})
+})
+
+describe('a refusal about one image is not a text-only model', () => {
+	it('fails as before, and marks nothing, when the 400 is about an image format', async () => {
+		const provider = new ModelAwareProvider(new Set(), new Set(['seer']), {
+			detail: 'This model does not support image/webp media type',
+		})
+		const { result, events } = await run(provider, 'seer')
+		expect(result.status).not.toBe('completed')
+		expect(provider.requests).toHaveLength(1)
+		expect(events.some((e) => e.type === 'capability_warning')).toBe(false)
+	})
+
+	it("lets the server's own invalid_image code win over wording that sounds text-only", async () => {
+		const provider = new ModelAwareProvider(new Set(), new Set(['seer']), {
+			providerCode: 'invalid_image',
+			detail: 'Model does not support images. Please use a model that does.',
+		})
+		const { result, events } = await run(provider, 'seer')
+		expect(result.status).toBe('completed')
+		expect(provider.requests).toHaveLength(2)
+		// The one bad image was set aside on its own, not every image for a text-only model.
+		expect(JSON.stringify(provider.requests[1]?.messages)).toContain('provider rejected this image')
+		expect(JSON.stringify(provider.requests[1]?.messages)).not.toContain(
+			'the current model cannot read images',
+		)
+		expect(events.some((e) => e.type === 'capability_warning')).toBe(false)
+	})
+})
+
+describe('a fallback chain', () => {
+	it('marks the member that refused the image, not the head that was asked first', async () => {
+		const head = new ModelAwareProvider(new Set(), new Set(), { id: 'head', throttled: true })
+		const tail = new ModelAwareProvider(new Set(), new Set(['beam']), { id: 'tail' })
+		const { result, events } = await run(head, 'seer', [{ provider: tail, model: 'beam' }])
+		expect(result.status).toBe('completed')
+		expect(head.requests).toHaveLength(1)
+		expect(tail.requests).toHaveLength(2)
+		expect(JSON.stringify(tail.requests[1]?.messages)).not.toContain(image.data)
+		const warnings = events.filter((e) => e.type === 'capability_warning')
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]).toMatchObject({ providerId: 'tail', model: 'beam' })
+	})
+
+	it('answers for images with the member it is serving from', async () => {
+		const head = new ModelAwareProvider(new Set(['m']), new Set(), { id: 'head', throttled: true })
+		const tail = new ModelAwareProvider(new Set(), new Set(), { id: 'tail' })
+		const chain = withProviderFallback([{ provider: head }, { provider: tail }])
+		// The head is text-only, so the first request goes out without images.
+		expect(chain.supportsImageInputFor?.('m')).toBe(false)
+		for await (const _ of chain.chatStream({ model: 'm', messages: history() })) {
+			// the head is throttled; the chain moves to the tail
+		}
+		// The tail reads images, and every later request starts there.
+		expect(chain.supportsImageInputFor?.('m')).toBe(true)
+
+		const visionHead = new ModelAwareProvider(new Set(), new Set(), {
+			id: 'head',
+			throttled: true,
+		})
+		const textTail = new ModelAwareProvider(new Set(['m']), new Set(), { id: 'tail' })
+		const reverse = withProviderFallback([{ provider: visionHead }, { provider: textTail }])
+		expect(reverse.supportsImageInputFor?.('m')).toBe(true)
+		for await (const _ of reverse.chatStream({ model: 'm', messages: history() })) {
+			// moves to the text-only tail
+		}
+		expect(reverse.supportsImageInputFor?.('m')).toBe(false)
 	})
 })
