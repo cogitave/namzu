@@ -186,6 +186,7 @@ import {
 import {
 	type KubernetesGuestEvidence,
 	type KubernetesGuestRestart,
+	type KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceGuestGoneError,
 	type KubernetesWorkspaceIdentity,
 	KubernetesWorkspaceReplacedError,
@@ -226,6 +227,7 @@ import {
 import {
 	HOLDER_EPOCH_ANNOTATION_KEY,
 	type HolderEpochReading,
+	type JsonPatchOperation,
 	OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY,
 	POD_TEMPLATE_HASH_ANNOTATION_KEY,
 	type PodResource,
@@ -487,7 +489,7 @@ export class KubernetesWorkspacePreconditionError extends Error {
  * as a decimal string, and an integer because a fractional epoch would
  * round-trip through the annotation as something other than what was passed.
  */
-function assertHolderEpoch(epoch: number | undefined, where: string): number | undefined {
+export function assertHolderEpoch(epoch: number | undefined, where: string): number | undefined {
 	if (epoch === undefined) return undefined
 	if (!Number.isSafeInteger(epoch) || epoch < 0) {
 		throw new Error(
@@ -662,6 +664,29 @@ export interface KubernetesWorkspaceTransitionOptions {
 	 * patch a failed start's cleanup sends.
 	 */
 	readonly epoch?: number
+	/**
+	 * The exact Sandbox this call is about, by `metadata.uid` — what a host
+	 * retained from {@link KubernetesWorkspace.identity} or
+	 * {@link inspectKubernetesWorkspace}.
+	 *
+	 * The workspace id is a deterministic NAME: if the Sandbox the host meant
+	 * was deleted and another created under the same name, the name now
+	 * addresses a stranger's disk. With this set, the JSON patch of
+	 * {@link suspendKubernetesWorkspace} carries `test /metadata/uid` and the
+	 * DELETE of {@link deleteKubernetesWorkspace} carries `preconditions.uid`,
+	 * so the API server refuses the write itself. A different owner rejects
+	 * with {@link KubernetesWorkspaceReplacedError}, changes nothing and is
+	 * never retried against the new owner; an object already gone still counts
+	 * as deleted.
+	 *
+	 * Read by the two standalone verbs. A handle's own verbs ignore it and
+	 * fence every write with the uid they bound, which they do without being
+	 * asked. Omitted, a standalone call is conditioned on nothing about
+	 * identity, as before. `volumeClaimUids` is not read here: the claims are
+	 * owned by the Sandbox, so the uid is the identity a write can be
+	 * conditioned on — check claims with {@link openKubernetesWorkspace}.
+	 */
+	readonly expectedIdentity?: KubernetesWorkspaceExpectedIdentity
 	/**
 	 * Write the SandboxTemplate's CURRENT `spec.podTemplate` onto the
 	 * workspace as it wakes, keeping its disk — see
@@ -2337,6 +2362,66 @@ interface WorkspaceWriteTarget {
 	readonly namespace: string
 	readonly name: string
 	readonly workspaceId: string
+	/**
+	 * The Sandbox `metadata.uid` every write to this target must land on, when
+	 * the caller knows one: a handle's is the uid it bound, the standalone
+	 * verbs' is `expectedIdentity.sandboxUid`.
+	 *
+	 * The workspace NAME is deterministic, so it identifies whatever Sandbox
+	 * stands under it now — including a stranger that replaced the one the
+	 * caller meant. With a uid here, a patch carries `test /metadata/uid` and
+	 * a DELETE carries `preconditions.uid`, so the API server refuses the
+	 * write itself rather than this process hoping its last read is current.
+	 * Read through a getter by a handle, because the handle learns its uid at
+	 * its first bind and not before; absent, a write is conditioned on
+	 * nothing about identity, exactly as it always was.
+	 */
+	readonly expectedSandboxUid?: string
+}
+
+/** The `expectedSandboxUid` a standalone verb's options carry, validated. */
+function expectedUidOf(options?: KubernetesWorkspaceTransitionOptions): {
+	readonly expectedSandboxUid?: string
+} {
+	const identity = options?.expectedIdentity
+	if (identity === undefined) return {}
+	if (typeof identity.sandboxUid !== 'string' || identity.sandboxUid === '') {
+		throw new TypeError(
+			'kubernetes: expectedIdentity.sandboxUid must be a non-empty string — an empty uid would be a fence that fences nothing.',
+		)
+	}
+	return { expectedSandboxUid: identity.sandboxUid }
+}
+
+/**
+ * Refuse a write whose target is not the Sandbox the caller meant.
+ *
+ * Decided off the read the write is conditioned on, so the refusal is raised
+ * BEFORE any request that could mutate. The same uid then rides in the write
+ * itself, which is what makes the check hold against a replacement landing
+ * between this read and that write.
+ */
+function assertSandboxUidStands(
+	target: WorkspaceWriteTarget,
+	standing: string | undefined,
+	options?: ErrorOptions,
+): void {
+	const expected = target.expectedSandboxUid
+	if (expected === undefined || standing === expected) return
+	throw new KubernetesWorkspaceReplacedError(
+		target.workspaceId,
+		target.name,
+		expected,
+		standing,
+		options,
+	)
+}
+
+/** The `test` clause that pins a JSON patch to the Sandbox the caller meant. */
+function sandboxUidTests(target: WorkspaceWriteTarget): readonly JsonPatchOperation[] {
+	return target.expectedSandboxUid === undefined
+		? []
+		: [{ op: 'test', path: '/metadata/uid', value: target.expectedSandboxUid }]
 }
 
 /** One GET of the Sandbox, which is where every condition is read from. */
@@ -2436,17 +2521,24 @@ async function writeOperatingMode(
 	gate?: HolderEpochReading,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
-	if (epoch === undefined) {
+	// Nothing to write is nothing to condition: the stamp-only write exists to
+	// move the epoch, and without one it has no mutation in it at all.
+	if (epoch === undefined && mode === undefined) return
+	if (epoch === undefined && target.expectedSandboxUid === undefined) {
 		if (mode === undefined) return
 		await target.client.request('PATCH', path, operatingModePatch(mode), signal)
 		return
 	}
 	let reading = gate ?? readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
 	for (let attempt = 1; ; attempt += 1) {
-		assertHolderEpochAllows(target, operation, epoch, reading)
+		// Identity before epoch: a stranger under this name is not this
+		// caller's workspace, whatever epoch it happens to carry.
+		assertSandboxUidStands(target, reading.sandboxUid)
+		if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
 		const patch = buildHolderEpochPatch({
 			reading,
-			epoch,
+			...(epoch !== undefined ? { epoch } : {}),
+			tests: sandboxUidTests(target),
 			...(mode !== undefined
 				? { operatingMode: mode, operatingModeChangedAt: new Date().toISOString() }
 				: {}),
@@ -2458,6 +2550,10 @@ async function writeOperatingMode(
 			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
 			const next = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+			// A replacement that landed between the read and the write is what
+			// the uid `test` refused. It is never retried against the new
+			// owner: this is the refusal, not a race to win.
+			assertSandboxUidStands(target, next.sandboxUid)
 			const unmoved =
 				next.annotation === reading.annotation &&
 				next.resourceVersion === reading.resourceVersion &&
@@ -2576,11 +2672,15 @@ async function writeRefreshedPodTemplate(
 	const path = sandboxPath(target.namespace, target.name)
 	let reading = gate
 	for (let attempt = 1; ; attempt += 1) {
+		assertSandboxUidStands(target, reading.sandboxUid)
 		if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
 		const patch = buildHolderEpochPatch({
 			reading,
 			...(epoch !== undefined ? { epoch } : {}),
-			tests: [{ op: 'test', path: '/spec/operatingMode', value: 'Suspended' }],
+			tests: [
+				...sandboxUidTests(target),
+				{ op: 'test', path: '/spec/operatingMode', value: 'Suspended' },
+			],
 			annotations: { [POD_TEMPLATE_HASH_ANNOTATION_KEY]: refresh.hash },
 			podTemplate: refresh.podTemplate,
 			operatingMode: 'Running',
@@ -2605,6 +2705,7 @@ async function writeRefreshedPodTemplate(
 			// — the patch did not apply and nothing changed.
 			if (sandbox === undefined) throw err
 			const next = readHolderEpoch(sandbox.metadata)
+			assertSandboxUidStands(target, next.sandboxUid)
 			if (operatingModeOf(sandbox) !== 'Suspended') {
 				// Somebody resumed it first. If they also took the workspace
 				// over, this caller hears THAT rather than being handed a pod
@@ -2646,7 +2747,8 @@ async function deleteSandboxObject(
 	gate?: HolderEpochReading,
 ): Promise<void> {
 	const path = sandboxPath(target.namespace, target.name)
-	if (epoch === undefined) {
+	const expectedUid = target.expectedSandboxUid
+	if (epoch === undefined && expectedUid === undefined) {
 		try {
 			await target.client.request('DELETE', path, undefined, signal)
 		} catch (err) {
@@ -2656,7 +2758,9 @@ async function deleteSandboxObject(
 	}
 	let reading = gate
 	for (let attempt = 1; ; attempt += 1) {
-		if (reading === undefined) {
+		// The epoch needs the object's current version for its precondition;
+		// the uid alone does not, because it is the precondition.
+		if (reading === undefined && epoch !== undefined) {
 			let sandbox: SandboxResource | undefined
 			try {
 				sandbox = await readSandboxObject(target, signal)
@@ -2666,8 +2770,11 @@ async function deleteSandboxObject(
 			}
 			reading = readHolderEpoch(sandbox?.metadata)
 		}
-		assertHolderEpochAllows(target, operation, epoch, reading)
-		if (reading.resourceVersion === undefined) {
+		if (reading !== undefined) {
+			assertSandboxUidStands(target, reading.sandboxUid)
+			if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
+		}
+		if (epoch !== undefined && reading?.resourceVersion === undefined) {
 			// Unreachable against a real API server, which sets it on every
 			// object it serves — and a bodyless DELETE here would be an
 			// UNFENCED delete of somebody's disk, which is the one thing this
@@ -2683,7 +2790,12 @@ async function deleteSandboxObject(
 				{
 					apiVersion: 'v1',
 					kind: 'DeleteOptions',
-					preconditions: { resourceVersion: reading.resourceVersion },
+					preconditions: {
+						...(reading?.resourceVersion !== undefined
+							? { resourceVersion: reading.resourceVersion }
+							: {}),
+						...(expectedUid !== undefined ? { uid: expectedUid } : {}),
+					},
 				},
 				signal,
 			)
@@ -2691,8 +2803,21 @@ async function deleteSandboxObject(
 		} catch (err) {
 			if (err instanceof KubernetesAlreadyGoneError) return
 			if (!(err instanceof KubernetesConflictError)) throw err
+			// A 409 is either the version moving (epoch path: re-read and try
+			// again) or the uid precondition refusing a stranger. Look, and
+			// let the uid decide: a different owner is the refusal and is
+			// never retried against.
+			let standing: SandboxResource | undefined
+			try {
+				standing = await readSandboxObject(target, signal)
+			} catch (readErr) {
+				if (readErr instanceof KubernetesAlreadyGoneError) return
+				throw readErr
+			}
+			assertSandboxUidStands(target, standing?.metadata?.uid, { cause: err })
+			if (epoch === undefined) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
-			reading = undefined
+			reading = readHolderEpoch(standing?.metadata)
 		}
 	}
 }
@@ -3017,7 +3142,7 @@ export async function deleteKubernetesWorkspace(
 	// workspace and calling this would otherwise take the new holder's disk,
 	// and nothing brings a disk back.
 	await deleteSandboxObject(
-		{ client, namespace, name, workspaceId },
+		{ client, namespace, name, workspaceId, ...expectedUidOf(options) },
 		'deleteKubernetesWorkspace',
 		epoch,
 		options?.signal,
@@ -3065,7 +3190,7 @@ export async function suspendKubernetesWorkspace(
 	const readiness = resolveKubernetesReadiness(config)
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	await writeOperatingMode(
-		{ client, namespace, name, workspaceId },
+		{ client, namespace, name, workspaceId, ...expectedUidOf(options) },
 		'suspendKubernetesWorkspace',
 		'Suspended',
 		epoch,
@@ -3218,7 +3343,18 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	const { client, namespace, name, workspaceId, readiness } = options
 	const id = name as SandboxId
 	/** What every fenced write addresses, and what a refusal names. */
-	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
+	const target: WorkspaceWriteTarget = {
+		client,
+		namespace,
+		name,
+		workspaceId,
+		// A getter, because the uid is learned at the first bind and every
+		// write after it must carry it. Before that the handle has no uid to
+		// pin, which is the only window it writes unpinned.
+		get expectedSandboxUid() {
+			return sandboxUid
+		},
+	}
 	/**
 	 * The epoch this handle writes under when a call passes none.
 	 *

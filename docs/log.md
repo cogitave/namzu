@@ -2,6 +2,7 @@
 
 ## 2026-10-19
 
+- **Update** [Kubernetes sandboxes](sdk/kubernetes-sandbox.md#a-write-is-pinned-to-the-sandbox-it-was-meant-for): a workspace handle's suspend, resume and destroy now carry the Sandbox uid they bound (`test /metadata/uid` in the patch, `preconditions.uid` on the DELETE), so a same-name replacement is refused with `KubernetesWorkspaceReplacedError` and never written to; `suspendKubernetesWorkspace` and `deleteKubernetesWorkspace` take `expectedIdentity`. New read-only `inspectKubernetesWorkspace`, `openKubernetesWorkspace` (exact identity, optional `waitForReady` under one deadline, with readiness kept apart from ownership) and `reconcileKubernetesWorkspace` (`live`, `suspended`, `absent`, `replaced`). `.changeset/sandbox-workspace-identity-fence.md`.
 - **Update** [Desktop application](cli/desktop.md): a Pal has one model. The Pal's settings and the model control under the composer's `+` menu now show the same model, and a pick in either changes the Pal, so the next message runs on it; a hand pick used to be pinned to the conversation, which left the two disagreeing and a later settings change unused. The settings row reads "Model" (it said "Model for new conversations"). `.changeset/desktop-pal-one-model.md`.
 
 ## 2026-10-18

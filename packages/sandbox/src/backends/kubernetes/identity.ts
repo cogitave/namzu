@@ -54,6 +54,81 @@ export interface KubernetesWorkspaceIdentity {
 }
 
 /**
+ * The identity a host retained for a workspace, to be authenticated against
+ * what stands under the workspace's deterministic name before anything is
+ * written or reported.
+ *
+ *  - `sandboxUid` — the Sandbox object. The decisive field: a delete and
+ *    re-create under the same id changes it, and the disk with it.
+ *  - `volumeClaimUids` — optional, keyed by `volumeClaimTemplates` entry name.
+ *    Checked by {@link openKubernetesWorkspace} and
+ *    {@link reconcileKubernetesWorkspace}; an entry that is absent from the
+ *    cluster is "not there yet", not "replaced". Lifecycle writes pin the
+ *    Sandbox uid alone, because the claims are owned by the Sandbox.
+ */
+export interface KubernetesWorkspaceExpectedIdentity {
+	readonly sandboxUid: string
+	readonly volumeClaimUids?: Readonly<Record<string, string>>
+}
+
+/** Which part of a retained identity did not hold. */
+export type KubernetesWorkspaceIdentityMismatch =
+	| 'sandbox-absent'
+	| 'sandbox-uid'
+	| 'volume-claim-uid'
+	| 'volume-claim-owner'
+
+/**
+ * Thrown by {@link openKubernetesWorkspace} when what stands under the
+ * workspace's name is not the workspace the host retained.
+ *
+ * The refusal is about OWNERSHIP and nothing else. A `resourceVersion` that
+ * moved, a `Ready` condition that flipped and a condition left over from an
+ * earlier generation are the controller doing its work and never raise this;
+ * it needs a different Sandbox uid, a Sandbox that is gone, a claim with a
+ * different uid than the one retained, or a claim owned by another Sandbox.
+ * Nothing was created, woken or written to reach it, and it is terminal:
+ * retrying finds the same stranger.
+ */
+export class KubernetesWorkspaceIdentityMismatchError extends Error {
+	override readonly name = 'KubernetesWorkspaceIdentityMismatchError'
+
+	constructor(
+		readonly workspaceId: string,
+		readonly sandboxName: string,
+		readonly mismatch: KubernetesWorkspaceIdentityMismatch,
+		/** The uid that was retained for the thing that differs. */
+		readonly expected: string | undefined,
+		/** The uid standing there now; `undefined` when nothing does. */
+		readonly actual: string | undefined,
+		/** The `volumeClaimTemplates` entry, for the two claim mismatches. */
+		readonly claim?: string,
+	) {
+		super(
+			`kubernetes: workspace ${workspaceId} (Sandbox ${sandboxName}) is not the workspace this host retained — ${describeMismatch(mismatch, expected, actual, claim)}. Nothing was created, woken or written. The name is deterministic, so what stands under it now is not the disk the retained identity names; decide what the other one is worth before using it.`,
+		)
+	}
+}
+
+function describeMismatch(
+	mismatch: KubernetesWorkspaceIdentityMismatch,
+	expected: string | undefined,
+	actual: string | undefined,
+	claim: string | undefined,
+): string {
+	if (mismatch === 'sandbox-absent') {
+		return `no Sandbox stands there (retained uid ${String(expected)})`
+	}
+	if (mismatch === 'sandbox-uid') {
+		return `its Sandbox has uid ${String(actual)}, the retained one is ${String(expected)}`
+	}
+	if (mismatch === 'volume-claim-uid') {
+		return `its volume claim "${String(claim)}" has uid ${String(actual)}, the retained one is ${String(expected)}`
+	}
+	return `its volume claim "${String(claim)}" (uid ${String(actual)}) is owned by a different Sandbox than ${String(expected)}`
+}
+
+/**
  * Why the guest a handle is talking to is not the guest it was talking to.
  *
  *  - `pod-replaced` — a different pod. The controller replaced it (a resume

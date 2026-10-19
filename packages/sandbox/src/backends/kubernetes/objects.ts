@@ -69,6 +69,19 @@ export interface KubernetesObjectMeta {
 	 */
 	readonly resourceVersion?: string
 	/**
+	 * `metadata.generation`: bumped by the API server on every change to
+	 * `spec`. Read only by the readiness observation, which compares it with a
+	 * condition's `observedGeneration` so that a `Ready: True` the controller
+	 * wrote for an EARLIER spec is not mistaken for the outcome of the latest
+	 * one.
+	 */
+	readonly generation?: number
+	/** Who owns this object. Read off a PVC, to tell the Sandbox's disk from a stranger's. */
+	readonly ownerReferences?: readonly {
+		readonly uid?: string
+		readonly controller?: boolean
+	}[]
+	/**
 	 * Set the moment a DELETE is accepted, long before the object goes away.
 	 * A pod that carries one is on its way out and must never be bound to —
 	 * see {@link isPodLive}.
@@ -85,6 +98,12 @@ export interface KubernetesCondition {
 	readonly reason?: string
 	readonly message?: string
 	readonly lastTransitionTime?: string
+	/**
+	 * The `metadata.generation` the controller had seen when it wrote this
+	 * condition. A condition whose value is below the object's current
+	 * generation describes an earlier spec.
+	 */
+	readonly observedGeneration?: number
 }
 
 /**
@@ -621,6 +640,11 @@ export interface HolderEpochReading {
 	readonly hasAnnotations: boolean
 	/** `metadata.resourceVersion`, for the fallback `test` and a fenced DELETE. */
 	readonly resourceVersion?: string
+	/**
+	 * `metadata.uid` of the object this reading came from, so a write can
+	 * refuse a same-name replacement off the very read it is conditioned on.
+	 */
+	readonly sandboxUid?: string
 }
 
 /** Decimal, no sign, no padding, no exponent — what this backend writes. */
@@ -637,6 +661,7 @@ export function readHolderEpoch(meta: KubernetesObjectMeta | undefined): HolderE
 	const base = {
 		hasAnnotations: annotations !== undefined,
 		...(resourceVersion !== undefined ? { resourceVersion } : {}),
+		...(typeof meta?.uid === 'string' && meta.uid !== '' ? { sandboxUid: meta.uid } : {}),
 	}
 	if (typeof stored !== 'string') return { ...base, epoch: 0 }
 	if (!HOLDER_EPOCH_PATTERN.test(stored)) return { ...base, annotation: stored }

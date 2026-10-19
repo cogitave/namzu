@@ -90,6 +90,16 @@ import {
 } from './backends/kubernetes/index.js'
 import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
 import {
+	type KubernetesWorkspaceClosure,
+	type KubernetesWorkspaceInspectOptions,
+	type KubernetesWorkspaceInspection,
+	type KubernetesWorkspaceOpenOptions,
+	type KubernetesWorkspaceReconcileOptions,
+	inspectKubernetesWorkspace as inspectWorkspaceOnCluster,
+	openKubernetesWorkspace as openWorkspaceOnCluster,
+	reconcileKubernetesWorkspace as reconcileWorkspaceOnCluster,
+} from './backends/kubernetes/workspace-observe.js'
+import {
 	type KubernetesWorkspace,
 	type KubernetesWorkspaceOptions,
 	type KubernetesWorkspaceSummary,
@@ -519,14 +529,30 @@ export type {
 	KubernetesGuestEvidence,
 	KubernetesGuestRestart,
 	KubernetesGuestRestartReason,
+	KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceIdentity,
+	KubernetesWorkspaceIdentityMismatch,
 } from './backends/kubernetes/identity.js'
+export type {
+	KubernetesWorkspaceClosure,
+	KubernetesWorkspaceClosureState,
+	KubernetesWorkspaceInspectOptions,
+	KubernetesWorkspaceInspection,
+	KubernetesWorkspaceObservationOptions,
+	KubernetesWorkspaceOpenOptions,
+	KubernetesWorkspaceReconcileOptions,
+} from './backends/kubernetes/workspace-observe.js'
+export { KubernetesWorkspaceReadyTimeoutError } from './backends/kubernetes/workspace-observe.js'
 export {
 	// The command's outcome is unknown AND the guest it ran in is gone. A
 	// subclass of `RemoteCancellationUnknownError`, so a host catching the
 	// base class keeps catching it; what it adds is which guest the command
 	// started on and which one is there now.
 	KubernetesWorkspaceGuestGoneError,
+	// The workspace a host retained is not what stands under its name:
+	// another Sandbox uid, no Sandbox, another claim uid or owner. Raised by
+	// `openKubernetesWorkspace` before anything is created, woken or written.
+	KubernetesWorkspaceIdentityMismatchError,
 	// A different Sandbox now stands under the workspace's deterministic
 	// name, or none does. The handle refuses rather than following it — the
 	// disk behind the name is not the disk it was opened on.
@@ -1714,6 +1740,56 @@ export async function suspendKubernetesWorkspace(
 	options?: KubernetesWorkspaceSuspendOptions,
 ): Promise<void> {
 	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Look at a workspace by id: its Sandbox uid, volume-claim uids, live pod,
+ * operating mode and holder epoch. GET requests only — it never creates,
+ * wakes, patches or deletes — and it resolves `undefined` when no Sandbox
+ * stands under the id.
+ *
+ * `epoch` is required: a workspace held at a higher epoch belongs to another
+ * process, and a superseded host is refused with
+ * `KubernetesWorkspacePreconditionError` rather than shown it.
+ */
+export async function inspectKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options: KubernetesWorkspaceInspectOptions,
+): Promise<KubernetesWorkspaceInspection | undefined> {
+	return await inspectWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Authenticate the identity a host retained against what stands under the
+ * workspace id, and with `waitForReady` wait — under one `readyTimeoutMs`
+ * deadline — for its volume claims and its guest. Never creates, wakes or
+ * writes; a suspended workspace is returned as suspended.
+ *
+ * A different Sandbox or claim is `KubernetesWorkspaceIdentityMismatchError`;
+ * a `resourceVersion` or `Ready` condition that moves while waiting is
+ * ordinary progress and never is. Running out of time is
+ * `KubernetesWorkspaceReadyTimeoutError`, and cancelling rejects with the
+ * signal's reason.
+ */
+export async function openKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceOpenOptions,
+): Promise<KubernetesWorkspaceInspection> {
+	return await openWorkspaceOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * After a restart, what became of the workspace a host retained: `live`,
+ * `suspended`, `absent` or `replaced`. One GET-only pass; a different Sandbox
+ * or claim is the answer `replaced`, not an error, and a read that did not
+ * answer rejects rather than reading as `absent`.
+ */
+export async function reconcileKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceReconcileOptions,
+): Promise<KubernetesWorkspaceClosure> {
+	return await reconcileWorkspaceOnCluster(kubernetesInternalConfig(config), options)
 }
 
 /**

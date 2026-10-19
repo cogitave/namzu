@@ -1951,8 +1951,8 @@ None of the three creates a pod, dials an agent or resumes anything.
 | Verb | What it sends | What it never does |
 |---|---|---|
 | `listKubernetesWorkspaces(config, { signal })` | One `GET` of the `sandboxes` collection | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
-| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
-| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch, expectedIdentity })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
+| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch, expectedIdentity })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
 
 Both writing verbs take an optional [holder
 epoch](#a-holder-epoch-fences-every-lifecycle-write), which is where a
@@ -2201,6 +2201,157 @@ rather than late and the error stands rather than being retried.
 
 **No new RBAC.** The `patch` verb covers every patch type, and the shipped
 `Role` already grants `patch` and `delete` on `sandboxes`.
+
+### A write is pinned to the Sandbox it was meant for
+
+The workspace id is a deterministic **name**, so it addresses whichever
+Sandbox stands under it *now*. If the workspace a host recorded last week was
+deleted and another created under the same id, a stale handle's `suspend()`
+or `destroy({ deleteDisk: true })` would land on the stranger, and an epoch
+does not help when the stranger carries none or a lower one.
+
+- **A handle pins every write it sends** to the `metadata.uid` it bound, with
+  no option to set: the JSON patch starts with `test /metadata/uid`, and a
+  `DELETE` carries `preconditions.uid`. A different Sandbox is refused with
+  `KubernetesWorkspaceReplacedError`, nothing on the cluster changes, and the
+  write is never retried against the new owner. The same uid rides in the
+  request, so a replacement landing between the handle's read and its write
+  is refused by the API server rather than by this process's last look. A
+  handle that has not yet bound a pod has no uid to pin and writes as before.
+- **The standalone verbs take it as `expectedIdentity`**, which is what a
+  host that kept `workspace.identity.sandboxUid` across a restart passes:
+
+```ts
+import {
+  KubernetesWorkspaceReplacedError,
+  deleteKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+try {
+  await deleteKubernetesWorkspace(cluster, 'ada-main', {
+    expectedIdentity: { sandboxUid: '5c0f9b1e-6f0a-4c52-9a38-0c1d7f3a2b10' },
+  })
+} catch (error) {
+  if (error instanceof KubernetesWorkspaceReplacedError) {
+    // Another workspace stands under this id. Nothing was deleted.
+    console.warn(`now ${String(error.actualSandboxUid)}`)
+  } else {
+    throw error
+  }
+}
+```
+
+An object that is already gone still counts as deleted. `expectedIdentity`
+pins the Sandbox uid only; its claims are owned by the Sandbox, so the uid is
+the identity a write can be conditioned on. Omitted, a standalone call is
+conditioned on nothing about identity, as before.
+
+### Inspecting, opening and reconciling a retained workspace
+
+`createKubernetesWorkspace` is create-or-adopt and resumes what it adopts, so
+it cannot answer "is this still the workspace I recorded?" without first
+starting a pod for what may be someone else's disk. Three verbs answer from
+the cluster alone. **Every request they send is a `GET`**: nothing is created,
+woken, patched or deleted. They need `get` on `sandboxes`,
+`persistentvolumeclaims` and `pods`.
+
+| Verb | Answers |
+|---|---|
+| `inspectKubernetesWorkspace(config, workspaceId, { epoch })` | The Sandbox uid, each claim uid, the live pod uid, the operating mode, the stored epoch and whether the guest is ready; `undefined` when nothing stands there |
+| `openKubernetesWorkspace(config, { workspaceId, identity, epoch, waitForReady })` | The same, after authenticating the exact retained identity; with `waitForReady`, after waiting for it |
+| `reconcileKubernetesWorkspace(config, { workspaceId, identity, epoch? })` | A closure state: `live`, `suspended`, `absent` or `replaced` |
+
+```ts
+import {
+  KubernetesWorkspaceIdentityMismatchError,
+  KubernetesWorkspaceReadyTimeoutError,
+  openKubernetesWorkspace,
+  reconcileKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// What the host stored from `workspace.identity` last time.
+const retained = {
+  sandboxUid: '5c0f9b1e-6f0a-4c52-9a38-0c1d7f3a2b10',
+  volumeClaimUids: { workspace: '0d2b3c64-7a6e-4a53-8b43-2f1e0a9c7d11' },
+}
+
+const closure = await reconcileKubernetesWorkspace(cluster, {
+  workspaceId: 'ada-main',
+  identity: retained,
+})
+
+if (closure.state === 'live') {
+  try {
+    const opened = await openKubernetesWorkspace(cluster, {
+      workspaceId: 'ada-main',
+      identity: retained,
+      epoch: 6,
+      waitForReady: true,
+    })
+    console.log(opened.identity.podUid)
+  } catch (error) {
+    if (error instanceof KubernetesWorkspaceIdentityMismatchError) {
+      console.warn(`not the workspace we kept: ${error.mismatch}`)
+    } else if (error instanceof KubernetesWorkspaceReadyTimeoutError) {
+      console.warn(`still waiting for ${error.waitingFor.join(', ')}`)
+    } else {
+      throw error
+    }
+  }
+}
+```
+
+**Ownership and readiness are different questions.** Ownership is decided by
+uids and by nothing else. A `resourceVersion` that moved, a `Ready` condition
+that flipped, and a `Ready: True` the controller wrote for an earlier
+generation (its `observedGeneration` is below the object's `generation`) are
+the controller working: none of them is ever read as a change of owner, and a
+stale `Ready` is not counted as ready. What `openKubernetesWorkspace` refuses
+with `KubernetesWorkspaceIdentityMismatchError` is a real replacement, and
+`mismatch` says which: `sandbox-absent`, `sandbox-uid`, `volume-claim-uid` or
+`volume-claim-owner` (a claim whose owner references name another Sandbox).
+
+**`waitForReady`** polls under one deadline, `readyTimeoutMs`, for every
+volume claim to exist and for the Sandbox to be `Ready` for its current
+generation with a live pod behind it. A claim that does not exist yet is
+waited for; every claim uid seen is retained across passes, so a claim or a
+Sandbox replaced *during* the wait is a refusal and not a longer wait. A
+suspended workspace is returned as suspended at once: opening never wakes
+anything. The outcomes never share a class: a mismatch is
+`KubernetesWorkspaceIdentityMismatchError`, running out of time is
+`KubernetesWorkspaceReadyTimeoutError` (with `waitingFor` and the last
+observation), cancelling `signal` rejects with the signal's reason, and a
+read that got no answer rejects as itself. An unanswered read is never
+turned into `absent`, `replaced` or "not ready".
+
+**`epoch`** is the holder fence of the previous section applied to a read: a
+workspace held at a higher epoch refuses with
+`KubernetesWorkspacePreconditionError`, so a superseded host does not act on
+another process's workspace. `reconcileKubernetesWorkspace` takes it
+optionally, and answers `replaced` (a different Sandbox, or a different
+claim) as a state, not an error, because for a host closing its books that is
+the answer.
+
+These verbs return what was observed, not a handle. To use the workspace,
+call `createKubernetesWorkspace` once `reconcile` says `live` or `suspended`
+and the identity on the returned handle matches; the window between the two
+calls is why every write the handle then sends is pinned to its uid (above).
 
 ### A command can outlive the connection watching it
 
