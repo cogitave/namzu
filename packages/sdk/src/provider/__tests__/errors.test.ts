@@ -103,3 +103,27 @@ describe('provider error taxonomy', () => {
 		expect(isProviderRequestError(structural)).toBe(false)
 	})
 })
+
+describe('the reference terminal context-overflow wordings', () => {
+	const wordings = [
+		['prompt is too long', 'prompt is too long: 213000 tokens > 200000 maximum'],
+		['input is too long for requested model', 'Input is too long for requested model.'],
+		['context window', 'The request is larger than the model context window of 8192 tokens'],
+		[
+			'input length and max_tokens exceed context limit',
+			'input length and `max_tokens` exceed context limit: 188240 + 21333 > 200000',
+		],
+	] as const
+
+	it.each(wordings)('files "%s" as a context overflow on a 400', (_name, body) => {
+		expect(bodySaysContextOverflow(body)).toBe(true)
+		expect(classifyProviderHttpStatus(400, body)).toBe('context_overflow')
+		expect(classifyProviderHttpStatus(413, body)).toBe('context_overflow')
+	})
+
+	it('leaves a throttle that mentions the window as a throttle', () => {
+		expect(classifyProviderHttpStatus(429, 'rate limited; context window usage is high')).toBe(
+			'throttle',
+		)
+	})
+})

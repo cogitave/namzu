@@ -322,6 +322,10 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
 		// overflow rescue tests for by exact equality. The turn died holding
 		// the remedy.
 		m.includes('too long for') ||
+		// The reference terminal's own wordings (its `context window` and
+		// `input length and max_tokens exceed context limit` matchers).
+		m.includes('context window') ||
+		m.includes('exceed context limit') ||
 		m.includes('maximum length') ||
 		m.includes('exceeds the maximum') ||
 		m.includes('input is too large') ||

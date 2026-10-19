@@ -111,3 +111,14 @@ describe('an already-classified error', () => {
 		expect(classifyProviderError(preFiled)).toBe(preFiled)
 	})
 })
+
+describe('the reference terminal context-overflow wordings', () => {
+	it.each([
+		'prompt is too long: 213000 tokens > 200000 maximum',
+		'Input is too long for requested model.',
+		'The request is larger than the model context window of 8192 tokens',
+		'input length and `max_tokens` exceed context limit: 188240 + 21333 > 200000',
+	])('reaches compaction for "%s"', (wording) => {
+		expect(overflowReaches(Object.assign(new Error(wording), { status: 400 }))).toBe(true)
+	})
+})

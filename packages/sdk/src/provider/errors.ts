@@ -260,6 +260,18 @@ const OVERFLOW_BODY_PATTERNS: readonly RegExp[] = [
 	// length" — so a pattern anchored on "exceeded" misses it entirely.
 	/exceeds?\s+(?:the\s+)?(?:model'?s?\s+)?context\s+(?:length|window|size)/i,
 	/context\s+(?:length|window|size)\s+exceed/i,
+	// The reference terminal's own list also matches the bare phrase "context
+	// window" on a 400/413 body, so a vendor sentence none of the patterns
+	// above anticipated ("larger than the model context window of N tokens")
+	// still reaches compaction instead of being filed as an invalid request.
+	// Only reached for a 400/413 or a statusless failure: a throttle or a server
+	// fault that mentions the window keeps its own kind.
+	/context window/i,
+	// "input length and `max_tokens` exceed context limit: A + B > C". The
+	// prompt may fit and only the requested output not; the loop tries a smaller
+	// `max_tokens` first (readOutputOverflow) and falls back to shedding history
+	// when there is no room for a useful reply, which needs this to classify.
+	/input length and `?max_tokens`? exceed context limit/i,
 ]
 
 /** Does this response body say the request did not fit the window? */
