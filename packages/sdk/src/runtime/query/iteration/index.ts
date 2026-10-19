@@ -91,6 +91,7 @@ import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory, splitWorkingMemoryForRequest } from './phases/working-memory.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import {
 	type StepShaping,
 	appendWorkContext,
@@ -188,6 +189,11 @@ export class IterationOrchestrator {
 	}
 	/** Rich tool blocks already reported; durable history is scanned every turn. */
 	private readonly warnedRichToolResults = new Set<string>()
+	/** What this run has learned about requests its provider rejects as invalid, and how to repair them. */
+	private readonly requestRepair = new RequestRepair({
+		debug: (message, data) => this.ctx.log.debug(message, data),
+		onMediaRemoved: (removal) => this.noteMediaRemoved(removal),
+	})
 	/** Models that refused a request for holding an image; they get none for the rest of the run. */
 	private readonly textOnlyModels = new Set<string>()
 
@@ -1022,6 +1028,7 @@ export class IterationOrchestrator {
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
 							onTextOnlyModel: (rejected) => this.noteTextOnlyModel(rejected),
+							repair: this.requestRepair,
 						},
 						Boolean(
 							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
@@ -2676,6 +2683,22 @@ export class IterationOrchestrator {
 			.some((t) => t.state !== 'completed' && t.state !== 'failed' && t.state !== 'canceled')
 	}
 
+	/** Media the provider could not process was left out of a request that then went through. */
+	private async noteMediaRemoved(removal: MediaRemoval): Promise<void> {
+		this.ctx.log.warn('Media the provider rejected was left out of the request', {
+			[GENAI.SYSTEM]: this.ctx.provider.id,
+			'namzu.request.media_removed': removal.count,
+		})
+		await this.ctx.emitEvent?.({
+			type: 'capability_warning',
+			turnId: this.ctx.recorder.turnId,
+			capability: removal.kind === 'document' ? 'documents' : 'vision',
+			contentSource: 'media-removed',
+			providerId: this.ctx.provider.id,
+			message: `The provider could not process ${removal.count === 1 ? 'a file' : `${removal.count} files`} in this conversation, so ${removal.count === 1 ? 'it was' : 'they were'} left out of the request. The conversation still holds ${removal.count === 1 ? 'it' : 'them'}.`,
+		})
+	}
+
 	private async acceptProviderRejectedImage(identity: RequestImageIdentity): Promise<void> {
 		const repaired = markProviderRejectedImage(this.ctx.recorder.messages, identity)
 		if (repaired.count === 0) {
@@ -2786,6 +2809,7 @@ export class IterationOrchestrator {
 					(identity) => this.acceptProviderRejectedImage(identity),
 					undefined,
 					(rejected) => this.noteTextOnlyModel(rejected),
+					this.requestRepair,
 				),
 			)
 

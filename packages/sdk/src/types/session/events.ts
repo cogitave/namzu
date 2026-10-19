@@ -718,9 +718,11 @@ type CoreSessionEvent =
 			 * Present when the mismatch was not about the user's own message:
 			 * `'tool-result'` after a tool executed; `'history'` when the model
 			 * itself turned out not to read images (see `model`) and the images
-			 * already in the conversation were left out of the request.
+			 * already in the conversation were left out of the request;
+			 * `'media-removed'` when the provider rejected an image or document
+			 * and it was left out of the request that then went through.
 			 */
-			contentSource?: 'tool-result' | 'history'
+			contentSource?: 'tool-result' | 'history' | 'media-removed'
 			providerId: string
 			/** The model that cannot read images, when the warning is about one model rather than the driver. */
 			model?: string

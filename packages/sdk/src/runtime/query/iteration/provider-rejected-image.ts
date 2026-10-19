@@ -13,6 +13,7 @@ import {
 	projectRequestWithoutImage,
 	requestHasImages,
 } from '../request-rich-content.js'
+import type { RequestRepair } from './request-repair.js'
 
 const IMAGE_REJECTION_PATTERNS: readonly RegExp[] = [
 	/\binvalid[_ -]?image\b/i,
@@ -69,11 +70,15 @@ export async function* streamWithProviderRejectedImageRecovery(
 	onAccepted: (identity: RequestImageIdentity) => Promise<void>,
 	onRequest?: (messages: readonly Message[]) => void,
 	onTextOnlyModel?: (model: string | undefined) => void | Promise<void>,
+	repair?: RequestRepair,
 ): AsyncIterable<StreamChunk> {
+	// Every send, including the retries below, goes through the request repair.
+	const send = (request: ChatCompletionParams): AsyncIterable<StreamChunk> =>
+		repair ? repair.stream(provider, request) : provider.chatStream(request)
 	const candidate = findSingleRequestImage(params.messages)
 	onRequest?.(params.messages)
 	if (candidate === null && !requestHasImages(params.messages)) {
-		yield* provider.chatStream(params)
+		yield* send(params)
 		return
 	}
 
@@ -81,7 +86,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 	let confidence: ImageRejectionConfidence | null = null
 	let textOnly = false
 	try {
-		for await (const chunk of provider.chatStream(params)) {
+		for await (const chunk of send(params)) {
 			if (isAcceptedChunk(chunk)) produced = true
 			yield chunk
 		}
@@ -106,7 +111,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 		onRequest?.(messages)
 		let accepted = false
 		let reportedError = false
-		for await (const chunk of provider.chatStream({ ...params, messages })) {
+		for await (const chunk of send({ ...params, messages })) {
 			if (chunk.error !== undefined) reportedError = true
 			if (!accepted && isAcceptedChunk(chunk)) {
 				throwIfAborted(params.signal)
@@ -126,7 +131,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 	let accepted = false
 	let retryReportedError = false
 	onRequest?.(retryParams.messages)
-	for await (const chunk of provider.chatStream(retryParams)) {
+	for await (const chunk of send(retryParams)) {
 		if (chunk.error !== undefined) retryReportedError = true
 		if (!accepted && isAcceptedChunk(chunk)) {
 			throwIfAborted(params.signal)
