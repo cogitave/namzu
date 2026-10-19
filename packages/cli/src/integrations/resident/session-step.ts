@@ -31,7 +31,11 @@ import {
 import type { CommandContext } from '../../commands/types.js'
 import { cliLogger } from '../../logging.js'
 import { resolvePermissionMode } from '../../permissions/mode.js'
-import { compilePermissions, warnLegacyMcpPermissionNames } from '../../permissions/rules.js'
+import {
+	compilePermissionLayers,
+	permissionLayersOf,
+	warnLegacyMcpPermissionNames,
+} from '../../permissions/rules.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
 import { describeTurnInterruption } from '../../tui/turn-interruption.js'
 import type { DetectedProvider, Preferences } from '../providers/index.js'
@@ -300,7 +304,10 @@ export function createResidentSessionStep(
 				)
 			const prefs = applyProviderFlags(configured, flags)
 			warnLegacyMcpPermissionNames(ctx.config.permissions)
-			const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
+			const permissions = compilePermissionLayers(
+				permissionLayersOf(ctx.config),
+				ctx.config.permissionChecks,
+			)
 			for (const diagnostic of permissions.diagnostics)
 				ctx.formatter.error({ message: `permissions.${diagnostic.tool}: ${diagnostic.message}` })
 			const gate = buildGate(flags, cwd)

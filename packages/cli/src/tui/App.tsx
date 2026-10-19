@@ -5746,7 +5746,7 @@ export function App({
 		screenConsent: pending.screenConsent === true,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
-			? { commandArguments: session.commandArguments }
+			? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
 			: {}),
 	})
 
@@ -11350,8 +11350,10 @@ export function App({
 				// The extra answers are session settings applied the way their own
 				// commands apply them, then this batch is approved like any yes.
 				if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
-				else if (answer.kind === 'approve-rule' && answer.allows)
-					session?.allowForSession?.(answer.allows)
+				else if (answer.kind === 'approve-rule' && answer.allows) {
+					const notice = session?.allowForSession?.(answer.allows)
+					if (notice) pushMessage('system', notice)
+				}
 				resolvePermission({ kind: 'approve' })
 				return
 			}
@@ -12493,7 +12495,7 @@ export function App({
 								batchOnly={permission.batchOnly === true}
 								mode={permissionMode}
 								{...(session?.allowForSession && session.commandArguments
-									? { commandArguments: session.commandArguments }
+									? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
 									: {})}
 								siteNotes={permission.siteNotes}
 								{...(permission.screenConsent === true

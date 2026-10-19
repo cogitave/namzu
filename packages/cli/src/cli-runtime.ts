@@ -27,4 +27,9 @@ export {
 	resolveLogLevel,
 } from './logging.js'
 export { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
-export { compilePermissions, warnLegacyMcpPermissionNames } from './permissions/rules.js'
+export {
+	compilePermissionLayers,
+	compilePermissions,
+	permissionLayersOf,
+	warnLegacyMcpPermissionNames,
+} from './permissions/rules.js'

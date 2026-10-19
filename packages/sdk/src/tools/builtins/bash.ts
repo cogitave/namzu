@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
@@ -133,6 +134,21 @@ const inputSchema = z.object({
 
 type BashInput = z.infer<typeof inputSchema>
 
+/**
+ * Whether this exact call only reads. A background job, or a command that
+ * leaves the sandbox, is never read-only whatever its line says.
+ */
+function bashInputIsReadOnly(input: BashInput | undefined): boolean {
+	// Asked with no input to describe the tool in general (a roster, an export).
+	if (typeof input?.command !== 'string') return false
+	if (input.run_in_background === true || input.dangerously_disable_sandbox === true) return false
+	try {
+		return isReadOnlyCommandLine(input.command, hostCommandShell().dialect)
+	} catch {
+		return false
+	}
+}
+
 const MAX_SHELL_PROGRESS_CHARS = 160
 
 /** Keep a bounded tail even when a process never writes a newline. */
@@ -186,7 +202,10 @@ function shellProgress(report?: (message: string) => void) {
 }
 
 /** A progress callback for {@link execHostShell}: one line, per stream, coalesced. */
-export type ExecHostShellProgress = (report: { stream: 'stdout' | 'stderr'; data: string }) => void
+export type ExecHostShellProgress = (report: {
+	stream: 'stdout' | 'stderr'
+	data: string
+}) => void
 
 /**
  * Keep the shell's process group until inherited pipes close. Node's exec
@@ -311,7 +330,9 @@ export function execHostShell(
 			failure ??= spawned
 				? error
 				: Object.assign(
-						new Error(describeSpawnFailure(error, options.cwd), { cause: error }),
+						new Error(describeSpawnFailure(error, options.cwd), {
+							cause: error,
+						}),
 						error.code === undefined ? {} : { code: error.code },
 					)
 		}
@@ -355,7 +376,9 @@ export function execHostShell(
 				failure ??
 				(cause === 'caller'
 					? Object.assign(
-							new Error('The operation was aborted', { cause: options.signal?.reason }),
+							new Error('The operation was aborted', {
+								cause: options.signal?.reason,
+							}),
 							{
 								name: 'AbortError',
 								code: 'ABORT_ERR',
@@ -460,9 +483,12 @@ const BashToolBase = defineTool({
 	// confirms it only by id; see `ToolDefinition.sandboxEscapeArgument`.
 	sandboxEscapeArgument: 'dangerously_disable_sandbox',
 	permissions: ['shell_execute'],
-	readOnly: false,
+	// A line made only of vetted read-only commands (`ls`, `cat`, `git status`,
+	// `git diff`, ...) needs no prompt and may run beside other reads; see
+	// `authorization/readonly-commands.ts`. Anything else is not read-only.
+	readOnly: (input: BashInput) => bashInputIsReadOnly(input),
 	destructive: (input: BashInput) => isDangerousCommand(input.command),
-	concurrencySafe: false,
+	concurrencySafe: (input: BashInput) => bashInputIsReadOnly(input),
 	// Above the ceiling the input schema accepts, so the executor's deadline
 	// is a backstop rather than a second clock racing this tool's own. It used
 	// to be undefined, which meant the executor's generic default applied —
@@ -730,7 +756,10 @@ const BashToolBase = defineTool({
 			return {
 				success: true,
 				output: formatShellOutput(stdout, stderr) || '(no output)',
-				data: { exitCode: 0, ...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}) },
+				data: {
+					exitCode: 0,
+					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
+				},
 				facts: commandFacts({
 					command: input.command,
 					exitCode: 0,

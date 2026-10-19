@@ -187,6 +187,14 @@ export interface NamzuCliConfig {
 	 */
 	readonly permissions?: PermissionsConfig
 	/**
+	 * The `permissions` tables of the layers that set one, lowest precedence
+	 * first (user, project, local, profile, managed). Filled in by the loader
+	 * and never read from a file: `permissions` above is their combined view,
+	 * and a call is decided layer by layer, a deny from any layer winning
+	 * (`compilePermissionLayers`).
+	 */
+	readonly permissionLayers?: readonly PermissionsConfig[]
+	/**
 	 * What the operator believes the table above decides, checked at startup.
 	 *
 	 * Each entry names a tool, an input, and the expected `"allow" | "ask" |

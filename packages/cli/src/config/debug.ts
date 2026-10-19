@@ -75,6 +75,8 @@ export function formatConfigSource(
 			return `user-file ${dynamic(source.path)}`
 		case 'project-file':
 			return `project-file ${dynamic(source.path)}`
+		case 'local-file':
+			return `local-file ${dynamic(source.path)}`
 		case 'profile':
 			// The name AND the file. Neither answers on its own: the name does
 			// not say which file to open, and the path does not say which of
@@ -98,7 +100,7 @@ export function renderConfigDebug(snapshot: ConfigDebugSnapshot | null): string 
 
 	const lines = [
 		'Configuration precedence (low -> high):',
-		'  default -> user file -> project file -> selected profile(s) -> environment -> managed file',
+		'  default -> user file -> project file -> local file -> selected profile(s) -> environment -> managed file',
 		'  --format and --quiet override only their matching keys for this process.',
 	]
 

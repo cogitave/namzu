@@ -423,3 +423,142 @@ export function compilePermissions(
 	diagnostics.push(...verifyPermissionChecks(orderedRules, checks))
 	return { rules: orderedRules, diagnostics }
 }
+
+// ---------------------------------------------------------------------------
+// layers
+// ---------------------------------------------------------------------------
+
+const RESTRICTION: Readonly<Record<PermissionEffect, number>> = { allow: 1, ask: 2, deny: 3 }
+
+/** The stricter of two effects: deny over ask over allow, whatever their order. */
+function stricter(a: PermissionEffect, b: PermissionEffect): PermissionEffect {
+	return RESTRICTION[b] > RESTRICTION[a] ? b : a
+}
+
+function patternTable(permission: ToolPermission): Record<string, PermissionEffect> {
+	return isPermissionEffect(permission) ? { '*': permission } : { ...permission }
+}
+
+function mergeToolPermission(
+	lower: ToolPermission | undefined,
+	higher: ToolPermission,
+): ToolPermission {
+	if (lower === undefined) return higher
+	// A value that is neither an effect nor a table is reported by the layer's
+	// own compile; for the combined view the other layer's value stands.
+	const usable = (value: ToolPermission): boolean =>
+		isPermissionEffect(value) || (typeof value === 'object' && value !== null)
+	if (!usable(lower)) return higher
+	if (!usable(higher)) return lower
+	if (isPermissionEffect(lower) && isPermissionEffect(higher)) return stricter(lower, higher)
+	const merged = patternTable(lower)
+	for (const [pattern, effect] of Object.entries(patternTable(higher))) {
+		const existing = merged[pattern]
+		merged[pattern] =
+			existing !== undefined && isPermissionEffect(existing) && isPermissionEffect(effect)
+				? stricter(existing, effect)
+				: effect
+	}
+	return merged
+}
+
+/**
+ * Several `[permissions]` tables as one, for showing and for code that wants a
+ * single table. The rule lists JOIN: every tool and every pattern any layer
+ * names is kept, and where two layers name the same one the stricter effect
+ * stands (deny over ask over allow).
+ *
+ * What decides a call is {@link compilePermissionLayers}, not this table: a
+ * narrower allow from one layer must not outrank a broader deny from another,
+ * and a single table cannot say which layer a pattern came from.
+ */
+export function mergePermissionTables(
+	tables: readonly (PermissionsConfig | undefined)[],
+): PermissionsConfig {
+	const out: Record<string, ToolPermission> = {}
+	for (const table of tables) {
+		if (!table) continue
+		for (const [tool, permission] of Object.entries(table)) {
+			out[tool] = mergeToolPermission(out[tool], permission)
+		}
+	}
+	return out
+}
+
+/** The tables a loaded config carries, lowest precedence first. */
+export function permissionLayersOf(config: {
+	readonly permissions?: PermissionsConfig
+	readonly permissionLayers?: readonly PermissionsConfig[]
+}): readonly PermissionsConfig[] {
+	if (config.permissionLayers !== undefined) return config.permissionLayers
+	return config.permissions ? [config.permissions] : []
+}
+
+/**
+ * Compile the `[permissions]` tables of several layers (user, project, local,
+ * profile, managed) into one rule list in which a deny from ANY layer wins.
+ *
+ * Each layer decides on its own, by the rules it always had: first match, the
+ * most specific pattern first, a narrower allow beating a broader deny of the
+ * same table. The layers are then combined the way the reference terminal
+ * combines its sources: a layer that denies the call denies it, else a layer
+ * that asks asks, else a layer that allows allows, and no layer's word is lost
+ * because a higher one wrote a table of its own. Which layer is higher does
+ * not matter to the outcome, so a managed table adds to the rules below it
+ * instead of replacing them, and a project cannot erase a user's deny.
+ *
+ * One layer compiles exactly as {@link compilePermissions} does.
+ */
+export function compilePermissionLayers(
+	layers: readonly (PermissionsConfig | undefined)[],
+	checks?: PermissionChecksConfig,
+): CompiledPermissions {
+	const present = layers.filter((layer): layer is PermissionsConfig => layer !== undefined)
+	if (present.length <= 1) return compilePermissions(present[0], checks)
+
+	const diagnostics: CompileDiagnostic[] = []
+	const withRules: (readonly AuthorizationRule[])[] = []
+	for (const layer of present) {
+		const compiled = compilePermissions(layer)
+		diagnostics.push(...compiled.diagnostics)
+		if (compiled.rules.length > 0) withRules.push(compiled.rules)
+	}
+	if (withRules.length <= 1) {
+		// At most one layer has a rule: it is the whole table, and keeping its
+		// rules as the rules they are keeps them inspectable.
+		const rules = withRules[0] ?? []
+		diagnostics.push(...verifyPermissionChecks(rules, checks))
+		return { rules, diagnostics }
+	}
+	const gates = withRules.map(
+		(rules) =>
+			new AuthorizationGate(
+				{
+					enabled: true,
+					rules: [...rules],
+					allowReadOnlyTools: false,
+					denyDangerousPatterns: false,
+					logDecisions: false,
+				},
+				NOOP_LOGGER,
+			),
+	)
+
+	const verdicts = (call: AuthorizationPredicateCall, want: 'deny' | 'review' | 'allow') =>
+		gates
+			.map((gate) => gate.evaluate(call))
+			.find((result) => result.matchedRule !== null && result.decision === want)
+	const layered = (want: 'deny' | 'review' | 'allow', description: string): AuthorizationRule => ({
+		type: 'predicate',
+		description,
+		decide: (call) => (verdicts(call, want) ? want : null),
+		describe: (call) => verdicts(call, want)?.reason ?? description,
+	})
+	const rules: AuthorizationRule[] = [
+		layered('deny', 'denied by a permission rule in one of the config layers'),
+		layered('review', 'asked about by a permission rule in one of the config layers'),
+		layered('allow', 'allowed by a permission rule in the config layers'),
+	]
+	diagnostics.push(...verifyPermissionChecks(rules, checks))
+	return { rules, diagnostics }
+}

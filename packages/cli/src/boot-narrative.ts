@@ -36,6 +36,7 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 		default: 0,
 		'user-file': 0,
 		'project-file': 0,
+		'local-file': 0,
 		profile: 0,
 		env: 0,
 		managed: 0,

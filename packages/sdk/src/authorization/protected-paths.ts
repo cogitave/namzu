@@ -57,6 +57,8 @@ export const PROTECTED_FILE_NAMES: readonly string[] = [
 	'.ripgreprc',
 	'.mcp.json',
 	'namzu.config.json',
+	// The project's local config, where "don't ask again" answers are written.
+	'namzu.config.local.json',
 	'.npmrc',
 	'.yarnrc',
 	'.yarnrc.yml',

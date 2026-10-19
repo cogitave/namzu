@@ -62,5 +62,6 @@ describe('isProtectedPath', () => {
 
 	it('protects the project config file under its own name', () => {
 		expect(isProtectedPath('/repo/namzu.config.json')).toBe(true)
+		expect(isProtectedPath('/repo/namzu.config.local.json')).toBe(true)
 	})
 })
