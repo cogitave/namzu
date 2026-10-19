@@ -159,9 +159,11 @@
  */
 
 import type {
+	OpenTerminalOptions,
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxEnvironment,
+	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
@@ -170,6 +172,7 @@ import type {
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
 	SandboxWalkFilesOptions,
+	TerminalSession,
 } from '@namzu/sdk'
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
@@ -185,11 +188,14 @@ import {
 } from './egress-policy.js'
 import {
 	type KubernetesGuestEvidence,
+	KubernetesGuestPinRefusedError,
 	type KubernetesGuestRestart,
+	type KubernetesPinnedGuestIdentity,
 	type KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceGuestGoneError,
 	type KubernetesWorkspaceIdentity,
 	KubernetesWorkspaceReplacedError,
+	freezePinnedIdentity,
 } from './identity.js'
 import {
 	DEFAULT_AGENT_PORT,
@@ -273,7 +279,9 @@ import {
 	type KubernetesStartDetachedOptions,
 	type KubernetesWorkspaceTerminal,
 	flushUnsupportedError,
+	guestMismatchOf,
 	guestWhenReserved,
+	isUnauthorizedRefusal,
 } from './transport.js'
 
 /**
@@ -948,6 +956,23 @@ export type KubernetesWorkspaceOrigin = 'created' | 'adopted-running' | 'resumed
  * contract that every other backend would then have to answer for, and no
  * `deleteDisk` field on the shared `SandboxDestroyOptions`.
  */
+/**
+ * What {@link KubernetesWorkspace.pinGuest} returns: the data-plane subset of
+ * a workspace, every call authenticated against one guest.
+ */
+export interface KubernetesPinnedGuest {
+	/** The identity this view is pinned to, frozen. */
+	readonly expected: KubernetesPinnedGuestIdentity
+	exec(command: string, argv?: string[], options?: SandboxExecOptions): Promise<SandboxExecResult>
+	readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer>
+	writeFile(path: string, content: string | Buffer): Promise<void>
+	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
+	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
+	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
+	/** As {@link KubernetesWorkspace.quiesce}, without the lifecycle queue: it is the guest's, not the workspace's. */
+	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
+}
+
 export interface KubernetesWorkspace extends Sandbox {
 	/**
 	 * How this handle came by its workspace — see
@@ -1264,6 +1289,32 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * `KubernetesQuiesceBusyError` when anything is running.
 	 */
 	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
+	/**
+	 * A non-owning view of this workspace that talks ONLY to the guest the
+	 * caller authenticated, and refuses (never rebinds) if it changed.
+	 *
+	 * `expected` names the Sandbox, the pod and the agent process
+	 * ({@link KubernetesPinnedGuestIdentity}); read them off `identity` after
+	 * a call the guest answered. A missing or empty field throws
+	 * `KubernetesPinIncompleteError` here, synchronously.
+	 *
+	 * Every call on the view first compares `identity` with `expected` and
+	 * refuses with `KubernetesGuestPinRefusedError` (`identity-changed`)
+	 * before dialing; then it sends the request inside the guest agent's
+	 * `pinned` envelope, which the agent compares with its own boot id BEFORE
+	 * dispatch, so a guest that is not the pinned one runs nothing
+	 * (`guest-replaced`, carrying the id of the agent that refused). A guest
+	 * agent that does not advertise `pinned-guest` refuses the call
+	 * (`guest-unsupported`) instead of serving it unpinned. A fenced agent
+	 * that IS the pinned one answers `KubernetesAgentRetiringError`, with its
+	 * id on `guestBootId`.
+	 *
+	 * The view owns nothing: it has no `destroy`, `suspend` or `resume`, never
+	 * retires the pod, and a later `suspend()` of this workspace makes its
+	 * calls refuse. It reads its pinned values once; mutating `expected`
+	 * afterwards changes nothing.
+	 */
+	pinGuest(expected: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest
 	/**
 	 * Put everything this workspace has written onto its disk, now.
 	 *
@@ -5226,6 +5277,149 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		)
 
 	/**
+	 * The pinned view over this handle — see {@link KubernetesWorkspace.pinGuest}.
+	 *
+	 * It owns a sibling transport (built by `pinnedTo`) for the live session's
+	 * pod and a Sandbox around it, made on first use and reused while the live
+	 * session's transport is the one it was built from. The sibling has no
+	 * `refreshHandle`, so nothing it does can follow a replaced pod, and the
+	 * Sandbox's `release` does nothing and its unconfirmed-cancellation hook
+	 * keeps the pod: a view is not allowed to retire what it does not own.
+	 */
+	const buildPinnedGuest = (expected: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest => {
+		let built:
+			| {
+					readonly parent: KubernetesAgentTransport
+					readonly transport: KubernetesAgentTransport
+					readonly sandbox: KubernetesSandboxHandle
+			  }
+			| undefined
+		const refuse = (
+			reason: ConstructorParameters<typeof KubernetesGuestPinRefusedError>[0],
+			actual: KubernetesWorkspaceIdentity | undefined,
+			field: ConstructorParameters<typeof KubernetesGuestPinRefusedError>[4],
+			fresh?: string,
+			cause?: unknown,
+		): KubernetesGuestPinRefusedError =>
+			new KubernetesGuestPinRefusedError(
+				reason,
+				workspaceId,
+				expected,
+				actual,
+				field,
+				fresh,
+				cause !== undefined ? { cause } : undefined,
+			)
+		/** Compared before anything is dialed. The guest's own check is the authority; this one is free. */
+		const resolve = (operation: string) => {
+			const actual = identityNow()
+			if (state !== 'running' || session === undefined || actual.podUid === undefined) {
+				throw refuse('identity-changed', actual, 'podUid')
+			}
+			if (actual.sandboxUid !== expected.sandboxUid) {
+				throw refuse('identity-changed', actual, 'sandboxUid')
+			}
+			if (actual.podUid !== expected.podUid) throw refuse('identity-changed', actual, 'podUid')
+			// Not yet heard from is not "changed": the guest compares it itself.
+			if (actual.guestBootId !== undefined && actual.guestBootId !== expected.guestBootId) {
+				throw refuse('identity-changed', actual, 'guestBootId')
+			}
+			for (const [claim, uid] of Object.entries(expected.volumeClaimUids ?? {})) {
+				if (actual.volumeClaimUids[claim] !== uid) {
+					throw refuse('identity-changed', actual, 'volumeClaimUids')
+				}
+			}
+			const parent = admittedTransport(operation, session)
+			if (built === undefined || built.parent !== parent) {
+				const transport = parent.pinnedTo(expected.guestBootId)
+				built = {
+					parent,
+					transport,
+					sandbox: buildKubernetesSandbox({
+						name,
+						rootDir: options.rootDir,
+						transport,
+						release: async () => {},
+						onUnconfirmedCancellation: async () => ({
+							accepted: false,
+							reason: 'pinned-view-keeps-the-pod',
+						}),
+					}),
+				}
+			}
+			return built
+		}
+		const translate = (err: unknown): unknown => {
+			if (err instanceof KubernetesGuestPinRefusedError) return err
+			const replaced = guestMismatchOf(err)
+			if (replaced !== undefined) {
+				return refuse('guest-replaced', undefined, undefined, replaced.guestBootId, err)
+			}
+			if (isUnauthorizedRefusal(err))
+				return refuse('pod-replaced', undefined, undefined, undefined, err)
+			return err
+		}
+		const pinned = async <T>(
+			operation: string,
+			run: (view: {
+				transport: KubernetesAgentTransport
+				sandbox: KubernetesSandboxHandle
+			}) => Promise<T>,
+			signal?: AbortSignal,
+		): Promise<T> => {
+			const view = resolve(operation)
+			try {
+				if (!(await view.transport.supportsPinnedGuest(signal))) {
+					throw refuse('guest-unsupported', undefined, undefined)
+				}
+				return await run(view)
+			} catch (err) {
+				throw translate(err)
+			}
+		}
+		return Object.freeze({
+			expected,
+			exec: async (command: string, argv?: string[], execOptions?: SandboxExecOptions) =>
+				await pinned('exec', async (view) => await view.sandbox.exec(command, argv, execOptions)),
+			readFile: async (path: string, readOptions?: SandboxReadFileOptions) =>
+				await pinned('readFile', async (view) => await view.sandbox.readFile(path, readOptions)),
+			writeFile: async (path: string, content: string | Buffer) =>
+				await pinned('writeFile', async (view) => await view.sandbox.writeFile(path, content)),
+			listFiles: async (rootPath: string) =>
+				await pinned('listFiles', async (view) => await view.sandbox.listFiles(rootPath)),
+			openTerminal: async (terminalOptions: OpenTerminalOptions) =>
+				await pinned(
+					'openTerminal',
+					async (view) => await view.sandbox.openTerminal(terminalOptions),
+				),
+			openTcpConnection: async (connectOptions: SandboxTcpConnectOptions) =>
+				await pinned(
+					'openTcpConnection',
+					async (view) => await view.sandbox.openTcpConnection(connectOptions),
+				),
+			quiesce: async (quiesceOptions?: KubernetesQuiesceOptions) => {
+				// Copied before any await, like the workspace's own.
+				if (
+					quiesceOptions?.onlyIfIdle !== undefined &&
+					typeof quiesceOptions.onlyIfIdle !== 'boolean'
+				) {
+					throw new TypeError('kubernetes: quiesce({ onlyIfIdle }) must be a boolean')
+				}
+				const request = {
+					...(quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {}),
+					...(quiesceOptions?.onlyIfIdle === true ? { idleOnly: true } : {}),
+				}
+				const signal = quiesceOptions?.signal
+				return await pinned(
+					'quiesce',
+					async (view) => await view.transport.quiesce(request, signal),
+					signal,
+				)
+			},
+		})
+	}
+
+	/**
 	 * Tell the host about a gap a suspend went ahead over.
 	 *
 	 * Synchronous, never awaited, and a callback that throws changes
@@ -5468,6 +5662,9 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 		get identity(): KubernetesWorkspaceIdentity {
 			return identityNow()
+		},
+		pinGuest(input: KubernetesPinnedGuestIdentity): KubernetesPinnedGuest {
+			return buildPinnedGuest(freezePinnedIdentity(input))
 		},
 		onGuestRestart(listener: (event: KubernetesGuestRestart) => void): () => void {
 			restartListeners.add(listener)

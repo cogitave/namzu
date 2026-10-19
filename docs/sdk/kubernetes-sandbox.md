@@ -1777,6 +1777,80 @@ members and none of them is "suspended", and `destroyed` is the only one
 meaning "cannot serve a call". The `suspended` flag is what tells the
 recoverable state from the final one.
 
+### A caller can pin one guest, and a changed guest runs nothing
+
+A workspace handle follows a replaced pod on purpose, so a caller that has
+authenticated ONE guest (the pod, the agent process in it, the disk) cannot
+use the handle itself to make a later write fail closed: the transport would
+follow the rebind and the write meant for guest A would land in guest B.
+`workspace.pinGuest(expected)` returns a view that does not.
+
+```ts sketch
+import { KubernetesGuestPinRefusedError } from '@namzu/sandbox'
+
+const { sandboxUid, podUid, guestBootId } = workspace.identity // after a call the guest answered
+const pinned = workspace.pinGuest({ sandboxUid, podUid, guestBootId })
+
+try {
+  await pinned.writeFile('/workspace/result.json', body)
+} catch (err) {
+  if (err instanceof KubernetesGuestPinRefusedError) {
+    // err.reason: 'identity-changed' | 'guest-replaced' | 'pod-replaced' | 'guest-unsupported'
+    // err.freshGuestBootId: the agent that answered, when it said
+  }
+}
+```
+
+The view has `exec`, `readFile`, `writeFile`, `listFiles`, `openTerminal`,
+`openTcpConnection` and `quiesce`, and nothing that owns the workspace: no
+`suspend`, `resume` or `destroy`, and an unconfirmed cancellation never
+retires the pod. `expected` takes the same shape `openKubernetesWorkspace`
+does (`sandboxUid`, optional `volumeClaimUids`) plus `podUid` and
+`guestBootId`. A missing or empty `sandboxUid`, `podUid` or `guestBootId` (or an
+empty claim uid) throws `KubernetesPinIncompleteError` from `pinGuest`, naming
+the fields, because a pin that matched whatever the caller left blank
+authenticates nothing. The object is copied and frozen when you call it.
+
+Every call checks twice, and neither check can be skipped:
+
+1. **The host, before it dials.** The workspace's `identity` is compared with
+   `expected` (`sandboxUid`, `podUid`, each pinned claim uid, and `guestBootId`
+   once a reply has reported one). A difference refuses with
+   `reason: 'identity-changed'` and `field`, and nothing is sent. A suspended
+   workspace refuses the same way.
+2. **The guest, before it dispatches.** The request is sent inside a distinct
+   `pinned` envelope, `{ op: 'pinned', body: { expectedGuestBootId, request:
+   { op, body } } }`, with the bind token outside it as usual. The agent
+   compares `expectedGuestBootId` with its own boot id straight after the
+   credential check and before any handler, so a mismatch reserves, reads,
+   writes, opens and signals nothing. It answers `guest_mismatch:<its id>`
+   with the same id on the frame's `guestBootId`, and the view throws
+   `reason: 'guest-replaced'` with `freshGuestBootId` set.
+
+It never rebinds. A pod that refuses the pinned token is `reason:
+'pod-replaced'`, and the view does not re-read the Sandbox; call `pinGuest`
+again with the identity you mean. Nothing a pinned call does feeds the
+workspace's restart detection or `onGuestRestart`.
+
+**Telling fencing from replacement.** A fenced agent still answers a pinned
+request, with `agent_retiring` and its own `guestBootId` (and `retiring:
+true` on a mismatch). The view surfaces the former as
+`KubernetesAgentRetiringError` with `guestBootId` set: the same id as the one
+pinned means the guest you pinned is the fenced one; a different id arrives as
+`guest-replaced`.
+
+**Old agents refuse, they do not downgrade.** The envelope is a new op rather
+than an extra field on every request, because an agent that predates it
+ignores unknown fields and would serve a pinned request on whatever guest it
+is. The guest advertises `pinned-guest` (`PINNED_GUEST_FEATURE`) in `healthz`,
+and the view checks it before sending anything but `healthz`: against an image
+without it every call rejects with `reason: 'guest-unsupported'` and the guest
+runs nothing. Rebuild the workspace image from this release to use a pin.
+Un-pinned calls are untouched, and an old host keeps working against a new
+agent. The boot id compared is the agent process's own (the `guestBootId` on
+every authenticated reply), not the kernel's `boot_id`, which a VM runtime
+shares across the restart this exists to expose.
+
 ### A resume can bring the current pod template with it
 
 A `Sandbox` carries its own copy of `spec.podTemplate`, taken once in the
@@ -2661,7 +2735,7 @@ block at their defaults.
 **The guest has to advertise it.** `healthz` answers with a `features` list,
 whose full vocabulary is `["write-file-parts", "execution-attach",
 "stream-heartbeat", "read-file-stream", "sessions", "quiesce", "quiesce-idle",
-"flush", "guest-boot-id"]` — and a given reply may carry fewer than these, because the
+"flush", "guest-boot-id", "pinned-guest"]` — and a given reply may carry fewer than these, because the
 list is what that guest can actually do: an image with no `sync` to run drops
 `flush` rather than advertising one it cannot perform. A host asking for any
 session verb against an image whose list has no `sessions` is refused with

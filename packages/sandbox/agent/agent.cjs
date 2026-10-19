@@ -217,6 +217,14 @@ function guestIdentity() {
 //    processes it saw. A host sends the field only to a guest that
 //    advertises this string: an agent that predates it IGNORES unknown body
 //    fields and would run the stopping quiesce. See `runIdleCheck`.
+//  - `pinned-guest` — the `pinned` op wraps ONE ordinary request as
+//    `{ op: 'pinned', body: { expectedGuestBootId, request: { op, body } } }`
+//    and dispatches it only when `expectedGuestBootId` equals THIS agent's
+//    {@link GUEST_BOOT_ID}; otherwise it answers `guest_mismatch:<fresh id>`
+//    and runs nothing. It is a distinct op, not a field, because an agent
+//    that predates it answers `unknown_op: pinned` while it would IGNORE an
+//    unknown field and serve the request on whatever guest it is. See
+//    `dispatchPinned`.
 //  - `flush` — the `flush` op runs `syncfs(2)` over the workspace mount, so
 //    a host that is about to take the pod away can make the dirty pages of
 //    everything written through this guest — by `write-file` AND by a
@@ -236,6 +244,7 @@ const AGENT_FEATURES = [
 	'quiesce-idle',
 	'flush',
 	'guest-boot-id',
+	'pinned-guest',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -5401,8 +5410,68 @@ function handleConnection(socket) {
 	}
 }
 
+/**
+ * The `pinned` envelope: authenticate the guest BEFORE anything is
+ * dispatched.
+ *
+ * The comparison is the first thing that happens after the credential gate
+ * (which `handleConnection` already ran on the outer frame), so a refused
+ * pin reaches no handler: nothing is reserved, written, read, opened or
+ * signalled. The refusal always names this agent's own boot id, and says
+ * whether the agent is fenced, so a caller can tell a replacement (a
+ * different id, nobody fenced) from a fenced agent that is still the one it
+ * pinned (same id, `agent_retiring`, returned by the inner dispatch).
+ *
+ * The reply shape follows the inner op: a stream op's caller reads a stream,
+ * so an attach is refused in the stream's own `{type:'error'}` grammar,
+ * exactly as the retiring fence does.
+ */
+function dispatchPinned(socket, req) {
+	const body = req?.body
+	const expected = body?.expectedGuestBootId
+	const inner = body?.request
+	const refuseWith = (error, extra) => {
+		const stream = inner?.op === 'attach-execution' || inner?.op === 'attach-session'
+		if (stream) {
+			writeFrame(socket, { type: 'error', error, ...guestIdentity(), ...extra })
+			writeTerminator(socket)
+		} else {
+			writeFrame(socket, { ok: false, error, ...guestIdentity(), ...extra })
+		}
+		socket.end()
+	}
+	if (
+		typeof expected !== 'string' ||
+		expected === '' ||
+		inner === null ||
+		typeof inner !== 'object' ||
+		typeof inner.op !== 'string' ||
+		inner.op === 'pinned' ||
+		inner.op === 'healthz'
+	) {
+		refuseWith('bad_pinned_request', {})
+		return
+	}
+	if (expected !== GUEST_BOOT_ID) {
+		refuseWith(`guest_mismatch:${GUEST_BOOT_ID}`, agentRetiring ? { retiring: true } : {})
+		return
+	}
+	// The fence's own refusal, but carrying the id: the caller pinned THIS
+	// process, so it learns that the process it trusted is the one that is
+	// fenced, not that it was replaced.
+	if (agentRetiring && inner.op !== 'cancel-execution') {
+		refuseWith('agent_retiring', { retiring: true })
+		return
+	}
+	dispatch(socket, { op: inner.op, ...(inner.body !== undefined ? { body: inner.body } : {}) })
+}
+
 function dispatch(socket, req) {
 	const op = req?.op
+	if (op === 'pinned') {
+		dispatchPinned(socket, req)
+		return
+	}
 	if (op === 'healthz') {
 		writeFrame(socket, {
 			ok: !agentRetiring,

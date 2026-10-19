@@ -366,6 +366,7 @@ describe('preset per-instance token', () => {
 			'quiesce-idle',
 			'flush',
 			'guest-boot-id',
+			'pinned-guest',
 		])
 		// And what `healthz` may claim is a subset of it, never a superset:
 		// `advertisedFeatures` only ever filters.

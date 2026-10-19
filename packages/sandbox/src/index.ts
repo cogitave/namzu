@@ -313,6 +313,10 @@ export {
 } from './backends/kubernetes/sandbox.js'
 export {
 	KubernetesAgentAddressUnresolvableError,
+	// The guest agent compared its boot id with a pinned request's and refused
+	// before dispatching anything. Reaches a caller as
+	// `KubernetesGuestPinRefusedError` through a pinned view.
+	KubernetesAgentGuestMismatchError,
 	// A guest that has fenced itself refuses one CALL here, not the
 	// workspace: the Firecracker tier's mapping of the same refusal retires
 	// the sandbox, which on a workspace would take the pod away from every
@@ -387,6 +391,7 @@ export {
 } from './backends/kubernetes/transport.js'
 export {
 	QUIESCE_FEATURE,
+	PINNED_GUEST_FEATURE,
 	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
@@ -532,7 +537,9 @@ export type {
 export type {
 	KubernetesGuestEvidence,
 	KubernetesGuestRestart,
+	KubernetesGuestPinRefusal,
 	KubernetesGuestRestartReason,
+	KubernetesPinnedGuestIdentity,
 	KubernetesWorkspaceExpectedIdentity,
 	KubernetesWorkspaceIdentity,
 	KubernetesWorkspaceIdentityMismatch,
@@ -547,6 +554,14 @@ export type {
 	KubernetesWorkspaceReconcileOptions,
 } from './backends/kubernetes/workspace-observe.js'
 export { KubernetesWorkspaceReadyTimeoutError } from './backends/kubernetes/workspace-observe.js'
+// Pinning one guest: `workspace.pinGuest(identity)` and the two errors a host
+// catches by class — an identity that cannot pin (nothing was created) and a
+// pinned call that was refused (nothing ran).
+export {
+	KubernetesGuestPinRefusedError,
+	KubernetesPinIncompleteError,
+} from './backends/kubernetes/identity.js'
+export type { KubernetesPinnedGuest } from './backends/kubernetes/workspace.js'
 export {
 	// The command's outcome is unknown AND the guest it ran in is gone. A
 	// subclass of `RemoteCancellationUnknownError`, so a host catching the

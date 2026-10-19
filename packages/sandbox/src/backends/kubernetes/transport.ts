@@ -43,7 +43,9 @@ import {
 	type ExecRequest,
 	ExecResultAccumulator,
 	FLUSH_FEATURE,
+	GUEST_MISMATCH_REFUSAL,
 	type GuestReplyIdentity,
+	PINNED_GUEST_FEATURE,
 	QUIESCE_FEATURE,
 	QUIESCE_IDLE_FEATURE,
 	type QuiesceScope,
@@ -125,9 +127,61 @@ export class KubernetesAgentRetiringError extends Error {
 
 	constructor(
 		message = 'kubernetes tcp transport: the guest agent has fenced itself (agent_retiring) because an earlier process group’s shutdown could not be confirmed. A command of unknown state may still be running in that pod and nothing on this side can end it: only a new pod clears the fence, and until the pod is replaced every call except healthz and cancel-execution meets this same refusal — reads, writes, terminals and tcp connections included. Nothing was changed on the cluster by this refusal and this handle was not retired. On a persistent workspace, call suspend() and then resume() when you are ready for the live terminals and background processes in that pod to go down; on a task sandbox, destroy() it and take another.',
+		/**
+		 * The agent process that is fenced, when the refusal named it. Only a
+		 * request sent through a pinned view carries one: it is how a caller
+		 * tells "the guest I pinned is the one that is fenced" (the same id)
+		 * from "a different guest stands there" (a `guest_mismatch`).
+		 */
+		readonly guestBootId?: string,
 	) {
 		super(message)
 	}
+}
+
+/**
+ * The guest agent refused a pinned request before dispatching it because its
+ * own boot id is not the one the request was pinned to. Nothing ran.
+ *
+ * `guestBootId` is the id of the agent that answered, so a caller can tell a
+ * replacement (a new id) from a refusal that has nothing to do with identity.
+ * `retiring` is true when that agent is also fenced.
+ */
+export class KubernetesAgentGuestMismatchError extends Error {
+	override readonly name = 'KubernetesAgentGuestMismatchError'
+
+	constructor(
+		readonly guestBootId: string | undefined,
+		readonly retiring = false,
+	) {
+		super(
+			`kubernetes tcp transport: the guest agent refused a pinned request before dispatching it (${GUEST_MISMATCH_REFUSAL}): its boot id is ${guestBootId ?? 'unreported'}, not the one the request was pinned to. Nothing ran.`,
+		)
+	}
+}
+
+/**
+ * The fresh guest boot id carried by a pinned refusal, wherever in an error's
+ * cause chain it sits — the control-plane path throws the class above, and
+ * every other path throws a plain `Error` whose message is the guest's error
+ * text, `guest_mismatch:<id>`.
+ */
+export function guestMismatchOf(
+	error: unknown,
+): { readonly guestBootId: string | undefined; readonly retiring: boolean } | undefined {
+	let current: unknown = error
+	for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
+		if (current instanceof KubernetesAgentGuestMismatchError) {
+			return { guestBootId: current.guestBootId, retiring: current.retiring }
+		}
+		const prefix = `${GUEST_MISMATCH_REFUSAL}:`
+		if (current.message.startsWith(prefix)) {
+			const id = current.message.slice(prefix.length).trim()
+			return { guestBootId: id === '' ? undefined : id, retiring: false }
+		}
+		current = current.cause
+	}
+	return undefined
 }
 
 /**
@@ -351,7 +405,7 @@ function refusedWith(response: unknown, error: string): boolean {
  * output is quoted into a message, does not equal it. The chain is walked
  * because the retry wrapper and the stream paths wrap rather than replace.
  */
-function isUnauthorizedRefusal(error: unknown): boolean {
+export function isUnauthorizedRefusal(error: unknown): boolean {
 	let current: unknown = error
 	for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
 		if (current instanceof KubernetesAgentUnauthorizedError) return true
@@ -462,7 +516,19 @@ async function requestChecked(
 ): Promise<unknown> {
 	const response = await wire.request(request, signal)
 	if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
-	if (isAgentRetiring(response)) throw new KubernetesAgentRetiringError()
+	if (isAgentRetiring(response)) {
+		throw new KubernetesAgentRetiringError(undefined, guestBootIdOf(response))
+	}
+	if (response && typeof response === 'object') {
+		const value = response as { ok?: unknown; error?: unknown; retiring?: unknown }
+		if (
+			value.ok === false &&
+			typeof value.error === 'string' &&
+			value.error.startsWith(`${GUEST_MISMATCH_REFUSAL}:`)
+		) {
+			throw new KubernetesAgentGuestMismatchError(guestBootIdOf(response), value.retiring === true)
+		}
+	}
 	return response
 }
 
@@ -1550,6 +1616,8 @@ export class KubernetesAgentTransport {
 	private readonly refreshHandle?: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>
 	/** Simple pass-through operations share one transport instance. */
 	private wire: VsockAgentTransport
+	/** What {@link pinnedTo} builds a sibling from: everything but the hooks that follow or report a pod. */
+	private readonly siblingOptions: KubernetesTransportOptions
 
 	constructor(handle: KubernetesAgentHandle, options: KubernetesTransportOptions = {}) {
 		const { onTiming, refreshHandle, onGuestReply, ...transportOptions } = options
@@ -1579,7 +1647,32 @@ export class KubernetesAgentTransport {
 		}
 		this.onTiming = onTiming
 		this.refreshHandle = refreshHandle
+		this.siblingOptions = { ...transportOptions, ...(onTiming !== undefined ? { onTiming } : {}) }
 		this.wire = new VsockAgentTransport(handle, this.wireOptions(handle))
+	}
+
+	/**
+	 * A separate transport for the guest this one is bound to RIGHT NOW,
+	 * whose every request is pinned to the agent process `guestBootId`.
+	 *
+	 * Never rebinds: it has no `refreshHandle`, so a refused token or a dead
+	 * address ends the call where it stands, and it holds its own copy of the
+	 * handle, so a rebind of THIS transport later cannot move it onto another
+	 * pod. It reports no guest identity back either, so a pinned call cannot
+	 * move the observer a workspace uses to detect restarts. Pair it with
+	 * {@link supportsPinnedGuest}: against an agent without the feature the
+	 * `pinned` op is refused as unknown, and nothing is dispatched.
+	 */
+	pinnedTo(guestBootId: string): KubernetesAgentTransport {
+		return new KubernetesAgentTransport(
+			{ ...this.handle },
+			{ ...this.siblingOptions, pinnedGuestBootId: guestBootId },
+		)
+	}
+
+	/** Whether the guest serves the `pinned` op; see {@link PINNED_GUEST_FEATURE}. */
+	async supportsPinnedGuest(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(PINNED_GUEST_FEATURE)
 	}
 
 	/**
