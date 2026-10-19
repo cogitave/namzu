@@ -303,6 +303,22 @@ describe('terminal notification config', () => {
 		})
 	})
 
+	it.each(['kitty', 'ghostty'] as const)(
+		'accepts the idle notice and the %s method',
+		(notificationMethod) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(
+				join(cwd, 'namzu.config.json'),
+				JSON.stringify({ tui: { notifications: ['idle-prompt'], notificationMethod } }),
+			)
+
+			expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({
+				notifications: ['idle-prompt'],
+				notificationMethod,
+			})
+		},
+	)
+
 	it.each([
 		{ notifications: ['turn-complet'] },
 		{ notifications: 'yes' },

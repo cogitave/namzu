@@ -546,3 +546,55 @@ describe('terminal adapter failure reporting', () => {
 		expect(allFrames).not.toContain('SECOND WRITE FAILURE')
 	})
 })
+
+describe('the idle notice', () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	it('is sent once, a minute after the turn ends with nobody at the keyboard', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed' })
+		const harness = await mountReady({ notifications: ['idle-prompt'] })
+
+		await submit(harness, 'go')
+		await waitUntil(() => sendCalls === 1)
+		await tick(80)
+		expect(requests, 'nothing is said while the minute is still running').toEqual([])
+
+		await vi.advanceTimersByTimeAsync(59_000)
+		expect(requests).toEqual([])
+		await vi.advanceTimersByTimeAsync(2_000)
+
+		expect(requests).toEqual([{ notification: { kind: 'idle-prompt' }, method: 'osc9' }])
+		await vi.advanceTimersByTimeAsync(180_000)
+		expect(requests, 'one completion is announced once').toHaveLength(1)
+	})
+
+	it('is not sent when the person pressed a key in the meantime', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed' })
+		const harness = await mountReady({ notifications: ['idle-prompt'] })
+
+		await submit(harness, 'go')
+		await waitUntil(() => sendCalls === 1)
+		await tick(80)
+		await vi.advanceTimersByTimeAsync(30_000)
+		harness.stdin.write('x')
+		await vi.advanceTimersByTimeAsync(40_000)
+
+		expect(requests).toEqual([])
+	})
+
+	it('is not asked for by `true`', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed' })
+		const harness = await mountReady({ notifications: true })
+
+		await submit(harness, 'go')
+		await waitUntil(() => requests.length === 1)
+		await vi.advanceTimersByTimeAsync(120_000)
+
+		expect(requests.map((request) => request.notification.kind)).toEqual(['turn-settled'])
+	})
+})

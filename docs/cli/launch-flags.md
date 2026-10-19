@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --permission-mode and --message on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach auto, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --permission-mode, --message, --continue and --resume on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach auto, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -30,6 +30,17 @@ Two switches change what Shift+Tab may reach rather than where the session start
 A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
 
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
+
+## Picking up a conversation: `-c` and `-r`
+
+```sh
+namzu -c                      # the most recent conversation in this folder
+namzu --resume                # the /resume picker
+namzu --resume "billing fix"  # the conversation with exactly that title
+namzu -r 11de68ce-02f2-49e4-a7e4-7f29355d7aaf
+```
+
+These follow the reference terminal and apply to the interactive session only (the same flags on `namzu exec` are separate and refuse rather than open a picker). `-c` / `--continue` opens the most recent conversation in this folder, and says so and exits 64 when there is none. `-r` / `--resume` with no value opens the `/resume` picker as soon as the composer is ready. With a value shaped like a conversation id it resumes that conversation or refuses with the cause; with any other value it resumes the one conversation whose title is exactly that, and otherwise opens the picker with the value as a search (case-insensitive, over the title and the opening message), or says nothing matched. Passing both is refused, and so is either flag before a subcommand or before `resume`. `--resume` takes the next word as its value, so write `namzu -c resume <id>` rather than `namzu --resume resume`; a value that begins with a dash needs `--resume=<value>`.
 
 ## How they combine with what is saved
 

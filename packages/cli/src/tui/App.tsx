@@ -406,6 +406,7 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
@@ -2017,6 +2018,8 @@ export function App({
 	const activeTurnInboxRef = useRef<ActiveTurnInbox | null>(null)
 	/** A broken terminal notification is reported once, not after every turn. */
 	const notificationFailureShownRef = useRef(false)
+	// When a key was last pressed: the idle notice is for a person who walked away.
+	const lastKeyAtRef = useRef(Date.now())
 	/**
 	 * The sign-in attempt awaiting its authorization code, if any.
 	 *
@@ -5542,34 +5545,50 @@ export function App({
 	}, [phase, resumeActiveTurn, session, state])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const doResume = useCallback(async () => {
-		const sessions = sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
-		if (!sessions) {
-			pushMessage('system', 'Conversation history is unavailable in this folder.')
-			return
-		}
-		if (await resumeActiveTurn()) return
-		try {
-			const owner = palDefinitionRef.current
-			const recent = owner
-				? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
-						...row,
-						id: asSessionId(row.id),
-					}))
-				: await listRecent(sessions)
-			// Don't offer the active (empty/just-started) conversation.
-			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
-			if (others.length === 0) {
-				pushMessage('system', 'No past conversations to resume in this folder yet.')
+	const doResume = useCallback(
+		async (query?: string) => {
+			const sessions =
+				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
+			if (!sessions) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
 			}
-			setResumeList(others)
-			setSelectedResume(0)
-			setPhase('resume')
-		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list conversations.'))
-		}
-	}, [ensureSessions, pushMessage, resumeActiveTurn])
+			if (await resumeActiveTurn()) return
+			try {
+				const owner = palDefinitionRef.current
+				const recent = owner
+					? (await listPalConversations(owner.workspace, owner.id)).map((row) => ({
+							...row,
+							id: asSessionId(row.id),
+						}))
+					: await listRecent(sessions)
+				// Don't offer the active (empty/just-started) conversation.
+				const needle = query?.trim().toLowerCase()
+				const others = recent.filter(
+					(c) =>
+						c.id !== scopeRef.current?.sessionId &&
+						(!needle ||
+							c.title.toLowerCase().includes(needle) ||
+							(c.preview?.toLowerCase().includes(needle) ?? false)),
+				)
+				if (others.length === 0) {
+					pushMessage(
+						'system',
+						needle
+							? `No conversation in this folder matches "${query?.trim()}". /resume lists them all.`
+							: 'No past conversations to resume in this folder yet.',
+					)
+					return
+				}
+				setResumeList(others)
+				setSelectedResume(0)
+				setPhase('resume')
+			} catch (err) {
+				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+			}
+		},
+		[ensureSessions, pushMessage, resumeActiveTurn],
+	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
@@ -8253,6 +8272,9 @@ export function App({
 					setPermission(null)
 					clearActiveTools()
 					setState('idle')
+					// The turn is over whether or not it is announced: from here a minute of
+					// quiet is what the idle notice measures.
+					if (ownsTurn) idleNotifierRef.current?.turnSettled()
 					if (
 						ownsTurn &&
 						!ac.signal.aborted &&
@@ -10172,6 +10194,62 @@ export function App({
 			terminal.rows,
 		],
 	)
+	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
+	// a minute after a turn ends with nobody at the keyboard. The condition lives
+	// in `IdleNotifier`; this only tells it what the screen knows.
+	const idleStateRef = useRef({
+		dialogOpen: false,
+		session: session,
+		sendNotification: sendTerminalNotification,
+	})
+	idleStateRef.current = {
+		dialogOpen:
+			permission !== null || textPrompt !== null || choicePicker !== null || phase !== 'ready',
+		session,
+		sendNotification: sendTerminalNotification,
+	}
+	const idleNotifierRef = useRef<IdleNotifier | null>(null)
+	if (idleNotifierRef.current === null) {
+		idleNotifierRef.current = new IdleNotifier({
+			now: Date.now,
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			lastInteractionAt: () => lastKeyAtRef.current,
+			isTurnRunning: () => abortRef.current !== null,
+			isDialogOpen: () => idleStateRef.current.dialogOpen,
+			hasPendingWake: () =>
+				queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			hasBackgroundWork: () => {
+				const live = idleStateRef.current.session
+				return (
+					(live?.jobs?.().some((job) => job.status === 'running') ?? false) ||
+					(live?.subagents
+						?.getSnapshot()
+						.some((agent) => ['starting', 'queued', 'working'].includes(agent.status)) ??
+						false)
+				)
+			},
+			send: () => idleStateRef.current.sendNotification({ kind: 'idle-prompt' }),
+		})
+	}
+	useEffect(() => {
+		if (state !== 'idle') idleNotifierRef.current?.turnStarted()
+	}, [state])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change in either list is the signal; the notifier reads the live values itself.
+	useEffect(() => {
+		idleNotifierRef.current?.backgroundChanged()
+	}, [backgroundJobs, subagents])
+	useEffect(() => () => idleNotifierRef.current?.dispose(), [])
+	// `--resume` without a title that names one conversation: the picker, opened
+	// once, as if `/resume` had been typed. The ref is spent before the call.
+	const launchResumePickerRef = useRef(initialCtx.openResumePicker)
+	useEffect(() => {
+		const request = launchResumePickerRef.current
+		if (request === undefined) return
+		if (phase !== 'ready' || state !== 'idle' || permission !== null || textPrompt !== null) return
+		launchResumePickerRef.current = undefined
+		void doResume(request.query)
+	}, [phase, state, permission, textPrompt, doResume])
 	// `--message`: the launch's first message, sent once the session can take it. The ref is
 	// spent before the call, so neither a re-render, a resume nor a reload can send it twice.
 	const launchMessageRef = useRef(initialCtx.launchSettings?.message)
@@ -10918,6 +10996,7 @@ export function App({
 
 	useInput(
 		(input, key) => {
+			lastKeyAtRef.current = Date.now()
 			if (outputViewer !== null || (scrollOpen && permission === null)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
