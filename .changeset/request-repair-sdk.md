@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": minor
+---
+
+A request the provider rejects as invalid (a 400 that is not a context overflow) is now repaired and resent where the rejection names something fixable, instead of ending the turn. Nothing breaks and nothing needs changing: a turn that used to fail with `bad_request` can now complete. Tool pairing is repaired before every send, rejected reasoning blocks are stripped, a refused `effort`, `thinking`, `temperature`, `topP` or `responseFormat` is dropped for that provider and model for the rest of the run, and rejected images or documents are replaced by a text note in the outgoing request (the stored conversation keeps them). Because a refused parameter is now dropped rather than failing, a host that relied on that failure to notice an unsupported setting should read it from the debug log. `capability_warning.contentSource` gains `'media-removed'`: a switch over it that assumed `'tool-result'` or `'history'` needs a default arm.
