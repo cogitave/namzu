@@ -883,14 +883,13 @@ removed, key-shaped text hidden, at most 500 characters): `src/renderer/friendly
 | 429 | OpenAI asked Namzu to slow down… (and, while waiting, the countdown below) | Retry |
 | A reply with no usage or unreadable | OpenAI sent a reply Namzu couldn't read. Try again. | Retry |
 | 5xx | OpenAI had a problem on its side. Your message is saved. | Retry |
-| Context window | This conversation is too long for the model… | Start a new conversation |
+| Context window | This conversation is too long for the model. Try again, or choose a model with more room. | Retry, Open model settings |
 | No key | There is no API key for Anthropic. Add one in Settings, then send again. | Open model settings |
 
 The sentence sits directly under the reply's work and is followed by the same quiet row a settled reply ends with
 (`MessageActions`, `turn-recovery.tsx`): the time first (when the reply stopped; the turn above draws no second clock), then **Retry** and **Copy** as icon buttons (Retry reads "Retry
 with *model*" when the model selected now is not the one that stopped), then any other way on as small muted text (**Open
-model settings**, **Continue without this reply**, **Start a new
-conversation**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Details start closed for every failure
+model settings**, **Continue without this reply**), then **Details** as a text toggle with no leading symbol (`aria-expanded`). Details start closed for every failure
 the row has not shown before: the toggle is keyed on the conversation and the failure it describes (`recoveryKey`), so
 Details left open on one failure do not open on the next conversation's. Every item sits on one centre line with the settled row's
 spacing, the row wraps at the same gaps in a narrow window, Copy copies the sentence and the

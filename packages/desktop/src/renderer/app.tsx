@@ -6911,7 +6911,6 @@ export function App({
 										onAction={(action) => {
 											if (action === 'settings') openSettings('models', 'models')
 											else if (action === 'continue') void act(continueWithoutReply)
-											else void act(newConversation)
 										}}
 										disabled={
 											thread.running ||

@@ -10,7 +10,6 @@ type OtherAction = Exclude<FailureAction, 'try-again'>
 
 const ACTION_LABEL: Record<OtherAction, string> = {
 	settings: 'Open model settings',
-	'new-conversation': 'Start a new conversation',
 	continue: 'Continue without this reply',
 }
 
