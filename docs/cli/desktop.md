@@ -1219,13 +1219,12 @@ Older profiles without appearance display Pixel in green without changing the
 stored revision. An unavailable model catalogue leaves setup and customization
 usable; the Pal may use the host's configured model when its own model is null.
 
-A Pal's model is the model of its conversation. The conversation reads it from
-the Pal on every message, so changing it in the Pal's settings applies to the
-next message, including in a conversation that was already messaged; the
-composer shows the Pal's current model. Only a model picked by hand in that
-composer is pinned to the conversation, and choosing the Pal's own model there
-goes back to following the Pal. The first message no longer saves the shown
-model as the conversation's choice.
+A Pal has one model, and it is the model of its conversation. The Pal's settings ("Model") and the
+model control under the composer's `+` menu are two views of it: both read the Pal, and a pick in
+either one changes the Pal (the same update the Customize dialog makes, so it waits for active work to
+stop like any Pal change). The next message, including in a conversation that was already messaged,
+runs on that model, and nothing is saved per conversation: no model is pinned to a Pal's conversation,
+and a choice an earlier version pinned there is ignored. Auto is not offered for a Pal.
 
 Opening a Pal requires a ready, trusted CLI connection that reports the same
 Pal id and approved workspace. If Windows path resolution changes only letter
@@ -3430,8 +3429,8 @@ unavailable or paused. Catalogue access requires its own connected, trusted
 workspace and loaded provider settings. Sending still requires a ready computer
 and an unpaused Pal; active work continues to block model changes.
 The Pal landing retains its saved model label while provider metadata loads.
-Existing conversations retain their claimed model route rather than adopting
-an edited Pal default.
+An ordinary conversation retains its claimed model route rather than adopting
+an edited Pal default; a Pal's own conversation always follows the Pal.
 
 Sending an idle turn applies the shown
 choice before submitting the prompt. Failed selection is visible and prevents
