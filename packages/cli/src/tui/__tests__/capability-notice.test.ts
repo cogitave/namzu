@@ -173,9 +173,23 @@ describe('the kernel wording', () => {
 describe('a file the provider could not process', () => {
 	it('is named plainly, keeps the conversation, and never points at a new one', () => {
 		for (const capability of ['vision', 'documents'] as const) {
-			const text = describeCapabilityNotice({ capability, contentSource: 'media-removed' })
-			expect(text).toContain('stays in the conversation')
-			expect(text).not.toMatch(/\/new|\/clear|new conversation|start over/i)
+			for (const contentSource of [
+				'media-removed',
+				'media-removed-current',
+				'media-limit',
+			] as const) {
+				const text = describeCapabilityNotice({ capability, contentSource })
+				expect(text).toContain('stay')
+				expect(text).not.toMatch(/\/new|\/clear|new conversation|start over/i)
+			}
 		}
+		const current = describeCapabilityNotice({
+			capability: 'vision',
+			contentSource: 'media-removed-current',
+		})
+		expect(current).toContain('just attached')
+		expect(
+			describeCapabilityNotice({ capability: 'vision', contentSource: 'media-limit' }),
+		).not.toMatch(/couldn’t be processed|corrupt/)
 	})
 })

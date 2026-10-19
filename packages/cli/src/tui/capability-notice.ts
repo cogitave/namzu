@@ -15,13 +15,28 @@ export type CapabilityKind = 'tools' | 'vision' | 'documents'
 export interface CapabilityNoticeInput {
 	readonly capability: CapabilityKind
 	/** `'tool-result'` when the mismatch came from something a tool returned. */
-	readonly contentSource?: 'tool-result' | 'history' | 'media-removed'
+	readonly contentSource?:
+		| 'tool-result'
+		| 'history'
+		| 'media-removed'
+		| 'media-removed-current'
+		| 'media-limit'
 	readonly providerId?: string
 }
 
 /** One sentence: what the provider cannot do, what Namzu did about it, and what the person can do. */
 export function describeCapabilityNotice(input: CapabilityNoticeInput): string {
 	const name = productName(input.providerId) ?? 'This provider'
+	if (input.contentSource === 'media-limit') {
+		// Not a fault in any file: the provider takes only so many at once.
+		return 'This conversation holds more pictures or files than this model accepts at once, so Namzu left the oldest out of what it sends. They stay in the conversation.'
+	}
+	if (input.contentSource === 'media-removed-current') {
+		// The person attached it just now, so say so rather than let it vanish quietly.
+		return input.capability === 'documents'
+			? 'The document you just attached couldn’t be processed, so Namzu left it out of this reply. It stays in the conversation; attach a corrected copy to try again.'
+			: 'The picture you just attached couldn’t be processed, so Namzu left it out of this reply. It stays in the conversation; attach a corrected copy to try again.'
+	}
 	if (input.contentSource === 'media-removed') {
 		// The provider refused a file and Namzu retried without it; the conversation keeps the file.
 		return input.capability === 'documents'
