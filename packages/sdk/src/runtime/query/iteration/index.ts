@@ -80,7 +80,11 @@ import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
 import { compactionBreaker } from './phases/compaction-breaker.js'
 import {
+	AUTOMATIC_COMPACTION_FAILED,
+	OVERFLOW_RELIEF_LIMIT,
 	activeContextWindow,
+	clearCompactionErrorNote,
+	compactionErrorNote,
 	measureContext,
 	relieveOverflow,
 	runCompactionCheck,
@@ -442,16 +446,19 @@ export class IterationOrchestrator {
 		// checkpoint names the message the turn is answering.
 		await this.ctx.checkpointMgr.markLoopStart?.(recorder)
 
-		// One context-overflow relief per *stuck point*, not per turn.
+		// Context-overflow relief is a two-rung ladder per *stuck point*, not per
+		// turn, as in the reference terminal (at most two reactive compactions per
+		// overflow): the first relief, then one deeper pass if the retry still
+		// overflows.
 		//
-		// The latch exists so that a second overflow immediately after a
-		// successful compaction — meaning the prompt is irreducible — stops
-		// instead of looping. It was never meant to disarm the mechanism for
-		// the rest of the turn, which is what a turn-scoped flag did: one
-		// relief at iteration 3 left iteration 40 to die on an overflow with
-		// obvious moves left. It is cleared by a turn that actually
-		// succeeded, which is the evidence that the turn is no longer stuck.
-		let overflowRelieved = false
+		// The limit exists so that an overflow that survives both rungs — an
+		// irreducible prompt — stops instead of looping. It was never meant to
+		// disarm the mechanism for the rest of the turn, which is what a
+		// turn-scoped flag did: one relief at iteration 3 left iteration 40 to die
+		// on an overflow with obvious moves left. The count is cleared by a turn
+		// that actually succeeded, which is the evidence that the turn is no
+		// longer stuck.
+		let overflowReliefs = 0
 		// The output cap a provider told us fits beside this prompt. One request's
 		// worth: it is cleared by a call that went through.
 		let outputCapOverride: number | undefined
@@ -1042,7 +1049,8 @@ export class IterationOrchestrator {
 
 					// The turn went through, so the turn is not sitting on an
 					// irreducible prompt any more. Re-arm relief for the next one.
-					overflowRelieved = false
+					overflowReliefs = 0
+					clearCompactionErrorNote(this.ctx)
 					outputCapOverride = undefined
 					if (response.finishReason !== 'length') this.outputContinuations = 0
 
@@ -2020,21 +2028,36 @@ export class IterationOrchestrator {
 					}
 
 					if (
-						!overflowRelieved &&
 						!(err instanceof AnswerReviewFailure) &&
 						classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
 					) {
-						overflowRelieved = true
-						const shed = await relieveOverflow(this.ctx)
+						// A rung that sheds too little to change the verdict is not worth a
+						// provider call; climb to the next one at once.
+						let shed = false
+						while (!shed && overflowReliefs < OVERFLOW_RELIEF_LIMIT) {
+							overflowReliefs++
+							shed = await relieveOverflow(this.ctx, { deeper: overflowReliefs > 1 })
+						}
 						if (shed) {
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,
+								'namzu.runtime.relief_rung': overflowReliefs,
 							})
 							if (iterationActivity) {
 								this.ctx.activityStore.complete(iterationActivity.id)
 							}
 							continue
+						}
+						// Out of rungs. The conversation is kept; say why compaction could not
+						// make room when it errored, as the reference does.
+						const cause = compactionErrorNote(this.ctx)
+						if (cause !== undefined && err instanceof Error) {
+							try {
+								err.message = `${err.message}${AUTOMATIC_COMPACTION_FAILED}${cause}`
+							} catch {
+								// A frozen error keeps its own message; the cause stays in the log.
+							}
 						}
 					}
 

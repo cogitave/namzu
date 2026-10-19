@@ -280,8 +280,11 @@ type CoreSessionEvent =
 			 *   a provider that rejects the pairing. A reducer bug, and one
 			 *   `findSafeTrimIndex` exists to prevent.
 			 * - `breaker_open` — only with `compactionConfig.circuitBreaker`:
-			 *   three passes in a row failed, so automatic compaction is off for
-			 *   the rest of the turn. Sent once. `messages` is the live count.
+			 *   three passes in a row failed, so proactive compaction is off for
+			 *   the rest of the turn; a context overflow the provider reports
+			 *   still runs the reactive relief. Sent once, without `error`: it is
+			 *   for a host's records, not a line for the person. `messages` is
+			 *   the live count.
 			 * - `refilling` — only with `compactionConfig.circuitBreaker`: the
 			 *   context filled back up within three iterations of a compaction,
 			 *   three times in a row, and the turn is stopping. Sent once.
@@ -289,7 +292,7 @@ type CoreSessionEvent =
 			cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair' | 'breaker_open' | 'refilling'
 			/** Unchanged, and stated so a reader need not infer it. */
 			messages: number
-			/** For `reducer_threw`, the reducer's message; for `breaker_open` and `refilling`, the one line to show. */
+			/** For `reducer_threw`, the reducer's message; for `refilling`, the one line to show. */
 			error?: string
 	  }
 	| {
