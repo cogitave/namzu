@@ -27,17 +27,19 @@ export type ProfileConfig = Omit<NamzuCliConfig, 'profiles' | 'plugins'>
 export type ProfilesConfig = Readonly<Record<string, ProfileConfig>>
 
 /** The two operator-visible moments the TUI can notify about. */
-export type TerminalNotificationEvent = 'turn-settled' | 'approval-required'
+export type TerminalNotificationEvent = 'turn-settled' | 'approval-required' | 'idle-prompt'
 
 /** Escape protocol used for an opted-in terminal notification. */
-export type TerminalNotificationMethod = 'osc9' | 'bel'
+export type TerminalNotificationMethod = 'osc9' | 'bel' | 'kitty' | 'ghostty'
 
 export interface TuiConfig {
 	/**
 	 * Notify for TUI events through the terminal itself.
 	 *
-	 * Absent or `false` means off. `true` enables both events; a list enables
-	 * only the named events, and an empty list explicitly disables all of them.
+	 * Absent or `false` means off. `true` enables `turn-settled` and
+	 * `approval-required`; a list enables only the named events (`idle-prompt`,
+	 * the "waiting for your input" notice after a minute of quiet, is asked for
+	 * by name), and an empty list explicitly disables all of them.
 	 * No command is started and no conversation content is included.
 	 */
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]

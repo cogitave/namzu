@@ -1457,13 +1457,14 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
 		else if (Array.isArray(raw.notifications)) {
 			const invalidIndex = raw.notifications.findIndex(
-				(event) => event !== 'turn-settled' && event !== 'approval-required',
+				(event) =>
+					event !== 'turn-settled' && event !== 'approval-required' && event !== 'idle-prompt',
 			)
 			if (invalidIndex >= 0) {
 				return invalidConfigValue(
 					context,
 					['notifications', invalidIndex],
-					'must be one of "turn-settled" or "approval-required"',
+					'must be one of "turn-settled", "approval-required" or "idle-prompt"',
 				)
 			}
 			notifications = raw.notifications as readonly TerminalNotificationEvent[]
@@ -1472,8 +1473,18 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 
 		const method = raw.notificationMethod
-		if (method !== undefined && method !== 'osc9' && method !== 'bel') {
-			return invalidConfigValue(context, ['notificationMethod'], 'must be "osc9" or "bel"')
+		if (
+			method !== undefined &&
+			method !== 'osc9' &&
+			method !== 'bel' &&
+			method !== 'kitty' &&
+			method !== 'ghostty'
+		) {
+			return invalidConfigValue(
+				context,
+				['notificationMethod'],
+				'must be "osc9", "bel", "kitty" or "ghostty"',
+			)
 		}
 
 		return {

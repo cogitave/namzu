@@ -973,6 +973,12 @@ Esc or one Ctrl+C closes the application so the operator can repair the named
 file and restart. A startup refusal does not create an unscoped session or
 silently replace an installation identity.
 
+## Terminal notifications
+
+Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; the reference's 60 000 ms rule). Nothing in a notice carries conversation text.
+
+`tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL; the reference's terminator was not traced.
+
 ## Paste and response boundaries
 
 The composer enables terminal bracketed paste while it owns input. A paste split
