@@ -235,6 +235,17 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 			`Outside the working directory: ${outside.join(', ')}. Asked every time; no earlier answer covers it.`,
 		)
 	}
+	const protectedPaths = toolCalls.flatMap((call) => call.escalation?.protectedPaths ?? [])
+	if (protectedPaths.length > 0) {
+		notes.push(
+			`Writes a protected file or folder: ${protectedPaths.join(', ')}. Asked every time, in every mode; no earlier answer covers it.`,
+		)
+	}
+	if (toolCalls.some((call) => call.escalation?.dangerousRemoval !== undefined)) {
+		notes.push(
+			'Removes something that should not be removed by accident (the home folder, the working folder or a parent, or a path a variable could empty). Asked every time; no earlier answer covers it.',
+		)
+	}
 	return notes
 }
 

@@ -229,6 +229,26 @@ export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
 	'Refused: a call in this batch runs a command whose own program name is decided at runtime (a substitution or a variable stands for it), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Write the program name literally; compute what needs computing in the arguments instead.'
 
 /**
+ * What the model is told when a batch writes a protected path (a git hook, a
+ * shell rc file, editor or tool configuration, the project's `.namzu`
+ * directory) and nobody can be asked.
+ *
+ * Refused in every mode, `auto` included: a write there runs later, outside
+ * the turn, with the operator's rights, so an answer given before the call
+ * existed (a mode, a rule, "approve all") is not an answer about it.
+ */
+export const PROTECTED_PATH_UNATTENDED_REFUSAL =
+	"Refused: a call in this batch writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Leave those files alone, or tell the user what change you need so they can make it."
+
+/**
+ * What the model is told when a batch removes something catastrophic (the
+ * root, the home directory, the working directory or a parent of it, a glob
+ * across directories, a target a variable may empty) and nobody can be asked.
+ */
+export const DANGEROUS_REMOVAL_UNATTENDED_REFUSAL =
+	'Refused: a call in this batch removes something this check treats as catastrophic (the file system root, a top-level or home directory, the working directory or a parent of it, a glob across directories, or a target a variable or substitution may leave empty), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Name the exact directory to remove with a literal path.'
+
+/**
  * What the model is told when a batch would show it the operator's screen for
  * the first time in a session and nobody can be asked.
  */
@@ -248,6 +268,21 @@ export const SCREEN_CONSENT_DECLINED_FEEDBACK =
  */
 export interface ScreenConsentRecord {
 	readonly sessions: Set<string>
+}
+
+/** Whether the call writes a protected path or removes something catastrophic. */
+function reachesAFloor(tc: ToolCallSummary): boolean {
+	return (
+		(tc.escalation?.protectedPaths?.length ?? 0) > 0 ||
+		tc.escalation?.dangerousRemoval !== undefined
+	)
+}
+
+/** The refusal for a batch that reaches a floor and cannot be asked about it. */
+function floorRefusal(toolCalls: readonly ToolCallSummary[]): string {
+	return toolCalls.some((tc) => (tc.escalation?.protectedPaths?.length ?? 0) > 0)
+		? PROTECTED_PATH_UNATTENDED_REFUSAL
+		: DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
 }
 
 /** The batch a person is asked about. */
@@ -471,6 +506,9 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				// This opt-in confirms only the sandbox escape. A different call in
 				// the batch, or another boundary on this same call, still needs a
 				// person; the early return must not approve that boundary too.
+				if (request.toolCalls.some(reachesAFloor)) {
+					return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+				}
 				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
 					return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
 				}
@@ -494,6 +532,24 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			// reaches the next escape, which is asked about above regardless.
 			if (answer.kind === 'approve-all') remembered.all = true
 			return { action: 'approve_tools', confirmedEscalations: escapes }
+		}
+		// A write to a protected path, or a removal of something catastrophic,
+		// is a question for a person, every time, in every mode that got this
+		// far: `auto` and a remembered "approve all" were answers given before
+		// the call existed. With nobody to ask it is refused, not approved.
+		if (request.toolCalls.some(reachesAFloor)) {
+			if (!prompt) return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+			const answer = await ask()
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+					...(answer.declined ? { declined: answer.declined } : {}),
+				}
+			}
+			// Latches for the ordinary calls that follow, never for the next floor.
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools' }
 		}
 		// A path outside the roots is a question for a person, every time,
 		// like an escape: `auto` and a remembered "approve all" were answers

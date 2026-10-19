@@ -25,6 +25,12 @@ function escalationReason(escalation: ToolCallSummary['escalation']): string {
 		return `this call's program cannot be verified ahead of time (${escalation.unknownProgram})`
 	}
 	if (escalation?.sandboxEscape) return "this call asks to run outside the turn's sandbox"
+	if (escalation?.dangerousRemoval !== undefined) {
+		return `this call removes something catastrophic (${escalation.dangerousRemoval})`
+	}
+	if (escalation?.protectedPaths?.length) {
+		return `this call writes a protected ${escalation.protectedPaths.length === 1 ? 'path' : 'paths'} (${escalation.protectedPaths.join(', ')})`
+	}
 	if (escalation?.outsidePaths?.length)
 		return `this call reaches ${escalation.outsidePaths.length === 1 ? 'a path' : 'paths'} outside the turn's boundary`
 	return "this call reaches past the turn's boundary, which a rule cannot approve on its own"
@@ -355,6 +361,24 @@ export async function* runToolReview(
 				reason,
 			})
 		}
+		for (const path of tc.escalation?.protectedPaths ?? []) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'protected_path_write', tool: tc.name, resource: path },
+				outcome: 'refused',
+				reason,
+			})
+		}
+		if (tc.escalation?.dangerousRemoval !== undefined) {
+			await ctx.recorder.recordAudit({
+				what: {
+					action: 'dangerous_removal',
+					tool: tc.name,
+					resource: tc.escalation.dangerousRemoval,
+				},
+				outcome: 'refused',
+				reason,
+			})
+		}
 	}
 
 	// Gate-denied ids survive the whole function: a later human approval
@@ -602,6 +626,24 @@ export async function* runToolReview(
 						action: 'unknown_program',
 						tool: tc.name,
 						resource: tc.escalation.unknownProgram,
+					},
+					outcome: 'approved',
+					reason: "the turn's review approved this call",
+				})
+			}
+			for (const path of tc.escalation?.protectedPaths ?? []) {
+				await ctx.recorder.recordAudit({
+					what: { action: 'protected_path_write', tool: tc.name, resource: path },
+					outcome: 'approved',
+					reason: "the turn's review approved this call",
+				})
+			}
+			if (tc.escalation?.dangerousRemoval !== undefined) {
+				await ctx.recorder.recordAudit({
+					what: {
+						action: 'dangerous_removal',
+						tool: tc.name,
+						resource: tc.escalation.dangerousRemoval,
 					},
 					outcome: 'approved',
 					reason: "the turn's review approved this call",

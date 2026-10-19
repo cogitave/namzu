@@ -210,9 +210,14 @@ const CONFIRMATION_SCHEMA = {
 export function approvalInterrupt(record: AGUIInterruptRecord, call: ToolCallSummary): Interrupt {
 	const leavesSandbox = call.escalation?.sandboxEscape === true
 	const outsidePaths = call.escalation?.outsidePaths ?? []
+	const protectedPaths = call.escalation?.protectedPaths ?? []
 	const notes = [
 		leavesSandbox ? 'It asks to run outside the sandbox.' : undefined,
 		outsidePaths.length ? `It reaches ${outsidePaths.join(', ')}.` : undefined,
+		protectedPaths.length ? `It writes a protected path: ${protectedPaths.join(', ')}.` : undefined,
+		call.escalation?.dangerousRemoval !== undefined
+			? 'It removes something catastrophic.'
+			: undefined,
 	].filter((note): note is string => note !== undefined)
 	return withExpiry(record, {
 		id: record.id,
