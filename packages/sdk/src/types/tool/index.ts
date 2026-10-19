@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import type { z } from 'zod'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
@@ -119,6 +120,18 @@ export interface BackgroundJobRegistryRef {
 		status: string
 	}
 	get(id: string): { id: string; status: string; exitCode?: number; error?: string }
+	/**
+	 * Take over a process the caller already started and is waiting on, so a
+	 * foreground command that outran its timeout can keep running as a job
+	 * instead of being killed. Optional: a host without it (or a sandboxed
+	 * turn) keeps the kill. Throws when the owner is at its job cap.
+	 */
+	adopt?(params: {
+		command: string
+		child: ChildProcess
+		workingDirectory?: string
+		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]
+	}): { id: string; status: string }
 	/**
 	 * Resolves once the process exists or failed to start (`error` says why).
 	 * Optional: a host that cannot tell may omit it, and `bash` then replies

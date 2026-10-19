@@ -99,6 +99,21 @@ export interface StartJobParams {
 	 * expect stdin.
 	 */
 	readonly spawn?: () => JobProcess
+	/**
+	 * Output the process already wrote before the registry took it over, in
+	 * the order it was written. Used when a foreground command is moved to the
+	 * background, so a later `read` starts with what the model was shown.
+	 */
+	readonly initialOutput?: readonly {
+		readonly stream: 'stdout' | 'stderr'
+		readonly text: string
+	}[]
+	/**
+	 * `spawn` returned a process on THIS host that the host shell started (a
+	 * foreground command being moved to the background), so its bytes are
+	 * decoded the way a foreground command's are, not as a Linux guest's.
+	 */
+	readonly hostOutput?: boolean
 }
 
 export interface BackgroundJobRegistryConfig {
@@ -333,8 +348,12 @@ export class BackgroundJobRegistry {
 		// Raw bytes, decoded here: a Windows console writes its OEM code page.
 		// A process a sandbox started runs a Linux guest, so it is UTF-8.
 		const decoders = {
-			stdout: createHostOutputDecoder(params.spawn ? { platform: 'linux' } : {}),
-			stderr: createHostOutputDecoder(params.spawn ? { platform: 'linux' } : {}),
+			stdout: createHostOutputDecoder(
+				params.spawn && !params.hostOutput ? { platform: 'linux' } : {},
+			),
+			stderr: createHostOutputDecoder(
+				params.spawn && !params.hostOutput ? { platform: 'linux' } : {},
+			),
 		}
 		let startError: string | undefined
 		let settleStarted!: () => void
@@ -473,6 +492,7 @@ export class BackgroundJobRegistry {
 			const text = typeof data === 'string' ? data : decoders[stream].write(data)
 			if (text) append(text, stream)
 		}
+		for (const seed of params.initialOutput ?? []) append(seed.text, seed.stream)
 		child.stdout?.on('data', onData('stdout'))
 		child.stderr?.on('data', onData('stderr'))
 
@@ -855,6 +875,23 @@ export function bindOwner(
 					: {}),
 			})
 		},
+		// A foreground command that ran out of time, kept instead of killed.
+		// The same owner and cap as `start`; the process is the one already
+		// running, with what it has written so far.
+		adopt: (params: {
+			command: string
+			child: ReturnType<typeof spawn>
+			workingDirectory?: string
+			initialOutput?: StartJobParams['initialOutput']
+		}) =>
+			registry.start({
+				owner,
+				command: params.command,
+				workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
+				spawn: () => ({ child: params.child }),
+				hostOutput: true,
+				...(params.initialOutput ? { initialOutput: params.initialOutput } : {}),
+			}),
 		get: (id: string) => mine(id),
 		awaitStarted: (id: string) => {
 			mine(id)
