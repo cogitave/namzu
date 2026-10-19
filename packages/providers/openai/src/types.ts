@@ -21,6 +21,14 @@ export interface OpenAIConfig {
 	timeout?: number
 	/** Custom headers appended to every request. */
 	defaultHeaders?: Record<string, string>
+	/**
+	 * Retries the vendor SDK makes by itself, out of sight, before an error
+	 * reaches the caller. Left unset the SDK's own default applies (two). A host
+	 * that retries in the kernel, and shows those retries, sets `0` so a failed
+	 * request is counted and announced once instead of being tried again
+	 * silently first.
+	 */
+	maxRetries?: number
 }
 
 export interface OpenAIProviderConfig extends OpenAIConfig {
@@ -38,6 +46,14 @@ export interface CodexConfig {
 	/** Request timeout in milliseconds. */
 	timeout?: number
 	defaultHeaders?: Record<string, string>
+	/**
+	 * Retries the vendor SDK makes by itself, out of sight, before an error
+	 * reaches the caller. Left unset the SDK's own default applies (two). A host
+	 * that retries in the kernel, and shows those retries, sets `0` so a failed
+	 * request is counted and announced once instead of being tried again
+	 * silently first.
+	 */
+	maxRetries?: number
 }
 
 export interface CodexProviderConfig extends CodexConfig {

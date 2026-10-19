@@ -54,6 +54,16 @@ export interface ProviderErrorInit {
 	readonly cause?: unknown
 }
 
+function shouldRetryHeader(link: Record<string, unknown>): false | undefined {
+	const headers = link.headers
+	if (!headers || typeof headers !== 'object') return undefined
+	const raw =
+		typeof (headers as Headers).get === 'function'
+			? (headers as Headers).get('x-should-retry')
+			: (headers as Record<string, unknown>)['x-should-retry']
+	return typeof raw === 'string' && raw.trim().toLowerCase() === 'false' ? false : undefined
+}
+
 /**
  * A `retryable` flag declared anywhere on the cause chain.
  *
@@ -72,6 +82,9 @@ export function declaredRetryable(err: unknown): boolean | undefined {
 	for (const link of causeChain(err)) {
 		const declared = link.retryable
 		if (typeof declared === 'boolean') return declared
+		// A raw vendor error that still carries its response headers: the
+		// provider's own `x-should-retry: false` is a first-hand "do not resend".
+		if (shouldRetryHeader(link) === false) return false
 	}
 	return undefined
 }
@@ -395,6 +408,7 @@ function classifyFromProviderRequestError(
 		providerId?: unknown
 		status?: unknown
 		retryAfterMs?: unknown
+		shouldRetry?: unknown
 	}
 	if (typeof candidate.kind !== 'string') return undefined
 	const mapped = KIND_TO_CODE[candidate.kind]
@@ -406,7 +420,8 @@ function classifyFromProviderRequestError(
 	return new ProviderError({
 		code: mapped.code,
 		message: err.message,
-		retryable: mapped.retryable,
+		// The provider saying "do not resend" beats the kind's own verdict.
+		retryable: candidate.shouldRetry === false ? false : mapped.retryable,
 		cause: err,
 		...(typeof candidate.providerId === 'string'
 			? { providerId: candidate.providerId }

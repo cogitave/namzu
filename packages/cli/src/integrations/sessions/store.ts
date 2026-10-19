@@ -720,6 +720,35 @@ export async function activeConversationTurn(
 	return (await requireConversationInScope(s, sessionId, 'inspect conversation')).activeTurn
 }
 
+/**
+ * The paused turn a new message may close: one that stopped on a provider
+ * failure (a rate limit, an outage, a rejected key) and waits for no person.
+ * A turn that waits for a decision or a handoff is not closable here; it
+ * keeps refusing a new message until it is answered, resumed or abandoned.
+ * The same rule the desktop host reports as `closable`.
+ */
+export async function closableProviderPause(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<{ readonly turnId: string } | undefined> {
+	const facts = await requireConversationInScope(s, sessionId, 'inspect conversation')
+	const active = facts.activeTurn
+	if (!active?.paused) return undefined
+	const pause = [...facts.records]
+		.reverse()
+		.find((record) => record.type === 'turn_paused' && record.turnId === active.turnId)
+	if (!pause || pause.type !== 'turn_paused' || pause.handoff || !pause.providerError)
+		return undefined
+	const pending = new Set<string>()
+	for (const record of facts.records) {
+		if (record.type === 'decision_requested' && record.turnId === active.turnId)
+			pending.add(record.decisionId)
+		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
+			pending.delete(record.decisionId)
+	}
+	return pending.size === 0 ? { turnId: active.turnId } : undefined
+}
+
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	return listConversations(s, false, limit)

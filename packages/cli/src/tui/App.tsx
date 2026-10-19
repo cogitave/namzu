@@ -125,6 +125,7 @@ import {
 	type RecentConversation,
 	activeConversationTurn,
 	archiveConversation,
+	closableProviderPause,
 	forkConversation,
 	forkConversationBeforeUser,
 	listArchived,
@@ -338,6 +339,7 @@ import { isRepeatedNotice } from './notices.js'
 import { formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
+	type ProviderWaitNotice,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -762,6 +764,8 @@ type StreamState = {
 	sourceMessageId?: string
 	sourceTextPartId?: string
 	text: string
+	/** Where the reply being streamed began in `text`, so a restarted stream can cut it back. */
+	messageTextStart?: number
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
 	pending?: string
@@ -1451,8 +1455,8 @@ export function App({
 	 */
 	const [thinking, setThinking] = useState<string | null>(null)
 	// Why the reply is quiet while the provider is being waited on or retried.
-	const [providerWaitNotice, setProviderWaitNotice] = useState<string | null>(null)
-	const providerWaitNoticeRef = useRef<string | null>(null)
+	const [providerWaitNotice, setProviderWaitNotice] = useState<ProviderWaitNotice | null>(null)
+	const providerWaitNoticeRef = useRef<ProviderWaitNotice | null>(null)
 	/** Output tokens of the running turn, for the Working row. See `StreamState`. */
 	const [turnTokens, setTurnTokens] = useState(0)
 	const turnTokensShownAt = useRef(0)
@@ -6746,6 +6750,19 @@ export function App({
 				const notice = describeProviderWait(event, scheduleLiveRef.current?.model?.provider)
 				providerWaitNoticeRef.current = notice
 				setProviderWaitNotice(notice)
+				// The failed attempt had already streamed part of a reply and the
+				// request starts over: what it showed is void.
+				if (event.restart) {
+					if (st.releaseTimer) clearTimeout(st.releaseTimer)
+					st.releaseTimer = undefined
+					st.pending = ''
+					st.text = st.text.slice(0, st.messageTextStart ?? st.text.length)
+					st.streamedChars = 0
+					setTurnTokens(st.reportedOutputTokens ?? 0)
+					const abandoned = st.assistantId
+					st.assistantId = null
+					if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
+				}
 			} else if (providerWaitNoticeRef.current !== null) {
 				providerWaitNoticeRef.current = null
 				setProviderWaitNotice(null)
@@ -6841,6 +6858,9 @@ export function App({
 					// counting it would release the opening sentence on arrival.
 					st.releasedAt ??= Date.now()
 					setThinking(null)
+					if (st.messageTextStart === undefined || (st.assistantId === null && !st.pending)) {
+						st.messageTextStart = st.text.length
+					}
 					st.text += event.text
 					// Held, not appended. Appending each delta is what produced text
 					// that types itself out — nothing animates it, but a few
@@ -7619,6 +7639,21 @@ export function App({
 							: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
+			const closeStoppedReply = async (): Promise<void> => {
+				const sessions = sessionsRef.current
+				const scope = scopeRef.current
+				if (!sessions || !scope || !conversationMaterializedRef.current || !session?.abandonTurn)
+					return
+				const stopped = await closableProviderPause(sessions, scope.sessionId)
+				if (!stopped) return
+				// Its unknown usage stays on the ledger; the failed message stays in
+				// what the provider is shown, as in the desktop app.
+				await session.abandonTurn(
+					stopped.turnId as TurnId,
+					'The operator went on with a new message instead of retrying.',
+				)
+				setHandoffPark(null)
+			}
 			// Reserved before the turn begins, so everything that refers to this
 			// turn — its goal-round authority above all — names it from the start.
 			const turnId = generateTurnId()
@@ -7975,6 +8010,12 @@ export function App({
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
+					// "Press Enter to try again, or type a new message": a reply that
+					// stopped on a provider failure waits for no person, so the new
+					// message closes it and runs on the model chosen now, whichever
+					// model began it. A pause that waits for a decision or a handoff
+					// is left alone and still refuses the message.
+					await closeStoppedReply()
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -7982,6 +8023,8 @@ export function App({
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
+						// A redrawing screen can take back a reply a dropped connection cut short.
+						restartableOutput: true,
 						permissionMode: turnPermissionMode,
 						// Read at every decision: the operator may change the mode
 						// while this turn runs, and the change governs what follows.

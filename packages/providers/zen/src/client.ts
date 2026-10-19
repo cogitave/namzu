@@ -900,6 +900,7 @@ export class ZenProvider implements LLMProvider {
 					status: error.statusCode,
 					body: scrub(error.responseBody ?? error.message),
 					retryAfter: error.responseHeaders?.['retry-after'],
+					shouldRetry: error.responseHeaders?.['x-should-retry'],
 				}),
 			)
 		if (APICallError.isInstance(error))

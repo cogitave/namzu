@@ -1,7 +1,12 @@
 import { GENAI } from '../constants/telemetry/index.js'
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
-import { type BackoffPolicy, backoffWithJitter, sleep } from '../utils/backoff.js'
+import {
+	type BackoffPolicy,
+	backoffProportional,
+	backoffWithJitter,
+	sleep,
+} from '../utils/backoff.js'
 import type { Logger } from '../utils/logger.js'
 import { isProviderRequestError } from './errors.js'
 
@@ -31,6 +36,33 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 * still slept exactly as instructed.
 	 */
 	readonly maxRetryAfterMs: number
+	/**
+	 * Shape of the random part of a backoff.
+	 *
+	 * `'full'` (the default) sleeps a uniform amount in `[0, backoff]`.
+	 * `'proportional'` sleeps the backoff plus up to a quarter of it, so a step
+	 * is never shorter than its exponential value.
+	 */
+	readonly jitter?: 'full' | 'proportional'
+	/**
+	 * What a server-named wait means.
+	 *
+	 * `'exact'` (the default) sleeps exactly what `Retry-After` said.
+	 * `'floor'` sleeps the longer of that and the backoff for this attempt, so
+	 * a server that says "1 second" on the seventh failure is still given the
+	 * backoff's thirty. The ceiling above applies either way.
+	 */
+	readonly retryAfter?: 'exact' | 'floor'
+	/**
+	 * Also retry a stream that failed AFTER it produced text or reasoning.
+	 *
+	 * Off by default, because the decorator cannot un-emit: the consumer has
+	 * already seen those deltas. When on, the retry notice carries
+	 * `restart: true` and the consumer must discard what the failed attempt
+	 * produced; the runtime does this itself. A stream that has begun a tool
+	 * call is never restarted, because the call may already be underway.
+	 */
+	readonly retryMidStream?: boolean
 }
 
 export const DEFAULT_PROVIDER_RETRY: ProviderRetryConfig = {
@@ -97,6 +129,9 @@ export function withProviderRetry(
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		for (let attempt = 0; ; attempt++) {
 			let produced = false
+			// A tool call or hosted tool began: past this point a restart could
+			// repeat work that is already underway, so it is never offered.
+			let acted = false
 			try {
 				for await (const chunk of provider.chatStream(params)) {
 					// An error-only chunk is a failure report, not output: it
@@ -106,6 +141,9 @@ export function withProviderRetry(
 						chunk.error !== undefined && !chunk.delta.content && !chunk.delta.toolCalls?.length
 
 					if (!isErrorOnly) produced = true
+					if (chunk.delta.toolCalls?.length || chunk.delta.toolCallEnd || chunk.delta.hostedTool) {
+						acted = true
+					}
 
 					if (isErrorOnly && !produced && attempt < config.maxRetries) {
 						throw new Error(chunk.error)
@@ -132,7 +170,8 @@ export function withProviderRetry(
 				const classified = classifyProviderError(err, provider.id)
 				const exhausted = attempt >= config.maxRetries
 
-				if (produced || !classified.retryable || exhausted) {
+				const restartable = produced && config.retryMidStream === true && !acted
+				if ((produced && !restartable) || !classified.retryable || exhausted) {
 					log?.warn('Provider call failed', {
 						[GENAI.SYSTEM]: provider.id,
 						'namzu.provider.code': classified.code,
@@ -200,7 +239,16 @@ export function withProviderRetry(
 					throw isProviderRequestError(err) ? err : classified
 				}
 
-				const delay = serverDirected ?? backoffWithJitter(attempt, config, random)
+				const backoff =
+					config.jitter === 'proportional'
+						? backoffProportional(attempt, config, random)
+						: backoffWithJitter(attempt, config, random)
+				const delay =
+					serverDirected === undefined
+						? backoff
+						: config.retryAfter === 'floor'
+							? Math.max(serverDirected, backoff)
+							: serverDirected
 
 				log?.warn('Provider call failed — retrying', {
 					[GENAI.SYSTEM]: provider.id,
@@ -210,6 +258,7 @@ export function withProviderRetry(
 					'namzu.provider.max_retries': config.maxRetries,
 					'namzu.provider.delay_ms': delay,
 					'namzu.provider.server_directed': serverDirected !== undefined,
+					'namzu.provider.restart': restartable,
 				})
 
 				// Tell the consumer BEFORE sleeping. With the default policy a
@@ -231,6 +280,7 @@ export function withProviderRetry(
 						code: classified.code,
 						...(classified.status !== undefined ? { status: classified.status } : {}),
 						serverDirected: serverDirected !== undefined,
+						...(restartable ? { restart: true } : {}),
 					},
 				}
 

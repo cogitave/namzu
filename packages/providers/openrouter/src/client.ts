@@ -496,6 +496,7 @@ export class OpenRouterProvider implements LLMProvider {
 				status: response.status,
 				body: errorBody,
 				retryAfter: response.headers.get('retry-after'),
+				shouldRetry: response.headers.get('x-should-retry'),
 			})
 		}
 

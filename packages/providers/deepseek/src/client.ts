@@ -499,6 +499,7 @@ export class DeepSeekProvider implements LLMProvider {
 			baseURL: config.baseURL ?? DEFAULT_BASE_URL,
 		}
 		if (config.timeout !== undefined) clientOptions.timeout = config.timeout
+		if (config.maxRetries !== undefined) clientOptions.maxRetries = config.maxRetries
 		clientOptions.defaultHeaders = {
 			...attributionHeaders(),
 			...(config.defaultHeaders ?? {}),

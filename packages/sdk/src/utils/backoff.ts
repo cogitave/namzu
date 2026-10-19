@@ -44,6 +44,27 @@ export function backoffWithJitter(
 }
 
 /**
+ * Exponential backoff that only ever adds jitter: the delay is the exponential
+ * step plus up to `ratio` of itself (a quarter by default), never less.
+ *
+ * Full jitter spreads a herd better but can answer a failure after a few
+ * milliseconds, which is a poor way to treat a server that just said it is
+ * struggling. This curve keeps the floor of every step, so a person watching a
+ * countdown sees a wait that grows the way the numbers on screen say it does.
+ *
+ * `attempt` is 0-based: attempt 0 draws from `[initialDelayMs, initialDelayMs * (1 + ratio)]`.
+ */
+export function backoffProportional(
+	attempt: number,
+	policy: BackoffPolicy,
+	random: () => number = Math.random,
+	ratio = 0.25,
+): number {
+	const exponential = Math.min(policy.initialDelayMs * 2 ** attempt, policy.maxDelayMs)
+	return Math.round(exponential + random() * ratio * exponential)
+}
+
+/**
  * Sleep, unless the signal says not to.
  *
  * Rejects with the signal's reason when aborted — before sleeping if it is
