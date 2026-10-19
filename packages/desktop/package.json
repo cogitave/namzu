@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/desktop",
-	"version": "0.2.4",
+	"version": "0.2.5",
 	"private": true,
 	"description": "Native Namzu operator application backed by the installed CLI runtime.",
 	"type": "module",
