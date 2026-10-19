@@ -29,7 +29,7 @@ context overflow are not. An abort is never retried.
 | `maxRetryAfterMs` | `60000` | A wait the provider names that is longer than this is not slept: the error is surfaced at once and the turn settles (it pauses, when the failure is recoverable). |
 | `jitter` | `'full'` | `'full'` sleeps a random amount between zero and the step. `'proportional'` sleeps the step plus up to a quarter of it, never less. |
 | `retryAfter` | `'exact'` | `'exact'` sleeps what `Retry-After` said. `'floor'` sleeps the longer of that and this attempt's backoff. |
-| `retryMidStream` | `false` | Also retry a stream that failed after it produced text or reasoning. Off, such a failure ends the call, because the consumer has already seen the text. |
+| `retryMidStream` | `false` | Also retry a stream that failed after it produced text. Off, such a failure ends the call, because the consumer has already seen the text. A stream that produced only reasoning is retried whatever this says. |
 
 A provider that sends `x-should-retry: false` is believed: the failure is not
 retried whatever its status. `true` is not acted on, because a retryable status
@@ -42,6 +42,15 @@ Before each sleep the decorator yields a chunk with `retry: { attempt,
 maxRetries, delayMs, code, status?, serverDirected, restart? }`, which the
 turn turns into a `provider_retry` session event (and `provider.retry` on the SSE
 wire). `attempt` is the try that just failed, counted from 1.
+
+A stream that fails after yielding only reasoning (no text, tool call, hosted
+tool or citation yet) is retried like one that failed before its first chunk:
+same backoff, same notice, and the notice carries `restart: true` so a host that
+showed the thinking drops it. This needs no option. The turn keeps reasoning
+blocks by index and clears them on a restart, so the answer carries the second
+attempt's reasoning once, never both. The terminal shows reasoning only as a
+live indicator, so nothing it printed needs taking back, including under
+`namzu exec` and `--json`.
 
 With `retryMidStream`, a stream that produced output and then failed is
 restarted from the beginning and the notice carries `restart: true`. Whatever
