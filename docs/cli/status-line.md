@@ -44,7 +44,7 @@ One JSON object on stdin, the shell's working directory is the session's, and
 | Field | Value |
 |---|---|
 | `hook_event_name` | `"StatusLine"` |
-| `session_id`, `session_name` | the conversation id; its title when it has one |
+| `session_id` | the conversation id |
 | `cwd`, `permission_mode` | the working directory; `prompt`, `accept-edits`, `plan`, `strict` or `auto` |
 | `model` | `{ id, display_name }`, both the model name the footer shows |
 | `workspace` | `{ current_dir, project_dir, added_dirs, git_worktree?, repo? }`; `repo` is `{ host, owner, name }` from `origin` |
@@ -58,7 +58,7 @@ One JSON object on stdin, the shell's working directory is the session's, and
 
 A field appears only when the terminal has the fact; read every optional field
 as possibly missing. These reference fields are **not** sent, because Namzu
-has no data for them: `output_style`, `fast_mode`, `thinking`, `vim`,
+has no data for them: `session_name` (not sent yet), `output_style`, `fast_mode`, `thinking`, `vim`,
 `rate_limits`, `prompt_cache`, `remote`, `worktree`, `transcript_path`,
 `cost.total_api_duration_ms`, the line counters under `cost`, and
 `context_window.total_output_tokens` and `current_usage`.
