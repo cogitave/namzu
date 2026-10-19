@@ -111,3 +111,46 @@ describe('an already-classified error', () => {
 		expect(classifyProviderError(preFiled)).toBe(preFiled)
 	})
 })
+
+describe('the reference terminal context-overflow wordings', () => {
+	it.each([
+		'prompt is too long: 213000 tokens > 200000 maximum',
+		'Input is too long for requested model.',
+		'The request is larger than the model context window of 8192 tokens',
+		'input length and `max_tokens` exceed context limit: 188240 + 21333 > 200000',
+	])('reaches compaction for "%s"', (wording) => {
+		expect(overflowReaches(Object.assign(new Error(wording), { status: 400 }))).toBe(true)
+	})
+})
+
+describe('"context window" does not override the status', () => {
+	const cases: [number, string, string][] = [
+		[
+			400,
+			'does not support the temperature parameter with the 1M context window beta',
+			'invalid_request',
+		],
+		[404, 'context window information unavailable', 'not_found'],
+		[429, 'Rate limited: too many requests for long context window usage', 'rate_limit'],
+		[500, 'upstream failure while sizing context window', 'server_error'],
+		[401, 'key not enabled for the extended context window', 'auth'],
+		[529, 'overloaded: context window cache miss', 'overloaded'],
+	]
+	it.each(cases)('%i "%s" keeps %s', (status, message, code) => {
+		expect(classifyProviderError(Object.assign(new Error(message), { status })).code).toBe(code)
+	})
+
+	it('a 429 that names an overflow verb is still a rate limit', () => {
+		const c = classifyProviderError(
+			Object.assign(new Error('rate limited: request exceeds the context window quota'), {
+				status: 429,
+			}),
+		)
+		expect(c.code).toBe('rate_limit')
+		expect(c.retryable).toBe(true)
+	})
+
+	it('a statusless overflow wording still reaches compaction', () => {
+		expect(overflowReaches(new Error('input exceeds the context window'))).toBe(true)
+	})
+})

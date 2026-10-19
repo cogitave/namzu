@@ -174,7 +174,7 @@ export interface ProviderRetryNotice {
 	/** The delay came from the server's own `Retry-After`, not backoff. */
 	readonly serverDirected: boolean
 	/**
-	 * The failed attempt had already streamed text or reasoning, and the request
+	 * The failed attempt had already streamed text or reasoning (reasoning alone is retried without any option), and the request
 	 * is being sent again from the start. Whatever that attempt produced is void
 	 * and the consumer must drop it before the next chunk.
 	 */

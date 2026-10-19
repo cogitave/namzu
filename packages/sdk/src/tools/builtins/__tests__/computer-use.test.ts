@@ -1651,6 +1651,17 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			// Undeclared keeps the permissive default: a third-party driver is trusted.
 			expect(computerUseUnavailableReason({ id: 'custom', capabilities: caps() })).toBe(undefined)
 			expect(computerUseUnavailableReason({ id: 'custom' })).toBe(undefined)
+			// A driver that carries the image is still no use with a model that cannot read it.
+			const byModel = {
+				id: 'zen',
+				capabilities: caps(true),
+				supportsImageInputFor: (model: string) => model !== 'beam',
+			}
+			expect(computerUseUnavailableReason(byModel, 'seer')).toBe(undefined)
+			expect(computerUseUnavailableReason(byModel, 'beam')).toContain(
+				'model beam cannot read images',
+			)
+			expect(computerUseUnavailableReason(byModel)).toBe(undefined)
 			expect(computerUseUnavailableReason({ id: 'ollama', capabilities: caps(false) })).toContain(
 				'ollama',
 			)

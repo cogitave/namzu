@@ -1,4 +1,5 @@
 export { debugRequested } from '../debug-requested.js'
+import { isImageInputRefusalMessage } from '@namzu/sdk'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type Interruption, describeTurnInterruption, retryAfterMs } from './turn-interruption.js'
@@ -188,8 +189,8 @@ function copyFor(
 			}
 		case 'context':
 			return {
-				what: 'This conversation is too long for the model to read.',
-				next: 'Run /compact to summarise it, or start a new one with /new.',
+				what: 'This conversation is too long for the model, and Namzu could not shorten it enough.',
+				next: 'Try again, or pick a model with more room with /model.',
 			}
 		case 'content':
 			return {
@@ -197,10 +198,17 @@ function copyFor(
 				next: 'Rephrase your message and send it again.',
 			}
 		case 'bad_request':
-			return {
-				what: `${name} could not process this message.`,
-				next: 'Send it again, or start a new conversation with /new.',
-			}
+			// Resending the same request fails the same way, and the conversation is
+			// kept, so the next step is something that changes the request.
+			return isImageInputRefusalMessage(event.providerError?.detail)
+				? {
+						what: `${name} could not read an image in this conversation.`,
+						next: 'Pick a model that can read images with /model.',
+					}
+				: {
+						what: `${name} could not process this message.`,
+						next: 'Change the message and send it again, or pick another model with /model.',
+					}
 		case 'unknown':
 			return {
 				what: 'This reply stopped because of a problem.',

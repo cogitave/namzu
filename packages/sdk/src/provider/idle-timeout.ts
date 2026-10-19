@@ -218,6 +218,11 @@ export function withStreamIdleTimeout(
 						provider.supportsHostedWebSearchFor?.(model, mode) ?? false,
 				}
 			: {}),
+		...(provider.supportsImageInputFor
+			? {
+					supportsImageInputFor: (model: string) => provider.supportsImageInputFor?.(model) ?? true,
+				}
+			: {}),
 		...(provider.reasoningEffortLevelsFor
 			? {
 					reasoningEffortLevelsFor: (

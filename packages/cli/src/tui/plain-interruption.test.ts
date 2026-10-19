@@ -38,6 +38,37 @@ function expectPlain(text: string): void {
 	for (const pattern of MACHINE) expect(text).not.toMatch(pattern)
 }
 
+describe('a conversation the model cannot hold', () => {
+	it('keeps the conversation: no /new, no /clear, no start over', () => {
+		const text = describePlainInterruption(
+			failed({
+				explanation: { id: 'provider.context_overflow', message: 'x', hint: 'y' },
+				providerError: { kind: 'context_overflow', providerId: 'openai' },
+			}),
+		)
+		expect(text).toBe(
+			'This conversation is too long for the model, and Namzu could not shorten it enough. Try again, or pick a model with more room with /model.',
+		)
+		expect(text).not.toMatch(/\/new|\/clear|start (?:a )?new|start fresh|start over/i)
+	})
+
+	it('adds the compaction cause on the debug line only', () => {
+		const event = failed({
+			message: 'prompt is too long · automatic compaction failed: reducer backend down',
+			explanation: {
+				id: 'provider.context_overflow',
+				message: 'The prompt is larger than the model can accept.',
+				hint: 'Compaction ran and could not make enough room.',
+			},
+			providerError: { kind: 'context_overflow', providerId: 'openai' },
+		})
+		expect(describePlainInterruption(event)).not.toContain('automatic compaction failed')
+		expect(describePlainInterruption(event, { debug: true })).toContain(
+			'automatic compaction failed: reducer backend down',
+		)
+	})
+})
+
 describe('an error in the terminal app', () => {
 	it('names the product and a next step for a rejected key, with no ids or labels', () => {
 		const text = describePlainInterruption(
@@ -99,9 +130,28 @@ describe('an error in the terminal app', () => {
 			}),
 		)
 		expect(text.split('\n')).toEqual([
-			'OpenAI could not process this message. Send it again, or start a new conversation with /new.',
+			'OpenAI could not process this message. Change the message and send it again, or pick another model with /model.',
 			'OpenAI said: messages.0.content: Input should be a valid string',
 		])
+		expectPlain(text)
+	})
+
+	it('points an image refusal at /model and never at starting over', () => {
+		const text = describePlainInterruption(
+			failed({
+				message: 'zen (HTTP 400)',
+				providerError: {
+					kind: 'bad_request',
+					providerId: 'zen',
+					detail:
+						'Upstream request failed: [invalid_value] Beam supports text input only. This conversation contains an image.',
+				},
+			}),
+		)
+		expect(text.split('\n')[0]).toBe(
+			'Zen could not read an image in this conversation. Pick a model that can read images with /model.',
+		)
+		expect(text).not.toMatch(/\/new|send it again|new conversation/i)
 		expectPlain(text)
 	})
 

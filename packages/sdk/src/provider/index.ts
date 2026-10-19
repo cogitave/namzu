@@ -25,7 +25,9 @@ export { registerMock, MOCK_CAPABILITIES } from './mock-register.js'
 export {
 	PERMISSIVE_PROVIDER_CAPABILITIES,
 	resolveProviderCapabilities,
+	modelReadsImages,
 } from './capabilities.js'
+export { isImageInputRefusal, isImageInputRefusalMessage } from './image-input-refusal.js'
 export type { ResolvedProviderCapabilities } from './capabilities.js'
 export {
 	ProviderError,

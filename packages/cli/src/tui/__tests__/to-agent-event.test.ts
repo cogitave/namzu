@@ -400,6 +400,28 @@ describe('the three decline causes get three sentences', () => {
 		expect(text).not.toMatch(/try again|later pass|retry/i)
 	})
 
+	it('the failure breaker is silent: no row for the person', () => {
+		const mapped = toAgentEvent(
+			{
+				type: 'compaction_failed',
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+				iteration: 2,
+				cause: 'breaker_open',
+				messages: 31,
+			} as never,
+			presenter,
+		)
+
+		expect(mapped).toBeNull()
+	})
+
+	it('the refill breaker names the cause and never tells the person to start over', () => {
+		const text = failure('refilling')
+
+		expect(text).toMatch(/too large for the context window/)
+		expect(text).not.toMatch(/\/clear|\/new|start fresh|new (?:session|conversation)/i)
+	})
+
 	it('every cause states the history is unchanged', () => {
 		for (const cause of ['reducer_threw', 'shed_nothing', 'split_tool_pair']) {
 			expect(failure(cause)).toContain('31 messages unchanged')

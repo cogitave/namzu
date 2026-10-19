@@ -270,6 +270,14 @@ export function readOutputOverflow(err: unknown): OutputOverflowFigures | undefi
 	return undefined
 }
 
+/** Undici's `TypeError: terminated` anywhere on the chain: the body stream was cut. */
+function isUndiciTermination(err: unknown): boolean {
+	for (const link of causeChain(err)) {
+		if ((link as unknown) instanceof TypeError && link.message === 'terminated') return true
+	}
+	return false
+}
+
 /** Node/undici transport failures that mean "never reached the model". */
 const NETWORK_ERRNOS: ReadonlySet<string> = new Set([
 	'ECONNRESET',
@@ -304,12 +312,19 @@ function codeFromStatus(status: number): ProviderErrorCode {
 	return 'unknown'
 }
 
+function overflowWordingAllowed(status: number | undefined): boolean {
+	return status === undefined || status === 400 || status === 413
+}
+
+const CONTEXT_WINDOW_OVERFLOW =
+	/(?:exceed\w*|too (?:long|large|big)|larger than|longer than|over the|beyond|maximum|overflow\w*)\b[^.]{0,60}context window|context window[^.]{0,60}\b(?:exceed\w*|too (?:long|large|big)|larger than|longer than|over the|beyond|maximum|overflow\w*)/i
+
 /**
  * Message sniffing is the LAST resort, used only when there is no status
  * and no errno. Vendors that tunnel a 400 through a 200 body (several
  * gateways do) are only reachable this way.
  */
-function codeFromMessage(message: string): ProviderErrorCode | undefined {
+function codeFromMessage(message: string, status?: number): ProviderErrorCode | undefined {
 	const m = message.toLowerCase()
 	if (
 		m.includes('context length') ||
@@ -322,6 +337,13 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
 		// overflow rescue tests for by exact equality. The turn died holding
 		// the remedy.
 		m.includes('too long for') ||
+		// The reference terminal's own wordings (its `context window` and
+		// `input length and max_tokens exceed context limit` matchers).
+		// Only where the status cannot say otherwise: a 429, 5xx or 401 that
+		// mentions the window is still a rate limit, a server fault or an auth
+		// failure, and must keep its retry and fallback behaviour.
+		(overflowWordingAllowed(status) &&
+			(CONTEXT_WINDOW_OVERFLOW.test(message) || m.includes('exceed context limit'))) ||
 		m.includes('maximum length') ||
 		m.includes('exceeds the maximum') ||
 		m.includes('input is too large') ||
@@ -498,7 +520,9 @@ export function classifyProviderError(
 	// usually generic ("request failed") — so matching only the outer text
 	// looks at the one string least likely to say anything.
 	const messages = chainMessages(err)
-	const fromMessage = messages.map(codeFromMessage).find((code) => code !== undefined)
+	const fromMessage = messages
+		.map((m) => codeFromMessage(m, status))
+		.find((code) => code !== undefined)
 	// A first-hand statement from whoever produced the failure, if there
 	// is one. It outranks the code's inference, not the code itself: the
 	// classification still says WHAT went wrong.
@@ -522,7 +546,7 @@ export function classifyProviderError(
 
 	// A 400 that is really a window overflow must not be filed as a plain
 	// invalid_request: the caller can recover from one and not the other.
-	if (messages.some((m) => codeFromMessage(m) === 'context_length_exceeded')) {
+	if (messages.some((m) => codeFromMessage(m, status) === 'context_length_exceeded')) {
 		return new ProviderError({
 			code: 'context_length_exceeded',
 			message,
@@ -566,8 +590,12 @@ export function classifyProviderError(
 		}
 	}
 
-	// `fetch` rejects with a bare TypeError on transport failure.
-	if (err instanceof TypeError && /fetch|network/i.test(message)) {
+	// `fetch` rejects with a bare TypeError on transport failure, and undici
+	// ends a response body the peer cut mid-stream with `TypeError:
+	// terminated`. Its socket error normally rides along as the cause and the
+	// errno walk above catches it, but a vendor SDK that re-wraps the stream
+	// error can drop that cause and leave only the bare word.
+	if ((err instanceof TypeError && /fetch|network/i.test(message)) || isUndiciTermination(err)) {
 		return new ProviderError({
 			code: 'network',
 			message,

@@ -8,11 +8,8 @@
 export type FailureAction =
 	| 'try-again'
 	| 'settings'
-	| 'new-conversation'
 	/** Close the stopped turn, keep working here, and put the message back in the box. */
 	| 'continue'
-	/** Carry the saved message and its files to a new conversation of the same project. */
-	| 'copy-to-new'
 
 export interface FriendlyFailure {
 	kind:
@@ -355,8 +352,8 @@ export function describeFailure(raw: string, providerLabel?: string): FriendlyFa
 			return withDetails(
 				{
 					kind: 'too-long',
-					text: 'This conversation is too long for the model. Start a new conversation, or choose a model with more room.',
-					actions: ['new-conversation'],
+					text: 'This conversation is too long for the model. Try again, or choose a model with more room.',
+					actions: ['try-again', 'settings'],
 				},
 				message,
 			)

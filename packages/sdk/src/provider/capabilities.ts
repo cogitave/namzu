@@ -65,6 +65,23 @@ export function resolveProviderCapabilities(
 	}
 }
 
+/**
+ * Whether a request for `model` through `provider` may carry images.
+ *
+ * False when the driver cannot map them at all, or when the driver's own
+ * catalogue says this model is text-only. Anything the driver does not know is
+ * assumed to read images: a wrong "no" silently blinds a vision model, while a
+ * wrong "yes" is recovered from when the provider refuses the request.
+ */
+export function modelReadsImages(
+	provider: Pick<LLMProvider, 'capabilities' | 'supportsImageInputFor'>,
+	model: string | undefined,
+): boolean {
+	if (provider.capabilities?.supportsVision === false) return false
+	if (model === undefined || model === '') return true
+	return provider.supportsImageInputFor?.(model) ?? true
+}
+
 /** Require explicit wire support before dispatching a native JSON Schema request. */
 export function assertNativeStructuredOutputSupported(
 	provider: Pick<LLMProvider, 'id' | 'capabilities'>,

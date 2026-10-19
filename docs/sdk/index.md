@@ -64,6 +64,7 @@ The kernel.
 * [Firecracker sandboxes](firecracker-sandbox.md) - The Firecracker microvm tier against a self-hosted orchestrator, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
 * [The container sandbox worker's credential](container-sandbox-worker.md) - The per-instance bearer token the container backend mints and the worker requires on every route but /healthz, the refusal that makes a routable bind without one impossible, the named escape and what it gives up, and the workers nobody can authenticate against.
 * [Sandbox egress profiles](sandbox-egress-profiles.md) - One named, validated host allowlist with optional ports for the docker, runsc, firecracker and kubernetes backends, the port union rule, and what each backend refuses at construction.
+* [When a turn acquires its sandbox](sandbox-acquisition.md) - `turnConfig.sandbox.acquire`: `'eager'` (default), `'concurrent'` to take allocation off the first-token path and `'on-first-use'`; what tools, failures, timeouts, aborts and `sandbox_created` see.
 * [Sandbox seeds](sandbox-seeds.md) - Git repositories prepared once by an idempotent ensureSandboxSeed step on storage that outlives the sandbox, where the root goes per backend, the untrusted marker, and the URL rules that keep credentials out of the guest.
 * [Container-tier egress](sandbox-egress.md) - The internal-network topology that makes the docker tier's allowlist a kernel boundary rather than a proxy environment variable, the two images to build, the reach a sandbox keeps, and what is stated rather than measured.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.
@@ -132,3 +133,5 @@ The kernel.
 
 * [Agent client protocol](agent-client-protocol.md) - Stdio prompt, permission, cancellation, scoped history and explicit host extensions.
 * [Decision models](decision.md) - Provider-agnostic System-1 decision models (yes/no, choice, score) and the Azure AI Foundry driver.
+* [Text-only models and images](text-only-models-and-images.md) - How a conversation that holds an image keeps working on a model that cannot read one.
+* [Repairing a request the provider rejects](request-repair.md) - How the runtime repairs and resends a request a provider rejects as invalid, so a conversation does not dead-end on a 400.

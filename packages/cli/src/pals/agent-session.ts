@@ -35,6 +35,7 @@ import {
 	createToolPresenter,
 	createViewImageTool,
 	getBuiltinTools,
+	modelReadsImages,
 	palConversationGreeting,
 	query,
 	resumeSession,
@@ -384,12 +385,12 @@ export async function createPalAgentSession(
 			}
 			const allTools = getBuiltinTools()
 			const computerTool = createComputerUseTool(computer, {
-				unavailableReason: computerUseUnavailableReason(provider),
+				unavailableReason: computerUseUnavailableReason(provider, model),
 			})
 			tools = [
 				...allTools,
 				createViewImageTool({
-					unavailableReason: computerUseUnavailableReason(provider),
+					unavailableReason: computerUseUnavailableReason(provider, model),
 				}),
 				...messaging.tools,
 				createPalReferenceImageTool({
@@ -951,7 +952,9 @@ export async function createPalAgentSession(
 		errorKind: null,
 		providerSummary: entry.label,
 		modelSummary: model,
-		imageAttachmentsSupported: provider.capabilities?.supportsVision,
+		imageAttachmentsSupported: modelReadsImages(provider, model)
+			? provider.capabilities?.supportsVision
+			: false,
 		documentAttachmentsSupported: provider.capabilities?.supportsDocuments,
 		reasoningEffortLevels: provider.reasoningEffortLevelsFor?.(model),
 		reasoningEffortDefault: provider.reasoningEffortDefaultFor?.(model),

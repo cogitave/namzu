@@ -33,7 +33,12 @@ afterEach(() => {
 	removeTempDir(root)
 })
 
-async function fixture({ ownedPal = false, unresolved = false, limit = 0 } = {}) {
+async function fixture({
+	ownedPal = false,
+	unresolved = false,
+	limit = 0,
+	sessionClosesTurns = true,
+} = {}) {
 	const f = await providerPaused(state, { unresolved, limit })
 	let route: ((event: SessionEvent) => void) | undefined
 	let busy = false
@@ -130,11 +135,15 @@ async function fixture({ ownedPal = false, unresolved = false, limit = 0 } = {})
 				close: async () => {},
 				send,
 				resumePaused: resume,
-				abandonTurn: (
-					turnId: TurnId,
-					reason: string,
-					options?: { readonly withdrawMessages?: boolean },
-				) => abandonTurn(f.sessionId, turnId, reason, { log: f.log, ...options }),
+				...(sessionClosesTurns
+					? {
+							abandonTurn: (
+								turnId: TurnId,
+								reason: string,
+								options?: { readonly withdrawMessages?: boolean },
+							) => abandonTurn(f.sessionId, turnId, reason, { log: f.log, ...options }),
+						}
+					: {}),
 				reasoningEffortLevels: ['low', 'high'],
 				reasoningEffortDefault: 'low',
 				presenter: {
@@ -367,6 +376,19 @@ describe('CLI explicit provider retry composition', () => {
 					(request) => request.unresolved,
 				),
 			).toHaveLength(1)
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('closes a stopped reply through the conversation log when the live session has no way to', async () => {
+		const f = await fixture({ unresolved: true, limit: 1_000_000, sessionClosesTurns: false })
+		try {
+			await f.pause({ permissionMode: 'auto' })
+			expect(await f.runtime.abandonPausedTurn!(f.sessionId, root, f.turnId)).toEqual({
+				closed: true,
+			})
+			expect(await f.runtime.providerRetryStatus!(f.sessionId, root)).toEqual({})
+			expect(await loadConversation(state, f.sessionId)).toEqual([])
 		} finally {
 			await f.runtime.close()
 		}

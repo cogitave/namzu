@@ -16,17 +16,14 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
 import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
 import { buildVerifiedSummaryWithBoundedProvider } from '../../../../compaction/verifier.js'
+import type { CompactionConfig } from '../../../../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { applyLifecycleHookResults } from '../../plugin-hooks.js'
-import {
-	COMPACTION_FAILURE_MESSAGE,
-	COMPACTION_REFILL_MESSAGE,
-	compactionBreaker,
-} from './compaction-breaker.js'
+import { COMPACTION_REFILL_MESSAGE, compactionBreaker } from './compaction-breaker.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
@@ -224,6 +221,73 @@ export function measureContext(ctx: IterationContext): {
 }
 
 /**
+ * Reactive compactions allowed for one overflow, as in the reference
+ * terminal: the first relief, then at most one deeper pass.
+ */
+export const OVERFLOW_RELIEF_LIMIT = 2
+
+/** Round-groups that must remain for the deeper pass to be worth running. */
+export const DEEPER_PASS_MIN_GROUPS = 3
+
+export interface OverflowReliefOptions {
+	/**
+	 * The second rung. Keep only the newest round-group verbatim instead of the
+	 * configured recent window (when at least {@link DEEPER_PASS_MIN_GROUPS}
+	 * groups remain), and clear oversized tool results even inside the recent
+	 * window, with the same placeholder and spill pointer a stale result gets.
+	 */
+	readonly deeper?: boolean
+}
+
+/**
+ * A round-group starts at each assistant message and runs to the next one, so
+ * its tool results stay with the call that made them. The newest group is the
+ * last assistant message and everything after it; the opening user messages
+ * ride with the first group.
+ */
+function roundGroups(messages: readonly Message[]): number {
+	let groups = 0
+	for (const message of messages) if (message.role === 'assistant') groups++
+	return groups
+}
+
+/**
+ * The deeper rung's configuration: no tool result protected, and a recent
+ * window no larger than the first rung's. With three or more groups the
+ * window shrinks to the newest group, but never grows past what the
+ * configuration already kept: a newest group bigger than that would make the
+ * "deeper" pass shed less than the first one.
+ */
+export function deepenConfig(
+	config: CompactionConfig,
+	messages: readonly Message[],
+): CompactionConfig {
+	let lastAssistant = -1
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]?.role === 'assistant') {
+			lastAssistant = i
+			break
+		}
+	}
+	const deeper = { ...config, keepRecentToolResults: 0 }
+	if (lastAssistant < 0 || roundGroups(messages) < DEEPER_PASS_MIN_GROUPS) return deeper
+	const newest = messages.slice(lastAssistant)
+	if (config.keepRecentTokens !== undefined) {
+		return {
+			...deeper,
+			keepRecentTokens: Math.max(
+				1,
+				Math.min(config.keepRecentTokens, estimateMessagesTokens(newest)),
+			),
+		}
+	}
+	return {
+		...deeper,
+		keepRecentMessages: Math.max(1, Math.min(config.keepRecentMessages, newest.length)),
+	}
+}
+
+/**
  * Shed history because the PROVIDER said the prompt is too long.
  *
  * The threshold path guesses when to compact and can guess low — the
@@ -241,12 +305,18 @@ export function measureContext(ctx: IterationContext): {
  * @returns whether anything was actually shed. `false` means retrying would
  *   send the same prompt again, so the caller must not.
  */
-export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
+export async function relieveOverflow(
+	ctx: IterationContext,
+	options: OverflowReliefOptions = {},
+): Promise<boolean> {
+	// The cause belongs to the rung that is about to run: an earlier rung's
+	// summary failure must not be blamed for a later rung that compacted cleanly.
+	clearCompactionErrorNote(ctx)
 	const before = ctx.recorder.messages.length
 	const beforeChars = totalChars(ctx.recorder.messages)
 	const beforeTokens = estimateMessagesTokens(ctx.recorder.messages)
 
-	await runCompactionCheck(ctx, { force: true })
+	await runCompactionCheck(ctx, { force: true, ...(options.deeper ? { deeper: true } : {}) })
 
 	const shed = beforeChars - totalChars(ctx.recorder.messages)
 	const tokensShed = beforeTokens - estimateMessagesTokens(ctx.recorder.messages)
@@ -276,6 +346,31 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 		'namzu.runtime.tokens_shed': tokensShed,
 	})
 	return true
+}
+
+/**
+ * Why the last compaction attempt errored, kept for the turn so that when
+ * relief runs out the failure it ends on can say so, as the reference
+ * terminal's " · automatic compaction failed: <cause>" does.
+ */
+const compactionErrors = new WeakMap<object, string>()
+const MAX_COMPACTION_CAUSE_CHARS = 300
+/** The sentence the cause is appended with. */
+export const AUTOMATIC_COMPACTION_FAILED = ' · automatic compaction failed: '
+
+function noteCompactionError(ctx: IterationContext, error: unknown): void {
+	const text = error instanceof Error ? error.message : String(error)
+	if (text.length > 0) compactionErrors.set(ctx.recorder, text.slice(0, MAX_COMPACTION_CAUSE_CHARS))
+}
+
+/** The turn's last compaction error, or `undefined` when none errored. */
+export function compactionErrorNote(ctx: IterationContext): string | undefined {
+	return compactionErrors.get(ctx.recorder)
+}
+
+/** A turn that got through has nothing left to explain. */
+export function clearCompactionErrorNote(ctx: IterationContext): void {
+	compactionErrors.delete(ctx.recorder)
 }
 
 function totalChars(messages: readonly { content: unknown }[]): number {
@@ -335,8 +430,11 @@ async function declined(
 /**
  * The third refill in a row: stop the turn instead of compacting again.
  * Returns true when this pass must not run. Only with `circuitBreaker`.
+ * The loop also asks it before the first reactive relief of an overflow, as
+ * the reference terminal does (`rhr` runs first in its withheld-overflow
+ * handling), so a re-read loop made only of overflows is counted too.
  */
-async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
+export async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
 	const breaker = compactionBreaker(ctx)
 	if (!breaker) return false
 	// Already announced: the turn is on its way out; do not say it twice.
@@ -418,6 +516,7 @@ async function applyReducer(
 			'namzu.runtime.reason': reduction.reason,
 			'exception.message': message,
 		})
+		noteCompactionError(ctx, error)
 		await declined(ctx, 'reducer_threw', before, message)
 		return
 	}
@@ -549,7 +648,7 @@ interface CompactionPass {
 
 export async function runCompactionCheck(
 	ctx: IterationContext,
-	options?: { force?: boolean },
+	options?: { force?: boolean; deeper?: boolean },
 ): Promise<void> {
 	const pass: CompactionPass = {
 		attempted: false,
@@ -585,11 +684,12 @@ export async function runCompactionCheck(
 async function runCompactionCheckInner(
 	ctx: IterationContext,
 	pass: CompactionPass,
-	options?: { force?: boolean },
+	options?: { force?: boolean; deeper?: boolean },
 ): Promise<void> {
-	const config = ctx.compactionConfig
-	if (!config) return
-	if (config.strategy === 'disabled') return
+	const configured = ctx.compactionConfig
+	if (!configured) return
+	if (configured.strategy === 'disabled') return
+	const config = options?.deeper ? deepenConfig(configured, ctx.recorder.messages) : configured
 
 	const measured = measureContext(ctx)
 	const estimatedTokens = measured.tokens
@@ -616,11 +716,14 @@ async function runCompactionCheckInner(
 	const startAt = salience ? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, trigger) : trigger
 	if (!options?.force && usage < startAt) return
 
-	// Three failed passes in a row: stop trying for the rest of the turn, and
-	// say so once. A pass the provider forced is never gated.
+	// Three failed passes in a row: stop proactive compaction for the rest of
+	// the turn. A pass the provider forced is never gated.
 	const breaker = compactionBreaker(ctx)
 	if (breaker?.failuresOpen && !options?.force) {
 		if (breaker.takeFailureNotice()) {
+			// Silent for the person, as in the reference terminal: a log line and the
+			// event for a host that wants it, but no sentence to show. Only the
+			// proactive pass stops; a real overflow still runs the reactive ladder.
 			ctx.log.warn('Compaction failed three times in a row — switched off for this turn', {
 				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			})
@@ -630,7 +733,6 @@ async function runCompactionCheckInner(
 				iteration: ctx.recorder.currentIteration,
 				cause: 'breaker_open',
 				messages: ctx.recorder.messages.length,
-				error: COMPACTION_FAILURE_MESSAGE,
 			})
 		}
 		return
@@ -851,25 +953,39 @@ async function runCompactionCheckInner(
 		// to a cheap model while the bill is written against the expensive one
 		// is a mistake with no symptom.
 		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.turnConfig.model)
-		compactedContent = await buildVerifiedSummaryWithBoundedProvider(
-			manager,
-			olderMessages as Message[],
-			ctx.provider,
-			config,
-			(usage) =>
-				ctx.recorder.accumulateUsage(usage, {
-					providerId: ctx.recorder.servingProviderId,
-					model: compactionModel,
-				}),
-			// The one model call a turn makes that the user never asked for. It
-			// reads a transcript and writes a summary, which is the cheapest
-			// thing a small model does well, and it fires on exactly the long
-			// runs where the primary model is most expensive. `taskRouter` had
-			// been accepted, validated and threaded through four types since it
-			// was added, and nothing ever consulted it.
-			compactionModel,
-			ctx.abortController.signal,
-		)
+		try {
+			compactedContent = await buildVerifiedSummaryWithBoundedProvider(
+				manager,
+				olderMessages as Message[],
+				ctx.provider,
+				config,
+				(usage) =>
+					ctx.recorder.accumulateUsage(usage, {
+						providerId: ctx.recorder.servingProviderId,
+						model: compactionModel,
+					}),
+				// The one model call a turn makes that the user never asked for. It
+				// reads a transcript and writes a summary, which is the cheapest
+				// thing a small model does well, and it fires on exactly the long
+				// runs where the primary model is most expensive. `taskRouter` had
+				// been accepted, validated and threaded through four types since it
+				// was added, and nothing ever consulted it.
+				compactionModel,
+				ctx.abortController.signal,
+			)
+		} catch (error) {
+			// The model step only ADDS to the extracted state, so a failed one (a
+			// timeout, a provider error, its own overflow after the ladder in the
+			// verifier ran out) is not a reason to leave the history as it is. Cancellation
+			// is the caller's, and still stops the pass.
+			if (ctx.abortController.signal.aborted) throw error
+			noteCompactionError(ctx, error)
+			ctx.log.warn('The compaction summary call failed — using the extracted state alone', {
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
+				'exception.message': error instanceof Error ? error.message : String(error),
+			})
+			compactedContent = serializeState(manager.getState())
+		}
 	} else {
 		compactedContent = serializeState(manager.getState())
 	}

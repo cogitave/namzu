@@ -268,7 +268,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		expect(nextEvents.some((event) => event.type === 'message_history_repaired')).toBe(false)
 	})
 
-	it('does not guess which of two distinct images the provider rejected', async () => {
+	it('does not mark either of two distinct images durable when the provider cannot say which', async () => {
 		const provider = new ScriptedProvider(async function* () {
 			yield await Promise.reject(invalidImage())
 		})
@@ -281,8 +281,13 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 
 		const { run, events } = await runFixture(provider, messages)
 
+		// The request repair takes the newest media out of the outgoing request
+		// and resends once; this provider rejects everything, so the turn still
+		// fails, and neither image is marked in the stored history.
 		expect(run.status).toBe('failed')
-		expect(provider.requests).toHaveLength(1)
+		expect(provider.requests).toHaveLength(2)
+		expect(JSON.stringify(provider.requests[1]?.messages)).not.toContain('Zmlyc3Q=')
+		expect(JSON.stringify(run.messages)).toContain('Zmlyc3Q=')
 		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 		expect(events.some((event) => event.type === 'message_history_repaired')).toBe(false)
 	})

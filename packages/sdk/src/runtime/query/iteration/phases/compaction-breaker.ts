@@ -3,9 +3,10 @@
  *
  * - Three failures in a row (a pass that ran and shed nothing): every one of
  *   them paid for a summary or a reducer call and left the history as it was,
- *   so a fourth would do the same. Compaction is skipped from then on and the
- *   turn carries on; a pass the provider forces by rejecting the prompt is not
- *   gated.
+ *   so a fourth would do the same. Proactive compaction is skipped from then on
+ *   and the turn carries on, silently as far as the person is concerned (a log
+ *   line and a `breaker_open` event, no sentence); a pass the provider forces
+ *   by rejecting the prompt is not gated, so the reactive ladder still runs.
  * - Three compactions in a row, each followed by the context filling back up
  *   within three iterations: something in the loop (a huge file read, a tool
  *   that prints without limit) refills the window faster than any summary can
@@ -27,12 +28,13 @@ export const COMPACTION_REFILL_ITERATIONS = 3
 /** Consecutive refills that stop the turn. */
 export const COMPACTION_REFILL_LIMIT = 3
 
-/** One short line, shown once, when the turn stops on refills. */
+/**
+ * One short line, shown once, when the turn stops on refills. It names the
+ * cause and a step that keeps the conversation: the reference terminal also
+ * offers to start over here, and Namzu never does.
+ */
 export const COMPACTION_REFILL_MESSAGE =
-	'The context filled up again right after being compacted, three times in a row. A file or tool output is probably too big for the window: read it in smaller parts, or start fresh with /clear.'
-/** One short line, shown once, when compaction stops after failures. */
-export const COMPACTION_FAILURE_MESSAGE =
-	'Automatic compaction stopped after three failed attempts. Run /compact yourself, or start fresh with /clear.'
+	'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large for the context window. Try reading it in smaller parts.'
 
 export class CompactionBreaker {
 	private failures = 0
