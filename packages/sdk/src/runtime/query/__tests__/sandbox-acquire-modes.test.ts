@@ -6,14 +6,16 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { Sandbox, SandboxProvider } from '../../../types/sandbox/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
+import type { StepResult } from '../../../types/session/step.js'
 import { drainQuery } from '../index.js'
 
 type Acquire = 'eager' | 'concurrent' | 'on-first-use'
@@ -87,6 +89,12 @@ async function run(input: {
 	readonly signal?: AbortSignal
 	readonly timeoutMs?: number
 	readonly onEvent?: (event: SessionEvent) => void
+	/** Replaces the single opening user message, e.g. with a prior turn's history. */
+	readonly messages?: readonly Message[]
+	readonly sessionLog?: InMemorySessionLog
+	/** Pass `acquire` as `turnConfig.sandbox.acquire` without any sandbox provider. */
+	readonly withoutProvider?: boolean
+	readonly onStepFinish?: (step: StepResult) => void
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-sandbox-acquire-'))
 	workdirs.push(workingDirectory)
@@ -95,12 +103,18 @@ async function run(input: {
 		{
 			provider: input.provider,
 			toolsets: input.tools ?? [],
-			sandboxProvider: {
-				id: 'acquire-modes',
-				name: 'Acquire modes',
-				environment: 'basic',
-				create: input.create,
-			},
+			...(input.withoutProvider
+				? {}
+				: {
+						sandboxProvider: {
+							id: 'acquire-modes',
+							name: 'Acquire modes',
+							environment: 'basic',
+							create: input.create,
+						},
+					}),
+			...(input.sessionLog ? { sessionLog: input.sessionLog } : {}),
+			...(input.onStepFinish ? { onStepFinish: input.onStepFinish } : {}),
 			...(input.signal ? { signal: input.signal } : {}),
 			turnConfig: {
 				model: 'mock-model',
@@ -109,9 +123,10 @@ async function run(input: {
 				maxIterations: 3,
 				sandbox: { acquire: input.acquire },
 			},
+			retry: false as const,
 			agentId: 'agent_sandbox_acquire',
 			agentName: 'Sandbox acquire',
-			messages: [createUserMessage('go')],
+			messages: input.messages ?? [createUserMessage('go')],
 			workingDirectory,
 			sessionId: '82374a6e-20d2-4f11-b06f-5792141c0497' as SessionId,
 			topicId: 'a789bffc-abbd-4e79-b3ec-6011b08067bc' as TopicId,
@@ -124,6 +139,13 @@ async function run(input: {
 		},
 	)
 	return { result, events }
+}
+
+/** Lets everything already queued run, without waiting on the clock. */
+async function settleQueues(): Promise<void> {
+	for (let round = 0; round < 5; round++) {
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
 }
 
 const types = (events: readonly SessionEvent[]) => events.map((event) => event.type)
@@ -357,7 +379,8 @@ describe("sandbox.acquire: 'concurrent'", () => {
 	it('releases a handle that arrives after the turn has settled, exactly once', async () => {
 		const allocation = deferred<Sandbox>()
 		const created = deferred<void>()
-		const destroy = vi.fn(async () => {})
+		const destroyed = deferred<void>()
+		const destroy = vi.fn(async () => destroyed.resolve())
 		const caller = new AbortController()
 		const model = new MockLLMProvider({ turns: [{ text: 'answer' }] })
 		const { result } = await run({
@@ -375,7 +398,11 @@ describe("sandbox.acquire: 'concurrent'", () => {
 		await created.promise
 		await result
 		allocation.resolve(boundary(destroy))
-		await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1))
+		await destroyed.promise
+		// "Exactly once" is only proven once nothing else can still arrive: let
+		// every queued continuation and I/O callback run, then count.
+		await settleQueues()
+		expect(destroy).toHaveBeenCalledTimes(1)
 	})
 })
 
@@ -417,5 +444,216 @@ describe("sandbox.acquire: 'on-first-use'", () => {
 		expect(trace).toEqual(['request', 'create', 'request'])
 		expect(script.ran).toEqual([{ sandbox: true }])
 		expect(types(events)).toContain('sandbox_created')
+	})
+})
+
+describe('sandbox.acquire: safety properties', () => {
+	// A tool that reads the call's command line is examined by the escalation
+	// pass (`escalationOf`), which asks the tool for its shell dialect. The
+	// spy records whether a sandbox existed when it was asked. The review of a
+	// batch, and the escalation that feeds it, must be computed after the gate,
+	// or an escalation is decided against a turn whose sandbox is not there yet.
+	function dialectProbe() {
+		const askedWith: { sandboxCreated: boolean; sandboxed: boolean }[] = []
+		let created = false
+		let armed = false
+		const tool = defineTool({
+			name: 'shell_probe',
+			description: 'Takes a command line.',
+			inputSchema: z.object({ command: z.string() }),
+			category: 'analysis',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			commandArgument: 'command',
+			commandDialect: ({ sandboxed }) => {
+				if (armed) askedWith.push({ sandboxCreated: created, sandboxed })
+				return 'sh'
+			},
+			execute: async () => ({ success: true, output: 'ok' }),
+		})
+		return {
+			askedWith,
+			markCreated: () => {
+				created = true
+			},
+			arm: () => {
+				armed = true
+			},
+			tools: [testToolset(tool)],
+			turns: [
+				{ toolCalls: [{ id: 'call_1', name: 'shell_probe', args: { command: 'echo hi' } }] },
+				{ text: 'done' },
+			],
+		}
+	}
+
+	it('holds a batch at the gate before it is reviewed or escalated', async () => {
+		const allocation = deferred<Sandbox>()
+		const probe = dialectProbe()
+		const model = new MockLLMProvider({ turns: probe.turns })
+		const { result, events } = await run({
+			acquire: 'concurrent',
+			provider: model,
+			tools: probe.tools,
+			create: () => allocation.promise,
+			onEvent: (event) => {
+				// The model has answered; the sandbox arrives in a later macrotask,
+				// so a pass that did not wait for it would run first.
+				if (event.type === 'message_completed') {
+					probe.arm()
+					setTimeout(() => {
+						probe.markCreated()
+						allocation.resolve(boundary())
+					}, 20)
+				}
+			},
+		})
+		const finished = await result
+		expect(finished.stopReason).toBe('end_turn')
+		expect(probe.askedWith.length).toBeGreaterThan(0)
+		for (const asked of probe.askedWith) {
+			expect(asked).toEqual({ sandboxCreated: true, sandboxed: true })
+		}
+		const order = types(events)
+		expect(order.indexOf('sandbox_created')).toBeLessThan(order.indexOf('tool_review_requested'))
+	})
+
+	it("refuses a bad 'acquire' value with invalid_config, with or without a provider", async () => {
+		for (const withoutProvider of [false, true]) {
+			const model = new MockLLMProvider({ turns: [{ text: 'never asked' }] })
+			const create = vi.fn(async () => boundary())
+			const { result } = await run({
+				acquire: 'sometimes' as Acquire,
+				provider: model,
+				create,
+				withoutProvider,
+			})
+			const finished = await result
+			expect(finished.status).toBe('failed')
+			expect(finished.lastError).toContain(
+				"sandbox.acquire must be 'eager', 'concurrent' or 'on-first-use'",
+			)
+			expect(model.requests).toHaveLength(0)
+			expect(create).not.toHaveBeenCalled()
+		}
+	})
+
+	it('tears the late handle down exactly once, and runs no tool, when the first model request fails', async () => {
+		const allocation = deferred<Sandbox>()
+		const created = deferred<void>()
+		const destroyed = deferred<void>()
+		const destroy = vi.fn(async () => destroyed.resolve())
+		const script = toolTurn()
+		const model = new MockLLMProvider({
+			turns: [{ error: { message: 'upstream refused', status: 400 } }],
+		})
+		const { result, events } = await run({
+			acquire: 'concurrent',
+			provider: model,
+			tools: script.tools,
+			create: () => {
+				created.resolve()
+				return allocation.promise
+			},
+		})
+		await created.promise
+		const finished = await result
+		expect(finished.status).toBe('failed')
+		expect(finished.lastError).toContain('upstream refused')
+		expect(script.ran).toHaveLength(0)
+		// The allocation answers after the turn is over.
+		allocation.resolve(boundary(destroy))
+		await destroyed.promise
+		await settleQueues()
+		expect(destroy).toHaveBeenCalledTimes(1)
+		expect(types(events)).not.toContain('sandbox_created')
+		expect(types(events)).not.toContain('tool_executing')
+	})
+
+	it('records a timed-out acquisition as the timeout, not as a failed step', async () => {
+		vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+		try {
+			const allocation = deferred<Sandbox>()
+			const created = deferred<void>()
+			const destroyed = deferred<void>()
+			const script = toolTurn()
+			const steps: StepResult[] = []
+			const model = new MockLLMProvider({ turns: script.turns })
+			const { result } = await run({
+				acquire: 'concurrent',
+				provider: model,
+				tools: script.tools,
+				timeoutMs: 100,
+				onStepFinish: (step) => steps.push(step),
+				create: () => {
+					created.resolve()
+					return allocation.promise
+				},
+				onEvent: (event) => {
+					if (event.type === 'message_completed') void vi.advanceTimersByTimeAsync(100)
+				},
+			})
+			await created.promise
+			const finished = await result
+			expect(finished.stopReason).toBe('timeout')
+			expect(script.ran).toHaveLength(0)
+			// The step the model spent is kept, as a stopped one; none is an error.
+			expect(steps.map((step) => step.finishReason)).toEqual(['cancelled'])
+			allocation.resolve(boundary(async () => destroyed.resolve()))
+			await destroyed.promise
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe('a follow-up turn after a rejected sandbox gate', () => {
+	it('sends the provider no tool call without its result', async () => {
+		const log = new InMemorySessionLog({
+			sessionId: '82374a6e-20d2-4f11-b06f-5792141c0497' as SessionId,
+		})
+		const allocation = deferred<Sandbox>()
+		const script = toolTurn()
+		const first = await run({
+			acquire: 'concurrent',
+			provider: new MockLLMProvider({ turns: script.turns }),
+			tools: script.tools,
+			sessionLog: log,
+			create: () => allocation.promise,
+			onEvent: (event) => {
+				if (event.type === 'message_completed') allocation.reject(new Error('no capacity'))
+			},
+		})
+		const firstTurn = await first.result
+		expect(firstTurn.lastError).toContain('no capacity')
+		expect(script.ran).toHaveLength(0)
+		// The precondition: the rejected turn left a tool call with no result.
+		const strandedCalls = firstTurn.messages.flatMap((message) =>
+			message.role === 'assistant' ? (message.toolCalls ?? []) : [],
+		)
+		expect(strandedCalls).toHaveLength(1)
+		expect(firstTurn.messages.some((message) => message.role === 'tool')).toBe(false)
+
+		const followUp = new MockLLMProvider({ turns: [{ text: 'recovered' }] })
+		const second = await run({
+			acquire: 'eager',
+			withoutProvider: true,
+			provider: followUp,
+			sessionLog: log,
+			messages: [...firstTurn.messages, createUserMessage('try again')],
+			create: async () => boundary(),
+		})
+		const secondTurn = await second.result
+		expect(secondTurn.stopReason).toBe('end_turn')
+		const sent = followUp.requests[0]?.messages ?? []
+		const calledIds = sent.flatMap((message) =>
+			message.role === 'assistant' ? (message.toolCalls ?? []).map((call) => call.id) : [],
+		)
+		const answeredIds = sent.flatMap((message) =>
+			message.role === 'tool' ? [message.toolCallId] : [],
+		)
+		expect(calledIds.sort()).toEqual(answeredIds.sort())
 	})
 })

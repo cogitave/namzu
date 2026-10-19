@@ -51,7 +51,18 @@ out changes nothing, including the order of events.
   eager acquisition produces: `cancelled`, `timeout`, or the provider's own
   error. It happens at the first moment a tool needs the sandbox or at turn end,
   whichever comes first. A model request that already went out is not undone,
-  and a turn that fails this way may have spent one.
+  and a turn that fails this way may have spent one. When the acquisition was
+  cancelled or ran out of time, the iteration that found out is recorded as a
+  `cancelled` step (it keeps the tokens it spent) with no error span and no
+  failed activity, so the step ledger and the `cancelled` / `timeout` stop
+  reason agree, as they do for a turn stopped by its own abort or timeout. A
+  provider failure is still an `error` step. The assistant message that asked for
+  the tools stays in history without results; the next turn's history repair
+  (`repairToolMessageHistory`) resolves it, so a follow-up never sends the provider an
+  unpaired tool call.
+- **A bad value.** An `acquire` other than the three above fails the turn with
+  `invalid_config` before anything is started, whether or not the turn has a
+  `sandboxProvider`.
 - **A turn that never uses the sandbox** still settles the acquisition before it
   completes (`'concurrent'`), so a failure is reported rather than lost.
   `'on-first-use'` never starts one, and a tool-less turn never calls the

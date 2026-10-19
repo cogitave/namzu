@@ -2311,6 +2311,20 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					yield* eventTranslator.drainPending()
 				}
 
+				// Checked whether or not a provider is present: a host that mistypes the
+				// option should hear about it before it wires a provider in, not after.
+				const acquireMode: SandboxAcquireMode = turnConfig.sandbox?.acquire ?? 'eager'
+				if (
+					acquireMode !== 'eager' &&
+					acquireMode !== 'concurrent' &&
+					acquireMode !== 'on-first-use'
+				) {
+					throw new NamzuError({
+						code: 'invalid_config',
+						message: `sandbox.acquire must be 'eager', 'concurrent' or 'on-first-use'; received ${String(acquireMode)}`,
+						details: { acquire: String(acquireMode) },
+					})
+				}
 				// --- Sandbox lifecycle: create before iteration loop ---
 				if (params.sandboxProvider) {
 					const rootAtCwd = turnConfig.sandbox?.workspace === 'working-directory'
@@ -2340,18 +2354,6 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 								providerId: params.sandboxProvider.id,
 								workspace: 'working-directory',
 							},
-						})
-					}
-					const acquireMode: SandboxAcquireMode = turnConfig.sandbox?.acquire ?? 'eager'
-					if (
-						acquireMode !== 'eager' &&
-						acquireMode !== 'concurrent' &&
-						acquireMode !== 'on-first-use'
-					) {
-						throw new NamzuError({
-							code: 'invalid_config',
-							message: `sandbox.acquire must be 'eager', 'concurrent' or 'on-first-use'; received ${String(acquireMode)}`,
-							details: { acquire: String(acquireMode) },
 						})
 					}
 					const sandboxProvider = params.sandboxProvider
