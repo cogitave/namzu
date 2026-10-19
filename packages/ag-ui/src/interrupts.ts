@@ -65,6 +65,12 @@ export interface AGUIInterruptRecord {
 	readonly options?: readonly string[]
 	readonly multiSelect?: boolean
 	readonly allowFreeText?: boolean
+	/**
+	 * Present when one `ask_user_question` call carried several questions:
+	 * what each offered, by the id the answer names it with. The fields above
+	 * then describe the first question.
+	 */
+	readonly questions?: readonly AGUIQuestionShape[]
 	/** An approval of this call is also asked to confirm it may leave the sandbox. */
 	readonly sandboxEscape?: boolean
 	/** Every call of the reviewed batch an approval belongs to. */
@@ -77,6 +83,14 @@ export interface AGUIInterruptRecord {
 	readonly expiresAt?: number
 	/** What the client was sent, so it can be sent again. Absent for a frontend call. */
 	readonly interrupt?: Interrupt
+}
+
+/** What one question of a batch offered: all an answer to it is checked against. */
+export interface AGUIQuestionShape {
+	readonly id: string
+	readonly options: readonly string[]
+	readonly multiSelect: boolean
+	readonly allowFreeText: boolean
 }
 
 /**
@@ -247,12 +261,69 @@ export function approvalInterrupt(record: AGUIInterruptRecord, call: ToolCallSum
 	})
 }
 
+/** The `selected` / `text` properties an answer to one question may carry. */
+function answerProperties(question: {
+	readonly options: readonly { readonly id: string }[]
+	readonly multiSelect: boolean
+	readonly allowFreeText: boolean
+}): Record<string, unknown> {
+	const ids = question.options.map((option) => option.id)
+	return {
+		...(ids.length > 0
+			? {
+					selected: {
+						type: 'array',
+						items: { type: 'string', enum: ids },
+						uniqueItems: true,
+						maxItems: question.multiSelect ? ids.length : 1,
+						description: 'The ids of the options chosen.',
+					},
+				}
+			: {}),
+		...(question.allowFreeText
+			? {
+					text: {
+						type: 'string',
+						description: 'An answer in the user’s own words.',
+					},
+				}
+			: {}),
+	}
+}
+
+function questionMetadata(question: {
+	readonly header?: string
+	readonly options: UserQuestionData['options']
+	readonly multiSelect: boolean
+	readonly allowFreeText: boolean
+}): Record<string, unknown> {
+	return {
+		...(question.header !== undefined ? { header: question.header } : {}),
+		options: question.options.map((option) => ({
+			id: option.id,
+			label: option.label,
+			...(option.description !== undefined ? { description: option.description } : {}),
+			...(option.preview !== undefined ? { preview: option.preview } : {}),
+			...(option.recommended === true ? { recommended: true } : {}),
+		})),
+		multiSelect: question.multiSelect,
+		allowFreeText: question.allowFreeText,
+	}
+}
+
+/**
+ * A question as an interrupt. A batch (`question.questions`) is still ONE
+ * interrupt: the top-level `message`, `selected`/`text` schema and metadata
+ * describe the first question, so a client that knows one question shows and
+ * answers it; `metadata.namzu.questions` lists every question and
+ * `responseSchema.properties.answers` takes one answer per question id.
+ */
 export function questionInterrupt(
 	record: AGUIInterruptRecord,
 	question: UserQuestionData,
 	toolCallId: string | undefined,
 ): Interrupt {
-	const ids = question.options.map((option) => option.id)
+	const batch = question.questions
 	return withExpiry(record, {
 		id: record.id,
 		reason: 'input_required',
@@ -261,34 +332,46 @@ export function questionInterrupt(
 		responseSchema: {
 			type: 'object',
 			properties: {
-				...(ids.length > 0
+				...answerProperties(question),
+				...(batch
 					? {
-							selected: {
+							answers: {
 								type: 'array',
-								items: { type: 'string', enum: ids },
-								uniqueItems: true,
-								maxItems: question.multiSelect ? ids.length : 1,
-								description: 'The ids of the options chosen.',
+								description:
+									'One entry per question the user answered; a question with no entry was not answered. When present it replaces `selected` and `text`.',
+								items: {
+									type: 'object',
+									properties: {
+										questionId: {
+											type: 'string',
+											enum: batch.map((item) => item.id),
+										},
+										...answerProperties({
+											options: [],
+											multiSelect: false,
+											allowFreeText: true,
+										}),
+									},
+									required: ['questionId'],
+								},
 							},
 						}
-					: {}),
-				...(question.allowFreeText
-					? { text: { type: 'string', description: 'An answer in the user’s own words.' } }
 					: {}),
 			},
 		},
 		metadata: {
 			namzu: {
 				kind: 'question',
-				...(question.header !== undefined ? { header: question.header } : {}),
-				options: question.options.map((option) => ({
-					id: option.id,
-					label: option.label,
-					...(option.description !== undefined ? { description: option.description } : {}),
-					...(option.recommended === true ? { recommended: true } : {}),
-				})),
-				multiSelect: question.multiSelect,
-				allowFreeText: question.allowFreeText,
+				...questionMetadata(question),
+				...(batch
+					? {
+							questions: batch.map((item) => ({
+								id: item.id,
+								question: item.question,
+								...questionMetadata(item),
+							})),
+						}
+					: {}),
 			},
 		},
 	})
@@ -385,7 +468,17 @@ export type AGUIAnswer =
 			readonly reason?: string
 			readonly confirmSandboxEscape: boolean
 	  }
-	| { readonly kind: 'answer'; readonly selected: readonly string[]; readonly text?: string }
+	| {
+			readonly kind: 'answer'
+			readonly selected: readonly string[]
+			readonly text?: string
+			/** One answer per question of a batch, by the id the interrupt named it with. */
+			readonly answers?: readonly {
+				readonly questionId: string
+				readonly selected: readonly string[]
+				readonly text?: string
+			}[]
+	  }
 	| { readonly kind: 'continue' }
 	| { readonly kind: 'confirm'; readonly approved: boolean; readonly feedback?: string }
 	| { readonly kind: 'cancel' }
@@ -493,23 +586,25 @@ function readAnswer(record: AGUIInterruptRecord, entry: ResumeEntry): AGUIAnswer
 			// A bare string is an answer in the user's own words.
 			const value = typeof payload === 'string' ? { text: payload } : payload
 			if (!isPlainObject(value)) return invalid('must be an object with `selected` and/or `text`')
-			const selected = value.selected ?? []
-			if (!Array.isArray(selected) || selected.some((item) => typeof item !== 'string'))
-				return invalid('has `selected` that is not a list of option ids')
-			const offered = new Set(record.options ?? [])
-			if (selected.some((item) => !offered.has(item)))
-				return invalid('selects an option the question did not offer')
-			if (new Set(selected).size !== selected.length) return invalid('selects an option twice')
-			if (!record.multiSelect && selected.length > 1) return invalid('selects more than one option')
-			if (value.text !== undefined && typeof value.text !== 'string')
-				return invalid('has `text` that is not a string')
-			if (typeof value.text === 'string' && value.text.length > 0 && !record.allowFreeText)
-				return invalid('answers in free text, which the question does not accept')
-			return {
-				kind: 'answer',
-				selected: selected as string[],
-				...(typeof value.text === 'string' && value.text.length > 0 ? { text: value.text } : {}),
-			}
+			const read = readSelection(value, record.options ?? [], record, invalid)
+			if (value.answers === undefined) return { kind: 'answer', ...read }
+			if (!record.questions) return invalid('has `answers`, but the interrupt asked one question')
+			if (!Array.isArray(value.answers)) return invalid('has `answers` that is not a list')
+			const shapes = new Map(record.questions.map((shape) => [shape.id, shape]))
+			const seenQuestions = new Set<string>()
+			const answers = value.answers.map((entry: unknown) => {
+				if (!isPlainObject(entry) || typeof entry.questionId !== 'string')
+					return invalid('has an `answers` entry without a `questionId`')
+				const shape = shapes.get(entry.questionId)
+				if (!shape) return invalid(`answers a question (${entry.questionId}) it did not ask`)
+				if (seenQuestions.has(shape.id)) return invalid(`answers ${shape.id} twice`)
+				seenQuestions.add(shape.id)
+				return {
+					questionId: shape.id,
+					...readSelection(entry, shape.options, shape, invalid),
+				}
+			})
+			return { kind: 'answer', ...read, answers }
 		}
 		case 'plan_approval':
 		case 'checkpoint': {
@@ -531,6 +626,31 @@ function readAnswer(record: AGUIInterruptRecord, entry: ResumeEntry): AGUIAnswer
 			return { kind: 'continue' }
 		case 'frontend_tool':
 			return invalid('is a tool result, which arrives as a `tool` message')
+	}
+}
+
+/** The `selected` / `text` of one answer, checked against what its question offered. */
+function readSelection(
+	value: Record<string, unknown>,
+	offered: readonly string[],
+	shape: { readonly multiSelect?: boolean; readonly allowFreeText?: boolean },
+	invalid: (why: string) => never,
+): { selected: string[]; text?: string } {
+	const selected = value.selected ?? []
+	if (!Array.isArray(selected) || selected.some((item) => typeof item !== 'string'))
+		return invalid('has `selected` that is not a list of option ids')
+	const allowed = new Set(offered)
+	if (selected.some((item) => !allowed.has(item)))
+		return invalid('selects an option the question did not offer')
+	if (new Set(selected).size !== selected.length) return invalid('selects an option twice')
+	if (!shape.multiSelect && selected.length > 1) return invalid('selects more than one option')
+	if (value.text !== undefined && typeof value.text !== 'string')
+		return invalid('has `text` that is not a string')
+	if (typeof value.text === 'string' && value.text.length > 0 && !shape.allowFreeText)
+		return invalid('answers in free text, which the question does not accept')
+	return {
+		selected: selected as string[],
+		...(typeof value.text === 'string' && value.text.length > 0 ? { text: value.text } : {}),
 	}
 }
 
@@ -595,6 +715,15 @@ export function questionDecision(
 			questionId,
 			selectedOptionIds: [...answer.selected],
 			...(answer.text !== undefined ? { freeText: answer.text } : {}),
+			...(answer.answers
+				? {
+						answers: answer.answers.map((entry) => ({
+							questionId: entry.questionId,
+							selectedOptionIds: [...entry.selected],
+							...(entry.text !== undefined ? { freeText: entry.text } : {}),
+						})),
+					}
+				: {}),
 		}
 	}
 	// Cancelled: an answer that selects nothing and says nothing, which the

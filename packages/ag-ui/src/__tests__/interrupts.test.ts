@@ -936,6 +936,182 @@ describe('a question the model asks the user', () => {
 		})
 	})
 
+	describe('a batch of several questions', () => {
+		const batchTurn: MockTurn = {
+			toolCalls: [
+				{
+					id: 'call_batch',
+					name: 'ask_user_question',
+					args: {
+						questions: [
+							{
+								header: 'Audience',
+								question: 'Who is it for?',
+								options: [{ label: 'Board' }, { label: 'Engineers' }],
+							},
+							{
+								header: 'Environment',
+								question: 'Which environments?',
+								multiSelect: true,
+								options: [{ label: 'Staging' }, { label: 'Production', preview: 'live traffic' }],
+							},
+							{
+								header: 'Purpose',
+								question: 'What is it for?',
+								options: [{ label: 'Report' }, { label: 'Audit' }],
+							},
+						],
+					},
+				},
+			],
+			finishReason: 'tool_calls',
+		}
+
+		it('is one interrupt that lists every question and mirrors the first', async () => {
+			const h = questionHarness([batchTurn, { text: 'Done.' }])
+			const first = await runClient(h.client())
+			expect(first.interrupts).toHaveLength(1)
+			const [interrupt] = first.interrupts as [Interrupt]
+			expect(interrupt).toMatchObject({
+				reason: 'input_required',
+				toolCallId: 'call_batch',
+				message: 'Who is it for?',
+				metadata: {
+					namzu: {
+						kind: 'question',
+						header: 'Audience',
+						options: [{ id: 'opt_1' }, { id: 'opt_2' }],
+						questions: [
+							{ id: 'call_batch#0', header: 'Audience', multiSelect: false },
+							{
+								id: 'call_batch#1',
+								header: 'Environment',
+								multiSelect: true,
+								options: [{ id: 'opt_1' }, { id: 'opt_2', preview: 'live traffic' }],
+							},
+							{ id: 'call_batch#2', header: 'Purpose' },
+						],
+					},
+				},
+			})
+			expect(interrupt.responseSchema).toMatchObject({
+				properties: {
+					selected: { items: { enum: ['opt_1', 'opt_2'] } },
+					answers: {
+						items: {
+							properties: {
+								questionId: {
+									enum: ['call_batch#0', 'call_batch#1', 'call_batch#2'],
+								},
+							},
+						},
+					},
+				},
+			})
+		})
+
+		it('hands the asking tool one answer per question', async () => {
+			const h = questionHarness([batchTurn, { text: 'Done.' }])
+			const client = h.client()
+			const [interrupt] = (await runClient(client)).interrupts as [Interrupt]
+			const second = await runClient(client, {
+				resume: [
+					{
+						interruptId: interrupt.id,
+						status: 'resolved',
+						payload: {
+							answers: [
+								{ questionId: 'call_batch#0', selected: ['opt_1'] },
+								{ questionId: 'call_batch#1', selected: ['opt_1', 'opt_2'] },
+								{ questionId: 'call_batch#2', text: 'monthly cost report' },
+							],
+						},
+					},
+				],
+			})
+			expect(second.failed).toBeUndefined()
+			const result = JSON.stringify(h.provider.requests[1]?.messages)
+			expect(result).toContain('The user answered 3 of 3 questions')
+			expect(result).toContain('Audience: \\"Board\\"')
+			expect(result).toContain('Environment: \\"Staging\\", \\"Production\\"')
+			expect(result).toContain('Purpose (own words): \\"monthly cost report\\"')
+		})
+
+		it('accepts a partial batch and leaves the rest unanswered', async () => {
+			const h = questionHarness([batchTurn, { text: 'Done.' }])
+			const client = h.client()
+			const [interrupt] = (await runClient(client)).interrupts as [Interrupt]
+			const second = await runClient(client, {
+				resume: [
+					{
+						interruptId: interrupt.id,
+						status: 'resolved',
+						payload: {
+							answers: [{ questionId: 'call_batch#2', selected: ['opt_2'] }],
+						},
+					},
+				],
+			})
+			expect(second.failed).toBeUndefined()
+			const result = JSON.stringify(h.provider.requests[1]?.messages)
+			expect(result).toContain('The user answered 1 of 3 questions')
+			expect(result).toContain('Audience: not answered')
+		})
+
+		it('lets a client that knows one question answer the first', async () => {
+			const h = questionHarness([batchTurn, { text: 'Done.' }])
+			const client = h.client()
+			const [interrupt] = (await runClient(client)).interrupts as [Interrupt]
+			const second = await runClient(client, {
+				resume: [
+					{
+						interruptId: interrupt.id,
+						status: 'resolved',
+						payload: { selected: ['opt_2'] },
+					},
+				],
+			})
+			expect(second.failed).toBeUndefined()
+			const result = JSON.stringify(h.provider.requests[1]?.messages)
+			expect(result).toContain('Audience: \\"Engineers\\"')
+			expect(result).toContain('Environment: not answered')
+		})
+
+		it('refuses an answer to a question it did not ask, a repeat and two picks on a single choice', async () => {
+			const h = questionHarness([batchTurn, { text: 'x' }])
+			const [interrupt] = (await runClient(h.client())).interrupts as [Interrupt]
+			for (const answers of [
+				[{ questionId: 'call_other#0', selected: ['opt_1'] }],
+				[
+					{ questionId: 'call_batch#0', selected: ['opt_1'] },
+					{ questionId: 'call_batch#0', selected: ['opt_2'] },
+				],
+				[{ questionId: 'call_batch#0', selected: ['opt_1', 'opt_2'] }],
+				[{ questionId: 'call_batch#1', selected: ['opt_9'] }],
+			]) {
+				const events = await runRaw(h.adapter, {
+					threadId: 'thread-1',
+					resume: [{ interruptId: interrupt.id, status: 'resolved', payload: { answers } }],
+				})
+				expect(events.at(-1), JSON.stringify(answers)).toMatchObject({
+					type: EventType.RUN_ERROR,
+					code: 'AGUI_RESUME_PAYLOAD_INVALID',
+				})
+			}
+		})
+
+		it('reports a cancelled batch as unanswered', async () => {
+			const h = questionHarness([batchTurn, { text: 'Carrying on.' }])
+			const client = h.client()
+			const [interrupt] = (await runClient(client)).interrupts as [Interrupt]
+			const second = await runClient(client, {
+				resume: [{ interruptId: interrupt.id, status: 'cancelled' }],
+			})
+			expect(second.failed).toBeUndefined()
+			expect(JSON.stringify(h.provider.requests[1]?.messages)).toContain('did not answer')
+		})
+	})
+
 	it('keeps waiting after the connection that raised it closes', async () => {
 		const h = questionHarness([askTurn, { text: 'Staging.' }])
 		const connection = new AbortController()
