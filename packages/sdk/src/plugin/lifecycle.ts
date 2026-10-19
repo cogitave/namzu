@@ -262,6 +262,7 @@ export class PluginLifecycleManager {
 			handler: (context: PluginHookContext) => Promise<PluginHookResult>
 			priority: number
 			seq: number
+			statusMessage?: string
 		}>
 	> = new Map()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
@@ -417,6 +418,7 @@ export class PluginLifecycleManager {
 			pluginId,
 			handler: hook.handler,
 			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
+			...(hook.statusMessage !== undefined ? { statusMessage: hook.statusMessage } : {}),
 			// Registration index, so the sort has something stable to fall
 			// back on when priorities are equal.
 			seq: handlers.length,
@@ -1096,7 +1098,7 @@ export class PluginLifecycleManager {
 		for (const idx of indicesToProcess) {
 			const hookEntry = handlers[idx]
 			if (!hookEntry) continue
-			const { pluginId, handler: handlerFn } = hookEntry
+			const { pluginId, handler: handlerFn, statusMessage } = hookEntry
 			const hookContext: PluginHookContext = {
 				...context,
 				toolInput: toolInputOverlay,
@@ -1111,6 +1113,7 @@ export class PluginLifecycleManager {
 					...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
 					pluginId,
 					hookEvent: event,
+					...(statusMessage !== undefined ? { statusMessage } : {}),
 				})
 				callerSignal?.throwIfAborted()
 			}

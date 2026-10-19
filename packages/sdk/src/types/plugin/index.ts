@@ -107,6 +107,24 @@ export type PluginHookEvent =
 	| 'turn_interrupt'
 	| 'pre_tool_use'
 	| 'post_tool_use'
+	/**
+	 * A tool call ended in failure. Fired after `post_tool_use` for the same
+	 * call, only when the result is a failure. Carries `toolName`, `toolInput`
+	 * and `toolResult`.
+	 */
+	| 'post_tool_use_failure'
+	/**
+	 * A person is about to be asked whether a tool call may run. Carries
+	 * `toolName` and `toolInput`. A hook may answer before the question is
+	 * shown: `continue` with `permission: { decision: 'allow' }` approves the
+	 * call (never one that is always asked about), `skip` refuses it.
+	 */
+	| 'permission_request'
+	/**
+	 * The host wants the operator's attention: a review is waiting, or a turn
+	 * settled. Carries `notification` (`type` and `message`). Observational.
+	 */
+	| 'notification'
 	| 'pre_llm_call'
 	| 'post_llm_call'
 	| 'iteration_start'
@@ -139,6 +157,9 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'turn_interrupt':
 		case 'pre_tool_use':
 		case 'post_tool_use':
+		case 'post_tool_use_failure':
+		case 'permission_request':
+		case 'notification':
 		case 'pre_llm_call':
 		case 'post_llm_call':
 		case 'iteration_start':
@@ -196,6 +217,13 @@ export interface PluginCompactionInfo {
 	readonly contextWindowTokens: number
 }
 
+/** What a `notification` hook is shown. */
+export interface PluginNotificationInfo {
+	/** `approval_required` (a review is waiting) or `turn_settled` (a turn ended). */
+	readonly type: 'approval_required' | 'turn_settled'
+	readonly message: string
+}
+
 export interface PluginHookContext {
 	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
 	readonly turnId?: TurnId
@@ -214,6 +242,15 @@ export interface PluginHookContext {
 	readonly toolName?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
+	/** What the host is telling the operator, on `notification`. */
+	readonly notification?: PluginNotificationInfo
+	/**
+	 * On `turn_end` and `subagent_stop` when an earlier answer to the same
+	 * event kept the turn going: the hook is being asked again about a turn it
+	 * already refused to let end. A hook that always refuses would otherwise
+	 * keep the model working until the turn's own limits stop it.
+	 */
+	readonly stopHookActive?: boolean
 	readonly iteration?: number
 	/**
 	 * Why the turn was stopped, on `turn_interrupt`.
@@ -267,8 +304,41 @@ export interface PluginHookContext {
 	readonly signal?: AbortSignal
 }
 
+/**
+ * What a hook may say about a tool call beyond letting it run or not. Only
+ * `allow` and `ask` exist here: a refusal is `skip`, which always wins.
+ *
+ * `allow` stands in for the person's yes ONLY on a call that would have been
+ * asked about for no reason beyond "it changes something". It never covers a
+ * sandbox escape, a path outside the roots, a call the tool declares it always
+ * needs approval for, a call a rule sent to review explicitly, or one the tool
+ * declares destructive; and it never reopens what a rule denied.
+ * `ask` makes the call go to a person even where a rule or the tool's own
+ * read-only declaration would have let it through.
+ */
+export interface PluginHookPermission {
+	readonly decision: 'allow' | 'ask'
+	readonly reason?: string
+}
+
+/** Extra facts a hook may attach to the verdicts that let the work go on. */
+export interface PluginHookNotes {
+	/**
+	 * Text for the model. On a tool event it is appended to what the model
+	 * reads of that call; on `user_prompt_submit` it joins the turn's context.
+	 */
+	readonly context?: string
+	/** Stop the turn once the current step is done. `reason` is shown to the operator. */
+	readonly halt?: { readonly reason: string }
+	/** A warning for the operator, reported through the logger. */
+	readonly notice?: string
+}
+
 export type PluginHookResult =
-	| { action: 'continue' }
+	| ({
+			action: 'continue'
+			permission?: PluginHookPermission
+	  } & PluginHookNotes)
 	/**
 	 * Add to what the model is told, without changing anything else.
 	 *
@@ -278,8 +348,12 @@ export type PluginHookResult =
 	 * it is rejected, because a tool result is not a place for context.
 	 */
 	| { action: 'annotate'; text: string }
-	| { action: 'skip'; reason: string }
-	| { action: 'modify'; input: unknown }
+	| ({ action: 'skip'; reason: string } & PluginHookNotes)
+	| ({
+			action: 'modify'
+			input: unknown
+			permission?: PluginHookPermission
+	  } & PluginHookNotes)
 	| { action: 'error'; message: string }
 	| { action: 'retry' }
 	/**
@@ -333,9 +407,15 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 		? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
 		: E extends 'post_tool_use'
 			? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
-			: E extends 'turn_interrupt' | 'session_start' | 'session_end'
-				? Extract<PluginHookResult, { action: 'continue' }>
-				: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+			: E extends 'post_tool_use_failure'
+				? Extract<PluginHookResult, { action: 'continue' | 'error' }>
+				: E extends 'permission_request'
+					? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
+					: E extends 'turn_end' | 'subagent_stop' | 'pre_compact'
+						? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+						: E extends 'turn_interrupt' | 'session_start' | 'session_end' | 'notification'
+							? Extract<PluginHookResult, { action: 'continue' }>
+							: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
@@ -359,6 +439,12 @@ export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
 				 * above.
 				 */
 				readonly priority?: number
+				/**
+				 * Text for the operator's status line while this hook runs. Carried on
+				 * the `plugin_hook_executing` event; a host that draws no status line
+				 * ignores it.
+				 */
+				readonly statusMessage?: string
 			}
 		: never
 

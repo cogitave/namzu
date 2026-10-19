@@ -20,4 +20,12 @@ describe('/hooks', () => {
 			),
 		)
 	})
+
+	it('shows a hook’s filter and that it runs once', () => {
+		expect(
+			renderHooks({
+				pre_tool_use: [{ command: 'guard.sh', if: 'Bash(git push *)', once: true }],
+			}),
+		).toBe(['pre_tool_use', '  guard.sh · if Bash(git push *) · once'].join('\n'))
+	})
 })

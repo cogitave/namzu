@@ -40,6 +40,9 @@ describe('a shell hook on the prompt', () => {
 			'session_end',
 			'pre_tool_use',
 			'post_tool_use',
+			'post_tool_use_failure',
+			'permission_request',
+			'notification',
 			'pre_compact',
 			'post_compact',
 			'subagent_stop',
@@ -70,8 +73,13 @@ describe('applying lifecycle results', () => {
 		expect(() =>
 			applyLifecycleHookResults('user_prompt_submit', [{ action: 'skip', reason: 'no' }]),
 		).toThrow(/Prompt blocked by hook: no/)
-		expect(() => applyLifecycleHookResults('turn_end', [{ action: 'skip', reason: 'no' }])).toThrow(
-			/unsupported action 'skip'/,
-		)
+		expect(() =>
+			applyLifecycleHookResults('turn_start', [{ action: 'skip', reason: 'no' }]),
+		).toThrow(/unsupported action 'skip'/)
+		// `turn_end` answers `skip` to keep the turn going; the site that can act
+		// on it reads the result, so applying it here must not throw.
+		expect(() =>
+			applyLifecycleHookResults('turn_end', [{ action: 'skip', reason: 'no' }]),
+		).not.toThrow()
 	})
 })

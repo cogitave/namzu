@@ -358,6 +358,23 @@ function isSkillGranted(tc: ToolCallSummary): boolean {
 	)
 }
 
+/**
+ * Whether a `pre_tool_use` hook's `allow` may stand in for a person on this
+ * call. The same bar as a skill's grant, repeated here so that a mark on a
+ * persisted or host-built summary cannot carry more than the kernel gave it.
+ */
+function isHookGranted(tc: ToolCallSummary): boolean {
+	return (
+		tc.hookGrant !== undefined &&
+		tc.hookPermission?.decision !== 'ask' &&
+		!tc.authorization?.explicitReview &&
+		tc.authorization?.decision !== 'deny' &&
+		!tc.isDestructive &&
+		tc.escalation === undefined &&
+		tc.requiresApproval !== true
+	)
+}
+
 /** The handler behind `createReviewPolicy`, for a host that wants only the function. */
 export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHandler {
 	const { prompt, registry } = options
@@ -571,15 +588,18 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					(mode === 'accept-edits' && ACCEPT_EDITS_TOOLS.has(tc.name))
 				),
 		)
+		const skillsHonoured = options.skillGrants !== 'ignore'
 		if (
 			answered === undefined &&
-			options.skillGrants !== 'ignore' &&
 			needsPerson.length > 0 &&
-			needsPerson.every(isSkillGranted)
+			needsPerson.every((tc) => isHookGranted(tc) || (skillsHonoured && isSkillGranted(tc)))
 		) {
+			const byHook = needsPerson.filter(isHookGranted).map((tc) => tc.id)
+			const bySkill = needsPerson.filter((tc) => !isHookGranted(tc)).map((tc) => tc.id)
 			return {
 				action: 'approve_tools',
-				skillGranted: needsPerson.map((tc) => tc.id),
+				...(bySkill.length > 0 ? { skillGranted: bySkill } : {}),
+				...(byHook.length > 0 ? { hookGranted: byHook } : {}),
 			}
 		}
 		const answer = await ask()

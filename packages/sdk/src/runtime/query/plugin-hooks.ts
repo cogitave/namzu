@@ -27,6 +27,14 @@ export function applyLifecycleHookResults(
 				if (result.text.trim().length > 0) annotations.push(result.text.trim())
 				continue
 			case 'skip':
+				// `turn_end`, `subagent_stop` and `pre_compact` answer with `skip`
+				// to keep the turn going or to cancel a pass. The sites that can act
+				// on that read the results themselves; a site that cannot (the
+				// final `turn_end` of a turn that already ended) has nothing to
+				// refuse and carries on.
+				if (event === 'turn_end' || event === 'subagent_stop' || event === 'pre_compact') {
+					continue
+				}
 				// The one lifecycle event with a verdict: a hook may refuse the
 				// prompt before the model sees it, and the turn ends there.
 				if (event === 'user_prompt_submit') {

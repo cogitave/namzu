@@ -2,7 +2,7 @@ import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
 import { callableToolNames, formatToolNames } from '../../../registry/tool/callable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
-import type { PluginHookResult } from '../../../types/plugin/index.js'
+import type { PluginHookPermission, PluginHookResult } from '../../../types/plugin/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolCallRepair, ToolCallRepairReason } from '../../../types/tool/repair.js'
 import { awaitWithAbort } from '../../../utils/await-with-abort.js'
@@ -10,6 +10,7 @@ import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
 import type {
 	EmitEvent,
+	PreToolHookNotes,
 	PreToolHookOutcome,
 	PreparedDirectCall,
 	ToolExecutorConfig,
@@ -49,6 +50,11 @@ export interface ToolAdmissionHost {
 	 * step, which is the answer that sent a model round in a circle.
 	 */
 	readonly allowedTools: readonly string[] | undefined
+	/**
+	 * A hook asked for the turn to stop after the current step. Optional so a
+	 * host that builds an admission by hand (a test) need not say anything.
+	 */
+	readonly requestHalt?: (reason: string) => void
 }
 
 /**
@@ -89,7 +95,7 @@ export async function runPreToolHook(
 		signal,
 	)
 	signal.throwIfAborted()
-	return interpretPreToolResults(toolName, input, results)
+	return interpretPreToolResults(toolName, input, results, host.requestHalt)
 }
 
 export async function prepareDirectCall(
@@ -169,6 +175,7 @@ export async function prepareDirectCall(
 				...(providerInput && !truncationRepair && !preOutcome.modified && resolved.inputFailure
 					? { inputFailure: resolved.inputFailure }
 					: {}),
+				...hookNotesOf(preOutcome),
 			}
 		}
 		return {
@@ -321,6 +328,20 @@ export async function prepareDirectCall(
 		toolName,
 		input: preparation.prepared.input,
 		prepared: preparation.prepared,
+		...hookNotesOf(preOutcome),
+	}
+}
+
+/** The hook answers a ready or legacy call carries forward, or nothing. */
+function hookNotesOf(outcome: Extract<PreToolHookOutcome, { kind: 'continue' }>): {
+	hook?: PreToolHookNotes
+} {
+	if (outcome.permission === undefined && outcome.context === undefined) return {}
+	return {
+		hook: {
+			...(outcome.permission ? { permission: outcome.permission } : {}),
+			...(outcome.context !== undefined ? { context: outcome.context } : {}),
+		},
 	}
 }
 
@@ -328,22 +349,42 @@ function interpretPreToolResults(
 	toolName: string,
 	initialInput: unknown,
 	results: readonly PluginHookResult[],
+	requestHalt?: (reason: string) => void,
 ): PreToolHookOutcome {
 	let currentInput = initialInput
 	let modified = false
+	let permission: PluginHookPermission | undefined
+	const contexts: string[] = []
+	/** `ask` outranks `allow`: the stricter answer is the one that stands. */
+	const takePermission = (next: PluginHookPermission | undefined) => {
+		if (next === undefined) return
+		if (permission === undefined || (permission.decision === 'allow' && next.decision === 'ask')) {
+			permission = next
+		}
+	}
+	const withContext = (text: string): string =>
+		contexts.length === 0 ? text : `${text}\n\n${hookNote(contexts)}`
 	for (const result of results) {
 		switch (result.action) {
 			case 'continue':
+				takePermission(result.permission)
+				if (result.context) contexts.push(result.context)
+				if (result.halt) requestHalt?.(result.halt.reason)
 				continue
 			case 'modify':
 				currentInput = result.input
 				modified = true
+				takePermission(result.permission)
+				if (result.context) contexts.push(result.context)
+				if (result.halt) requestHalt?.(result.halt.reason)
 				continue
 			case 'skip':
+				if (result.context) contexts.push(result.context)
+				if (result.halt) requestHalt?.(result.halt.reason)
 				return {
 					kind: 'skip',
 					input: currentInput,
-					output: skippedToolResultText(toolName, result.reason),
+					output: withContext(skippedToolResultText(toolName, result.reason)),
 				}
 			case 'error':
 				return {
@@ -367,8 +408,26 @@ function interpretPreToolResults(
 			}
 		}
 	}
-	return { kind: 'continue', input: currentInput, modified }
+	return {
+		kind: 'continue',
+		input: currentInput,
+		modified,
+		...(permission ? { permission } : {}),
+		...(contexts.length > 0 ? { context: contexts.join('\n') } : {}),
+	}
 }
+
+/**
+ * Hook text, framed so the model reads it as what a configured hook said and
+ * not as something the tool returned.
+ */
+export function hookNote(texts: readonly string[]): string {
+	const joined = texts.join('\n')
+	return `[Hook note]\n${joined.length > MAX_HOOK_NOTE_CHARS ? `${joined.slice(0, MAX_HOOK_NOTE_CHARS)}\n[truncated]` : joined}`
+}
+
+/** A hook's text is one more thing for the model to read; it gets a bound. */
+const MAX_HOOK_NOTE_CHARS = 8_000
 
 /**
  * Turn the call the model issued into a name and a parsed input, giving

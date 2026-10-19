@@ -27,7 +27,7 @@ import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredO
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
-import type { MessageId } from '../../../types/ids/index.js'
+import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type UserMessage,
@@ -194,6 +194,72 @@ export class IterationOrchestrator {
 	 * sets it.
 	 */
 	private stopDeferredForOutstandingWork = false
+	/**
+	 * `turn_end` (and, for a child, `subagent_stop`) fired when the model
+	 * finished and no hook asked for more. `finalizeTurn` then does not fire
+	 * them a second time.
+	 */
+	private turnEndFired = false
+	/** A hook already kept this turn going once: it is asked again with `stop_hook_active`. */
+	private stopHookActive = false
+	get turnEndHooksFired(): boolean {
+		return this.turnEndFired
+	}
+
+	/**
+	 * Fire `turn_end` (and `subagent_stop` for a child) at the point the model
+	 * has finished, and read the answer.
+	 *
+	 * A hook that answers `skip` is refusing to let the turn end: its reasons
+	 * are returned, joined, as feedback for the model. A hook that asks for the
+	 * turn to halt wins over any such feedback (`takeHalt`). With nothing asked,
+	 * the events have fired for this turn and the finalizer does not repeat them.
+	 */
+	private async *askStopHooks(): AsyncGenerator<SessionEvent, string | undefined> {
+		const manager = this.ctx.pluginManager
+		if (!manager) return undefined
+		const recorder = this.ctx.recorder
+		const feedback: string[] = []
+		const ask = async (
+			event: 'turn_end' | 'subagent_stop',
+			extra: { parentSessionId?: SessionId; parentTurnId?: TurnId },
+		): Promise<void> => {
+			const results = await manager.executeHooks(
+				event,
+				{
+					sessionId: recorder.sessionId,
+					turnId: recorder.turnId,
+					...extra,
+					...(this.stopHookActive ? { stopHookActive: true } : {}),
+					signal: this.ctx.abortController.signal,
+				},
+				this.ctx.emitEvent,
+			)
+			applyLifecycleHookResults(event, results)
+			for (const result of results) {
+				if (result.action === 'skip') feedback.push(result.reason)
+				if ((result.action === 'continue' || result.action === 'skip') && result.halt) {
+					this.ctx.toolExecutor.requestHalt?.(result.halt.reason)
+				}
+			}
+		}
+		await ask('turn_end', {})
+		yield* this.ctx.drainPending()
+		if (this.ctx.parentSessionId !== undefined) {
+			await ask('subagent_stop', {
+				parentSessionId: this.ctx.parentSessionId,
+				...(this.ctx.parentTurnId !== undefined ? { parentTurnId: this.ctx.parentTurnId } : {}),
+			})
+			yield* this.ctx.drainPending()
+		}
+		if (feedback.length === 0) {
+			this.turnEndFired = true
+			return undefined
+		}
+		this.stopHookActive = true
+		return feedback.join('\n')
+	}
+
 	/** One current input, independent of the compactable history array. */
 	private latestUserMessage: UserMessage | undefined
 	private initialDurableDelivered = false
@@ -1451,6 +1517,27 @@ export class IterationOrchestrator {
 						// also settle as `end_turn`, and there the deferred predicate
 						// is not why the turn ended: those decided the answer
 						// themselves.
+						// The model is done and has no tool calls. A `turn_end` (or
+						// `subagent_stop`) hook may refuse to let it be: its reason goes
+						// back to the model and the turn goes on.
+						if (!forceFinalize && closingStopReason === undefined) {
+							const feedback = yield* this.askStopHooks()
+							const stoppedByHook = this.ctx.toolExecutor.takeHalt?.()
+							if (stoppedByHook !== undefined) {
+								recorder.setLastError(`Stopped by a hook: ${stoppedByHook}`)
+								recorder.setStopReason('stop_condition')
+								break
+							}
+							if (feedback !== undefined) {
+								recorder.pushMessage(
+									createRuntimeContextMessage(
+										`A hook asked for more before this turn ends:\n${feedback}`,
+										'hook-feedback',
+									),
+								)
+								continue
+							}
+						}
 						recorder.setStopReason(
 							closingStopReason ??
 								(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn'),
@@ -1493,6 +1580,28 @@ export class IterationOrchestrator {
 					// something only the operator can do.
 					if ((yield* runHandoffPause(this.ctx, iterationNum, reviewOutcome.results)) === 'stop') {
 						return
+					}
+
+					// A hook asked for the turn to stop once this step's calls were
+					// answered. Every `tool_use` has its `tool_result` by now, so the
+					// transcript is whole; what is left is to end the turn and say why.
+					const hookHalt = this.ctx.toolExecutor.takeHalt?.()
+					if (hookHalt !== undefined) {
+						this.ctx.log.info('A hook stopped the turn', {
+							[NAMZU.TURN_ID]: recorder.turnId,
+							[NAMZU.ITERATION]: iterationNum,
+							'namzu.hook.reason': hookHalt,
+						})
+						recorder.setLastError(`Stopped by a hook: ${hookHalt}`)
+						recorder.setStopReason('stop_condition')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							turnId: recorder.turnId,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
 					}
 
 					if (reviewOutcome.decision === 'rejected') {

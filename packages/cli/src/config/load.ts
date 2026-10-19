@@ -661,6 +661,16 @@ const SKILLS_CONFIG_KEYS: readonly string[] = [
 	'suggestMinToolCalls',
 ]
 
+/** The keys one `hooks` entry may carry. */
+const HOOK_ENTRY_KEYS: readonly string[] = [
+	'command',
+	'matcher',
+	'timeoutMs',
+	'if',
+	'once',
+	'statusMessage',
+]
+
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
 		if (typeof v === 'string' && isFormatName(v)) return v
@@ -920,9 +930,12 @@ const CONFIG_READERS: ConfigReaders = {
 					command?: unknown
 					matcher?: unknown
 					timeoutMs?: unknown
+					if?: unknown
+					once?: unknown
+					statusMessage?: unknown
 				}
 				for (const key of Object.keys(entry)) {
-					if (key !== 'command' && key !== 'matcher' && key !== 'timeoutMs') {
+					if (!HOOK_ENTRY_KEYS.includes(key)) {
 						return invalidConfigValue(
 							context,
 							[event, index, key],
@@ -952,10 +965,29 @@ const CONFIG_READERS: ConfigReaders = {
 						'must be a positive integer',
 					)
 				}
+				if (raw.if !== undefined && (typeof raw.if !== 'string' || raw.if.trim().length === 0)) {
+					return invalidConfigValue(context, [event, index, 'if'], 'must be a non-empty string')
+				}
+				if (raw.once !== undefined && typeof raw.once !== 'boolean') {
+					return invalidConfigValue(context, [event, index, 'once'], 'must be true or false')
+				}
+				if (
+					raw.statusMessage !== undefined &&
+					(typeof raw.statusMessage !== 'string' || raw.statusMessage.trim().length === 0)
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'statusMessage'],
+						'must be a non-empty string',
+					)
+				}
 				parsed.push({
 					command: raw.command,
 					...(raw.matcher !== undefined ? { matcher: raw.matcher } : {}),
 					...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs } : {}),
+					...(raw.if !== undefined ? { if: raw.if } : {}),
+					...(raw.once !== undefined ? { once: raw.once } : {}),
+					...(raw.statusMessage !== undefined ? { statusMessage: raw.statusMessage } : {}),
 				})
 			}
 			out[event] = parsed

@@ -74,6 +74,7 @@ import {
 	type ModelInfo,
 	type Origin,
 	type PluginLifecycleManager,
+	type PluginNotificationInfo,
 	type PrepareStep,
 	type PrepareStepChain,
 	type ProjectId,
@@ -589,6 +590,13 @@ export type AgentEvent =
 	 * which is the defect class this package keeps removing.
 	 */
 	| { readonly kind: 'provider-fallback'; readonly text: string }
+	/**
+	 * A configured hook is running and declared a `statusMessage` for it. Shown
+	 * on the live status line until the next event arrives; never a transcript row.
+	 */
+	| { readonly kind: 'hook-status'; readonly text: string }
+	/** A hook stopped the turn or warned the operator; a permanent line in the transcript. */
+	| { readonly kind: 'hook-notice'; readonly text: string }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -1275,6 +1283,12 @@ export interface AgentSession {
 	 * case the prompt offers no such answer.
 	 */
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => void
+	/**
+	 * Tell the configured `notification` hooks that the operator's attention is
+	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
+	 * fails or hangs never delays the screen, and the call never rejects.
+	 */
+	readonly notifyHooks?: (info: PluginNotificationInfo) => void
 	/** Tools whose command line is one argument, for naming a command to remember. */
 	readonly commandArguments?: ReadonlyMap<string, string>
 	/**
@@ -4653,6 +4667,15 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
+		notifyHooks: (info) => {
+			if (!sessionPlugins) return
+			void sessionPlugins.manager
+				.executeHooks('notification', {
+					sessionId: scope.sessionId,
+					notification: info,
+				})
+				.catch(() => [])
+		},
 		commandArguments,
 		setPermissionMode: async (mode, reason) => {
 			await Promise.all(
@@ -6481,6 +6504,21 @@ export function toAgentEvent(
 				...(event.messageId ? { messageId: event.messageId } : {}),
 				...(event.turnId ? { turnId: event.turnId } : {}),
 			}
+		case 'plugin_hook_completed': {
+			const result = event.result
+			if ((result.action === 'continue' || result.action === 'skip') && result.halt) {
+				return {
+					kind: 'hook-notice',
+					text: `A hook stopped this turn: ${result.halt.reason}`,
+				}
+			}
+			if ((result.action === 'continue' || result.action === 'skip') && result.notice) {
+				return { kind: 'hook-notice', text: `A hook says: ${result.notice}` }
+			}
+			return null
+		}
+		case 'plugin_hook_executing':
+			return event.statusMessage ? { kind: 'hook-status', text: event.statusMessage } : null
 		case 'reasoning_started':
 			// A redacted block has no text to show; the empty delta still says
 			// "thinking" so the region does not sit silent for its duration.
