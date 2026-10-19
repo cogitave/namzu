@@ -749,6 +749,16 @@ export type QuestionAnswer =
 			readonly kind: 'answer'
 			readonly selectedOptionIds: readonly string[]
 			readonly freeText?: string
+			/**
+			 * One entry per question of a batch the operator answered, by the
+			 * id the question carried (`UserQuestion.questions[].id`). A
+			 * question with no entry was left alone.
+			 */
+			readonly answers?: readonly {
+				readonly questionId: string
+				readonly selectedOptionIds: readonly string[]
+				readonly freeText?: string
+			}[]
 	  }
 	| { readonly kind: 'skip' }
 	| { readonly kind: 'abort' }
@@ -3543,6 +3553,15 @@ export async function createAgentSession(
 						action: 'answer_question',
 						selectedOptionIds: [...answer.selectedOptionIds],
 						...(answer.freeText !== undefined ? { freeText: answer.freeText } : {}),
+						...(answer.answers
+							? {
+									answers: answer.answers.map((entry) => ({
+										questionId: entry.questionId,
+										selectedOptionIds: [...entry.selectedOptionIds],
+										...(entry.freeText !== undefined ? { freeText: entry.freeText } : {}),
+									})),
+								}
+							: {}),
 						questionId: request.question.questionId,
 					}
 				case 'abort':

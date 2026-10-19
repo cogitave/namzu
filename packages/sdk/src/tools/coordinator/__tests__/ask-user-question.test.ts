@@ -616,15 +616,21 @@ describe('the question contract is closed, not merely shaped', () => {
 
 		expect(tool.modelInputSchema).toMatchObject({
 			type: 'object',
-			required: ['question', 'options'],
+			required: ['questions'],
 			additionalProperties: false,
 		})
 		// The whole point of the array declaration: a model that serializes
 		// its options once tends to keep doing it, and a closed schema makes
 		// a capable provider refuse at generation time instead of after.
-		const properties = (tool.modelInputSchema as { properties: Record<string, { type: string }> })
-			.properties
-		expect(properties.options?.type).toBe('array')
+		const item = (
+			tool.modelInputSchema as {
+				properties: {
+					questions: { type: string; items: { properties: Record<string, { type: string }> } }
+				}
+			}
+		).properties.questions
+		expect(item.type).toBe('array')
+		expect(item.items.properties.options?.type).toBe('array')
 		expect(tool.enforceModelInput).toBe(true)
 	})
 
@@ -680,9 +686,15 @@ describe('the question contract is closed, not merely shaped', () => {
 		const tool = askTool(noopHandler)
 		const option = (
 			tool.modelInputSchema as {
-				properties: { options: { items: { properties: Record<string, { type: string }> } } }
+				properties: {
+					questions: {
+						items: {
+							properties: { options: { items: { properties: Record<string, { type: string }> } } }
+						}
+					}
+				}
 			}
-		).properties.options.items.properties
+		).properties.questions.items.properties.options.items.properties
 		expect(option.recommended?.type).toBe('boolean')
 		expect(
 			tool.inputSchema.safeParse({

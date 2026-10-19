@@ -956,6 +956,16 @@ export class AGUIAdapter {
 				options: question.options.map((option) => option.id),
 				multiSelect: question.multiSelect,
 				allowFreeText: question.allowFreeText,
+				...(question.questions
+					? {
+							questions: question.questions.map((item) => ({
+								id: item.id,
+								options: item.options.map((option) => option.id),
+								multiSelect: item.multiSelect,
+								allowFreeText: item.allowFreeText,
+							})),
+						}
+					: {}),
 				expiresAt:
 					now + this.liveTtl(turn, this.toolDeadline(turn, toolCallId && known.get(toolCallId))),
 			}

@@ -86,6 +86,15 @@ export type HITLResumeDecision =
 			selectedOptionIds: string[]
 			freeText?: string
 			/**
+			 * One answer per question of a batch (`UserQuestionData.questions`).
+			 * When present it is the answer; `selectedOptionIds`/`freeText`
+			 * then carry nothing the tool reads (send `[]`). Absent on a
+			 * single-question park, and on a batch from a host that only
+			 * knows one question — then `selectedOptionIds`/`freeText`
+			 * answer the first question and the rest are unanswered.
+			 */
+			answers?: readonly UserQuestionAnswer[]
+			/**
 			 * Echo of `UserQuestionData.questionId` — the misdirection
 			 * guard. The park/resolve registry on hosts is typically
 			 * keyed by turn, so a stale client can answer question N
@@ -301,6 +310,12 @@ export interface UserQuestionOption {
 	 * Absent, not `false`, on every other option.
 	 */
 	recommended?: boolean
+	/**
+	 * Plain text or markdown a host may show beside the option list while this
+	 * option is focused (a snippet, a mock-up, a side-by-side). Optional and
+	 * never required to answer; a host that has nowhere to show it ignores it.
+	 */
+	preview?: string
 }
 
 /**
@@ -318,6 +333,44 @@ export interface UserQuestionData {
 	options: UserQuestionOption[]
 	multiSelect: boolean
 	allowFreeText: boolean
+	/**
+	 * Present when one `ask_user_question` call carries several related
+	 * questions (two to four; a single question leaves this out). The
+	 * top-level `question`, `header`, `options`, `multiSelect` and
+	 * `allowFreeText` then mirror the FIRST entry, so a host that does not
+	 * know this field still shows a coherent question and answers it; the
+	 * rest read as unanswered.
+	 *
+	 * A host shows all of them together, collects every answer, and returns
+	 * one {@link UserQuestionAnswer} per question it has an answer for through
+	 * `answer_question.answers`.
+	 */
+	questions?: readonly UserQuestionItem[]
+}
+
+/**
+ * One question of a batch. `id` is stable: the asking `tool_use_id`, `#`, and
+ * the question's zero-based position, so an answer names the question it
+ * belongs to even when a host shows them in another order.
+ */
+export interface UserQuestionItem {
+	id: string
+	question: string
+	header?: string
+	options: UserQuestionOption[]
+	multiSelect: boolean
+	allowFreeText: boolean
+}
+
+/**
+ * The answer to one question of a batch. A question with no entry was not
+ * answered; an entry with no selection and no text counts the same.
+ */
+export interface UserQuestionAnswer {
+	/** {@link UserQuestionItem.id}. */
+	questionId: string
+	selectedOptionIds: string[]
+	freeText?: string
 }
 
 export interface PlanApprovalData {
