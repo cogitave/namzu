@@ -169,3 +169,13 @@ describe('the kernel wording', () => {
 		expect(debug).toContain(RAW)
 	})
 })
+
+describe('a file the provider could not process', () => {
+	it('is named plainly, keeps the conversation, and never points at a new one', () => {
+		for (const capability of ['vision', 'documents'] as const) {
+			const text = describeCapabilityNotice({ capability, contentSource: 'media-removed' })
+			expect(text).toContain('stays in the conversation')
+			expect(text).not.toMatch(/\/new|\/clear|new conversation|start over/i)
+		}
+	})
+})

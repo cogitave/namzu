@@ -15,13 +15,19 @@ export type CapabilityKind = 'tools' | 'vision' | 'documents'
 export interface CapabilityNoticeInput {
 	readonly capability: CapabilityKind
 	/** `'tool-result'` when the mismatch came from something a tool returned. */
-	readonly contentSource?: 'tool-result' | 'history'
+	readonly contentSource?: 'tool-result' | 'history' | 'media-removed'
 	readonly providerId?: string
 }
 
 /** One sentence: what the provider cannot do, what Namzu did about it, and what the person can do. */
 export function describeCapabilityNotice(input: CapabilityNoticeInput): string {
 	const name = productName(input.providerId) ?? 'This provider'
+	if (input.contentSource === 'media-removed') {
+		// The provider refused a file and Namzu retried without it; the conversation keeps the file.
+		return input.capability === 'documents'
+			? 'A document in this conversation couldn’t be processed, so Namzu left it out of what it sends. It stays in the conversation; attach a corrected copy to try again.'
+			: 'A picture in this conversation couldn’t be processed, so Namzu left it out of what it sends. It stays in the conversation; attach a corrected copy to try again.'
+	}
 	if (input.contentSource === 'history') {
 		// The conversation keeps its pictures; only this model's requests lose them.
 		return 'This model can’t read images, so Namzu is leaving pictures out of what it sends. They come back if you pick a model that reads images with /model.'

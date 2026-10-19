@@ -6,6 +6,7 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
+import type { Message } from '../../../types/message/index.js'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -57,7 +58,7 @@ const base = (messages: ChatCompletionParams['messages']): ChatCompletionParams 
 })
 
 describe('tool pairing before every send', () => {
-	const dangling = () => [
+	const dangling = (): Message[] => [
 		createUserMessage('go'),
 		createAssistantMessage('calling', [call]),
 		createUserMessage('next'),
