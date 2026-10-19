@@ -318,6 +318,12 @@ export {
 	formatSteeringNote,
 } from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'
+// Hidden mid-conversation reminders a host feeds per model request (opt-in).
+export { isReminderMessage } from './runtime/query/reminders.js'
+export type {
+	ReminderContext,
+	ReminderSource,
+} from './runtime/query/reminders.js'
 export {
 	BidiSessionCloseTimeoutError,
 	createMockBidiProvider,

@@ -28,7 +28,7 @@ import { uuidv7 } from '../utils/uuidv7.js'
  *     <session-id>.jsonl             the session log (source of truth)
  *     <session-id>/
  *       subagents/<child-id>.jsonl, <child-id>.meta.json, <child-id>/subagents/…
- *       tool-results/  checkpoints/  budgets/  tasks/  feedback/  goals/
+ *       tool-results/  checkpoints/  budgets/  tasks/  plans/  feedback/  goals/
  *       file-history/  lease.json
  * $TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
  * ```
@@ -410,6 +410,16 @@ export class SessionPaths {
 
 	tasks(locator: SessionLocator): string {
 		return join(this.sessionDir(locator), 'tasks')
+	}
+
+	/** The session's plan directory; a host that has a plan mode keeps its one plan file here. */
+	plans(locator: SessionLocator): string {
+		return join(this.sessionDir(locator), 'plans')
+	}
+
+	/** The one file a session's plan mode may write: `<session-id>/plans/plan.md`. */
+	planFile(locator: SessionLocator): string {
+		return join(this.plans(locator), 'plan.md')
 	}
 
 	taskFile(locator: SessionLocator, taskId: TaskId): string {

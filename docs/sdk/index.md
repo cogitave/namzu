@@ -21,6 +21,7 @@ The kernel.
 * [Host contracts of a turn](host-contracts.md) - Carried-history repair, attachment cancellation, project instructions, session storage paths and topic lifecycle.
 
 * [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
+* [Hidden reminders](reminders.md) - The opt-in channel a host feeds with text the model reads before each request, recorded in the conversation, with the history a source reads to set its own cadence.
 * [Request-only step context](step-context.md) - Changing observations after history (step context, working memory, `context` contributions), separate from system policy and operator intent.
 
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.

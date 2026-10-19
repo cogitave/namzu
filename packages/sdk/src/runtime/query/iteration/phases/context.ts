@@ -225,6 +225,11 @@ export interface IterationContext {
 	 * after tool results and before the next turn.
 	 */
 	readonly inboundMessages?: () => readonly import('../../../../types/message/index.js').Message[]
+	/**
+	 * Hidden reminders for each model request; see `ReminderSource`. Absent:
+	 * the turn gets none, as before.
+	 */
+	readonly reminders?: import('../../reminders.js').ReminderSource
 	/** Known topic-queue arrivals appended after the restored checkpoint history. */
 	readonly resumedInput?: readonly import('../../../../types/message/index.js').Message[]
 	/** Observes pending input without draining it; abort releases the waiter. */

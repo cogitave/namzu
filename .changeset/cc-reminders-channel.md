@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": minor
+---
+
+A host can now feed a turn hidden reminders, and give plan mode one writable file. Everything is opt-in; a host that passes none of it sees no change. `QueryParams.reminders` takes a `ReminderSource`, which the kernel calls before every model request of the turn (except the closing one a limit forces) with the session, turn, iteration and the conversation so far; each text it returns is appended as a user-role runtime message of the new kind `'reminder'` (`isReminderMessage` recognises it), kept in the durable history and never counted as operator input, so a source can read the history to set its own cadence. `ReviewPolicyOptions.planModeWrite` names the one call `plan` mode lets through (outside the roots, overwriting, and without a question); left out, plan mode refuses every change as before, and the option does nothing in any other mode. `SessionPaths.plans()` and `planFile()` give a session's plan directory and its `plans/plan.md`. `RUNTIME_CONTEXT_MESSAGE_KINDS` gains `'reminder'`, so a `switch` over `RuntimeContextMessageKind` with no default branch now needs a case for it.

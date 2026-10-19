@@ -727,6 +727,13 @@ export interface QueryParams {
 	 */
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
 	/**
+	 * Hidden reminders a host feeds into the conversation, asked for before
+	 * every model request of the turn. Opt-in: omitted, a turn carries none.
+	 * See {@link ReminderSource}.
+	 */
+	reminders?: import('./reminders.js').ReminderSource
+
+	/**
 	 * Wake a background-task hold when operator input is available, without draining it.
 	 * Resolve immediately if input is already pending. Otherwise wait for its arrival;
 	 * the supplied signal ends the wait and must release any listeners. Messages are
@@ -1636,6 +1643,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 			compactionConfig,
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+			...(params.reminders ? { reminders: params.reminders } : {}),
 			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),
 			...(params.resumeFromCheckpoint ? { resumedInput: queuedForThisRun } : {}),
 			...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
