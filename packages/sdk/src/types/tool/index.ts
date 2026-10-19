@@ -501,14 +501,38 @@ export interface ToolContext {
 	 */
 	web?: {
 		readonly fetch?: {
-			fetch(request: { url: string; signal?: AbortSignal }): Promise<{
+			fetch(request: {
+				url: string
+				signal?: AbortSignal
+				/** `same-host` asks for a redirect to another site to be handed back, not followed. */
+				redirects?: 'follow' | 'same-host'
+				headers?: Readonly<Record<string, string>>
+			}): Promise<{
 				url: string
 				status: number
 				contentType?: string
 				body: string
 				truncated: boolean
 				redirects: readonly string[]
+				/** A redirect that was not followed; `body` is then empty. */
+				redirect?: { url: string; status: number }
 			}>
+		}
+		/**
+		 * Answers a prompt from a page with a small model. Optional: without
+		 * it `web_fetch` returns the page as markdown instead of an answer.
+		 */
+		readonly extract?: {
+			extract(request: {
+				url: string
+				prompt: string
+				content: string
+				instruction: string
+				body: string
+				signal?: AbortSignal
+				sessionId: string
+				turnId: string
+			}): Promise<string | undefined>
 		}
 		readonly search?: {
 			search(request: {

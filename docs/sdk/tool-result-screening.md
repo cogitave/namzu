@@ -113,8 +113,8 @@ result with an EMPTY output is no longer in scope, and the comparison skipped
 those anyway.
 
 What `'framed'` leaves alone is this process's own unframed tools. `web_fetch`
-returns a page body, and a page whose body IS the URL it was fetched from is a
-true result from a working tool. So is a validator's echo, and so is any tool
+returns a page's text (or a model's answer from it), and a page whose body IS the URL
+it was fetched from is a true result from a working tool. So is a validator's echo, and so is any tool
 whose answer is what it was handed. A test drives `getBuiltinTools()`,
 `web_fetch` and `structured_output` through real calls, both on the default
 scope and with the scope widened so the comparison actually runs on every one of

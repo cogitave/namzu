@@ -947,6 +947,30 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **Launch flags**: `--provider` with a name Namzu does not know says so above the picker; `--model` with a name the provider does not list warns once the session starts; `/model` with a name it cannot find reads "No model called ... is available to you, so the model was not changed." and leaves only that line in the transcript.
 - **One glossary** (`person-terms.ts`) names the concepts: "reply" where the kernel says turn, "conversation" for session, "summarising the conversation" for compaction, "on this computer" for host. Sizes are `1.2 MB`, spans `20s`, counts are pluralised.
 
+## The terminal title
+
+The terminal's own title (the tab or window name) says what the conversation is,
+as in the reference terminal, whose rule was read from its code. It is set with
+OSC 0, which sets the window title and the icon name, ended by BEL:
+
+- **What it says:** a glyph, a space, then the name. The name is the one a person
+  gave the conversation with `/rename`; else the title the
+  [small model](small-model.md#conversation-titles) wrote; else `Namzu`. It is
+  shown on one line (control characters and line breaks are removed) and cut at
+  100 characters.
+- **The glyph** is `✳` while the interface waits for input and `◐` while a turn
+  runs. The reference alternates `◐` and `◑` every 960 ms while it is busy and
+  the terminal has focus; Namzu does not track terminal focus, so it shows the
+  one busy glyph and writes the title only when the text changes.
+- **When it is written:** when the interface opens, when the name or the
+  generated title changes (`/rename`, the first message's title, `/resume`, a new
+  conversation), and when a turn starts or ends.
+- **On exit** it is reset with an empty OSC 0 (`ESC ] 0 ; BEL`), including when
+  the process exits abnormally, so the shell's own title comes back.
+- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1` (the reference's
+  `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`). Nothing is written to a stream that is
+  not a terminal.
+
 ## Terminal boundaries
 
 A command entered with `!` runs in the operator's shell. Its captured output reaches the next model request as an observation in user-role context; text printed by that command has no system-prompt authority. The CLI still shows the result in the transcript.

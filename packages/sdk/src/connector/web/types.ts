@@ -15,11 +15,25 @@
  * `GuardedFetchProvider` for what "guarded" is doing the work of.
  */
 
+/**
+ * What a fetch does with a redirect.
+ *
+ * `follow` (the default) follows each hop after checking it. `same-host`
+ * follows only a hop that stays on the same site (same scheme and port,
+ * same host up to a leading `www.`, no credentials) and hands any other back
+ * unfollowed in {@link WebFetchResult.redirect}, so the caller decides whether
+ * to go there: a page that moved to another host is not the page that was
+ * asked for.
+ */
+export type WebFetchRedirectPolicy = 'follow' | 'same-host'
+
 export interface WebFetchRequest {
 	readonly url: string
 	/** Extra headers. The provider may refuse or strip some; see the guard. */
 	readonly headers?: Readonly<Record<string, string>>
 	readonly signal?: AbortSignal
+	/** Defaults to `follow`. A provider that does not know `same-host` follows. */
+	readonly redirects?: WebFetchRedirectPolicy
 }
 
 export interface WebFetchResult {
@@ -38,6 +52,12 @@ export interface WebFetchResult {
 	readonly truncated: boolean
 	/** Every URL in the redirect chain, in order, including the final one. */
 	readonly redirects: readonly string[]
+	/**
+	 * A redirect that was not followed (see {@link WebFetchRedirectPolicy}).
+	 * `url` is where the server pointed, already checked against the same
+	 * rules as any fetch, and `body` is empty.
+	 */
+	readonly redirect?: { readonly url: string; readonly status: number }
 }
 
 /** Why a fetch was refused before it left the process. */
@@ -60,6 +80,33 @@ export class WebFetchRefusedError extends Error {
 
 export interface WebFetchProvider {
 	fetch(request: WebFetchRequest): Promise<WebFetchResult>
+}
+
+/** One question about one page, for a model to answer. */
+export interface WebExtractRequest {
+	readonly url: string
+	/** What the caller wants from the page. */
+	readonly prompt: string
+	/** The page as markdown (or its raw text), already cut to the size a model should read. */
+	readonly content: string
+	/** The system instruction to run `body` under. */
+	readonly instruction: string
+	/** The user message: the page and the question, built by the tool. */
+	readonly body: string
+	readonly signal?: AbortSignal
+	readonly sessionId: string
+	readonly turnId: string
+}
+
+/**
+ * Answers a prompt from a page with a small model.
+ *
+ * Supplied by the host: this kernel runs no model of its own here. Resolves
+ * the answer, or `undefined` / rejects when it cannot; `web_fetch` then
+ * returns the page itself, as it did before there was an extractor.
+ */
+export interface WebContentExtractor {
+	extract(request: WebExtractRequest): Promise<string | undefined>
 }
 
 export interface WebSearchRequest {

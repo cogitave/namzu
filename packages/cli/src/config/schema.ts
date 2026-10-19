@@ -312,6 +312,19 @@ export interface NamzuCliConfig {
 	 */
 	readonly routing?: RoutingConfig
 	/**
+	 * The model for side jobs: a short conversation title, and the answer
+	 * `web_fetch` extracts from a page. `provider/model` names one explicitly
+	 * (for example `acme/small-chat`); a bare model id means that
+	 * model at the provider the conversation runs on.
+	 *
+	 * Absent, a side job uses the cheapest priced text model the active
+	 * provider lists, and the conversation's own model when none can be
+	 * determined. A side job never blocks or fails a turn, and its tokens are
+	 * counted on the turn's ledger. Accepted only from the user and managed
+	 * config layers: it chooses where conversation text is sent.
+	 */
+	readonly smallModel?: string
+	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
 	 * tool call, when a turn starts or ends. File-only, never from the
 	 * environment — a hook runs a command with the operator's authority, and

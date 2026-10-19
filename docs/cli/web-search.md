@@ -43,6 +43,10 @@ bursts; it does not guarantee availability or coordinate separate CLI processes.
 Responses are bounded to 1 MiB and retain source links and untrusted provenance.
 
 `web.fetch` remains off by default and independently enables guarded URL fetching.
+`web_fetch` takes a `url` and a `prompt`: the page is converted to markdown and the
+[small model](small-model.md) answers the prompt from it; a redirect to another
+host is returned to the model rather than followed, and a page is cached for 15
+minutes. See [The web tools](../sdk/web-tools.md).
 `/status` shows the configured search mode; it is not a connectivity probe.
 
 For provider-hosted search, explicitly choose `web.backend: native` and

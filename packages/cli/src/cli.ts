@@ -583,6 +583,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { composerTriggers: resolvedCtx.config.composerTriggers }
 						: {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
+					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
 					...(resolvedCtx.config.statusLine ? { statusLine: resolvedCtx.config.statusLine } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),

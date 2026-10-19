@@ -145,6 +145,8 @@ export interface TuiContext {
 	readonly composerTriggers?: ComposerTriggersConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
+	/** See `NamzuCliConfig.smallModel`. */
+	readonly smallModel?: string
 	/**
 	 * The browser the session mounts, with canonical site keys and `*`
 	 * filled in. Absent: no browser tools (the config switched it off, or an

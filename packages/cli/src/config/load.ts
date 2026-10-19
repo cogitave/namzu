@@ -229,13 +229,18 @@ function resolveConfigWithProvenance(
 	// provider, exfiltrate the operator's Entra token to that endpoint. So it is
 	// dropped from the project layer before validation — accepted only from the
 	// user and managed layers, where where-to-send and which-credential-to-spend
-	// is the operator's call, not the workspace's. `model: auto` and `routing`
-	// get the same treatment: they choose which provider and model receive the
+	// is the operator's call, not the workspace's. `model: auto`, `routing` and
+	// `smallModel` get the same treatment: they choose which provider and model receive the
 	// conversation, and a repo must not redirect that. (A project profile still
 	// carries it only when the operator selects that profile by name, an explicit
 	// choice, not a drive-by.)
 	const projectCfg = mode.includeProject
-		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision', 'model', 'routing'])
+		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, [
+				'decision',
+				'model',
+				'routing',
+				'smallModel',
+			])
 		: {}
 	// The project's own file that git ignores: a person's answers for this
 	// folder. Read under the same trust as the project file and held to the
@@ -1462,6 +1467,17 @@ const CONFIG_READERS: ConfigReaders = {
 		)
 	},
 	routing: (v, context) => readRoutingConfig(v, context),
+	smallModel: (v, context) => {
+		// One token: no whitespace and no control character, which no model id holds.
+		const named = typeof v === 'string' ? v.trim() : ''
+		if (named.length > 0 && [...named].every((char) => !/\s/u.test(char) && char >= ' '))
+			return named
+		return invalidConfigValue(
+			context,
+			[],
+			'must be a model id, or "provider/model" (for example "anthropic/claude-haiku-4-5")',
+		)
+	},
 	schedule: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1678,6 +1694,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Chooses which provider and model receive the conversation; a file declares it.
 	model: undefined,
 	routing: undefined,
+	// Chooses which model receives conversation text for side jobs; a file declares it.
+	smallModel: undefined,
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,

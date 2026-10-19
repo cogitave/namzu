@@ -363,10 +363,13 @@ terminals place descriptions below labels.
 
 ### Resuming a conversation
 
-`/resume` derives unnamed conversation titles from the first authored prompt,
-not project instructions. Old derived `Conversation` placeholders are replaced
-in the list when the original prompt is still available; deliberately chosen
-names are preserved. On terminals at least 20 rows high, the selected row shows
+`/resume` shows a conversation under the name a person gave it with `/rename`;
+failing that, under a two-to-five-word title the
+[small model](small-model.md#conversation-titles) wrote after the conversation's
+first message; failing that, under the first authored prompt (not project
+instructions). Old derived `Conversation` placeholders are replaced in the list
+when the original prompt is still available; deliberately chosen names are
+preserved and are never replaced by a generated title. On terminals at least 20 rows high, the selected row shows
 the last authored prompt, saved message count and full conversation UUID. Short
 terminals retain the compact list so navigation remains visible.
 

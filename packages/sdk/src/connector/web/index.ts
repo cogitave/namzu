@@ -6,7 +6,10 @@ export { GuardedFetchProvider, isPrivateAddress } from './guarded-fetch.js'
 export type { GuardedFetchConfig } from './guarded-fetch.js'
 export { WebFetchRefusedError } from './types.js'
 export type {
+	WebContentExtractor,
+	WebExtractRequest,
 	WebFetchProvider,
+	WebFetchRedirectPolicy,
 	WebFetchRefusalReason,
 	WebFetchRequest,
 	WebFetchResult,

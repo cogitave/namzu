@@ -57,6 +57,7 @@ The operator application.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.
 * [The model catalogue refresh](model-catalogue.md) - How every launch refreshes the Zen and Zen Go model catalogue in the background, the last-good copy, what a failure keeps, and the modelCatalogueRefresh key that turns it off.
+* [The small model for side jobs](small-model.md) - The smallModel key and how a side job picks its model, conversation titles written by it, the answer web_fetch extracts, and why it never blocks or fails a turn and is counted on the turn's ledger.
 
 * [CLI release validation](release-validation.md) - Live terminal acceptance evidence and boundaries for the pending release.
 

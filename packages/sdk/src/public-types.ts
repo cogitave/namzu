@@ -458,7 +458,10 @@ export type {
 
 export type {
 	GuardedFetchConfig,
+	WebContentExtractor,
+	WebExtractRequest,
 	WebFetchProvider,
+	WebFetchRedirectPolicy,
 	WebFetchRefusalReason,
 	WebFetchRequest,
 	WebFetchResult,
