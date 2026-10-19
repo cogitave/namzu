@@ -83,6 +83,7 @@ import {
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ReasoningEffort,
+	type ReminderSource,
 	type RenderedMemoryIndex,
 	type ResidentHistorySource,
 	type ResidentStepPromptOptions,
@@ -113,6 +114,7 @@ import {
 	type TaskStore,
 	type TenantId,
 	type ToolCallEscalation,
+	type ToolCallSummary,
 	type ToolCallView,
 	type ToolDefinition,
 	ToolManager,
@@ -213,6 +215,7 @@ import { type SessionDirectories, createSessionDirectories } from '../context/di
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_HYPERMODE_DOCTRINE,
+	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -349,6 +352,10 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
+import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
+import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
+import { isPlanFileWrite } from '../plan/plan-file.js'
+import { createCliReminderSource } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -755,6 +762,13 @@ export interface SendOptions {
 	 * tool itself is mounted per session (`AgentSessionOptions.askUser`).
 	 */
 	readonly onQuestion?: QuestionFn
+	/**
+	 * Who approves a plan this turn (`exit_plan_mode`). Absent means nobody: the
+	 * tool tells the model so and the model ends its reply with the plan.
+	 */
+	readonly onPlanExit?: PlanApprovalFn
+	/** Whether the session may run without asking; changes the dialog's first row. */
+	readonly bypassAvailable?: () => boolean
 	/** Request a model change owned by this turn; the host publishes it after settlement. */
 	readonly onModelSwitch?: (
 		request: ModelSwitchRequest,
@@ -2008,6 +2022,20 @@ export interface AgentSessionOptions {
 	 * the model is never offered a question it would ask into the void.
 	 */
 	readonly askUser?: boolean
+	/**
+	 * Give plan mode its plan file and `exit_plan_mode`: the model may write
+	 * `<session>/plans/plan.md` while the mode is `plan`, and presents the plan
+	 * through the tool, which asks `SendOptions.onPlanExit`. Only where somebody
+	 * can answer, so an interactive terminal says `true`. Absent, plan mode is
+	 * what it always was: read-only, with the reply as the plan.
+	 */
+	readonly planApproval?: boolean
+	/**
+	 * Feed each turn hidden reminders (`QueryParams.reminders`): the plan-mode
+	 * reminders when `planApproval` is on. Absent, a
+	 * turn carries none.
+	 */
+	readonly reminders?: boolean
 	/** Mount the current-chat model selection tool in an interactive host. */
 	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
@@ -3496,6 +3524,30 @@ export async function createAgentSession(
 			toolset('ask-user-question', [buildAskUserQuestionTool({ resumeHandler: parkQuestion })]),
 		)
 	}
+	// `exit_plan_mode`, where somebody can approve. The tool is per session; who
+	// approves, the live mode and the plan file are per turn, so it reads them
+	// through a holder the turn's prelude fills.
+	let currentPlanHost:
+		| {
+				readonly mode: () => PermissionMode
+				readonly planPath: string
+				readonly approval: PlanApprovalFn | undefined
+				readonly bypassAvailable: () => boolean
+		  }
+		| undefined
+	if (options.planApproval && !options.ephemeral) {
+		toolsets.push(
+			toolset('plan-mode', [
+				buildExitPlanModeTool({
+					mode: () => currentPlanHost?.mode() ?? 'prompt',
+					planPath: () =>
+						currentPlanHost?.planPath ?? paths.planFile({ sessionId: scope.sessionId }),
+					bypassAvailable: () => currentPlanHost?.bypassAvailable() ?? false,
+					approval: () => currentPlanHost?.approval,
+				}),
+			]),
+		)
+	}
 	// The host's own additions, to this session only: `buildTools` above
 	// builds a child's roster separately, so none of these reach a sub-agent.
 	if (options.extraTools && options.extraTools.length > 0) {
@@ -4070,6 +4122,9 @@ export async function createAgentSession(
 								),
 								{ unattendedSandboxEscape },
 								screenPolicyFor(() => liveManager()),
+								options.planApproval && !options.ephemeral
+									? isPlanFileWrite(paths.planFile({ sessionId: entry.sessionId }), cwd)
+									: undefined,
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -4678,6 +4733,13 @@ export async function createAgentSession(
 					let runManager: ToolManager = manager
 					lastSendInteractive = opts?.onPermission !== undefined
 					const turnScope = { ...scope }
+					// The plan file, when this session has a plan mode: the one write
+					// `plan` lets through (and the path the reminders and the exit tool name).
+					const planPath =
+						options.planApproval && !options.ephemeral
+							? paths.planFile({ sessionId: turnScope.sessionId })
+							: undefined
+					const planModeWrite = planPath ? isPlanFileWrite(planPath, cwd) : undefined
 					const initialMode: PermissionMode =
 						opts?.permissionMode ??
 						options.permissionMode ??
@@ -4714,6 +4776,7 @@ export async function createAgentSession(
 										),
 										{ unattendedSandboxEscape },
 										screenPolicyFor(() => runManager),
+										planModeWrite,
 									),
 					})
 					const resumeHandler = modeControl.handler
@@ -4786,6 +4849,14 @@ export async function createAgentSession(
 						}
 						const curatedMemoryPrompt = composeMemoryPrompt(curatedMemory)
 						currentOnQuestion = opts?.onQuestion
+						currentPlanHost = planPath
+							? {
+									mode: () => modeControl.current(),
+									planPath,
+									approval: opts?.onPlanExit,
+									bypassAvailable: opts?.bypassAvailable ?? (() => false),
+								}
+							: undefined
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
@@ -4944,7 +5015,9 @@ export async function createAgentSession(
 								// is rare, so the cached prefix it re-keys is a price paid once
 								// per switch rather than once per turn.
 								!residentContext && opts?.permissionMode === 'plan'
-									? NAMZU_PLAN_MODE_DOCTRINE
+									? planPath
+										? NAMZU_PLAN_FILE_DOCTRINE
+										: NAMZU_PLAN_MODE_DOCTRINE
 									: undefined,
 								residentContext ? undefined : environmentPrompt,
 								residentContext ? undefined : opts?.extraSystem,
@@ -4979,6 +5052,17 @@ export async function createAgentSession(
 						}
 						claimTurn(turnId)
 						const turnTaskStore = selectTaskStore(turnScope)
+						const reminderSource = options.reminders
+							? createCliReminderSource({
+									mode: () => modeControl.current(),
+									...(planPath
+										? {
+												planPath: () => planPath,
+												canAsk: Boolean(options.askUser && subagentRuntime),
+											}
+										: {}),
+								})
+							: undefined
 						// An ephemeral session keeps its whole turn in memory: a fresh
 						// log per send, opened with the `session_started` a turn follows.
 						// A durable one appends to `<session-id>.jsonl`, created first
@@ -5073,6 +5157,7 @@ export async function createAgentSession(
 									...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 								],
 								taskStore: turnTaskStore,
+								...(reminderSource ? { reminders: reminderSource } : {}),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
@@ -5938,6 +6023,8 @@ interface TurnParams {
 	/** Whether a batch the rules allow still goes to `resumeHandler` (plan mode). */
 	readonly reviewAllowedCalls?: () => boolean
 	readonly taskStore: TaskStore
+	/** Hidden reminders for each model request; see `AgentSessionOptions.reminders`. */
+	readonly reminders?: ReminderSource
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
@@ -6004,6 +6091,7 @@ async function* runTurn({
 	onApprovalPolicy,
 	reviewAllowedCalls,
 	taskStore,
+	reminders,
 	systemPrompt,
 	messages,
 	projectInstructionContext,
@@ -6094,6 +6182,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
 			messages: [...messages],
+			...(reminders ? { reminders } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
@@ -6207,12 +6296,14 @@ export function makeResumeHandler(
 	exempt: (name: string, input: unknown) => boolean = () => false,
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' } = {},
 	screen?: ScreenPolicy,
+	planModeWrite?: (call: ToolCallSummary) => boolean,
 ): ResumeHandler {
 	return createReviewHandler({
 		mode,
 		prompt: onPermission,
 		exempt,
 		remembered: approval,
+		...(planModeWrite ? { planModeWrite } : {}),
 		...(screen ? { screenConsent: screen.consent, capturesScreen: screen.capturesScreen } : {}),
 		// Refused unless the operator wrote `sandbox.allowUnattendedEscape`: a
 		// session with nobody to ask has nobody to consent to leaving the
@@ -6365,6 +6456,9 @@ export function reviewExemptionFor(
 	const exemptLookup = withRuntimeMountedTools(manager)
 	return (name, input) =>
 		isPromptExempt(exemptLookup, name, input) ||
+		// Presenting a plan asks the person on its own screen and changes nothing;
+		// `plan` is the one mode it is for. Outside it the tool refuses by itself.
+		(name === EXIT_PLAN_MODE_TOOL_NAME && manager.has(EXIT_PLAN_MODE_TOOL_NAME)) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
 		(mode !== 'strict' &&

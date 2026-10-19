@@ -31,4 +31,4 @@ The kernel calls the source once at the start of every model request of a turn, 
 
 `ReminderContext` also names the session, the turn and the 1-based iteration. A source that throws has nothing to say for that request: the failure is logged and the turn goes on.
 
-The channel is off unless a host passes `reminders`; a turn without one is unchanged. The CLI turns it on for the interactive terminal, where it carries plan mode's reminders.
+The channel is off unless a host passes `reminders`; a turn without one is unchanged. The CLI turns it on for the interactive terminal, where it carries [plan mode's reminders](../cli/plan-mode.md#reminders).

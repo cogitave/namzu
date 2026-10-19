@@ -23,6 +23,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Message from a connected channel'
 		case 'peer-notice':
 			return 'Notice from another session'
+		case 'reminder':
+			return 'Reminder'
 		case 'repeat-call':
 			return 'Repeat-call advisory'
 		case 'steering':
