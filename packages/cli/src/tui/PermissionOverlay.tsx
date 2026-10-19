@@ -56,6 +56,8 @@ export interface PermissionOverlayProps {
 	readonly mode?: PermissionMode
 	/** Present when the session can remember allows; see `permissionAnswers`. */
 	readonly commandArguments?: ReadonlyMap<string, string>
+	/** The folder the remembered answer is saved for, as the person sees it. */
+	readonly rememberWhere?: string
 	/** Which browser site rule decided each browser call, with the profile and engine. */
 	readonly siteNotes?: readonly string[]
 	/**
@@ -271,6 +273,8 @@ export interface PermissionAnswerOptions {
 	readonly mode?: PermissionMode
 	/** Tools whose command line is one argument, when this session can remember allows. */
 	readonly commandArguments?: ReadonlyMap<string, string>
+	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
+	readonly rememberWhere?: string
 }
 
 /**
@@ -333,7 +337,7 @@ function extraAnswer(
 	const allows = allowsForBatch(toolCalls, options.commandArguments)
 	if (!allows) return undefined
 	return {
-		label: `Yes, and don't ask again for ${describeAllows(allows)} this session`,
+		label: `Yes, and don't ask again for ${describeAllows(allows)} ${options.rememberWhere ? `in ${options.rememberWhere}` : 'this session'}`,
 		kind: 'approve-rule',
 		allows,
 	}
@@ -386,6 +390,7 @@ export function PermissionOverlay({
 	batchOnly = false,
 	mode,
 	commandArguments,
+	rememberWhere,
 	siteNotes = [],
 	screenConsent,
 }: PermissionOverlayProps) {
@@ -412,6 +417,7 @@ export function PermissionOverlay({
 		screenConsent: sharing,
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
+		...(rememberWhere ? { rememberWhere } : {}),
 	})
 	const escalationNotes = permissionEscalationNotes(toolCalls)
 	const sharingNotes = sharing ? screenConsentNotes(screenConsent.provider) : []

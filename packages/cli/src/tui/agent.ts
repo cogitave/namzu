@@ -1269,12 +1269,14 @@ export interface AgentSession {
 	/** Revoke a host's "approve all". The terminal does not call it. */
 	readonly resetApprovalLatch?: () => void
 	/**
-	 * Remember "don't ask again" answers for the rest of the session. They
-	 * apply behind the operator's rules and never cover an escape or a path
-	 * outside the roots. Absent where the host has no such store, in which
-	 * case the prompt offers no such answer.
+	 * Remember "don't ask again" answers: for the rest of the session, and in
+	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the operator's rules and never cover an escape or a path outside the
+	 * roots. Returns a sentence when the file could not be written. Absent
+	 * where the host has no such store, in which case the prompt offers no
+	 * such answer.
 	 */
-	readonly allowForSession?: (allows: readonly SessionAllow[]) => void
+	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
 	/** Tools whose command line is one argument, for naming a command to remember. */
 	readonly commandArguments?: ReadonlyMap<string, string>
 	/**
@@ -2121,7 +2123,8 @@ export async function createAgentSession(
 	// "Don't ask again" answers given at a prompt this session, consulted as
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
-	const sessionAllows = createSessionAllows(commandArguments)
+	// `cwd` is settled further down; the store reads it when an answer arrives.
+	const sessionAllows = createSessionAllows(commandArguments, { cwd: () => cwd })
 	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**

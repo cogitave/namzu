@@ -4,12 +4,14 @@
  * Resolution order (highest priority first):
  *   1. CLI flags (handled by Commander, merged in `cli.ts`)
  *   2. Environment variables prefixed `NAMZU_`
- *   3. Project config: `./namzu.config.json` (TS variant added in a later
+ *   3. Local config: `./namzu.config.local.json`, the project's own file that
+ *      git ignores; where "don't ask again" answers are written
+ *   4. Project config: `./namzu.config.json` (TS variant added in a later
  *      milestone when a build step is justified)
- *   4. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
- *   5. Built-in defaults from `schema.ts`
+ *   5. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
+ *   6. Built-in defaults from `schema.ts`
  *
- * This module owns steps 2–5. CLI-flag merging happens in `cli.ts`, where
+ * This module owns steps 2–6. CLI-flag merging happens in `cli.ts`, where
  * Commander knows what was explicitly set rather than merely defaulted.
  *
  * A file that is not there contributes nothing, and that is a default. A file
@@ -133,6 +135,8 @@ export type ConfigSource =
 	| { readonly kind: 'default' }
 	| { readonly kind: 'user-file'; readonly path: string }
 	| { readonly kind: 'project-file'; readonly path: string }
+	/** The project's git-ignored local file, over the project file; see {@link LOCAL_CONFIG_FILE}. */
+	| { readonly kind: 'local-file'; readonly path: string }
 	/**
 	 * A selected profile, and the file it was declared in.
 	 *
@@ -213,6 +217,7 @@ function resolveConfigWithProvenance(
 		'config.yaml',
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
+	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
@@ -232,6 +237,12 @@ function resolveConfigWithProvenance(
 	const projectCfg = mode.includeProject
 		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, ['decision', 'model', 'routing'])
 		: {}
+	// The project's own file that git ignores: a person's answers for this
+	// folder. Read under the same trust as the project file and held to the
+	// same limits, since a folder that arrives as an archive can carry one.
+	const localCfg = mode.includeProject
+		? readJsonIfExists(localPath, LOCAL_FILE_LABEL, ['decision', 'model', 'routing'])
+		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
@@ -244,6 +255,7 @@ function resolveConfigWithProvenance(
 		[
 			[userCfg, userPath],
 			[projectCfg, projectPath],
+			[localCfg, localPath],
 			[managedCfg, managedPath],
 		],
 		mode.deferUnknownProfile,
@@ -253,6 +265,7 @@ function resolveConfigWithProvenance(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
+		constantLayer(localCfg, { kind: 'local-file', path: localPath }),
 		// After both files and before the environment. A profile is a
 		// deliberate choice about a set of settings, so it beats the ambient
 		// values in the file it came from; a variable is a statement about this
@@ -302,7 +315,7 @@ function assertAutoModelHasDefault(config: NamzuCliConfig, provenance: ConfigPro
 
 /** One file's `permissions` table, as it was written. */
 export interface PermissionLayer {
-	readonly source: 'user-file' | 'project-file' | 'managed'
+	readonly source: 'user-file' | 'project-file' | 'local-file' | 'managed'
 	readonly path: string
 	readonly permissions: PermissionsConfig
 	/**
@@ -332,6 +345,7 @@ export function readPermissionLayers(
 		'config.yaml',
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
+	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 	const layers: PermissionLayer[] = []
 	for (const [source, path, config] of [
@@ -340,6 +354,11 @@ export function readPermissionLayers(
 			'project-file',
 			projectPath,
 			opts.includeProject === false ? {} : readJsonIfExists(projectPath, PROJECT_FILE_LABEL),
+		],
+		[
+			'local-file',
+			localPath,
+			opts.includeProject === false ? {} : readJsonIfExists(localPath, LOCAL_FILE_LABEL),
 		],
 		['managed', managedPath, readJsonIfExists(managedPath, shortHomePath(managedPath))],
 	] as const) {
@@ -487,6 +506,16 @@ function readYamlIfExists(path: string): MutableConfig {
 
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
 const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+
+/**
+ * The project's local config: the same settings as the project file, kept out
+ * of git. It is where a "don't ask again" answer is written, the way the
+ * reference terminal writes its own local settings file, and it sits over
+ * the project file in the cascade (user < project < local < profile < env <
+ * managed).
+ */
+export const LOCAL_CONFIG_FILE = 'namzu.config.local.json'
+const LOCAL_FILE_LABEL = 'namzu.config.local.json in this project'
 
 /** A path for a person to read: home as `~`, the way every other path on screen is shown. */
 export function shortHomePath(path: string): string {
@@ -1961,7 +1990,10 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 function isProjectSource(source: ConfigSource): boolean {
 	return (
 		source.kind === 'project-file' ||
-		(source.kind === 'profile' && basename(source.path) === 'namzu.config.json')
+		source.kind === 'local-file' ||
+		(source.kind === 'profile' &&
+			(basename(source.path) === 'namzu.config.json' ||
+				basename(source.path) === LOCAL_CONFIG_FILE))
 	)
 }
 

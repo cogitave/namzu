@@ -23,12 +23,13 @@ describe('what a call can have remembered', () => {
 		...extra,
 	})
 
-	it('remembers a plain command, a fetched host and an MCP tool', () => {
+	it('remembers a command, a fetched host and an MCP tool', () => {
 		expect(allowFor(bash('npm test'), commands)).toEqual({
-			kind: 'command',
+			kind: 'prefix',
 			tool: 'bash',
-			command: 'npm test',
+			prefix: 'npm test',
 		})
+		expect(allowFor(bash('ls'), commands)).toEqual({ kind: 'command', tool: 'bash', command: 'ls' })
 		expect(
 			allowFor({ name: 'web_fetch', input: { url: 'https://example.com/a?b=1' } }, commands),
 		).toEqual({ kind: 'host', tool: 'web_fetch', host: 'example.com' })
@@ -39,8 +40,10 @@ describe('what a call can have remembered', () => {
 	})
 
 	it.each([
-		['a compound line', bash('npm test && rm -rf build')],
 		['a glob', bash('rm *.log')],
+		['a compound line with a glob in one part', bash('npm test && rm *.log')],
+		['a redirection', bash('npm test > out.log')],
+		['a several-line command', bash('npm test\nnpm run lint')],
 		['a substitution', bash('echo $(whoami)')],
 		['an escape from the sandbox', bash('curl x', { escalation: { sandboxEscape: true } })],
 		[
@@ -71,6 +74,9 @@ describe('what a call can have remembered', () => {
 	it('names what it remembers in a few words', () => {
 		expect(describeAllows([{ kind: 'command', tool: 'bash', command: 'npm test' }])).toBe(
 			'npm test commands',
+		)
+		expect(describeAllows([{ kind: 'prefix', tool: 'bash', prefix: 'git commit' }])).toBe(
+			'git commit * commands',
 		)
 		expect(
 			describeAllows([

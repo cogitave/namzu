@@ -63,14 +63,18 @@ describe('the accept-edits answer', () => {
 })
 
 describe('the remembered-allow answer', () => {
-	it("is worded like the reference's, scoped to the session", () => {
-		const answers = permissionAnswers([bash('npm test')], { mode: 'prompt', commandArguments })
+	it("is worded like the reference's, scoped to the project folder", () => {
+		const answers = permissionAnswers([bash('npm test')], {
+			mode: 'prompt',
+			commandArguments,
+			rememberWhere: '~/work/app',
+		})
 		expect(answers.map((a) => a.label)).toEqual([
 			'Yes',
-			"Yes, and don't ask again for npm test commands this session",
+			"Yes, and don't ask again for npm test * commands in ~/work/app",
 			'No, and tell namzu what to do differently (esc)',
 		])
-		expect(answers[1]?.allows).toEqual([{ kind: 'command', tool: 'bash', command: 'npm test' }])
+		expect(answers[1]?.allows).toEqual([{ kind: 'prefix', tool: 'bash', prefix: 'npm test' }])
 	})
 
 	it('is offered for a fetch and an MCP tool, and only for the whole batch', () => {
