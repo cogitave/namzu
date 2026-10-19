@@ -401,6 +401,28 @@ export interface NamzuCliConfig {
 	 * scheduled runs never act on composer triggers.
 	 */
 	readonly composerTriggers?: ComposerTriggersConfig
+	/**
+	 * A command whose first output lines replace the footer's resting hints:
+	 * the terminal pipes one JSON object on its stdin (model, workspace,
+	 * context window, cost, effort, pull request, ...) and shows what it
+	 * prints, dimmed, above the footer row. File-only, never from the
+	 * environment, like `hooks`: it runs a command with the operator's
+	 * authority. A project file may set it only once the folder is trusted.
+	 * Only the interactive terminal runs it. See `docs/cli/status-line.md`.
+	 */
+	readonly statusLine?: StatusLineConfig
+}
+
+/** See `NamzuCliConfig.statusLine`. */
+export interface StatusLineConfig {
+	/** The only kind there is; accepted so a reference-terminal block pastes unchanged. */
+	readonly type?: 'command'
+	/** Run by the host shell in the working directory. */
+	readonly command: string
+	/** Columns of space on each side of the line. Default 0. */
+	readonly padding?: number
+	/** Also re-run every N seconds (at least 1), besides the event-driven updates. */
+	readonly refreshInterval?: number
 }
 
 /** A composer trigger's arming: `arm` from typed text, `suggest` only (Alt+W arms), or `off`. */

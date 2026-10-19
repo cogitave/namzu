@@ -18,6 +18,7 @@ import type {
 	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
+	StatusLineConfig,
 	TuiConfig,
 	TurnLimitsConfig,
 	WebConfig,
@@ -152,6 +153,8 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
+	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */
+	readonly statusLine?: StatusLineConfig
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */

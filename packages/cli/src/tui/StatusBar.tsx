@@ -44,6 +44,13 @@ export interface StatusBarProps {
 	 * names no cycle key; the active mode is still a fact.
 	 */
 	readonly composerMounted?: boolean
+	/**
+	 * Whether the quiet `shift+tab to cycle` reminder may fill an otherwise
+	 * empty row. Off while a custom status line is configured: the reference
+	 * suppresses its resting hint then, and the operator's line owns the
+	 * quiet moments.
+	 */
+	readonly restingHint?: boolean
 	/** Background shells that are running now; 0 or omitted hides the pill. */
 	readonly shellCount?: number
 	/** The context meter from `context-meter.ts`; omitted or null while there is room to spare. */
@@ -121,6 +128,7 @@ export function StatusBar({
 	permissionMode,
 	canCycleMode,
 	composerMounted = true,
+	restingHint = true,
 	shellCount = 0,
 	pr,
 	hyperlinks = false,
@@ -152,7 +160,7 @@ export function StatusBar({
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
-			: composerMounted && !working && nothingElse
+			: composerMounted && restingHint && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
 		// The reference drops the cycle key as soon as a background task is on

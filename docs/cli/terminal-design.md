@@ -35,6 +35,9 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
+A [custom status line](status-line.md), when `statusLine` is configured, is drawn on the
+rows above this line, and the quiet `shift+tab to cycle` reminder then stays off.
+
 One line sits directly below the composer's lower rule, with no blank row between
 them. It follows the reference terminal agent's item order and wording; its
 items are joined by a dim ` · `, left to right:
