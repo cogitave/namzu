@@ -27,6 +27,7 @@
 - **Update** [Session storage](cli/session-storage.md) and [Slash commands](cli/slash-commands.md): `plans/plan.md` joins the session directory, and Shift+Tab's description points at the approval as plan mode's way out.
 - **Creation** [Plan mode in the CLI](cli/plan-mode.md#reminders): the task-list nudge, on the same reminder channel. After 10 model turns without `task_create` or `task_update`, at most once per 10 model turns, the model is shown the current task list with a note that the task tools exist. `.changeset/cc-task-nudge.md`, **minor** for `@namzu/cli`.
 - **Update** [Memory](sdk/memory.md): the disk and Markdown memory stores build each entry's file path by plain concatenation before resolving it, so a static file tracer no longer reads `resolve(dir, `${name}.md`)` as a wildcard over the repository; the paths on disk are unchanged. `.changeset/sdk-memory-store-trace-paths.md`.
+- **Update** [Agent ownership](sdk/agent-ownership.md): `SupervisorAgent.resume(input, config, { turnId, checkpointId? }, listener?)` continues a supervisor turn that ended in `turn_paused` (same turn id, newest or chosen checkpoint, context folded from the session log, delegation, budget and scheduler wiring rebuilt), with the finite-budget caveat for a stream cut before it reported usage. `SupervisorResumeTarget` is exported. `.changeset/supervisor-resume.md`, **minor** for `@namzu/sdk`.
 
 ## 2026-10-18
 

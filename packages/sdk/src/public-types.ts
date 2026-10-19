@@ -204,6 +204,7 @@ export type {
 	Disposable,
 	RunAgentOptions,
 	RunAgentResult,
+	SupervisorResumeTarget,
 } from './agents/index.js'
 
 export type {

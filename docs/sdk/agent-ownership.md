@@ -74,3 +74,49 @@ application decides how its own agent combines delegation with other work.
 `ReactiveAgent` remains a deprecated subclass with its old `reactive` type;
 its config/result types remain deprecated aliases for the query adapter's
 types.
+
+### Continuing a paused supervisor turn
+
+A supervisor turn that ends in `turn_paused` (a provider stream cut with no
+retry left) is continued with `SupervisorAgent.resume`, not by running the turn
+again, which would repeat tool calls that already had their effect. `resume`
+takes what `run` takes plus `{ turnId, checkpointId? }`: it keeps the turn id,
+continues from the checkpoint (default the newest, as `resumeSession` chooses),
+folds the context from the session log (so `input.messages` is ignored) and
+rebuilds the supervisor's delegation, budget and scheduler wiring. `config` must
+carry the `sessionLog` the turn was written to. It emits the same `turn_paused`
+and terminal events as `run`, so a host bounds its resumes by counting pauses. It
+rejects with `invalid_config` when the turn already ended, the checkpoint is
+unknown, or the turn waits on a decision `pendingDecision` does not answer.
+
+A stream cut before the provider reported usage leaves its spend unknown, and a
+finite `tokenBudget` then refuses further requests until the host reconciles the
+ledger (`SessionTokenBudget.reconcileRequest`); the resumed turn would stop with
+`token_budget`. A stream that reported usage, or an unlimited budget, resumes.
+
+```ts
+import type { AgentInput, SessionEvent, SupervisorAgent, SupervisorAgentConfig } from '@namzu/sdk'
+
+async function runBounded(
+	agent: SupervisorAgent,
+	input: AgentInput,
+	config: SupervisorAgentConfig,
+	maxResumes: number,
+) {
+	let paused: Extract<SessionEvent, { type: 'turn_paused' }> | undefined
+	const listener = (event: SessionEvent) => {
+		paused = event.type === 'turn_paused' ? event : undefined
+	}
+
+	let result = await agent.run(input, config, listener)
+	for (let attempt = 0; paused && attempt < maxResumes; attempt++) {
+		result = await agent.resume(
+			input,
+			config,
+			{ turnId: result.turnId, checkpointId: paused.checkpointId },
+			listener,
+		)
+	}
+	return result
+}
+```
