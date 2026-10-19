@@ -76,6 +76,7 @@ const configRoutes = {
 	toolRetryBackoff: 'query',
 	maxToolConcurrency: 'query',
 	maxToolOutputChars: 'query',
+	maxToolOutputCharsPerMessage: 'query',
 	retainedToolPreviewChars: 'query',
 	maxToolContentBytes: 'query',
 	repairToolCall: 'query',
@@ -86,7 +87,9 @@ const configRoutes = {
 	structuredOutput: 'query',
 	inputGuardrails: 'query',
 	outputGuardrails: 'query',
-} as const satisfies { readonly [K in keyof QueryAgentConfig]: 'query' | 'turn' | 'special' }
+} as const satisfies {
+	readonly [K in keyof QueryAgentConfig]: 'query' | 'turn' | 'special'
+}
 
 type RoutedKeys<TDestination extends 'query' | 'turn'> = {
 	[K in keyof typeof configRoutes]: (typeof configRoutes)[K] extends TDestination ? K : never
