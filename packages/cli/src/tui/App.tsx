@@ -4551,6 +4551,10 @@ export function App({
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.
 							...(browserOptions ? { browser: browserOptions } : {}),
+							// The code index tool: on unless the config switched it off.
+							...(activeCtx.codeAnalysis?.enabled === false
+								? {}
+								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
 							rules: activeCtx.rules,
 							...(sessionsRef.current
 								? {

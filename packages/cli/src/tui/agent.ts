@@ -54,6 +54,7 @@ import {
 	BackgroundJobRegistry,
 	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
+	type CodeAnalysisProvider,
 	type CompactionConfig,
 	type CompactionResult,
 	type CompletionInbox,
@@ -161,6 +162,7 @@ import {
 	generateTopicId,
 	generateTurnId,
 	getBuiltinTools,
+	getCodeAnalysisTools,
 	isReviewExempt,
 	isTurnInProgressError,
 	mapTools,
@@ -193,6 +195,7 @@ import {
 	withShellNote,
 } from '../checkpoints/wrap.js'
 import type {
+	CodeAnalysisConfig,
 	CompactionCliConfig,
 	DecisionConfig,
 	HooksConfig,
@@ -235,6 +238,7 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
 	maybeCreateDecisionModel,
 	maybeCreateDecisionTool,
@@ -2154,6 +2158,14 @@ export interface AgentSessionOptions {
 	 */
 	readonly browser?: BrowserSessionOptions
 	/**
+	 * Mount the `code_analysis` tool over `@namzu/analysis`: cited, paged
+	 * lookups in an index of the working directory's JavaScript and TypeScript.
+	 * Only the TUI passes it, and only when the config did not switch it off
+	 * (`NamzuCliConfig.codeAnalysis`). Nothing is loaded or indexed until the
+	 * model's first call; the index files live under the Namzu home.
+	 */
+	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
 	 * Tools this session's rules refuse whatever their input, left out of its
 	 * registry so their schemas are not sent with every model call. A
 	 * scheduled run passes the tools its job can never use
@@ -3700,6 +3712,15 @@ export async function createAgentSession(
 	// failure is absorbed inside the tool (fail-open), never a thrown error.
 	const decisionTool = maybeCreateDecisionTool(options.decision, process.env)
 	if (decisionTool) toolsets.push(toolset('decide', [decisionTool]))
+	// The code index. Constructed here but inert: the package is imported, the
+	// cache directory made and the first database opened on the model's first
+	// `code_analysis` call, so a session that never asks pays nothing at start.
+	// Parent session only; a sub-agent builds its own roster and does not get it.
+	const codeAnalysis =
+		options.codeAnalysis && options.codeAnalysis.enabled !== false && !options.ephemeral
+			? createLazyCodeAnalysis(paths.home)
+			: undefined
+	if (codeAnalysis) toolsets.push(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis)))
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the
@@ -4006,6 +4027,7 @@ export async function createAgentSession(
 			mcp.close(),
 			computerUseHost?.dispose(),
 			browserControl?.dispose(),
+			codeAnalysis?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
 			checkpoints.release(),
 		])
@@ -5361,6 +5383,7 @@ export async function createAgentSession(
 											sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
 										}
 									: {}),
+								...(codeAnalysis ? { codeAnalysis } : {}),
 							})) {
 								yield event
 								if (
@@ -6243,6 +6266,8 @@ interface TurnParams {
 	readonly sandboxProvider?: SandboxProvider
 	/** Operator-selected sandbox teardown bound; absent uses the kernel default. */
 	readonly sandboxTeardownTimeoutMs?: number
+	/** The `code_analysis` tool's index; see `AgentSessionOptions.codeAnalysis`. */
+	readonly codeAnalysis?: CodeAnalysisProvider
 }
 
 async function* runTurn({
@@ -6294,6 +6319,7 @@ async function* runTurn({
 	web,
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
+	codeAnalysis,
 	onSessionEvent,
 }: TurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
@@ -6345,6 +6371,7 @@ async function* runTurn({
 			// `gateFor` and this one did not.
 			...(sandboxProvider ? { sandboxProvider } : {}),
 			...(sandboxTeardownTimeoutMs !== undefined ? { sandboxTeardownTimeoutMs } : {}),
+			...(codeAnalysis ? { codeAnalysis } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),

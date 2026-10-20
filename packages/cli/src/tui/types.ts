@@ -9,6 +9,7 @@ import type { AuthorizationRule } from '@namzu/sdk'
 import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type {
 	BrowserConfig,
+	CodeAnalysisConfig,
 	CompactionCliConfig,
 	ComposerTriggersConfig,
 	DecisionConfig,
@@ -153,6 +154,8 @@ export interface TuiContext {
 	 * embed did not ask). Its site rules are already in `rules`.
 	 */
 	readonly browser?: BrowserConfig
+	/** See `NamzuCliConfig.codeAnalysis`. */
+	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */

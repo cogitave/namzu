@@ -592,6 +592,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.workflow ? { workflow: resolvedCtx.config.workflow } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
+					...(resolvedCtx.config.codeAnalysis
+						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
+						: {}),
 					// A configured `routing` block makes Auto an available choice;
 					// `model: auto` makes it the default, and only when nothing pins a
 					// model for this launch: an explicit `--model` always wins.

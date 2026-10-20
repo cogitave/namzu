@@ -8,7 +8,8 @@
 //
 // Kept external, because they are native, optional, or found by name or path at run time:
 //   @namzu/browser, @namzu/sandbox, @namzu/telemetry, @namzu/computer-use  optional packages
-//   node-pty, playwright-core, react-devtools-core                         native / by path / optional
+//   node-pty, playwright-core, react-devtools-core, oxc-parser             native / by path / optional
+//   (@namzu/analysis itself is bundled, as @namzu/decision is; only its native parser stays out)
 //   quickjs-emscripten-core, @jitl/quickjs-wasmfile-release-sync           resolved by path
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, relative, resolve, sep } from 'node:path'
@@ -26,6 +27,7 @@ const external = [
 	'@namzu/telemetry',
 	'@namzu/computer-use',
 	'node-pty',
+	'oxc-parser',
 	'playwright-core',
 	'react-devtools-core',
 	'quickjs-emscripten-core',
