@@ -3,6 +3,11 @@
 ## 2026-10-20
 
 - **Update** [Desktop host terminals](cli/desktop.md#host-terminals): the closed-terminal sweep no longer misses a program that is inside `exec` while `/proc` is read. Its environment reads as empty for that moment (measured: about one read in ten straight after a program printed its pid), so an empty read is read again up to five times before it is believed. The process test that found it on CI now waits for the program to be `sleep` before scanning, and the re-read has its own test. `.changeset/terminal-sweep-exec-window.md`, **patch** for `@namzu/cli`.
+## 2026-10-21
+
+- **Creation** [Code analysis](sdk/code-analysis.md): new `code_analysis` tool and `CodeAnalysisProvider` interface in `@namzu/sdk`, wired through `QueryParams.codeAnalysis` and `ToolContext.codeAnalysis`, registered only when a host passes a provider (`getCodeAnalysisTools`). Six operations (`index`, `find_literal`, `enclosing_function`, `function_source`, `callers_of`, `imports`), all paged and cited as `path:line:column` (one-based, UTF-16 columns), each result carrying observed, inferred and coverage evidence; paths go through the resolver and review route `read` uses, and a sandboxed turn is refused. `.changeset/sdk-code-analysis-tool.md`, **minor** for `@namzu/sdk`.
+- **Creation** [Code analysis](sdk/code-analysis.md#namzuanalysis): new package `@namzu/analysis` implements the provider with `oxc-parser` and `node:sqlite`: incremental by size, mtime and content hash, a trigram FTS5 substring index where Node has FTS5 (22.16 and newer; 22.13 to 22.15 scan instead), loaded on first use. `.changeset/analysis-initial.md`, **minor** for `@namzu/analysis`.
+- **Creation** [Code analysis in the terminal](cli/code-analysis.md): the interactive terminal offers `code_analysis` by default, with its index under `~/.namzu/cache/analysis`, built on the first call. New config key `codeAnalysis.enabled` (default `true`; `false` in any file holds) turns it off. `exec`, `drain`, `acp`, scheduled jobs and sub-agents do not mount it. The CLI now depends on `oxc-parser`. `.changeset/cli-code-analysis.md`, **minor** for `@namzu/cli`.
 
 ## 2026-10-19
 
