@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-20
+
+- **Update** [Desktop host terminals](cli/desktop.md#host-terminals): the closed-terminal sweep no longer misses a program that is inside `exec` while `/proc` is read. Its environment reads as empty for that moment (measured: about one read in ten straight after a program printed its pid), so an empty read is read again up to five times before it is believed. The process test that found it on CI now waits for the program to be `sleep` before scanning, and the re-read has its own test. `.changeset/terminal-sweep-exec-window.md`, **patch** for `@namzu/cli`.
+
 ## 2026-10-19
 
 - **Update** [Provider retry](sdk/provider-retry.md): `classifyProviderError` reads undici's `TypeError: terminated` anywhere on the cause chain as `network`, so a cut stream is retried even when a vendor wrapper dropped the socket error under it; before, the bare word classified as `unknown` and ended the turn. `.changeset/sdk-classify-bare-terminated.md`, **patch** for `@namzu/sdk`.
