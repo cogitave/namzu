@@ -6,7 +6,7 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { TextDecoder } from 'node:util'
 
 import { lineStarts } from './lines.js'
-import { isDeclarationFile, languageOf, parseSource } from './parse.js'
+import { ParserUnavailableError, isDeclarationFile, languageOf, parseSource } from './parse.js'
 import type { Store } from './store.js'
 import { RowSink, indexProgram } from './walk.js'
 
@@ -157,6 +157,8 @@ async function parseAndWrite(
 	try {
 		parsed = await parseSource(candidate.abs, text)
 	} catch (err) {
+		// The parser being absent is not this file's fault; let it end the run.
+		if (err instanceof ParserUnavailableError) throw err
 		return { error: err instanceof Error ? err.message : String(err) }
 	}
 	const sink = new RowSink(nextFnId)

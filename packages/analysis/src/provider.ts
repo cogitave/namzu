@@ -49,6 +49,7 @@ import {
 	toRel,
 } from './indexer.js'
 import { offsetOf, position } from './lines.js'
+import { ParserUnavailableError } from './parse.js'
 import { Store } from './store.js'
 
 export interface CodeAnalysisOptions {
@@ -78,6 +79,12 @@ type Row = Record<string, unknown>
 type Result<T> = CodeAnalysisResult<T>
 
 const failed = <T>(error: string): Result<T> => ({ kind: 'failed', error })
+
+/** An exception inside a query, as the answer it is: unsupported for a missing parser, else failed. */
+function explain<T>(err: unknown): Result<T> {
+	if (err instanceof ParserUnavailableError) return { kind: 'unsupported', reason: err.message }
+	return failed(err instanceof Error ? err.message : String(err))
+}
 
 /** One root's open store, shared by every request for it. */
 interface Opened {
@@ -162,7 +169,7 @@ export function createCodeAnalysisProvider(
 				return await body(o, built)
 			})
 		} catch (err) {
-			return failed(err instanceof Error ? err.message : String(err))
+			return explain(err)
 		}
 	}
 
@@ -253,7 +260,7 @@ export function createCodeAnalysisProvider(
 					}
 				})
 			} catch (err) {
-				return failed(err instanceof Error ? err.message : String(err))
+				return explain(err)
 			}
 		},
 

@@ -11,16 +11,36 @@ type OxcModule = typeof import('oxc-parser')
 
 let oxc: Promise<{ module: OxcModule; raw: boolean }> | undefined
 
+/**
+ * The parser cannot be loaded: its native binary is missing for this platform,
+ * or the package is not installed. Distinct from a file that does not parse,
+ * because it is not about any file: every file would fail the same way, and an
+ * index that recorded each as "parser failure" would be empty while looking
+ * merely incomplete.
+ */
+export class ParserUnavailableError extends Error {
+	override readonly name = 'ParserUnavailableError'
+}
+
 async function loadOxc(): Promise<{ module: OxcModule; raw: boolean }> {
-	oxc ??= import('oxc-parser').then((module) => {
-		let raw = false
-		try {
-			raw = module.rawTransferSupported()
-		} catch {
-			raw = false
-		}
-		return { module, raw }
-	})
+	oxc ??= import('oxc-parser').then(
+		(module) => {
+			let raw = false
+			try {
+				raw = module.rawTransferSupported()
+			} catch {
+				raw = false
+			}
+			return { module, raw }
+		},
+		(err: unknown) => {
+			// Not cached: a later call may succeed once the install is repaired.
+			oxc = undefined
+			throw new ParserUnavailableError(
+				`The JavaScript parser (oxc-parser) could not be loaded: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		},
+	)
 	return await oxc
 }
 
