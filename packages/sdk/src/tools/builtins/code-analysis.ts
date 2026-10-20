@@ -54,11 +54,8 @@ const paging = {
 		.min(1)
 		.max(MAX_LIMIT)
 		.optional()
-		.describe(`Results per page. Default ${DEFAULT_LIMIT}, at most ${MAX_LIMIT}.`),
-	cursor: z
-		.string()
-		.optional()
-		.describe('The `next cursor` from the previous page, unchanged. Absent starts at the first.'),
+		.describe(`Results per page (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
+	cursor: z.string().optional().describe('`next cursor` from the previous page, unchanged.'),
 }
 
 const maxChars = z
@@ -67,36 +64,27 @@ const maxChars = z
 	.min(200)
 	.max(MAX_MAX_CHARS)
 	.optional()
-	.describe(
-		`Cap on the source shown, in characters. Default ${DEFAULT_MAX_CHARS}. A cut is reported, never silent.`,
-	)
+	.describe(`Cap on source shown (default ${DEFAULT_MAX_CHARS}); a cut is reported.`)
 
+// Descriptions are short on purpose: this schema is sent with every request,
+// and the first draft of it cost four times what `grep`'s does.
 const indexOp = z.object({
 	operation: z
 		.literal('index')
-		.describe(
-			'Build or refresh the index for a directory. Incremental: only files whose size, mtime and content changed are re-read. The other operations build it on first use, so call this to refresh after files changed.',
-		),
-	path: z
-		.string()
-		.optional()
-		.describe(
-			'A directory of this session, relative to the working directory; defaults to it. The index covers the whole session directory that contains it, so a subdirectory refreshes its parent root.',
-		),
-	force: z.boolean().optional().describe('Re-read every file even if it looks unchanged.'),
+		.describe('Build or refresh the index (incremental). Other operations build it on first use.'),
+	path: z.string().optional().describe('A session directory; defaults to the working directory.'),
+	force: z.boolean().optional().describe('Re-read every file.'),
 })
 
 const findLiteralOp = z.object({
 	operation: z
 		.literal('find_literal')
-		.describe(
-			'Find a string or template literal containing `text`, and the function each hit is in.',
-		),
-	text: z.string().min(1).describe('The substring to find inside string literals.'),
+		.describe('Find string/template literals containing `text`, each with its enclosing function.'),
+	text: z.string().min(1),
 	path: z
 		.string()
 		.optional()
-		.describe('File or directory to search, relative to the working directory. Defaults to it.'),
+		.describe('File or directory to search; defaults to the working directory.'),
 	case_sensitive: z.boolean().optional().describe('Default true.'),
 	...paging,
 })
@@ -104,17 +92,15 @@ const findLiteralOp = z.object({
 const enclosingOp = z.object({
 	operation: z
 		.literal('enclosing_function')
-		.describe(
-			'The function containing a position: its exact source, its line range and its parent chain.',
-		),
-	path: z.string().describe('File, relative to the working directory.'),
-	line: z.number().int().min(1).describe('One-based line.'),
+		.describe('The function containing a position: exact source, line range, parent chain.'),
+	path: z.string(),
+	line: z.number().int().min(1).describe('1-based.'),
 	column: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
-		.describe('One-based column in UTF-16 units. Default 1. Needed on a minified single line.'),
+		.describe('1-based UTF-16 column (default 1); needed on minified lines.'),
 	max_chars: maxChars,
 })
 
@@ -122,11 +108,11 @@ const functionSourceOp = z.object({
 	operation: z
 		.literal('function_source')
 		.describe(
-			"A function's exact source, by `function_id` from an earlier result or by file and name.",
+			"A function's exact source, by `function_id` from a result, or by `path` and `name`.",
 		),
-	function_id: z.number().int().min(0).optional().describe('An id printed by an earlier result.'),
-	path: z.string().optional().describe('File, relative to the working directory (with `name`).'),
-	name: z.string().min(1).optional().describe('Function name inside `path`.'),
+	function_id: z.number().int().min(0).optional(),
+	path: z.string().optional(),
+	name: z.string().min(1).optional(),
 	max_chars: maxChars,
 	...paging,
 })
@@ -135,31 +121,21 @@ const callersOp = z.object({
 	operation: z
 		.literal('callers_of')
 		.describe(
-			'Call sites of a name, each with the function it sits in. Matched by TEXT, not by scope: unrelated functions with the same name are the same callee. Per file by default.',
+			'Call sites of a callee TEXT (not scope-aware), each with its caller. Per file by default.',
 		),
-	name: z.string().min(1).describe('The callee text: `foo`, `obj.foo`, `this.foo`.'),
+	name: z.string().min(1).describe('Callee text: `foo`, `obj.foo`, `this.foo`.'),
 	scope: z
 		.enum(['file', 'workspace'])
 		.optional()
-		.describe(
-			'`file` (default) looks only inside `path`. `workspace` looks across the whole index and will mix functions that share a name.',
-		),
-	path: z
-		.string()
-		.optional()
-		.describe('File for `file` scope; with `workspace` scope, a directory to narrow to.'),
-	match: z
-		.enum(['exact', 'member'])
-		.optional()
-		.describe(
-			'`exact` (default) matches the callee as written; `member` also matches `<anything>.name`.',
-		),
+		.describe('`file` (default) needs `path`; `workspace` mixes same-named functions.'),
+	path: z.string().optional(),
+	match: z.enum(['exact', 'member']).optional().describe('`member` also matches `<expr>.name`.'),
 	...paging,
 })
 
 const importsOp = z.object({
 	operation: z.literal('imports').describe("One file's imports and exports."),
-	path: z.string().describe('File, relative to the working directory.'),
+	path: z.string(),
 	...paging,
 })
 
@@ -179,7 +155,7 @@ export const CODE_ANALYSIS_TOOL_NAME = 'code_analysis'
 export const CodeAnalysisTool = defineTool({
 	name: CODE_ANALYSIS_TOOL_NAME,
 	description:
-		"Cited lookups over a semantic index of JavaScript/TypeScript: find a string literal and the function it is in, read that function whole, list its callers, list a file's imports. Use it on minified or unfamiliar code where grep returns one huge line. Every result is paged, cited as path:line:column, and says what was observed, what was inferred, and whether coverage is complete.",
+		"Find a string in JS/TS code and the function around it, read that function whole, list its callers or a file's imports. For minified or unfamiliar code where grep returns one huge line. Paged, cited as path:line:column, with observed/inferred/coverage evidence.",
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
