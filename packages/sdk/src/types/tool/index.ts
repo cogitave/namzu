@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import type { z } from 'zod'
+import type { CodeAnalysisProvider } from '../code-analysis/index.js'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
 // terms of the tool that produced the result, and the registry that holds
@@ -465,6 +466,14 @@ export interface ToolContext {
 	 * always says "unavailable" is worse than one that is not there.
 	 */
 	codeNavigation?: CodeNavigationProvider
+	/**
+	 * A semantic index of JavaScript/TypeScript, for the `code_analysis` tool.
+	 *
+	 * Same rule as `codeNavigation`: absent means the tool is not registered,
+	 * so a tool that is always present and always says "unavailable" never
+	 * exists. See `tools/builtins/code-analysis.ts`.
+	 */
+	codeAnalysis?: CodeAnalysisProvider
 	fileReadTracker?: FileReadTracker
 
 	/**

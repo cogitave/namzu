@@ -19,6 +19,7 @@ import type { EmitEvent } from './events.js'
 
 export interface ToolingBootstrapConfig {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
+	codeAnalysis?: import('../../types/code-analysis/index.js').CodeAnalysisProvider
 	tools: ToolManager
 	/** Exact runtime output-tool owner for opt-in JSON retention; see ToolExecutorConfig. */
 	durableStructuredOutputTool?: ToolDefinition
@@ -86,6 +87,7 @@ export class ToolingBootstrap {
 					? { durableStructuredOutputTool: config.durableStructuredOutputTool }
 					: {}),
 				...(config.fileReadTracker ? { fileReadTracker: config.fileReadTracker } : {}),
+				...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),
 				sessionId: config.sessionId,
 				turnId: config.turnId,
 				workingDirectory: config.workingDirectory,

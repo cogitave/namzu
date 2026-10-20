@@ -153,6 +153,8 @@ import { ToolingBootstrap } from './tooling.js'
 export interface QueryParams {
 	/** Share observations across turns of one conversation and filesystem; otherwise run-local. */
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
+	/** The `code_analysis` tool's index; see `ToolContext.codeAnalysis`. Absent: the tool is not offered. */
+	codeAnalysis?: import('../../types/code-analysis/index.js').CodeAnalysisProvider
 	/** One ledger shared with the task scheduler and descendant child sessions, keyed by (rootSessionId, rootTurnId). */
 	budget?: SessionTokenBudget
 	/**
@@ -1428,6 +1430,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.skillRegistry ? { skills: params.skillRegistry } : {}),
 				...(params.web ? { web: params.web } : {}),
 				...(params.fileReadTracker ? { fileReadTracker: params.fileReadTracker } : {}),
+				...(params.codeAnalysis ? { codeAnalysis: params.codeAnalysis } : {}),
 				...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 				...(params.toolRetryBackoff !== undefined
 					? { toolRetryBackoff: params.toolRetryBackoff }

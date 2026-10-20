@@ -78,6 +78,11 @@ export {
 	SANDBOX_ESCAPE_NOT_APPROVED,
 	execHostShell,
 } from './tools/builtins/bash.js'
+export {
+	CODE_ANALYSIS_TOOL_NAME,
+	CodeAnalysisTool,
+	getCodeAnalysisTools,
+} from './tools/builtins/code-analysis.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'

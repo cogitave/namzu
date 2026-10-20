@@ -64,6 +64,30 @@ export type {
 } from './connector/mcp/reconnect.js'
 
 export type {
+	AnalysisCallSite,
+	AnalysisCoverage,
+	AnalysisEnclosingFunction,
+	AnalysisEvidence,
+	AnalysisFunction,
+	AnalysisFunctionKind,
+	AnalysisFunctionSource,
+	AnalysisLiteralHit,
+	AnalysisModuleEdge,
+	AnalysisPage,
+	AnalysisPaging,
+	AnalysisSourceSlice,
+	CallersOfRequest,
+	CodeAnalysisProvider,
+	CodeAnalysisResult,
+	EnclosingFunctionRequest,
+	FindLiteralRequest,
+	FunctionSourceRequest,
+	ImportsRequest,
+	IndexRequest,
+	IndexSummary,
+} from './types/code-analysis/index.js'
+
+export type {
 	CodeNavigationProvider,
 	CodeNavigationResult,
 	HoverResult,

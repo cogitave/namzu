@@ -1,0 +1,361 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import type {
+	AnalysisEvidence,
+	AnalysisFunction,
+	CodeAnalysisProvider,
+	CodeAnalysisResult,
+} from '../../../types/code-analysis/index.js'
+import type { ToolContext } from '../../../types/tool/index.js'
+import { CodeAnalysisTool, getCodeAnalysisTools } from '../code-analysis.js'
+import { ReadFileTool } from '../read-file.js'
+
+/**
+ * The kernel half of code analysis: whether the tool exists at all, which
+ * boundary a path goes through, and how the evidence reads on the page.
+ *
+ * Parsing and the store are `@namzu/analysis`'s to prove. What is here is what
+ * a provider cannot defend itself against — a tool registered when there is
+ * nothing to call, and a path pointing outside the workspace.
+ */
+
+const complete: AnalysisEvidence = {
+	observed: ['read from the index'],
+	inferred: [],
+	coverage: { status: 'complete' },
+}
+
+const fn: AnalysisFunction = {
+	id: 7,
+	name: 'handler',
+	kind: 'arrow',
+	path: '/w/a.js',
+	line: 3,
+	column: 5,
+	endLine: 9,
+	start: 40,
+	end: 120,
+}
+
+interface Seen {
+	readonly op: string
+	readonly request: Record<string, unknown>
+}
+
+function stub(over: Partial<CodeAnalysisProvider> = {}, seen: Seen[] = []): CodeAnalysisProvider {
+	const ok = <T>(value: T): CodeAnalysisResult<T> => ({ kind: 'ok', value, evidence: complete })
+	const record = (op: string) => (request: unknown) => {
+		seen.push({ op, request: request as Record<string, unknown> })
+	}
+	return {
+		index: async (r) => {
+			record('index')(r)
+			return ok({
+				root: r.root,
+				persisted: true,
+				files: { indexed: 2, parsed: 2, unchanged: 0, removed: 0, skipped: 1, withParseErrors: 0 },
+				skippedReasons: { binary: 1 },
+				functions: 3,
+				strings: 4,
+				calls: 5,
+				durationMs: 6,
+			})
+		},
+		findLiteral: async (r) => {
+			record('findLiteral')(r)
+			return ok({ items: [], total: 0 })
+		},
+		enclosingFunction: async (r) => {
+			record('enclosingFunction')(r)
+			return ok({ function: fn, parents: [] })
+		},
+		functionSource: async (r) => {
+			record('functionSource')(r)
+			return ok({ items: [], total: 0 })
+		},
+		callersOf: async (r) => {
+			record('callersOf')(r)
+			return ok({ items: [], total: 0 })
+		},
+		imports: async (r) => {
+			record('imports')(r)
+			return ok({ items: [], total: 0 })
+		},
+		dispose: async () => {},
+		...over,
+	}
+}
+
+describe('registration', () => {
+	it('is ABSENT when no provider is configured', () => {
+		expect(getCodeAnalysisTools(undefined)).toEqual([])
+	})
+
+	it('is present when one is', () => {
+		expect(getCodeAnalysisTools(stub())).toEqual([CodeAnalysisTool])
+	})
+
+	it('declares the same path argument as read, so the host reviews it the same way', () => {
+		expect(CodeAnalysisTool.pathArgument).toBe('path')
+		expect(CodeAnalysisTool.pathArgument).toBe(ReadFileTool.pathArgument)
+	})
+})
+
+describe('path boundary', () => {
+	let dir: string
+	let outside: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'namzu-ca-'))
+		outside = mkdtempSync(join(tmpdir(), 'namzu-ca-out-'))
+		writeFileSync(join(dir, 'a.js'), 'export const x = 1\n')
+		writeFileSync(join(outside, 'secret.js'), 'export const s = 1\n')
+	})
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true })
+		rmSync(outside, { recursive: true, force: true })
+	})
+
+	const ctx = (over: Partial<ToolContext>): ToolContext =>
+		({ workingDirectory: dir, ...over }) as ToolContext
+
+	it('refuses an outside path with the message read gives, before the provider is asked', async () => {
+		const seen: Seen[] = []
+		const outsidePath = join(outside, 'secret.js')
+		const mine = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: outsidePath },
+			ctx({ codeAnalysis: stub({}, seen) }),
+		)
+		const theirs = await ReadFileTool.execute({ path: outsidePath }, ctx({}))
+
+		expect(mine.success).toBe(false)
+		expect(theirs.success).toBe(false)
+		// One resolver, one wording: the boundary is the session's, not the tool's.
+		expect(theirs.error).toContain(mine.error as string)
+		expect(seen).toEqual([])
+	})
+
+	it('refuses a symlink that climbs out, as read does', async () => {
+		symlinkSync(outside, join(dir, 'link'))
+		const seen: Seen[] = []
+		const mine = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: 'link/secret.js' },
+			ctx({ codeAnalysis: stub({}, seen) }),
+		)
+		const theirs = await ReadFileTool.execute({ path: 'link/secret.js' }, ctx({}))
+		expect(mine.success).toBe(false)
+		expect(theirs.success).toBe(false)
+		expect(seen).toEqual([])
+	})
+
+	it('accepts an outside path once the session has added the directory', async () => {
+		const seen: Seen[] = []
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: join(outside, 'secret.js') },
+			ctx({ codeAnalysis: stub({}, seen), additionalDirectories: [outside] }),
+		)
+		expect(result.success).toBe(true)
+		expect(seen).toHaveLength(1)
+		expect((seen[0]?.request.root as string).endsWith(outside.split('/').pop() as string)).toBe(
+			true,
+		)
+	})
+
+	it('does not widen a single approved file into its directory', async () => {
+		const seen: Seen[] = []
+		const file = join(outside, 'secret.js')
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: file },
+			ctx({ codeAnalysis: stub({}, seen), approvedPaths: [file] }),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('single file')
+		expect(seen).toEqual([])
+	})
+
+	it('hands the provider the root and an absolute path inside it', async () => {
+		const seen: Seen[] = []
+		await CodeAnalysisTool.execute(
+			{ operation: 'enclosing_function', path: 'a.js', line: 3, column: 9 },
+			ctx({ codeAnalysis: stub({}, seen) }),
+		)
+		const req = seen[0]?.request as { root: string; path: string; line: number; column: number }
+		expect(req.path.startsWith(req.root)).toBe(true)
+		expect(req.path.endsWith('a.js')).toBe(true)
+		expect(req).toMatchObject({ line: 3, column: 9 })
+	})
+
+	it('refuses in a sandboxed turn, where the host file system is not the workspace', async () => {
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: 'a.js' },
+			ctx({ codeAnalysis: stub(), sandbox: {} as ToolContext['sandbox'] }),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('sandbox')
+	})
+})
+
+describe('answers', () => {
+	let dir: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'namzu-ca-'))
+		mkdirSync(join(dir, 'src'))
+		writeFileSync(join(dir, 'src', 'a.js'), 'x\n')
+	})
+	afterEach(() => rmSync(dir, { recursive: true, force: true }))
+	const ctx = (p: CodeAnalysisProvider): ToolContext =>
+		({ workingDirectory: dir, codeAnalysis: p }) as ToolContext
+
+	it('prints a page with its total, its cursor, and the evidence', async () => {
+		const provider = stub({
+			findLiteral: async () => ({
+				kind: 'ok',
+				value: {
+					items: [
+						{
+							path: '/w/a.js',
+							line: 3,
+							column: 17,
+							start: 50,
+							end: 60,
+							kind: 'string',
+							value: 'hello',
+							valueTruncated: false,
+							function: fn,
+						},
+					],
+					total: 120,
+					nextCursor: 'abc',
+				},
+				evidence: {
+					observed: ['1 literal contains "hello"'],
+					inferred: ['the enclosing function is the innermost one by range'],
+					coverage: { status: 'partial', reasons: ['1 file failed to parse'] },
+				},
+			}),
+		})
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'find_literal', text: 'hello' },
+			ctx(provider),
+		)
+
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('/w/a.js:3:17')
+		expect(result.output).toContain('handler [arrow, id 7]')
+		expect(result.output).toContain('1 of 120 shown. next cursor: abc')
+		expect(result.output).toContain('observed: 1 literal contains "hello"')
+		expect(result.output).toContain('inferred: the enclosing function')
+		expect(result.output).toContain('coverage: partial - 1 file failed to parse')
+		expect(result.data).toMatchObject({ value: { total: 120, nextCursor: 'abc' } })
+	})
+
+	it('says "No results" for an empty page, which is an answer', async () => {
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'callers_of', name: 'f', path: 'src/a.js' },
+			ctx(stub()),
+		)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('No results.')
+		expect(result.output).toContain('coverage: complete')
+	})
+
+	it('reports a cut source slice as cut', async () => {
+		const provider = stub({
+			enclosingFunction: async () => ({
+				kind: 'ok',
+				value: {
+					function: fn,
+					parents: [],
+					source: { text: 'function(){', chars: 90_000, truncated: true },
+				},
+				evidence: complete,
+			}),
+		})
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'enclosing_function', path: 'src/a.js', line: 1 },
+			ctx(provider),
+		)
+		expect(result.output).toContain('cut: showing 11 of 90000 characters')
+	})
+
+	it('turns a FAILURE into an error naming it unknown, never an empty result', async () => {
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: 'src/a.js' },
+			ctx(stub({ imports: async () => ({ kind: 'failed', error: 'the store is locked' }) })),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('unknown rather than empty')
+		expect(result.error).toContain('the store is locked')
+	})
+
+	it('turns UNSUPPORTED into a pointer at grep', async () => {
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'imports', path: 'src/a.js' },
+			ctx(stub({ imports: async () => ({ kind: 'unsupported', reason: 'No SQLite here.' }) })),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('grep')
+	})
+
+	it('refuses callers_of with no file unless the wider scope is asked for by name', async () => {
+		const seen: Seen[] = []
+		const narrow = await CodeAnalysisTool.execute(
+			{ operation: 'callers_of', name: 'f' },
+			ctx(stub({}, seen)),
+		)
+		expect(narrow.success).toBe(false)
+		expect(narrow.error).toContain('scope')
+		expect(seen).toEqual([])
+
+		const wide = await CodeAnalysisTool.execute(
+			{ operation: 'callers_of', name: 'f', scope: 'workspace' },
+			ctx(stub({}, seen)),
+		)
+		expect(wide.success).toBe(true)
+		expect(seen[0]?.request).toMatchObject({ scope: 'workspace', name: 'f' })
+	})
+
+	it('needs an id, or a path and a name, for function_source', async () => {
+		const result = await CodeAnalysisTool.execute({ operation: 'function_source' }, ctx(stub()))
+		expect(result.success).toBe(false)
+	})
+
+	it('passes paging through with the default limit', async () => {
+		const seen: Seen[] = []
+		await CodeAnalysisTool.execute(
+			{ operation: 'find_literal', text: 'q', cursor: 'c1' },
+			ctx(stub({}, seen)),
+		)
+		expect(seen[0]?.request).toMatchObject({ limit: 50, cursor: 'c1', text: 'q' })
+	})
+
+	it('refuses with no provider on the context', async () => {
+		const result = await CodeAnalysisTool.execute({ operation: 'imports', path: 'src/a.js' }, {
+			workingDirectory: dir,
+		} as ToolContext)
+		expect(result.error).toContain('no code analysis provider')
+	})
+})
+
+describe('the input schema', () => {
+	const parse = (input: unknown) => CodeAnalysisTool.inputSchema.safeParse(input)
+
+	it('rejects unknown operations and out-of-range paging', () => {
+		expect(parse({ operation: 'nope' }).success).toBe(false)
+		expect(parse({ operation: 'find_literal', text: 'x', limit: 5000 }).success).toBe(false)
+		expect(parse({ operation: 'find_literal', text: '' }).success).toBe(false)
+		expect(parse({ operation: 'enclosing_function', path: 'a.js', line: 0 }).success).toBe(false)
+	})
+
+	it('accepts each operation in its minimal form', () => {
+		expect(parse({ operation: 'index' }).success).toBe(true)
+		expect(parse({ operation: 'find_literal', text: 'x' }).success).toBe(true)
+		expect(parse({ operation: 'enclosing_function', path: 'a.js', line: 1 }).success).toBe(true)
+		expect(parse({ operation: 'function_source', function_id: 1 }).success).toBe(true)
+		expect(parse({ operation: 'callers_of', name: 'f', path: 'a.js' }).success).toBe(true)
+		expect(parse({ operation: 'imports', path: 'a.js' }).success).toBe(true)
+	})
+})
