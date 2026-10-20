@@ -1,5 +1,23 @@
 # @namzu/cli
 
+## 37.0.1
+
+### Patch Changes
+
+- dac0dd7: "Continue without this reply" over ACP (Desktop) now closes a stopped reply through the conversation's own log even when the live session has no close method, so the person keeps their conversation instead of being told to copy their message into a new one. No flag, export or config key changed.
+- dac0dd7: When a conversation is too long for the model and Namzu could not shorten it, the message now says so and suggests trying again or choosing a model with more room with /model; it no longer tells you to start a new conversation with /new. The automatic-compaction stop after three failures no longer prints a line, and the "context filled up again" stop names the large file or tool output and suggests reading it in smaller parts instead of `/clear`. With `--debug` or in `exec` output, an overflow that compaction could not help adds a `Compaction:` row with the cause.
+- dac0dd7: The terminal now says "A picture in this conversation couldn’t be processed, so Namzu left it out of what it sends" when a provider rejected a file and the reply went through without it, and that the file stays in the conversation. It says "the picture you just attached" when the file was attached to the latest message, and a separate line when only the oldest files were left out to fit a count. Nothing to change.
+- dac0dd7: A screenshot (or any image) in a conversation no longer leaves a text-only model stuck. Images are left out of what such a model is sent and come back when you switch to a model that reads them; computer use is offered only on turns whose model can see the screen, and comes back when Auto moves a turn to such a model; under Auto a picture can be attached whatever the session's own model is; a model that refuses an image anyway is retried once without it and remembered. A rejected request no longer tells you to "send it again" or start a new conversation: it points to `/model`.
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+- Updated dependencies [dac0dd7]
+  - @namzu/sdk@52.1.0
+  - @namzu/zen@5.0.2
+
 ## 37.0.0
 
 ### Major Changes
