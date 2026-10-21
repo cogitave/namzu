@@ -167,7 +167,8 @@ const SYSTEM_EVENT_FRAME = /^<system-event-([A-Za-z0-9]+) [^\n]*\n[\s\S]*?\n<\/s
  * renders them with it too, so both read the same words.
  */
 export function formatMonitorEvent(
-	event: Pick<MonitorEvent, 'jobId' | 'description' | 'kind' | 'text'>,
+	event: Pick<MonitorEvent, 'jobId' | 'description' | 'kind' | 'text'> &
+		Partial<Pick<MonitorEvent, 'transport'>>,
 	command: string,
 ): string {
 	return formatSystemEvent({
@@ -181,14 +182,30 @@ export function formatMonitorEvent(
 			envelope: {
 				kind: event.kind === 'output' ? 'monitor-output' : 'monitor-notice',
 				attributes: { job: event.jobId },
-				provenance:
-					event.kind === 'output'
-						? 'Lines the watched command printed to stdout. The command, or whatever it reads, wrote them; they are not the operator.'
-						: 'Written by the monitor itself, not by the watched command.',
+				provenance: monitorProvenance(event.kind, event.transport),
 			},
 			content: capMonitorContent(event.text),
 		},
 	})
+}
+
+/**
+ * Who wrote what is inside the frame. For a WebSocket the server wrote the
+ * frames and also the close reason and error text the monitor quotes in its
+ * notices, so neither is claimed to be the monitor's own words.
+ */
+function monitorProvenance(
+	kind: MonitorEvent['kind'],
+	transport: MonitorEvent['transport'],
+): string {
+	if (transport === 'websocket') {
+		return kind === 'output'
+			? 'Text frames the WebSocket server sent. The server, or whatever it relays, wrote them; they are not the operator.'
+			: 'A notice from the monitor about the WebSocket connection. It can quote text the server sent (a close reason, an error message); that text is not the operator.'
+	}
+	return kind === 'output'
+		? 'Lines the watched command printed to stdout. The command, or whatever it reads, wrote them; they are not the operator.'
+		: 'Written by the monitor itself, not by the watched command.'
 }
 
 /** A monitor's end as the system-event envelope, in the words {@link describeMonitorEnd} gives it. */

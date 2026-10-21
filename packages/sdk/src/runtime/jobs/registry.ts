@@ -108,6 +108,8 @@ export interface MonitorEvent {
 	readonly kind: 'output' | 'notice'
 	readonly text: string
 	readonly at: number
+	/** Set when the source is a WebSocket connection, whose text the server wrote. */
+	readonly transport?: 'websocket'
 }
 
 export interface BackgroundJobOutput {
@@ -402,6 +404,7 @@ export class BackgroundJobRegistry {
 			kind,
 			text,
 			at: Date.now(),
+			...(entry.record.transport ? { transport: entry.record.transport } : {}),
 		}
 		for (const listener of this.monitorListeners) {
 			try {
@@ -1300,10 +1303,12 @@ export function describeMonitorEnd(
 		// closed, by the server and with a code, or it never opened.
 		if (job.closeCode === undefined)
 			return { status: 'failed', summary: `${label} connection failed` }
-		const reason = job.closeReason ? ` ${oneMetadataLine(job.closeReason)}` : ''
+		// The code only. The server's reason is text it chose, and the summary
+		// is a metadata line outside the untrusted frame; the reason reaches the
+		// model inside the frame, in the `[WebSocket closed: ...]` notice.
 		return {
 			status: job.exitCode === 0 ? 'completed' : 'failed',
-			summary: `${label} connection closed (${job.closeCode}${reason})`,
+			summary: `${label} connection closed (${job.closeCode})`,
 		}
 	}
 	if (job.exitCode === 0 && job.error === undefined) {

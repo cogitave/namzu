@@ -206,7 +206,7 @@ describe('a WebSocket monitor ends with a notice, and nothing follows it', () =>
 		expect(ended.closeCode).toBe(4000)
 		expect(describeMonitorEnd(ended, registry.monitorStats(job.id))).toEqual({
 			status: 'failed',
-			summary: 'Monitor "the feed" connection closed (4000 bye now)',
+			summary: 'Monitor "the feed" connection closed (4000)',
 		})
 	})
 
