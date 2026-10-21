@@ -143,13 +143,25 @@ export interface BackgroundJobRegistryRef {
 	 * rather than start a watch nobody will hear from. Throws when the owner is
 	 * at its job cap.
 	 */
-	startMonitor?(
-		params: {
-			description: string
-			timeoutMs: number
-			workingDirectory?: string
-		} & ({ command: string } | { webSocket: MonitorWebSocketTarget }),
-	): { job: { id: string; status: string }; timeoutMs: number }
+	startMonitor?(params: {
+		command: string
+		description: string
+		timeoutMs: number
+		workingDirectory?: string
+	}): { job: { id: string; status: string }; timeoutMs: number }
+	/**
+	 * Start a monitor whose source is a WebSocket connection. Separate from
+	 * {@link startMonitor} so a host that implements that one for commands is
+	 * not handed an input it was not written for; a host without this method
+	 * refuses a `ws` call with a plain message. The target's addresses are
+	 * already checked; see {@link MonitorWebSocketTarget}.
+	 */
+	startWebSocketMonitor?(params: {
+		description: string
+		timeoutMs: number
+		workingDirectory?: string
+		webSocket: MonitorWebSocketTarget
+	}): { job: { id: string; status: string }; timeoutMs: number }
 	get(id: string): {
 		id: string
 		status: string

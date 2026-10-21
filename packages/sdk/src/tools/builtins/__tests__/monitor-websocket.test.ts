@@ -40,7 +40,8 @@ function fakeJobs() {
 	}))
 	const jobs = {
 		start: vi.fn(),
-		startMonitor,
+		startMonitor: vi.fn(),
+		startWebSocketMonitor: startMonitor,
 		awaitStarted: vi.fn(async () => ({})),
 	} as unknown as BackgroundJobRegistryRef
 	return { jobs, startMonitor }
@@ -274,5 +275,20 @@ describe('a WebSocket monitor, started by the tool', () => {
 		// `job list` and the footers show a monitor by what it watches.
 		expect(job?.kind).toBe('monitor')
 		await bound.kill(job?.id ?? '')
+	})
+})
+
+describe('a host that only starts command monitors', () => {
+	it('is told so in plain words, and is never handed a WebSocket target', async () => {
+		const { jobs, startMonitor } = fakeJobs()
+		const commandOnly = { ...jobs, startWebSocketMonitor: undefined } as BackgroundJobRegistryRef
+		const result = await MonitorTool.execute(
+			parse({ description: 'd', ws: { url: 'wss://93.184.216.34/stream' } }),
+			context({ backgroundJobs: commandOnly }),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot start a WebSocket monitor/)
+		expect(startMonitor).not.toHaveBeenCalled()
+		expect((commandOnly.startMonitor as ReturnType<typeof vi.fn>).mock.calls).toEqual([])
 	})
 })

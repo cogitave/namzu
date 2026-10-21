@@ -132,6 +132,19 @@ export interface BackgroundJobOutput {
 }
 
 /**
+ * What a `spawn` that is not a child process hands the registry: the few
+ * members of {@link JobChild} and how to stop it. A {@link JobProcess} is one
+ * too, so a `spawn` may return either.
+ */
+export interface JobSource {
+	readonly child: JobChild
+	/** How to stop it, when the registry's process-group kill would not reach everything. */
+	kill?(signal: NodeJS.Signals): void
+	/** Confirm the owned tree stopped; reject instead of claiming an unconfirmed exit. */
+	terminate?(signal?: NodeJS.Signals): Promise<void>
+}
+
+/**
  * What the registry reads of a job's process, and nothing more.
  *
  * A `ChildProcess` satisfies it, and so does anything else that writes bytes
@@ -174,7 +187,7 @@ export interface JobHost {
 
 /** A job's process, when something other than the registry starts it. */
 export interface JobProcess {
-	readonly child: JobChild
+	readonly child: ReturnType<typeof spawn>
 	/** How to stop it, when the registry's process-group kill would not reach everything. */
 	kill?(signal: NodeJS.Signals): void
 	/** Confirm the owned tree stopped; reject instead of claiming an unconfirmed exit. */
@@ -192,7 +205,7 @@ export interface StartJobParams {
 	 * host in the `bash` tool's shell (`tools/command-shell.ts`). The process must be the leader of its own group and must not
 	 * expect stdin.
 	 */
-	readonly spawn?: (host: JobHost) => JobProcess
+	readonly spawn?: (host: JobHost) => JobProcess | JobSource
 	/**
 	 * Output the process already wrote before the registry took it over, in
 	 * the order it was written. Used when a foreground command is moved to the
@@ -500,7 +513,7 @@ export class BackgroundJobRegistry {
 				entry.record = { ...entry.record, closeCode: code, closeReason: reason }
 			},
 		}
-		const started: JobProcess = params.spawn
+		const started: JobProcess | JobSource = params.spawn
 			? params.spawn(host)
 			: {
 					child: spawnHostShell(params.command, {
@@ -1185,39 +1198,45 @@ export function bindOwner(
 			...(monitor ? { monitor } : {}),
 		})
 	}
+	const clampMonitorTimeout = (requested: number): number =>
+		Math.min(requested, defaults.monitorTimeoutCapMs ?? MONITOR_TIMEOUT_CAP_MS)
 	return {
 		start: (params: { command: string; workingDirectory?: string }) => launch(params),
 		// The same spawn, owner and cap as `start`, plus a deadline. The timeout
 		// is clamped to the host's ceiling and the clamped value is returned, so
 		// the number the model is told is the number that will fire.
-		startMonitor: (
-			params: {
-				description: string
-				timeoutMs: number
-				workingDirectory?: string
-			} & ({ command: string } | { webSocket: MonitorWebSocketTarget }),
-		) => {
-			const timeoutMs = Math.min(
-				params.timeoutMs,
-				defaults.monitorTimeoutCapMs ?? MONITOR_TIMEOUT_CAP_MS,
-			)
-			let job: BackgroundJob
-			if ('webSocket' in params) {
-				// The host process opens this connection, whatever the sandbox
-				// spawn would have done with a command: the tool has already
-				// checked the address and the sandbox's network rule, and the
-				// socket is pinned to the addresses it checked.
-				const { webSocket } = params
-				job = registry.start({
-					owner,
-					command: webSocketJobCommand(webSocket.url),
-					workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
-					spawn: (host) => connectWebSocketSource({ target: webSocket, host }),
-					monitor: { description: params.description, timeoutMs, transport: 'websocket' },
-				})
-			} else {
-				job = launch(params, { description: params.description, timeoutMs })
-			}
+		startMonitor: (params: {
+			command: string
+			description: string
+			timeoutMs: number
+			workingDirectory?: string
+		}) => {
+			const timeoutMs = clampMonitorTimeout(params.timeoutMs)
+			const job = launch(params, { description: params.description, timeoutMs })
+			defaults.onMonitorStarted?.(job.id)
+			return { job, timeoutMs }
+		},
+		// A monitor whose source is a WebSocket connection the HOST process
+		// opens, whatever the sandbox spawn would have done with a command: the
+		// tool has already checked the address and the sandbox's network rule,
+		// and the socket is pinned to the addresses it checked. A separate
+		// method so a host that implements `startMonitor` for commands is not
+		// handed an input it never wrote code for.
+		startWebSocketMonitor: (params: {
+			description: string
+			timeoutMs: number
+			workingDirectory?: string
+			webSocket: MonitorWebSocketTarget
+		}) => {
+			const timeoutMs = clampMonitorTimeout(params.timeoutMs)
+			const { webSocket } = params
+			const job = registry.start({
+				owner,
+				command: webSocketJobCommand(webSocket.url),
+				workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
+				spawn: (host) => connectWebSocketSource({ target: webSocket, host }),
+				monitor: { description: params.description, timeoutMs, transport: 'websocket' },
+			})
 			defaults.onMonitorStarted?.(job.id)
 			return { job, timeoutMs }
 		},

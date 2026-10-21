@@ -85,7 +85,7 @@ function setup() {
 	// stop was already requested, before its process has finished ending.
 	const exits = new Map<string, Promise<BackgroundJob>>()
 	const start = (url: string, overrides: { timeoutMs?: number } = {}): BackgroundJob => {
-		const job = bound.startMonitor({
+		const job = bound.startWebSocketMonitor({
 			description: 'the feed',
 			timeoutMs: overrides.timeoutMs ?? 300_000,
 			webSocket: { url, addresses: LOOPBACK },

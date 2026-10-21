@@ -8,7 +8,7 @@ import { isPrivateAddress } from '../../connector/web/guarded-fetch.js'
 import { isolationOf } from '../../sandbox/isolation.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { MonitorWebSocketTarget } from '../../types/tool/index.js'
-import type { JobHost, JobProcess } from './registry.js'
+import type { JobHost, JobSource } from './registry.js'
 
 /**
  * A WebSocket as a monitor's source.
@@ -296,7 +296,7 @@ function frameBytes(data: Buffer | ArrayBuffer | Buffer[]): number {
  * The socket library is loaded when the first monitor of this kind starts, so
  * a session that never watches a WebSocket never pays for it.
  */
-export function connectWebSocketSource(options: WebSocketSourceOptions): JobProcess {
+export function connectWebSocketSource(options: WebSocketSourceOptions): JobSource {
 	const { target, host } = options
 	const stand = Object.assign(new EventEmitter(), {
 		pid: undefined,

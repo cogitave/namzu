@@ -151,6 +151,9 @@ export interface MonitorToolOptions {
 export const MONITOR_WEBSOCKET_WEB_OFF =
 	"WebSocket monitors follow the host's web access setting, and web access is switched off here, so no connection was opened. Watch the service with a command (for example curl or websocat through monitor) if the operator allows it."
 
+const MONITOR_WEBSOCKET_NOT_SUPPORTED =
+	'This host cannot start a WebSocket monitor, so no connection was opened. Watch the service with a command through monitor if the operator allows it.'
+
 /**
  * The tool, built once with defaults for a host and again by a test that needs
  * to reach a server on this machine. The options belong to whoever builds the
@@ -273,7 +276,14 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 						'monitor was requested, but this host provides no background job registry. Run the command in the foreground with bash, with a timeout.',
 				}
 			}
-			if (!jobs.startMonitor) {
+			if (webSocket !== undefined && !jobs.startWebSocketMonitor) {
+				return {
+					success: false,
+					output: '',
+					error: MONITOR_WEBSOCKET_NOT_SUPPORTED,
+				}
+			}
+			if (webSocket === undefined && !jobs.startMonitor) {
 				return {
 					success: false,
 					output: '',
@@ -283,14 +293,21 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 			}
 
 			try {
-				const source =
-					webSocket !== undefined ? { webSocket } : { command: input.command as string }
-				const { job, timeoutMs } = jobs.startMonitor({
-					...source,
+				const common = {
 					description: input.description,
 					timeoutMs: input.timeout_ms,
 					workingDirectory: context.workingDirectory,
-				})
+				}
+				const { job, timeoutMs } =
+					webSocket !== undefined
+						? (jobs.startWebSocketMonitor as NonNullable<typeof jobs.startWebSocketMonitor>)({
+								...common,
+								webSocket,
+							})
+						: (jobs.startMonitor as NonNullable<typeof jobs.startMonitor>)({
+								...common,
+								command: input.command as string,
+							})
 				// `startMonitor` returns before the process exists, and a spawn that
 				// fails reports a tick later; wait for that one event so "started" is
 				// never said of a watch that could not start.
