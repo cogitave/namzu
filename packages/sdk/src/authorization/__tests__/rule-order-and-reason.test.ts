@@ -77,7 +77,7 @@ describe('the safety floor still outranks everything', () => {
 		}).evaluate({
 			toolName: 'bash',
 			toolInput: { command: 'rm -rf /' },
-			toolDef: toolDef('bash', false),
+			toolDef: { ...toolDef('bash', false), commandArgument: 'command' } as ToolDefinition,
 		})
 
 		expect(result.decision).toBe('deny')
