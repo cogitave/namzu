@@ -138,3 +138,4 @@ The kernel.
 * [Decision models](decision.md) - Provider-agnostic System-1 decision models (yes/no, choice, score) and the Azure AI Foundry driver.
 * [Text-only models and images](text-only-models-and-images.md) - How a conversation that holds an image keeps working on a model that cannot read one.
 * [Repairing a request the provider rejects](request-repair.md) - How the runtime repairs and resends a request a provider rejects as invalid, so a conversation does not dead-end on a 400.
+* [Native binary analysis](native-analysis.md) - The namzu-analysis-native Rust sidecar and its TypeScript client: ELF, PE and Mach-O info, symbols, imports, strings, Bun and Node SEA payload extraction, and the asar reader.

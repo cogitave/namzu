@@ -1,0 +1,35 @@
+# Dependency policy for the sidecar. `cargo deny check licenses bans sources`
+# is what `pnpm --filter @namzu/analysis-native lint` runs.
+#
+# Namzu is FSL-1.1-MIT. The sidecar is shipped as an executable, so a
+# copyleft licence anywhere in the tree would bind the binary: none is allowed.
+# Rizin, radare2 and Ghidra-derived GPL/LGPL code are deliberately absent.
+
+[graph]
+all-features = false
+
+[licenses]
+confidence-threshold = 0.9
+# The crate itself is `publish = false`; its licence is the repository's.
+private = { ignore = true }
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -73,6 +73,9 @@
 			"path": "./packages/analysis"
 		},
 		{
+			"path": "./packages/analysis-native"
+		},
+		{
 			"path": "./packages/live"
 		},
 		{
