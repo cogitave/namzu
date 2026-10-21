@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	type CodeAnalysisProvider,
 	CodeAnalysisTool,
+	SearchToolsTool,
 	type ToolContext,
 	ToolManager,
 	type Toolset,
@@ -27,12 +28,20 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 
 let queryToolNames: readonly string[] = []
+let queryToolsets: readonly Toolset[] = []
+let queryPrompt = ''
 let queryCodeAnalysis: CodeAnalysisProvider | undefined
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
-		query: (params: { toolsets: readonly Toolset[]; codeAnalysis?: CodeAnalysisProvider }) => {
+		query: (params: {
+			toolsets: readonly Toolset[]
+			codeAnalysis?: CodeAnalysisProvider
+			systemPrompt?: string
+		}) => {
+			queryToolsets = params.toolsets
+			queryPrompt = params.systemPrompt ?? ''
 			const manager = new ToolManager({ toolsets: params.toolsets, messages: () => [] })
 			queryToolNames = manager.toLLMTools().map((tool) => tool.function.name)
 			queryCodeAnalysis = params.codeAnalysis
@@ -72,6 +81,8 @@ beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'namzu-code-analysis-'))
 	stateRoot = mkdtempSync(join(tmpdir(), 'namzu-code-analysis-home-'))
 	queryToolNames = []
+	queryToolsets = []
+	queryPrompt = ''
 	queryCodeAnalysis = undefined
 })
 
@@ -117,17 +128,60 @@ async function sessionWith(codeAnalysis?: { enabled?: boolean }) {
 }
 
 describe('code_analysis reaches the session', () => {
-	it('is offered, with its provider on the kernel params, when the host passes the option', async () => {
+	it('is offered deferred, with its provider on the kernel params, when the host passes the option', async () => {
 		const session = await sessionWith({})
 		expect(session.toolNames()).toContain('code_analysis')
-		expect(queryToolNames).toContain('code_analysis')
+		// Deferred: its schema is not among the tools sent with the request.
+		expect(queryToolNames).not.toContain('code_analysis')
+		const deferredNames = queryToolsets
+			.filter((ts) => ts.availability === 'deferred')
+			.flatMap((ts) => ts.tools().map((t) => t.name))
+		expect(deferredNames).toContain('code_analysis')
+		// The model is told how to load a deferred tool even though the session is not in deferred mode.
+		expect(queryPrompt).toContain('search_tools')
 		expect(queryCodeAnalysis).toBeDefined()
+	})
+
+	it('is found by search_tools from the queries a model would make', async () => {
+		await sessionWith({})
+		const manager = new ToolManager({ toolsets: queryToolsets, messages: () => [] })
+		const context = {
+			workingDirectory: workDir,
+			toolRegistry: manager.view(),
+		} as unknown as ToolContext
+		for (const query of [
+			'minified bundle function',
+			'which function contains this string',
+			'callers',
+			'code analysis',
+			'code_analysis',
+		]) {
+			const reply = await SearchToolsTool.execute({ query }, context)
+			expect(reply.success).toBe(true)
+			expect(reply.reveals, query).toContain('code_analysis')
+		}
+	})
+
+	it('has a first sentence that fits the deferred listing and names both reasons to use it', () => {
+		// The deferred listing shows the first sentence, cut at 100 characters.
+		const first =
+			CodeAnalysisTool.description
+				.trim()
+				.replace(/\s+/g, ' ')
+				.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? ''
+		expect(first.length).toBeGreaterThan(0)
+		expect(first.length).toBeLessThanOrEqual(100)
+		expect(first).toMatch(/minified/)
+		expect(first).toMatch(/function/)
+		expect(first).toMatch(/string/)
 	})
 
 	it('is absent when the config switched it off', async () => {
 		const session = await sessionWith({ enabled: false })
 		expect(session.toolNames()).not.toContain('code_analysis')
 		expect(queryToolNames).not.toContain('code_analysis')
+		// Nothing is deferred, so the guidance for loading a deferred tool is not sent.
+		expect(queryPrompt).not.toContain('search_tools')
 		expect(queryCodeAnalysis).toBeUndefined()
 	})
 

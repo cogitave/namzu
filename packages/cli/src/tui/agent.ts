@@ -3720,7 +3720,13 @@ export async function createAgentSession(
 		options.codeAnalysis && options.codeAnalysis.enabled !== false && !options.ephemeral
 			? createLazyCodeAnalysis(paths.home)
 			: undefined
-	if (codeAnalysis) toolsets.push(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis)))
+	// Deferred: the tool's schema is about 1,000 tokens on every request and
+	// most turns never read minified code. The model finds it with
+	// `search_tools` from the one-line hint in `<deferred_tools>`; `query()` adds
+	// `search_tools` itself when anything is deferred.
+	if (codeAnalysis) {
+		toolsets.push(deferred(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis))))
+	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the
@@ -5193,7 +5199,15 @@ export async function createAgentSession(
 								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
+								// Whenever anything is deferred, not only under
+								// `toolLoading: 'deferred'`: a deferred tool the model was
+								// never told how to load is a tool it does not have.
+								options.toolLoading === 'deferred' ||
+								sessionToolsets.some(
+									(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
+								)
+									? DEFERRED_TOOL_GUIDANCE
+									: undefined,
 								// Present only while the turn runs under `plan`. A mode change
 								// is rare, so the cached prefix it re-keys is a price paid once
 								// per switch rather than once per turn.

@@ -120,6 +120,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: ^2.1.0
         version: 2.1.0
+      '@namzu/analysis':
+        specifier: workspace:^
+        version: link:../analysis
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
@@ -168,9 +171,6 @@ importers:
       ink:
         specifier: 7.0.3
         version: 7.0.3(@types/react@19.2.15)(react@19.2.6)
-      oxc-parser:
-        specifier: 0.155.0
-        version: 0.155.0
       quickjs-emscripten-core:
         specifier: 0.32.0
         version: 0.32.0
@@ -187,9 +187,6 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
-      '@namzu/analysis':
-        specifier: workspace:*
-        version: link:../analysis
       '@namzu/decision':
         specifier: workspace:*
         version: link:../decision
