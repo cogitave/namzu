@@ -82,8 +82,20 @@ export interface AnalysisPage<T> {
 	readonly nextCursor?: string
 }
 
+/**
+ * What every request may carry beyond its own fields.
+ *
+ * `signal` stops the call: an index run in progress is abandoned (what it had
+ * already committed stays, so the next call continues from there), and a call
+ * still queued behind another never starts. Without it nothing a user does,
+ * Esc included, can stop a multi-second index of a large tree.
+ */
+export interface AnalysisCallOptions {
+	readonly signal?: AbortSignal
+}
+
 /** The paging arguments every list-returning request takes. */
-export interface AnalysisPaging {
+export interface AnalysisPaging extends AnalysisCallOptions {
 	/** Items per page. The provider clamps it to its own maximum. */
 	readonly limit?: number
 	/** The previous page's `nextCursor`. */
@@ -126,9 +138,17 @@ export interface AnalysisSourceSlice {
 	readonly truncated: boolean
 }
 
-export interface IndexRequest {
-	/** Absolute directory to index. */
+export interface IndexRequest extends AnalysisCallOptions {
+	/** Absolute directory the index belongs to. */
 	readonly root: string
+	/**
+	 * Index only this file or directory under `root`, instead of all of it.
+	 *
+	 * The way to make progress on a root too big to index whole (a home
+	 * directory): a call that stops at its limits says so, and the next step is
+	 * a narrower `scope`. Work from earlier calls is kept.
+	 */
+	readonly scope?: string
 	/** Re-read every file, ignoring size / mtime / hash. */
 	readonly force?: boolean
 }
@@ -153,6 +173,12 @@ export interface IndexSummary {
 	readonly strings: number
 	readonly calls: number
 	readonly durationMs: number
+	/**
+	 * Why this call stopped before covering `scope`, when it did: a time or
+	 * directory limit. Present means the index is partial; the text names the
+	 * next step.
+	 */
+	readonly truncated?: string
 }
 
 export interface FindLiteralRequest extends AnalysisPaging {
@@ -177,9 +203,14 @@ export interface AnalysisLiteralHit {
 	readonly valueTruncated: boolean
 	/** The innermost function around it; absent at the top level of a file. */
 	readonly function?: AnalysisFunction
+	/**
+	 * Present when the file this came from no longer matches the index: the
+	 * position may be off (`changed`) or the file may be gone (`deleted`).
+	 */
+	readonly stale?: 'changed' | 'deleted'
 }
 
-export interface EnclosingFunctionRequest {
+export interface EnclosingFunctionRequest extends AnalysisCallOptions {
 	readonly root: string
 	readonly path: string
 	readonly line: number
@@ -239,6 +270,8 @@ export interface AnalysisCallSite {
 	readonly argumentCount: number
 	/** The function the call sits in; absent at the top level of a file. */
 	readonly caller?: AnalysisFunction
+	/** See {@link AnalysisLiteralHit.stale}. */
+	readonly stale?: 'changed' | 'deleted'
 }
 
 export interface ImportsRequest extends AnalysisPaging {

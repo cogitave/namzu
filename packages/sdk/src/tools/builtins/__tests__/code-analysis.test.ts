@@ -340,6 +340,109 @@ describe('answers', () => {
 	})
 })
 
+describe('cancelling, scoping and stale marks', () => {
+	let dir: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'namzu-ca-'))
+		mkdirSync(join(dir, 'src'))
+		writeFileSync(join(dir, 'src', 'a.js'), 'x\n')
+	})
+	afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+	it('hands the turn abort signal to the provider on every operation', async () => {
+		const seen: Seen[] = []
+		const controller = new AbortController()
+		const context = {
+			workingDirectory: dir,
+			codeAnalysis: stub({}, seen),
+			abortSignal: controller.signal,
+		} as ToolContext
+		for (const input of [
+			{ operation: 'index' },
+			{ operation: 'find_literal', text: 'q' },
+			{ operation: 'enclosing_function', path: 'src/a.js', line: 1 },
+			{ operation: 'function_source', function_id: 3 },
+			{ operation: 'callers_of', name: 'f', path: 'src/a.js' },
+			{ operation: 'imports', path: 'src/a.js' },
+		] as const) {
+			await CodeAnalysisTool.execute(input, context)
+		}
+		expect(seen).toHaveLength(6)
+		for (const call of seen) expect(call.request.signal).toBe(controller.signal)
+	})
+
+	it('indexes a narrower path as its own scope under the same root', async () => {
+		const seen: Seen[] = []
+		const context = { workingDirectory: dir, codeAnalysis: stub({}, seen) } as ToolContext
+		await CodeAnalysisTool.execute({ operation: 'index' }, context)
+		await CodeAnalysisTool.execute({ operation: 'index', path: 'src' }, context)
+		expect(seen[0]?.request.scope).toBeUndefined()
+		expect(String(seen[1]?.request.scope).endsWith('/src')).toBe(true)
+		expect(seen[1]?.request.root).toBe(seen[0]?.request.root)
+	})
+
+	it('says when an index stopped early and how to go on', async () => {
+		const provider = stub({
+			index: async (r) => ({
+				kind: 'ok',
+				value: {
+					root: r.root,
+					persisted: true,
+					files: {
+						indexed: 5,
+						parsed: 5,
+						unchanged: 0,
+						removed: 0,
+						skipped: 0,
+						withParseErrors: 0,
+					},
+					skippedReasons: {},
+					functions: 1,
+					strings: 1,
+					calls: 1,
+					durationMs: 9,
+					truncated:
+						'Indexing the root stopped after 45 seconds. Index a narrower path to cover the rest.',
+				},
+				evidence: complete,
+			}),
+		})
+		const result = await CodeAnalysisTool.execute({ operation: 'index' }, {
+			workingDirectory: dir,
+			codeAnalysis: provider,
+		} as ToolContext)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('Index a narrower path')
+	})
+
+	it('marks a hit whose file changed or was deleted', async () => {
+		const hit = (stale: 'changed' | 'deleted') => ({
+			path: '/w/a.js',
+			line: 1,
+			column: 1,
+			start: 0,
+			end: 3,
+			kind: 'string' as const,
+			value: 'v',
+			valueTruncated: false,
+			stale,
+		})
+		const provider = stub({
+			findLiteral: async () => ({
+				kind: 'ok',
+				value: { items: [hit('changed'), hit('deleted')], total: 2 },
+				evidence: complete,
+			}),
+		})
+		const result = await CodeAnalysisTool.execute({ operation: 'find_literal', text: 'v' }, {
+			workingDirectory: dir,
+			codeAnalysis: provider,
+		} as ToolContext)
+		expect(result.output).toContain('[file changed since indexed; position may be off]')
+		expect(result.output).toContain('[file deleted since indexed]')
+	})
+})
+
 describe('the input schema', () => {
 	const parse = (input: unknown) => CodeAnalysisTool.inputSchema.safeParse(input)
 

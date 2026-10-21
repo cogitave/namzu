@@ -64,6 +64,7 @@ export type {
 } from './connector/mcp/reconnect.js'
 
 export type {
+	AnalysisCallOptions,
 	AnalysisCallSite,
 	AnalysisCoverage,
 	AnalysisEnclosingFunction,

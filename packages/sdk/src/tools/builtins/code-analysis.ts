@@ -154,8 +154,10 @@ export const CODE_ANALYSIS_TOOL_NAME = 'code_analysis'
 
 export const CodeAnalysisTool = defineTool({
 	name: CODE_ANALYSIS_TOOL_NAME,
+	// The first sentence is the discovery hint a deferred listing shows (about
+	// 100 characters), so it carries the two reasons to reach for this tool.
 	description:
-		"Find a string in JS/TS code and the function around it, read that function whole, list its callers or a file's imports. For minified or unfamiliar code where grep returns one huge line. Paged, cited as path:line:column, with observed/inferred/coverage evidence.",
+		"Find which function holds a string in minified or unfamiliar JS/TS bundles; read it, list callers. Paged and cited as path:line:column; each result says what was observed, what was inferred and whether coverage is complete. Also lists a file's imports.",
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -209,7 +211,11 @@ export const CodeAnalysisTool = defineTool({
 			case 'index': {
 				const result = await provider.index({
 					root,
+					// A narrower path indexes just that part of the root, which is
+					// how a root too big to index whole is covered in steps.
+					...(target !== root ? { scope: target } : {}),
 					...(input.force ? { force: true } : {}),
+					...signalOf(context),
 				})
 				return render(result, (value) => {
 					const f = value.files
@@ -217,6 +223,7 @@ export const CodeAnalysisTool = defineTool({
 						`Indexed ${value.root}: ${f.indexed} files (${f.parsed} parsed, ${f.unchanged} unchanged, ${f.removed} removed, ${f.skipped} skipped, ${f.withParseErrors} with parse errors) in ${value.durationMs} ms.`,
 						`${value.functions} functions, ${value.strings} string literals, ${value.calls} calls. ${value.persisted ? 'Cached on disk.' : 'Held in memory only; it is gone when this process exits.'}`,
 					]
+					if (value.truncated) lines.push(value.truncated)
 					const reasons = Object.entries(value.skippedReasons)
 					if (reasons.length > 0) {
 						lines.push(`Skipped: ${reasons.map(([why, n]) => `${n} ${why}`).join(', ')}.`)
@@ -231,12 +238,13 @@ export const CodeAnalysisTool = defineTool({
 					path: target,
 					...(input.case_sensitive === false ? { caseSensitive: false } : {}),
 					...pageArgs(input),
+					...signalOf(context),
 				})
 				return renderPage(result, (hit) => {
 					const where = `${hit.path}:${hit.line}:${hit.column}`
 					const shown = JSON.stringify(hit.value) + (hit.valueTruncated ? ' (cut)' : '')
 					const inside = hit.function ? ` in ${describeFunction(hit.function)}` : ' at top level'
-					return `${where}  ${hit.kind} ${shown}${inside}`
+					return `${where}  ${hit.kind} ${shown}${inside}${staleMark(hit.stale)}`
 				})
 			}
 			case 'enclosing_function': {
@@ -246,6 +254,7 @@ export const CodeAnalysisTool = defineTool({
 					line: input.line,
 					...(input.column !== undefined ? { column: input.column } : {}),
 					maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
+					...signalOf(context),
 				})
 				return render(result, (value) => {
 					if (!value.function) {
@@ -269,6 +278,7 @@ export const CodeAnalysisTool = defineTool({
 					...(input.name ? { name: input.name, path: target } : {}),
 					maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
 					...pageArgs(input),
+					...signalOf(context),
 				})
 				return renderPage(result, (item) =>
 					[
@@ -296,19 +306,35 @@ export const CodeAnalysisTool = defineTool({
 					...(input.path !== undefined ? { path: target } : {}),
 					...(input.match ? { match: input.match } : {}),
 					...pageArgs(input),
+					...signalOf(context),
 				})
 				return renderPage(result, (site) => {
 					const inside = site.caller ? ` in ${describeFunction(site.caller)}` : ' at top level'
-					return `${site.path}:${site.line}:${site.column}  ${site.kind === 'new' ? 'new ' : ''}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${inside}`
+					return `${site.path}:${site.line}:${site.column}  ${site.kind === 'new' ? 'new ' : ''}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${inside}${staleMark(site.stale)}`
 				})
 			}
 			case 'imports': {
-				const result = await provider.imports({ root, path: target, ...pageArgs(input) })
+				const result = await provider.imports({
+					root,
+					path: target,
+					...pageArgs(input),
+					...signalOf(context),
+				})
 				return renderPage(result, (edge) => describeEdge(edge, target))
 			}
 		}
 	},
 })
+
+function signalOf(context: { abortSignal?: AbortSignal }): { signal?: AbortSignal } {
+	return context.abortSignal ? { signal: context.abortSignal } : {}
+}
+
+function staleMark(stale: 'changed' | 'deleted' | undefined): string {
+	if (stale === 'deleted') return '  [file deleted since indexed]'
+	if (stale === 'changed') return '  [file changed since indexed; position may be off]'
+	return ''
+}
 
 function fail(error: string): ToolResult {
 	return { success: false, output: '', error }
