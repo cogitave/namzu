@@ -157,6 +157,8 @@ export async function* runToolReview(
 								decision: 'review' as const,
 								reason: hookAskedReason(hookPermission.reason),
 								explicitReview: true as const,
+								// Immune to a mode that auto-approves, as a rule's ask is.
+								askRule: true as const,
 							}
 						: { decision: 'review' as const },
 				...(requiresApproval ? { requiresApproval: true as const } : {}),
@@ -623,6 +625,12 @@ export async function* runToolReview(
 		gateDenied.size === 0 &&
 		escalated().length === 0 &&
 		requiresApproval().length === 0 &&
+		// A remembered grant is an answer to an earlier question, never to an
+		// operator's ask rule or a hook's ask: those exist to put THIS call to a
+		// person each time.
+		toolCallSummaries.every(
+			(tc) => !tc.authorization?.askRule && !tc.authorization?.explicitReview,
+		) &&
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
 	) {
 		ctx.log.debug('Every tool call is covered by an approval already granted', {

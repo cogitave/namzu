@@ -20,6 +20,7 @@ import type { ToolDefinition } from '../../../../types/tool/index.js'
 import { generateSessionId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { ToolExecutor } from '../../executor.js'
+import { ToolGrantSet } from '../../tool-grants.js'
 import { UNFINISHED_CHECK_UNATTENDED_REFUSAL, createReviewHandler } from '../../review-policy.js'
 import type { IterationContext } from './context.js'
 import { runToolReview } from './tool-review.js'
@@ -78,6 +79,7 @@ function turn(opts: {
 		context?: ResumeContext,
 	) => Promise<HITLResumeDecision>
 	reviewAllowedCalls?: () => boolean
+	toolGrants?: ToolGrantSet
 }) {
 	const executed: string[] = []
 	const messages: Message[] = [{ role: 'user', content: 'do the thing' } as Message]
@@ -133,6 +135,7 @@ function turn(opts: {
 		resumeHandler: opts.resumeHandler,
 		verificationGate: new AuthorizationGate(opts.gate ?? gateConfig(), log),
 		...(opts.reviewAllowedCalls ? { reviewAllowedCalls: opts.reviewAllowedCalls } : {}),
+		...(opts.toolGrants ? { toolGrants: opts.toolGrants } : {}),
 	} as unknown as IterationContext
 	return { ctx, executed, messages, events, controller }
 }
@@ -212,6 +215,61 @@ describe('which rule asked', () => {
 			decision: 'review',
 			reason: 'No matching rule found',
 		})
+	})
+})
+
+describe('a hook that asked for a person', () => {
+	it('is an ask the modes cannot waive, with or without an operator gate', async () => {
+		const c = capture()
+		const t = turn({ resumeHandler: c.resumeHandler })
+		// No gate configured: the summary comes from the prepared batch alone.
+		;(t.ctx as { verificationGate?: unknown }).verificationGate = undefined
+		const real = t.ctx.toolExecutor.prepareBatchForReview.bind(t.ctx.toolExecutor)
+		t.ctx.toolExecutor.prepareBatchForReview = async (...args) => {
+			const prepared = await real(...args)
+			for (const call of prepared.reviewCalls) {
+				;(call as { hookPermission?: unknown }).hookPermission = {
+					decision: 'ask',
+					reason: 'ask first',
+				}
+			}
+			return prepared
+		}
+		await run(t, response('notify', {}))
+		expect(c.seen[0]?.authorization).toMatchObject({ explicitReview: true, askRule: true })
+	})
+})
+
+describe('a remembered grant', () => {
+	const askRule: AuthorizationRule = {
+		type: 'argument_pattern',
+		toolNames: ['notify'],
+		argument: 'to',
+		pattern: '.*',
+		decision: 'review',
+	}
+
+	it('does not stand in for an ask rule', async () => {
+		const c = capture()
+		const grants = new ToolGrantSet()
+		grants.grant(['notify'])
+		const t = turn({
+			resumeHandler: c.resumeHandler,
+			gate: gateConfig({ rules: [askRule] }),
+			toolGrants: grants,
+		})
+		await run(t, response('notify', { to: 'x' }))
+		expect(c.resumeHandler).toHaveBeenCalledTimes(1)
+	})
+
+	it('still covers a call nothing asked about', async () => {
+		const c = capture()
+		const grants = new ToolGrantSet()
+		grants.grant(['notify'])
+		const t = turn({ resumeHandler: c.resumeHandler, toolGrants: grants })
+		await run(t, response('notify', { to: 'x' }))
+		expect(c.resumeHandler).not.toHaveBeenCalled()
+		expect(t.executed).toEqual(['notify'])
 	})
 })
 
