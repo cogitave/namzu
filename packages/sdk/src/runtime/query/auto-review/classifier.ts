@@ -262,18 +262,16 @@ export function createAutoReviewClassifier(
 	}
 
 	function record(name: string, decision: AutoReviewDecision, started: number): void {
-		const attributes: Record<string, unknown> = {
+		log.info('auto review decision', {
 			[GENAI.TOOL_NAME]: name,
 			'namzu.auto_review.verdict': decision.verdict,
 			'namzu.auto_review.latency_ms': now() - started,
-		}
-		if (decision.verdict !== 'too_long') attributes['namzu.auto_review.stage'] = decision.stage
-		if (decision.verdict === 'block') {
-			attributes['namzu.auto_review.cause'] = decision.cause
-			if (decision.limitReached)
-				attributes['namzu.auto_review.limit_reached'] = decision.limitReached
-		}
-		log.info('auto review decision', attributes)
+			...(decision.verdict !== 'too_long' ? { 'namzu.auto_review.stage': decision.stage } : {}),
+			...(decision.verdict === 'block' ? { 'namzu.auto_review.cause': decision.cause } : {}),
+			...(decision.verdict === 'block' && decision.limitReached
+				? { 'namzu.auto_review.limit_reached': decision.limitReached }
+				: {}),
+		})
 	}
 
 	async function review(request: AutoReviewRequest): Promise<AutoReviewDecision> {
