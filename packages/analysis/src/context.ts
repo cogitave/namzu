@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type {
@@ -454,54 +453,6 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 		reasons.push(
 			`${bad.n} file(s) had syntax errors; the parser kept whatever tree it could recover, often none, so rows from them may be missing`,
 		)
-	}
-	return reasons
-}
-
-/** Directories to compare with the disk at most per query. */
-const NEW_FILE_CHECK_DIRS = 400
-
-/**
- * Whether anything was created under `scopeRel` since it was indexed.
- *
- * Compares the mtimes recorded for its directories with the disk — one `lstat`
- * each, up to {@link NEW_FILE_CHECK_DIRS} — because a file's own record cannot
- * say that a sibling appeared. A changed directory may only mean a deletion
- * or a rename, so this says "may", and names where.
- */
-export async function newFileReasons(
-	store: Store,
-	root: string,
-	scopeRel: string,
-): Promise<string[]> {
-	const rows =
-		scopeRel === ''
-			? store.all('SELECT path, mtime_ms FROM dirs ORDER BY path LIMIT ?', NEW_FILE_CHECK_DIRS + 1)
-			: store.all(
-					'SELECT path, mtime_ms FROM dirs WHERE path = ? OR (path >= ? AND path < ?) ORDER BY path LIMIT ?',
-					scopeRel,
-					`${scopeRel}/`,
-					`${scopeRel}0`,
-					NEW_FILE_CHECK_DIRS + 1,
-				)
-	const changed: string[] = []
-	for (const row of rows.slice(0, NEW_FILE_CHECK_DIRS)) {
-		const rel = String(row.path)
-		try {
-			const s = await lstat(join(root, ...rel.split('/').filter(Boolean)))
-			if (s.mtimeMs !== Number(row.mtime_ms)) changed.push(rel === '' ? '.' : rel)
-		} catch {
-			changed.push(rel === '' ? '.' : rel)
-		}
-	}
-	const reasons: string[] = []
-	if (changed.length > 0) {
-		reasons.push(
-			`${changed.length} director${changed.length === 1 ? 'y' : 'ies'} changed since the index was built (${named(changed)}), so files added there may be missing. Run the index operation to pick them up`,
-		)
-	}
-	if (rows.length > NEW_FILE_CHECK_DIRS) {
-		reasons.push(`only the first ${NEW_FILE_CHECK_DIRS} directories were checked for new files`)
 	}
 	return reasons
 }

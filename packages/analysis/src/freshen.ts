@@ -1,0 +1,205 @@
+import { lstat } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import type { Env } from './context.js'
+import { refreshIndex, toRel } from './indexer.js'
+import { languageOf } from './parse.js'
+
+/**
+ * Answer from the files as they are now, not as they were when indexed.
+ *
+ * Checking only the files a query RETURNS (what `checkFreshness` does) cannot
+ * catch the answer that matters most to an agent that edits code: "no hits".
+ * An edit that adds the string, a new function that calls the name, a file
+ * created beside the others — none of them is among the rows, so the answer
+ * was `0` with coverage `complete`, and wrong.
+ *
+ * So a query that searches a scope first compares the scope with the disk:
+ *
+ * - every file recorded under it, by `lstat`: size and mtime, no read;
+ * - every directory recorded under it, by `lstat`: an entry created, removed
+ *   or renamed in it moves its mtime;
+ * - for a single path that is not recorded at all, whether it is a source file
+ *   that now exists.
+ *
+ * What it does with a difference is one rule, stated in the documentation:
+ *
+ * > **When at most {@link FEW_FILES} files and {@link FEW_DIRS} directories
+ * > differ, and the changed files total at most {@link FEW_BYTES}, they are
+ * > re-indexed before the query runs. Otherwise nothing is re-read, and the
+ * > coverage of the answer says how many files changed so it is `partial`.**
+ *
+ * The first half keeps a query fast and correct after an edit; the second keeps
+ * a query from turning into a surprise full index after a `git checkout` that
+ * rewrote thousands of files — that one is the `index` operation's job, and the
+ * answer says so.
+ */
+export const FEW_FILES = 25
+export const FEW_DIRS = 25
+export const FEW_BYTES = 16 * 1024 * 1024
+/** Entries compared per query before it says it stopped. */
+const MAX_FILES_CHECKED = 250_000
+const MAX_DIRS_CHECKED = 20_000
+const STAT_PARALLEL = 48
+
+export interface Freshened {
+	/** What the query did to make its answer current; goes into `observed`. */
+	readonly notes: string[]
+	/** Why the answer may still be out of date; goes into coverage. */
+	readonly gaps: string[]
+}
+
+function scopeWhere(column: string, scopeRel: string): { sql: string; params: string[] } {
+	if (scopeRel === '') return { sql: '', params: [] }
+	return {
+		sql: ` WHERE ${column} = ? OR (${column} >= ? AND ${column} < ?)`,
+		params: [scopeRel, `${scopeRel}/`, `${scopeRel}0`],
+	}
+}
+
+async function inBatches<T, R>(items: readonly T[], work: (item: T) => Promise<R>): Promise<R[]> {
+	const out: R[] = new Array(items.length)
+	let next = 0
+	const lanes = Array.from({ length: Math.min(STAT_PARALLEL, items.length) }, async () => {
+		for (;;) {
+			const at = next++
+			if (at >= items.length) return
+			out[at] = await work(items[at] as T)
+		}
+	})
+	await Promise.all(lanes)
+	return out
+}
+
+function named(list: readonly string[]): string {
+	return list.length > 3
+		? `${list.slice(0, 3).join(', ')} and ${list.length - 3} more`
+		: list.join(', ')
+}
+
+/** The topmost of `dirs`: those with no other member above them. */
+function topmost(dirs: readonly string[]): string[] {
+	const sorted = [...dirs].sort()
+	const out: string[] = []
+	for (const d of sorted) {
+		const above = out.some((o) => o === '' || d === o || d.startsWith(`${o}/`))
+		if (!above) out.push(d)
+	}
+	return out
+}
+
+export async function freshenScope(env: Env, scopeRel: string): Promise<Freshened> {
+	const { store, root } = env
+	const notes: string[] = []
+	const gaps: string[] = []
+
+	const fileScope = scopeWhere('path', scopeRel)
+	const stored = store.all(
+		`SELECT path, size, mtime_ms FROM files${fileScope.sql} LIMIT ?`,
+		...fileScope.params,
+		MAX_FILES_CHECKED + 1,
+	)
+	const dirScope = scopeWhere('path', scopeRel)
+	const dirRows = store.all(
+		`SELECT path, mtime_ms FROM dirs${dirScope.sql} LIMIT ?`,
+		...dirScope.params,
+		MAX_DIRS_CHECKED + 1,
+	)
+
+	const changedFiles: Array<{ rel: string; size: number }> = []
+	const checkedFiles = stored.slice(0, MAX_FILES_CHECKED)
+	await inBatches(checkedFiles, async (row) => {
+		const rel = String(row.path)
+		try {
+			const s = await lstat(join(root, ...rel.split('/')))
+			if (!s.isFile() || s.size !== Number(row.size) || s.mtimeMs !== Number(row.mtime_ms))
+				changedFiles.push({ rel, size: s.size })
+		} catch {
+			changedFiles.push({ rel, size: 0 })
+		}
+	})
+
+	const changedDirs: string[] = []
+	const checkedDirs = dirRows.slice(0, MAX_DIRS_CHECKED)
+	await inBatches(checkedDirs, async (row) => {
+		const rel = String(row.path)
+		try {
+			const s = await lstat(join(root, ...rel.split('/').filter(Boolean)))
+			if (s.mtimeMs !== Number(row.mtime_ms)) changedDirs.push(rel)
+		} catch {
+			changedDirs.push(rel)
+		}
+	})
+
+	// A path that is not recorded at all: a file created since, or a directory.
+	if (
+		scopeRel !== '' &&
+		!stored.some((r) => String(r.path) === scopeRel) &&
+		!dirRows.some((r) => String(r.path) === scopeRel)
+	) {
+		const s = await lstat(join(root, ...scopeRel.split('/'))).catch(() => undefined)
+		if (s?.isFile() && languageOf(scopeRel) !== undefined)
+			changedFiles.push({ rel: scopeRel, size: s.size })
+		else if (s?.isDirectory()) changedDirs.push(scopeRel)
+	}
+
+	if (stored.length > MAX_FILES_CHECKED || dirRows.length > MAX_DIRS_CHECKED) {
+		gaps.push(
+			`only the first ${checkedFiles.length.toLocaleString('en-US')} files and ${checkedDirs.length.toLocaleString('en-US')} directories were compared with the disk, so later edits may be missing. Run the index operation`,
+		)
+	}
+	if (changedFiles.length === 0 && changedDirs.length === 0) return { notes, gaps }
+
+	const bytes = changedFiles.reduce((a, f) => a + f.size, 0)
+	const few =
+		changedFiles.length <= FEW_FILES && changedDirs.length <= FEW_DIRS && bytes <= FEW_BYTES
+	if (!few) {
+		const files = changedFiles.map((f) => f.rel).sort()
+		const parts: string[] = []
+		if (files.length > 0) {
+			parts.push(`${files.length} file(s) changed since indexing (${named(files)})`)
+		}
+		if (changedDirs.length > 0) {
+			parts.push(
+				`${changedDirs.length} director${changedDirs.length === 1 ? 'y' : 'ies'} changed since indexing (${named([...changedDirs].sort().map((d) => d || '.'))}), so files added there may be missing`,
+			)
+		}
+		gaps.push(
+			`${parts.join('; ')}; too many to re-read for one query. Run the index operation to refresh`,
+		)
+		return { notes, gaps }
+	}
+
+	// Re-read what changed: whole changed directories first (they also cover
+	// the files, creations and deletions inside them), then the lone files.
+	const dirs = topmost(changedDirs)
+	const covered = (rel: string) =>
+		dirs.some((d) => d === '' || rel === d || rel.startsWith(`${d}/`))
+	const lone = changedFiles.map((f) => f.rel).filter((rel) => !covered(rel))
+	let incomplete: string | undefined
+	for (const target of [...dirs, ...lone]) {
+		const abs = target === '' ? root : join(root, ...target.split('/'))
+		// A path outside the root never gets here: every `rel` came from the index
+		// or from `toRel` of a resolved scope.
+		if (toRel(root, abs) === undefined) continue
+		const out = await refreshIndex(
+			store,
+			root,
+			abs,
+			{ ...env.options, force: false, quiet: true },
+			env.host,
+			env.signal,
+		)
+		incomplete ??= out.truncated
+	}
+	const total = changedFiles.length + changedDirs.length
+	notes.push(
+		`${changedFiles.length} file(s) and ${changedDirs.length} director${changedDirs.length === 1 ? 'y' : 'ies'} had changed since the index was built and were re-read before this answer`,
+	)
+	if (incomplete) {
+		gaps.push(
+			`the re-read of ${total} changed path(s) ${incomplete}, so the answer may miss recent edits. Run the index operation`,
+		)
+	}
+	return { notes, gaps }
+}

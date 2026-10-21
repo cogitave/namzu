@@ -55,6 +55,12 @@ export interface IndexOptions {
 	/** Stop after this long, with the same consequence. */
 	readonly maxMillis: number
 	readonly force: boolean
+	/**
+	 * Bring rows and directory times up to date without recording a covered
+	 * scope or skip counts. For the re-read a query does of the few files that
+	 * changed under it, which is not a request to index that path.
+	 */
+	readonly quiet?: boolean
 }
 
 export interface IndexOutcome {
@@ -462,16 +468,23 @@ export async function refreshIndex(
 		queue(() => {
 			if (!walk.truncated) recordDirs(store, scopeRel, walk.dirs)
 			store.ensureIndexes()
-			recordCoverage(store, scopeRel, skippedReasons, truncated)
+			if (options.quiet !== true) recordCoverage(store, scopeRel, skippedReasons, truncated)
 		})
 		await flush()
 	} catch (err) {
 		if (err instanceof Error && err.name === 'AbortError') {
 			// Keep what is parsed, say the scope is partial, and invalidate cursors.
 			try {
-				queue(() =>
-					recordCoverage(store, scopeRel, skippedReasons, 'was cancelled before it finished', true),
-				)
+				queue(() => {
+					if (options.quiet !== true)
+						recordCoverage(
+							store,
+							scopeRel,
+							skippedReasons,
+							'was cancelled before it finished',
+							true,
+						)
+				})
 				dirty = true
 				await flush()
 			} catch {

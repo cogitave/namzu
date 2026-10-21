@@ -239,7 +239,7 @@ describe('doubts settled', () => {
 		await p.dispose()
 	})
 
-	it('flags files created after the index was built', async () => {
+	it('picks up a file created after the index was built, without an index call', async () => {
 		const tree = make()
 		tree.write('a.js', 'function a(){ return "old-literal" }\n', T0)
 		utimesSync(tree.root, T0, T0)
@@ -249,15 +249,13 @@ describe('doubts settled', () => {
 		expect(before.evidence.coverage.status).toBe('complete')
 
 		tree.write('b.js', 'function b(){ return "new-literal" }\n')
-		const after = ok(await p.findLiteral({ root: tree.root, text: 'old-literal' }))
-		expect(after.evidence.coverage.status).toBe('partial')
-		expect(JSON.stringify(after.evidence.coverage)).toMatch(/files added there may be missing/)
-		ok(await p.index({ root: tree.root }))
-		expect(ok(await p.findLiteral({ root: tree.root, text: 'new-literal' })).value.total).toBe(1)
+		const after = ok(await p.findLiteral({ root: tree.root, text: 'new-literal' }))
+		expect(after.value.total).toBe(1)
+		expect(after.evidence.coverage.status).toBe('complete')
 		await p.dispose()
 	})
 
-	it('marks hits from a deleted file, and from a changed one', async () => {
+	it('re-reads a deleted file and a changed one before a search, and shows neither stale', async () => {
 		const tree = make()
 		tree.write('gone.js', 'function gone(){ return "marked-literal" }\n', T0)
 		tree.write('moved.js', 'function moved(){ return "marked-literal" }\n', T0)
@@ -266,9 +264,9 @@ describe('doubts settled', () => {
 		rmSync(tree.path('gone.js'))
 		tree.write('moved.js', '// shifted\nfunction moved(){ return "marked-literal" }\n', T0 + 99)
 		const r = ok(await p.findLiteral({ root: tree.root, text: 'marked-literal' }))
-		const byFile = Object.fromEntries(r.value.items.map((i) => [i.path.split('/').pop(), i.stale]))
-		expect(byFile).toEqual({ 'gone.js': 'deleted', 'moved.js': 'changed' })
-		expect(JSON.stringify(r.evidence.coverage)).toMatch(/deleted/)
+		const byFile = Object.fromEntries(r.value.items.map((i) => [i.path.split('/').pop(), i.line]))
+		expect(byFile).toEqual({ 'moved.js': 2 })
+		expect(r.value.items.every((i) => i.stale === undefined)).toBe(true)
 		await p.dispose()
 	})
 

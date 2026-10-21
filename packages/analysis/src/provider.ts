@@ -33,7 +33,6 @@ import {
 	encodeCursor,
 	fingerprint,
 	markReasons,
-	newFileReasons,
 	parentsOf,
 	readVerified,
 	sliceOf,
@@ -41,6 +40,7 @@ import {
 	workspaceGaps,
 } from './context.js'
 import { DEFAULT_CACHE_MAX_AGE_DAYS, DEFAULT_CACHE_MAX_BYTES } from './evict.js'
+import { freshenScope } from './freshen.js'
 import { ParserHost, abortError } from './host.js'
 import {
 	DEFAULT_IGNORED_DIRS,
@@ -255,9 +255,12 @@ export function createCodeAnalysisProvider(
 		observed: readonly string[],
 		inferred: readonly string[],
 		gaps: readonly string[],
-		built?: string,
+		built?: string | readonly string[],
 	): AnalysisEvidence => ({
-		observed: built ? [...observed, built] : observed,
+		observed:
+			built === undefined || built === ''
+				? observed
+				: [...observed, ...(typeof built === 'string' ? [built] : built)],
 		inferred,
 		coverage: coverageOf(gaps),
 	})
@@ -381,8 +384,13 @@ export function createCodeAnalysisProvider(
 		},
 
 		findLiteral: (request: FindLiteralRequest) =>
-			withScope(request.root, request.path, request.signal, async (o, _env, built) => {
+			withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
+				const asked = request.path === undefined ? '' : toRel(o.root, request.path)
+				if (asked === undefined)
+					return failed(`${request.path} is outside the indexed root ${o.root}.`)
+				// A negative answer is only as good as the index is current.
+				const current = await freshenScope(env, asked)
 				const scope = scopeSql(o, files, request.path, 's.file_id')
 				if ('error' in scope) return failed(scope.error)
 				const limit = clampLimit(request.limit)
@@ -481,12 +489,8 @@ export function createCodeAnalysisProvider(
 						[
 							'literals are indexed up to 4096 characters, and a template literal is indexed per static chunk, so a match cannot span a ${...} or sit past the cut',
 						],
-						[
-							...workspaceGaps(o.store, scope.rel),
-							...markReasons(fresh.marks),
-							...(await newFileReasons(o.store, o.root, scope.rel)),
-						],
-						built,
+						[...workspaceGaps(o.store, scope.rel), ...markReasons(fresh.marks), ...current.gaps],
+						[...(built ? [built] : []), ...current.notes],
 					),
 				}
 			}),
@@ -687,6 +691,12 @@ export function createCodeAnalysisProvider(
 					gaps.push(...fileGaps(fresh.info))
 					scoped = { sql: ' AND c.file_id = ?', params: [fresh.info.id] }
 				} else {
+					const asked = request.path === undefined ? '' : toRel(o.root, request.path)
+					if (asked === undefined)
+						return failed(`${request.path} is outside the indexed root ${o.root}.`)
+					const current = await freshenScope(env, asked)
+					notes.push(...current.notes)
+					gaps.push(...current.gaps)
 					const s = scopeSql(o, files, request.path, 'c.file_id')
 					if ('error' in s) return failed(s.error)
 					scoped = s
@@ -764,11 +774,7 @@ export function createCodeAnalysisProvider(
 					}
 				})
 				if (scope === 'workspace') {
-					gaps.push(
-						...workspaceGaps(o.store, scopeRel),
-						...markReasons(freshness.marks),
-						...(await newFileReasons(o.store, o.root, scopeRel)),
-					)
+					gaps.push(...workspaceGaps(o.store, scopeRel), ...markReasons(freshness.marks))
 				} else {
 					gaps.push(...markReasons(freshness.marks))
 				}

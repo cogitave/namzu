@@ -326,14 +326,19 @@ describe('evidence when the disk moved under the index', () => {
 		ok(await p.index({ root }))
 
 		// A leading comment shifts every offset; the index still has the old ones.
+		// A search re-reads the few files that changed under it first, so the hit
+		// is at its new line and nothing is marked.
 		tree.write('a.js', '// moved\nfunction a(){return "stable-literal"}', T0 + 100)
 		const hits = ok(await p.findLiteral({ root, text: 'stable-literal' }))
 		expect(hits.value.total).toBe(1)
-		expect(hits.evidence.coverage.status).toBe('partial')
-		expect(JSON.stringify(hits.evidence.coverage)).toContain('changed on disk')
+		expect(hits.value.items[0]?.line).toBe(2)
+		expect(hits.value.items[0]?.stale).toBeUndefined()
+		expect(hits.evidence.coverage.status).toBe('complete')
+		expect(hits.evidence.observed.join(' ')).toContain('re-read before this answer')
+		tree.write('a.js', '// moved\n// again\nfunction a(){return "stable-literal"}', T0 + 200)
 
 		// A position query re-reads the file first, so the answer is right.
-		const fn = ok(await p.enclosingFunction({ root, path: tree.path('a.js'), line: 2, column: 25 }))
+		const fn = ok(await p.enclosingFunction({ root, path: tree.path('a.js'), line: 3, column: 25 }))
 		expect(fn.value.function?.name).toBe('a')
 		expect(fn.value.source?.text).toBe('function a(){return "stable-literal"}')
 		expect(fn.evidence.observed.join(' ')).toContain(
@@ -342,7 +347,7 @@ describe('evidence when the disk moved under the index', () => {
 
 		const again = ok(await p.findLiteral({ root, text: 'stable-literal' }))
 		expect(again.evidence.coverage.status).toBe('complete')
-		expect(again.value.items[0]?.line).toBe(2)
+		expect(again.value.items[0]?.line).toBe(3)
 		await p.dispose()
 	})
 
