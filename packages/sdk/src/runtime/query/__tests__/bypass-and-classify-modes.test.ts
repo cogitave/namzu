@@ -36,6 +36,7 @@ import type {
 } from '../auto-review/classifier.js'
 import {
 	ASK_RULE_UNATTENDED_REFUSAL,
+	CLASSIFIER_SAFE_TOOLS,
 	DANGEROUS_REMOVAL_UNATTENDED_REFUSAL,
 	REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
@@ -365,6 +366,80 @@ describe('classify routing', () => {
 		]
 		for (const c of wide) await handler(review(c))
 		expect(seen.map((s) => s.call.id)).toEqual(wide.map((c) => c.id))
+	})
+
+	it('sends a launcher the rule is too wide for, however the line spells it', async () => {
+		const { handler, seen } = decide()
+		const pattern = { decision: 'allow', allowScope: 'pattern' } as const
+		const lines = [
+			'python3.11 x.py',
+			'/usr/bin/python3 x.py',
+			'pnpm -C packages/sdk run build',
+			'npm --prefix . exec foo',
+			'npm test',
+			'pnpm build',
+			'pnpm dlx foo',
+			'yarn test',
+			'bun app.ts',
+			'uv run x.py',
+			'uvx tool',
+			'pipx run tool',
+			'poetry run pytest',
+			'cargo run',
+			'go run .',
+			'make',
+			'awk \'BEGIN{system("id")}\'',
+			'git -c core.pager=sh log',
+			'find . -exec sh {} ;',
+			'pwsh -c x',
+			'powershell -c x',
+			'cmd /c dir',
+			'busybox sh -c id',
+		]
+		const wide = lines.map((line) => bash(line, { authorization: pattern }))
+		for (const c of wide) await handler(review(c))
+		expect(seen.map((s) => s.call.id)).toEqual(wide.map((c) => c.id))
+	})
+
+	it('still lets a narrow rule vouch for an ordinary command', async () => {
+		const { handler, seen } = decide()
+		const pattern = { decision: 'allow', allowScope: 'pattern' } as const
+		for (const line of [
+			'git status',
+			'pnpm install',
+			'npm install left-pad',
+			'cargo build',
+			'ls -la',
+		]) {
+			await handler(review(bash(line, { authorization: pattern })))
+		}
+		expect(seen).toEqual([])
+	})
+
+	it('does not let a safe tool skip the classifier when it reaches past the boundary', async () => {
+		const { handler, seen } = decide()
+		const outside = call(
+			'read',
+			{ path: '/etc/shadow' },
+			{ escalation: { outsidePaths: ['/etc/shadow'] } },
+		)
+		const asked = call(
+			'grep',
+			{ pattern: 'x' },
+			{ authorization: { decision: 'review', explicitReview: true } },
+		)
+		const plain = call('read', { path: 'src/a.ts' })
+		for (const c of [outside, asked, plain]) await handler(review(c))
+		expect(seen.map((s) => s.call.id)).toEqual([outside.id, asked.id])
+	})
+
+	it('names only safe tools that exist', () => {
+		for (const gone of ['task_get', 'enter_plan_mode']) {
+			expect(CLASSIFIER_SAFE_TOOLS.has(gone), gone).toBe(false)
+		}
+		for (const real of ['get_goal', 'agent_task_list', 'lsp', 'code_analysis']) {
+			expect(CLASSIFIER_SAFE_TOOLS.has(real), real).toBe(true)
+		}
 	})
 
 	it('hands the classifier the conversation the turn offers, and the tool definitions', async () => {

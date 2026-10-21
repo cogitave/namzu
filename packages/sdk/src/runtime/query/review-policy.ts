@@ -22,7 +22,12 @@
  */
 
 import { unknownProgramInLine } from '../../authorization/program.js'
-import { readShellLine, shellPathAccess } from '../../authorization/shell-paths.js'
+import type { ShellWord } from '../../authorization/shell-lexer.js'
+import {
+	type ShellInvocation,
+	readShellLine,
+	shellPathAccess,
+} from '../../authorization/shell-paths.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type {
@@ -315,44 +320,166 @@ export const CLASSIFIER_SAFE_TOOLS: ReadonlySet<string> = new Set([
 	'task_create',
 	'task_update',
 	'task_list',
-	'task_get',
+	'agent_task_list',
+	'get_goal',
 	'update_goal',
-	'enter_plan_mode',
 	'exit_plan_mode',
 ])
 
 /**
  * Programs an allow rule must not stand in for the classifier on: each runs
  * whatever it is handed, so a rule that let `python` through would approve any
- * script without the classifier reading it.
+ * script without the classifier reading it. Matched on the program's base name
+ * with any `.exe` removed, so `/usr/bin/python3` and `Python3.11` count.
  */
 const CLASSIFIER_LAUNCHERS: ReadonlySet<string> = new Set([
-	'python',
-	'python2',
-	'python3',
 	'node',
+	'nodejs',
 	'deno',
 	'tsx',
+	'ts-node',
 	'ruby',
 	'perl',
 	'php',
 	'lua',
+	'rscript',
+	'julia',
+	'osascript',
 	'npx',
 	'bunx',
+	'uvx',
+	'pipx',
 	'bash',
 	'sh',
+	'dash',
+	'ash',
+	'ksh',
 	'zsh',
 	'fish',
+	'csh',
+	'tcsh',
+	'pwsh',
+	'powershell',
+	'cmd',
+	'busybox',
 	'ssh',
 	'eval',
 	'exec',
 	'env',
 	'xargs',
 	'sudo',
+	'doas',
+	'make',
+	'gmake',
+	'awk',
+	'gawk',
+	'mawk',
+	'nawk',
 ])
 
-/** Package managers whose `run`/`exec` verbs start a script. */
-const CLASSIFIER_SCRIPT_RUNNERS: ReadonlySet<string> = new Set(['npm', 'yarn', 'pnpm', 'bun'])
+/** Interpreters named by a pattern rather than a list: `python`, `python3`, `python3.11`. */
+const CLASSIFIER_LAUNCHER_PATTERNS: readonly RegExp[] = [/^python[0-9.]*$/, /^pypy[0-9.]*$/]
+
+/**
+ * Package managers and what they run. `npm` starts a script only through
+ * these verbs; the others treat any verb that is not one of their own commands
+ * as a script name (`pnpm build`, `yarn test`, `bun app.ts`).
+ */
+const NPM_SCRIPT_VERBS: ReadonlySet<string> = new Set([
+	'run',
+	'run-script',
+	'rum',
+	'urn',
+	'test',
+	't',
+	'tst',
+	'start',
+	'stop',
+	'restart',
+	'exec',
+	'x',
+	'init',
+	'create',
+	'innit',
+	'explore',
+])
+const SCRIPT_RUNNERS_WITH_OWN_VERBS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	[
+		'pnpm',
+		new Set(['install', 'i', 'add', 'remove', 'rm', 'uninstall', 'un', 'update', 'up', 'upgrade']),
+	],
+	['yarn', new Set(['install', 'add', 'remove', 'upgrade', 'up', 'info', 'why', 'list', 'config'])],
+	[
+		'bun',
+		new Set(['install', 'i', 'add', 'a', 'remove', 'rm', 'update', 'pm', 'outdated', 'info']),
+	],
+])
+/** Package-manager and tool flags whose value is the next word, so the verb is not that word. */
+const FLAGS_WITH_A_VALUE: ReadonlySet<string> = new Set([
+	'-C',
+	'--dir',
+	'--cwd',
+	'--prefix',
+	'--filter',
+	'-F',
+	'-w',
+	'--workspace',
+	'--registry',
+	'--userconfig',
+	'--cache',
+	'--loglevel',
+	'--config',
+	'--cd',
+])
+
+/** The first word of `args` that is not an option or an option's value. */
+function verbOf(args: readonly ShellWord[]): string | undefined {
+	for (let i = 0; i < args.length; i += 1) {
+		const value = (args[i] as ShellWord).value
+		if (value === '--') return args[i + 1]?.value
+		if (!value.startsWith('-')) return value
+		if (!value.includes('=') && FLAGS_WITH_A_VALUE.has(value)) i += 1
+	}
+	return undefined
+}
+
+/** Whether a program in a line runs code it is handed, so that an allow rule cannot stand in for a reviewer. */
+function launchesCode(invocation: ShellInvocation): boolean {
+	const program = (invocation.program.split(/[\\/]/).pop() ?? invocation.program)
+		.toLowerCase()
+		.replace(/\.exe$/, '')
+	if (CLASSIFIER_LAUNCHERS.has(program)) return true
+	if (CLASSIFIER_LAUNCHER_PATTERNS.some((pattern) => pattern.test(program))) return true
+	const verb = verbOf(invocation.args)
+	switch (program) {
+		case 'npm':
+			return verb !== undefined && NPM_SCRIPT_VERBS.has(verb)
+		case 'pnpm':
+		case 'yarn':
+		case 'bun': {
+			// A bare `yarn` runs the install; anything else that is not the manager's
+			// own command is a script, or for bun a file.
+			if (verb === undefined) return false
+			return !(SCRIPT_RUNNERS_WITH_OWN_VERBS.get(program) as ReadonlySet<string>).has(verb)
+		}
+		case 'uv':
+			return verb === 'run' || verb === 'tool' || verb === 'x'
+		case 'poetry':
+		case 'pipenv':
+		case 'cargo':
+		case 'go':
+			return verb === 'run'
+		case 'git':
+			// `-c key=value` can name a program git then runs (core.pager, core.sshCommand).
+			return invocation.args.some((arg) => /^(?:-c|--config-env)/.test(arg.value))
+		case 'find':
+			return invocation.args.some((arg) =>
+				/^-(?:exec|execdir|ok|okdir|fprint|fprintf|fls)/.test(arg.value),
+			)
+		default:
+			return false
+	}
+}
 
 /** Tools that start other agents; an allow rule for one is not consulted under `classify`. */
 const CLASSIFIER_DELEGATION_TOOLS: ReadonlySet<string> = new Set([
@@ -785,21 +912,23 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		const line = (tc.input as Record<string, unknown> | null)?.[argument]
 		if (typeof line !== 'string') return true
 		const reading = readShellLine(line, tool.commandDialect?.({ sandboxed: false }) ?? 'sh')
-		return (
-			!reading.complete ||
-			reading.invocations.some(
-				(invocation) =>
-					CLASSIFIER_LAUNCHERS.has(invocation.program) ||
-					(CLASSIFIER_SCRIPT_RUNNERS.has(invocation.program) &&
-						/^(?:run|run-script|exec|x|dlx|create)$/.test(invocation.args[0]?.value ?? '')),
-			)
-		)
+		return !reading.complete || reading.invocations.some(launchesCode)
 	}
 
 	/** Whether `classify` decides this call without the classifier: it would not be asked, or is plainly safe. */
 	const neverSent = async (tc: ToolCallSummary): Promise<boolean> => {
 		if (tc.authorization?.decision === 'allow' && !allowRuleTooWide(tc)) return true
-		if (safeTools.has(tc.name.toLowerCase())) return true
+		// A name on the safe list is safe for what it does in the session; a read of
+		// /etc/shadow is still a read of /etc/shadow, and a person's own ask is
+		// still a person's ask. Anything that reaches past the boundary, or that a
+		// rule or hook put to a person, is not "plainly safe".
+		if (
+			safeTools.has(tc.name.toLowerCase()) &&
+			tc.escalation === undefined &&
+			!tc.authorization?.explicitReview
+		) {
+			return true
+		}
 		if (
 			tc.escalation === undefined &&
 			!tc.isDestructive &&
