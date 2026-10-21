@@ -74,6 +74,10 @@ describe('accept-edits and shell file commands', () => {
 		'cd src && touch a.ts',
 		`touch ${join(project, 'src', 'abs.ts')}`,
 		'rm src/*.tmp',
+		'cp -t out src/a.ts',
+		'cp --target-directory=out src/a.ts',
+		'touch -d "@0" a.txt',
+		'touch --reference=src/a.ts a.txt',
 	])('approves %s without asking', async (command) => {
 		expect(await asks(command)).toBe(false)
 	})
@@ -96,6 +100,12 @@ describe('accept-edits and shell file commands', () => {
 		['sed with a command that writes a file', "sed -n 'w out.txt' a.txt"],
 		['sed with a script from a file', 'sed -f script.sed a.txt'],
 		['sed with a script it cannot read', 'sed -i "$SCRIPT" a.txt'],
+		['a destination given with --target-directory=', 'cp a.txt b.txt --target-directory=/tmp'],
+		['a moved file whose destination follows it', 'mv a.txt --target-directory=/tmp'],
+		['a destination attached to -t', 'cp -t/tmp a.txt'],
+		['a reference file outside the roots', 'touch a.txt --reference=/etc/passwd'],
+		['a reference file attached to -r', 'touch -r/etc/passwd a.txt'],
+		['a glob of every hidden entry', 'rm -rf .*'],
 		['a line it cannot read to the end', 'touch a.txt && (echo'],
 	])('still asks about %s', async (_what, command) => {
 		expect(await asks(command)).toBe(true)

@@ -234,6 +234,12 @@ function checkRemoval(removal: ShellInvocation, scope: Scope): string | undefine
 	return undefined
 }
 
+/**
+ * A trailing glob that reaches every entry of a directory: `*`, and `.*` for
+ * the hidden ones (`rm -rf .*` takes `.git` and every dotfile with it).
+ */
+const GLOB_TAIL = /[\\/]\.?\*$/
+
 function checkTarget(
 	program: string,
 	args: readonly ShellWord[],
@@ -253,14 +259,14 @@ function checkTarget(
 	let settled = absolute
 	for (let previous = ''; previous !== settled; ) {
 		previous = settled
-		const stripped = settled.replace(/([\\/]\*+)+[\\/]*$/, '') || sep
+		const stripped = settled.replace(/([\\/]\.?\*+)+[\\/]*$/, '') || sep
 		if (stripped !== settled) settled = /[\\/]/.test(stripped) ? normalize(stripped) : stripped
 	}
 	// A glob suffix was stripped from the target: the removal reaches what is in it.
 	const globbed = settled !== absolute
 	const original = expanded
 
-	if (scope.changesDirectory && globbed && relative && /[\\/]\*$/.test(absolute)) {
+	if (scope.changesDirectory && globbed && relative && GLOB_TAIL.test(absolute)) {
 		return `${program} ${spelled}: a relative glob after a cd cannot be resolved before the line runs`
 	}
 
@@ -277,11 +283,11 @@ function checkTarget(
 		(hasParentAfterName(original) ||
 			original.startsWith('~') ||
 			/^[\\/]{2}/.test(original) ||
-			(relative && /(^|[\\/])\.\.([\\/]|$)/.test(original) && /[\\/]\*$/.test(absolute)) ||
+			(relative && /(^|[\\/])\.\.([\\/]|$)/.test(original) && GLOB_TAIL.test(absolute)) ||
 			(program === 'rmdir' &&
-				/[\\/]\*$/.test(absolute) &&
+				GLOB_TAIL.test(absolute) &&
 				args.some((a) => /^--p/.test(a.value) || /^-[a-z]*p/.test(a.value))) ||
-			(relative && /\*[\\/]+$/.test(original) && /[\\/]\*$/.test(absolute)))
+			(relative && /\*[\\/]+$/.test(original) && GLOB_TAIL.test(absolute)))
 	) {
 		return `${program} ${spelled}: the target cannot be resolved to a directory before the line runs`
 	}
@@ -301,7 +307,7 @@ function checkTarget(
 		}
 	}
 
-	if (globbed && /[\\/]\*$/.test(absolute)) {
+	if (globbed && GLOB_TAIL.test(absolute)) {
 		const segments = (value: string): number =>
 			value.split(/[\\/]+/).filter((s) => s !== '' && s !== '.').length
 		const crossed = segments(absolute) - segments(settled)
