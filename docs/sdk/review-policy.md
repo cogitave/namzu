@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The review policy
-description: The five modes a turn resolves tool review under, which calls skip review, a tool's own unconditional requiresApproval declaration, asking once per session before the screen is shared, and how a host supplies the person to ask.
+description: The seven modes a turn resolves tool review under (including bypass and the classifier-backed classify), which calls skip review, a tool's own unconditional requiresApproval declaration, asking once per session before the screen is shared, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
@@ -36,11 +36,15 @@ The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can us
 | --- | --- |
 | `prompt` | Ask the person. The default when a `prompt` is supplied. |
 | `auto` | Approve. The default without one. |
-| `accept-edits` | Approve a batch of non-destructive `edit` and `write` calls; ask when anything else rides along, because the batch is reviewed as a unit. |
+| `accept-edits` | Approve a batch of non-destructive `edit` and `write` calls, and shell lines that only run `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` or `sed` on paths inside the roots (see below); ask when anything else rides along, because the batch is reviewed as a unit. |
 | `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. A batch of reads that is here only for a path outside the roots is asked about instead, as in `prompt`. The kernel's `permissionMode: 'plan'` is the floor under this. |
-| `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
+| `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. This is the reference's `dontAsk`. |
+| `bypass` | Run everything except the short list in [Bypass and classify](#bypass-and-classify). |
+| `classify` | Let a classifier model decide what a person would otherwise be asked; the same short list still goes to a person. See [The auto-review classifier](auto-review.md). |
 
-A stricter mode than the rules, `plan` above all, cannot refuse what never reaches it: a batch a rule allows, or one a grant from earlier in the turn covers, runs without asking the handler. A host that can be in such a mode passes `reviewAllowedCalls: () => boolean` on `QueryParams`; the kernel asks it once per batch, and `true` sends the batch to the handler anyway, each call carrying the gate's decision in `authorization`. A rule's `deny` still refuses whatever it returns. The CLI answers `true` only while its live mode is `plan`, so a mode entered mid-turn reaches the next batch.
+`accept-edits` approves those shell commands only when the host gives `ReviewPolicyOptions.roots` (the working directory first, then the added directories, or a function that reads them now) and the whole line passes the same path reading the kernel uses for escalations: every command is one of the seven (or a literal `cd`), no path is outside the roots, protected, or decided at runtime, no `rm` target is catastrophic, no program name is unknown, the line is read to its end, and any `sed` script is made only of substitutions and line commands (a script with the `e`, `w` or `r` commands, or one read from a file, is asked about). Without `roots` those commands are asked about, as before. `ACCEPT_EDITS_SHELL_COMMANDS` lists the seven.
+
+A stricter mode than the rules, `plan` above all, cannot refuse what never reaches it: a batch a rule allows, or one a grant from earlier in the turn covers, runs without asking the handler. A host that can be in such a mode passes `reviewAllowedCalls: () => boolean` on `QueryParams`; the kernel asks it once per batch, and `true` sends the batch to the handler anyway, each call carrying the gate's decision in `authorization`. A rule's `deny` still refuses whatever it returns. `modeReviewsAllowedCalls(mode)` answers it for the SDK's own modes: `true` for `plan` and `classify`. The CLI answers `true` only while its live mode is one of those, so a mode entered mid-turn reaches the next batch.
 
 The switch reaches delegated turns too. A child borrows its parent's handler, and without the switch a call covered by an approval given earlier in the CHILD's own turn skipped that handler after the parent had entered plan mode. `AgentTaskContext.reviewAllowedCalls` carries the parent's function to every child and grandchild: `AgentManager` stamps it onto the child config after the `configBuilder` runs (`BaseAgentConfig.reviewAllowedCalls`) and onto the child's own spawn context, `SupervisorAgent` hands its config's value to its workers, and `QueryAgent` (including `ReactiveAgent`) and `SupervisorAgent` pass it to their `query()`. It is the function, not a sampled answer, so a mode entered while a child runs reaches that child's next batch. A child config that sets its own value keeps it, OR-ed with the inherited one: a descendant can add review, never answer `false` over a parent that answers `true`. A host that builds its own `AgentTaskContext` for a `TaskScheduler` sets the field from the same function it passes its own `query()`.
 
@@ -51,6 +55,32 @@ A refusal by a person is also recorded as theirs, so a host can show "declined" 
 `planModeWrite: (call: ToolCallSummary) => boolean` is how a host gives `plan` its one writable file. In `plan`, a call it accepts is neither refused nor asked about: it may sit outside the roots and overwrite a file that is there. A rule that asked to review it still has its question asked, a `deny` rule still refuses it, every other change in the batch is still refused with `PLAN_MODE_REFUSAL`, and the option does nothing in any other mode. Left out (the default) `plan` refuses every change, as it always has. The CLI passes the check for `<session>/plans/plan.md`; see [Plan mode in the CLI](../cli/plan-mode.md).
 
 A plan-approval request is approved and every other checkpoint continues. An answer of `approve-all` is remembered in the `remembered` box for the rest of the turn; a host that shows that state passes its own box.
+
+# Bypass and classify
+
+`bypass` and `classify` are additive: `auto` keeps exactly its old meaning (approve what remains after the questions only a person may answer), which every headless host relies on. In `auto`, a path outside the roots, an unknown program name and a protected write are still asked about. In `bypass` and `classify` they are not asked of a person at all: `bypass` approves them, `classify` sends them to the classifier.
+
+What still goes to a person in both, and is refused when there is no `prompt`:
+
+| What | Why | Unattended refusal |
+| --- | --- | --- |
+| A rule or hook that asked for a person (`authorization.askRule`) | The operator wrote it to ask. An `allow` rule demoted to a question because the call crosses a boundary is not one. | `ASK_RULE_UNATTENDED_REFUSAL` |
+| A catastrophic removal (`escalation.dangerousRemoval`) | The reference's `dangerousRemoval`. | `DANGEROUS_REMOVAL_UNATTENDED_REFUSAL` |
+| A tool's own `requiresApproval` | A tool author's declaration. | `REQUIRES_APPROVAL_UNATTENDED_REFUSAL` |
+| A sandbox escape | Asked every time; confirmed by id. Kept from `auto`; this is a Namzu rule, not the reference's. | `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`, unless `unattendedSandboxEscape: 'allow'` |
+| A call whose safety checks threw (`escalation.unfinishedCheck`) | The checks did not run. | `UNFINISHED_CHECK_UNATTENDED_REFUSAL` |
+
+Above these, the gate refuses before any policy runs: a `deny` rule, and the dangerous-pattern floor (`sudo`, `curl | sh` and the like), which is a Namzu rule kept in every mode. Screen consent is asked in both as in `prompt`.
+
+`bypass` approves everything else, including paths outside the roots, programs nobody can name, protected writes, and the remaining destructive calls. With a `prompt`, one question covers the whole batch when it holds any of the calls above; the person's yes is also what confirms an escape.
+
+`classify` needs `ReviewPolicyOptions.classifier` (a policy built without one throws) and routes each call that is not one of the above:
+
+- **Never sent to the classifier**: a call a rule allowed narrowly (`authorization.decision: 'allow'`, when the host makes batches the rule allowed reach the policy with `reviewAllowedCalls`); a trusted read-only call and the review-exempt writes, when they do not cross a boundary; a call `accept-edits` would approve (an `edit` or `write` inside the roots, the shell file commands above); and `CLASSIFIER_SAFE_TOOLS` (`read`, `grep`, `glob`, `ls`, `lsp`, `code_analysis`, `search_tools`, `view_image`, the task tools, `update_goal`, the plan-mode tools), extendable with `safeTools`.
+- **A rule's allow is not consulted** when it is too wide for the classifier to defer to: a rule covering a whole shell tool (`authorization.allowScope: 'tool'`), a command line that starts an interpreter or launcher (`python`, `node`, `deno`, `tsx`, `ruby`, `perl`, `php`, `lua`, `npx`, `bunx`, `bash`, `sh`, `zsh`, `fish`, `ssh`, `eval`, `exec`, `env`, `xargs`, `sudo`, and `npm`, `yarn`, `pnpm` or `bun` with `run`, `exec`, `x`, `dlx` or `create`), a line the reader cannot finish, or a delegation tool (`Agent`, `create_task`, `continue_task`). Such a call is judged on its content, and a host must answer `reviewAllowedCalls` with `modeReviewsAllowedCalls(mode)` for the batches to arrive.
+- **Sent**: everything else, in order, one call at a time. A block refuses the whole batch with the words in [The auto-review classifier](auto-review.md#what-the-model-is-told); the remaining calls are not judged. Calls that were gate-denied are left out of everything.
+
+The handler reads the conversation from the second argument a turn gives every `ResumeHandler`, `ResumeContext.transcript()`, never from the request, so a transcript is not written to the session log with a parked review. A host that wraps the handler must pass the context on.
 
 # Which calls skip review
 
