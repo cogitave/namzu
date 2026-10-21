@@ -21,6 +21,10 @@ const KNOWN_PREFIXES: &[&str] = &[
     "B:/~BUN/",
 ];
 
+/// Names the client uses for its own files in an output directory (the
+/// provenance record). A payload may not occupy one.
+pub const RESERVED_PREFIX: &str = ".namzu-";
+
 const MAX_COMPONENT: usize = 200;
 const MAX_PATH: usize = 1024;
 
@@ -60,6 +64,9 @@ pub fn safe_components(name: &str) -> Result<Vec<String>, String> {
         }
         if part.contains(':') {
             return Err("component contains `:` (drive letter or stream)".into());
+        }
+        if part.to_ascii_lowercase().starts_with(RESERVED_PREFIX) {
+            return Err(format!("`{RESERVED_PREFIX}*` names are reserved"));
         }
         if part.len() > MAX_COMPONENT {
             return Err("component too long".into());
@@ -197,6 +204,8 @@ mod tests {
             "///",
             "x.",
             "a\nb",
+            ".namzu-provenance.json",
+            "sub/.NAMZU-x",
         ] {
             assert!(safe_components(bad).is_err(), "{bad:?} must be refused");
         }

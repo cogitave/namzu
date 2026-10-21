@@ -20,14 +20,24 @@
 //! so every offset and length is checked against the payload and anything
 //! that does not fit is refused with the layout it was measured against.
 
+use std::borrow::Cow;
+
+use crate::ctx::Ctx;
+use crate::error::OpError;
+
 pub const TRAILER: &[u8] = b"\n---- Bun! ----\n";
 const OFFSETS_LEN: usize = 32;
 const RECORD_LEN: usize = 52;
 /// Older Bun (1.1 and 1.2) wrote 36-byte records and a 28-byte offsets block.
 const OLD_RECORD_LEN: usize = 36;
 const OLD_OFFSETS_LEN: usize = 28;
-const MAX_MODULES: usize = 1 << 20;
+/// Most modules a payload may declare. Real compiled programs carry hundreds.
+pub const MAX_MODULES: usize = 100_000;
 const MAX_NAME: usize = 4096;
+/// Most name bytes a payload may declare in total, counted per record: the
+/// records may point at the same bytes, so this bounds what a table of
+/// overlapping names makes the caller do, not what is in the file.
+pub const MAX_NAME_BYTES: usize = 16 << 20;
 
 pub const LAYOUT: &str =
     "bun-standalone-52 (module records of 52 bytes; measured on Bun 1.3.14 and 1.4.4)";
@@ -40,7 +50,8 @@ pub struct Ptr {
 
 #[derive(Debug)]
 pub struct Module<'a> {
-    pub name: String,
+    /// Borrowed from the mapped bytes unless they are not valid UTF-8.
+    pub name: Cow<'a, str>,
     pub contents: &'a [u8],
     pub sourcemap: &'a [u8],
     pub bytecode: &'a [u8],
@@ -103,9 +114,32 @@ pub fn loader_name(loader: u8) -> &'static str {
     }
 }
 
+/// Why `parse` stopped: the layout was not understood, or the request ran out
+/// of time.
+#[derive(Debug)]
+pub enum Failure {
+    Refused(Refusal),
+    Op(OpError),
+}
+
+impl From<Refusal> for Failure {
+    fn from(r: Refusal) -> Self {
+        Failure::Refused(r)
+    }
+}
+
+impl From<OpError> for Failure {
+    fn from(e: OpError) -> Self {
+        Failure::Op(e)
+    }
+}
+
 /// Parse the bytes of a `.bun` section.
-pub fn parse(section: &[u8]) -> Result<Payload<'_>, Refusal> {
-    let refuse = |why: String| Refusal(format!("{why}. This reader understands {LAYOUT}."));
+pub fn parse<'a>(section: &'a [u8], ctx: &mut Ctx) -> Result<Payload<'a>, Failure> {
+    ctx.check()?;
+    let refuse = |why: String| {
+        Failure::Refused(Refusal(format!("{why}. This reader understands {LAYOUT}.")))
+    };
     if section.len() < 8 {
         return Err(refuse(format!(
             "the .bun section is {} bytes, too short for a length prefix",
@@ -122,7 +156,7 @@ pub fn parse(section: &[u8]) -> Result<Payload<'_>, Refusal> {
                 section.len()
             ))
         })?;
-    let data = &section[8..8 + n];
+    let data: &'a [u8] = &section[8..8 + n];
     if !data.ends_with(TRAILER) {
         return Err(refuse(
             "the payload does not end with the `---- Bun! ----` trailer; its layout version is unknown"
@@ -176,7 +210,7 @@ pub fn parse(section: &[u8]) -> Result<Payload<'_>, Refusal> {
         )));
     }
     let limit = end - OFFSETS_LEN;
-    let slice = |p: Ptr, what: &str, idx: usize| -> Result<&[u8], Refusal> {
+    let slice = |p: Ptr, what: &str, idx: usize| -> Result<&'a [u8], Failure> {
         match p.off.checked_add(p.len) {
             Some(e) if e <= limit => Ok(&data[p.off..e]),
             _ => Err(refuse(format!(
@@ -186,7 +220,9 @@ pub fn parse(section: &[u8]) -> Result<Payload<'_>, Refusal> {
         }
     };
     let mut mods = Vec::with_capacity(count);
+    let mut name_bytes_total = 0usize;
     for i in 0..count {
+        ctx.tick()?;
         let r = &data[modules.off + i * RECORD_LEN..modules.off + (i + 1) * RECORD_LEN];
         let name_bytes = slice(ptr(r, 0), "name", i)?;
         if name_bytes.len() > MAX_NAME {
@@ -195,7 +231,13 @@ pub fn parse(section: &[u8]) -> Result<Payload<'_>, Refusal> {
                 name_bytes.len()
             )));
         }
-        let name = String::from_utf8_lossy(name_bytes).into_owned();
+        name_bytes_total += name_bytes.len();
+        if name_bytes_total > MAX_NAME_BYTES {
+            return Err(refuse(format!(
+                "the module names add up to more than {MAX_NAME_BYTES} bytes by module {i}"
+            )));
+        }
+        let name = String::from_utf8_lossy(name_bytes);
         mods.push(Module {
             name,
             contents: slice(ptr(r, 8), "contents", i)?,

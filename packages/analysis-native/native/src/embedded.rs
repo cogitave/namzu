@@ -4,6 +4,8 @@
 //! executable applications (`NODE_SEA_BLOB`) in ELF, PE and Mach-O. Go build
 //! information is detected only. Nothing is executed or loaded.
 
+use std::borrow::Cow;
+
 use object::{File, Object, ObjectSection};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -40,10 +42,11 @@ fn is_source_loader(loader: u8) -> bool {
 }
 
 /// What payloads a file carries, for `binary_info`.
-pub fn detect(t: &Target<'_>, file: &File<'_>) -> Vec<Value> {
+pub fn detect(t: &Target<'_>, file: &File<'_>, ctx: &mut Ctx) -> OpResult<Vec<Value>> {
     let mut found = Vec::new();
     if let Some(sec) = bun_section(file) {
-        match bun::parse(sec) {
+        match bun::parse(sec, ctx) {
+            Err(bun::Failure::Op(e)) => return Err(e),
             Ok(p) => {
                 let js = p.modules.iter().filter(|m| m.loader == 1).count();
                 let bc = p.modules.iter().filter(|m| !m.bytecode.is_empty()).count();
@@ -58,7 +61,7 @@ pub fn detect(t: &Target<'_>, file: &File<'_>) -> Vec<Value> {
                     "extractable": true,
                 }));
             }
-            Err(bun::Refusal(why)) => found.push(json!({
+            Err(bun::Failure::Refused(bun::Refusal(why))) => found.push(json!({
                 "kind": "bun",
                 "valid": false,
                 "reason": why,
@@ -89,7 +92,7 @@ pub fn detect(t: &Target<'_>, file: &File<'_>) -> Vec<Value> {
             "note": "Go build metadata is present; it is reported, not extracted",
         }));
     }
-    found
+    Ok(found)
 }
 
 #[derive(Deserialize)]
@@ -110,8 +113,8 @@ pub struct Params {
     pub limit: Option<usize>,
 }
 
-struct Item {
-    name: String,
+struct Item<'a> {
+    name: Cow<'a, str>,
     size: usize,
     loader: Option<&'static str>,
     bytecode_size: usize,
@@ -119,7 +122,7 @@ struct Item {
     skipped: Option<String>,
 }
 
-impl Item {
+impl Item<'_> {
     fn json(&self) -> Value {
         json!({
             "name": self.name,
@@ -129,6 +132,29 @@ impl Item {
             "path": self.written,
             "skipped": self.skipped,
         })
+    }
+}
+
+/// Counts every module and keeps only the ones inside the requested page, so a
+/// payload with a hundred thousand modules costs a page, not a hundred thousand
+/// entries.
+struct Page<'a> {
+    offset: usize,
+    limit: usize,
+    seen: usize,
+    skipped: usize,
+    items: Vec<Item<'a>>,
+}
+
+impl<'a> Page<'a> {
+    fn push(&mut self, item: Item<'a>) {
+        if item.skipped.is_some() {
+            self.skipped += 1;
+        }
+        if self.seen >= self.offset && self.items.len() < self.limit {
+            self.items.push(item);
+        }
+        self.seen += 1;
     }
 }
 
@@ -217,15 +243,24 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
         bytes: 0,
         max_bytes: p.max_total_bytes.unwrap_or(1 << 30),
     };
-    let mut items: Vec<Item> = Vec::new();
+    let mut page = Page {
+        offset: p.offset.unwrap_or(0),
+        limit: p.limit.unwrap_or(5000).min(100_000),
+        seen: 0,
+        skipped: 0,
+        items: Vec::new(),
+    };
     let mut result = json!({ "format": t.format(), "outDir": out_root });
     let digest = sha256(data, ctx)?;
 
     let kind;
     if let Some(sec) = bun_sec {
         kind = "bun";
-        let payload = bun::parse(sec).map_err(|bun::Refusal(why)| {
-            OpError::new("extract_refused", format!("Bun payload refused: {why}"))
+        let payload = bun::parse(sec, ctx).map_err(|f| match f {
+            bun::Failure::Refused(bun::Refusal(why)) => {
+                OpError::new("extract_refused", format!("Bun payload refused: {why}"))
+            }
+            bun::Failure::Op(e) => e,
         })?;
         let m = result.as_object_mut().expect("object");
         m.insert("layout".into(), json!(bun::LAYOUT));
@@ -237,7 +272,7 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
         }
         let with_bytecode = p.include_bytecode.unwrap_or(false);
         let with_maps = p.include_sourcemaps.unwrap_or(false);
-        for module in &payload.modules {
+        for module in payload.modules {
             ctx.tick()?;
             let mut item = Item {
                 name: module.name.clone(),
@@ -286,7 +321,7 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
                     }
                 }
             }
-            items.push(item);
+            page.push(item);
         }
     } else if let Some(blob) = sea_blob {
         kind = "node-sea";
@@ -295,9 +330,9 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
         m.insert("flags".into(), json!(parsed.flags));
         m.insert("mainPath".into(), json!(parsed.main_path));
         m.insert("note".into(), json!(parsed.note));
-        let mut add = |name: String, rel: Vec<String>, bytes: &[u8], items: &mut Vec<Item>| {
+        let mut add = |name: String, rel: Vec<String>, bytes: &[u8], page: &mut Page<'_>| {
             let mut item = Item {
-                name,
+                name: Cow::Owned(name),
                 size: bytes.len(),
                 loader: None,
                 bytecode_size: 0,
@@ -308,13 +343,13 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
                 Ok(w) => item.written = w,
                 Err(why) => item.skipped = Some(why),
             }
-            items.push(item);
+            page.push(item);
         };
         add(
             "NODE_SEA_BLOB".into(),
             vec!["sea-blob.bin".into()],
             blob,
-            &mut items,
+            &mut page,
         );
         if let Some(script) = parsed.main_script {
             let comps = parsed
@@ -331,7 +366,7 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
                 parsed.main_path.clone().unwrap_or_else(|| "main".into()),
                 comps,
                 script,
-                &mut items,
+                &mut page,
             );
         }
         for (key, val) in &parsed.assets {
@@ -340,10 +375,10 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
                 Ok(c) => {
                     let mut v = vec!["assets".to_string()];
                     v.extend(c);
-                    add(key.clone(), v, val, &mut items);
+                    add(key.clone(), v, val, &mut page);
                 }
-                Err(why) => items.push(Item {
-                    name: key.clone(),
+                Err(why) => page.push(Item {
+                    name: Cow::Owned(key.clone()),
                     size: val.len(),
                     loader: None,
                     bytecode_size: 0,
@@ -356,13 +391,11 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
         unreachable!("checked above");
     }
 
-    let skipped = items.iter().filter(|i| i.skipped.is_some()).count();
-    let offset = p.offset.unwrap_or(0);
-    let limit = p.limit.unwrap_or(5000).min(100_000);
+    let (offset, total, skipped) = (page.offset, page.seen, page.skipped);
     let mut budget: Budget = ctx.list_budget();
     let mut listed = Vec::new();
-    let mut next = offset.min(items.len());
-    for item in items.iter().skip(offset).take(limit) {
+    let mut next = offset.min(total);
+    for item in &page.items {
         let v = item.json();
         if !budget.take(&v) {
             break;
@@ -376,13 +409,13 @@ pub fn extract(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
         "provenance".into(),
         json!({ "sourceSha256": digest, "sourceSize": data.len(), "format": t.format() }),
     );
-    m.insert("moduleCount".into(), json!(items.len()));
+    m.insert("moduleCount".into(), json!(total));
     m.insert("written".into(), json!(sink.written));
     m.insert("writtenBytes".into(), json!(sink.bytes));
     m.insert("skipped".into(), json!(skipped));
     m.insert("modules".into(), Value::Array(listed));
-    m.insert("truncated".into(), json!(next < items.len()));
-    if next < items.len() {
+    m.insert("truncated".into(), json!(next < total));
+    if next < total {
         m.insert("nextOffset".into(), json!(next));
     }
     Ok(result)

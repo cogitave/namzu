@@ -276,7 +276,7 @@ pub fn run(data: &[u8], p: Params, ctx: &mut Ctx) -> OpResult<Value> {
     );
     m.insert("debugInfo".into(), json!(file.has_debug_symbols()));
     ctx.check()?;
-    m.insert("embedded".into(), json!(embedded::detect(&t, file)));
+    m.insert("embedded".into(), json!(embedded::detect(&t, file, ctx)?));
     Ok(out)
 }
 

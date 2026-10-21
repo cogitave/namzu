@@ -107,6 +107,9 @@ const WINDOWS_DEVICES = new Set([
 	...Array.from({ length: 9 }, (_, i) => `lpt${i + 1}`),
 ])
 
+/** Read-only, refusing a final link, and never blocking on a FIFO or device. */
+const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
+
 /** Why `name` cannot be one path component, or null when it can. */
 export function unsafeComponent(name: string): string | null {
 	if (name === '' || name === '.' || name === '..') return `reserved name ${JSON.stringify(name)}`
@@ -201,9 +204,14 @@ export async function extractAsar(
 	const maxHeader = options.maxHeaderBytes ?? 64 << 20
 	const archivePath = resolve(archive)
 
-	const fh = await open(archivePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(
-		async () => open(archivePath, 'r'),
-	)
+	// Never fall back to a plain open: a failure here (ELOOP for a link, ENXIO for
+	// a FIFO) is the answer. O_NONBLOCK keeps a FIFO from blocking the open.
+	const fh = await open(archivePath, READ_FLAGS).catch((err: NodeJS.ErrnoException) => {
+		throw new AsarError(
+			'io_error',
+			`${archivePath} could not be opened: ${err.code ?? err.message}`,
+		)
+	})
 	try {
 		const stat = await fh.stat()
 		if (!stat.isFile()) throw new AsarError('bad_header', `${archivePath} is not a regular file`)
@@ -261,6 +269,11 @@ export async function extractAsar(
 		let writtenBytes = 0
 		let mismatches = 0
 		let fileCount = 0
+		// Every node the header names, whatever it turns out to be. `maxFiles`
+		// bounds this, not only the files, so a header of null or empty entries
+		// cannot make a report of millions of rows.
+		let visited = 0
+		const unpackedReal = await realpath(unpackedRoot).catch(() => null)
 		const seen = new Set<string>()
 		const mismatchPolicy = options.onIntegrityMismatch ?? 'skip'
 
@@ -268,6 +281,13 @@ export async function extractAsar(
 			if (depth > 64)
 				throw new AsarError('bad_header', 'the file tree is nested more than 64 levels')
 			for (const [name, child] of Object.entries(node.files ?? {})) {
+				visited++
+				if (visited > maxFiles) {
+					throw new AsarError(
+						'too_many_files',
+						`the archive header names more than ${maxFiles} entries`,
+					)
+				}
 				const path = [...parts, name]
 				const shown = path.join('/')
 				const bad = unsafeComponent(name)
@@ -333,19 +353,32 @@ export async function extractAsar(
 				}
 				let data: Buffer
 				if (unpacked) {
-					const src = join(unpackedRoot, ...path)
 					try {
-						const info = await lstat(src)
-						if (!info.isFile()) {
-							skip('the unpacked entry is not a regular file')
+						// Resolve every link on the way and require the result to stay
+						// under the unpacked root as it really is.
+						if (!unpackedReal) {
+							skip('the .asar.unpacked directory does not exist')
 							continue
 						}
-						if (info.size !== size) {
-							skip(`the unpacked file is ${info.size} bytes, the header says ${size}`)
+						const real = await realpath(join(unpackedRoot, ...path))
+						if (!real.startsWith(unpackedReal + sep)) {
+							skip('the unpacked entry resolves outside the .asar.unpacked directory')
 							continue
 						}
-						const rf = await open(src, 'r')
+						// Open the resolved path without following a final link, then
+						// decide from the descriptor: nothing swapped in after the check
+						// can change what is read.
+						const rf = await open(real, READ_FLAGS)
 						try {
+							const info = await rf.stat()
+							if (!info.isFile()) {
+								skip('the unpacked entry is not a regular file')
+								continue
+							}
+							if (info.size !== size) {
+								skip(`the unpacked file is ${info.size} bytes, the header says ${size}`)
+								continue
+							}
 							data = await readExact(rf, 0, size)
 						} finally {
 							await rf.close()
@@ -403,8 +436,9 @@ export async function extractAsar(
 						if (!(await lstat(dir)).isDirectory())
 							throw new Error('a parent of this path is a file')
 					}
-					// 'wx' is O_EXCL: never follows a link, never overwrites.
-					const out = await open(target, 'wx', child.executable ? 0o755 : 0o644)
+					// 'wx' is O_EXCL: never follows a link, never overwrites. The mode is
+					// always 0644: an archive does not get to mark what it writes executable.
+					const out = await open(target, 'wx', 0o644)
 					try {
 						await out.writeFile(data)
 					} finally {

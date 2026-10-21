@@ -117,6 +117,9 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 	const defaultDeadline = options.deadlineMs ?? DEFAULT_DEADLINE_MS
 	const grace = options.killGraceMs ?? DEFAULT_GRACE_MS
 	const defaultMaxBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT
+	// The sidecar refuses a longer request line and answers it with `id: null`;
+	// refuse it here instead, so nothing is sent that cannot be answered.
+	const maxRequestBytes = requestLimit(options.args ?? [])
 	// A response can be a little over maxBytes (envelope), never far over.
 	const responseCap = (maxBytes: number) => maxBytes + (maxBytes >> 2) + (1 << 16)
 
@@ -220,6 +223,21 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 				)
 				pump()
 			}
+			return
+		}
+		if (pending && msg.id === null && msg.ok === false) {
+			// The sidecar could not attribute the failure to a request (an over-long
+			// line, invalid JSON): it answers with a null id. Only one request is in
+			// flight, so this one is it; waiting out the deadline would strand it.
+			settle(
+				pending,
+				new NativeAnalysisError(
+					msg.error?.code ?? 'protocol_error',
+					msg.error?.message ?? 'the sidecar rejected the request without naming it',
+					pending.op,
+				),
+			)
+			pump()
 			return
 		}
 		if (!pending || msg.id !== pending.id) {
@@ -334,6 +352,16 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 		const id = nextId++
 		const normalised = absolutise(params)
 		const line = JSON.stringify({ id, op, params: normalised, deadlineMs, maxBytes })
+		const lineBytes = Buffer.byteLength(line) + 1
+		if (lineBytes > maxRequestBytes) {
+			return Promise.reject(
+				new NativeAnalysisError(
+					'request_too_large',
+					`the ${op} request is ${lineBytes} bytes, over the ${maxRequestBytes} byte request limit; it was not sent`,
+					op,
+				),
+			)
+		}
 		return new Promise<T>((resolve, reject) => {
 			queue.push({
 				id,
@@ -387,7 +415,12 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 			closed = true
 			const proc = child
 			if (proc) {
-				const exited = new Promise<void>((done) => proc.once('exit', () => done()))
+				// `exitCode`/`signalCode` are set once the process has exited, so a
+				// process that already did is not waited for (its event has fired).
+				const exited =
+					proc.exitCode !== null || proc.signalCode !== null
+						? Promise.resolve()
+						: new Promise<void>((done) => proc.once('exit', () => done()))
 				discard(proc)
 				await exited
 			}
@@ -402,6 +435,20 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 		},
 	}
 	return api
+}
+
+const DEFAULT_MAX_REQUEST = 1 << 20
+
+/** The request limit the sidecar will run with: its default, or `--max-request-bytes`. */
+function requestLimit(args: readonly string[]): number {
+	let limit = DEFAULT_MAX_REQUEST
+	for (let i = 0; i < args.length - 1; i++) {
+		if (args[i] === '--max-request-bytes') {
+			const n = Number(args[i + 1])
+			if (Number.isSafeInteger(n) && n > 0) limit = n
+		}
+	}
+	return limit
 }
 
 /** Paths are resolved against the caller's working directory, not the sidecar's. */

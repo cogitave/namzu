@@ -154,6 +154,28 @@ describeNative('native analysis sidecar', () => {
 		expect(readdirSync(outDir).sort()).toEqual(['.namzu-provenance.json', 'fine.js'])
 	})
 
+	it('does not let a payload module take the name of the provenance record', async () => {
+		const path = write(
+			'bun-provenance',
+			elf([
+				{
+					name: '.bun',
+					data: bunPayload([
+						{ name: '/$bunfs/root/.namzu-provenance.json', contents: '{"forged":true}' },
+						{ name: '/$bunfs/root/fine.js', contents: 'ok' },
+					]),
+				},
+			]),
+		)
+		const outDir = join(workDir, 'provenance-out')
+		const result = await native.extractEmbedded({ path, outDir })
+		expect(result.written).toBe(1)
+		expect(result.skipped).toBe(1)
+		const record = JSON.parse(readFileSync(join(outDir, '.namzu-provenance.json'), 'utf8'))
+		expect(record.forged).toBeUndefined()
+		expect(record.sourceSha256).toBe(result.provenance.sourceSha256)
+	})
+
 	it('extracts a Node SEA blob from an ELF note', async () => {
 		const blob = seaBlob('main.js', 'console.log("sea")', { 'a.txt': 'asset' })
 		const path = write(

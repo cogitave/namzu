@@ -33,6 +33,7 @@ process.stdin.on('data', (d) => {
     if (p.hang) continue
     if (p.crash) { console.error('boom: the fake sidecar crashed'); process.exit(3) }
     if (p.huge) { process.stdout.write('x'.repeat(p.huge)); continue }
+    if (p.nullid) { process.stdout.write(JSON.stringify({ id: null, ok: false, error: { code: 'request_too_large', message: 'request line is over 1 bytes' } }) + '\\n'); continue }
     if (p.garbage) { process.stdout.write('not json\\n'); continue }
     if (p.error) { process.stdout.write(JSON.stringify({ id: req.id, ok: false, error: { code: 'file_error', message: 'nope' } }) + '\\n'); continue }
     process.stdout.write(JSON.stringify({ id: req.id, ok: true, result: { op: req.op, pid: process.pid, deadlineMs: req.deadlineMs, maxBytes: req.maxBytes, params: p } }) + '\\n')
@@ -123,6 +124,29 @@ describe('NativeAnalysis process handling', () => {
 			code: 'protocol_error',
 		})
 		expect((await c.request<Echo>('ping')).pid).not.toBe(before.pid)
+	})
+
+	it('rejects the request in flight when the sidecar answers with a null id', async () => {
+		const c = make()
+		const first = await c.request<Echo>('ping')
+		// No fake timers and no race: the rejection arrives as soon as the frame
+		// does, or the test's own timeout reports the hang.
+		await expect(c.request('ping', { nullid: true })).rejects.toMatchObject({
+			code: 'request_too_large',
+			op: 'ping',
+		})
+		// An error frame is not a crash: the same process serves the next request.
+		expect((await c.request<Echo>('ping')).pid).toBe(first.pid)
+	})
+
+	it('refuses a request over the sidecar request limit without sending it', async () => {
+		const c = make({ args: [script, '--max-request-bytes', '2048'] })
+		const first = await c.request<Echo>('ping')
+		await expect(c.request('ping', { blob: 'x'.repeat(4096) })).rejects.toMatchObject({
+			code: 'request_too_large',
+			op: 'ping',
+		})
+		expect((await c.request<Echo>('ping')).pid).toBe(first.pid)
 	})
 
 	it('maps an error response to NativeAnalysisError with the sidecar code', async () => {

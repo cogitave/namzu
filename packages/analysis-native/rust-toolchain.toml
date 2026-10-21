@@ -1,0 +1,7 @@
+# Pins the compiler so a build does not depend on the runner's default. 1.92 is
+# the toolchain the lockfile and edition 2024 were verified with; the floor
+# `rust-version` in native/Cargo.toml (1.88) is what the crates need at least.
+[toolchain]
+channel = "1.92.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

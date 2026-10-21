@@ -1231,3 +1231,208 @@ fn truncated_and_corrupted_files_never_panic() {
         }
     }
 }
+
+/// A Bun section whose `count` module records all point at the same
+/// `name_len` bytes at the start of the payload (the amplification shape).
+fn overlapping_bun_section(count: usize, name_len: usize) -> Vec<u8> {
+    let mut data = vec![b'a'; name_len];
+    let mut rec = Vec::new();
+    for p in [(0u32, name_len as u32), (0, name_len as u32)] {
+        rec.extend_from_slice(&p.0.to_le_bytes());
+        rec.extend_from_slice(&p.1.to_le_bytes());
+    }
+    for _ in 0..4 {
+        rec.extend_from_slice(&[0u8; 8]);
+    }
+    rec.extend_from_slice(&[0, 1, 0, 0]);
+    assert_eq!(rec.len(), 52);
+    let table_off = data.len() as u32;
+    for _ in 0..count {
+        data.extend_from_slice(&rec);
+    }
+    let table_len = (count * 52) as u32;
+    let mut offsets = Vec::new();
+    offsets.extend_from_slice(&(data.len() as u64).to_le_bytes());
+    offsets.extend_from_slice(&table_off.to_le_bytes());
+    offsets.extend_from_slice(&table_len.to_le_bytes());
+    offsets.extend_from_slice(&[0u8; 16]);
+    data.extend_from_slice(&offsets);
+    data.extend_from_slice(bun::TRAILER);
+    let mut section = (data.len() as u64).to_le_bytes().to_vec();
+    section.extend_from_slice(&data);
+    section
+}
+
+#[test]
+fn a_table_of_overlapping_names_is_refused_instead_of_amplified() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Too many modules: refused before any record is read.
+    let many = elf_object(
+        &[(
+            ".bun",
+            SectionKind::Data,
+            overlapping_bun_section(bun::MAX_MODULES + 1, 4),
+        )],
+        false,
+    );
+    let p = put(tmp.path(), "many", &many);
+    let v = call("extract_embedded", json!({ "path": p }));
+    assert_eq!(err_code(&v), "extract_refused");
+    assert!(v["error"]["message"].as_str().unwrap().contains("limit"));
+    // Within the count, but the names add up to far more than the file holds.
+    let fat = elf_object(
+        &[(
+            ".bun",
+            SectionKind::Data,
+            overlapping_bun_section(bun::MAX_MODULES, 4096),
+        )],
+        false,
+    );
+    let p = put(tmp.path(), "fat", &fat);
+    let v = call("extract_embedded", json!({ "path": p }));
+    assert_eq!(err_code(&v), "extract_refused");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("module names add up")
+    );
+    // binary_info reports the same payload as invalid rather than allocating.
+    let v = call("binary_info", json!({ "path": p }));
+    assert_eq!(ok(&v)["embedded"][0]["valid"], json!(false));
+}
+
+#[test]
+fn a_large_table_within_the_limits_is_paged_and_honours_the_deadline() {
+    let tmp = tempfile::tempdir().unwrap();
+    let big = elf_object(
+        &[(
+            ".bun",
+            SectionKind::Data,
+            overlapping_bun_section(bun::MAX_MODULES, 64),
+        )],
+        false,
+    );
+    let p = put(tmp.path(), "big", &big);
+    let v = call(
+        "extract_embedded",
+        json!({ "path": p, "offset": 99_990, "limit": 5 }),
+    );
+    let r = ok(&v);
+    assert_eq!(r["moduleCount"], json!(bun::MAX_MODULES));
+    assert_eq!(r["modules"].as_array().unwrap().len(), 5);
+    assert_eq!(r["truncated"], json!(true));
+    let v = call_with("extract_embedded", json!({ "path": p }), Some(0), None);
+    assert_eq!(err_code(&v), "deadline_exceeded");
+}
+
+#[test]
+fn reserved_namzu_names_are_never_written() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = put(
+        tmp.path(),
+        "app",
+        &bun_elf(&[
+            ("/$bunfs/root/.namzu-provenance.json", b"{}", 1),
+            ("/$bunfs/root/sub/.namzu-x", b"1", 1),
+            ("/$bunfs/root/fine.js", b"2", 1),
+        ]),
+    );
+    let out = tmp.path().join("out");
+    let v = call(
+        "extract_embedded",
+        json!({ "path": p, "outDir": out.display().to_string() }),
+    );
+    let names: Vec<_> = listing(&v).into_iter().map(|m| m.2.is_some()).collect();
+    assert_eq!(names, vec![true, true, false]);
+    assert!(!out.join(".namzu-provenance.json").exists());
+    assert!(out.join("fine.js").exists());
+}
+
+#[test]
+fn structured_corruption_of_embedded_tables_never_panics() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let check = |label: &str, bytes: &[u8]| {
+        let p = put(tmp.path(), "s", bytes);
+        for op in ["binary_info", "extract_embedded", "strings"] {
+            let v = call(op, json!({ "path": p }));
+            assert_ne!(v["error"]["code"], json!("internal"), "{label} {op}: {v}");
+        }
+    };
+    // Bun: random u32 offsets and lengths in every pointer of a few records.
+    let good = bun::build_payload(&[("/$bunfs/root/a.js", b"1", 1), ("/b.js", b"22", 1)]);
+    for round in 0..300 {
+        let mut b = good.clone();
+        let tail = b.len() - 8 - bun::TRAILER.len() - 32;
+        let table_off = u32::from_le_bytes(b[8 + tail + 8..8 + tail + 12].try_into().unwrap());
+        for _ in 0..(1 + round % 5) {
+            let rec = (next() % 2) as usize * 52 + 8 + table_off as usize;
+            let field = (next() % 6) as usize * 8 + (next() % 2) as usize * 4;
+            let v = match next() % 4 {
+                0 => u32::MAX,
+                1 => 0x8000_0000,
+                2 => (next() & 0xffff) as u32,
+                _ => next() as u32,
+            };
+            if rec + field + 4 <= b.len() {
+                b[rec + field..rec + field + 4].copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        check(
+            &format!("bun round {round}"),
+            &elf_object(&[(".bun", SectionKind::Data, b)], false),
+        );
+    }
+    // Bun: huge module counts and an offsets block pointing everywhere.
+    for count in [0usize, 1, 1000, bun::MAX_MODULES, bun::MAX_MODULES + 1] {
+        check(
+            &format!("bun count {count}"),
+            &elf_object(
+                &[(
+                    ".bun",
+                    SectionKind::Data,
+                    overlapping_bun_section(count, 16),
+                )],
+                false,
+            ),
+        );
+    }
+    // SEA: asset counts from zero to u64::MAX over a short blob.
+    for count in [0u64, 1, 99_999, 100_000, 100_001, u64::MAX] {
+        let mut blob = sea::build_blob("m.js", b"x", 8, &[]);
+        let n = blob.len();
+        blob[n - 8..].copy_from_slice(&count.to_le_bytes());
+        check(
+            &format!("sea count {count}"),
+            &macho_object(
+                Architecture::Aarch64,
+                &[("NODE_SEA", "__NODE_SEA_BLOB", blob)],
+            ),
+        );
+    }
+    // Fat Mach-O: arch entries whose offset and size are extreme.
+    let slice = macho_object(Architecture::X86_64, &[]);
+    let fat = fat_macho(&[(0x0100_0007, slice)]);
+    for round in 0..200 {
+        let mut b = fat.clone();
+        for _ in 0..(1 + round % 3) {
+            let i = 8 + (next() as usize % 20);
+            if i + 4 <= b.len() {
+                let v = if next() % 2 == 0 {
+                    u32::MAX
+                } else {
+                    next() as u32
+                };
+                b[i..i + 4].copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        check(&format!("fat round {round}"), &b);
+    }
+}

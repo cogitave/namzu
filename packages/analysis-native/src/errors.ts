@@ -8,7 +8,7 @@
  * `output_too_large`, `internal`.
  *
  * Client codes: `sidecar_not_found`, `sidecar_exited`, `response_too_large`,
- * `protocol_error`, `closed`. `deadline_exceeded` is used by both: the sidecar
+ * `protocol_error`, `request_too_large` (also reported by the sidecar), `closed`. `deadline_exceeded` is used by both: the sidecar
  * reports it when it stops cooperatively, the client when it had to kill.
  */
 export class NativeAnalysisError extends Error {

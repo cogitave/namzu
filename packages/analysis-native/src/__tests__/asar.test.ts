@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
@@ -36,6 +37,7 @@ interface FileSpec {
 	offset?: string
 	unpacked?: boolean
 	link?: string
+	executable?: boolean
 	integrity?: { algorithm: string; hash: string; blockSize: number; blocks: string[] }
 }
 type Tree = { files: Record<string, Tree | FileSpec> }
@@ -258,8 +260,73 @@ describe('extractAsar refuses hostile archives', () => {
 		expect(r.written).toBe(0)
 		expect(r.entries[0]).toMatchObject({
 			status: 'skipped',
-			reason: expect.stringContaining('not a regular file'),
+			reason: expect.stringMatching(/not a regular file|outside the \.asar\.unpacked/),
 		})
+	})
+})
+
+describe('extractAsar against a hostile header and tree', () => {
+	it('counts every node the header names against maxFiles, not only files', async () => {
+		const archive = join(work, 'nodes.asar')
+		const files: Record<string, unknown> = {}
+		for (let i = 0; i < 50; i++) files[`n${i}`] = null
+		for (let i = 0; i < 50; i++) files[`d${i}`] = { files: {} }
+		writeFileSync(archive, buildAsar({ files } as Tree, Buffer.alloc(0)))
+		await expect(extractAsar(archive, fresh(), { maxFiles: 60 })).rejects.toMatchObject({
+			code: 'too_many_files',
+		})
+		const r = await extractAsar(archive, fresh(), { maxFiles: 100 })
+		expect(r.entries).toHaveLength(50)
+	})
+
+	it('does not read through a symlinked directory inside .asar.unpacked', async () => {
+		if (process.platform === 'win32') return
+		const archive = join(work, 'dirlink.asar')
+		writeFileSync(
+			archive,
+			buildAsar(
+				{
+					files: {
+						sub: { files: { 'secret.txt': { size: 6, unpacked: true } as FileSpec } },
+					},
+				},
+				Buffer.alloc(0),
+			),
+		)
+		const outside = join(work, 'outside-dir')
+		mkdirSync(outside)
+		writeFileSync(join(outside, 'secret.txt'), 'SECRET')
+		mkdirSync(`${archive}.unpacked`)
+		symlinkSync(outside, join(`${archive}.unpacked`, 'sub'))
+		const out = fresh()
+		const r = await extractAsar(archive, out)
+		expect(r.written).toBe(0)
+		expect(r.entries[0]).toMatchObject({
+			status: 'skipped',
+			reason: expect.stringContaining('outside'),
+		})
+		expect(existsSync(join(out, 'sub', 'secret.txt'))).toBe(false)
+	})
+
+	it('refuses an archive path that is a symbolic link', async () => {
+		if (process.platform === 'win32') return
+		const real = join(work, 'real.asar')
+		writeFileSync(real, buildAsar({ files: { a: { size: 1, offset: '0' } } }, Buffer.from('x')))
+		const link = join(work, 'link.asar')
+		symlinkSync(real, link)
+		await expect(extractAsar(link, fresh())).rejects.toMatchObject({ code: 'io_error' })
+	})
+
+	it('never marks a written file executable, whatever the header says', async () => {
+		if (process.platform === 'win32') return
+		const archive = join(work, 'exec.asar')
+		writeFileSync(
+			archive,
+			buildAsar({ files: { run: { size: 1, offset: '0', executable: true } } }, Buffer.from('x')),
+		)
+		const out = fresh()
+		await extractAsar(archive, out)
+		expect(statSync(join(out, 'run')).mode & 0o111).toBe(0)
 	})
 })
 
