@@ -54,6 +54,7 @@ async function handle(request: HostRequest): Promise<HostReply> {
 			parseErrors: parsed.errors,
 			rows: {
 				functions: sink.functions,
+				classes: sink.classes,
 				strings: sink.strings,
 				calls: sink.calls,
 				imports: sink.imports,

@@ -333,6 +333,7 @@ export function toFunction(row: Row, info: FileInfo): AnalysisFunction {
 	return {
 		id: Number(row.id),
 		name: row.name === null || row.name === undefined ? null : String(row.name),
+		...(row.qname !== null && row.qname !== undefined ? { qualifiedName: String(row.qname) } : {}),
 		kind: String(row.kind) as AnalysisFunctionKind,
 		path: info.abs,
 		line: at.line,
@@ -356,19 +357,66 @@ export function parentsOf(store: Store, files: Files, parentId: number | null): 
 	return out
 }
 
+/** A character offset that does not land between the halves of a surrogate pair, moved earlier if it does. */
+function safeEnd(text: string, at: number): number {
+	const last = text.charCodeAt(at - 1)
+	return last >= 0xd800 && last <= 0xdbff ? at - 1 : at
+}
+
+/** The header of a windowed slice: its first quarter of the budget, at most this. */
+const HEADER_CHARS = 400
+
+/**
+ * `text[start, end)`, cut to `maxChars`.
+ *
+ * Without `around` the cut is at the end. With it (the offset a question was
+ * asked about) the slice is the function's header, then the characters around
+ * `around`, and the position is inside what is returned: the 2.3 % of literals
+ * in a large bundle that sit past the first 20,000 characters of their function
+ * are exactly the ones a head cut loses.
+ */
 export function sliceOf(
 	text: string,
 	start: number,
 	end: number,
 	maxChars: number,
+	around?: number,
 ): AnalysisSourceSlice {
 	const chars = end - start
 	if (chars <= maxChars) return { text: text.slice(start, end), chars, truncated: false }
-	let stop = start + maxChars
-	const last = text.charCodeAt(stop - 1)
-	// Do not hand back half of a surrogate pair.
-	if (last >= 0xd800 && last <= 0xdbff) stop--
-	return { text: text.slice(start, stop), chars, truncated: true }
+	if (around === undefined || around < start || around >= end) {
+		return { text: text.slice(start, safeEnd(text, start + maxChars)), chars, truncated: true }
+	}
+	const header = Math.min(Math.floor(maxChars / 4), HEADER_CHARS)
+	const headerEnd = safeEnd(text, start + header)
+	const budget = maxChars - header
+	let from = around - Math.floor(budget / 2)
+	let to = from + budget
+	if (from < headerEnd) {
+		from = headerEnd
+		to = from + budget
+	}
+	if (to > end) {
+		to = end
+		from = Math.max(headerEnd, to - budget)
+	}
+	// Whole characters at both ends.
+	const first = text.charCodeAt(from)
+	if (from > headerEnd && first >= 0xdc00 && first <= 0xdfff) from--
+	to = safeEnd(text, to)
+	const gapBefore = from - headerEnd
+	const gapAfter = end - to
+	const cut =
+		text.slice(start, headerEnd) +
+		(gapBefore > 0 ? `\n/* … ${gapBefore.toLocaleString('en-US')} characters omitted … */\n` : '') +
+		text.slice(from, to) +
+		(gapAfter > 0 ? `\n/* … ${gapAfter.toLocaleString('en-US')} characters omitted … */` : '')
+	return {
+		text: cut,
+		chars,
+		truncated: true,
+		window: { headerChars: headerEnd - start, from, to },
+	}
 }
 
 // ─── coverage ───────────────────────────────────────────────────────────────

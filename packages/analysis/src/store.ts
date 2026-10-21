@@ -67,13 +67,16 @@ CREATE TABLE IF NOT EXISTS excl(
 	PRIMARY KEY(path, kind, name));
 CREATE TABLE IF NOT EXISTS functions(
 	id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, parent_id INTEGER, kind TEXT NOT NULL, name TEXT,
-	start INTEGER NOT NULL, "end" INTEGER NOT NULL, sline INTEGER NOT NULL, eline INTEGER NOT NULL);
+	start INTEGER NOT NULL, "end" INTEGER NOT NULL, sline INTEGER NOT NULL, eline INTEGER NOT NULL,
+	qname TEXT);
+CREATE TABLE IF NOT EXISTS classes(
+	file_id INTEGER NOT NULL, name TEXT, start INTEGER NOT NULL, "end" INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS strings(
 	id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, fn_id INTEGER, start INTEGER NOT NULL,
-	"end" INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL);
+	"end" INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, cut INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS calls(
 	file_id INTEGER NOT NULL, fn_id INTEGER, start INTEGER NOT NULL, "end" INTEGER NOT NULL,
-	callee TEXT NOT NULL, kind TEXT NOT NULL, nargs INTEGER NOT NULL);
+	callee TEXT NOT NULL, kind TEXT NOT NULL, nargs INTEGER NOT NULL, owner TEXT, unres INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS imports(
 	file_id INTEGER NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, names TEXT NOT NULL, start INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS exports(
@@ -84,6 +87,10 @@ CREATE TABLE IF NOT EXISTS exports(
 const SECONDARY_INDEXES = `
 CREATE INDEX IF NOT EXISTS fn_file_start ON functions(file_id, start);
 CREATE INDEX IF NOT EXISTS fn_name ON functions(name);
+CREATE INDEX IF NOT EXISTS fn_qname ON functions(qname) WHERE qname IS NOT NULL;
+CREATE INDEX IF NOT EXISTS class_file ON classes(file_id, start);
+CREATE INDEX IF NOT EXISTS str_cut ON strings(file_id) WHERE cut > 0;
+CREATE INDEX IF NOT EXISTS call_unres ON calls(file_id) WHERE unres = 1;
 CREATE INDEX IF NOT EXISTS str_fn ON strings(fn_id);
 CREATE INDEX IF NOT EXISTS str_file ON strings(file_id, start);
 CREATE INDEX IF NOT EXISTS call_callee ON calls(callee);
@@ -366,7 +373,7 @@ export class Store {
 				"INSERT INTO lit(lit, rowid, value) SELECT 'delete', id, value FROM strings WHERE file_id = ? AND length(value) >= 3",
 			).run(fileId)
 		}
-		for (const table of ['strings', 'calls', 'functions', 'imports', 'exports']) {
+		for (const table of ['strings', 'calls', 'functions', 'classes', 'imports', 'exports']) {
 			this.prepare(`DELETE FROM ${table} WHERE file_id = ?`).run(fileId)
 		}
 		this.prepare('DELETE FROM files WHERE id = ?').run(fileId)
@@ -416,7 +423,7 @@ export class Store {
 		const id = Number(result.lastInsertRowid)
 		const remap = (local: number | null): number | null => (local === null ? null : base + local)
 
-		const insFn = this.prepare('INSERT INTO functions VALUES(?,?,?,?,?,?,?,?,?)')
+		const insFn = this.prepare('INSERT INTO functions VALUES(?,?,?,?,?,?,?,?,?,?)')
 		for (const f of rows.functions) {
 			insFn.run(
 				base + f.id,
@@ -428,22 +435,28 @@ export class Store {
 				f.end,
 				lineOf(f.start),
 				lineOf(f.end),
+				f.qname !== null && f.qname !== f.name ? f.qname : null,
 			)
 		}
+		const insClass = this.prepare('INSERT INTO classes VALUES(?,?,?,?)')
+		for (const c of rows.classes) insClass.run(id, c.name, c.start, c.end)
 		const insStr = this.prepare(
-			'INSERT INTO strings(file_id, fn_id, start, "end", kind, value) VALUES(?,?,?,?,?,?)',
+			'INSERT INTO strings(file_id, fn_id, start, "end", kind, value, cut) VALUES(?,?,?,?,?,?,?)',
 		)
 		// The substring index is fed row by row from the ids just assigned. A
 		// `SELECT … WHERE file_id = ?` here would scan the whole table once per
 		// file during a first index, when the secondary indexes do not exist yet.
 		const insLit = this.fts ? this.prepare('INSERT INTO lit(rowid, value) VALUES(?, ?)') : undefined
 		for (const s of rows.strings) {
-			const r = insStr.run(id, remap(s.fnId), s.start, s.end, s.kind, s.value)
+			const r = insStr.run(id, remap(s.fnId), s.start, s.end, s.kind, s.value, s.cut)
 			if (insLit && s.value.length >= 3) insLit.run(Number(r.lastInsertRowid), s.value)
 		}
-		const insCall = this.prepare('INSERT INTO calls VALUES(?,?,?,?,?,?,?)')
-		for (const c of rows.calls)
-			insCall.run(id, remap(c.fnId), c.start, c.end, c.callee, c.kind, c.nargs)
+		const insCall = this.prepare('INSERT INTO calls VALUES(?,?,?,?,?,?,?,?,?)')
+		for (const c of rows.calls) {
+			// A callee the index cannot name: not an identifier or a member path.
+			const unresolved = c.callee === '?' || c.callee.endsWith('[]') ? 1 : 0
+			insCall.run(id, remap(c.fnId), c.start, c.end, c.callee, c.kind, c.nargs, c.owner, unresolved)
+		}
 		const insImp = this.prepare('INSERT INTO imports VALUES(?,?,?,?,?)')
 		for (const i of rows.imports) insImp.run(id, i.kind, i.source, i.names, i.start)
 		const insExp = this.prepare('INSERT INTO exports VALUES(?,?,?,?,?)')
