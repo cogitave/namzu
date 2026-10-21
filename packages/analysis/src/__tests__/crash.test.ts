@@ -33,8 +33,16 @@ describe('indexing a tree that holds parser-crashing files', () => {
 		const p = provider()
 		const out = ok(await p.index({ root: tree.root }))
 
-		// Two good files, and the four crashers recorded with no rows.
-		expect(out.value.files.indexed).toBe(6)
+		// Two good files, and the four crashers recorded with no rows. On a miss,
+		// say what was skipped and whether the call stopped at its time limit.
+		const { files, skippedReasons, truncated } = out.value
+		const seen = JSON.stringify({
+			files,
+			skippedReasons,
+			truncated,
+			coverage: out.evidence.coverage,
+		})
+		expect(out.value.files.indexed, seen).toBe(6)
 		const crashed = Object.entries(out.value.skippedReasons).find(([why]) => /crash/.test(why))
 		expect(crashed?.[1]).toBe(4)
 		expect(out.evidence.coverage.status).toBe('partial')

@@ -1,6 +1,7 @@
 import { type ChildProcess, fork } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -67,6 +68,29 @@ export function childEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.P
 }
 
 /**
+ * Keep a crashed child's core dump to its headers. The parser's raw transfer
+ * maps a 6 GiB anonymous buffer (measured: 6.00 GiB `rw-p` in a child that
+ * has parsed one small file, 57 MB resident), and a dump includes every
+ * anonymous mapping that has been written to, untouched pages and all. Into a
+ * file those pages are holes; into a pipe they are zeros, and a pipe is what
+ * `core_pattern` names on Ubuntu (apport) and systemd systems
+ * (systemd-coredump). The kernel sends the whole mapping whatever `ulimit -c`
+ * says, and the child does not finish dying until the handler has read it.
+ * The dump would also hold the source being parsed. `coredump_filter` 0 drops
+ * every anonymous and file mapping from the dump, leaving the registers and
+ * the mapping list. Linux only, and best effort: a /proc that refuses the
+ * write leaves the dump as the system configured it.
+ */
+function withoutCoreDump(pid: number | undefined): void {
+	if (process.platform !== 'linux' || pid === undefined) return
+	try {
+		writeFileSync(`/proc/${pid}/coredump_filter`, '0')
+	} catch {
+		// Nothing to do: the filter is an economy, not a guarantee.
+	}
+}
+
+/**
  * Node's permission model for the child: it may read the files it loads (its
  * own script and the directories above and beside it, and `node_modules`, where
  * the parser and its native binding live), and nothing else. It may not write,
@@ -122,6 +146,9 @@ export class ParserHost {
 		this.ready ??= new Promise<ChildProcess>((resolve, reject) => {
 			const script = hostScript(this.script)
 			const child = fork(script, this.parserModule !== undefined ? [this.parserModule] : [], {
+				// Not the project: a crash handler that writes `core` into the
+				// crashed process's working directory must not write it there.
+				cwd: tmpdir(),
 				// A heap big enough for the AST of the largest file allowed, none of
 				// the parent's debugger / loader flags, and the permission model.
 				execArgv: ['--max-old-space-size=4096', ...permissionArguments(script, this.parserModule)],
@@ -129,6 +156,8 @@ export class ParserHost {
 				serialization: 'advanced',
 				stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
 			})
+			// Before the first parse request, so before anything it could crash on.
+			withoutCoreDump(child.pid)
 			this.current = child
 			const timer = setTimeout(() => {
 				this.kill(child)

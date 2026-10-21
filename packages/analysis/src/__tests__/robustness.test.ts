@@ -405,6 +405,24 @@ describe('review: the child and the cache', () => {
 		expect(out.kind).toBe('rows')
 		host.dispose()
 	})
+
+	it.runIf(process.platform === 'linux')(
+		'starts the child outside the project, with no memory in its core dump',
+		async () => {
+			const { realpathSync, readlinkSync } = await import('node:fs')
+			const { tmpdir } = await import('node:os')
+			const host = new ParserHost()
+			const out = await host.parse({ rel: 'a.js', abs: '/x/a.js', text: 'function a(){}' })
+			expect(out.kind).toBe('rows')
+			const pid = (host as unknown as { current?: { pid?: number } }).current?.pid
+			expect(pid).toBeTypeOf('number')
+			// No anonymous or file mapping is dumped: not the parser's 6 GiB buffer,
+			// not the source it was given.
+			expect(Number.parseInt(readFileSync(`/proc/${pid}/coredump_filter`, 'utf8'), 16)).toBe(0)
+			expect(readlinkSync(`/proc/${pid}/cwd`)).toBe(realpathSync(tmpdir()))
+			host.dispose()
+		},
+	)
 })
 
 describe('cache eviction', () => {
