@@ -28,7 +28,7 @@ const floor = new AuthorizationGate(
 )
 
 const decide = (toolName: string, toolInput: unknown, toolDef?: ToolDefinition) =>
-	floor.evaluate({ toolName, toolInput, ...(toolDef ? { toolDef } : {}) }).decision
+	floor.evaluate({ toolName, toolInput, toolDef }).decision
 
 /** Only the fields the gate reads. */
 const custom = (name: string, extra: Partial<ToolDefinition>): ToolDefinition =>
