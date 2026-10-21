@@ -1919,6 +1919,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		// `assertModeAllowed` below applies the settings that shut either door.
+		promptPermissionModes: ['bypass', 'classify'],
 		supportsTaskNotifications: desktop,
 		transport,
 		gateway: runtime.gateway,
