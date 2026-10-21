@@ -138,6 +138,12 @@ export interface BrowserConfig {
 	readonly keepOpen?: boolean
 }
 
+/** See `NamzuCliConfig.codeAnalysis`. */
+export interface CodeAnalysisConfig {
+	/** Mount the `code_analysis` tool in the interactive terminal. Default `true`. */
+	readonly enabled?: boolean
+}
+
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
 	/** Web search is live by default. Set off to disable it. */
@@ -279,6 +285,17 @@ export interface NamzuCliConfig {
 	 * file above it switched it off. Not settable from the environment.
 	 */
 	readonly browser?: BrowserConfig
+	/**
+	 * The `code_analysis` tool in the interactive terminal: cited, paged
+	 * lookups over an index of the project's JavaScript and TypeScript (a
+	 * string literal, the function around it, its source, its callers).
+	 *
+	 * On by default. `{ "enabled": false }` removes the tool from the session
+	 * and the index is never built. Merged across files: `enabled: false` in
+	 * any file holds, and a later file cannot switch it back on. Not settable
+	 * from the environment. `exec`, `drain` and `acp` never mount it.
+	 */
+	readonly codeAnalysis?: CodeAnalysisConfig
 	/**
 	 * A System-1 decision model. When set, the host and Pal agents get an
 	 * optional, advisory `decide` tool (yes/no, choice or score). A failing

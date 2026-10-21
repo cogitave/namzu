@@ -3,6 +3,11 @@ export { WriteFileTool } from './write-file.js'
 export { EditTool } from './edit.js'
 export { BashTool } from './bash.js'
 export { GlobTool } from './glob.js'
+export {
+	CODE_ANALYSIS_TOOL_NAME,
+	CodeAnalysisTool,
+	getCodeAnalysisTools,
+} from './code-analysis.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './lsp.js'
 export { GrepTool } from './grep.js'
 export { JobTool } from './job.js'

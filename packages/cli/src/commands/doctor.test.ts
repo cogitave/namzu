@@ -1,3 +1,8 @@
+// First, as in `bin.ts`: the `codeAnalysis.index` check opens `node:sqlite` in
+// this process, and on Node 22 its experimental notice would land in the
+// captured output that `--json` must keep parseable.
+import '../warning-filter.js'
+
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

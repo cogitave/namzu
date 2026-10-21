@@ -50,6 +50,7 @@ import {
 import { configMetadataLiteral } from './debug.js'
 import type {
 	BrowserConfig,
+	CodeAnalysisConfig,
 	CompactionCliConfig,
 	ComposerTriggerArming,
 	ComposerTriggerId,
@@ -1079,6 +1080,18 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 	},
 	browser: (v, context) => readBrowserConfig(v, context),
+	codeAnalysis: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'enabled') {
+				return invalidConfigValue(context, [key], 'is not a codeAnalysis setting (enabled)')
+			}
+		}
+		const raw = v as { enabled?: unknown }
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be true or false')
+		return raw.enabled !== undefined ? { enabled: raw.enabled } : {}
+	},
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1667,6 +1680,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A browser signed in to the operator's sites, and which of them it may
 	// change: a file decision, never a shell's.
 	browser: undefined,
+	// Reads project files into an index kept under the Namzu home; a file
+	// decision, never a variable a shell profile could carry invisibly.
+	codeAnalysis: undefined,
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
@@ -1886,6 +1902,12 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'codeAnalysis' && layer.config.codeAnalysis) {
+				// `enabled: false` holds: a later file may turn the tool off, never back on.
+				out.codeAnalysis = mergeCodeAnalysisConfig(out.codeAnalysis, layer.config.codeAnalysis)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'composerTriggers' && layer.config.composerTriggers) {
 				// Merged per key; a project layer only lowers. See `mergeComposerTriggers`.
 				out.composerTriggers = mergeComposerTriggers(
@@ -2097,6 +2119,17 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 		...(sites !== undefined ? { sites } : {}),
 		...(raw.keepOpen !== undefined ? { keepOpen: raw.keepOpen as boolean } : {}),
 	}
+}
+
+/** `codeAnalysis` from one more layer: off in any file stays off. */
+export function mergeCodeAnalysisConfig(
+	below: CodeAnalysisConfig | undefined,
+	layer: CodeAnalysisConfig,
+): CodeAnalysisConfig {
+	if (!below) return layer
+	const enabled =
+		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
+	return enabled !== undefined ? { enabled } : {}
 }
 
 function isProjectSource(source: ConfigSource): boolean {

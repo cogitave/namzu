@@ -18,6 +18,7 @@
 		{ "path": "../browser" },
 		{ "path": "../telemetry" },
 		{ "path": "../decision" },
+		{ "path": "../analysis" },
 		{
 			"path": "../files"
 		},

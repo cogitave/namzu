@@ -244,6 +244,7 @@ agent/
 | `@namzu/ag-ui` | An AG-UI adapter for streamed text, tools and interrupts in a host interface. [Guide](docs/sdk/ag-ui.md) |
 | `@namzu/live` | Live sessions that run the speech and audio drivers you supply. |
 | `@namzu/lsp` | Code navigation and symbol lookup through language servers. Pre-1.0. |
+| `@namzu/analysis` | A paged index of JavaScript and TypeScript: find a string, the function around it, its source and its callers. Needs Node.js 22.13 or newer. [Guide](docs/sdk/code-analysis.md) |
 | `@namzu/telemetry` | Telemetry exporters, kept apart so that a host that emits nothing installs nothing. |
 | `@namzu/files` | A file registry with in-memory, local-disk and cloud-blob backends, plus an HTTP download router. |
 | `@namzu/evals` | Behaviour suites that run against an installed kernel. |

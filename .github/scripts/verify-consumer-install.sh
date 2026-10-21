@@ -565,6 +565,67 @@ console.log(`    ✓ packed CLI ran ${report.suites.length} packed eval suites`)
 NODE
 
 # ---------------------------------------------------------------------------
+# The packed CLI answers code_analysis questions with no @namzu/analysis.
+# ---------------------------------------------------------------------------
+#
+# `@namzu/analysis` is bundled into the CLI, the way `@namzu/decision` is, and
+# is not a dependency of it: a new package cannot be created on the registry by
+# the release token, and a CLI that declared it would not install. This is the
+# state the fixture above just built (CLI tarball plus the siblings its
+# `dependencies` name, nothing else), so prove here that nothing needs it and
+# that the code index still works:
+#   - the packed manifest does not name @namzu/analysis as a dependency;
+#   - node_modules holds no @namzu/analysis and nothing resolves it;
+#   - the parsing child ships inside the CLI's own dist, and the native parser
+#     it loads is a real dependency that did install;
+#   - `namzu doctor` runs a one-file index through the same provider and the
+#     same child process a session uses, and reports it working.
+echo ""
+echo "=== @namzu/cli packed alone: code index without @namzu/analysis ==="
+CURRENT_STEP="@namzu/cli packed alone: code index without @namzu/analysis"
+
+tar -xzOf "$CLI_TARBALL" package/package.json > cli-packed-manifest.json
+node - <<'NODE'
+const { readFileSync } = require('node:fs')
+const manifest = JSON.parse(readFileSync('cli-packed-manifest.json', 'utf8'))
+for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+  if (manifest[field]?.['@namzu/analysis'] !== undefined) {
+    throw new Error(`Packed CLI declares @namzu/analysis in ${field}; it is bundled, and not on the registry on its own`)
+  }
+}
+if (!manifest.dependencies?.['oxc-parser']) {
+  throw new Error('Packed CLI does not declare oxc-parser, the native parser its code index loads')
+}
+NODE
+# Listed to a file first: `grep -q` closing the pipe early would fail `tar` under pipefail.
+tar -tzf "$CLI_TARBALL" > cli-packed-files.txt
+grep -qx 'package/dist/analysis-host.js' cli-packed-files.txt \
+  || { echo "    ✗ Packed CLI does not ship dist/analysis-host.js, the code index's parsing child"; exit 1; }
+test ! -e node_modules/@namzu/analysis || { echo "    ✗ @namzu/analysis was installed into the CLI-only tree"; exit 1; }
+test -d node_modules/oxc-parser || { echo "    ✗ oxc-parser did not install with the packed CLI"; exit 1; }
+node -e '
+  const { createRequire } = require("node:module")
+  const fromCli = createRequire(require.resolve("@namzu/cli/package.json"))
+  try { fromCli.resolve("@namzu/analysis"); process.exit(1) } catch { /* not resolvable: what we want */ }
+' || { echo "    ✗ @namzu/analysis resolves from the packed CLI; something depends on it at runtime"; exit 1; }
+
+DOCTOR_HOME=$(mktemp -d -t namzu-doctor-home.XXXXXX)
+mkdir -p "$DOCTOR_HOME/.namzu"
+env -u WSL_DISTRO_NAME -u WSL_INTEROP HOME="$DOCTOR_HOME" NAMZU_HOME="$DOCTOR_HOME/.namzu" \
+  ./node_modules/.bin/namzu doctor --json > doctor-report.json 2>/dev/null || true
+node - <<'NODE'
+const { readFileSync } = require('node:fs')
+const report = JSON.parse(readFileSync('doctor-report.json', 'utf8'))
+const check = report.checks.find((entry) => entry.id === 'codeAnalysis.index')
+if (!check) throw new Error('Packed CLI doctor report has no codeAnalysis.index check')
+if (check.status !== 'pass' || !/child process/.test(check.message)) {
+  throw new Error(`Packed CLI cannot run its code index: ${check.status} ${check.message}`)
+}
+console.log(`    ✓ packed CLI index works with no @namzu/analysis installed: ${check.message}`)
+NODE
+rm -rf "$DOCTOR_HOME" cli-packed-files.txt cli-packed-manifest.json doctor-report.json
+
+# ---------------------------------------------------------------------------
 # @namzu/live packed-runtime fixture (ses_022-live-agent-bridge).
 # ---------------------------------------------------------------------------
 #

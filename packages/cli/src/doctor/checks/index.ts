@@ -3,6 +3,7 @@ import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 import { capabilityCheckId } from '../../context/capabilities.js'
 import { browserEngineCheck } from './browser.js'
 import { providerChainCheck } from './chain.js'
+import { codeAnalysisCheck } from './code-analysis.js'
 import { credentialSourcesCheck } from './credentials.js'
 import { invariantsCheck } from './invariants.js'
 import { loggingPipelineCheck } from './logging.js'
@@ -53,6 +54,7 @@ export const browserInstalledCheck: DoctorCheck = installedCheck('@namzu/browser
 // `tsc --build` with TS2323/TS2484 (confirmed by building this exact file).
 export {
 	browserEngineCheck,
+	codeAnalysisCheck,
 	credentialSourcesCheck,
 	providerChainCheck,
 	providersRegisteredCheck,
@@ -83,6 +85,8 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	browserInstalledCheck,
 	// After the package check: which browser it would drive here, and how.
 	browserEngineCheck,
+	// After the packages it rests on: the index parses in a child process of its own.
+	codeAnalysisCheck,
 	telemetryInstalledCheck,
 	schedulerCheck,
 	// Last, deliberately: it reports what the pipeline did to the records
