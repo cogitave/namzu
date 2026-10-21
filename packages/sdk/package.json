@@ -1,7 +1,7 @@
 {
 	"name": "@namzu/sdk",
 	"version": "52.1.0",
-	"description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+	"description": "Open-source AI kernel for TypeScript: runs an agent the way an operating system runs a process, with an identity and a budget, scheduled tool calls and checkpointed turns.",
 	"license": "FSL-1.1-MIT",
 	"engines": {
 		"node": ">=20.0.0"

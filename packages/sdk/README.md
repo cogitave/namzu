@@ -176,7 +176,7 @@ Your tools and `runAgent` call stay the same when you change the driver.
 | `@namzu/openrouter` | Many hosted models behind one key |
 | `@namzu/zen` | Hosted models with native protocol routing |
 | `@namzu/ollama` | Local models, no key needed |
-| `@namzu/lmstudio` | Local models through a local model server, with tool use |
+| `@namzu/lmstudio` | Local models through a local model server, chat only (no tool use) |
 | `@namzu/http` | Zero-dependency driver for compatible HTTP endpoints |
 
 Every driver registers through `ProviderRegistry`. For per-model rates and

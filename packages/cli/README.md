@@ -12,7 +12,7 @@ generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 
 # Namzu CLI
 
-**An AI coding agent for your terminal. It reads and edits your project, runs commands, and asks before it acts.**
+**An AI coding agent for your terminal, built on the Namzu kernel. It reads and edits your project, runs commands, and can undo a turn.**
 
 [![npm](https://img.shields.io/npm/v/@namzu/cli.svg)](https://www.npmjs.com/package/@namzu/cli)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://www.npmjs.com/package/@namzu/cli)
