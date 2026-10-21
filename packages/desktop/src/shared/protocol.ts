@@ -455,6 +455,12 @@ export interface JobView {
 	recoveryRequired?: boolean
 	/** Safe registry diagnostic; never the process provider's raw error. */
 	stopError?: string
+	/** A monitor watches a command's output and reports each line; it is not a shell the person runs. */
+	kind?: 'monitor'
+	/** What a monitor watches, in the model's words; the row shows it as the label. */
+	description?: string
+	/** Why a monitor ended without being stopped by the person. */
+	stopReason?: 'expired' | 'too_much_output' | 'stopped'
 }
 export interface QueuedMessageView {
 	id: string

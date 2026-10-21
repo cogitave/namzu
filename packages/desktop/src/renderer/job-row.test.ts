@@ -66,3 +66,25 @@ it('keeps a full accessible command when the compact visible row truncates it', 
 	expect(html).toContain('class="job-command"')
 	expect(html).not.toContain('<untrusted>')
 })
+
+it('names a monitor by what it watches and keeps the quiet stop action', () => {
+	const html = render({
+		...running,
+		command: 'tail -f deploy.log',
+		kind: 'monitor',
+		description: 'errors in deploy log',
+	})
+	expect(html).toContain('Monitoring: errors in deploy log')
+	expect(html).toContain('Watching')
+	expect(html).toContain('aria-label="Stop Monitoring: errors in deploy log"')
+	expect(html).not.toContain('tail -f')
+	expect(
+		render({
+			...running,
+			kind: 'monitor',
+			description: 'x',
+			status: 'killed',
+			stopReason: 'expired',
+		}),
+	).toContain('Ran out of time')
+})

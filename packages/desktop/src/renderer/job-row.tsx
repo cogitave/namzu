@@ -11,7 +11,16 @@ export interface JobOutput {
 }
 
 function jobStatus(job: JobView): { label: string; tone: string } {
-	if (job.status === 'running') return { label: 'Running', tone: 'running' }
+	if (job.status === 'running') {
+		return {
+			label: job.kind === 'monitor' ? 'Watching' : 'Running',
+			tone: 'running',
+		}
+	}
+	if (job.kind === 'monitor') {
+		if (job.stopReason === 'expired') return { label: 'Ran out of time', tone: 'muted' }
+		if (job.stopReason === 'too_much_output') return { label: 'Too much output', tone: 'muted' }
+	}
 	if (job.status === 'killed') return { label: 'Stopped', tone: 'muted' }
 	if (job.status === 'exited') {
 		if (job.exitCode === 0) return { label: 'Done', tone: 'success' }
@@ -48,7 +57,11 @@ export function JobRow({
 	}, [])
 	const recovery = job.status === 'running' && job.recoveryRequired === true
 	const status = jobStatus(job)
-	const command = job.command || 'Background terminal'
+	// A monitor is named for what it watches; a shell, by the command it runs.
+	const command =
+		job.kind === 'monitor'
+			? `Monitoring: ${job.description || job.command || 'a command'}`
+			: job.command || 'Background terminal'
 	const read = async () => {
 		if (disabled || readPending.current) return
 		readPending.current = true
