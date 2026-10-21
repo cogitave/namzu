@@ -1,5 +1,7 @@
+import { type Stats, lstatSync } from 'node:fs'
 import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 
 import type { Env } from './context.js'
 import { refreshIndex, toRel } from './indexer.js'
@@ -40,7 +42,8 @@ export const FEW_BYTES = 16 * 1024 * 1024
 /** Entries compared per query before it says it stopped. */
 const MAX_FILES_CHECKED = 250_000
 const MAX_DIRS_CHECKED = 20_000
-const STAT_PARALLEL = 48
+/** Synchronous `lstat`s run this long before the event loop gets a turn. */
+const SLICE_MS = 4
 
 export interface Freshened {
 	/** What the query did to make its answer current; goes into `observed`. */
@@ -57,18 +60,32 @@ function scopeWhere(column: string, scopeRel: string): { sql: string; params: st
 	}
 }
 
-async function inBatches<T, R>(items: readonly T[], work: (item: T) => Promise<R>): Promise<R[]> {
-	const out: R[] = new Array(items.length)
-	let next = 0
-	const lanes = Array.from({ length: Math.min(STAT_PARALLEL, items.length) }, async () => {
-		for (;;) {
-			const at = next++
-			if (at >= items.length) return
-			out[at] = await work(items[at] as T)
+/**
+ * `lstat` every path, in slices.
+ *
+ * Synchronous on purpose: 2,434 of them take 7 ms this way and 47 ms through
+ * the promise API, whose cost is the thread pool round trip, not the system
+ * call. Run in slices of {@link SLICE_MS} so a tree of 150,000 files lets the
+ * event loop breathe, as the indexer does.
+ */
+async function statAll(
+	paths: readonly string[],
+	visit: (index: number, stats: Stats | undefined) => void,
+): Promise<void> {
+	let sliceStart = performance.now()
+	for (let i = 0; i < paths.length; i++) {
+		let stats: Stats | undefined
+		try {
+			stats = lstatSync(paths[i] as string)
+		} catch {
+			stats = undefined
 		}
-	})
-	await Promise.all(lanes)
-	return out
+		visit(i, stats)
+		if ((i & 63) === 63 && performance.now() - sliceStart > SLICE_MS) {
+			await nextTurn()
+			sliceStart = performance.now()
+		}
+	}
 }
 
 function named(list: readonly string[]): string {
@@ -108,28 +125,25 @@ export async function freshenScope(env: Env, scopeRel: string): Promise<Freshene
 
 	const changedFiles: Array<{ rel: string; size: number }> = []
 	const checkedFiles = stored.slice(0, MAX_FILES_CHECKED)
-	await inBatches(checkedFiles, async (row) => {
-		const rel = String(row.path)
-		try {
-			const s = await lstat(join(root, ...rel.split('/')))
-			if (!s.isFile() || s.size !== Number(row.size) || s.mtimeMs !== Number(row.mtime_ms))
-				changedFiles.push({ rel, size: s.size })
-		} catch {
-			changedFiles.push({ rel, size: 0 })
-		}
-	})
+	await statAll(
+		checkedFiles.map((row) => join(root, ...String(row.path).split('/'))),
+		(i, s) => {
+			const row = checkedFiles[i] as (typeof checkedFiles)[number]
+			if (!s) changedFiles.push({ rel: String(row.path), size: 0 })
+			else if (!s.isFile() || s.size !== Number(row.size) || s.mtimeMs !== Number(row.mtime_ms))
+				changedFiles.push({ rel: String(row.path), size: s.size })
+		},
+	)
 
 	const changedDirs: string[] = []
 	const checkedDirs = dirRows.slice(0, MAX_DIRS_CHECKED)
-	await inBatches(checkedDirs, async (row) => {
-		const rel = String(row.path)
-		try {
-			const s = await lstat(join(root, ...rel.split('/').filter(Boolean)))
-			if (s.mtimeMs !== Number(row.mtime_ms)) changedDirs.push(rel)
-		} catch {
-			changedDirs.push(rel)
-		}
-	})
+	await statAll(
+		checkedDirs.map((row) => join(root, ...String(row.path).split('/').filter(Boolean))),
+		(i, s) => {
+			const row = checkedDirs[i] as (typeof checkedDirs)[number]
+			if (!s || s.mtimeMs !== Number(row.mtime_ms)) changedDirs.push(String(row.path))
+		},
+	)
 
 	// A path that is not recorded at all: a file created since, or a directory.
 	if (
