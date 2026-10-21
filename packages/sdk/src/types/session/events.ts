@@ -1251,7 +1251,7 @@ export type ChildSessionLifecycleEvent =
 	| ChildSessionIdledEvent
 
 /**
- * Discriminated union of every live session event: 62 type literals.
+ * Discriminated union of every live session event: 63 type literals.
  *
  * `type` is the sole discriminator for exhaustive switches; envelope fields
  * are additive and never take part in discrimination.
