@@ -45,6 +45,12 @@ export const MONITOR_TIMEOUT_MIN_MS = 1000
 export const MONITOR_TIMEOUT_MAX_MS = 3_600_000
 /** One notification handed to the model is cut to this many characters, in the middle. */
 export const MONITOR_NOTIFICATION_MAX_CHARS = 100_000
+/**
+ * One event's content is shrunk to this many characters BEFORE it is framed,
+ * so the notification cap never has to cut inside an envelope. A batch is at
+ * most 3000, so this only matters to a notice or a caller that outgrew that.
+ */
+export const MONITOR_EVENT_CONTENT_MAX_CHARS = 20_000
 
 const LINE_TRUNCATED = '...(truncated)'
 const BATCH_TRUNCATED = '\n...(truncated)'

@@ -148,6 +148,23 @@ function neutralizeSystemEventDelimiter(text: string): string {
 	return text.replace(SYSTEM_EVENT_KEYWORD, 'system_event')
 }
 
+/** The longest a model-chosen value may be inside a metadata line. */
+export const SYSTEM_EVENT_METADATA_MAX_CHARS = 200
+
+/**
+ * A value the kernel did not author, made safe for ONE metadata line: every
+ * whitespace run (newlines included, so it cannot forge a `summary:` or
+ * `source:` line of its own) becomes a single space, and what is left is cut
+ * to `max` characters with an ellipsis.
+ */
+export function oneMetadataLine(
+	value: string,
+	max: number = SYSTEM_EVENT_METADATA_MAX_CHARS,
+): string {
+	const line = value.replace(/\s+/g, ' ').trim()
+	return line.length <= max ? line : `${line.slice(0, Math.max(0, max - 1))}…`
+}
+
 /** Escape a value so it cannot rewrite the tag it appears in. See `untrusted-envelope.ts`. */
 function escapeAttribute(value: string): string {
 	return value

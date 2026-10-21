@@ -1,5 +1,8 @@
 import type { Message, UserMessage } from '../../types/message/index.js'
-import { MONITOR_NOTIFICATION_MAX_CHARS } from '../jobs/monitor-stream.js'
+import {
+	MONITOR_EVENT_CONTENT_MAX_CHARS,
+	MONITOR_NOTIFICATION_MAX_CHARS,
+} from '../jobs/monitor-stream.js'
 
 /** User-role runtime reports are context, not new operator intent. */
 export function isOperatorUserMessage(message: Message): message is UserMessage {
@@ -139,21 +142,78 @@ export function formatJobNote(text: string): string {
 /**
  * What the model reads when a monitor it started has something to say.
  *
- * One notification is cut to {@link MONITOR_NOTIFICATION_MAX_CHARS}, in the
- * middle: the first events say what the watch was and the last say where it
- * stands, and the middle is the part a reader can best do without. The cut is
- * announced, never silent. The events themselves are already small (a batch is
- * at most 3000 characters); this bound is for the queue that piled up while the
- * model was busy.
+ * One notification is bounded by {@link MONITOR_NOTIFICATION_MAX_CHARS}, at the
+ * granularity of a whole event: the earliest events say what the watch was and
+ * the latest say where it stands, and the middle is the part a reader can best
+ * do without. The cut is announced, never silent, and never inside an
+ * envelope: a half event would leave an unterminated frame and a fragment of
+ * process output outside any frame at all. The events themselves are already
+ * small (a batch is at most 3000 characters); this bound is for the queue that
+ * piled up while the model was busy.
  */
 export function formatMonitorNote(text: string): string {
 	return `\n\n[Monitor update]\n${capNotification(text)}`
+}
+
+/** One `formatSystemEvent` rendering, found by its nonce-bound opening and closing tags. */
+const SYSTEM_EVENT_FRAME = /^<system-event-([A-Za-z0-9]+) [^\n]*\n[\s\S]*?\n<\/system-event-\1>$/gm
+
+export function omittedEventsLine(count: number): string {
+	return `[${count} monitor events omitted — output exceeded the notification limit]`
 }
 
 export function capNotification(
 	text: string,
 	max: number = MONITOR_NOTIFICATION_MAX_CHARS,
 ): string {
+	if (text.length <= max) return text
+	const frames = [...text.matchAll(SYSTEM_EVENT_FRAME)].map((match) => match[0])
+	if (frames.length === 0) return cutMiddle(text, max)
+
+	const line = (count: number) => omittedEventsLine(count)
+	// Newlines between the pieces: head, marker, tail.
+	const budget = max - line(frames.length).length - 2
+	let head = 0
+	let headChars = 0
+	while (head < frames.length) {
+		const size = (frames[head]?.length ?? 0) + 1
+		if (headChars + size > budget / 2) break
+		headChars += size
+		head++
+	}
+	let tail = 0
+	let tailChars = 0
+	while (head + tail < frames.length) {
+		const frame = frames[frames.length - 1 - tail]
+		const size = (frame?.length ?? 0) + 1
+		if (headChars + tailChars + size > budget) break
+		tailChars += size
+		tail++
+	}
+	const omitted = frames.length - head - tail
+	// A single event alone over the cap is dropped whole rather than cut: its
+	// content is shrunk before framing (see `capMonitorContent`), so this only
+	// means a caller handed in something that was not.
+	const kept = [
+		...frames.slice(0, head),
+		...(omitted > 0 ? [line(omitted)] : []),
+		...frames.slice(frames.length - tail),
+	]
+	return kept.join('\n')
+}
+
+/**
+ * Shrink one event's content, in the middle, BEFORE it is framed. Cutting the
+ * framed text afterwards would cut the envelope.
+ */
+export function capMonitorContent(
+	text: string,
+	max: number = MONITOR_EVENT_CONTENT_MAX_CHARS,
+): string {
+	return text.length <= max ? text : cutMiddle(text, max)
+}
+
+function cutMiddle(text: string, max: number): string {
 	if (text.length <= max) return text
 	const marker = (omitted: number) => `\n...[${omitted} characters omitted]...\n`
 	// Reserve room for the marker itself so the result never exceeds `max`.

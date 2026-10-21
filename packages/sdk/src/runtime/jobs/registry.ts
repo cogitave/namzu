@@ -10,6 +10,7 @@ import type {
 	BackgroundJobOutputWaitResult,
 } from '../../types/job/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
+import { oneMetadataLine } from '../system-events.js'
 import { createBackgroundJobId } from './job-id.js'
 import {
 	MONITOR_TIMEOUT_CAP_MS,
@@ -1178,7 +1179,7 @@ export function describeMonitorEnd(
 	job: Pick<BackgroundJob, 'description' | 'status' | 'exitCode' | 'signal' | 'error'>,
 	stats: Pick<MonitorStreamStats, 'stdoutChars'>,
 ): { status: 'completed' | 'failed' | 'killed'; summary: string } {
-	const label = `Monitor "${job.description ?? 'unnamed'}"`
+	const label = `Monitor "${oneMetadataLine(job.description ?? 'unnamed')}"`
 	if (job.status === 'killed') return { status: 'killed', summary: `${label} stopped` }
 	if (job.exitCode === 0 && job.error === undefined) {
 		return stats.stdoutChars > 0
