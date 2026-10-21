@@ -2,9 +2,11 @@
 type: Index
 title: Namzu
 description: >-
-  Namzu Desktop for Windows, a terminal AI agent you can use on real
-  projects, and the open TypeScript SDK they are built on. It asks before it
-  acts, keeps its records on your machine, and, in the terminal agent, can run jobs while you are away. The SDK and most packages are
+  Namzu is an AI kernel: it runs an agent the way an operating system runs a
+  process, with an identity and a budget, scheduled tool calls and
+  checkpointed turns. Namzu Desktop for Windows, a terminal agent you can use
+  on real projects, and the open TypeScript SDK are all built on it. It keeps
+  its records on your machine and, in the terminal agent, can run jobs while you are away. The SDK and most packages are
   FSL-1.1-MIT, converting to MIT two years after each release; the terminal app
   and the files package are MIT.
 tags: [readme, index, typescript, agent-kernel]
@@ -19,7 +21,7 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
   <img alt="Namzu" src="docs/assets/namzu-wordmark-light.svg" width="280">
 </picture>
 
-### An AI agent that asks before it acts. On your desktop and in your terminal.
+### The agent kernel for everyone. On your desktop, in your terminal and in your code.
 
 <p>
 <a href="LICENSE.md"><img alt="License: FSL-1.1-MIT or MIT" src="https://img.shields.io/badge/license-FSL--1.1--MIT%20%7C%20MIT-blue.svg?style=flat-square"></a>
@@ -71,7 +73,7 @@ Before it changes a file, Namzu shows the change and waits for your answer. Acce
 <tr>
 <td width="50%" valign="top">
 
-**Asks before it acts**<br>A path outside your folder becomes an approval request.
+**Every agent, its own kernel**<br>An identity, a budget, scheduled tool calls and checkpointed turns.
 
 </td>
 <td width="50%" valign="top">
