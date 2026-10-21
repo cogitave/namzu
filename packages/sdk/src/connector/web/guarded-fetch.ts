@@ -101,6 +101,9 @@ export function isPrivateAddress(address: string): boolean {
 		if (a === 192 && b === 168) return true // private
 		if (a === 169 && b === 254) return true // link-local, incl. cloud metadata
 		if (a === 0) return true // "this network"
+		if (a === 100 && b >= 64 && b <= 127) return true // shared address space (CGNAT), 100.64.0.0/10
+		if (a === 198 && (b === 18 || b === 19)) return true // benchmarking, 198.18.0.0/15
+		if (a === 192 && b === 0 && parts[2] === 0) return true // IETF protocol assignments, 192.0.0.0/24
 		if (a >= 224) return true // multicast and reserved
 		return false
 	}
@@ -123,13 +126,51 @@ export function isPrivateAddress(address: string): boolean {
 			const low = Number.parseInt(mapped[2], 16)
 			return isPrivateAddress(`${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`)
 		}
+		const hextets = expandHextets(canonical)
+		const embedded = (index: number): string => {
+			const high = hextets[index] ?? 0
+			const low = hextets[index + 1] ?? 0
+			return `${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`
+		}
+		const zeros = (from: number, to: number): boolean =>
+			hextets.slice(from, to).every((hextet) => hextet === 0)
+		// IPv4-compatible, ::/96 (deprecated): `::7f00:1` is 127.0.0.1 for a
+		// stack that still honours it, and nothing public is addressed this way.
+		if (zeros(0, 6)) return true
+		// IPv4-translated, ::ffff:0:0/96 (SIIT): the IPv4 address is the last 32 bits.
+		if (zeros(0, 4) && hextets[4] === 0xffff && hextets[5] === 0)
+			return isPrivateAddress(embedded(6))
+		// NAT64 well-known prefix, 64:ff9b::/96: a translator turns it into the
+		// IPv4 address in the last 32 bits, so `64:ff9b::7f00:1` reaches
+		// 127.0.0.1 through it. Refused only when that address is private: a
+		// public one is what the prefix is for on an IPv6-only network.
+		if (hextets[0] === 0x64 && hextets[1] === 0xff9b && zeros(2, 6)) {
+			return isPrivateAddress(embedded(6))
+		}
+		// NAT64 local-use prefix, 64:ff9b:1::/48 (RFC 8215): a site's own
+		// translator, so the embedded address cannot be read from a fixed place.
+		if (hextets[0] === 0x64 && hextets[1] === 0xff9b && hextets[2] === 1) return true
+		// 6to4, 2002::/16: the IPv4 address is the next 32 bits.
+		if (hextets[0] === 0x2002) return isPrivateAddress(embedded(1))
 		const firstHextet = Number.parseInt(canonical.split(':', 1)[0] ?? '0', 16)
 		if ((firstHextet & 0xffc0) === 0xfe80) return true // link-local fe80::/10
+		if ((firstHextet & 0xffc0) === 0xfec0) return true // site-local fec0::/10 (deprecated)
 		if ((firstHextet & 0xfe00) === 0xfc00) return true // unique-local fc00::/7
 		if ((firstHextet & 0xff00) === 0xff00) return true // multicast ff00::/8
 		return false
 	}
 	return false
+}
+
+/** A canonical IPv6 address (as `new URL` writes it, no dots) as its eight 16-bit groups. */
+function expandHextets(canonical: string): number[] {
+	const [head = '', tail] = canonical.split('::')
+	const front = head === '' ? [] : head.split(':')
+	const back = tail === undefined || tail === '' ? [] : tail.split(':')
+	const fill = tail === undefined ? 0 : 8 - front.length - back.length
+	return [...front, ...new Array<string>(Math.max(0, fill)).fill('0'), ...back].map((group) =>
+		Number.parseInt(group, 16),
+	)
 }
 
 export class GuardedFetchProvider implements WebFetchProvider {

@@ -35,6 +35,11 @@ describe('a WebSocket URL a model chose is refused unless it is a plain public a
 		['link-local', 'ws://169.254.1.1/'],
 		['the cloud metadata address', 'wss://169.254.169.254/latest/meta-data'],
 		['a private range', 'ws://10.0.0.5/'],
+		['shared address space (CGNAT)', 'ws://100.100.100.200/'],
+		['the benchmarking range', 'ws://198.18.0.1/'],
+		['NAT64 to loopback', 'ws://[64:ff9b::7f00:1]/'],
+		['6to4 of the metadata address', 'ws://[2002:a9fe:a9fe::]/'],
+		['IPv4-compatible loopback', 'ws://[::7f00:1]/'],
 		['a mapped IPv4 loopback', 'ws://[::ffff:127.0.0.1]/'],
 		// The URL parser turns these into 127.0.0.1, which is why they are refused.
 		['loopback written as one integer', 'ws://2130706433/'],

@@ -216,6 +216,75 @@ describe('the address rules, written out', () => {
 	})
 })
 
+describe('the internal ranges beyond RFC 1918 are refused too', () => {
+	it('refuses the IPv4 ranges a cloud or a container network lives in', () => {
+		for (const address of [
+			'100.64.0.1', // CGNAT, 100.64.0.0/10
+			'100.100.100.200', // a cloud metadata address inside it
+			'100.127.255.254',
+			'198.18.0.1', // benchmarking, 198.18.0.0/15
+			'198.19.255.254',
+			'192.0.0.8', // IETF protocol assignments, 192.0.0.0/24
+		]) {
+			expect(isPrivateAddress(address), address).toBe(true)
+		}
+		for (const address of [
+			'100.63.255.255',
+			'100.128.0.1',
+			'198.17.0.1',
+			'198.20.0.1',
+			'192.0.1.1',
+			'192.0.2.1',
+		]) {
+			expect(isPrivateAddress(address), address).toBe(false)
+		}
+	})
+
+	it('refuses IPv6 spellings of an internal IPv4 address', () => {
+		for (const address of [
+			'::7f00:1', // IPv4-compatible loopback
+			'::127.0.0.1',
+			'::a00:1',
+			'::808:808', // nothing public is addressed IPv4-compatible
+			'64:ff9b::7f00:1', // NAT64 to 127.0.0.1
+			'64:ff9b::a9fe:a9fe', // NAT64 to the metadata address
+			'64:ff9b::10.0.0.1',
+			'64:ff9b:1::1', // local-use NAT64 prefix
+			'2002:7f00:1::', // 6to4 of 127.0.0.1
+			'2002:a9fe:a9fe::',
+			'2002:c0a8:1::',
+			'::ffff:0:7f00:1', // IPv4-translated loopback
+			'fec0::1', // site-local
+			'feff::1',
+		]) {
+			expect(isPrivateAddress(address), address).toBe(true)
+		}
+	})
+
+	it('lets a NAT64 or 6to4 address through when what it embeds is public', () => {
+		for (const address of [
+			'64:ff9b::808:808',
+			'2002:808:808::',
+			'::ffff:0:808:808',
+			'2001:db8::1',
+		]) {
+			expect(isPrivateAddress(address), address).toBe(false)
+		}
+	})
+
+	it('refuses a fetch whose name resolves into one of them, before anything is sent', async () => {
+		for (const answer of ['100.64.0.1', '198.18.0.1', '64:ff9b::7f00:1', '2002:a9fe:a9fe::']) {
+			const { fn, asked } = recordingFetch(reply('x'))
+			await expect(
+				provider({ fetch: fn, resolve: async () => [answer] }).fetch({
+					url: 'http://internal.example/',
+				}),
+			).rejects.toBeInstanceOf(WebFetchRefusedError)
+			expect(asked).toEqual([])
+		}
+	})
+})
+
 describe('a scheme that is not the web is refused by name', () => {
 	it('refuses file: and says which scheme', async () => {
 		// Naming it is what lets a model correct itself.
