@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.5
+
+### Patch Changes
+
+- 791f431: The package description said `@namzu/lmstudio` supports tool use. It does not: the driver never reads `params.tools` and reports `supportsTools: false`, so a turn on LM Studio is chat only. The description now says so. Nothing to do to take this; to let Namzu work with files and commands, switch to a provider that takes tools.
+
 ## 2.1.4
 
 ### Patch Changes
