@@ -1,5 +1,18 @@
 # @namzu/cli
 
+## 37.1.0
+
+### Minor Changes
+
+- 1fde185: The interactive terminal now offers a `code_analysis` tool: cited, paged lookups over an index of the project's JavaScript and TypeScript (find a string and the function around it, read that function whole, list its callers or a file's imports), each result saying what was observed, what was inferred and whether coverage is complete. It is on by default and deferred: a one-line hint sits in the tool list and the model loads the tool through `search_tools` when it reads minified or unfamiliar code, so a request that never needs it pays about 270 tokens instead of the roughly 1,030 the full schema costs. The index is built on the first call, under `~/.namzu/cache/analysis`, and Esc stops it. To turn it off, set `codeAnalysis` to `{ "enabled": false }` in your user, project or managed config; `enabled: false` in any file holds. `exec`, `drain` and `acp` do not offer it. The CLI bundles `@namzu/analysis` (the parsing child ships as `dist/analysis-host.js`) and now depends on the native `oxc-parser`; `namzu doctor` has a `codeAnalysis.index` check that runs a one-file index through that child.
+
+### Patch Changes
+
+- 791f431: The package description and README now call `@namzu/sdk` an AI kernel that runs an agent the way an operating system runs a process, and the terminal app's README no longer leads with "asks before it acts". Wording only; nothing to do to take this.
+- Updated dependencies [791f431]
+- Updated dependencies [1fde185]
+  - @namzu/sdk@52.2.0
+
 ## 37.0.2
 
 ### Patch Changes
