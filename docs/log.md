@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-10-21
+
+- **Update** [README](../README.md): Namzu is positioned as an AI kernel, not "an AI agent that asks before it acts". The root README's heading, frontmatter description and first feature cell now lead with the kernel (identity, budget, scheduled tool calls, checkpointed turns); the terminal README and the `@namzu/sdk` package description follow. `.changeset/readme-kernel-positioning.md`, **patch** for `@namzu/sdk` and `@namzu/cli`.
+- **Update** [README](../README.md): `@namzu/lmstudio` no longer claims tool use in the SDK README or its package description; the driver reports `supportsTools: false` (`packages/providers/lmstudio/src/client.ts`). `.changeset/lmstudio-docs-no-tools.md`, **patch** for `@namzu/lmstudio`.
+
 ## 2026-10-20
 
 - **Update** [Desktop host terminals](cli/desktop.md#host-terminals): the closed-terminal sweep no longer misses a program that is inside `exec` while `/proc` is read. Its environment reads as empty for that moment (measured: about one read in ten straight after a program printed its pid), so an empty read is read again up to five times before it is believed. The process test that found it on CI now waits for the program to be `sleep` before scanning, and the re-read has its own test. `.changeset/terminal-sweep-exec-window.md`, **patch** for `@namzu/cli`.

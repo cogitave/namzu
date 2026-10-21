@@ -1,7 +1,7 @@
 {
   "name": "@namzu/lmstudio",
   "version": "2.1.4",
-  "description": "LM Studio LLM provider for @namzu/sdk via the official @lmstudio/sdk. Local GUI-based model management, chat, and streaming with tool-use support.",
+  "description": "LM Studio LLM provider for @namzu/sdk via the official @lmstudio/sdk. Local GUI-based model management, chat and streaming (no tool use).",
   "license": "FSL-1.1-MIT",
   "engines": {
     "node": ">=20.0.0"
