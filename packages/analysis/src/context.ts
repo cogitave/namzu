@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type {
@@ -9,9 +9,41 @@ import type {
 	AnalysisSourceSlice,
 } from '@namzu/sdk'
 
-import { decodeText, hashOf, refreshFile } from './indexer.js'
+import { conditionOf, readRegular } from './fsafe.js'
+import type { ParserHost } from './host.js'
+import {
+	type IndexOptions,
+	coveringEntry,
+	decodeText,
+	hashOf,
+	noteNamed,
+	readCovered,
+	refreshIndex,
+} from './indexer.js'
 import { decodeLineStarts, position } from './lines.js'
 import type { Store } from './store.js'
+
+/** What every operation on one root works with. */
+export interface Env {
+	readonly store: Store
+	/** Canonical root. */
+	readonly root: string
+	readonly host: ParserHost
+	readonly options: IndexOptions
+	readonly signal?: AbortSignal | undefined
+}
+
+/** Re-read ONE file whose bytes changed (or that vanished). */
+export async function refreshFile(env: Env, rel: string): Promise<void> {
+	await refreshIndex(
+		env.store,
+		env.root,
+		join(env.root, ...rel.split('/')),
+		{ ...env.options, force: false },
+		env.host,
+		env.signal,
+	)
+}
 
 /** Items per page when a request names none. */
 export const DEFAULT_LIMIT = 50
@@ -33,11 +65,6 @@ export function clampLimit(limit: number | undefined): number {
 export function clampChars(max: number | undefined): number {
 	if (max === undefined || !Number.isFinite(max)) return DEFAULT_MAX_CHARS
 	return Math.max(MIN_MAX_CHARS, Math.min(MAX_MAX_CHARS, Math.floor(max)))
-}
-
-/** The key a cache file is named by: the canonical root, hashed. */
-export function cacheKey(root: string): string {
-	return createHash('sha256').update(root).digest('hex').slice(0, 16)
 }
 
 // ─── cursors ────────────────────────────────────────────────────────────────
@@ -154,25 +181,79 @@ export class Files {
 	}
 }
 
+/** What a page of results found out about the files behind it. */
+export interface Freshness {
+	/** Files that changed or vanished, by file id, for marking hits. */
+	readonly marks: Map<number, 'changed' | 'deleted'>
+	/** Files dropped from the index because they became links or left the root. */
+	readonly dropped: string[]
+}
+
 /**
- * Files, out of `candidates`, that differ on disk from what was indexed.
+ * Compare the files behind a page of results with the disk, by `lstat` and a
+ * canonical-path check — one pair of calls per distinct file, no reads.
  *
- * By size and mtime only, which is what a page of results can afford: one
- * `stat` per distinct file. A rewrite that keeps both is missed here and
- * caught by the content hash wherever a source slice is cut.
+ * A file that is no longer a regular file inside the root is DROPPED from the
+ * index (rows and all) and named in coverage, and the caller re-runs its
+ * query: a hit from such a file must never be shown, cited as an in-root path.
+ * A file that merely changed or was deleted keeps its rows and its hits are
+ * marked, because the rows are still true of the file as it was.
  */
-export async function staleFiles(files: Files, candidates: Iterable<number>): Promise<string[]> {
-	const stale: string[] = []
+export async function checkFreshness(
+	store: Store,
+	files: Files,
+	root: string,
+	candidates: Iterable<number>,
+): Promise<Freshness> {
+	const marks = new Map<number, 'changed' | 'deleted'>()
+	const dropped: string[] = []
 	for (const id of new Set(candidates)) {
 		const info = files.byIdOrThrow(id)
-		try {
-			const s = await stat(info.abs)
-			if (s.size !== info.size || s.mtimeMs !== info.mtimeMs) stale.push(info.rel)
-		} catch {
-			stale.push(info.rel)
-		}
+		const condition = await conditionOf(root, info.abs, info)
+		if (condition === 'changed' || condition === 'deleted') marks.set(id, condition)
+		else if (condition === 'violation') dropped.push(info.rel)
 	}
-	return stale
+	if (dropped.length > 0) await dropFiles(store, files, dropped)
+	return { marks, dropped }
+}
+
+/** Remove files from the index and name them, under the write lock. */
+export async function dropFiles(
+	store: Store,
+	files: Files,
+	rels: readonly string[],
+): Promise<void> {
+	await store.begin()
+	try {
+		for (const rel of rels) {
+			const info = files.byPath(rel)
+			if (info) {
+				store.removeFile(info.id)
+				files.forget(info.id)
+			}
+			noteNamed(store, 'violations', rel)
+		}
+		store.bumpGeneration()
+		store.commit()
+	} catch (err) {
+		store.rollback()
+		throw err
+	}
+}
+
+export function markReasons(marks: ReadonlyMap<number, 'changed' | 'deleted'>): string[] {
+	const reasons: string[] = []
+	const changed = [...marks.values()].filter((m) => m === 'changed').length
+	const deleted = marks.size - changed
+	if (changed > 0) {
+		reasons.push(
+			`${changed} file(s) changed on disk since they were indexed; positions from them may be off. Run the index operation to refresh`,
+		)
+	}
+	if (deleted > 0) {
+		reasons.push(`${deleted} file(s) behind these results were deleted since they were indexed`)
+	}
+	return reasons
 }
 
 export interface Verified {
@@ -183,48 +264,52 @@ export interface Verified {
 }
 
 /**
- * The file's text, guaranteed to be the text its rows were built from.
+ * The file's text, guaranteed to be the text its rows were built from, and to
+ * have come from a regular file inside the root.
  *
- * A slice cut from different text than was parsed is wrong in a way that
- * still looks right: the offsets land mid-token and the citation is
- * plausible. So the content hash is compared on every read, and a file that
- * changed is re-indexed before anything is answered from it.
+ * A slice cut from different text than was parsed is wrong in a way that still
+ * looks right: the offsets land mid-token and the citation is plausible. So the
+ * content hash is compared on every read, and a file that changed is
+ * re-indexed before anything is answered from it. The read itself is
+ * `readRegular`: a file replaced by a link is dropped from the index and
+ * refused, never read through.
  */
 export async function readVerified(
-	store: Store,
+	env: Env,
 	files: Files,
-	root: string,
 	info: FileInfo,
 	options: { refresh: boolean },
 ): Promise<Verified | { error: string }> {
-	let buffer: Uint8Array
-	try {
-		buffer = await readFile(info.abs)
-	} catch {
-		await refreshFile(store, root, info.rel)
+	const { store, root } = env
+	const read = await readRegular(root, info.abs)
+	if (!read.ok) {
+		if (read.why === 'link' || read.why === 'outside' || read.why === 'not-file') {
+			await dropFiles(store, files, [info.rel])
+			return {
+				error: `${info.rel} is no longer a regular file inside the indexed root (it is a link or resolves elsewhere), so it was dropped from the index and nothing was read from it.`,
+			}
+		}
+		await refreshFile(env, info.rel)
 		files.forget(info.id)
 		return { error: `${info.rel} no longer exists, so nothing can be read from it.` }
 	}
-	if (hashOf(buffer) === info.hash) {
-		const text = decodeText(buffer)
+	if (hashOf(read.buffer) === info.hash) {
+		const text = decodeText(read.buffer)
 		if (text === undefined) return { error: `${info.rel} is no longer readable as text.` }
 		return { info, text, refreshed: false }
 	}
+	await refreshFile(env, info.rel)
+	files.forget(info.id)
 	if (!options.refresh) {
-		await refreshFile(store, root, info.rel)
-		files.forget(info.id)
 		return {
 			error: `${info.rel} changed since it was indexed, and function ids are re-issued when a file is re-read. The index has been refreshed; look the function up again.`,
 		}
 	}
-	const outcome = await refreshFile(store, root, info.rel)
-	files.forget(info.id)
-	if (outcome === 'removed' || outcome === 'unreadable') {
-		return { error: `${info.rel} changed and can no longer be indexed (${outcome}).` }
-	}
 	const next = files.byPath(info.rel)
-	if (!next) return { error: `${info.rel} is not in the index after re-reading it.` }
-	const text = decodeText(await readFile(next.abs))
+	if (!next) return { error: `${info.rel} changed and can no longer be indexed.` }
+	const again = await readRegular(root, next.abs)
+	if (!again.ok) return { error: `${info.rel} changed while it was being read.` }
+	const text = decodeText(again.buffer)
 	if (text === undefined) return { error: `${info.rel} is not readable as text.` }
 	return { info: next, text, refreshed: true }
 }
@@ -280,18 +365,76 @@ export function sliceOf(
 /** Skip reasons that are choices, not gaps: nothing was lost by them. */
 const BENIGN_SKIPS = new Set(['declaration file', 'symbolic link'])
 
-/** What the index as a whole is missing, in words. */
-export function workspaceGaps(store: Store): string[] {
-	const reasons: string[] = []
-	let skipped: Record<string, number> = {}
+function listOf(store: Store, key: string): string[] {
 	try {
-		skipped = JSON.parse(store.meta('skipped') ?? '{}') as Record<string, number>
+		const v = JSON.parse(store.meta(key) ?? '[]')
+		return Array.isArray(v) ? (v as string[]) : []
+	} catch {
+		return []
+	}
+}
+
+function named(list: readonly string[]): string {
+	return list.length > 3
+		? `${list.slice(0, 3).join(', ')} and ${list.length - 3} more`
+		: list.join(', ')
+}
+
+/**
+ * What the index is missing for a question about `scopeRel` (empty: the whole
+ * root), in words, each with what to do about it.
+ *
+ * Nothing here is a refusal. A partial index answers; these are the reasons
+ * the answer may not be the whole answer, and the next step that makes it
+ * more of one.
+ */
+export function workspaceGaps(store: Store, scopeRel = ''): string[] {
+	const reasons: string[] = []
+	const covered = readCovered(store)
+	const covering = coveringEntry(covered, scopeRel)
+	if (scopeRel === '') {
+		if (!covering) {
+			const parts = covered.map((e) => (e.s === '' ? 'the root' : e.s))
+			reasons.push(
+				`only part of the root is indexed (${named(parts)}); call the index operation with a path to cover another part`,
+			)
+		}
+	}
+	for (const e of covered) {
+		if (e.c === 0 && (scopeRel === '' || e === covering)) {
+			reasons.push(
+				`indexing ${e.s === '' ? 'the root' : e.s} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. Call the index operation with a narrower path to cover more`,
+			)
+		}
+	}
+	let skipped: Record<string, Record<string, number>> = {}
+	try {
+		skipped = JSON.parse(store.meta('skipped') ?? '{}') as typeof skipped
 	} catch {
 		skipped = {}
 	}
-	const gaps = Object.entries(skipped).filter(([why]) => !BENIGN_SKIPS.has(why))
-	if (gaps.length > 0) {
-		reasons.push(`not indexed: ${gaps.map(([why, n]) => `${n} ${why}`).join(', ')}`)
+	const totals = new Map<string, number>()
+	for (const [scope, reasonsFor] of Object.entries(skipped)) {
+		if (scopeRel !== '' && scope !== '' && scope !== scopeRel && !scopeRel.startsWith(`${scope}/`))
+			continue
+		for (const [why, n] of Object.entries(reasonsFor)) {
+			if (!BENIGN_SKIPS.has(why)) totals.set(why, (totals.get(why) ?? 0) + n)
+		}
+	}
+	if (totals.size > 0) {
+		reasons.push(`not indexed: ${[...totals].map(([why, n]) => `${n} ${why}`).join(', ')}`)
+	}
+	const crashed = listOf(store, 'crashed')
+	if (crashed.length > 0) {
+		reasons.push(
+			`the parser crashed on ${crashed.length} file(s) (${named(crashed)}), which are recorded with no rows`,
+		)
+	}
+	const violations = listOf(store, 'violations')
+	if (violations.length > 0) {
+		reasons.push(
+			`${violations.length} file(s) (${named(violations)}) became a link or resolved outside the root after they were indexed, and were dropped without being read`,
+		)
 	}
 	const bad = store.get('SELECT count(*) AS n FROM files WHERE parse_errors > 0')
 	if (bad && Number(bad.n) > 0) {
@@ -302,17 +445,56 @@ export function workspaceGaps(store: Store): string[] {
 	return reasons
 }
 
-export function coverageOf(reasons: readonly string[]): AnalysisCoverage {
-	return reasons.length === 0 ? { status: 'complete' } : { status: 'partial', reasons }
+/** Directories to compare with the disk at most per query. */
+const NEW_FILE_CHECK_DIRS = 400
+
+/**
+ * Whether anything was created under `scopeRel` since it was indexed.
+ *
+ * Compares the mtimes recorded for its directories with the disk — one `lstat`
+ * each, up to {@link NEW_FILE_CHECK_DIRS} — because a file's own record cannot
+ * say that a sibling appeared. A changed directory may only mean a deletion
+ * or a rename, so this says "may", and names where.
+ */
+export async function newFileReasons(
+	store: Store,
+	root: string,
+	scopeRel: string,
+): Promise<string[]> {
+	const rows =
+		scopeRel === ''
+			? store.all('SELECT path, mtime_ms FROM dirs ORDER BY path LIMIT ?', NEW_FILE_CHECK_DIRS + 1)
+			: store.all(
+					'SELECT path, mtime_ms FROM dirs WHERE path = ? OR (path >= ? AND path < ?) ORDER BY path LIMIT ?',
+					scopeRel,
+					`${scopeRel}/`,
+					`${scopeRel}0`,
+					NEW_FILE_CHECK_DIRS + 1,
+				)
+	const changed: string[] = []
+	for (const row of rows.slice(0, NEW_FILE_CHECK_DIRS)) {
+		const rel = String(row.path)
+		try {
+			const s = await lstat(join(root, ...rel.split('/').filter(Boolean)))
+			if (s.mtimeMs !== Number(row.mtime_ms)) changed.push(rel === '' ? '.' : rel)
+		} catch {
+			changed.push(rel === '' ? '.' : rel)
+		}
+	}
+	const reasons: string[] = []
+	if (changed.length > 0) {
+		reasons.push(
+			`${changed.length} director${changed.length === 1 ? 'y' : 'ies'} changed since the index was built (${named(changed)}), so files added there may be missing. Run the index operation to pick them up`,
+		)
+	}
+	if (rows.length > NEW_FILE_CHECK_DIRS) {
+		reasons.push(`only the first ${NEW_FILE_CHECK_DIRS} directories were checked for new files`)
+	}
+	return reasons
 }
 
-export function staleReason(stale: readonly string[]): string[] {
-	if (stale.length === 0) return []
-	const shown = stale.slice(0, 3).join(', ')
-	const more = stale.length > 3 ? ` and ${stale.length - 3} more` : ''
-	return [
-		`${stale.length} file(s) changed on disk since they were indexed (${shown}${more}); positions from them may be off. Run the index operation to refresh`,
-	]
+export function coverageOf(reasons: readonly string[]): AnalysisCoverage {
+	return reasons.length === 0 ? { status: 'complete' } : { status: 'partial', reasons }
 }
 
 /** Escape `%`, `_` and the escape character itself for a LIKE pattern. */

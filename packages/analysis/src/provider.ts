@@ -1,5 +1,4 @@
-import { realpath, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, realpath, stat } from 'node:fs/promises'
 
 import type {
 	AnalysisCallSite,
@@ -21,10 +20,11 @@ import type {
 } from '@namzu/sdk'
 
 import {
+	type Env,
 	type FileInfo,
 	Files,
 	PREVIEW_CHARS,
-	cacheKey,
+	checkFreshness,
 	clampChars,
 	clampLimit,
 	coverageOf,
@@ -32,19 +32,24 @@ import {
 	encodeCursor,
 	fingerprint,
 	likeEscape,
+	markReasons,
+	newFileReasons,
 	parentsOf,
 	readVerified,
 	sliceOf,
-	staleFiles,
-	staleReason,
 	toFunction,
 	workspaceGaps,
 } from './context.js'
+import { ParserHost, abortError } from './host.js'
 import {
 	DEFAULT_IGNORED_DIRS,
+	DEFAULT_MAX_DIRECTORIES,
 	DEFAULT_MAX_FILES,
 	DEFAULT_MAX_FILE_BYTES,
+	DEFAULT_MAX_MILLIS,
 	type IndexOptions,
+	coveringEntry,
+	readCovered,
 	refreshIndex,
 	toRel,
 } from './indexer.js'
@@ -68,9 +73,16 @@ export interface CodeAnalysisOptions {
 	/** Stop collecting past this many files, and say so. Default 150,000. */
 	readonly maxFiles?: number
 	/**
+	 * Directories one call walks before it stops and reports what it has.
+	 * Default 20,000. Reaching it is not an error: see {@link IndexSummary.truncated}.
+	 */
+	readonly maxDirectories?: number
+	/** Milliseconds one call spends before it stops the same way. Default 45,000. */
+	readonly maxMillis?: number
+	/**
 	 * `auto` (default) builds a trigram FTS5 index of literals when this Node
 	 * has FTS5 (22.16 and newer). `off` never does, and `find_literal` scans.
-	 * Turning it off for a cache that was built with it rebuilds the cache.
+	 * The two modes use separate cache files.
 	 */
 	readonly substringIndex?: 'auto' | 'off'
 }
@@ -80,9 +92,14 @@ type Result<T> = CodeAnalysisResult<T>
 
 const failed = <T>(error: string): Result<T> => ({ kind: 'failed', error })
 
-/** An exception inside a query, as the answer it is: unsupported for a missing parser, else failed. */
+/** An exception inside a query, as the answer it is. */
 function explain<T>(err: unknown): Result<T> {
 	if (err instanceof ParserUnavailableError) return { kind: 'unsupported', reason: err.message }
+	if (err instanceof Error && err.name === 'AbortError') {
+		return failed(
+			'The call was cancelled. Anything already indexed is kept, so the next call continues from there.',
+		)
+	}
 	return failed(err instanceof Error ? err.message : String(err))
 }
 
@@ -96,22 +113,33 @@ interface Opened {
  * The provider: a directory of JavaScript and TypeScript in, cited answers out.
  *
  * One SQLite database per root, keyed by the root's real path, in `cacheDir`.
- * Requests for one root queue behind each other (SQLite is one connection
- * here, and an index run yields to the event loop mid-transaction), requests
- * for different roots do not.
+ * Requests for one root queue behind each other, requests for different roots
+ * do not. Parsing happens in a child process (see `indexer-host.ts`), so a
+ * parser crash costs one file, not the host process, and the host's event loop
+ * stays free during an index.
  *
- * Nothing heavy is loaded until the first call: `oxc-parser` on the first
- * parse, `node:sqlite` on the first store.
+ * Nothing heavy is loaded until the first call: `node:sqlite` on the first
+ * store, the child process on the first parse.
  */
 export function createCodeAnalysisProvider(
 	options: CodeAnalysisOptions = {},
 ): CodeAnalysisProvider {
 	const opened = new Map<string, Promise<Opened | { error: string }>>()
+	const host = new ParserHost()
 	const indexOptions = (force: boolean): IndexOptions => ({
 		ignoreDirs: options.ignoreDirs ?? DEFAULT_IGNORED_DIRS,
 		maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
 		maxFiles: options.maxFiles ?? DEFAULT_MAX_FILES,
+		maxDirectories: options.maxDirectories ?? DEFAULT_MAX_DIRECTORIES,
+		maxMillis: options.maxMillis ?? DEFAULT_MAX_MILLIS,
 		force,
+	})
+	const envOf = (o: Opened, signal: AbortSignal | undefined, force = false): Env => ({
+		store: o.store,
+		root: o.root,
+		host,
+		options: indexOptions(force),
+		signal,
 	})
 
 	async function open(rootInput: string): Promise<Opened | { error: string }> {
@@ -125,11 +153,7 @@ export function createCodeAnalysisProvider(
 		let pending = opened.get(root)
 		if (!pending) {
 			pending = (async () => {
-				const location =
-					options.cacheDir !== undefined
-						? join(options.cacheDir, `${cacheKey(root)}.sqlite`)
-						: undefined
-				const store = await Store.open(root, location, options.substringIndex !== 'off')
+				const store = await Store.open(root, options.cacheDir, options.substringIndex !== 'off')
 				if (!store) {
 					return {
 						error:
@@ -140,37 +164,66 @@ export function createCodeAnalysisProvider(
 			})()
 			opened.set(root, pending)
 			// A failed open must not poison the root for the process's lifetime.
-			void pending.then((r) => {
-				if ('error' in r) opened.delete(root)
-			})
+			void pending.then(
+				(r) => {
+					if ('error' in r) opened.delete(root)
+				},
+				() => opened.delete(root),
+			)
 		}
 		return await pending
 	}
 
 	/**
-	 * Run `body` against a root's store, building the index first if this root
-	 * has never been indexed. The returned note says so, because the first call
-	 * taking seconds is something the reader should be told, not left to infer.
+	 * Run `work` against a root's store behind this process's other calls, and
+	 * stop waiting if the caller's signal fires. A call that was queued and then
+	 * cancelled never starts: `work` checks the signal first.
 	 */
-	async function withIndex<T>(
-		rootInput: string,
-		body: (o: Opened, built: string | undefined) => Promise<Result<T>>,
+	async function queued<T>(
+		o: Opened,
+		signal: AbortSignal | undefined,
+		work: () => Promise<Result<T>>,
 	): Promise<Result<T>> {
-		const o = await open(rootInput)
-		if ('error' in o) return { kind: 'unsupported', reason: o.error }
+		const guarded = o.store.run(async () => {
+			if (signal?.aborted) throw abortError()
+			return await work()
+		})
+		if (!signal) return await guarded.catch(explain<T>)
+		let onAbort: (() => void) | undefined
+		const cancelled = new Promise<Result<T>>((resolve) => {
+			onAbort = () => resolve(explain<T>(abortError()))
+			if (signal.aborted) onAbort()
+			else signal.addEventListener('abort', onAbort, { once: true })
+		})
 		try {
-			return await o.store.run(async () => {
-				let built: string | undefined
-				if (o.store.meta('built') !== '1') {
-					const started = performance.now()
-					const outcome = await refreshIndex(o.store, o.root, indexOptions(false))
-					built = `the index for ${o.root} did not exist and was built for this call: ${outcome.indexed} files in ${Math.round(performance.now() - started)} ms`
-				}
-				return await body(o, built)
-			})
-		} catch (err) {
-			return explain(err)
+			return await Promise.race([guarded.catch(explain<T>), cancelled])
+		} finally {
+			if (onAbort) signal.removeEventListener('abort', onAbort)
 		}
+	}
+
+	/**
+	 * Make sure `scopeAbs` has been indexed, building it if not. The returned
+	 * note says so, because the first call taking seconds is something the
+	 * reader should be told, not left to infer. Reaching a limit is reported
+	 * through coverage, not refused.
+	 */
+	async function ensureCovered(env: Env, scopeAbs: string): Promise<string | undefined> {
+		const rel = toRel(env.root, scopeAbs)
+		if (rel === undefined) return undefined
+		if (coveringEntry(readCovered(env.store), rel)) return undefined
+		// A scope that does not exist is not worth recording as covered.
+		if (
+			rel !== '' &&
+			!(await lstat(scopeAbs).then(
+				() => true,
+				() => false,
+			))
+		)
+			return undefined
+		const started = performance.now()
+		const out = await refreshIndex(env.store, env.root, scopeAbs, env.options, env.host, env.signal)
+		return `${rel === '' ? `the index for ${env.root}` : `${rel}`} was not indexed and was built for this call: ${out.indexed} files in ${Math.round(performance.now() - started)} ms${out.truncated ? ` (${out.truncated})` : ''}`
 	}
 
 	const evidence = (
@@ -202,87 +255,109 @@ export function createCodeAnalysisProvider(
 		files: Files,
 		path: string | undefined,
 		column: string,
-	): { sql: string; params: unknown[] } | { error: string } {
-		if (path === undefined) return { sql: '', params: [] }
+	): { sql: string; params: unknown[]; rel: string } | { error: string } {
+		if (path === undefined) return { sql: '', params: [], rel: '' }
 		const rel = toRel(o.root, path)
 		if (rel === undefined) return { error: `${path} is outside the indexed root ${o.root}.` }
-		if (rel === '') return { sql: '', params: [] }
+		if (rel === '') return { sql: '', params: [], rel }
 		const file = files.byPath(rel)
-		if (file) return { sql: ` AND ${column} = ?`, params: [file.id] }
+		if (file) return { sql: ` AND ${column} = ?`, params: [file.id], rel }
 		return {
 			sql: ` AND ${column} IN (SELECT id FROM files WHERE path >= ? AND path < ?)`,
 			params: [`${rel}/`, `${rel}0`],
+			rel,
 		}
+	}
+
+	/** Open a root and run `body` against it, building the part of the index it needs first. */
+	async function withScope<T>(
+		rootInput: string,
+		scopeAbs: string | undefined,
+		signal: AbortSignal | undefined,
+		body: (o: Opened, env: Env, built: string | undefined) => Promise<Result<T>>,
+	): Promise<Result<T>> {
+		const o = await open(rootInput)
+		if ('error' in o) return { kind: 'unsupported', reason: o.error }
+		return await queued(o, signal, async () => {
+			const env = envOf(o, signal)
+			const built = await ensureCovered(env, scopeAbs ?? o.root)
+			return await body(o, env, built)
+		})
 	}
 
 	const provider: CodeAnalysisProvider = {
 		async index(request: IndexRequest): Promise<Result<IndexSummary>> {
 			const o = await open(request.root)
 			if ('error' in o) return { kind: 'unsupported', reason: o.error }
-			try {
-				return await o.store.run(async () => {
-					const started = performance.now()
-					const out = await refreshIndex(o.store, o.root, indexOptions(request.force === true))
-					const count = (table: string): number =>
-						Number((o.store.get(`SELECT count(*) AS n FROM ${table}`) as Row).n)
-					const gaps = workspaceGaps(o.store)
-					const summary: IndexSummary = {
-						root: o.root,
-						persisted: o.store.persisted,
-						files: {
-							indexed: out.indexed,
-							parsed: out.parsed,
-							unchanged: out.unchanged,
-							removed: out.removed,
-							skipped: out.skipped,
-							withParseErrors: out.withParseErrors,
-						},
-						skippedReasons: out.skippedReasons,
-						functions: count('functions'),
-						strings: count('strings'),
-						calls: count('calls'),
-						durationMs: Math.round(performance.now() - started),
-					}
-					return {
-						kind: 'ok',
-						value: summary,
-						evidence: evidence(
-							[
-								`walked ${o.root}: ${out.parsed} file(s) parsed, ${out.unchanged} unchanged by size, mtime or content hash, ${out.removed} removed`,
-							],
-							o.store.fts
-								? []
-								: [
-										'this Node.js has no FTS5, so find_literal scans every literal instead of using a substring index; answers are the same, slower',
-									],
-							gaps,
-						),
-					}
-				})
-			} catch (err) {
-				return explain(err)
-			}
+			return await queued(o, request.signal, async () => {
+				const started = performance.now()
+				const scopeAbs = request.scope ?? o.root
+				const scopeRel = toRel(o.root, scopeAbs)
+				if (scopeRel === undefined)
+					return failed(`${scopeAbs} is outside the indexed root ${o.root}.`)
+				const out = await refreshIndex(
+					o.store,
+					o.root,
+					scopeAbs,
+					indexOptions(request.force === true),
+					host,
+					request.signal,
+				)
+				const count = (table: string): number =>
+					Number((o.store.get(`SELECT count(*) AS n FROM ${table}`) as Row).n)
+				const summary: IndexSummary = {
+					root: o.root,
+					persisted: o.store.persisted,
+					files: {
+						indexed: out.indexed,
+						parsed: out.parsed,
+						unchanged: out.unchanged,
+						removed: out.removed,
+						skipped: out.skipped,
+						withParseErrors: out.withParseErrors,
+					},
+					skippedReasons: out.skippedReasons,
+					functions: count('functions'),
+					strings: count('strings'),
+					calls: count('calls'),
+					durationMs: Math.round(performance.now() - started),
+					...(out.truncated
+						? {
+								truncated: `Indexing ${scopeRel === '' ? 'the root' : scopeRel} ${out.truncated}, so the index is partial. Index a narrower path to cover the rest; what was indexed is kept and answers queries now.`,
+							}
+						: {}),
+				}
+				return {
+					kind: 'ok',
+					value: summary,
+					evidence: evidence(
+						[
+							`walked ${scopeRel === '' ? o.root : scopeRel}: ${out.parsed} file(s) parsed, ${out.unchanged} unchanged by size, mtime or content hash, ${out.removed} removed`,
+						],
+						o.store.fts
+							? []
+							: [
+									'this Node.js has no FTS5, so find_literal scans every literal instead of using a substring index; answers are the same, slower',
+								],
+						workspaceGaps(o.store, scopeRel),
+					),
+				}
+			})
 		},
 
 		findLiteral: (request: FindLiteralRequest) =>
-			withIndex(request.root, async (o, built) => {
+			withScope(request.root, request.path, request.signal, async (o, _env, built) => {
 				const files = new Files(o.store, o.root)
 				const scope = scopeSql(o, files, request.path, 's.file_id')
 				if ('error' in scope) return failed(scope.error)
 				const limit = clampLimit(request.limit)
-				const generation = Number(o.store.meta('generation') ?? '0')
-				const q = fingerprint([
-					'find',
-					request.text,
-					request.path ?? null,
-					request.caseSensitive === false,
-				])
-				const cursor = decodeCursor(request.cursor, generation, q)
-				if ('error' in cursor) return failed(cursor.error)
-
 				const insensitive = request.caseSensitive === false
+				// The trigram tokenizer needs three CODE POINTS. Counting UTF-16 units
+				// would send "😀😀" (four units, two points) to an index that cannot
+				// match it, and report no hits with complete coverage.
+				const codePoints = Array.from(request.text).length
+				const useFts = o.store.fts && codePoints >= 3
 				const test = insensitive ? 'instr(lower(s.value), lower(?)) > 0' : 'instr(s.value, ?) > 0'
-				const useFts = o.store.fts && request.text.length >= 3
 				const prefilter = useFts ? ' AND s.id IN (SELECT rowid FROM lit WHERE lit MATCH ?)' : ''
 				const where = `WHERE ${test}${prefilter}${scope.sql}`
 				const params: unknown[] = [
@@ -290,18 +365,42 @@ export function createCodeAnalysisProvider(
 					...(useFts ? [`"${request.text.replaceAll('"', '""')}"`] : []),
 					...scope.params,
 				]
-				const total = Number(
-					(o.store.get(`SELECT count(*) AS n FROM strings s ${where}`, ...params) as Row).n,
-				)
-				const rows = o.store.all(
-					`SELECT s.id, s.file_id, s.fn_id, s.start, s."end", s.kind, s.value FROM strings s ${where} ORDER BY s.id LIMIT ? OFFSET ?`,
-					...params,
-					limit,
-					cursor.offset,
-				)
+
+				// Re-run when a file behind the page turns out to be a link: its rows
+				// are dropped and must not appear.
+				let offset = 0
+				let rows: Row[] = []
+				let total = 0
+				let generation = 0
+				let q = ''
+				let fresh = await checkFreshness(o.store, files, o.root, [])
+				for (let attempt = 0; attempt < 3; attempt++) {
+					generation = Number(o.store.meta('generation') ?? '0')
+					q = fingerprint(['find', o.root, request.text, request.path ?? null, insensitive])
+					const cursor = decodeCursor(request.cursor, generation, q)
+					if ('error' in cursor) return failed(cursor.error)
+					offset = cursor.offset
+					total = Number(
+						(o.store.get(`SELECT count(*) AS n FROM strings s ${where}`, ...params) as Row).n,
+					)
+					rows = o.store.all(
+						`SELECT s.id, s.file_id, s.fn_id, s.start, s."end", s.kind, s.value FROM strings s ${where} ORDER BY s.id LIMIT ? OFFSET ?`,
+						...params,
+						limit,
+						offset,
+					)
+					fresh = await checkFreshness(
+						o.store,
+						files,
+						o.root,
+						rows.map((r) => Number(r.file_id)),
+					)
+					if (fresh.dropped.length === 0) break
+				}
 				const fnCache = new Map<number, ReturnType<typeof toFunction>>()
 				const items: AnalysisLiteralHit[] = rows.map((r) => {
-					const info = files.byIdOrThrow(Number(r.file_id))
+					const fileId = Number(r.file_id)
+					const info = files.byIdOrThrow(fileId)
 					const at = position(info.starts, Number(r.start))
 					const value = String(r.value)
 					let fn: ReturnType<typeof toFunction> | undefined
@@ -316,6 +415,7 @@ export function createCodeAnalysisProvider(
 							}
 						}
 					}
+					const mark = fresh.marks.get(fileId)
 					return {
 						path: info.abs,
 						line: at.line,
@@ -326,13 +426,10 @@ export function createCodeAnalysisProvider(
 						value: value.length > PREVIEW_CHARS ? value.slice(0, PREVIEW_CHARS) : value,
 						valueTruncated: value.length > PREVIEW_CHARS,
 						...(fn ? { function: fn } : {}),
+						...(mark ? { stale: mark } : {}),
 					}
 				})
-				const stale = await staleFiles(
-					files,
-					rows.map((r) => Number(r.file_id)),
-				)
-				const next = cursor.offset + items.length
+				const next = offset + items.length
 				const page: AnalysisPage<AnalysisLiteralHit> = {
 					items,
 					total,
@@ -349,18 +446,22 @@ export function createCodeAnalysisProvider(
 						[
 							'literals are indexed up to 4096 characters, and a template literal is indexed per static chunk, so a match cannot span a ${...} or sit past the cut',
 						],
-						[...workspaceGaps(o.store), ...staleReason(stale)],
+						[
+							...workspaceGaps(o.store, scope.rel),
+							...markReasons(fresh.marks),
+							...(await newFileReasons(o.store, o.root, scope.rel)),
+						],
 						built,
 					),
 				}
 			}),
 
 		enclosingFunction: (request: EnclosingFunctionRequest) =>
-			withIndex(request.root, async (o, built) => {
+			withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
 				const found = fileAt(o, files, request.path)
 				if ('error' in found) return failed(found.error)
-				const verified = await readVerified(o.store, files, o.root, found, { refresh: true })
+				const verified = await readVerified(env, files, found, { refresh: true })
 				if ('error' in verified) return failed(verified.error)
 				const { info, text } = verified
 				const at = offsetOf(info.starts, info.chars, request.line, request.column ?? 1)
@@ -372,7 +473,7 @@ export function createCodeAnalysisProvider(
 					at.offset,
 					at.offset,
 				)
-				const gaps = info.parseErrors > 0 ? [parseGap(info)] : []
+				const gaps = fileGaps(info)
 				const notes = [
 					...(verified.refreshed
 						? [`${info.rel} had changed since it was indexed and was re-read`]
@@ -424,108 +525,116 @@ export function createCodeAnalysisProvider(
 			}),
 
 		functionSource: (request: FunctionSourceRequest) =>
-			withIndex(request.root, async (o, built) => {
-				const files = new Files(o.store, o.root)
-				const maxChars = clampChars(request.maxChars)
-				const limit = clampLimit(request.limit)
-				const generation = Number(o.store.meta('generation') ?? '0')
-				const q = fingerprint([
-					'source',
-					request.id ?? null,
-					request.path ?? null,
-					request.name ?? null,
-					maxChars,
-				])
-				const cursor = decodeCursor(request.cursor, generation, q)
-				if ('error' in cursor) return failed(cursor.error)
+			withScope(
+				request.root,
+				// An id names a function the index already holds; only a path asks for a build.
+				request.id === undefined ? request.path : undefined,
+				request.signal,
+				async (o, env, built) => {
+					const files = new Files(o.store, o.root)
+					const maxChars = clampChars(request.maxChars)
+					const limit = clampLimit(request.limit)
+					const generation = Number(o.store.meta('generation') ?? '0')
+					const q = fingerprint([
+						'source',
+						o.root,
+						request.id ?? null,
+						request.path ?? null,
+						request.name ?? null,
+						maxChars,
+					])
+					const cursor = decodeCursor(request.cursor, generation, q)
+					if ('error' in cursor) return failed(cursor.error)
 
-				let rows: Row[]
-				let total: number
-				let info: FileInfo
-				if (request.id !== undefined) {
-					const row = o.store.get('SELECT * FROM functions WHERE id = ?', request.id)
-					if (!row) {
-						return failed(
-							`There is no function with id ${request.id}. Ids are re-issued when a file is re-read; look the function up again.`,
+					let rows: Row[]
+					let total: number
+					let info: FileInfo
+					if (request.id !== undefined) {
+						const row = o.store.get('SELECT * FROM functions WHERE id = ?', request.id)
+						if (!row) {
+							return failed(
+								`There is no function with id ${request.id}. Ids are re-issued when a file is re-read; look the function up again.`,
+							)
+						}
+						info = files.byIdOrThrow(Number(row.file_id))
+						rows = [row]
+						total = 1
+					} else if (request.path !== undefined && request.name !== undefined) {
+						const found = fileAt(o, files, request.path)
+						if ('error' in found) return failed(found.error)
+						// Names are looked up AFTER the file is made current, or a rename
+						// would answer from rows that no longer exist.
+						const fresh = await readVerified(env, files, found, { refresh: true })
+						if ('error' in fresh) return failed(fresh.error)
+						info = fresh.info
+						total = Number(
+							(
+								o.store.get(
+									'SELECT count(*) AS n FROM functions WHERE file_id = ? AND name = ?',
+									info.id,
+									request.name,
+								) as Row
+							).n,
 						)
+						rows = o.store.all(
+							'SELECT * FROM functions WHERE file_id = ? AND name = ? ORDER BY start LIMIT ? OFFSET ?',
+							info.id,
+							request.name,
+							limit,
+							cursor.offset,
+						)
+					} else {
+						return failed('functionSource needs `id`, or `path` together with `name`.')
 					}
-					info = files.byIdOrThrow(Number(row.file_id))
-					rows = [row]
-					total = 1
-				} else if (request.path !== undefined && request.name !== undefined) {
-					const found = fileAt(o, files, request.path)
-					if ('error' in found) return failed(found.error)
-					// Names are looked up AFTER the file is made current, or a rename
-					// would answer from rows that no longer exist.
-					const fresh = await readVerified(o.store, files, o.root, found, { refresh: true })
-					if ('error' in fresh) return failed(fresh.error)
-					info = fresh.info
-					total = Number(
-						(
-							o.store.get(
-								'SELECT count(*) AS n FROM functions WHERE file_id = ? AND name = ?',
-								info.id,
-								request.name,
-							) as Row
-						).n,
-					)
-					rows = o.store.all(
-						'SELECT * FROM functions WHERE file_id = ? AND name = ? ORDER BY start LIMIT ? OFFSET ?',
-						info.id,
-						request.name,
-						limit,
-						cursor.offset,
-					)
-				} else {
-					return failed('functionSource needs `id`, or `path` together with `name`.')
-				}
 
-				const verified = await readVerified(o.store, files, o.root, info, {
-					refresh: request.id === undefined,
-				})
-				if ('error' in verified) return failed(verified.error)
-				const items: AnalysisFunctionSource[] = rows.map((row) => {
-					const fn = toFunction(row, verified.info)
+					const verified = await readVerified(env, files, info, {
+						refresh: request.id === undefined,
+					})
+					if ('error' in verified) return failed(verified.error)
+					const items: AnalysisFunctionSource[] = rows.map((row) => {
+						const fn = toFunction(row, verified.info)
+						return {
+							function: fn,
+							parents: parentsOf(
+								o.store,
+								files,
+								row.parent_id === null ? null : Number(row.parent_id),
+							),
+							source: sliceOf(verified.text, fn.start, fn.end, maxChars),
+						}
+					})
+					const next = cursor.offset + items.length
 					return {
-						function: fn,
-						parents: parentsOf(
-							o.store,
-							files,
-							row.parent_id === null ? null : Number(row.parent_id),
+						kind: 'ok',
+						value: {
+							items,
+							total,
+							...(next < total ? { nextCursor: encodeCursor({ g: generation, o: next, q }) } : {}),
+						},
+						evidence: evidence(
+							[
+								`${total} function(s) ${request.id !== undefined ? `with id ${request.id}` : `named ${JSON.stringify(request.name)} in ${info.rel}`}`,
+								'the source is the exact slice of the file, verified against its content hash',
+							],
+							request.id === undefined
+								? [
+										'a function is matched by the name the index inferred for it, which for an unnamed function is the variable or property it was assigned to',
+									]
+								: [],
+							fileGaps(info),
+							built,
 						),
-						source: sliceOf(verified.text, fn.start, fn.end, maxChars),
 					}
-				})
-				const next = cursor.offset + items.length
-				return {
-					kind: 'ok',
-					value: {
-						items,
-						total,
-						...(next < total ? { nextCursor: encodeCursor({ g: generation, o: next, q }) } : {}),
-					},
-					evidence: evidence(
-						[
-							`${total} function(s) ${request.id !== undefined ? `with id ${request.id}` : `named ${JSON.stringify(request.name)} in ${info.rel}`}`,
-							'the source is the exact slice of the file, verified against its content hash',
-						],
-						request.id === undefined
-							? [
-									'a function is matched by the name the index inferred for it, which for an unnamed function is the variable or property it was assigned to',
-								]
-							: [],
-						info.parseErrors > 0 ? [parseGap(info)] : [],
-						built,
-					),
-				}
-			}),
+				},
+			),
 
-		callersOf: (request: CallersOfRequest) =>
-			withIndex(request.root, async (o, built) => {
+		callersOf: (request: CallersOfRequest) => {
+			const scope = request.scope ?? 'file'
+			return withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
-				const scope = request.scope ?? 'file'
 				const member = request.match === 'member'
 				let scoped: { sql: string; params: unknown[] }
+				let scopeRel = ''
 				const gaps: string[] = []
 				const notes: string[] = []
 				if (scope === 'file') {
@@ -536,42 +645,59 @@ export function createCodeAnalysisProvider(
 					}
 					const found = fileAt(o, files, request.path)
 					if ('error' in found) return failed(found.error)
-					const fresh = await readVerified(o.store, files, o.root, found, { refresh: true })
+					const fresh = await readVerified(env, files, found, { refresh: true })
 					if ('error' in fresh) return failed(fresh.error)
 					if (fresh.refreshed)
 						notes.push(`${fresh.info.rel} had changed since it was indexed and was re-read`)
-					if (fresh.info.parseErrors > 0) gaps.push(parseGap(fresh.info))
+					gaps.push(...fileGaps(fresh.info))
 					scoped = { sql: ' AND c.file_id = ?', params: [fresh.info.id] }
 				} else {
 					const s = scopeSql(o, files, request.path, 'c.file_id')
 					if ('error' in s) return failed(s.error)
 					scoped = s
-					gaps.push(...workspaceGaps(o.store))
+					scopeRel = s.rel
 				}
 				const limit = clampLimit(request.limit)
-				const generation = Number(o.store.meta('generation') ?? '0')
-				const q = fingerprint(['callers', request.name, scope, request.path ?? null, member])
-				const cursor = decodeCursor(request.cursor, generation, q)
-				if ('error' in cursor) return failed(cursor.error)
-
 				const test = member
 					? "(c.callee = ? OR c.callee LIKE '%.' || ? ESCAPE '\\')"
 					: 'c.callee = ?'
 				const testParams = member ? [request.name, likeEscape(request.name)] : [request.name]
 				const where = `WHERE ${test}${scoped.sql}`
 				const params = [...testParams, ...scoped.params]
-				const total = Number(
-					(o.store.get(`SELECT count(*) AS n FROM calls c ${where}`, ...params) as Row).n,
-				)
-				const rows = o.store.all(
-					`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs FROM calls c ${where} ORDER BY c.rowid LIMIT ? OFFSET ?`,
-					...params,
-					limit,
-					cursor.offset,
-				)
+
+				let offset = 0
+				let rows: Row[] = []
+				let total = 0
+				let generation = 0
+				let q = ''
+				let freshness = await checkFreshness(o.store, files, o.root, [])
+				for (let attempt = 0; attempt < 3; attempt++) {
+					generation = Number(o.store.meta('generation') ?? '0')
+					q = fingerprint(['callers', o.root, request.name, scope, request.path ?? null, member])
+					const cursor = decodeCursor(request.cursor, generation, q)
+					if ('error' in cursor) return failed(cursor.error)
+					offset = cursor.offset
+					total = Number(
+						(o.store.get(`SELECT count(*) AS n FROM calls c ${where}`, ...params) as Row).n,
+					)
+					rows = o.store.all(
+						`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs FROM calls c ${where} ORDER BY c.rowid LIMIT ? OFFSET ?`,
+						...params,
+						limit,
+						offset,
+					)
+					freshness = await checkFreshness(
+						o.store,
+						files,
+						o.root,
+						rows.map((r) => Number(r.file_id)),
+					)
+					if (freshness.dropped.length === 0) break
+				}
 				const fnCache = new Map<number, ReturnType<typeof toFunction>>()
 				const items: AnalysisCallSite[] = rows.map((r) => {
-					const info = files.byIdOrThrow(Number(r.file_id))
+					const fileId = Number(r.file_id)
+					const info = files.byIdOrThrow(fileId)
 					const at = position(info.starts, Number(r.start))
 					let caller: ReturnType<typeof toFunction> | undefined
 					if (r.fn_id !== null && r.fn_id !== undefined) {
@@ -585,6 +711,7 @@ export function createCodeAnalysisProvider(
 							}
 						}
 					}
+					const mark = freshness.marks.get(fileId)
 					return {
 						path: info.abs,
 						line: at.line,
@@ -593,14 +720,17 @@ export function createCodeAnalysisProvider(
 						kind: String(r.kind) as AnalysisCallSite['kind'],
 						argumentCount: Number(r.nargs),
 						...(caller ? { caller } : {}),
+						...(mark ? { stale: mark } : {}),
 					}
 				})
 				if (scope === 'workspace') {
-					const stale = await staleFiles(
-						files,
-						rows.map((r) => Number(r.file_id)),
+					gaps.push(
+						...workspaceGaps(o.store, scopeRel),
+						...markReasons(freshness.marks),
+						...(await newFileReasons(o.store, o.root, scopeRel)),
 					)
-					gaps.push(...staleReason(stale))
+				} else {
+					gaps.push(...markReasons(freshness.marks))
 				}
 				const distinct = Number(
 					(
@@ -610,7 +740,7 @@ export function createCodeAnalysisProvider(
 						) as Row
 					).n,
 				)
-				const next = cursor.offset + items.length
+				const next = offset + items.length
 				return {
 					kind: 'ok',
 					value: {
@@ -636,19 +766,20 @@ export function createCodeAnalysisProvider(
 						built,
 					),
 				}
-			}),
+			})
+		},
 
 		imports: (request: ImportsRequest) =>
-			withIndex(request.root, async (o, built) => {
+			withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
 				const found = fileAt(o, files, request.path)
 				if ('error' in found) return failed(found.error)
-				const fresh = await readVerified(o.store, files, o.root, found, { refresh: true })
+				const fresh = await readVerified(env, files, found, { refresh: true })
 				if ('error' in fresh) return failed(fresh.error)
 				const info = fresh.info
 				const limit = clampLimit(request.limit)
 				const generation = Number(o.store.meta('generation') ?? '0')
-				const q = fingerprint(['imports', request.path])
+				const q = fingerprint(['imports', o.root, request.path])
 				const cursor = decodeCursor(request.cursor, generation, q)
 				if ('error' in cursor) return failed(cursor.error)
 
@@ -702,7 +833,7 @@ export function createCodeAnalysisProvider(
 								: []),
 						],
 						['require() and import() are recorded only when their argument is a string literal'],
-						info.parseErrors > 0 ? [parseGap(info)] : [],
+						fileGaps(info),
 						built,
 					),
 				}
@@ -711,9 +842,10 @@ export function createCodeAnalysisProvider(
 		async dispose(): Promise<void> {
 			const all = [...opened.values()]
 			opened.clear()
+			host.kill()
 			for (const pending of all) {
-				const o = await pending
-				if ('error' in o) continue
+				const o = await pending.catch(() => undefined)
+				if (!o || 'error' in o) continue
 				// Behind any call still running, then closed.
 				await o.store.run(async () => o.store.close()).catch(() => undefined)
 			}
@@ -722,6 +854,16 @@ export function createCodeAnalysisProvider(
 	return provider
 }
 
-function parseGap(info: FileInfo): string {
-	return `${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`
+function fileGaps(info: FileInfo): string[] {
+	if (info.parseErrors < 0) {
+		return [
+			`${info.rel} crashed the parser and is recorded with no rows, so nothing can be answered from it`,
+		]
+	}
+	if (info.parseErrors > 0) {
+		return [
+			`${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`,
+		]
+	}
+	return []
 }

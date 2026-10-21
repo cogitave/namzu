@@ -1,6 +1,12 @@
 export { createCodeAnalysisProvider } from './provider.js'
 export type { CodeAnalysisOptions } from './provider.js'
-export { DEFAULT_IGNORED_DIRS, DEFAULT_MAX_FILES, DEFAULT_MAX_FILE_BYTES } from './indexer.js'
+export {
+	DEFAULT_IGNORED_DIRS,
+	DEFAULT_MAX_DIRECTORIES,
+	DEFAULT_MAX_FILES,
+	DEFAULT_MAX_FILE_BYTES,
+	DEFAULT_MAX_MILLIS,
+} from './indexer.js'
 export type {
 	AnalysisCallSite,
 	AnalysisCoverage,

@@ -56,7 +56,24 @@ export interface ExportRow {
 	readonly start: number
 }
 
-export class RowSink {
+/** Everything one file contributes. Plain data, so it crosses a process boundary. */
+export interface RowsPayload {
+	readonly functions: readonly FunctionRow[]
+	readonly strings: readonly StringRow[]
+	readonly calls: readonly CallRow[]
+	readonly imports: readonly ImportRow[]
+	readonly exports: readonly ExportRow[]
+}
+
+export const EMPTY_ROWS: RowsPayload = {
+	functions: [],
+	strings: [],
+	calls: [],
+	imports: [],
+	exports: [],
+}
+
+export class RowSink implements RowsPayload {
 	readonly functions: FunctionRow[] = []
 	readonly strings: StringRow[] = []
 	readonly calls: CallRow[] = []

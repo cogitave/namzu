@@ -23,7 +23,10 @@ export class ParserUnavailableError extends Error {
 }
 
 async function loadOxc(): Promise<{ module: OxcModule; raw: boolean }> {
-	oxc ??= import('oxc-parser').then(
+	// `NAMZU_ANALYSIS_PARSER` names the module to load. It exists so a test can
+	// make the parser unavailable in the child process, where a module mock
+	// cannot reach; nothing else sets it.
+	oxc ??= (import(process.env.NAMZU_ANALYSIS_PARSER ?? 'oxc-parser') as Promise<OxcModule>).then(
 		(module) => {
 			let raw = false
 			try {

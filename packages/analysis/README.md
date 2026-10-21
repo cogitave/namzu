@@ -102,11 +102,22 @@ capped at a size you choose. A cut is reported, never silent.
   symbolic links, `node_modules`, `.git` and similar are not entered. A binary
   file with a `.js` name is skipped and counted, not a crash.
 - **Cache**: one SQLite file per root, named by a hash of the root's real path,
-  in `cacheDir`. A schema or root mismatch rebuilds it. An unwritable
-  directory falls back to memory and the summary says `persisted: false`.
+  the schema version and the mode, in `cacheDir`. A busy file is waited for,
+  never deleted; only a corrupt one is. An unwritable directory falls back to
+  memory and the summary says `persisted: false`. Several processes can index
+  one root at once.
+- **Parsing runs in a child process.** The native parser can segfault on
+  pathological input (a 6,000-deep array, 100,000 chained terms). That costs
+  one file, reported as `parser crashed` in coverage, not your process, and
+  your event loop stays free while a large file parses.
+- **Never outside the root.** Links are not followed, and a file replaced by
+  a link after indexing is dropped without being read.
 - **Limits**: files over 32 MiB and trees over 150,000 files are cut and
-  reported (`maxFileBytes`, `maxFiles`).
-- **Responsiveness**: indexing yields to the event loop every 20 ms.
+  reported (`maxFileBytes`, `maxFiles`). A call stops after 20,000
+  directories or 45 seconds (`maxDirectories`, `maxMillis`), keeps what it
+  indexed and names a narrower path to index next; it is never a refusal.
+- **Cancelling**: every call takes a `signal`. An aborted index keeps what it
+  committed.
 
 ## Node versions
 
