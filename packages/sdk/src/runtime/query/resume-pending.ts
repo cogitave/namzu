@@ -535,6 +535,17 @@ export async function applyPendingResume(
 				reason: "the turn's review approved this call, answered across a restart",
 			})
 		}
+		if (call.escalation?.unfinishedCheck !== undefined) {
+			await recorder.recordAudit({
+				what: {
+					action: 'unfinished_check',
+					tool: call.name,
+					resource: call.escalation.unfinishedCheck,
+				},
+				outcome: 'approved',
+				reason: "the turn's review approved this call, answered across a restart",
+			})
+		}
 	}
 
 	// The parked assistant message is already in the log: it goes back into
@@ -587,6 +598,9 @@ export function escalationRefusal(
 		escalation.dangerousRemoval !== undefined &&
 		shown?.dangerousRemoval !== escalation.dangerousRemoval
 	) {
+		return refusal
+	}
+	if (escalation.unfinishedCheck !== undefined && shown?.unfinishedCheck === undefined) {
 		return refusal
 	}
 	if (escalation.sandboxEscape && (!shown?.sandboxEscape || !confirmed?.includes(id))) {

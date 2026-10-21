@@ -21,10 +21,13 @@
  * person (`prompt`).
  */
 
+import { unknownProgramInLine } from '../../authorization/program.js'
+import { readShellLine, shellPathAccess } from '../../authorization/shell-paths.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type {
 	HITLResumeDecision,
+	ResumeContext,
 	ResumeHandler,
 	ToolCallDeclined,
 	ToolCallSummary,
@@ -32,7 +35,9 @@ import type {
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
+import { type AutoReviewClassifier, autoReviewBlockedFeedback } from './auto-review/classifier.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
+import { shellEscalations } from './path-escalation.js'
 
 export type ReviewMode =
 	/** Ask a person. The default when a `prompt` is supplied. */
@@ -68,6 +73,32 @@ export type ReviewMode =
 	 * an unattended turn can actually be reasoned about.
 	 */
 	| 'strict'
+	/**
+	 * Run everything except what no mode may approve in advance.
+	 *
+	 * Where `auto` approves what remains after the questions a person must
+	 * answer (a path outside the roots, a program nobody can name, a protected
+	 * write), `bypass` also approves those. It still asks, or refuses when
+	 * nobody can be asked: a `deny` rule (the gate refuses before this is
+	 * reached), an `ask` rule or a hook that asked for a person, a catastrophic
+	 * removal, a tool's own `requiresApproval`, a sandbox escape, and a call
+	 * whose safety checks did not finish. The dangerous-pattern floor refuses in
+	 * the gate, unchanged. With nobody to ask, whatever would have been asked is
+	 * refused.
+	 */
+	| 'bypass'
+	/**
+	 * Let a classifier model decide what a person would otherwise be asked.
+	 *
+	 * Needs a {@link ReviewPolicyOptions.classifier}. A call that `prompt` would
+	 * ask about goes to it instead, and it allows or blocks; the questions that
+	 * are a person's to answer (the same set `bypass` keeps) still go to one,
+	 * or are refused when nobody can be asked. Calls that would not be asked
+	 * about in `prompt`, calls `accept-edits` would approve, and the tools on
+	 * {@link CLASSIFIER_SAFE_TOOLS} never reach it. See
+	 * `runtime/query/auto-review/`.
+	 */
+	| 'classify'
 
 export const REVIEW_MODES: readonly ReviewMode[] = [
 	'prompt',
@@ -75,6 +106,8 @@ export const REVIEW_MODES: readonly ReviewMode[] = [
 	'auto',
 	'strict',
 	'plan',
+	'bypass',
+	'classify',
 ]
 
 export function isReviewMode(value: unknown): value is ReviewMode {
@@ -249,6 +282,97 @@ export const DANGEROUS_REMOVAL_UNATTENDED_REFUSAL =
 	'Refused: a call in this batch removes something this check treats as catastrophic (the file system root, a top-level or home directory, the working directory or a parent of it, a glob across directories, or a target a variable or substitution may leave empty), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Name the exact directory to remove with a literal path.'
 
 /**
+ * What the model is told when a batch carries a call a rule or a hook asked a
+ * person to approve and nobody can be asked.
+ */
+export const ASK_RULE_UNATTENDED_REFUSAL =
+	'Refused: a call in this batch is one a rule or a hook says a person must approve, and nobody can be asked in this session. Nothing in this batch ran. Run it in a session where a person can be asked, or have the operator change the rule.'
+
+/**
+ * What the model is told when the checks that decide whether a call reaches
+ * past its boundary did not finish and nobody can be asked.
+ */
+export const UNFINISHED_CHECK_UNATTENDED_REFUSAL =
+	'Refused: the safety checks on a call in this batch did not finish, so it cannot be shown to be safe, and a person has to approve it and nobody can be asked in this session. Nothing in this batch ran. Try a simpler form of the call.'
+
+/** What the model is told when the conversation is too long for the classifier to read. */
+export const CLASSIFIER_TRANSCRIPT_TOO_LONG_FEEDBACK =
+	'Blocked by auto mode: the conversation has become too long for the safety check to read, so this action was not run. The conversation is being shortened; try the action again.'
+
+/**
+ * Tools the classifier is never asked about: they read, plan or keep the
+ * agent's own notes, and cannot change anything outside the session.
+ */
+export const CLASSIFIER_SAFE_TOOLS: ReadonlySet<string> = new Set([
+	'read',
+	'grep',
+	'glob',
+	'ls',
+	'lsp',
+	'code_analysis',
+	'search_tools',
+	'view_image',
+	'task_create',
+	'task_update',
+	'task_list',
+	'task_get',
+	'update_goal',
+	'enter_plan_mode',
+	'exit_plan_mode',
+])
+
+/**
+ * Programs an allow rule must not stand in for the classifier on: each runs
+ * whatever it is handed, so a rule that let `python` through would approve any
+ * script without the classifier reading it.
+ */
+const CLASSIFIER_LAUNCHERS: ReadonlySet<string> = new Set([
+	'python',
+	'python2',
+	'python3',
+	'node',
+	'deno',
+	'tsx',
+	'ruby',
+	'perl',
+	'php',
+	'lua',
+	'npx',
+	'bunx',
+	'bash',
+	'sh',
+	'zsh',
+	'fish',
+	'ssh',
+	'eval',
+	'exec',
+	'env',
+	'xargs',
+	'sudo',
+])
+
+/** Package managers whose `run`/`exec` verbs start a script. */
+const CLASSIFIER_SCRIPT_RUNNERS: ReadonlySet<string> = new Set(['npm', 'yarn', 'pnpm', 'bun'])
+
+/** Tools that start other agents; an allow rule for one is not consulted under `classify`. */
+const CLASSIFIER_DELEGATION_TOOLS: ReadonlySet<string> = new Set([
+	'agent',
+	'create_task',
+	'continue_task',
+])
+
+/** The shell commands `accept-edits` also approves, when every path they name is inside the roots. */
+export const ACCEPT_EDITS_SHELL_COMMANDS: ReadonlySet<string> = new Set([
+	'mkdir',
+	'touch',
+	'rm',
+	'rmdir',
+	'mv',
+	'cp',
+	'sed',
+])
+
+/**
  * What the model is told when a batch would show it the operator's screen for
  * the first time in a session and nobody can be asked.
  */
@@ -270,19 +394,132 @@ export interface ScreenConsentRecord {
 	readonly sessions: Set<string>
 }
 
-/** Whether the call writes a protected path or removes something catastrophic. */
+/**
+ * Whether the call writes a protected path, removes something catastrophic, or
+ * could not be checked.
+ */
 function reachesAFloor(tc: ToolCallSummary): boolean {
 	return (
 		(tc.escalation?.protectedPaths?.length ?? 0) > 0 ||
-		tc.escalation?.dangerousRemoval !== undefined
+		tc.escalation?.dangerousRemoval !== undefined ||
+		tc.escalation?.unfinishedCheck !== undefined
 	)
 }
 
 /** The refusal for a batch that reaches a floor and cannot be asked about it. */
 function floorRefusal(toolCalls: readonly ToolCallSummary[]): string {
-	return toolCalls.some((tc) => (tc.escalation?.protectedPaths?.length ?? 0) > 0)
-		? PROTECTED_PATH_UNATTENDED_REFUSAL
-		: DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+	if (toolCalls.some((tc) => (tc.escalation?.protectedPaths?.length ?? 0) > 0)) {
+		return PROTECTED_PATH_UNATTENDED_REFUSAL
+	}
+	return toolCalls.some((tc) => tc.escalation?.dangerousRemoval !== undefined)
+		? DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+		: UNFINISHED_CHECK_UNATTENDED_REFUSAL
+}
+
+/**
+ * Whether a mode needs a batch a rule already allowed to come to the policy.
+ *
+ * `plan` must refuse a change a rule would have let through, and `classify`
+ * must look at a call whose allow rule is too wide to vouch for it. A host
+ * answers its `reviewAllowedCalls` with this for the mode it is in.
+ */
+export function modeReviewsAllowedCalls(mode: ReviewMode): boolean {
+	return mode === 'plan' || mode === 'classify'
+}
+
+/** Whether the mode keeps only the questions a person must answer, and leaves the rest to itself. */
+function isPermissive(mode: ReviewMode): boolean {
+	return mode === 'bypass' || mode === 'classify'
+}
+
+/**
+ * Whether the call is one of the few no mode may settle in advance: a rule or
+ * hook asked for a person, a sandbox escape, a catastrophic removal, a check
+ * that did not finish, or a tool that always needs approval. The dangerous
+ * pattern floor and `deny` rules are not here: the gate refuses those first.
+ */
+function isBypassImmune(tc: ToolCallSummary): boolean {
+	return (
+		tc.authorization?.askRule === true ||
+		tc.escalation?.sandboxEscape === true ||
+		tc.escalation?.dangerousRemoval !== undefined ||
+		tc.escalation?.unfinishedCheck !== undefined ||
+		tc.requiresApproval === true
+	)
+}
+
+/** The refusal for the first immune thing in a batch nobody can be asked about, or undefined. */
+function immuneRefusal(
+	toolCalls: readonly ToolCallSummary[],
+	escapeConfirmed: boolean,
+): string | undefined {
+	if (!escapeConfirmed && toolCalls.some((tc) => tc.escalation?.sandboxEscape === true)) {
+		return SANDBOX_ESCAPE_UNATTENDED_REFUSAL
+	}
+	if (toolCalls.some((tc) => tc.escalation?.dangerousRemoval !== undefined)) {
+		return DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+	}
+	if (toolCalls.some((tc) => tc.escalation?.unfinishedCheck !== undefined)) {
+		return UNFINISHED_CHECK_UNATTENDED_REFUSAL
+	}
+	if (toolCalls.some((tc) => tc.requiresApproval === true)) {
+		return REQUIRES_APPROVAL_UNATTENDED_REFUSAL
+	}
+	if (toolCalls.some((tc) => tc.authorization?.askRule === true)) return ASK_RULE_UNATTENDED_REFUSAL
+	return undefined
+}
+
+/** One sed command a script may hold: a substitution with plain flags, or a delete, print or line number. */
+const SAFE_SED_COMMAND =
+	/^\s*(?:\d+(?:,\d+)?|\$|\/[^/]*\/)?\s*(?:s(.)(?:(?!\1)[^\\]|\\.)*\1(?:(?!\1)[^\\]|\\.)*\1[gpiI0-9]*|[dpP=])\s*$/
+
+/**
+ * Whether a `sed` invocation can only edit text: its script is made of
+ * substitutions and simple line commands. A script with the `e`, `w` or `r`
+ * commands or flags can run a program or reach another file, and a script from
+ * a file cannot be read here, so those are not edits this vouches for.
+ */
+function sedOnlyEdits(
+	args: readonly { readonly value: string; readonly expands: boolean }[],
+): boolean {
+	const scripts: string[] = []
+	let positional = 0
+	for (let i = 0; i < args.length; i += 1) {
+		const arg = args[i] as { value: string; expands: boolean }
+		if (arg.expands) return false
+		const text = arg.value
+		if (text === '-e') {
+			const next = args[i + 1]
+			if (next === undefined || next.expands) return false
+			scripts.push(next.value)
+			i += 1
+			continue
+		}
+		if (text.startsWith('--expression=')) {
+			scripts.push(text.slice('--expression='.length))
+			continue
+		}
+		if (text === '-f' || text.startsWith('--file') || text === '--follow-symlinks') return false
+		if (text.startsWith('-')) {
+			if (
+				!/^-(?:[nErszi]+|i\S*|-in-place(?:=\S*)?|-quiet|-silent|-regexp-extended|-separate|-null-data)$/.test(
+					text,
+				)
+			) {
+				return false
+			}
+			continue
+		}
+		positional += 1
+		if (positional === 1 && scripts.length === 0) scripts.push(text)
+	}
+	if (scripts.length === 0) return false
+	return scripts.every((script) =>
+		script
+			.split(/;|\n/)
+			.filter((part) => part.trim() !== '')
+			.every((part) => SAFE_SED_COMMAND.test(part)),
+	)
 }
 
 /** The batch a person is asked about. */
@@ -384,6 +621,39 @@ export interface ReviewPolicyOptions {
 	 * other mode.
 	 */
 	readonly planModeWrite?: (call: ToolCallSummary) => boolean
+	/**
+	 * The classifier `classify` mode asks. Required for that mode (building a
+	 * `classify` policy without one throws) and ignored in every other.
+	 */
+	readonly classifier?: AutoReviewClassifier
+	/** Tool names added to {@link CLASSIFIER_SAFE_TOOLS} for `classify`: never sent to the classifier. */
+	readonly safeTools?: readonly string[]
+	/**
+	 * The roots the turn works in, the working directory first and then the
+	 * added directories (or a function that reads them now). `accept-edits`,
+	 * and `classify` through it, approve `mkdir`, `touch`, `rm`, `rmdir`, `mv`,
+	 * `cp` and `sed` only when every path the shell line names is inside them,
+	 * and only when the host says what they are: without this those commands
+	 * are asked about as before.
+	 */
+	readonly roots?: readonly string[] | (() => readonly string[])
+	/**
+	 * Called when the classifier has blocked enough calls (see
+	 * `AutoReviewLimits`) that the host should stop relying on it. The policy
+	 * then asks the person about the call that tripped the limit, or ends the
+	 * turn when there is nobody to ask. It does not change the mode: the host,
+	 * which owns the mode and how it is shown, does that here.
+	 */
+	readonly onClassifierLimit?: (event: {
+		readonly limit: 'consecutive' | 'total'
+		readonly reason: string
+	}) => void
+	/**
+	 * Called when the conversation was too long for the classifier to read, so
+	 * a host can start a compaction. The call is blocked once with a note telling
+	 * the model to try again.
+	 */
+	readonly onClassifierTranscriptTooLong?: () => void
 }
 
 /**
@@ -424,6 +694,17 @@ function isHookGranted(tc: ToolCallSummary): boolean {
 export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHandler {
 	const { prompt, registry } = options
 	const mode: ReviewMode = options.mode ?? (prompt ? 'prompt' : 'auto')
+	if (mode === 'classify' && options.classifier === undefined) {
+		throw new TypeError(
+			'The classify review mode needs a classifier (ReviewPolicyOptions.classifier).',
+		)
+	}
+	const safeTools = new Set([...CLASSIFIER_SAFE_TOOLS, ...(options.safeTools ?? [])])
+	/** Set once the classifier has said the conversation is too long, until it judges something. */
+	let transcriptTooLong = false
+	const toolOf = (name: string) => registry?.get(name) ?? registry?.get(name.toLowerCase())
+	const rootsNow = (): readonly string[] =>
+		typeof options.roots === 'function' ? options.roots() : (options.roots ?? [])
 	const exempt: ReviewExemption =
 		options.exempt ??
 		(registry ? (name, input) => isReviewExempt(registry, name, input) : () => false)
@@ -436,7 +717,101 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					return tool?.capturesScreen?.(input) === true
 				}
 			: () => false)
-	return async (request): Promise<HITLResumeDecision> => {
+	/**
+	 * Whether a shell call only makes, touches, removes, moves, copies or edits
+	 * files, and every path it names is inside the roots: what `accept-edits`
+	 * approves beyond `edit` and `write`. A catastrophic removal, a protected
+	 * path, a path in a variable, a program nobody can name or a `sed` script
+	 * that can run something is not that.
+	 */
+	const shellFileCommandsInRoots = async (tc: ToolCallSummary): Promise<boolean> => {
+		const rootList = rootsNow()
+		if (rootList.length === 0) return false
+		if (
+			tc.escalation !== undefined ||
+			tc.isDestructive ||
+			tc.requiresApproval === true ||
+			tc.authorization?.explicitReview ||
+			tc.authorization?.askRule
+		) {
+			return false
+		}
+		const tool = toolOf(tc.name)
+		const argument = tool?.commandArgument
+		if (tool === undefined || argument === undefined) return false
+		const line = (tc.input as Record<string, unknown> | null)?.[argument]
+		if (typeof line !== 'string') return false
+		const dialect = tool.commandDialect?.({ sandboxed: false }) ?? 'sh'
+		if (unknownProgramInLine(line, dialect) !== undefined) return false
+		const reading = readShellLine(line, dialect)
+		if (!reading.complete || reading.invocations.length === 0) return false
+		for (const invocation of reading.invocations) {
+			if (invocation.program === 'cd') continue
+			if (!ACCEPT_EDITS_SHELL_COMMANDS.has(invocation.program)) return false
+			if (invocation.program === 'sed' && !sedOnlyEdits(invocation.args)) return false
+		}
+		if (shellPathAccess(reading).uses.some((use) => use.unresolved)) return false
+		const found = await shellEscalations(line, dialect, { roots: rootList, reviewOutside: true })
+		return (
+			found.outsidePaths.length === 0 &&
+			found.protectedPaths.length === 0 &&
+			found.dangerousRemoval === undefined
+		)
+	}
+
+	/** What `accept-edits` approves without asking: edits, exempt reads and file commands inside the roots. */
+	const acceptEditsAllows = async (tc: ToolCallSummary): Promise<boolean> =>
+		!tc.authorization?.explicitReview &&
+		tc.escalation === undefined &&
+		!tc.isDestructive &&
+		tc.requiresApproval !== true &&
+		(ACCEPT_EDITS_TOOLS.has(tc.name) ||
+			exempt(tc.name, tc.input) ||
+			(await shellFileCommandsInRoots(tc)))
+
+	/**
+	 * Whether a rule's `allow` is one the classifier should not defer to: the
+	 * rule covers a whole shell tool, or the line starts an interpreter or a
+	 * launcher that runs whatever it is given, or the tool starts other agents.
+	 * Judged on the call as well as the rule because a rule that names a
+	 * program ("python") is a rule about a program that can run anything.
+	 */
+	const allowRuleTooWide = (tc: ToolCallSummary): boolean => {
+		if (CLASSIFIER_DELEGATION_TOOLS.has(tc.name.toLowerCase())) return true
+		const tool = toolOf(tc.name)
+		const argument = tool?.commandArgument
+		if (tool === undefined || argument === undefined) return false
+		if (tc.authorization?.allowScope === 'tool') return true
+		const line = (tc.input as Record<string, unknown> | null)?.[argument]
+		if (typeof line !== 'string') return true
+		const reading = readShellLine(line, tool.commandDialect?.({ sandboxed: false }) ?? 'sh')
+		return (
+			!reading.complete ||
+			reading.invocations.some(
+				(invocation) =>
+					CLASSIFIER_LAUNCHERS.has(invocation.program) ||
+					(CLASSIFIER_SCRIPT_RUNNERS.has(invocation.program) &&
+						/^(?:run|run-script|exec|x|dlx|create)$/.test(invocation.args[0]?.value ?? '')),
+			)
+		)
+	}
+
+	/** Whether `classify` decides this call without the classifier: it would not be asked, or is plainly safe. */
+	const neverSent = async (tc: ToolCallSummary): Promise<boolean> => {
+		if (tc.authorization?.decision === 'allow' && !allowRuleTooWide(tc)) return true
+		if (safeTools.has(tc.name.toLowerCase())) return true
+		if (
+			tc.escalation === undefined &&
+			!tc.isDestructive &&
+			!tc.authorization?.explicitReview &&
+			exempt(tc.name, tc.input)
+		) {
+			return true
+		}
+		return acceptEditsAllows(tc)
+	}
+
+	return async (request, context?: ResumeContext): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
 			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
 		}
@@ -503,14 +878,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// through beside it would be approving something it did not show.
 		if (
 			mode === 'accept-edits' &&
-			request.toolCalls.every(
-				(tc) =>
-					!tc.authorization?.explicitReview &&
-					tc.escalation === undefined &&
-					!tc.isDestructive &&
-					tc.requiresApproval !== true &&
-					(ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
-			)
+			(await Promise.all(request.toolCalls.map(acceptEditsAllows))).every(Boolean)
 		) {
 			return { action: 'approve_tools' }
 		}
@@ -531,6 +899,86 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		}
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
+		if (isPermissive(mode)) {
+			// A person's answer on the whole batch, as a decision. An escape is
+			// confirmed by id only here, only for a person's yes.
+			const askPerson = async (escapes: readonly string[]): Promise<HITLResumeDecision> => {
+				const answer = await ask()
+				if (answer.kind === 'reject') {
+					return {
+						action: 'reject_tools',
+						feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+						...(answer.declined ? { declined: answer.declined } : {}),
+					}
+				}
+				if (answer.kind === 'approve-all') remembered.all = true
+				return {
+					action: 'approve_tools',
+					...(escapes.length > 0 ? { confirmedEscalations: escapes } : {}),
+				}
+			}
+			const live = request.toolCalls.filter((tc) => tc.authorization?.decision !== 'deny')
+			const escapes = live.filter((tc) => tc.escalation?.sandboxEscape === true).map((tc) => tc.id)
+			if (mode === 'classify') {
+				const classifier = options.classifier as AutoReviewClassifier
+				const transcript = context?.transcript() ?? []
+				for (const tc of live) {
+					// The questions a person must answer are asked of a person, never of a model.
+					if (isBypassImmune(tc) || (await neverSent(tc))) continue
+					const decision = await classifier.review({
+						call: tc,
+						transcript,
+						...(registry ? { tools: registry } : {}),
+						...(context?.signal ? { signal: context.signal } : {}),
+					})
+					if (decision.verdict === 'allow') {
+						transcriptTooLong = false
+						continue
+					}
+					if (decision.verdict === 'too_long') {
+						if (!transcriptTooLong) {
+							transcriptTooLong = true
+							options.onClassifierTranscriptTooLong?.()
+							return { action: 'reject_tools', feedback: CLASSIFIER_TRANSCRIPT_TOO_LONG_FEEDBACK }
+						}
+						// Still too long after the host was told: nobody can judge it
+						// automatically. A person decides, or the turn ends.
+						if (!prompt) {
+							return {
+								action: 'abort',
+								reason: 'auto mode stopped: the conversation is too long for the safety check',
+							}
+						}
+						return askPerson(escapes)
+					}
+					transcriptTooLong = false
+					if (decision.limitReached !== undefined) {
+						options.onClassifierLimit?.({ limit: decision.limitReached, reason: decision.reason })
+						if (!prompt) {
+							return {
+								action: 'abort',
+								reason: `auto mode stopped: too many actions were blocked (${decision.reason})`,
+							}
+						}
+						return askPerson(escapes)
+					}
+					return {
+						action: 'reject_tools',
+						feedback: autoReviewBlockedFeedback(decision.reason),
+					}
+				}
+			}
+			if (!live.some(isBypassImmune)) return { action: 'approve_tools' }
+			if (!prompt) {
+				const refusal = immuneRefusal(live, options.unattendedSandboxEscape === 'allow')
+				if (refusal !== undefined) return { action: 'reject_tools', feedback: refusal }
+				return {
+					action: 'approve_tools',
+					...(escapes.length > 0 ? { confirmedEscalations: escapes } : {}),
+				}
+			}
+			return askPerson(escapes)
+		}
 		// A sandbox escape is asked about every time, in every mode that got
 		// this far — `auto` and a remembered "approve all" included, because
 		// both are answers somebody gave BEFORE this command existed. The

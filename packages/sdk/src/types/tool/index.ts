@@ -1179,6 +1179,23 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	requiresApproval?(input: TInput): boolean
 
 	/**
+	 * What the auto-mode safety classifier is shown of this call.
+	 *
+	 * The classifier (`createAutoReviewClassifier`, review mode `classify`)
+	 * reads a compact transcript, not raw tool arguments: a tool knows which
+	 * part of its own input says what the call DOES. A shell tool returns the
+	 * command, a file tool the path and a short summary of the change, a fetch
+	 * the address. The string should be short and carry no content the model
+	 * could not already be trusted with; the runtime caps its length.
+	 *
+	 * Absent, the classifier is shown the input as compact JSON. A tool whose
+	 * input is large or opaque (a file body, a binary payload) should declare
+	 * this so the classifier judges the action rather than the bulk. Never
+	 * called with a tool RESULT: results are untrusted and are not shown.
+	 */
+	classifierInput?(input: TInput): string
+
+	/**
 	 * Free-form, tool-author-declared data for filtering and behaviour
 	 * customization — never a classification the runtime itself reads.
 	 *

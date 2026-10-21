@@ -6,6 +6,7 @@ import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
+import { clip } from './classifier-input.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
@@ -93,6 +94,11 @@ export const WriteFileTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// The classifier judges where a file is written and how much, not the body.
+	classifierInput: (input: WriteInput) => {
+		const body = input.content ?? input.newStr ?? ''
+		return `${input.path}: writes ${body.length} characters, starting ${JSON.stringify(clip(body, 300))}`
+	},
 	permissions: ['file_write'],
 	readOnly: false,
 	destructive: true,

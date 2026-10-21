@@ -1,5 +1,6 @@
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PlanId, SessionId, TurnId } from '../ids/index.js'
+import type { Message } from '../message/index.js'
 
 export type { CheckpointId }
 
@@ -139,7 +140,28 @@ export type HITLDecisionRequest =
 			question: UserQuestionData
 	  }
 
-export type ResumeHandler = (request: HITLDecisionRequest) => Promise<HITLResumeDecision>
+/**
+ * What the turn offers a resume handler besides the request, in memory only.
+ *
+ * Kept out of {@link HITLDecisionRequest} on purpose: the request is written
+ * to the session log when a decision takes long, and a transcript does not
+ * belong there. A handler that does not need it ignores the argument; one that
+ * wraps another passes it on.
+ */
+export interface ResumeContext {
+	/**
+	 * The conversation as it stands now, the batch under review included.
+	 * Read on demand; the array is the turn's own, so a caller must not change it.
+	 */
+	readonly transcript: () => readonly Message[]
+	/** The turn's cancellation signal, when it has one. */
+	readonly signal?: AbortSignal
+}
+
+export type ResumeHandler = (
+	request: HITLDecisionRequest,
+	context?: ResumeContext,
+) => Promise<HITLResumeDecision>
 
 export interface ToolCallSummary {
 	id: string
@@ -158,6 +180,24 @@ export interface ToolCallSummary {
 		reason?: string
 		/** A matching rule requested review; read-only exemptions must not bypass it. */
 		explicitReview?: true
+		/**
+		 * A rule written to ask a person (a `review` rule), or a hook that asked
+		 * for one, requested this review. Unlike {@link explicitReview} it is not
+		 * set when an `allow` rule was demoted to review because the call reaches
+		 * past its boundary. `bypass` and `classify` keep this question for a
+		 * person; they answer the demoted kind themselves.
+		 */
+		askRule?: true
+		/**
+		 * How wide the `allow` rule that settled this call is. `tool` means the
+		 * rule names the whole tool, a category, a tier or a source, or its
+		 * pattern matches every input; `pattern` means it matches some inputs
+		 * only. Present only when `decision` is `allow` and a rule (not the
+		 * read-only allowance) decided it. The `classify` review mode reads it:
+		 * a whole-tool allow for a shell tool would let the classifier never
+		 * see a command.
+		 */
+		allowScope?: 'tool' | 'pattern'
 	}
 	/**
 	 * What this call reaches beyond the turn's ordinary boundary, as the
@@ -278,6 +318,14 @@ export interface ToolCallEscalation {
 	 * tool that declares `commandArgument`.
 	 */
 	dangerousRemoval?: string
+	/**
+	 * Why the kernel could not finish looking at this call: the check that
+	 * finds the escalations above threw, so none of them is known to be
+	 * absent. Treated as the most serious escalation there is, because the
+	 * safety checks did not run: a person is asked in every mode, `bypass`
+	 * and `classify` included, and it is refused when nobody can be asked.
+	 */
+	unfinishedCheck?: string
 }
 
 export interface ToolModification {

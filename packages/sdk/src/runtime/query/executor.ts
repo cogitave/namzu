@@ -1019,11 +1019,30 @@ export class ToolExecutor {
 				!hostModifiedCallIds?.has(toolCall.id),
 			)
 			calls.set(toolCall.id, call)
-			const escalation = await this.escalationOf(call)
+			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
+	}
+
+	/**
+	 * {@link escalationOf}, except that a check which itself throws is not
+	 * read as "nothing found". The failure becomes an escalation of its own
+	 * (`unfinishedCheck`), which no mode approves in advance: a call whose
+	 * safety checks did not run is the one a person must look at.
+	 */
+	private async escalationOrUnfinished(
+		call: PreparedDirectCall,
+	): Promise<ToolCallEscalation | undefined> {
+		try {
+			return await this.escalationOf(call)
+		} catch (error) {
+			this.config.abortSignal.throwIfAborted()
+			return {
+				unfinishedCheck: error instanceof Error ? error.message : 'the check did not finish',
+			}
+		}
 	}
 
 	/**
@@ -1180,7 +1199,7 @@ export class ToolExecutor {
 			if (changedCallIds.has(toolCall.id)) {
 				const call = await prepareDirectCall(this.admissionHost(), toolCall, false)
 				calls.set(toolCall.id, call)
-				const escalation = await this.escalationOf(call)
+				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)
 			}

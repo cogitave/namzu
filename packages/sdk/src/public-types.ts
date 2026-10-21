@@ -437,6 +437,17 @@ export type {
 } from './compaction/plan.js'
 
 export type {
+	AutoReviewClassifier,
+	AutoReviewClassifierOptions,
+	AutoReviewDecision,
+	AutoReviewLimits,
+	AutoReviewRequest,
+	AutoReviewRules,
+	AutoReviewStage,
+	ResolvedAutoReviewRules,
+} from './runtime/query/auto-review/index.js'
+
+export type {
 	ReviewExemption,
 	ReviewMode,
 	ReviewPolicyOptions,

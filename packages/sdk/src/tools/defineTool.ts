@@ -33,6 +33,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	capturesScreen?: boolean | ((input: z.infer<S>) => boolean)
 	/** Whether this exact call always needs a person's approval; see {@link ToolDefinition.requiresApproval}. */
 	requiresApproval?: boolean | ((input: z.infer<S>) => boolean)
+	/** What the auto-mode classifier is shown of this call; see {@link ToolDefinition.classifierInput}. */
+	classifierInput?: (input: z.infer<S>) => string
 	/** Free-form filtering data, never sent to the model; see {@link ToolDefinition.metadata}. */
 	metadata?: Readonly<Record<string, unknown>>
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
@@ -186,6 +188,7 @@ export function defineTool<S extends z.ZodType>(
 							: () => options.requiresApproval as boolean,
 				}
 			: {}),
+		...(options.classifierInput !== undefined ? { classifierInput: options.classifierInput } : {}),
 		...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
 
 		async execute(input: TInput, context: ToolContext): Promise<ToolResult> {

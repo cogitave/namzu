@@ -1431,7 +1431,11 @@ export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
 // accept-edits, plan, strict — as an `ApprovalPolicy`. See
 // `runtime/query/review-policy.ts`.
 export {
+	ACCEPT_EDITS_SHELL_COMMANDS,
 	ACCEPT_EDITS_TOOLS,
+	ASK_RULE_UNATTENDED_REFUSAL,
+	CLASSIFIER_SAFE_TOOLS,
+	CLASSIFIER_TRANSCRIPT_TOO_LONG_FEEDBACK,
 	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	PLAN_MODE_REFUSAL,
 	REVIEW_EXEMPT_WRITES,
@@ -1440,12 +1444,26 @@ export {
 	SCREEN_CONSENT_DECLINED_FEEDBACK,
 	SCREEN_CONSENT_UNATTENDED_REFUSAL,
 	STRICT_MODE_REFUSAL,
+	UNFINISHED_CHECK_UNATTENDED_REFUSAL,
 	batchNeedsReview,
 	createReviewHandler,
 	createReviewPolicy,
 	isReviewExempt,
 	isReviewMode,
+	modeReviewsAllowedCalls,
 } from './runtime/query/review-policy.js'
+// The model that decides, in the `classify` review mode, what a person would
+// otherwise be asked. See `runtime/query/auto-review/`.
+export {
+	AUTO_REVIEW_DEFAULTS_MARKER,
+	DEFAULT_ALLOW as DEFAULT_AUTO_REVIEW_ALLOW,
+	DEFAULT_AUTO_REVIEW_LIMITS,
+	DEFAULT_HARD_DENY as DEFAULT_AUTO_REVIEW_HARD_DENY,
+	DEFAULT_SOFT_DENY as DEFAULT_AUTO_REVIEW_SOFT_DENY,
+	autoReviewBlockedFeedback,
+	createAutoReviewClassifier,
+	resolveAutoReviewRules,
+} from './runtime/query/auto-review/index.js'
 // What the model is told when a person declines a call without words of their own.
 export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
 

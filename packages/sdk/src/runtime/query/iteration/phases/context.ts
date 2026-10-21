@@ -15,7 +15,11 @@ import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { ToolManager } from '../../../../toolsets/manager.js'
 import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
-import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
+import type {
+	HITLResumeDecision,
+	ResumeContext,
+	ResumeHandler,
+} from '../../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../../types/ids/index.js'
 import type { DurableInboundSource } from '../../../../types/message/inbound-delivery.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
@@ -419,6 +423,15 @@ export async function awaitDecisionDurably(
  * turns into `setStopReason('cancelled') + markCancelled + stop`. Fails closed:
  * a resume-handler rejection also resolves to `abort` rather than hanging.
  */
+/** What a resume handler may read besides the request; see {@link ResumeContext}. */
+function resumeContextOf(ctx: IterationContext): ResumeContext {
+	const signal = ctx.abortController?.signal
+	return {
+		transcript: () => ctx.recorder.messages,
+		...(signal ? { signal } : {}),
+	}
+}
+
 export async function awaitDecisionOrAbort(
 	ctx: IterationContext,
 	request: Parameters<ResumeHandler>[0],
@@ -427,7 +440,8 @@ export async function awaitDecisionOrAbort(
 	// No abort signal wired (e.g. a minimal test harness) → behave exactly as a
 	// direct resumeHandler await, no race. In production TurnContextFactory always
 	// provides the controller, so the race below is live.
-	if (!signal) return ctx.resumeHandler(request)
+	const resumeContext = resumeContextOf(ctx)
+	if (!signal) return ctx.resumeHandler(request, resumeContext)
 	const abortDecision: HITLResumeDecision = {
 		action: 'abort',
 		reason: 'run aborted while parked for HITL',
@@ -441,7 +455,7 @@ export async function awaitDecisionOrAbort(
 			resolve(abortDecision)
 		}
 		signal.addEventListener('abort', onAbort, { once: true })
-		Promise.resolve(ctx.resumeHandler(request)).then(
+		Promise.resolve(ctx.resumeHandler(request, resumeContext)).then(
 			(decision) => {
 				if (settled) return
 				settled = true

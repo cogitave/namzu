@@ -11,6 +11,7 @@ import {
 import { WebFetchRefusedError } from '../../connector/web/types.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { clip } from './classifier-input.js'
 
 /**
  * The two web tools, and the reason they are one file.
@@ -151,6 +152,8 @@ export const WebFetchTool = defineTool({
 	// preset — handing outbound reach to runs whose sandbox was never asked
 	// to confine the network.
 	category: 'network',
+	// The classifier judges the address and what is asked of it.
+	classifierInput: (input) => `${clip(input.url, 1000)}: ${clip(input.prompt, 300)}`,
 	permissions: ['network_access'],
 	// Reads a page and changes nothing HERE. That is not the same as
 	// harmless — a GET can still act on a remote system — which is why the
