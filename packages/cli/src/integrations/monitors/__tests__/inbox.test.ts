@@ -36,6 +36,10 @@ function ended(patch: Partial<BackgroundJob> = {}): BackgroundJob {
 	}
 }
 
+/** Every render binds a fresh random nonce into its tags; the words around it are what must match. */
+const unnonced = (text: string | undefined): string | undefined =>
+	text?.replace(/(system-event|namzu-untrusted)-[0-9a-f]{16}/g, '$1-N')
+
 describe('the monitor inbox', () => {
 	it('keeps an event in the untrusted envelope, names the watch, and wakes an idle host', () => {
 		const inbox = createMonitorInbox()
@@ -85,14 +89,18 @@ describe('the monitor inbox', () => {
 		inbox.addEvent({ ...note, kind: 'notice' })
 		const job = ended()
 		inbox.addEnd(job, { stdoutChars: 10 })
-		expect(inbox.peek().text).toBe(
-			[
-				formatMonitorEvent(first, first.command),
-				formatMonitorEvent({ ...note, kind: 'notice' }, note.command),
-				formatMonitorEnd(job, { stdoutChars: 10 }),
-			].join('\n'),
+		expect(unnonced(inbox.peek().text)).toBe(
+			unnonced(
+				[
+					formatMonitorEvent(first, first.command),
+					formatMonitorEvent({ ...note, kind: 'notice' }, note.command),
+					formatMonitorEnd(job, { stdoutChars: 10 }),
+				].join('\n'),
+			),
 		)
-		expect(monitorEventText(first)).toBe(formatMonitorEvent(first, first.command))
+		expect(unnonced(monitorEventText(first))).toBe(
+			unnonced(formatMonitorEvent(first, first.command)),
+		)
 	})
 
 	it('bounds a pile-up with the kernel cap, whole events, announced', () => {
@@ -103,7 +111,7 @@ describe('the monitor inbox', () => {
 		const expected = capMonitorNotifications(
 			events.map((e) => formatMonitorEvent(e, e.command)).join('\n'),
 		)
-		expect(taken.text).toBe(expected)
+		expect(unnonced(taken.text)).toBe(unnonced(expected))
 		expect(taken.text).toMatch(
 			/\[\d+ monitor events omitted — output exceeded the notification limit\]/,
 		)
