@@ -80,6 +80,14 @@ export interface IndexOptions {
 	 * changed under it, which is not a request to index that path.
 	 */
 	readonly quiet?: boolean
+	/**
+	 * Refresh only the entries of the scope directory itself. A subdirectory
+	 * that already has a row of its own is left to be checked by that row; one
+	 * that is new is walked, and one that is gone has its rows removed. For the
+	 * re-read of a directory whose mtime moved: its own listing changed, and the
+	 * directories below it have their own mtimes.
+	 */
+	readonly shallow?: boolean
 }
 
 export interface IndexOutcome {
@@ -228,10 +236,19 @@ export async function refreshIndex(
 		// A scope that no longer exists walks as empty; stored rows under it go.
 	}
 
-	const walk = await collect(root, scopeAbs, budget, skip)
+	const shallow = options.shallow === true
+	const walk = await collect(
+		root,
+		scopeAbs,
+		budget,
+		skip,
+		shallow ? new Set(store.childDirs(scopeRel)) : undefined,
+	)
 	const limits = new Set(walk.limits)
 	const truncatedNow = (): Truncation | undefined => truncationOf(limits, options)
-	const stored = store.storedFiles(scopeRel)
+	const stored = shallow
+		? store.storedFiles(scopeRel, { shallow: true, vanished: walk.vanished })
+		: store.storedFiles(scopeRel)
 	const seen = new Set(walk.files.map((f) => f.rel))
 
 	let parsed = 0
@@ -404,8 +421,18 @@ export async function refreshIndex(
 		}
 		// Bookkeeping in the final write, under the same lock.
 		queue(() => {
-			if (walk.limits.size === 0) recordDirs(store, scopeRel, walk.dirs)
-			recordExcluded(store, scopeRel, walk.limits.size === 0, walk.dirs, walk.excluded)
+			if (shallow) {
+				// Only the rows this walk produced are replaced; a known child that was
+				// not walked keeps its own, and a vanished one takes its subtree along.
+				if (walk.limits.size === 0) {
+					for (const v of walk.vanished) store.dropDirectoryRows(v)
+					recordDirs(store, scopeRel, walk.dirs, true)
+				}
+				recordExcluded(store, scopeRel, false, walk.dirs, walk.excluded)
+			} else {
+				if (walk.limits.size === 0) recordDirs(store, scopeRel, walk.dirs)
+				recordExcluded(store, scopeRel, walk.limits.size === 0, walk.dirs, walk.excluded)
+			}
 			store.ensureIndexes()
 			if (options.quiet !== true) recordCoverage(store, scopeRel, skippedReasons, truncatedNow())
 		})
@@ -472,8 +499,10 @@ function recordDirs(
 	store: Store,
 	scopeRel: string,
 	dirs: ReadonlyArray<{ rel: string; mtimeMs: number }>,
+	shallow = false,
 ): void {
-	if (scopeRel === '') store.exec('DELETE FROM dirs')
+	if (shallow) store.prepare('DELETE FROM dirs WHERE path = ?').run(scopeRel)
+	else if (scopeRel === '') store.exec('DELETE FROM dirs')
 	else
 		store
 			.prepare('DELETE FROM dirs WHERE path = ? OR (path >= ? AND path < ?)')

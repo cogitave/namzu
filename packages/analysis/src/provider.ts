@@ -58,6 +58,7 @@ import {
 import { offsetOf, position } from './lines.js'
 import { ParserUnavailableError } from './parse.js'
 import { Store } from './store.js'
+import { CUT_MARK_CHARS } from './walk.js'
 
 export interface CodeAnalysisOptions {
 	/**
@@ -348,6 +349,7 @@ export function createCodeAnalysisProvider(
 					host,
 					signal,
 				)
+				const left = workspaceGaps(o.store, scopeRel)
 				const count = (table: string): number =>
 					Number((o.store.get(`SELECT count(*) AS n FROM ${table}`) as Row).n)
 				const summary: IndexSummary = {
@@ -378,13 +380,14 @@ export function createCodeAnalysisProvider(
 					evidence: evidence(
 						[
 							`walked ${scopeRel === '' ? o.root : scopeRel}: ${out.parsed} file(s) parsed, ${out.unchanged} unchanged by size, mtime or content hash, ${out.removed} removed`,
+							...left.notes,
 						],
 						o.store.fts
 							? []
 							: [
 									'this Node.js has no FTS5, so find_literal scans every literal instead of using a substring index; answers are the same, slower',
 								],
-						workspaceGaps(o.store, scopeRel),
+						left.gaps,
 					),
 				}
 			})
@@ -393,6 +396,11 @@ export function createCodeAnalysisProvider(
 		findLiteral: (request: FindLiteralRequest) =>
 			withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
+				if (CUT_MARK_CHARS.some((c) => request.text.includes(c))) {
+					return failed(
+						'the search text contains U+0001 or U+0002, which the index uses to mark where a long literal was cut; they cannot be searched for',
+					)
+				}
 				const asked = request.path === undefined ? '' : toRel(o.root, request.path)
 				if (asked === undefined)
 					return failed(`${request.path} is outside the indexed root ${o.root}.`)
@@ -487,6 +495,7 @@ export function createCodeAnalysisProvider(
 					total,
 					...(next < total ? { nextCursor: encodeCursor({ g: generation, o: next, q }) } : {}),
 				}
+				const left = workspaceGaps(o.store, scope.rel)
 				return {
 					kind: 'ok',
 					value: page,
@@ -499,12 +508,14 @@ export function createCodeAnalysisProvider(
 							'a template literal is indexed per static chunk, so a match cannot span a ${...}; a literal over 8192 characters is indexed by its first and last 4096',
 						],
 						[
-							...workspaceGaps(o.store, scope.rel),
+							...left.gaps,
 							...markReasons(fresh.marks),
-							...cutReasons(o.store, scope.sql, scope.params),
+							// One character is not a search for a passage; what a cut literal
+							// dropped is only worth reporting for a needle that could be in it.
+							...(codePoints > 1 ? cutReasons(o.store, scope.sql, scope.params) : []),
 							...current.gaps,
 						],
-						[...(built ? [built] : []), ...current.notes],
+						[...left.notes, ...(built ? [built] : []), ...current.notes],
 					),
 				}
 			}),
@@ -843,9 +854,25 @@ export function createCodeAnalysisProvider(
 						) as Row
 					).n,
 				)
-				if (unresolved > 0) {
+				const callsInScope = Number(
+					(
+						o.store.get(
+							`SELECT count(*) AS n FROM calls c WHERE 1 = 1${scoped.sql}`,
+							...scoped.params,
+						) as Row
+					).n,
+				)
+				// A computed callee (`obj[key]()`, the result of an expression) could be
+				// a call to the name asked about. That only matters to the answer when no
+				// static call was found at all, or when so many calls in scope are of
+				// that kind that a share of them is likely to be one.
+				if (unresolved > 0 && total === 0) {
 					gaps.push(
-						`${unresolved} call(s) in scope have a callee the index cannot name (a computed key, the result of an expression), so a call to ${JSON.stringify(request.name)} made through one of them is not in these results`,
+						`no static call to ${JSON.stringify(request.name)} found; ${unresolved} call(s) in scope use a computed callee and could reach it`,
+					)
+				} else if (unresolved > 0 && unresolved >= callsInScope * UNRESOLVED_SHARE) {
+					gaps.push(
+						`${unresolved} of ${callsInScope} calls in scope use a computed callee (${Math.round((unresolved / callsInScope) * 100)}%), so a call to ${JSON.stringify(request.name)} made through one of them is not in these results`,
 					)
 				}
 				const resolvedCount = method
@@ -860,7 +887,9 @@ export function createCodeAnalysisProvider(
 						)
 					: 0
 				if (scope === 'workspace') {
-					gaps.push(...workspaceGaps(o.store, scopeRel), ...markReasons(freshness.marks))
+					const left = workspaceGaps(o.store, scopeRel)
+					gaps.push(...left.gaps, ...markReasons(freshness.marks))
+					notes.push(...left.notes)
 				} else {
 					gaps.push(...markReasons(freshness.marks))
 				}
@@ -885,7 +914,7 @@ export function createCodeAnalysisProvider(
 							method
 								? `${total} call expression(s) of ${JSON.stringify(request.name)} or of a .${method.member}() on some other receiver, in ${distinct} file(s): ${resolvedCount} resolved (this.${method.member}() inside ${method.cls}, or the qualified text), ${total - resolvedCount} text-only`
 								: `${total} call expression(s) whose callee text is ${member ? `${JSON.stringify(request.name)} or ends in .${request.name}` : JSON.stringify(request.name)}, in ${distinct} file(s)`,
-							`callee_unresolved: ${unresolved}`,
+							`${unresolved} of ${callsInScope} calls in scope use a computed callee`,
 							...notes,
 						],
 						[
@@ -1010,6 +1039,9 @@ function previewOf(value: string, needle: string, insensitive: boolean): string 
 	const first = value.charCodeAt(from)
 	return value.slice(first >= 0xdc00 && first <= 0xdfff ? from + 1 : from, from + PREVIEW_CHARS)
 }
+
+/** The share of calls in scope with a computed callee at which a caller search is `partial`. */
+const UNRESOLVED_SHARE = 0.05
 
 /** Literals in scope that keep only their two ends: a match in the middle cannot be found. */
 function cutReasons(store: Store, scopeSql: string, params: readonly unknown[]): string[] {

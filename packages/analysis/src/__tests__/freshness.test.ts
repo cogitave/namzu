@@ -1,3 +1,5 @@
+import { utimesSync } from 'node:fs'
+
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { Tree, ok, provider } from './helpers.js'
@@ -45,10 +47,12 @@ describe('a negative answer is checked against the files as they are now', () =>
 		const tree = make({ 'src/a.js': 'export const a = () => "kept"\n' })
 		const p = provider()
 		const root = tree.root
+		// The directory's recorded time is pinned far in the past, so the real time
+		// at which the file is added below differs from it whatever the clock's
+		// granularity is. (The file's own time, T0 + 50, is a separate matter.)
+		utimesSync(tree.path('src'), T0, T0)
 		ok(await p.index({ root }))
 		tree.write('src/new.js', 'export const g = () => "gamma-new"\n', T0 + 50)
-		// A directory's mtime moves when an entry is added; pin it so the check
-		// does not depend on the clock's granularity.
 		const r = ok(await p.findLiteral({ root, text: 'gamma-new' }))
 		expect(r.value.total).toBe(1)
 		await p.dispose()

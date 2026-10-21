@@ -71,17 +71,20 @@ describe('callee text is normalised', () => {
 		const p = provider()
 		const r = ok(await p.callersOf({ root: tree.root, name: 'f', path: tree.path('a.js') }))
 		expect(r.value.total).toBe(1)
-		expect(r.evidence.observed.join(' ')).toContain('callee_unresolved: 2')
+		expect(r.evidence.observed.join(' ')).toContain('2 of 4 calls in scope use a computed callee')
+		// 2 of 4 is far over 5 %.
 		expect(r.evidence.coverage.status).toBe('partial')
-		expect(JSON.stringify(r.evidence.coverage)).toContain('2 call(s) in scope have a callee')
+		expect(JSON.stringify(r.evidence.coverage)).toContain(
+			'2 of 4 calls in scope use a computed callee',
+		)
 		await p.dispose()
 	})
 
-	it('has callee_unresolved: 0 and stays complete when every callee is named', async () => {
+	it('states 0 computed callees and stays complete when every callee is named', async () => {
 		const tree = make({ 'a.js': 'function f(){}\nf();\n' })
 		const p = provider()
 		const r = ok(await p.callersOf({ root: tree.root, name: 'f', path: tree.path('a.js') }))
-		expect(r.evidence.observed.join(' ')).toContain('callee_unresolved: 0')
+		expect(r.evidence.observed.join(' ')).toContain('0 of 1 calls in scope use a computed callee')
 		expect(r.evidence.coverage.status).toBe('complete')
 		await p.dispose()
 	})

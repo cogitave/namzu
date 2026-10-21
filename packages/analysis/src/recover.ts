@@ -63,8 +63,10 @@ function rowsOf(parsed: Parsed): RowsPayload {
  * 3. **The tolerant scanner** ({@link scanTolerantly}): strings and
  *    `function name(` anchors, nothing more.
  *
- * `errors` is always the count from the parse of the text as written, so the
- * file is reported as having had syntax errors however it was read.
+ * `errors` is the count from the parse of the text as written, so a file read
+ * after blanking its broken lines or by the scanner is reported as having had
+ * syntax errors. A file that parsed cleanly on the TypeScript retry (Flow
+ * annotations) has none.
  */
 export async function parseRecovering(path: string, text: string): Promise<Recovered> {
 	const first = await parseSource(path, text)
@@ -83,7 +85,10 @@ export async function parseRecovering(path: string, text: string): Promise<Recov
 	if (lang === 'jsx' || lang === 'js' || lang === undefined) {
 		const asTs = await parseSource(path, unflowed, 'tsx')
 		if (asTs.errors === 0 || !asTs.empty) {
-			return { rows: rowsOf(asTs), errors: first.errors, degraded: asTs.errors === 0 ? 0 : 1 }
+			// A clean parse as TypeScript is a file that parsed: Flow annotations are
+			// not syntax errors, and the file is not reported as having had any.
+			if (asTs.errors === 0) return { rows: rowsOf(asTs), errors: 0, degraded: 0 }
+			return { rows: rowsOf(asTs), errors: first.errors, degraded: 1 }
 		}
 		if (flow) {
 			current = unflowed

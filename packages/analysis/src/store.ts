@@ -44,7 +44,7 @@ import type { RowsPayload } from './walk.js'
  * inside the transaction that uses it.
  */
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 type Sqlite = typeof import('node:sqlite')
 let sqlite: Promise<Sqlite | undefined> | undefined
@@ -344,17 +344,45 @@ export class Store {
 	}
 
 	/** Every stored file at or under `scope` (a relative path; empty is all), keyed by path. */
-	storedFiles(scope: string): Map<string, StoredFile> {
+	/**
+	 * The files recorded at or under `scope`. With `shallow`, only the scope
+	 * itself and its direct children, plus everything under the `vanished`
+	 * subdirectories.
+	 */
+	storedFiles(
+		scope: string,
+		only?: { readonly shallow: true; readonly vanished: readonly string[] },
+	): Map<string, StoredFile> {
 		const map = new Map<string, StoredFile>()
-		const rows =
-			scope === ''
-				? this.all('SELECT id, path, size, mtime_ms, hash FROM files')
-				: this.all(
-						'SELECT id, path, size, mtime_ms, hash FROM files WHERE path = ? OR (path >= ? AND path < ?)',
-						scope,
-						`${scope}/`,
-						`${scope}0`,
-					)
+		const select = 'SELECT id, path, size, mtime_ms, hash FROM files'
+		const rows: Record<string, unknown>[] = []
+		if (only) {
+			const prefix = scope === '' ? '' : `${scope}/`
+			// Direct children: past the prefix there is no further separator.
+			rows.push(
+				...this.all(
+					`${select} WHERE path = ? OR (path >= ? AND path < ? AND instr(substr(path, ?), '/') = 0)`,
+					scope,
+					prefix,
+					scope === '' ? '\uffff' : `${scope}0`,
+					Array.from(prefix).length + 1,
+				),
+			)
+			for (const v of only.vanished) {
+				rows.push(...this.all(`${select} WHERE path >= ? AND path < ?`, `${v}/`, `${v}0`))
+			}
+		} else {
+			rows.push(
+				...(scope === ''
+					? this.all(select)
+					: this.all(
+							`${select} WHERE path = ? OR (path >= ? AND path < ?)`,
+							scope,
+							`${scope}/`,
+							`${scope}0`,
+						)),
+			)
+		}
 		for (const r of rows) {
 			map.set(String(r.path), {
 				id: Number(r.id),
@@ -364,6 +392,28 @@ export class Store {
 			})
 		}
 		return map
+	}
+
+	/** Recorded directories directly below `scope`. */
+	childDirs(scope: string): string[] {
+		const prefix = scope === '' ? '' : `${scope}/`
+		return this.all(
+			"SELECT path FROM dirs WHERE path >= ? AND path < ? AND path != '' AND instr(substr(path, ?), '/') = 0",
+			prefix,
+			scope === '' ? '\uffff' : `${scope}0`,
+			Array.from(prefix).length + 1,
+		).map((r) => String(r.path))
+	}
+
+	/** Forget a directory and everything recorded below it about what its walk saw. */
+	dropDirectoryRows(rel: string): void {
+		for (const table of ['dirs', 'excl']) {
+			this.prepare(`DELETE FROM ${table} WHERE path = ? OR (path >= ? AND path < ?)`).run(
+				rel,
+				`${rel}/`,
+				`${rel}0`,
+			)
+		}
 	}
 
 	/** Remove a file and every row that hangs off it. */

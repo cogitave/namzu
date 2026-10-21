@@ -7,7 +7,7 @@ import ignore, { type Ignore } from 'ignore'
 
 import { readRegular, toRel } from './fsafe.js'
 import { abortError } from './host.js'
-import type { IndexOptions } from './indexer.js'
+import { DEFAULT_IGNORED_DIRS, type IndexOptions } from './indexer.js'
 import { isDeclarationFile, languageOf } from './parse.js'
 
 /** A file the walk found that is worth parsing. */
@@ -41,6 +41,11 @@ export interface Walk {
 	/** The limits the walk itself stopped at; its listing is then incomplete. */
 	readonly limits: Set<Limit>
 	readonly excluded: Excluded[]
+	/**
+	 * With `known` given: the known child directories of the start that are no
+	 * longer there (or are now ignored), whose rows must go.
+	 */
+	readonly vanished: string[]
 }
 
 /**
@@ -51,6 +56,7 @@ export interface Walk {
  */
 export const UNINDEXED_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
 	'.es',
+	'.es5',
 	'.es6',
 	'.jsm',
 	'.html',
@@ -60,6 +66,23 @@ export const UNINDEXED_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
 	'.astro',
 	'.coffee',
 ])
+
+/** Of those, the ones likely to hold JavaScript: a search that skips one is not complete. */
+export const MAY_HOLD_JS: ReadonlySet<string> = UNINDEXED_CODE_EXTENSIONS
+
+/**
+ * Default-ignored names that are only build output when they sit beside a
+ * `package.json` (or a `.gitignore` lists them): `src/build/` in a project is
+ * source, and ignoring it by name would hide it.
+ */
+const BUILD_OUTPUT_NAMES: ReadonlySet<string> = new Set(['dist', 'build', 'out'])
+
+function isDefaultList(list: readonly string[]): boolean {
+	return (
+		list.length === DEFAULT_IGNORED_DIRS.length &&
+		list.every((n, i) => n === DEFAULT_IGNORED_DIRS[i])
+	)
+}
 
 /** Directories whose absence from an answer never matters: not the project's own code. */
 export const NEVER_SOURCE_DIRS: ReadonlySet<string> = new Set([
@@ -74,6 +97,10 @@ export const NEVER_SOURCE_DIRS: ReadonlySet<string> = new Set([
 const SHEBANG_BYTES = 256
 /** A `.gitignore` larger than this is ignored, not parsed. */
 const MAX_GITIGNORE_BYTES = 1024 * 1024
+/** A `.gitignore` line longer than this is not a path anyone wrote. */
+const MAX_PATTERN_CHARS = 4096
+/** Past this many lines a `.gitignore` is not checked line by line. */
+const MAX_CHECKED_LINES = 5000
 /** How long synchronous work may run before the event loop gets a turn. */
 const SLICE_MS = 20
 
@@ -88,11 +115,11 @@ export function hasNodeShebang(head: Uint8Array): boolean {
 }
 
 /** A name with no extension at all: where a script with a shebang can hide. */
-function isExtensionless(name: string): boolean {
+export function isExtensionless(name: string): boolean {
 	return !name.slice(1).includes('.')
 }
 
-async function shebangOf(root: string, abs: string): Promise<boolean> {
+export async function shebangOf(root: string, abs: string): Promise<boolean> {
 	const read = await readRegular(root, abs, SHEBANG_BYTES)
 	return read.ok && hasNodeShebang(read.buffer)
 }
@@ -106,8 +133,26 @@ interface Rules {
 async function loadGitignore(root: string, abs: string, base: string): Promise<Rules | undefined> {
 	const read = await readRegular(root, join(abs, '.gitignore'))
 	if (!read.ok || read.buffer.length > MAX_GITIGNORE_BYTES) return undefined
+	const text = read.buffer.toString('utf8')
+	// `ignore` compiles a rule to a regular expression when it is first tested,
+	// and a rule that cannot be compiled (too large, malformed) throws there, in
+	// the middle of a query. Each line is tested once, alone, here; the ones that
+	// throw are dropped and the rest are kept.
+	const lines = text.split(/\r?\n/)
 	try {
-		return { base, ig: ignore().add(read.buffer.toString('utf8')) }
+		if (lines.length > MAX_CHECKED_LINES) return { base, ig: ignore().add(text) }
+		const kept = lines.filter((line) => {
+			if (line.length > MAX_PATTERN_CHARS) return false
+			try {
+				const probe = ignore().add(line)
+				probe.test('probe/path.js')
+				probe.test('probe/dir/')
+				return true
+			} catch {
+				return false
+			}
+		})
+		return { base, ig: ignore().add(kept.join('\n')) }
 	} catch {
 		return undefined
 	}
@@ -119,7 +164,14 @@ function gitIgnored(rules: readonly Rules[], rel: string, isDir: boolean): boole
 		const within =
 			base === '' ? rel : rel.startsWith(`${base}/`) ? rel.slice(base.length + 1) : undefined
 		if (within === undefined || within === '') continue
-		const verdict = ig.test(isDir ? `${within}/` : within)
+		let verdict: { ignored: boolean; unignored: boolean }
+		try {
+			verdict = ig.test(isDir ? `${within}/` : within)
+		} catch {
+			// A rule in an oversized file that cannot be compiled: this file's rules
+			// do not apply, rather than the whole query failing.
+			continue
+		}
 		if (verdict.unignored) ignored = false
 		else if (verdict.ignored) ignored = true
 	}
@@ -153,9 +205,13 @@ export async function collect(
 	start: string,
 	b: WalkBudget,
 	skip: (reason: string) => void,
+	known?: ReadonlySet<string>,
 ): Promise<Walk> {
-	const walk: Walk = { files: [], dirs: [], limits: new Set(), excluded: [] }
+	const walk: Walk = { files: [], dirs: [], limits: new Set(), excluded: [], vanished: [] }
 	const ignored = new Set(b.options.ignoreDirs)
+	// `dist`, `build` and `out` are build output by default only beside a
+	// package.json; a list the caller wrote is taken as written.
+	const conditional = isDefaultList(b.options.ignoreDirs)
 	const useGit = b.options.respectGitignore !== false
 	const abortIfAsked = (): void => {
 		if (b.signal?.aborted) throw abortError()
@@ -228,8 +284,12 @@ export async function collect(
 		visited++
 		let entries: Dirent[]
 		try {
+			// The mtime is taken BEFORE the listing: an entry created between the two
+			// moves it past the recorded value, so the next check sees the change. Taken
+			// after, that entry would be missing from the listing and covered by the stamp.
+			const mtimeMs = (await lstat(dir.abs)).mtimeMs
 			entries = await readdir(dir.abs, { withFileTypes: true })
-			walk.dirs.push({ rel: dir.rel, mtimeMs: (await lstat(dir.abs)).mtimeMs })
+			walk.dirs.push({ rel: dir.rel, mtimeMs })
 		} catch {
 			skip('unreadable directory')
 			continue
@@ -241,6 +301,8 @@ export async function collect(
 			if (own) rules = [...rules, own]
 		}
 		const subdirs: Pending[] = []
+		const hasPackageJson = entries.some((e) => e.name === 'package.json' && e.isFile())
+		const kept = new Set<string>()
 		for (const entry of entries) {
 			const rel = dir.rel === '' ? entry.name : `${dir.rel}/${entry.name}`
 			if (entry.isSymbolicLink()) {
@@ -249,9 +311,13 @@ export async function collect(
 				continue
 			}
 			if (entry.isDirectory()) {
-				if (ignored.has(entry.name)) note(dir.rel, 'dir', entry.name)
+				const byName =
+					ignored.has(entry.name) &&
+					!(conditional && BUILD_OUTPUT_NAMES.has(entry.name) && !hasPackageJson)
+				if (byName) note(dir.rel, 'dir', entry.name)
 				else if (rules.length > 0 && gitIgnored(rules, rel, true))
 					note(dir.rel, 'git', `${entry.name}/`)
+				else if (known?.has(rel) && dir.rel === startRel) kept.add(rel)
 				else subdirs.push({ abs: join(dir.abs, entry.name), rel, rules })
 				continue
 			}
@@ -287,6 +353,9 @@ export async function collect(
 			walk.files.push({ rel, abs })
 		}
 		for (let i = subdirs.length - 1; i >= 0; i--) pending.push(subdirs[i] as Pending)
+		if (known && dir.rel === startRel) {
+			for (const k of known) if (!kept.has(k)) walk.vanished.push(k)
+		}
 		if (walk.limits.has('files')) break
 		if (performance.now() - lastYield > SLICE_MS) {
 			await nextTurn()

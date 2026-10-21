@@ -14,9 +14,11 @@ afterEach(() => {
 
 const reasons = (r: { evidence: { coverage: unknown } }): string =>
 	JSON.stringify(r.evidence.coverage)
+const observed = (r: { evidence: { observed: readonly string[] } }): string =>
+	r.evidence.observed.join('\n')
 
 describe('coverage names what the index never looked at', () => {
-	it('says a literal may sit in an ignored directory, with its name and count', async () => {
+	it('notes a default-ignored directory with its name and count, and stays complete', async () => {
 		const tree = make({
 			'src/coverage/report.js': 'export const r = () => "coverage-dir-literal"\n',
 			'src/ok.js': 'export const ok = () => "fine"\n',
@@ -25,10 +27,21 @@ describe('coverage names what the index never looked at', () => {
 		const p = provider()
 		const r = ok(await p.findLiteral({ root: tree.root, text: 'coverage-dir-literal' }))
 		expect(r.value.total).toBe(0)
+		expect(r.evidence.coverage.status).toBe('complete')
+		expect(observed(r)).toContain('coverage ×1')
+		expect(observed(r)).toContain('.cache ×1')
+		await p.dispose()
+	})
+
+	it('is partial for a directory the caller named in ignoreDirs', async () => {
+		const tree = make({
+			'src/mine/m.js': 'export const m = () => "mine-literal"\n',
+			'src/ok.js': 'export const ok = () => "fine"\n',
+		})
+		const p = provider({ ignoreDirs: ['mine'] })
+		const r = ok(await p.findLiteral({ root: tree.root, text: 'mine-literal' }))
 		expect(r.evidence.coverage.status).toBe('partial')
-		expect(reasons(r)).toContain('ignored directories')
-		expect(reasons(r)).toContain('coverage ×1')
-		expect(reasons(r)).toContain('.cache ×1')
+		expect(reasons(r)).toContain('mine ×1')
 		await p.dispose()
 	})
 
@@ -71,14 +84,15 @@ describe('coverage names what the index never looked at', () => {
 		})
 		const p = provider()
 		const r = ok(await p.findLiteral({ root: tree.root, text: 'x-literal' }))
-		expect(r.evidence.coverage.status).toBe('partial')
-		expect(reasons(r)).toContain('2 declaration file(s)')
+		expect(r.evidence.coverage.status).toBe('complete')
+		expect(observed(r)).toContain('2 declaration file(s)')
 		await p.dispose()
 	})
 
 	it('tells a question about one directory only about that directory', async () => {
 		const tree = make({
 			'a/x.js': 'export const x = () => "in-a"\n',
+			'b/package.json': '{}',
 			'b/dist/y.js': 'export const y = () => "in-b-dist"\n',
 			'b/z.js': 'export const z = () => "in-b"\n',
 		})
@@ -86,7 +100,9 @@ describe('coverage names what the index never looked at', () => {
 		const a = ok(await p.findLiteral({ root: tree.root, text: 'in-a', path: tree.path('a') }))
 		expect(a.evidence.coverage.status).toBe('complete')
 		const b = ok(await p.findLiteral({ root: tree.root, text: 'in-b', path: tree.path('b') }))
-		expect(reasons(b)).toContain('dist ×1')
+		expect(b.evidence.coverage.status).toBe('complete')
+		expect(observed(a)).not.toContain('dist')
+		expect(observed(b)).toContain('dist ×1')
 		await p.dispose()
 	})
 
@@ -130,8 +146,9 @@ describe('.gitignore and the default ignore list', () => {
 		const none = ok(await p.findLiteral({ root, text: 'gen-literal' }))
 		expect(none.value.total).toBe(0)
 		expect(none.evidence.coverage.status).toBe('partial')
-		expect(reasons(none)).toContain('.gitignore')
-		expect(reasons(none)).toContain('tmp-out/ ×1')
+		expect(reasons(none)).toContain('source files a .gitignore lists')
+		expect(reasons(none)).toContain('generated.js ×1')
+		expect(observed(none)).toContain('tmp-out/ ×1')
 		expect(ok(await p.findLiteral({ root, text: 'tmpout-literal' })).value.total).toBe(0)
 		expect(ok(await p.findLiteral({ root, text: 'bundle-literal' })).value.total).toBe(1)
 		await p.dispose()
@@ -164,6 +181,7 @@ describe('.gitignore and the default ignore list', () => {
 
 	it('leaves build output out by default and indexes it when asked by path', async () => {
 		const tree = make({
+			'package.json': '{}',
 			'src/a.ts': 'export const a = () => "src-copy-literal"\n',
 			'dist/a.js': 'export const a = () => "src-copy-literal"\n',
 			'build/b.js': 'export const b = () => "build-literal"\n',
@@ -174,8 +192,9 @@ describe('.gitignore and the default ignore list', () => {
 		const root = tree.root
 		const all = ok(await p.findLiteral({ root, text: 'src-copy-literal' }))
 		expect(all.value.total).toBe(1)
+		expect(all.evidence.coverage.status).toBe('complete')
 		for (const name of ['dist', 'build', '.next', 'out'])
-			expect(reasons(all)).toContain(`${name} ×1`)
+			expect(observed(all)).toContain(`${name} ×1`)
 		ok(await p.index({ root, scope: tree.path('dist') }))
 		const dist = ok(
 			await p.findLiteral({ root, text: 'src-copy-literal', path: tree.path('dist') }),

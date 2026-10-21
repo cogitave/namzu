@@ -126,8 +126,13 @@ export class RowSink implements RowsPayload {
  * still finds it, and the rows say it was cut.
  */
 export const MAX_LITERAL_CHARS = 4096
-/** Between the two ends of a cut literal. A control character: not text anyone searches for. */
-export const CUT_MARK = '\u0001\u2026\u0001'
+/**
+ * Between the two ends of a cut literal. Control characters only, so no text
+ * anyone searches for can match it (an ellipsis would match a search for `…`).
+ */
+export const CUT_MARK = '\u0001\u0002\u0001'
+/** The characters of {@link CUT_MARK}: a needle holding one could match the mark itself. */
+export const CUT_MARK_CHARS: readonly string[] = ['\u0001', '\u0002']
 
 function cap(value: string): { value: string; cut: number } {
 	if (value.length <= MAX_LITERAL_CHARS * 2) return { value, cut: 0 }
@@ -197,7 +202,10 @@ function calleeText(node: Node | null | undefined): string {
 		case 'MemberExpression': {
 			const object = calleeText(node.object)
 			if (!node.computed && node.property) {
-				return `${object}.${node.property.name ?? node.property.value ?? '?'}`
+				// `this.#p()` is a private method: the sigil is part of its name, or it
+				// would be read as a call to the public `p`.
+				const sigil = node.property.type === 'PrivateIdentifier' ? '#' : ''
+				return `${object}.${sigil}${node.property.name ?? node.property.value ?? '?'}`
 			}
 			const key = node.property
 			if (node.computed && key?.type === 'Literal' && typeof key.value === 'string') {

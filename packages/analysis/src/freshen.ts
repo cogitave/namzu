@@ -1,8 +1,9 @@
 import { type Stats, lstatSync } from 'node:fs'
 import { lstat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 
+import { isExtensionless, shebangOf } from './collect.js'
 import type { Env } from './context.js'
 import { refreshIndex, toRel } from './indexer.js'
 import { languageOf } from './parse.js'
@@ -94,17 +95,6 @@ function named(list: readonly string[]): string {
 		: list.join(', ')
 }
 
-/** The topmost of `dirs`: those with no other member above them. */
-function topmost(dirs: readonly string[]): string[] {
-	const sorted = [...dirs].sort()
-	const out: string[] = []
-	for (const d of sorted) {
-		const above = out.some((o) => o === '' || d === o || d.startsWith(`${o}/`))
-		if (!above) out.push(d)
-	}
-	return out
-}
-
 export async function freshenScope(env: Env, scopeRel: string): Promise<Freshened> {
 	const { store, root } = env
 	const notes: string[] = []
@@ -152,9 +142,15 @@ export async function freshenScope(env: Env, scopeRel: string): Promise<Freshene
 		!dirRows.some((r) => String(r.path) === scopeRel)
 	) {
 		const s = await lstat(join(root, ...scopeRel.split('/'))).catch(() => undefined)
-		if (s?.isFile() && languageOf(scopeRel) !== undefined)
-			changedFiles.push({ rel: scopeRel, size: s.size })
-		else if (s?.isDirectory()) changedDirs.push(scopeRel)
+		if (s?.isFile()) {
+			// A script with no extension is source when it starts with a node, bun or
+			// deno shebang, the same test the walk applies.
+			const source =
+				languageOf(scopeRel) !== undefined ||
+				(isExtensionless(basename(scopeRel)) &&
+					(await shebangOf(root, join(root, ...scopeRel.split('/')))))
+			if (source) changedFiles.push({ rel: scopeRel, size: s.size })
+		} else if (s?.isDirectory()) changedDirs.push(scopeRel)
 	}
 
 	if (stored.length > MAX_FILES_CHECKED || dirRows.length > MAX_DIRS_CHECKED) {
@@ -184,12 +180,14 @@ export async function freshenScope(env: Env, scopeRel: string): Promise<Freshene
 		return { notes, gaps }
 	}
 
-	// Re-read what changed: whole changed directories first (they also cover
-	// the files, creations and deletions inside them), then the lone files.
-	const dirs = topmost(changedDirs)
-	const covered = (rel: string) =>
-		dirs.some((d) => d === '' || rel === d || rel.startsWith(`${d}/`))
-	const lone = changedFiles.map((f) => f.rel).filter((rel) => !covered(rel))
+	// Re-read what changed. A changed directory refreshes its own entries only
+	// (each subdirectory has a row and a check of its own), and a changed file
+	// the directory listing does not already cover is refreshed by itself.
+	const dirs = [...new Set(changedDirs)].sort()
+	const dirSet = new Set(dirs)
+	const parentOf = (rel: string): string =>
+		rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+	const lone = changedFiles.map((f) => f.rel).filter((rel) => !dirSet.has(parentOf(rel)))
 	let incomplete: string | undefined
 	for (const target of [...dirs, ...lone]) {
 		const abs = target === '' ? root : join(root, ...target.split('/'))
@@ -200,7 +198,7 @@ export async function freshenScope(env: Env, scopeRel: string): Promise<Freshene
 			store,
 			root,
 			abs,
-			{ ...env.options, force: false, quiet: true },
+			{ ...env.options, force: false, quiet: true, shallow: dirSet.has(target) },
 			env.host,
 			env.signal,
 		)
