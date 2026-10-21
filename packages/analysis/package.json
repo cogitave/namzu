@@ -70,6 +70,7 @@
 		"vitest": "^4.1.11"
 	},
 	"dependencies": {
+		"ignore": "7.0.12",
 		"oxc-parser": "0.155.0"
 	}
 }

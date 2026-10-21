@@ -44,7 +44,7 @@ import type { RowsPayload } from './walk.js'
  * inside the transaction that uses it.
  */
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 type Sqlite = typeof import('node:sqlite')
 let sqlite: Promise<Sqlite | undefined> | undefined
@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS files(
 	parse_errors INTEGER NOT NULL, line_starts BLOB NOT NULL, size INTEGER NOT NULL,
 	mtime_ms REAL NOT NULL, hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS dirs(path TEXT PRIMARY KEY, mtime_ms REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS excl(
+	path TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, n INTEGER NOT NULL,
+	PRIMARY KEY(path, kind, name));
 CREATE TABLE IF NOT EXISTS functions(
 	id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, parent_id INTEGER, kind TEXT NOT NULL, name TEXT,
 	start INTEGER NOT NULL, "end" INTEGER NOT NULL, sline INTEGER NOT NULL, eline INTEGER NOT NULL);

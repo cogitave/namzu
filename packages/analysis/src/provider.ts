@@ -50,6 +50,7 @@ import {
 	DEFAULT_MAX_MILLIS,
 	type IndexOptions,
 	coveringEntry,
+	nextStep,
 	readCovered,
 	refreshIndex,
 	toRel,
@@ -78,6 +79,11 @@ export interface CodeAnalysisOptions {
 	 * Default 20,000. Reaching it is not an error: see {@link IndexSummary.truncated}.
 	 */
 	readonly maxDirectories?: number
+	/**
+	 * Skip what `.gitignore` files (at the root and below it) list. Default
+	 * `true`. What is skipped is counted and named in coverage.
+	 */
+	readonly respectGitignore?: boolean
 	/** Milliseconds one call spends before it stops the same way. Default 45,000. */
 	readonly maxMillis?: number
 	/**
@@ -154,6 +160,7 @@ export function createCodeAnalysisProvider(
 		maxFiles: options.maxFiles ?? DEFAULT_MAX_FILES,
 		maxDirectories: options.maxDirectories ?? DEFAULT_MAX_DIRECTORIES,
 		maxMillis: options.maxMillis ?? DEFAULT_MAX_MILLIS,
+		respectGitignore: options.respectGitignore !== false,
 		force,
 	})
 	const envOf = (o: Opened, signal: AbortSignal | undefined, force = false): Env => ({
@@ -274,7 +281,7 @@ export function createCodeAnalysisProvider(
 		const info = files.byPath(rel)
 		if (info) return info
 		return {
-			error: `${rel} is not in the index. Only .js .mjs .cjs .jsx .ts .mts .cts .tsx files are indexed, and not declaration files, symbolic links, files in ignored directories (${(options.ignoreDirs ?? DEFAULT_IGNORED_DIRS).join(', ')}), or files that are binary, too large or unparseable.`,
+			error: `${rel} is not in the index. Only .js .mjs .cjs .jsx .ts .mts .cts .tsx files (and extension-less scripts that start with a node, bun or deno shebang) are indexed, and not declaration files, symbolic links, files in ignored directories (${(options.ignoreDirs ?? DEFAULT_IGNORED_DIRS).join(', ')}), files a .gitignore lists, or files that are binary, too large or unparseable.`,
 		}
 	}
 
@@ -361,7 +368,7 @@ export function createCodeAnalysisProvider(
 					durationMs: Math.round(performance.now() - started),
 					...(out.truncated
 						? {
-								truncated: `Indexing ${scopeRel === '' ? 'the root' : scopeRel} ${out.truncated}, so the index is partial. Index a narrower path to cover the rest; what was indexed is kept and answers queries now.`,
+								truncated: `Indexing ${scopeRel === '' ? 'the root' : scopeRel} ${out.truncated}, so the index is partial. ${nextStep(out.limits)}; what was indexed is kept and answers queries now.`,
 							}
 						: {}),
 				}

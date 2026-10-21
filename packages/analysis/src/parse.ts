@@ -113,7 +113,9 @@ function parseWith(module: OxcModule, raw: boolean, path: string, text: string):
 	const ext = extname(path).toLowerCase()
 	const base = {
 		preserveParens: false,
-		...(lang === 'jsx' ? { lang: 'jsx' as const } : {}),
+		// An extension-less script (found by its shebang) has no extension to say
+		// what it is: JavaScript, with JSX tolerated like any `.js`.
+		...(lang === 'jsx' || (lang === undefined && ext === '') ? { lang: 'jsx' as const } : {}),
 	}
 	const sourceType = ext === '.cjs' ? 'commonjs' : ext === '.mjs' ? 'module' : 'unambiguous'
 	const attempt = (type: 'unambiguous' | 'commonjs' | 'module', useRaw: boolean) => {

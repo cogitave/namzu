@@ -64,6 +64,9 @@ importers:
 
   packages/analysis:
     dependencies:
+      ignore:
+        specifier: 7.0.12
+        version: 7.0.12
       oxc-parser:
         specifier: 0.155.0
         version: 0.155.0

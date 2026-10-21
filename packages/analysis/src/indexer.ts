@@ -1,18 +1,26 @@
 import { createHash } from 'node:crypto'
-import type { Dirent } from 'node:fs'
-import { lstat, readdir, realpath } from 'node:fs/promises'
-import { join, sep } from 'node:path'
+import { lstat, realpath } from 'node:fs/promises'
+import { join } from 'node:path'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { TextDecoder } from 'node:util'
 
-import { isInside, readRegular } from './fsafe.js'
+import { type Excluded, type Limit, collect } from './collect.js'
+import { isInside, readRegular, toRel } from './fsafe.js'
 import { MIN_PARSE_MS, type ParserHost, abortError } from './host.js'
 import { lineStarts } from './lines.js'
-import { isDeclarationFile, languageOf } from './parse.js'
+import { languageOf } from './parse.js'
 import { CRASHED, type Store, type StoredFile } from './store.js'
 import { EMPTY_ROWS } from './walk.js'
 
-/** Directories never entered. Names, matched anywhere below the root. */
+/**
+ * Directories never entered. Names, matched anywhere below the root.
+ *
+ * Besides the vendored and the tool-owned (`node_modules`, `.git`, …), the
+ * usual names of build output: a bundle in `dist` is a second copy of what is
+ * in `src`, and an index that holds both answers every question twice. What is
+ * left out is not silent: coverage names every ignored directory it saw, and
+ * indexing one by path (the `scope` of an index call) walks it.
+ */
 export const DEFAULT_IGNORED_DIRS: readonly string[] = [
 	'node_modules',
 	'.git',
@@ -22,7 +30,13 @@ export const DEFAULT_IGNORED_DIRS: readonly string[] = [
 	'.turbo',
 	'.cache',
 	'coverage',
+	'dist',
+	'build',
+	'out',
+	'.next',
 ]
+
+export { toRel }
 
 export const DEFAULT_MAX_FILE_BYTES = 32 * 1024 * 1024
 export const DEFAULT_MAX_FILES = 150_000
@@ -56,6 +70,11 @@ export interface IndexOptions {
 	readonly maxMillis: number
 	readonly force: boolean
 	/**
+	 * Skip what a `.gitignore` (at the root or in a directory below it) lists.
+	 * Default on. The files skipped are counted and named in coverage.
+	 */
+	readonly respectGitignore?: boolean
+	/**
 	 * Bring rows and directory times up to date without recording a covered
 	 * scope or skip counts. For the re-read a query does of the few files that
 	 * changed under it, which is not a request to index that path.
@@ -74,11 +93,39 @@ export interface IndexOutcome {
 	readonly changed: boolean
 	/** Why the call stopped before covering its scope; absent when it covered it. */
 	readonly truncated?: string
+	/** Which limits it stopped at, to choose the next step: a time limit continues on a second call, the others need a narrower path. */
+	readonly limits?: readonly Limit[]
 }
 
-export interface Candidate {
-	readonly rel: string
-	readonly abs: string
+/** The words for the limits a call stopped at, and the limits themselves. */
+export interface Truncation {
+	readonly text: string
+	readonly limits: readonly Limit[]
+}
+
+export function truncationOf(limits: ReadonlySet<Limit>, o: IndexOptions): Truncation | undefined {
+	if (limits.size === 0) return undefined
+	const order: Limit[] = ['dirs', 'files', 'time']
+	const kinds = order.filter((l) => limits.has(l))
+	const words = kinds.map((l) =>
+		l === 'dirs'
+			? `after walking ${o.maxDirectories.toLocaleString('en-US')} directories`
+			: l === 'files'
+				? `at the ${o.maxFiles.toLocaleString('en-US')}-file limit`
+				: `after ${Math.round(o.maxMillis / 1000)} seconds`,
+	)
+	return { text: `stopped ${words.join(' and ')}`, limits: kinds }
+}
+
+/** What to do next, by what stopped the call. */
+export function nextStep(limits: readonly Limit[] | undefined): string {
+	const time = limits?.includes('time') ?? false
+	const reach = (limits ?? []).some((l) => l === 'dirs' || l === 'files')
+	if (time && reach) {
+		return 'Call the index operation again to continue where the time ran out, and index a narrower path to reach what the directory or file limit cut off'
+	}
+	if (time) return 'Call the index operation again to continue where it stopped'
+	return 'Call the index operation with a narrower path to cover the rest'
 }
 
 /**
@@ -102,123 +149,8 @@ export function hashOf(buffer: Uint8Array): string {
 	return createHash('sha1').update(buffer).digest('hex')
 }
 
-/** Convert a path under `root` to the POSIX relative form the store keys on. */
-export function toRel(root: string, abs: string): string | undefined {
-	if (abs === root) return ''
-	const prefix = root.endsWith(sep) ? root : root + sep
-	if (!abs.startsWith(prefix)) return undefined
-	return abs.slice(prefix.length).split(sep).join('/')
-}
-
-interface Budget {
-	readonly started: number
-	readonly options: IndexOptions
-	readonly signal: AbortSignal | undefined
-}
-
 function checkAbort(signal: AbortSignal | undefined): void {
 	if (signal?.aborted) throw abortError()
-}
-
-function overTime(b: Budget): boolean {
-	return performance.now() - b.started > b.options.maxMillis
-}
-
-interface Walk {
-	readonly files: Candidate[]
-	/** Directories visited, with their mtime, for the new-file check. */
-	readonly dirs: Array<{ rel: string; mtimeMs: number }>
-	/** Set when the walk itself stopped early; its listing is then incomplete. */
-	truncated: string | undefined
-}
-
-/**
- * Source files at or under `start`, as POSIX-separated relative paths, in a
- * stable order. A file `start` is a walk of one.
- */
-async function collect(
-	root: string,
-	start: string,
-	b: Budget,
-	skip: (reason: string) => void,
-): Promise<Walk> {
-	const walk: Walk = { files: [], dirs: [], truncated: undefined }
-	const ignored = new Set(b.options.ignoreDirs)
-	let first: import('node:fs').Stats
-	try {
-		first = await lstat(start)
-	} catch {
-		return walk
-	}
-	const startRel = toRel(root, start) ?? ''
-	if (first.isSymbolicLink()) {
-		skip('symbolic link')
-		return walk
-	}
-	if (first.isFile()) {
-		if (languageOf(start) !== undefined && !isDeclarationFile(start))
-			walk.files.push({ rel: startRel, abs: start })
-		return walk
-	}
-	if (!first.isDirectory()) return walk
-
-	const pending: Array<{ abs: string; rel: string }> = [{ abs: start, rel: startRel }]
-	let lastYield = performance.now()
-	let visited = 0
-	while (pending.length > 0) {
-		checkAbort(b.signal)
-		if (visited >= b.options.maxDirectories) {
-			walk.truncated = `stopped after walking ${visited.toLocaleString('en-US')} directories`
-			break
-		}
-		if (overTime(b)) {
-			walk.truncated = `stopped after ${Math.round(b.options.maxMillis / 1000)} seconds`
-			break
-		}
-		const dir = pending.pop() as { abs: string; rel: string }
-		visited++
-		let entries: Dirent[]
-		try {
-			entries = await readdir(dir.abs, { withFileTypes: true })
-			walk.dirs.push({ rel: dir.rel, mtimeMs: (await lstat(dir.abs)).mtimeMs })
-		} catch {
-			skip('unreadable directory')
-			continue
-		}
-		entries.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0))
-		const subdirs: Array<{ abs: string; rel: string }> = []
-		for (const entry of entries) {
-			const rel = dir.rel === '' ? entry.name : `${dir.rel}/${entry.name}`
-			if (entry.isSymbolicLink()) {
-				// A link can point anywhere, including out of the root. Never followed.
-				if (languageOf(entry.name) !== undefined) skip('symbolic link')
-				continue
-			}
-			if (entry.isDirectory()) {
-				if (!ignored.has(entry.name)) subdirs.push({ abs: join(dir.abs, entry.name), rel })
-				continue
-			}
-			if (!entry.isFile() || languageOf(entry.name) === undefined) continue
-			if (isDeclarationFile(entry.name)) {
-				skip('declaration file')
-				continue
-			}
-			if (walk.files.length >= b.options.maxFiles) {
-				walk.truncated = `stopped at the ${b.options.maxFiles.toLocaleString('en-US')}-file limit`
-				break
-			}
-			walk.files.push({ rel, abs: join(dir.abs, entry.name) })
-		}
-		for (let i = subdirs.length - 1; i >= 0; i--)
-			pending.push(subdirs[i] as (typeof subdirs)[number])
-		if (walk.truncated) break
-		if (performance.now() - lastYield > SLICE_MS) {
-			await nextTurn()
-			lastYield = performance.now()
-		}
-	}
-	walk.files.sort((x, y) => (x.rel < y.rel ? -1 : x.rel > y.rel ? 1 : 0))
-	return walk
 }
 
 function jsonList(store: Store, key: string): string[] {
@@ -282,7 +214,7 @@ export async function refreshIndex(
 	const skip = (reason: string): void => {
 		skippedReasons[reason] = (skippedReasons[reason] ?? 0) + 1
 	}
-	const budget: Budget = { started: performance.now(), options, signal }
+	const budget = { started: performance.now(), options, signal }
 	const scopeRel = toRel(root, scopeAbs) ?? ''
 
 	// Belt and braces: the scope is resolved by the caller, and still must not
@@ -297,7 +229,8 @@ export async function refreshIndex(
 	}
 
 	const walk = await collect(root, scopeAbs, budget, skip)
-	let truncated = walk.truncated
+	const limits = new Set(walk.limits)
+	const truncatedNow = (): Truncation | undefined => truncationOf(limits, options)
 	const stored = store.storedFiles(scopeRel)
 	const seen = new Set(walk.files.map((f) => f.rel))
 
@@ -347,8 +280,8 @@ export async function refreshIndex(
 		if (scopeRel === '') queue(() => store.setMeta('violations', '[]'))
 		for (const candidate of walk.files) {
 			checkAbort(signal)
-			if (overTime(budget)) {
-				truncated ??= `stopped after ${Math.round(options.maxMillis / 1000)} seconds`
+			if (performance.now() - budget.started > options.maxMillis) {
+				limits.add('time')
 				break
 			}
 			const before = stored.get(candidate.rel)
@@ -452,7 +385,7 @@ export async function refreshIndex(
 
 		// Anything stored under the scope that the walk no longer found — but only
 		// when the walk finished, or a partial listing would delete the rest.
-		if (!walk.truncated) {
+		if (walk.limits.size === 0) {
 			for (const [path, file] of stored) {
 				if (seen.has(path)) continue
 				const gone = await lstat(join(root, ...path.split('/'))).catch(() => undefined)
@@ -466,9 +399,10 @@ export async function refreshIndex(
 		}
 		// Bookkeeping in the final write, under the same lock.
 		queue(() => {
-			if (!walk.truncated) recordDirs(store, scopeRel, walk.dirs)
+			if (walk.limits.size === 0) recordDirs(store, scopeRel, walk.dirs)
+			recordExcluded(store, scopeRel, walk.limits.size === 0, walk.dirs, walk.excluded)
 			store.ensureIndexes()
-			if (options.quiet !== true) recordCoverage(store, scopeRel, skippedReasons, truncated)
+			if (options.quiet !== true) recordCoverage(store, scopeRel, skippedReasons, truncatedNow())
 		})
 		await flush()
 	} catch (err) {
@@ -496,7 +430,36 @@ export async function refreshIndex(
 		throw err
 	}
 
-	return outcomeOf(store, skippedReasons, parsed, unchanged, removed, changed, truncated)
+	return outcomeOf(store, skippedReasons, parsed, unchanged, removed, changed, truncatedNow())
+}
+
+/**
+ * What the walk saw and left out, by directory, so a question about one part of
+ * the tree is told about that part only.
+ *
+ * Rows for the directories this walk listed are replaced; when it finished,
+ * rows under the whole scope are, so a directory that is gone takes its
+ * rows with it.
+ */
+function recordExcluded(
+	store: Store,
+	scopeRel: string,
+	finished: boolean,
+	visited: ReadonlyArray<{ rel: string }>,
+	rows: readonly Excluded[],
+): void {
+	if (finished) {
+		if (scopeRel === '') store.exec('DELETE FROM excl')
+		else
+			store
+				.prepare('DELETE FROM excl WHERE path = ? OR (path >= ? AND path < ?)')
+				.run(scopeRel, `${scopeRel}/`, `${scopeRel}0`)
+	} else {
+		const del = store.prepare('DELETE FROM excl WHERE path = ?')
+		for (const d of visited) del.run(d.rel)
+	}
+	const ins = store.prepare('INSERT OR REPLACE INTO excl(path, kind, name, n) VALUES(?, ?, ?, ?)')
+	for (const r of rows) ins.run(r.path, r.kind, r.name, r.n)
 }
 
 /** Directory mtimes, for noticing files created after this index. */
@@ -521,7 +484,7 @@ function outcomeOf(
 	unchanged: number,
 	removed: number,
 	changed: boolean,
-	truncated: string | undefined,
+	truncated: Truncation | undefined,
 ): IndexOutcome {
 	const counts = store.get(
 		'SELECT count(*) AS indexed, coalesce(sum(parse_errors > 0), 0) AS bad FROM files',
@@ -535,7 +498,7 @@ function outcomeOf(
 		withParseErrors: Number(counts.bad),
 		indexed: Number(counts.indexed),
 		changed,
-		...(truncated ? { truncated } : {}),
+		...(truncated ? { truncated: truncated.text, limits: truncated.limits } : {}),
 	}
 }
 
@@ -545,6 +508,8 @@ export interface Covered {
 	/** 1 when the call finished, 0 when it stopped at a limit. */
 	readonly c: 0 | 1
 	readonly r?: string
+	/** The limits it stopped at; see {@link Limit}. */
+	readonly w?: readonly Limit[]
 	/** The call was cancelled rather than stopped at a limit: the next step is just to run it again. */
 	readonly k?: 'cancel'
 }
@@ -577,13 +542,15 @@ function recordCoverage(
 	store: Store,
 	scopeRel: string,
 	skipped: Record<string, number>,
-	truncated: string | undefined,
+	truncated: Truncation | string | undefined,
 	cancelled = false,
 ): void {
+	const text = typeof truncated === 'string' ? truncated : truncated?.text
 	const mine: Covered = {
 		s: scopeRel,
 		c: truncated ? 0 : 1,
-		...(truncated ? { r: truncated } : {}),
+		...(text ? { r: text } : {}),
+		...(typeof truncated === 'object' ? { w: truncated.limits } : {}),
 		...(cancelled ? { k: 'cancel' as const } : {}),
 	}
 	let covered = readCovered(store)

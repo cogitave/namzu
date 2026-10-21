@@ -8,6 +8,7 @@ import type {
 	AnalysisSourceSlice,
 } from '@namzu/sdk'
 
+import { NEVER_SOURCE_DIRS } from './collect.js'
 import { conditionOf, readRegular } from './fsafe.js'
 import type { ParserHost } from './host.js'
 import {
@@ -15,6 +16,7 @@ import {
 	coveringEntry,
 	decodeText,
 	hashOf,
+	nextStep,
 	noteNamed,
 	readCovered,
 	refreshIndex,
@@ -415,7 +417,7 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 			reasons.push(
 				e.k === 'cancel'
 					? `indexing ${where} ${e.r}, so what was indexed is partial. Call the index operation to continue`
-					: `indexing ${where} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. Call the index operation with a narrower path to cover more`,
+					: `indexing ${where} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. ${nextStep(e.w)}`,
 			)
 		}
 	}
@@ -436,6 +438,7 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 	if (totals.size > 0) {
 		reasons.push(`not indexed: ${[...totals].map(([why, n]) => `${n} ${why}`).join(', ')}`)
 	}
+	reasons.push(...exclusionReasons(store, scopeRel))
 	const crashed = listOf(store, 'crashed')
 	if (crashed.length > 0) {
 		reasons.push(
@@ -452,6 +455,75 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 	if (bad && Number(bad.n) > 0) {
 		reasons.push(
 			`${bad.n} file(s) had syntax errors; the parser kept whatever tree it could recover, often none, so rows from them may be missing`,
+		)
+	}
+	return reasons
+}
+
+/** `dist ×17, build ×2` — the most common first, the rest counted. */
+function tally(rows: ReadonlyArray<{ name: string; n: number }>, shown = 6): string {
+	const sorted = [...rows].sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1))
+	const head = sorted.slice(0, shown).map((r) => `${r.name || '(none)'} ×${r.n}`)
+	return sorted.length > shown
+		? `${head.join(', ')} and ${sorted.length - shown} more`
+		: head.join(', ')
+}
+
+/**
+ * What the walk saw under `scopeRel` and did not index, as reasons.
+ *
+ * "Complete" has to mean nothing relevant was excluded, and the index excludes
+ * four things by design: directories on the ignore list, paths a `.gitignore`
+ * lists, files in languages it does not parse, and declaration files. Each is
+ * named with a count, because a search that found nothing in the part that was
+ * indexed says nothing about the part that was not. Vendored and tool-owned
+ * directories (`node_modules`, `.git`, …) are not listed: nobody asks about
+ * them by accident, and asking by path indexes them.
+ */
+export function exclusionReasons(store: Store, scopeRel: string): string[] {
+	const where =
+		scopeRel === ''
+			? { sql: '', params: [] as string[] }
+			: {
+					sql: ' WHERE path = ? OR (path >= ? AND path < ?)',
+					params: [scopeRel, `${scopeRel}/`, `${scopeRel}0`],
+				}
+	let rows: Record<string, unknown>[]
+	try {
+		rows = store.all(
+			`SELECT kind, name, sum(n) AS n FROM excl${where.sql} GROUP BY kind, name`,
+			...where.params,
+		)
+	} catch {
+		return []
+	}
+	const pick = (kind: string, keep: (name: string) => boolean = () => true) =>
+		rows
+			.filter((r) => r.kind === kind && keep(String(r.name)))
+			.map((r) => ({ name: String(r.name), n: Number(r.n) }))
+	const dirs = pick('dir', (name) => !NEVER_SOURCE_DIRS.has(name))
+	const git = pick('git')
+	const exts = pick('ext')
+	const dts = pick('dts').reduce((a, r) => a + r.n, 0)
+	const reasons: string[] = []
+	if (dirs.length > 0) {
+		reasons.push(
+			`not indexed: ignored directories ${tally(dirs)}. To search one, pass its path to the index operation`,
+		)
+	}
+	if (git.length > 0) {
+		reasons.push(
+			`not indexed: paths a .gitignore lists, ${tally(git)}. Index one by path to search it`,
+		)
+	}
+	if (exts.length > 0) {
+		reasons.push(
+			`not indexed: files in languages this index does not parse (${tally(exts)}); a string in one cannot be found`,
+		)
+	}
+	if (dts > 0) {
+		reasons.push(
+			`${dts} declaration file(s) (.d.ts) are not indexed; they hold types only, so no literal or call is missing, but a signature there cannot be shown`,
 		)
 	}
 	return reasons
