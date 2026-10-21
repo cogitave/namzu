@@ -1269,21 +1269,26 @@ export type SessionEventListener = (event: SessionEvent) => void | Promise<void>
 /**
  * Event types whose volume makes durable persistence wasteful. They reach the
  * live stream and never the session log: the completed message, reasoning
- * block and tool input carry the same content once.
+ * block and tool input carry the same content once. A `monitor_event` is the
+ * same case: the text the model read is already in the transcript as the
+ * runtime-context message or tool result that carried it, and a noisy watch
+ * would write tens of megabytes an hour of raw process output a second time.
+ * `background_job_exited.monitor` is the durable record of how a watch ended.
  */
 export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
 	'text_delta',
 	'tool_input_delta',
 	'reasoning_delta',
 	'tool_progress',
+	'monitor_event',
 ])
 
 export function isEphemeralEvent(event: { readonly type: string }): boolean {
 	return EPHEMERAL_EVENT_TYPES.has(event.type as SessionEventType)
 }
 
-/** The event types a session log records: every literal except the ephemeral four. */
+/** The event types a session log records: every literal except the ephemeral five. */
 export type PersistedSessionEventType = Exclude<
 	SessionEventType,
-	'text_delta' | 'tool_input_delta' | 'reasoning_delta' | 'tool_progress'
+	'text_delta' | 'tool_input_delta' | 'reasoning_delta' | 'tool_progress' | 'monitor_event'
 >

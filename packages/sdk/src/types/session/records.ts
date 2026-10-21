@@ -693,7 +693,7 @@ export const SESSION_EVENT_TYPES: readonly SessionEventType[] = Object.freeze(
 	Object.keys(SESSION_EVENT_TYPE_TABLE) as SessionEventType[],
 )
 
-/** The 58 event types a session log records. */
+/** The 58 event types a session log records: all 63 but the five ephemeral ones. */
 export const PERSISTED_SESSION_EVENT_TYPES: readonly PersistedSessionEventType[] = Object.freeze(
 	SESSION_EVENT_TYPES.filter(
 		(type) => !EPHEMERAL_EVENT_TYPES.has(type),
