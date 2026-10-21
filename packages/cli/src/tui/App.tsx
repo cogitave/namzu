@@ -24,6 +24,7 @@ import {
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	HostCommandRegistry,
+	MONITOR_TOOL_NAME,
 	type MemoryType,
 	type Message,
 	type MessageAttachment,
@@ -7363,10 +7364,14 @@ export function App({
 					break
 				}
 				case 'tool-end': {
-					// A background bash call creates its job before this event. A job
-					// action may also stop one. Re-read the owning session here so the
-					// shell rail updates while the model continues its turn.
-					if (event.toolName === 'bash' || event.toolName === 'job')
+					// A background bash call or a monitor creates its job before this
+					// event. A job action may also stop one. Re-read the owning session
+					// here so the footer and rail update while the model continues.
+					if (
+						event.toolName === 'bash' ||
+						event.toolName === 'job' ||
+						event.toolName === MONITOR_TOOL_NAME
+					)
 						setJobSnapshot({
 							ownerSession: previousSessionRef.current,
 							jobs: previousSessionRef.current?.jobs?.() ?? [],

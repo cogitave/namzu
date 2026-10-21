@@ -28,6 +28,7 @@ const contextAt = (index: number) => sends[index]?.hostContext?.().join('\n\n') 
 const inbox = createMonitorInbox()
 let announce: ((job: BackgroundJob) => void) | undefined
 let deliverInTurn = false
+let startMonitorInTurn = false
 let watching = 0
 let jobs: BackgroundJob[] = []
 
@@ -133,6 +134,34 @@ vi.mock('../agent.js', async (importOriginal) => {
 					opts?.onMonitorEventsDelivered?.([event.id])
 					inbox.acknowledge([event.id])
 				}
+				if (startMonitorInTurn && sends.length === 1) {
+					// The job exists before the tool's end event, as the kernel's does.
+					jobs = [
+						{
+							id: 'b00000009',
+							owner: 'session',
+							command: 'tail -f deploy.log',
+							status: 'running',
+							startedAt: 0,
+							kind: 'monitor',
+							description: 'errors in deploy log',
+						},
+					]
+					watching = 1
+					yield {
+						kind: 'tool-start',
+						toolUseId: 'm1',
+						toolName: 'monitor',
+						summary: 'errors in deploy log',
+					} as AgentEvent
+					yield {
+						kind: 'tool-end',
+						toolUseId: 'm1',
+						toolName: 'monitor',
+						summary: 'started',
+						isError: false,
+					} as AgentEvent
+				}
 				yield { kind: 'delta', text: 'ok' }
 				yield { kind: 'done', stopReason: 'end_turn' }
 			},
@@ -151,6 +180,7 @@ afterEach(async () => {
 	lastMessages.length = 0
 	announce = undefined
 	deliverInTurn = false
+	startMonitorInTurn = false
 	watching = 0
 	jobs = []
 	inbox.take()
@@ -163,6 +193,12 @@ async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 16
 	}
 	expect(predicate()).toBe(true)
 }
+
+/** Turns the session started itself for a monitor, rather than for something typed. */
+const wakeTurns = () =>
+	lastMessages.filter(
+		(message) => (message.source as { kind?: string } | undefined)?.kind === 'job-exit',
+	).length
 
 async function say(screen: Screen, text: string, turns: number): Promise<void> {
 	screen.press(text)
@@ -212,6 +248,8 @@ it('does not deliver again an event the kernel put in front of the model during 
 	// Give a wrongly queued wake turn every chance to start before asserting.
 	await say(screen, 'second', 2)
 	expect(sends).toHaveLength(2)
+	// Counted directly: no turn of the model's own accord started for the event.
+	expect(wakeTurns()).toBe(0)
 	expect(contextAt(1)).not.toContain('DEPLOY_IN_TURN')
 })
 
@@ -254,4 +292,54 @@ it('counts monitors apart from shells in the footer and says how a monitor ended
 	await waitUntil(screen, () =>
 		screen.scrollback().join('\n').includes('Monitor "errors in deploy log" ended without'),
 	)
+})
+
+it('shows a monitor in the footer the moment its start returns, before anything else refreshes', async () => {
+	startMonitorInTurn = true
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 40,
+		scrollback: 200,
+	})
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+	expect(screen.viewport().join('\n')).not.toContain('1 monitor')
+	await say(screen, 'watch the deploy log', 1)
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('1 monitor'))
+})
+
+it('does not wake an idle session for a stop the operator asked for, and tells it with the next turn', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 40,
+		scrollback: 200,
+	})
+	mounted = screen
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
+	await say(screen, 'first', 1)
+
+	inbox.addEnd(
+		{
+			id: 'b00000009',
+			owner: 'session',
+			command: 'tail -f deploy.log',
+			status: 'killed',
+			stopReason: 'stopped',
+			startedAt: 0,
+			exitedAt: 1,
+			kind: 'monitor',
+			description: 'errors in deploy log',
+		},
+		{ stdoutChars: 0 },
+	)
+	// Give a wrongly queued wake turn every chance to start before asserting.
+	await screen.waitForRender()
+	expect(sends).toHaveLength(1)
+	expect(wakeTurns()).toBe(0)
+
+	await say(screen, 'second', 2)
+	expect(lastMessages[1]?.text).toBe('second')
+	expect(contextAt(1)).toContain('errors in deploy log')
+	expect(contextAt(1)).toContain('stopped')
+	expect(wakeTurns()).toBe(0)
 })
