@@ -187,7 +187,7 @@ describe('who may start one', () => {
 		})
 		expect(result?.success).toBe(false)
 		expect(result?.error).toContain('nobody to ask')
-		expect(result?.error).toContain('--permission-mode auto')
+		expect(result?.error).toContain('--permission-mode bypass')
 	})
 
 	it('lets a turn with a reviewer past the gate (the script is then judged on its own)', async () => {

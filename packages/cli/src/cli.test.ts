@@ -80,7 +80,9 @@ describe('runCli', () => {
 		expect(stderr).toContain('enormous')
 		stderr = ''
 		expect(await invoke(['--permission-mode', 'yolo'])).toBe(64)
-		expect(flat(stderr)).toContain('Choose one of prompt, accept-edits, auto, strict, plan.')
+		expect(flat(stderr)).toContain(
+			'Choose one of prompt, accept-edits, plan, bypass, auto, strict.',
+		)
 	})
 
 	it('lists the launch flags in --help', async () => {

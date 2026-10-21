@@ -75,7 +75,7 @@ describe('the plan approval box', () => {
 
 	it('offers running without asking in place of the first row when the session may', () => {
 		const frame = mount({ bypass: true }).lastFrame() ?? ''
-		expect(frame).toContain('1. Yes, and approve every tool without asking')
+		expect(frame).toContain('1. Yes, and run every tool without asking')
 		expect(frame).not.toContain('auto-approve edits')
 	})
 
@@ -90,11 +90,11 @@ describe('the plan approval box', () => {
 		expect(second.answers).toEqual([{ kind: 'approve', mode: 'prompt' }])
 	})
 
-	it('picks by digit, and a session that may bypass approves with auto', async () => {
+	it('picks by digit, and a session that may bypass approves with bypass', async () => {
 		const h = mount({ bypass: true })
 		settle()
 		await press(h, '1')
-		expect(h.answers).toEqual([{ kind: 'approve', mode: 'auto' }])
+		expect(h.answers).toEqual([{ kind: 'approve', mode: 'bypass' }])
 		const two = mount()
 		settle()
 		await press(two, '2')

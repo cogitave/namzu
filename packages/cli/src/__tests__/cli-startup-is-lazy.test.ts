@@ -54,7 +54,7 @@ describe('the command shell', () => {
 			expect(out).toContain(name)
 		expect(out).toContain('--permission-mode <mode>')
 		expect(out.replace(/\s+/g, ' ')).toContain(
-			'(choices: "prompt", "accept-edits", "auto", "strict", "plan")',
+			'(choices: "prompt", "accept-edits", "plan", "bypass", "auto", "strict")',
 		)
 		expect(loads).toEqual([])
 	})
