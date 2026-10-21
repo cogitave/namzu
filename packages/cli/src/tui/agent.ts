@@ -253,6 +253,7 @@ import {
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
+import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -3789,7 +3790,10 @@ export async function createAgentSession(
 	// for its sake. A host that runs one turn and closes (`monitorTool: false`)
 	// would kill the watch before it reported, so it does not offer the tool.
 	if (jobRegistry && !backgroundTasksDisabled() && options.monitorTool !== false) {
-		const monitorToolset = toolset('monitor', getMonitorTools())
+		const monitorToolset = toolset(
+			'monitor',
+			getMonitorTools({ webAccessHint: MONITOR_WEB_ACCESS_HINT }),
+		)
 		toolsets.push(options.toolLoading === 'eager' ? monitorToolset : deferred(monitorToolset))
 	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.

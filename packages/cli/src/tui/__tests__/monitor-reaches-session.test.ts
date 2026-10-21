@@ -119,6 +119,20 @@ const deferredNames = () =>
 		.flatMap((ts) => ts.tools().map((t) => t.name))
 
 describe('the monitor tool reaches the session', () => {
+	it('tells the operator how to turn web access on when a WebSocket is refused for lack of it', async () => {
+		await sessionWith()
+		const tool = queryToolsets.flatMap((ts) => ts.tools()).find((t) => t.name === 'monitor')
+		if (!tool) throw new Error('the monitor tool was not mounted')
+		const result = await tool.execute(
+			tool.inputSchema.parse({ description: 'd', ws: { url: 'wss://93.184.216.34/stream' } }),
+			{ workingDirectory: workDir, env: {} } as never,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('web access is switched off')
+		expect(result.error).toContain('`web.fetch: true`')
+		expect(result.error).toContain('config')
+	})
+
 	it('is offered deferred, and the cap a single-shot run asks for reaches the kernel', async () => {
 		const session = await sessionWith({ monitorTimeoutCapMs: 600_000 })
 		expect(session.toolNames()).toContain('monitor')

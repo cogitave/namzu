@@ -32,6 +32,20 @@ The last message points to a shell command such as `curl` for a local server.
 The guard's own refusals (a non-web scheme, an address inside the host, a host
 the config blocks) are unchanged, and apply to every redirect hop.
 
+"An address inside the host" means (`isPrivateAddress`, shared with the
+[monitor tool's WebSocket source](monitor-tool.md#websocket-source)): IPv4
+loopback `127/8`, private `10/8`, `172.16/12` and `192.168/16`, link-local
+`169.254/16` (cloud metadata), "this network" `0/8`, shared address space
+(CGNAT) `100.64/10`, benchmarking `198.18/15`, IETF protocol assignments
+`192.0.0/24`, multicast and reserved `224/4` and up; IPv6 loopback and `::`,
+IPv4-compatible `::/96`, link-local `fe80::/10`, site-local `fec0::/10`,
+unique-local `fc00::/7`, multicast `ff00::/8`, and the IPv6 forms that carry an
+IPv4 address: mapped `::ffff:a.b.c.d`, translated `::ffff:0:a.b.c.d`, NAT64
+`64:ff9b::/96` and 6to4 `2002::/16`, each refused when the IPv4 address inside
+it is one of the above (a public one passes: that is what the prefixes are
+for), plus the local-use NAT64 prefix `64:ff9b:1::/48`, which is refused whole
+because its embedded address has no fixed position.
+
 ## What it returns
 
 1. The request asks for `Accept: text/markdown, text/html, */*`.

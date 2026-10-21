@@ -106,6 +106,20 @@ export interface SkillRegistryRef {
 }
 
 /**
+ * Where a WebSocket monitor connects, already checked.
+ *
+ * `addresses` are what the caller verified are outside the host's own
+ * network; the connection is pinned to them and never resolves the name
+ * itself. A caller that did not check must not hand it a target: the registry
+ * trusts it, as it trusts a spawn it is given.
+ */
+export interface MonitorWebSocketTarget {
+	readonly url: string
+	readonly protocols?: readonly string[]
+	readonly addresses: readonly { readonly address: string; readonly family: 4 | 6 }[]
+}
+
+/**
  * The slice of the background job registry a tool is given.
  *
  * A structural reference rather than the class, for the reason
@@ -134,6 +148,19 @@ export interface BackgroundJobRegistryRef {
 		description: string
 		timeoutMs: number
 		workingDirectory?: string
+	}): { job: { id: string; status: string }; timeoutMs: number }
+	/**
+	 * Start a monitor whose source is a WebSocket connection. Separate from
+	 * {@link startMonitor} so a host that implements that one for commands is
+	 * not handed an input it was not written for; a host without this method
+	 * refuses a `ws` call with a plain message. The target's addresses are
+	 * already checked; see {@link MonitorWebSocketTarget}.
+	 */
+	startWebSocketMonitor?(params: {
+		description: string
+		timeoutMs: number
+		workingDirectory?: string
+		webSocket: MonitorWebSocketTarget
 	}): { job: { id: string; status: string }; timeoutMs: number }
 	get(id: string): {
 		id: string

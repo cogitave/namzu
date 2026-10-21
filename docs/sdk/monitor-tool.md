@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The monitor tool
-description: The opt-in monitor tool, which turns each stdout line of a long-running command into an event the model reads while it keeps working, how lines are batched and rationed, how a monitor expires or is stopped, how events reach a turn, and when a turn stays open for one.
+description: The opt-in monitor tool, which turns each stdout line of a long-running command, or each text frame of a WebSocket, into an event the model reads while it keeps working, how lines are batched and rationed, how a monitor expires or is stopped, how events reach a turn, what a WebSocket source checks and refuses, and when a turn stays open for one.
 resource: packages/sdk/src/tools/builtins/monitor.ts
 tags: [sdk, tools, jobs, monitor, background]
 status: stable
@@ -25,14 +25,17 @@ const tools = getMonitorTools() // [MonitorTool]; mount it beside the builtins, 
 | Field | Meaning |
 | --- | --- |
 | `description` | 1 to 200 characters, shown with every event as `Monitor event: "<description>"`. It is what tells two watches apart. |
-| `command` | The shell command. Each stdout line is an event. It must not need stdin. |
+| `command` | The shell command. Each stdout line is an event. It must not need stdin. Give this or `ws`, not both. |
+| `ws` | `{ url, protocols? }`: watch a WebSocket instead of a command (see [WebSocket source](#websocket-source)). Exactly one of `command` and `ws` is required; a call with neither or both is refused. |
 | `timeout_ms` | 1000 to 3,600,000, default 300,000. The host caps it (30 minutes, `MONITOR_TIMEOUT_CAP_MS`; a host may lower it with `QueryParams.monitorTimeoutCapMs`) and a larger value is lowered without an error. The result states the time actually granted. |
 
 The result is `Monitor started (job <id>, expires in <duration> unless the command ends first; ...)`, with `data` of `{ jobId, monitor: true, timeoutMs }`. A monitor is a job of its owner: it counts toward the per-owner cap of eight, `job list` shows it as `monitor · <description>`, `job read` shows its output (stderr included, which is not an event), and `job kill` stops it with stop reason `stopped`.
 
 # Permissions
 
-A monitor runs a shell command, so the gate reads it the way it reads `bash`: `category: 'shell'`, `commandArgument: 'command'`, the same dialect, `permissions: ['shell_execute']`, never read-only, not concurrency-safe, destructive for the lines `bash` calls dangerous. It has no `sandboxEscapeArgument`: a watch that outlives one approved call never leaves the sandbox. A sandbox without `spawnDetached`, a host with no registry, a registry without `startMonitor`, `NAMZU_DISABLE_BACKGROUND_TASKS` and a dangerous command are all refused, with words that name the tool (`MONITOR_CANNOT_DETACH` for the sandbox case; `bash`'s own refusal talks about `run_in_background` and `timeout`, which are not this tool's).
+A command monitor runs a shell command, so the gate reads it the way it reads `bash`: `category: 'shell'`, `commandArgument: 'command'`, the same dialect, `permissions: ['shell_execute']`, never read-only, not concurrency-safe, destructive for the lines `bash` calls dangerous. It has no `sandboxEscapeArgument`: a watch that outlives one approved call never leaves the sandbox. A sandbox without `spawnDetached`, a host with no registry, a registry without `startMonitor`, `NAMZU_DISABLE_BACKGROUND_TASKS` and a dangerous command are all refused, with words that name the tool (`MONITOR_CANNOT_DETACH` for the sandbox case; `bash`'s own refusal talks about `run_in_background` and `timeout`, which are not this tool's).
+
+A `ws` call is a different kind of call and is treated as one: see [WebSocket source](#websocket-source) for how it is reviewed.
 
 # From lines to events
 
@@ -61,12 +64,43 @@ On exit the stream is drained and its last batch is announced **before** the exi
 | exit 0 and none | `completed` | `Monitor "<d>" ended without producing output (exit N)` |
 | non-zero exit | `failed` | `Monitor "<d>" script failed (exit N)` |
 | killed, expired or too much output | `killed` | `Monitor "<d>" stopped` |
+| a WebSocket the server closed (code 1000, 1001 or 1005) | `completed` | `Monitor "<d>" connection closed (<code>)` |
+| a WebSocket the server closed with another code | `failed` | `Monitor "<d>" connection closed (<code>)` |
+| a WebSocket that never opened (refused, rejected upgrade, handshake timeout) | `failed` | `Monitor "<d>" connection failed` |
+
+# WebSocket source
+
+Some services push their events and offer no command that prints them: a CI run's log stream, a change feed. `ws: { url, protocols? }` watches one. Everything after the source is the registry's and is shared with commands unchanged: the 200 ms batches, the token bucket, the 100,000-character cap, expiry, `job kill`, the retained output for `job read`, and the untrusted frame the model reads the events in. A frame is untrusted network content and reaches the model only that way.
+
+**Input.** `url` must use `ws:` or `wss:`, be ASCII, carry no user name or password, no whitespace or control character and no fragment, and be at most 2048 characters. `protocols` are unique RFC 6455 tokens, at most 16. The model can set nothing else: no header, no address, no resolver.
+
+**Frames.** A text frame is written as its text plus a newline on the job's stdout, so it splits into lines and joins the batch of whatever else arrives in the window. A binary frame becomes `[binary frame, N bytes]`. A frame over 1,048,576 bytes ends the watch with `[Dropped a frame larger than 1048576 bytes; closing]` (the socket library reports that a frame was too big and not how big, so the notice does not give N). Compression is not negotiated, because a compressed frame inflates past the size cap before it is measured, and a redirect is not followed, because it could lead to an address nobody checked.
+
+**Lifecycle notices** are `notice` events, so the output limiter cannot drop them, and each ends the stream: `[WebSocket upgrade rejected: HTTP <status>]` when the server refuses the upgrade, `[WebSocket error: <message>]` when the connection fails before that is known, and `[WebSocket closed: <code> <reason>]` when it ends. A rejected upgrade is already terminal, so no closed notice follows it, and neither does one follow an error that ended the connection before it opened (a refused connection or a handshake timeout is one `[WebSocket error: ...]` notice, not an error then `closed: 1006`); after a close the job ends. The reason is server-written text, cut to one line of at most 123 characters, and it appears **only** in that notice (inside the untrusted frame) and in `job read`: never in the `summary:`, `source:` or `more:` line of an envelope, which sit outside the frame. The record's `closeReason` keeps it for a host that wants it. The same rule covers every server-chosen string (close reason, error message, HTTP status); the only caller-chosen text in metadata is the URL in `source:`, one line and capped at 200 characters. The frame's provenance says so: a WebSocket's output is `Text frames the WebSocket server sent`, and a WebSocket's notices are a notice from the monitor that `can quote text the server sent`, not the monitor's own words as for a command. `MonitorEvent.transport` carries `'websocket'` so a renderer can pick the wording. A stop the registry asks for (`job kill`, expiry, too much output) closes the socket with code 1000 and destroys it after one second if the server does not answer, and adds no notice of its own: the registry already said why.
+
+**The job** is named `websocket <url>` (query string kept), has `transport: 'websocket'`, and records `closeCode` and `closeReason` when the server closed. The registry holds it through a `JobSource`, whose `child` is `JobChild`, the few members the registry reads, so a connection is held without pretending to be a `ChildProcess`; `JobProcess.child` is still a `ChildProcess`, and `StartJobParams.spawn` may return either. A source can send the registry notices through the `JobHost` its `spawn` receives. The registry starts it with `bindOwner(...).startWebSocketMonitor({ webSocket: { url, protocols?, addresses } })`, a method of its own beside `startMonitor` (command only, unchanged) and an optional member of `BackgroundJobRegistryRef`, so a host that implements only `startMonitor` refuses a `ws` call in plain words; the caller vets the addresses (the tool does).
+
+## Where it may connect
+
+The connection is opened by the **host** process, outside any sandbox, to an address the model chose. So:
+
+- **Address check.** The host name is resolved with `dns.lookup({ all: true })` (an IP literal is taken as it is). The call is refused when the name does not resolve, resolves to nothing, or **any** answer is private, loopback, link-local (including `169.254.169.254`), unique-local, shared-address-space (`100.64/10`), benchmarking, site-local or multicast, or an IPv4-compatible, NAT64 or 6to4 spelling of any of those, by the same `isPrivateAddress` `web_fetch` uses (the full list is in [web tools](web-tools.md)). The URL parser has already turned `2130706433` and `0x7f.0.0.1` into `127.0.0.1`.
+- **Pinning.** The socket is given a `lookup` that answers with the vetted addresses and nothing else, so it never asks DNS again. `web_fetch` documents a residual DNS-rebinding gap between its check and the platform `fetch`'s own resolution; here that gap is closed. TLS keeps SNI and the certificate check on the host name.
+- **Sandbox.** Under a sandbox whose tier isolates the network (`isolationOf(environment).network`), the call is refused with a plain explanation unless the sandbox's live network policy lists the host (`Sandbox.networkPolicy.allowedHosts`, exact or `.domain`). A backend that enforces `setNetworkPolicy` should report it there; a backend that does not leaves it undefined, which means "not allowed" on an isolating tier. Without network isolation the call is allowed, subject to the address check and to review.
+- **Web switch.** A call is refused unless the turn has a web capability (`ToolContext.web.fetch`), the same operator decision that turns `web_fetch` on. In the CLI that is `web.fetch: true`, which is off by default. The refusal says only that web access is off; `createMonitorTool({ webAccessHint })` appends the host's own sentence on how to turn it on (the CLI passes its config key), because the SDK cannot name a switch it does not own.
+- **Test hooks.** `createMonitorTool({ webSocket: { resolve, allowPrivateAddresses } })` exists so a test can reach a server on this machine; they belong to whoever builds the tool and cannot be set by the model. `getMonitorTools()` with no argument returns the shared `MonitorTool`.
+
+## How it is reviewed
+
+`readOnly` is false, `category` stays `shell` and `commandArgument` stays `command`, so a call with no `command` gives a rule written for commands (`argument_pattern` on `command`) nothing to match: it cannot auto-allow a WebSocket call. Rules that do not read the argument (`allow_by_name`, the `shell` category the sandboxed-shell preset allows) would still let it through, so the tool declares `requiresApproval` for a `ws` call: a person is asked every time, an `allow` rule and `auto` mode do not outrank it, nothing remembered covers it, and with nobody to ask it is refused. That is stricter than "reviewed where the mode reviews non-read-only calls", on purpose: the connection leaves the boundary those modes rely on. A `deny` rule still wins. The command form is reviewed exactly as before; moving the whole tool to `category: 'network'` would have changed that.
+
+`permissions` is now `['shell_execute', 'network_access']`. The gate routes by `category` and `requiresApproval`, not by this list, so declaring `network_access` changes no decision; it says what the tool may do. The approval shows `Monitor · <description> · WebSocket <url> (subprotocols: ...)`.
 
 # Events
 
 `BackgroundJobRegistry.onMonitorEvent(listener)` delivers `MonitorEvent` objects: `{ id: "<jobId>:<seq>", jobId, owner, description, kind: 'output' | 'notice', text, at }`. A `notice` is the monitor speaking (suppression, stopping, expiry), an `output` is a batch of stdout lines. A listener that throws is ignored.
 
-`bindOwner(...).startMonitor({ command, description, timeoutMs, workingDirectory? })` clamps the timeout to `monitorTimeoutCapMs` and returns `{ job, timeoutMs }`. `BackgroundJobRegistryRef.startMonitor` is optional, like `adopt`; a host that cannot deliver events leaves it out and the tool refuses.
+`bindOwner(...).startMonitor({ command, description, timeoutMs, workingDirectory? })` and `startWebSocketMonitor({ webSocket, description, timeoutMs, workingDirectory? })` clamp the timeout to `monitorTimeoutCapMs` and returns `{ job, timeoutMs }`. `BackgroundJobRegistryRef.startMonitor` is optional, like `adopt`; a host that cannot deliver events leaves it out and the tool refuses.
 
 # In a turn
 
@@ -81,4 +115,4 @@ The host hears the same thing as a `monitor_event` session event (`monitor.event
 
 # Constants
 
-Exported from the SDK: `MONITOR_LINE_MAX_CHARS`, `MONITOR_BATCH_MAX_CHARS`, `MONITOR_BATCH_WINDOW_MS`, `MONITOR_PARTIAL_LINE_MAX_BYTES`, `MONITOR_BUCKET_CAPACITY`, `MONITOR_BUCKET_REFILL_MS`, `MONITOR_SUPPRESSION_LIMIT_MS`, `MONITOR_TIMEOUT_DEFAULT_MS`, `MONITOR_TIMEOUT_MIN_MS`, `MONITOR_TIMEOUT_MAX_MS`, `MONITOR_TIMEOUT_CAP_MS`, `MONITOR_NOTIFICATION_MAX_CHARS`, `MONITOR_EVENT_CONTENT_MAX_CHARS`.
+Exported from the SDK (the WebSocket limits, `WEBSOCKET_MAX_PAYLOAD_BYTES` and the rest, live in `runtime/jobs/websocket-source.ts`): `MONITOR_LINE_MAX_CHARS`, `MONITOR_BATCH_MAX_CHARS`, `MONITOR_BATCH_WINDOW_MS`, `MONITOR_PARTIAL_LINE_MAX_BYTES`, `MONITOR_BUCKET_CAPACITY`, `MONITOR_BUCKET_REFILL_MS`, `MONITOR_SUPPRESSION_LIMIT_MS`, `MONITOR_TIMEOUT_DEFAULT_MS`, `MONITOR_TIMEOUT_MIN_MS`, `MONITOR_TIMEOUT_MAX_MS`, `MONITOR_TIMEOUT_CAP_MS`, `MONITOR_NOTIFICATION_MAX_CHARS`, `MONITOR_EVENT_CONTENT_MAX_CHARS`.
