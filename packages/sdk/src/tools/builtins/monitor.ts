@@ -145,6 +145,14 @@ const MONITOR_DESCRIPTION =
 /** What a host can tune about the WebSocket source; for tests only, see {@link WebSocketVetOptions}. */
 export interface MonitorToolOptions {
 	readonly webSocket?: WebSocketVetOptions
+	/**
+	 * How to turn web access on, in the host's own words, appended to the
+	 * refusal a WebSocket call gets while it is off. The SDK cannot name a
+	 * switch it does not own (a CLI config key, a desktop setting), and a
+	 * refusal that only says "off" leaves the operator guessing. One short
+	 * sentence; it is shown to the model and the operator as written.
+	 */
+	readonly webAccessHint?: string
 }
 
 /** The text that says a WebSocket watch was refused because the host has web access off. */
@@ -241,7 +249,13 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 				// not given this turn a web capability has not decided to let the
 				// model open connections, and a WebSocket is one.
 				if (context.web?.fetch === undefined) {
-					return { success: false, output: '', error: MONITOR_WEBSOCKET_WEB_OFF }
+					return {
+						success: false,
+						output: '',
+						error: options.webAccessHint
+							? `${MONITOR_WEBSOCKET_WEB_OFF} ${options.webAccessHint}`
+							: MONITOR_WEBSOCKET_WEB_OFF,
+					}
 				}
 				const hostname = webSocketHostname(input.ws.url)
 				const sandboxRefusal = webSocketSandboxRefusal(context.sandbox, hostname)

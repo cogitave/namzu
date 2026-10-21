@@ -292,3 +292,24 @@ describe('a host that only starts command monitors', () => {
 		expect((commandOnly.startMonitor as ReturnType<typeof vi.fn>).mock.calls).toEqual([])
 	})
 })
+
+describe('the refusal while web access is off', () => {
+	const noWeb = { backgroundJobs: fakeJobs().jobs, web: undefined }
+
+	it("adds the host's own way to turn it on, when the host gave one", async () => {
+		const tool = createMonitorTool({ webAccessHint: 'Set web.fetch: true in the config.' })
+		const result = await tool.execute(
+			tool.inputSchema.parse({ description: 'd', ws: { url: 'wss://93.184.216.34/stream' } }),
+			context(noWeb),
+		)
+		expect(result.error).toBe(`${MONITOR_WEBSOCKET_WEB_OFF} Set web.fetch: true in the config.`)
+	})
+
+	it('says only that it is off when the host gave no hint', async () => {
+		const result = await MonitorTool.execute(
+			parse({ description: 'd', ws: { url: 'wss://93.184.216.34/stream' } }),
+			context(noWeb),
+		)
+		expect(result.error).toBe(MONITOR_WEBSOCKET_WEB_OFF)
+	})
+})

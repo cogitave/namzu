@@ -2,6 +2,7 @@
 
 ## 2026-10-21
 
+- **Update** [The monitor tool](sdk/monitor-tool.md#websocket-source) and [Monitors in the CLI](cli/monitor.md#watching-a-websocket): the refusal of a WebSocket while web access is off now says how to turn it on. New optional `MonitorToolOptions.webAccessHint`; the CLI passes a sentence naming `web.fetch` in `~/.namzu/config.yaml`. `.changeset/cli-monitor-ws.md`, **patch** for `@namzu/cli`.
 - **Update** [The monitor tool](sdk/monitor-tool.md#websocket-source): review fix, additive public surface. `JobProcess.child` is a `ChildProcess` again; the registry's smaller shape is the new `JobSource`, which `StartJobParams.spawn` may return. `BackgroundJobRegistryRef.startMonitor` keeps its command-only input; the WebSocket form is the new optional `startWebSocketMonitor`.
 - **Update** [Web tools](sdk/web-tools.md): `isPrivateAddress` (shared by `web_fetch` and the WebSocket monitor) also refuses `100.64.0.0/10`, `198.18.0.0/15`, `192.0.0.0/24`, IPv4-compatible `::/96`, site-local `fec0::/10`, the local-use NAT64 prefix, and NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) and IPv4-translated addresses whose embedded IPv4 is private. A fetch that resolves into one of these is now refused.
 - **Update** [The monitor tool](sdk/monitor-tool.md#websocket-source): a WebSocket that fails before it opens now ends with one final `[WebSocket error: ...]` notice instead of an error followed by `[WebSocket closed: 1006]`.

@@ -23,10 +23,10 @@ Hosts that run one turn and close the session (a scheduled run, `drain`, a resid
 The model can give `ws: { url, protocols? }` instead of `command` to watch a service that pushes its events. Nothing about mounting changes, and the events, the footer count, `/jobs` and stop work as for any monitor. What is different is the approval and what is refused:
 
 - **It is always asked about.** The approval reads `Monitor · <description> · WebSocket <url>`, because the connection is opened from this machine, not from inside a sandbox. No rule you wrote for commands (`monitor` with a `command` pattern) can allow it, and neither can `auto` mode, an `allow` rule for the tool, or a remembered "approve all". With nobody to ask (`exec` in `auto` mode) it is refused. A `deny` rule still refuses it.
-- **Web access must be on.** A WebSocket monitor follows the same setting as `web_fetch`: with `web.fetch` off (the default) it is refused with a message saying so.
+- **Web access must be on.** A WebSocket monitor follows the same setting as `web_fetch`: with `web.fetch` off (the default) it is refused with a message saying so and naming the switch: set `web.fetch: true` in the Namzu config file (`~/.namzu/config.yaml`). The environment cannot switch it on (`NAMZU_WEB_FETCH` is ignored).
 - **Private addresses are refused.** `localhost`, loopback, link-local and cloud-metadata addresses, private ranges, and any name that resolves to one, are refused before a connection is made. The connection uses only the addresses that were checked.
 - **A sandbox that blocks the network refuses it** unless the sandbox's live policy lists the host, since the connection would otherwise be a way around that isolation.
-- **How it ends.** The row for a monitor that ended reads `Monitor "<description>" connection closed (<code>[ <reason>])` when the server closed it, `... connection failed` when it never opened, and the usual `... stopped` when you or the deadline stopped it. The `/jobs` detail screen shows `websocket <url>` where a command would be.
+- **How it ends.** The row for a monitor that ended reads `Monitor "<description>" connection closed (<code>)` when the server closed it (the server's reason is shown in the notice inside the event and in `job read`, never on this row), `... connection failed` when it never opened, and the usual `... stopped` when you or the deadline stopped it. The `/jobs` detail screen shows `websocket <url>` where a command would be.
 
 # What waits for the next turn
 
