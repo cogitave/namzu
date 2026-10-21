@@ -359,7 +359,12 @@ export async function refreshIndex(
 				const rowCount =
 					result.rows.strings.length + result.rows.calls.length + result.rows.functions.length
 				queue(() => {
-					store.writeFile({ ...base, parseErrors: result.parseErrors, rows: result.rows })
+					store.writeFile({
+						...base,
+						parseErrors: result.parseErrors,
+						degraded: result.degraded,
+						rows: result.rows,
+					})
 					unnote(store, 'crashed', candidate.rel)
 				}, rowCount)
 				parsed++
@@ -367,12 +372,12 @@ export async function refreshIndex(
 				// Recorded with no rows and the stat it crashed at, so the next
 				// refresh leaves it alone instead of crashing the child again.
 				queue(() => {
-					store.writeFile({ ...base, parseErrors: CRASHED, rows: EMPTY_ROWS })
+					store.writeFile({ ...base, parseErrors: CRASHED, degraded: 0, rows: EMPTY_ROWS })
 					noteNamed(store, 'crashed', candidate.rel)
 				})
 				skip('parser crashed')
 			} else {
-				queue(() => store.writeFile({ ...base, parseErrors: 1, rows: EMPTY_ROWS }))
+				queue(() => store.writeFile({ ...base, parseErrors: 1, degraded: 0, rows: EMPTY_ROWS }))
 				skip('parser failure')
 			}
 			changed = true

@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS files(
 	id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, chars INTEGER NOT NULL, lang TEXT NOT NULL,
 	parse_errors INTEGER NOT NULL, line_starts BLOB NOT NULL, size INTEGER NOT NULL,
-	mtime_ms REAL NOT NULL, hash TEXT NOT NULL);
+	mtime_ms REAL NOT NULL, hash TEXT NOT NULL, degraded INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS dirs(path TEXT PRIMARY KEY, mtime_ms REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS excl(
 	path TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, n INTEGER NOT NULL,
@@ -107,6 +107,8 @@ export interface FileRecord {
 	readonly chars: number
 	readonly lang: string
 	readonly parseErrors: number
+	/** 1: read after blanking broken lines; 2: read by the tolerant scanner. */
+	readonly degraded: number
 	readonly lineStarts: Uint32Array
 	readonly size: number
 	readonly mtimeMs: number
@@ -409,7 +411,7 @@ export class Store {
 			return lo + 1
 		}
 		const result = this.prepare(
-			'INSERT INTO files(path, chars, lang, parse_errors, line_starts, size, mtime_ms, hash) VALUES(?,?,?,?,?,?,?,?)',
+			'INSERT INTO files(path, chars, lang, parse_errors, line_starts, size, mtime_ms, hash, degraded) VALUES(?,?,?,?,?,?,?,?,?)',
 		).run(
 			record.path,
 			record.chars,
@@ -419,6 +421,7 @@ export class Store {
 			record.size,
 			record.mtimeMs,
 			record.hash,
+			record.degraded,
 		)
 		const id = Number(result.lastInsertRowid)
 		const remap = (local: number | null): number | null => (local === null ? null : base + local)

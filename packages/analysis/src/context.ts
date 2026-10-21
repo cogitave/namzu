@@ -129,6 +129,7 @@ export interface FileInfo {
 	readonly abs: string
 	readonly chars: number
 	readonly parseErrors: number
+	readonly degraded: number
 	readonly size: number
 	readonly mtimeMs: number
 	readonly hash: string
@@ -160,6 +161,7 @@ export class Files {
 			abs: join(this.root, ...rel.split('/')),
 			chars: Number(row.chars),
 			parseErrors: Number(row.parse_errors),
+			degraded: Number(row.degraded ?? 0),
 			size: Number(row.size),
 			mtimeMs: Number(row.mtime_ms),
 			hash: String(row.hash),
@@ -499,10 +501,14 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 			`${violations.length} file(s) (${named(violations)}) became a link or resolved outside the root after they were indexed, and were dropped without being read`,
 		)
 	}
-	const bad = store.get('SELECT count(*) AS n FROM files WHERE parse_errors > 0')
+	const bad = store.get(
+		'SELECT count(*) AS n, coalesce(sum(degraded = 1), 0) AS repaired, coalesce(sum(degraded = 2), 0) AS scanned FROM files WHERE parse_errors > 0',
+	)
 	if (bad && Number(bad.n) > 0) {
+		const repaired = Number(bad.repaired)
+		const scanned = Number(bad.scanned)
 		reasons.push(
-			`${bad.n} file(s) had syntax errors; the parser kept whatever tree it could recover, often none, so rows from them may be missing`,
+			`${bad.n} file(s) had syntax errors, so rows from them may be missing${repaired > 0 ? `; ${repaired} read after setting the broken lines aside` : ''}${scanned > 0 ? `; ${scanned} degraded to a tolerant scan that finds strings and function declarations only, with no calls, methods or imports` : ''}`,
 		)
 	}
 	return reasons

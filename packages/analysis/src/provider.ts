@@ -1032,7 +1032,11 @@ function fileGaps(info: FileInfo): string[] {
 	}
 	if (info.parseErrors > 0) {
 		return [
-			`${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`,
+			info.degraded === 2
+				? `${info.rel} had syntax errors and was read by a tolerant scan: strings and function declarations only, no calls, methods or imports`
+				: info.degraded === 1
+					? `${info.rel} had syntax errors; it was read after setting the broken lines aside, so rows from those lines are missing`
+					: `${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`,
 		]
 	}
 	return []
