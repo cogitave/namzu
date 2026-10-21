@@ -51,9 +51,9 @@ It never throws for a provider failure. A failure is a block.
 # Two passes
 
 1. **A short verdict**, at most 64 output tokens, stopping at the closing tag. It is told to answer `block` when in doubt and does not weigh the person's authority. `allow` ends the review.
-2. **A reasoned pass**, at most 8192 output tokens, on `block` or on an answer it cannot read. It reasons in a `<thinking>` element, weighs the allow exceptions and what the person said, and its last verdict outside the thinking decides. It names the rule and gives one plain sentence as the reason.
+2. **A reasoned pass**, at most 8192 output tokens, on `block` or on an answer it cannot read. It reasons in a `<thinking>` element, weighs the allow exceptions and what the person said, and the verdicts outside the thinking must agree: an answer that both blocks and allows has no verdict, and no verdict at this pass is a block. It names the rule and gives one plain sentence as the reason.
 
-Both passes send the same system message (marked `cacheHint: 'cache'`, with `cacheControl: { type: 'auto' }` on the request) so a provider that caches a prefix reuses it. Each pass has a deadline (60 and 120 seconds by default); a pass that outlives it is retried like a transient failure. `temperature` defaults to 0.
+Both passes send the same system message (marked `cacheHint: 'cache'`, with `cacheControl: { type: 'auto' }` on the request) so a provider that caches a prefix reuses it. Each pass has a deadline (60 and 120 seconds by default), enforced by racing the provider call, so a provider that ignores the abort signal is cut off too; a pass that outlives it is retried like a transient failure. `temperature` defaults to 0.
 
 # What it is shown
 
@@ -63,7 +63,7 @@ A compact transcript, one line of JSON per entry, in order:
 - the agent's prose;
 - one line per tool call, in the words the tool chose for itself. `ToolDefinition.classifierInput(input)` returns a short string; `defineTool({ classifierInput })` declares it. `bash` and `monitor` give the command, `edit` gives the path and a short change, `write` the path and size, `web_fetch` the address and what is asked of it. A tool without one is shown as its input in compact JSON.
 
-It is never shown a tool **result**, the agent's reasoning, or any kernel-written context. A result is whatever a command printed or a page said, which is where an injected instruction would sit; a classifier that read it could be argued out of a block by the text it guards against. The classifier is told so, and that it cannot see what the agent saw. The call under review is the final entry, once (it is not repeated from the history). `<` is escaped inside every entry, so text in the conversation cannot close or open an element of the prompt around it. Entries are clipped (2000 characters, 8000 for the action).
+It is never shown a tool **result**, the agent's reasoning, or any kernel-written context. A result is whatever a command printed or a page said, which is where an injected instruction would sit; a classifier that read it could be argued out of a block by the text it guards against. The classifier is told so, and that it cannot see what the agent saw. The call under review is the final entry, once (it is not repeated from the history). `<` is escaped inside every entry, so text in the conversation cannot close or open an element of the prompt around it. History entries are clipped to 2000 characters. The action under review is not clipped: a shell or monitor command, or an input shown as JSON, up to 8000 characters is sent whole, and a longer one is **blocked as `unreadable` without a question**, because a prefix of a command says nothing about the rest; the prompt also tells the model that an action marked as cut short means block. Some tools summarise on purpose, and the summary is all the classifier sees: `write` shows the path, the size and the first 300 characters of the body, `edit` the path and the first 200 characters removed and 300 added, `web_fetch` the address and 300 characters of the prompt. Nor does it see a `<file>` block inside a user message (a file pulled in with `@path`): the CLI sends those as a separate host-supplied message, and the transcript strips them from a user message as a second guard. It never sees a tool result.
 
 The transcript comes from `ResumeContext.transcript()`, the second argument every `ResumeHandler` now receives, with `signal`. It is in memory only: the review request that is written to the session log when a decision is slow does not carry it.
 
@@ -84,7 +84,8 @@ Every path from "could not check" leads to a block:
 
 - a provider error, or one that is not a provider error at all, blocks (`cause: 'unavailable'`);
 - a retryable error (rate limit, overload, server error, timeout, network, or a pass past its deadline) is retried at most twice, waiting 2 s then 4 s (up to 10 s) with a quarter of jitter. `sleep`, `random` and `now` are injectable so a test never waits;
-- a first answer that cannot be read goes to the second pass; a second that cannot be read blocks (`cause: 'unreadable'`);
+- an action longer than the 8000 characters it can read blocks (`cause: 'unreadable'`) without a provider call;
+- a first answer that cannot be read goes to the second pass; a second that cannot be read, or that both blocks and allows, blocks (`cause: 'unreadable'`);
 - a second pass that fails blocks on the strength of the first;
 - a cancelled turn blocks (`cause: 'aborted'`) and is not counted.
 

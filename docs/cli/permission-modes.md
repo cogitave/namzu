@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-22T00:00:00Z }
 
 # Permission modes
 
-A mode decides what happens to a call that no rule decided. The `[permissions]` table says what a tool may do; a mode governs the rest, for one conversation. A mode can never reopen what a rule closed: a `deny` rule and the dangerous-pattern floor (`sudo`, `curl | sh` and the like are refused, not asked about) hold in every mode, and an `ask` rule is asked in every mode.
+A mode decides what happens to a call that no rule decided. The `[permissions]` table says what a tool may do; a mode governs the rest, for one conversation. A mode can never reopen what a rule closed: a `deny` rule and the dangerous-pattern floor (`sudo`, `curl | sh` and the like are refused, not asked about) hold in every mode. The floor checks the command a shell tool is about to run (the `bash` or `monitor` command, or the whole input of a shell tool from a plugin or server); it does not read an agent prompt, a file being written or an edit, so text that only mentions `sudo` is not refused, and a delegated agent's own shell calls are checked when they run, and an `ask` rule is asked in every mode.
 
 | Word | Reads as | Runs without a question | Still asks (or is refused when nobody can be asked) |
 | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ With nobody to ask (`exec`, `exec --json`, a scheduled run), each of these is re
 
 **Bypass** runs everything else, including a path outside the folder (`cat /tmp/x`), a program the line does not name (`$CMD build`, `$(...)`, `[[ ]]`, arithmetic), a protected-path write, and `cd sub && echo hi > f` inside your folder.
 
-**Auto** sends what `prompt` would have asked about to the classifier, which allows or blocks it. Never sent: calls a rule allows, reads, calls `accept-edits` would allow, and the safe tools (read, grep, glob, LSP and code analysis, `search_tools`, task and plan tools). While auto is active, allow rules for interpreters (`python`, `node`, `bash`, `sh`, `ssh`, `sudo`, `env`, `xargs`) and for delegation are not consulted, because they would approve code the classifier never read.
+**Auto** sends what `prompt` would have asked about to the classifier, which allows or blocks it. Never sent: calls a rule allows, reads, calls `accept-edits` would allow, and the safe tools (read, grep, glob, LSP and code analysis, `search_tools`, task and plan tools), unless the call reaches outside your folders or a rule asked for it. While auto is active, allow rules for interpreters and launchers (`python*`, `node`, `bash`, `sh`, `pwsh`, `ssh`, `sudo`, `env`, `xargs`, `make`, `awk`, `npm run` and `npm test`, `pnpm build`, `bun app.ts`, `uv run`, `cargo run`, `git -c` and the like) and for delegation are not consulted, because they would approve code the classifier never read.
 
 ## The classifier
 
