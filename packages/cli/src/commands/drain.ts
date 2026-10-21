@@ -511,6 +511,8 @@ export const drainCommand: CommandDef = {
 
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
+			// One turn, then the session closes: a monitor would be killed unreported.
+			monitorTool: false,
 			scope: {
 				// The session is exactly the one the required flags named.
 				// Constructing the provider under a random CLI Project and

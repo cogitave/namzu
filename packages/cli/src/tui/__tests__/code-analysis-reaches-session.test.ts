@@ -87,6 +87,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+	vi.unstubAllEnvs()
 	for (const session of open.splice(0)) await session.close()
 	removeTempDir(workDir)
 	removeTempDir(stateRoot)
@@ -177,6 +178,8 @@ describe('code_analysis reaches the session', () => {
 	})
 
 	it('is absent when the config switched it off', async () => {
+		// The monitor tool is deferred too wherever background work is on.
+		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
 		const session = await sessionWith({ enabled: false })
 		expect(session.toolNames()).not.toContain('code_analysis')
 		expect(queryToolNames).not.toContain('code_analysis')

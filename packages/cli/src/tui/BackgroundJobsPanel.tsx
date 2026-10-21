@@ -68,7 +68,11 @@ function metaColor(meta: ReturnType<typeof jobMeta>): string {
 }
 
 function statusText(job: BackgroundJob): string {
-	if (job.status === 'running') return 'running'
+	if (job.status === 'running') return job.kind === 'monitor' ? 'watching' : 'running'
+	if (job.kind === 'monitor') {
+		if (job.stopReason === 'expired') return 'ran out of time'
+		if (job.stopReason === 'too_much_output') return 'stopped: it printed too much'
+	}
 	if (job.status === 'killed') return 'stopped'
 	if (job.exitCode === undefined) return 'ended'
 	return `${job.exitCode === 0 ? 'completed' : 'failed'} (exit code ${job.exitCode})`
@@ -109,6 +113,11 @@ export function maxBackgroundJobTailOffset(
 	)
 }
 
+/** What a row calls a job: a shell by its command, a monitor by what it watches. */
+function jobLabel(job: BackgroundJob): string {
+	return job.kind === 'monitor' ? `Monitoring: ${job.description ?? job.command}` : job.command
+}
+
 function oneLine(command: string): string {
 	return terminalDisplayText(command).replace(/\s+/gu, ' ').trim()
 }
@@ -146,7 +155,8 @@ export function BackgroundJobsPanel({
 	busyJobId = null,
 	notice = null,
 }: BackgroundJobsPanelProps) {
-	const running = jobs.filter((job) => job.status === 'running').length
+	const running = jobs.filter((job) => job.status === 'running' && job.kind !== 'monitor').length
+	const watching = jobs.filter((job) => job.status === 'running' && job.kind === 'monitor').length
 	const selected = jobs.find((job) => job.id === selectedJobId) ?? jobs[0]
 	const detailed = detailJobId ? jobs.find((job) => job.id === detailJobId) : undefined
 	const innerColumns = Math.max(1, columns - 6)
@@ -185,7 +195,10 @@ export function BackgroundJobsPanel({
 					Background
 				</Text>
 				<Text color={theme.text.muted} wrap="truncate-end">
-					{`${running} active ${running === 1 ? 'shell' : 'shells'}`}
+					{[
+						`${running} active ${running === 1 ? 'shell' : 'shells'}`,
+						...(watching > 0 ? [`${watching} ${watching === 1 ? 'monitor' : 'monitors'}`] : []),
+					].join(' · ')}
 				</Text>
 				{jobs.length === 0 ? (
 					<Text color={theme.text.secondary}>No tasks currently running</Text>
@@ -200,7 +213,7 @@ export function BackgroundJobsPanel({
 								<Text color={theme.accent.user}>{focused ? '❯ ' : '  '}</Text>
 								<Text color={metaColor(meta)}>{META_ICON[meta]} </Text>
 								<Text color={focused ? theme.accent.user : theme.text.secondary}>
-									{truncateChoiceText(oneLine(job.command), room)}
+									{truncateChoiceText(oneLine(jobLabel(job)), room)}
 								</Text>
 								<Text color={theme.text.muted}>{tail}</Text>
 							</Text>
@@ -260,7 +273,7 @@ export function BackgroundJobsPanel({
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
 			<Text bold color={theme.accent.system} wrap="truncate-end">
-				Shell details
+				{detailed.kind === 'monitor' ? 'Monitor details' : 'Shell details'}
 			</Text>
 			<Text wrap="truncate-end">
 				<Text bold>Status: </Text>
@@ -275,6 +288,12 @@ export function BackgroundJobsPanel({
 				<Text bold>Runtime: </Text>
 				<Text>{elapsed(detailed, now)}</Text>
 			</Text>
+			{detailed.kind === 'monitor' ? (
+				<Text wrap="truncate-end">
+					<Text bold>Watching: </Text>
+					<Text>{truncateChoiceText(oneLine(detailed.description ?? ''), innerColumns - 10)}</Text>
+				</Text>
+			) : null}
 			<Text bold>Command:</Text>
 			{commandRows.map((row) => (
 				<Text key={row.index} color={theme.text.primary} wrap="truncate-end">

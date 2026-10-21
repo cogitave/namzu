@@ -260,6 +260,9 @@ const MAPPING: {
 	// A job's exit is housekeeping of this runtime's host; the peer sees the
 	// task's outcome.
 	background_job_exited: null,
+	// What a monitor printed is for the model and the host that started it; a
+	// peer sees the task's outcome.
+	monitor_event: null,
 	// Compaction, succeeded or declined, is a property of how this runtime
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.

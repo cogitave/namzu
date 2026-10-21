@@ -222,6 +222,18 @@ exports[`every SessionEvent has a decided place on the SSE wire > pins the wire 
     ],
     "wire": "message.created",
   },
+  "monitor_event": {
+    "keys": [
+      "description",
+      "event_id",
+      "job_id",
+      "kind",
+      "session_id",
+      "text",
+      "turn_id",
+    ],
+    "wire": "monitor.event",
+  },
   "plan_approved": {
     "keys": [
       "plan_id",

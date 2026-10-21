@@ -46,6 +46,10 @@ export interface ToolingBootstrapConfig {
 	backgroundJobOwner?: string
 	/** Where `wait_for_job` records wait-intent; see the executor's own field. */
 	onJobAwaited?: (id: string) => void
+	/** See `ToolExecutorConfig.monitorTimeoutCapMs`. */
+	monitorTimeoutCapMs?: number
+	/** See `ToolExecutorConfig.onMonitorStarted`. */
+	onMonitorStarted?: (id: string) => void
 	/** Where the `skill` tool reads from. */
 	skills?: SkillRegistryRef
 	/** How this turn reaches the web. */
@@ -106,6 +110,10 @@ export class ToolingBootstrap {
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),
 				...(config.onJobAwaited ? { onJobAwaited: config.onJobAwaited } : {}),
+				...(config.monitorTimeoutCapMs !== undefined
+					? { monitorTimeoutCapMs: config.monitorTimeoutCapMs }
+					: {}),
+				...(config.onMonitorStarted ? { onMonitorStarted: config.onMonitorStarted } : {}),
 				...(config.skills ? { skills: config.skills } : {}),
 				...(config.web ? { web: config.web } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),

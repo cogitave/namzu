@@ -152,6 +152,24 @@ const MAPPING: {
 			status: e.status,
 			...(e.exitCode !== undefined ? { exit_code: e.exitCode } : {}),
 			...(e.signal ? { signal: e.signal } : {}),
+			...(e.monitor
+				? {
+						monitor: {
+							description: e.monitor.description,
+							...(e.monitor.stopReason ? { stop_reason: e.monitor.stopReason } : {}),
+						},
+					}
+				: {}),
+		}),
+	},
+	monitor_event: {
+		wire: 'monitor.event',
+		transform: (e) => ({
+			job_id: e.jobId,
+			event_id: e.eventId,
+			description: e.description,
+			kind: e.kind,
+			text: e.text,
 		}),
 	},
 	memory_consolidated: {

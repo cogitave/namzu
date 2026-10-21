@@ -350,6 +350,8 @@ export function createResidentSessionStep(
 			sessionCreationAttempted = true
 			session = await createAgentSession(prefs, probe.detected, {
 				cwd,
+				// One turn, then the session closes: a monitor would be killed unreported.
+				monitorTool: false,
 				toolLoading: options.toolLoading,
 				scope: {
 					sessionId,

@@ -149,6 +149,15 @@ export interface IterationContext {
 	/** Acknowledge exit notices only after their text enters model context. */
 	readonly onJobNoticeDelivered?: () => void
 	/**
+	 * What the turn's monitors have said (and how they ended), drained into the
+	 * next tool result like {@link jobNotices}. A separate channel because its
+	 * text is the system-event envelope of untrusted process output, and
+	 * because a host acknowledges it separately.
+	 */
+	readonly monitorNotices?: SteeringChannel
+	/** Acknowledge monitor notices only after their text enters model context. */
+	readonly onMonitorNoticeDelivered?: () => void
+	/**
 	 * Background jobs the model said it is waiting on, which is the only kind
 	 * the loop holds a finishing run open for.
 	 *

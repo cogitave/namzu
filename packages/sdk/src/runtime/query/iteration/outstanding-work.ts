@@ -5,7 +5,7 @@ import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import { createRuntimeContextMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { readPositiveIntEnv } from '../../../utils/env.js'
-import { formatJobNote } from '../steering.js'
+import { formatJobNote, formatMonitorNote } from '../steering.js'
 import type { IterationContext } from './phases/index.js'
 
 /**
@@ -179,7 +179,17 @@ export async function* holdForOutstandingWork(
 	// to be running. A job therefore never shortens a wait, and it never
 	// lengthens one either: where a task is outstanding too, that is how
 	// long this turn was waiting anyway.
-	const graceMs = inbox ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
+	let graceMs = inbox ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
+	// A monitor the turn owns is held for until the monitor itself ends, which
+	// its own deadline bounds; the two-minute job ceiling would walk away from
+	// a watch with most of its time left. As with a task, this only ever
+	// lengthens the wait: it is the longest justified leg that sets the
+	// deadline. A second of slack lets the expiry notice arrive before the
+	// grace does.
+	const monitorMs = jobs?.monitorHoldMs()
+	if (monitorMs !== undefined) {
+		graceMs = Math.max(graceMs, Math.min(settleGraceMs(remainingMs), monitorMs + 1000))
+	}
 	ctx.log.info('Holding the turn open for outstanding work', {
 		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		[NAMZU.ITERATION]: iterationNum,
@@ -217,8 +227,9 @@ export async function* holdForOutstandingWork(
 		)
 	}
 	const exited = deliverAwaitedJobExits(ctx)
+	const monitored = deliverMonitorNotices(ctx)
 	const inbound = await deliverInbound()
-	if (arrived.length === 0 && !exited && inbound === 0) return false
+	if (arrived.length === 0 && !exited && !monitored && inbound === 0) return false
 	await ctx.emitEvent({
 		type: 'iteration_completed',
 		turnId: ctx.recorder.turnId,
@@ -265,6 +276,32 @@ export function deliverAwaitedJobExits(ctx: IterationContext): boolean {
 	})
 	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
 	ctx.onJobNoticeDelivered?.()
+	return true
+}
+
+/**
+ * Put what a monitor the turn owns has said in front of the model.
+ *
+ * The same shape as {@link deliverAwaitedJobExits}: through the channel the
+ * events already travel on (`monitorNotices`, which `attachNotice` rides out on
+ * the next tool result), and as a `runtime-context` message when the turn made
+ * no tool call and so has no result to carry it. The record that they were
+ * delivered goes with the text, so an event already attached to a tool result
+ * earlier in the turn leaves nothing here and does not buy another turn.
+ *
+ * The message kind is `job-exit`: a monitor is a job, and no host reads a
+ * separate kind for it. What it is carrying (events, or the end) is in the text.
+ */
+export function deliverMonitorNotices(ctx: IterationContext): boolean {
+	if (!ctx.monitorNotices) return false
+	const text = ctx.awaitedJobs?.takeMonitorDelivery(() => ctx.monitorNotices?.drain())
+	if (text === undefined) return false
+
+	ctx.log.info('Delivering monitor events the turn held itself open for', {
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
+	})
+	ctx.recorder.pushMessage(createRuntimeContextMessage(formatMonitorNote(text), 'job-exit'))
+	ctx.onMonitorNoticeDelivered?.()
 	return true
 }
 
@@ -418,6 +455,7 @@ export function deliverArrivedCompletions(ctx: IterationContext): void {
  * messages land in the order the work finished in.
  */
 export function deliverArrivedJobExits(ctx: IterationContext): void {
+	deliverArrivedMonitorNotices(ctx)
 	const delivered = ctx.awaitedJobs?.takeDelivery(() => ctx.jobNotices?.drain())
 	if (!delivered) return
 
@@ -433,4 +471,27 @@ export function deliverArrivedJobExits(ctx: IterationContext): void {
 	})
 	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
 	ctx.onJobNoticeDelivered?.()
+}
+
+/**
+ * The monitor half of {@link deliverArrivedJobExits}: what a held monitor said
+ * after the hold stopped looking is still delivered on the way out, so the
+ * transcript has it and a continued thread opens with it. Only for monitors
+ * the turn holds itself open for; a session's host hears its own.
+ */
+function deliverArrivedMonitorNotices(ctx: IterationContext): void {
+	if (!ctx.monitorNotices) return
+	const text = ctx.awaitedJobs?.takeMonitorDelivery(() => ctx.monitorNotices?.drain())
+	if (text === undefined) return
+
+	// Fix the turn's answer BEFORE appending anything after it; see
+	// `deliverArrivedCompletions` for why the tail walk needs it.
+	const answer = ctx.recorder.materializeResult()
+	if (answer.length > 0) ctx.recorder.setResult(answer, 'outstanding_work')
+
+	ctx.log.info('Delivering monitor events the turn would have settled over', {
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
+	})
+	ctx.recorder.pushMessage(createRuntimeContextMessage(formatMonitorNote(text), 'job-exit'))
+	ctx.onMonitorNoticeDelivered?.()
 }

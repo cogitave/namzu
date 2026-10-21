@@ -53,6 +53,8 @@ export interface StatusBarProps {
 	readonly restingHint?: boolean
 	/** Background shells that are running now; 0 or omitted hides the pill. */
 	readonly shellCount?: number
+	/** Monitors that are watching now; counted apart from shells in the same pill. */
+	readonly monitorCount?: number
 	/** The context meter from `context-meter.ts`; omitted or null while there is room to spare. */
 	readonly contextMeter?: ContextMeter | null
 	/** The pull request for the current branch, from `pr-status.ts`. */
@@ -118,6 +120,15 @@ const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
 	draft: null,
 }
 
+/** `2 shells`, `1 monitor`, or both: the two kinds counted apart in one pill. */
+export function backgroundPill(shells: number, monitors: number): string | null {
+	const parts = [
+		shells > 0 ? `${shells} ${shells === 1 ? 'shell' : 'shells'}` : null,
+		monitors > 0 ? `${monitors} ${monitors === 1 ? 'monitor' : 'monitors'}` : null,
+	].filter((part): part is string => part !== null)
+	return parts.length > 0 ? parts.join(' · ') : null
+}
+
 export function StatusBar({
 	provider,
 	model,
@@ -130,6 +141,7 @@ export function StatusBar({
 	composerMounted = true,
 	restingHint = true,
 	shellCount = 0,
+	monitorCount = 0,
 	pr,
 	hyperlinks = false,
 	agentCount = 0,
@@ -145,7 +157,12 @@ export function StatusBar({
 	const hasPr = pr !== undefined && pr.kind !== 'none'
 	// Nothing else on the row: only then is the quiet reminder worth a column.
 	const nothingElse =
-		!activeMode && shellCount === 0 && !hasPr && agentCount === 0 && !canManage && !shellsSelected
+		!activeMode &&
+		shellCount + monitorCount === 0 &&
+		!hasPr &&
+		agentCount === 0 &&
+		!canManage &&
+		!shellsSelected
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
@@ -166,15 +183,22 @@ export function StatusBar({
 		// The reference drops the cycle key as soon as a background task is on
 		// the row: the pill is what the row is about then.
 		cycleSuffix:
-			activeMode && canCycleMode && composerMounted && shellCount === 0 ? CYCLE_SUFFIX : null,
+			activeMode && canCycleMode && composerMounted && shellCount + monitorCount === 0
+				? CYCLE_SUFFIX
+				: null,
 		interrupt: working && !hint ? INTERRUPT_HINT : null,
 		context: contextMeter?.text ?? null,
-		shells: shellCount > 0 ? `${shellCount} ${shellCount === 1 ? 'shell' : 'shells'}` : null,
+		shells: backgroundPill(shellCount, monitorCount),
 		agents:
 			agentCount > 0
 				? `← ${agentCount > 99 ? '99+' : agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`
 				: null,
-		manage: shellsSelected && shellCount > 0 ? VIEW_SHELLS_HINT : canManage ? MANAGE_HINT : null,
+		manage:
+			shellsSelected && shellCount + monitorCount > 0
+				? VIEW_SHELLS_HINT
+				: canManage
+					? MANAGE_HINT
+					: null,
 		pr:
 			pr === undefined || pr.kind === 'none'
 				? null

@@ -10,7 +10,15 @@ import type {
 	BackgroundJobOutputWaitResult,
 } from '../../types/job/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
+import { oneMetadataLine } from '../system-events.js'
 import { createBackgroundJobId } from './job-id.js'
+import {
+	MONITOR_TIMEOUT_CAP_MS,
+	type MonitorStreamStats,
+	createMonitorStream,
+	expiryNotice,
+	tooMuchOutputNotice,
+} from './monitor-stream.js'
 
 /**
  * Work that outlives a tool call, owned by whoever started it.
@@ -57,6 +65,38 @@ export interface BackgroundJob {
 	readonly recoveryRequired?: boolean
 	/** Safe registry diagnostic for an unconfirmed stop; excludes transport secrets. */
 	readonly stopError?: string
+	/**
+	 * `monitor` for a job started by the `monitor` tool: its stdout is
+	 * delivered line by line as events, and it expires. Absent for every
+	 * other job.
+	 */
+	readonly kind?: 'monitor'
+	/** What the monitor watches, in the model's words; shown with every event. */
+	readonly description?: string
+	/** When the monitor will be stopped if the command has not ended first (epoch ms). */
+	readonly expiresAt?: number
+	/**
+	 * Why a monitor was stopped, when the registry stopped it: `expired` at
+	 * its deadline, `too_much_output` when the source outran the event
+	 * ration, `stopped` for a `kill()` asked for from outside. Absent while it
+	 * runs and when the command ended on its own.
+	 */
+	readonly stopReason?: 'expired' | 'too_much_output' | 'stopped'
+}
+
+/**
+ * One thing a monitor has to say: a batch of its stdout lines, or a notice
+ * from the monitor itself (events suppressed, stopped, expired).
+ */
+export interface MonitorEvent {
+	/** `${jobId}:${seq}`, unique per registry and stable, so a host can acknowledge it. */
+	readonly id: string
+	readonly jobId: string
+	readonly owner: string
+	readonly description: string
+	readonly kind: 'output' | 'notice'
+	readonly text: string
+	readonly at: number
 }
 
 export interface BackgroundJobOutput {
@@ -114,6 +154,13 @@ export interface StartJobParams {
 	 * decoded the way a foreground command's are, not as a Linux guest's.
 	 */
 	readonly hostOutput?: boolean
+	/**
+	 * Run the command as a monitor: stdout is split into lines and delivered
+	 * to `onMonitorEvent` listeners in batches, and the job is stopped at
+	 * `timeoutMs`. Both streams stay in the retained buffer, so `read` still
+	 * shows everything, stderr included.
+	 */
+	readonly monitor?: { readonly description: string; readonly timeoutMs: number }
 }
 
 export interface BackgroundJobRegistryConfig {
@@ -212,6 +259,16 @@ interface JobEntry {
 	exit: Promise<void>
 	/** Settles once the process exists or failed to; `error` says which. */
 	started: Promise<{ readonly error?: string }>
+	/** Present for a monitor. */
+	monitor?: MonitorState
+}
+
+interface MonitorState {
+	readonly stream: ReturnType<typeof createMonitorStream>
+	readonly description: string
+	readonly timeoutMs: number
+	seq: number
+	expiryTimer?: ReturnType<typeof setTimeout>
 }
 
 /** Whether any process of the group led by `pid` is still alive. */
@@ -230,6 +287,7 @@ const GROUP_POLL_MS = 250
 export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
 	private readonly exitListeners = new Set<(job: BackgroundJob) => void>()
+	private readonly monitorListeners = new Set<(event: MonitorEvent) => void>()
 	private outputWaiters = 0
 	private readonly outputWaitersByOwner = new Map<string, number>()
 
@@ -254,6 +312,52 @@ export class BackgroundJobRegistry {
 				// A listener that throws is its owner's problem, not the job's.
 			}
 		}
+	}
+
+	/**
+	 * Be told what a monitor has to say, whoever owns it: a batch of its
+	 * stdout lines, or a notice from the monitor itself. Returns the
+	 * unsubscribe.
+	 *
+	 * Every listener hears every monitor's events, whatever their `owner`: a
+	 * consumer serving one turn or session MUST filter on `event.owner`, as the
+	 * turn does. A listener that throws is its owner's problem, as in
+	 * {@link onExit}.
+	 */
+	onMonitorEvent(listener: (event: MonitorEvent) => void): () => void {
+		this.monitorListeners.add(listener)
+		return () => {
+			this.monitorListeners.delete(listener)
+		}
+	}
+
+	private announceMonitorEvent(entry: JobEntry, kind: MonitorEvent['kind'], text: string): void {
+		const monitor = entry.monitor
+		if (!monitor) return
+		monitor.seq += 1
+		const event: MonitorEvent = {
+			id: `${entry.record.id}:${monitor.seq}`,
+			jobId: entry.record.id,
+			owner: entry.record.owner,
+			description: monitor.description,
+			kind,
+			text,
+			at: Date.now(),
+		}
+		for (const listener of this.monitorListeners) {
+			try {
+				listener(event)
+			} catch {
+				// A listener that throws is its owner's problem, not the job's.
+			}
+		}
+	}
+
+	/** What a monitor's stream has done so far, for the summary of how it ended. */
+	monitorStats(id: string): MonitorStreamStats {
+		const entry = this.jobs.get(id)
+		if (!entry) throw new UnknownBackgroundJobError({ id })
+		return entry.monitor?.stream.stats() ?? { eventsDelivered: 0, suppressed: 0, stdoutChars: 0 }
 	}
 
 	/** A failed remote stop never releases ownership or announces a terminal job. */
@@ -364,6 +468,32 @@ export class BackgroundJobRegistry {
 		// it may be remote, and need not emit `spawn` at all.
 		if (params.spawn || child.pid !== undefined) settleStarted()
 
+		// A monitor's stdout goes through a stream that batches and rations it;
+		// everything it says reaches listeners as `MonitorEvent`s. The callbacks
+		// close over `entry`, which exists by the time any of them can run.
+		const monitor: MonitorState | undefined = params.monitor
+			? {
+					description: params.monitor.description,
+					timeoutMs: params.monitor.timeoutMs,
+					seq: 0,
+					stream: createMonitorStream({
+						onBatch: (text) => this.announceMonitorEvent(entry, 'output', text),
+						onNotice: (text) => this.announceMonitorEvent(entry, 'notice', text),
+						onOverflow: ({ suppressed, overMs }) => {
+							// The reason is recorded before the kill, so the exit that
+							// follows is described as what it was and not as a stop
+							// somebody asked for.
+							entry.record = { ...entry.record, stopReason: 'too_much_output' }
+							this.announceMonitorEvent(entry, 'notice', tooMuchOutputNotice(suppressed, overMs))
+							void this.kill(id).catch(() => {
+								// The retained record carries the failure (recoveryRequired).
+							})
+						},
+					}),
+				}
+			: undefined
+		const startedAt = Date.now()
+
 		let finalizeEntry!: (code: number | null, signal: NodeJS.Signals | null) => void
 		const entry: JobEntry = {
 			record: {
@@ -371,8 +501,16 @@ export class BackgroundJobRegistry {
 				owner: params.owner,
 				command: params.command,
 				status: 'running',
-				startedAt: Date.now(),
+				startedAt,
+				...(monitor
+					? {
+							kind: 'monitor' as const,
+							description: monitor.description,
+							expiresAt: startedAt + monitor.timeoutMs,
+						}
+					: {}),
 			},
+			...(monitor ? { monitor } : {}),
 			child,
 			...(started.kill ? { killProcess: started.kill.bind(started) } : {}),
 			...(started.terminate ? { terminateProcess: started.terminate.bind(started) } : {}),
@@ -400,6 +538,15 @@ export class BackgroundJobRegistry {
 					}
 					resolve()
 					for (const observer of entry.outputObservers) observer()
+					if (entry.monitor) {
+						// The last batch is a monitor's last words and must precede
+						// the exit: a listener that learns the job ended and THEN
+						// gets output would be telling the model about a finished
+						// watch after it had been told the watch was over.
+						clearTimeout(entry.monitor.expiryTimer)
+						entry.monitor.stream.drain()
+						entry.monitor.stream.close()
+					}
 					this.announceExit(entry.record)
 				}
 				finalizeEntry = finalize
@@ -467,6 +614,10 @@ export class BackgroundJobRegistry {
 			entry.buffer += text
 			entry.buffer = outputTail(entry.buffer, this.maxBytes).text
 			entry.outputChunks.push(chunk)
+			// Only stdout is an event. stderr stays readable with `read`, which is
+			// where a watcher's diagnostics belong: a model told about every
+			// warning line would stop reading the events that matter.
+			if (stream === 'stdout') entry.monitor?.stream.push(text)
 			const retainedStart = entry.produced - Buffer.byteLength(entry.buffer)
 			while (
 				entry.outputChunks.length > MAX_CHANNEL_CHUNKS ||
@@ -497,7 +648,35 @@ export class BackgroundJobRegistry {
 		child.stderr?.on('data', onData('stderr'))
 
 		this.jobs.set(id, entry)
+		if (monitor) {
+			// A monitor has a life. Without a deadline a watch the model forgot
+			// would run, and bill its events, until the session ended.
+			monitor.expiryTimer = setTimeout(() => this.expireMonitor(entry), monitor.timeoutMs)
+			monitor.expiryTimer.unref?.()
+		}
 		return entry.record
+	}
+
+	/** The deadline: the last batch, then the notice, then the same kill every stop uses. */
+	private expireMonitor(entry: JobEntry): void {
+		const monitor = entry.monitor
+		if (!monitor || entry.record.status !== 'running') return
+		monitor.stream.flush()
+		// The flush can itself have stopped the monitor for too much output.
+		if (entry.record.stopReason !== undefined || entry.record.status !== 'running') return
+		entry.record = { ...entry.record, stopReason: 'expired' }
+		this.announceMonitorEvent(
+			entry,
+			'notice',
+			expiryNotice(monitor.timeoutMs, monitor.stream.stats().eventsDelivered),
+		)
+		// Nothing follows a terminal notice. A command that ignores SIGTERM keeps
+		// printing until the SIGKILL, and those lines would reach the model after
+		// it was told the watch was over.
+		monitor.stream.close()
+		void this.kill(entry.record.id).catch(() => {
+			// The retained record carries the failure (recoveryRequired).
+		})
 	}
 
 	/**
@@ -762,9 +941,33 @@ export class BackgroundJobRegistry {
 		const entry = this.jobs.get(id)
 		if (!entry) throw new UnknownBackgroundJobError({ id })
 		if (entry.record.status !== 'running') return entry.record
+		// A stop nobody else explained is the model's (or the operator's). The
+		// expiry and output rules record their own reason first.
+		const stoppedBy = entry.monitor !== undefined && entry.record.stopReason === undefined
+		if (stoppedBy) entry.record = { ...entry.record, stopReason: 'stopped' }
+		// An accepted stop ends the event stream: what was already complete goes
+		// out, and nothing the dying process prints afterwards does. (The expiry
+		// and output rules close it themselves, after their own notice.)
+		const closeStream = (): void => {
+			if (!stoppedBy) return
+			entry.monitor?.stream.flush()
+			entry.monitor?.stream.close()
+		}
 		if (entry.terminateProcess) {
 			entry.killRequested = true
-			await this.confirmTermination(entry)
+			try {
+				await this.confirmTermination(entry)
+			} catch (error) {
+				// Still running: do not leave it saying a stop happened.
+				if (stoppedBy) {
+					const { stopReason: _reason, ...rest } = entry.record
+					entry.record = rest
+				}
+				throw error
+			}
+			// Only once the stop is confirmed: a remote stop that failed leaves a
+			// running monitor, and a closed stream could not be reopened.
+			closeStream()
 			await entry.exit
 			return entry.record
 		}
@@ -773,6 +976,7 @@ export class BackgroundJobRegistry {
 		// tell a kill from an ordinary exit. Set it after and the race decides
 		// which of two different answers a reader gets.
 		entry.record = { ...entry.record, status: 'killed' }
+		closeStream()
 		for (const observer of entry.outputObservers) observer()
 		const signal = (sig: NodeJS.Signals) =>
 			entry.killProcess ? entry.killProcess(sig) : killTree(entry.child, sig)
@@ -847,6 +1051,19 @@ export function bindOwner(
 		 * than present and silently doing nothing.
 		 */
 		readonly onAwaited?: (id: string) => void
+		/**
+		 * The longest a monitor started through this binding may live. A host
+		 * may lower it (a single-shot run has no tomorrow to watch for); the
+		 * default is {@link MONITOR_TIMEOUT_CAP_MS}.
+		 */
+		readonly monitorTimeoutCapMs?: number
+		/**
+		 * Be told that this binding started a monitor. The turn passes its own
+		 * recorder here when the monitor belongs to the turn itself, which is
+		 * what makes the turn stay open for it; a session-owned monitor is not
+		 * reported, because the host wakes on its events.
+		 */
+		readonly onMonitorStarted?: (id: string) => void
 	} = {},
 ) {
 	const mine = (id: string): BackgroundJob => {
@@ -854,26 +1071,48 @@ export function bindOwner(
 		if (job.owner !== owner) throw new UnknownBackgroundJobError({ id })
 		return job
 	}
+	const launch = (
+		params: { command: string; workingDirectory?: string },
+		monitor?: StartJobParams['monitor'],
+	): BackgroundJob => {
+		const workingDirectory = params.workingDirectory ?? defaults.workingDirectory ?? process.cwd()
+		const spawnHost = defaults.spawn
+		return registry.start({
+			owner,
+			command: params.command,
+			workingDirectory,
+			...(defaults.env ? { env: defaults.env } : {}),
+			...(spawnHost
+				? {
+						spawn: () =>
+							spawnHost({
+								command: params.command,
+								workingDirectory,
+								...(defaults.env ? { env: defaults.env } : {}),
+							}),
+					}
+				: {}),
+			...(monitor ? { monitor } : {}),
+		})
+	}
 	return {
-		start: (params: { command: string; workingDirectory?: string }) => {
-			const workingDirectory = params.workingDirectory ?? defaults.workingDirectory ?? process.cwd()
-			const spawnHost = defaults.spawn
-			return registry.start({
-				owner,
-				command: params.command,
-				workingDirectory,
-				...(defaults.env ? { env: defaults.env } : {}),
-				...(spawnHost
-					? {
-							spawn: () =>
-								spawnHost({
-									command: params.command,
-									workingDirectory,
-									...(defaults.env ? { env: defaults.env } : {}),
-								}),
-						}
-					: {}),
-			})
+		start: (params: { command: string; workingDirectory?: string }) => launch(params),
+		// The same spawn, owner and cap as `start`, plus a deadline. The timeout
+		// is clamped to the host's ceiling and the clamped value is returned, so
+		// the number the model is told is the number that will fire.
+		startMonitor: (params: {
+			command: string
+			description: string
+			timeoutMs: number
+			workingDirectory?: string
+		}) => {
+			const timeoutMs = Math.min(
+				params.timeoutMs,
+				defaults.monitorTimeoutCapMs ?? MONITOR_TIMEOUT_CAP_MS,
+			)
+			const job = launch(params, { description: params.description, timeoutMs })
+			defaults.onMonitorStarted?.(job.id)
+			return { job, timeoutMs }
 		},
 		// A foreground command that ran out of time, kept instead of killed.
 		// The same owner and cap as `start`; the process is the one already
@@ -923,4 +1162,30 @@ export function bindOwner(
 		},
 		list: () => registry.list(owner),
 	}
+}
+
+/**
+ * How a monitor ended, in the words the model, the transcript and a
+ * single-shot run all use, so the three cannot disagree about it.
+ *
+ * `completed` is the command ending by itself: with output it is the stream
+ * ending, and without any it is a watch that never saw anything, which a
+ * reader must not mistake for a quiet success. A non-zero exit is `failed`.
+ * `killed` covers every stop the registry or the model asked for; the expiry
+ * and the too-much-output stop already told the model why in a notice of their
+ * own, so the summary does not repeat it.
+ */
+export function describeMonitorEnd(
+	job: Pick<BackgroundJob, 'description' | 'status' | 'exitCode' | 'signal' | 'error'>,
+	stats: Pick<MonitorStreamStats, 'stdoutChars'>,
+): { status: 'completed' | 'failed' | 'killed'; summary: string } {
+	const label = `Monitor "${oneMetadataLine(job.description ?? 'unnamed')}"`
+	if (job.status === 'killed') return { status: 'killed', summary: `${label} stopped` }
+	if (job.exitCode === 0 && job.error === undefined) {
+		return stats.stdoutChars > 0
+			? { status: 'completed', summary: `${label} stream ended` }
+			: { status: 'completed', summary: `${label} ended without producing output (exit 0)` }
+	}
+	const how = job.exitCode !== undefined ? `exit ${job.exitCode}` : (job.signal ?? 'exit unknown')
+	return { status: 'failed', summary: `${label} script failed (${how})` }
 }

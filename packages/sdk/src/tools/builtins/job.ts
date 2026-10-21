@@ -44,7 +44,7 @@ type JobInput = z.infer<typeof inputSchema>
 export const JobTool = defineTool({
 	name: 'job',
 	description:
-		'Reads, lists and stops background jobs started by bash with run_in_background. Do NOT call action "read" in a loop to find out whether a job finished: use wait_for_job instead — it blocks until the job ends (or goes quiet, or runs long) and returns the output in one call, with no waiting turns spent checking. Use "read" to see output while a job keeps running, or to pick up after a wait_for_job call gave up, passing the previous call\'s next_offset to see only new output.',
+		'Reads, lists and stops background jobs started by bash with run_in_background, and monitors started by monitor (whose stderr, which is not an event, is read here). Do NOT call action "read" in a loop to find out whether a job finished: use wait_for_job instead — it blocks until the job ends (or goes quiet, or runs long) and returns the output in one call, with no waiting turns spent checking. Use "read" to see output while a job keeps running, or to pick up after a wait_for_job call gave up, passing the previous call\'s next_offset to see only new output.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
@@ -78,7 +78,16 @@ export const JobTool = defineTool({
 			if (all.length === 0) return { success: true, output: 'No background jobs.' }
 			return {
 				success: true,
-				output: all.map((job) => `${job.id}  ${job.status.padEnd(8)}  ${job.command}`).join('\n'),
+				// A monitor is named by what it watches: its command is the means,
+				// and the description is what the model wrote to tell its watches apart.
+				output: all
+					.map(
+						(job) =>
+							`${job.id}  ${job.status.padEnd(8)}  ${
+								job.kind === 'monitor' ? `monitor · ${job.description ?? job.command}` : job.command
+							}`,
+					)
+					.join('\n'),
 				data: { jobs: all },
 			}
 		}

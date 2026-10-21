@@ -24,6 +24,7 @@ import {
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	HostCommandRegistry,
+	MONITOR_TOOL_NAME,
 	type MemoryType,
 	type Message,
 	type MessageAttachment,
@@ -317,7 +318,7 @@ import {
 	hypermodeEffort,
 	hypermodeStopLabel,
 } from './hypermode.js'
-import { jobExitRow } from './job-exit-row.js'
+import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
@@ -1366,6 +1367,11 @@ export function App({
 			text: `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`,
 		}
 	}
+	/** What monitors said since the last turn: the same envelopes the kernel gives in-turn. */
+	const snapshotMonitorNotices = (): {
+		readonly ids: readonly string[]
+		readonly text?: string
+	} => session?.monitors?.peek() ?? { ids: [] }
 	// Commands the operator ran with `!` since the last turn. The model did
 	// not see them happen; it reads them here on its next turn.
 	const operatorShellRef = useRef<string[]>([])
@@ -1385,11 +1391,28 @@ export function App({
 		idleJobNoticesRef.current = notices
 		setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		if (!session?.onJobExit) return
-		return session.onJobExit((job) => {
+		// Something a monitor said, or its end, arrived: an idle session looks
+		// again at whether to wake. The ledger itself lives on the session.
+		const offMonitors = session.monitors?.onChange(() => {
+			if (previousSessionRef.current !== session) return
+			setNoticeVersion((version) => version + 1)
+		})
+		const offExits = session.onJobExit((job) => {
 			// The visible running-shell count belongs to the session even when
 			// the kernel owns this exit's model/transcript notice.
 			if (previousSessionRef.current !== session || idleJobNoticesRef.current !== notices) return
 			setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
+			if (job.kind === 'monitor') {
+				// A monitor's end is told in the monitor's own words, and its notice
+				// for the model sits in the session's monitor ledger, not in the
+				// plain job notices.
+				if (!notices.shown.has(job.id)) {
+					notices.shown.add(job.id)
+					const row = monitorEndRow(job, session.monitors?.stats(job.id) ?? { stdoutChars: 0 })
+					pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
+				}
+				return
+			}
 			const text = describeJobExit({
 				jobId: job.id,
 				command: job.command,
@@ -1417,6 +1440,10 @@ export function App({
 				pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 			}
 		})
+		return () => {
+			offMonitors?.()
+			offExits()
+		}
 	}, [session])
 	// What ended in a workflow, for the model: one message per run, delivered
 	// inside a running turn when there is one and with the next turn otherwise,
@@ -5255,8 +5282,14 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
-	const runningShellCount = backgroundJobs.filter((job) => job.status === 'running').length
-	shellCountRef.current = runningShellCount
+	const runningShellCount = backgroundJobs.filter(
+		(job) => job.status === 'running' && job.kind !== 'monitor',
+	).length
+	const runningMonitorCount = backgroundJobs.filter(
+		(job) => job.status === 'running' && job.kind === 'monitor',
+	).length
+	// One stop in the rail serves both: they open the same screen.
+	shellCountRef.current = runningShellCount + runningMonitorCount
 	// The footer's pull request item: looked up in the background, paused while
 	// a turn runs, and only on a real terminal.
 	const prStatus = usePrStatus({
@@ -7331,10 +7364,14 @@ export function App({
 					break
 				}
 				case 'tool-end': {
-					// A background bash call creates its job before this event. A job
-					// action may also stop one. Re-read the owning session here so the
-					// shell rail updates while the model continues its turn.
-					if (event.toolName === 'bash' || event.toolName === 'job')
+					// A background bash call or a monitor creates its job before this
+					// event. A job action may also stop one. Re-read the owning session
+					// here so the footer and rail update while the model continues.
+					if (
+						event.toolName === 'bash' ||
+						event.toolName === 'job' ||
+						event.toolName === MONITOR_TOOL_NAME
+					)
 						setJobSnapshot({
 							ownerSession: previousSessionRef.current,
 							jobs: previousSessionRef.current?.jobs?.() ?? [],
@@ -7982,13 +8019,18 @@ export function App({
 					jobs.pending.delete(id)
 					wakeJobIdsRef.current.delete(id)
 				}
-				if (ended.length === 0 && jobLines.length === 0) {
+				// What monitors said is taken now, like the rest: an event the kernel
+				// already put in front of the model during a turn was acknowledged
+				// and is not here.
+				const monitorNotice = session?.monitors?.take()
+				if (ended.length === 0 && jobLines.length === 0 && !monitorNotice?.text) {
 					setState('idle')
 					return
 				}
 				if (ended.length === 0) noticeKind = 'job-exit'
 				text = [
 					...ended,
+					...(monitorNotice?.text ? [monitorNotice.text] : []),
 					...(jobLines.length > 0
 						? [`Background jobs that ended:\n${jobLines.map(([, line]) => `- ${line}`).join('\n')}`]
 						: []),
@@ -8369,6 +8411,12 @@ export function App({
 			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = {
 				ids: [],
 			}
+			let monitorSnapshot: {
+				readonly ids: readonly string[]
+				readonly text?: string
+			} = {
+				ids: [],
+			}
 			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
 			let workflowNoticeSnapshot = new Map<string, string>()
 			let childMessageSnapshot = new Map<number, string>()
@@ -8390,6 +8438,7 @@ export function App({
 					// Keep these notices pending until a completed send commits them.
 					// An early throw or abort never proves the model received context.
 					idleNoticeSnapshot = snapshotIdleJobNotices()
+					monitorSnapshot = snapshotMonitorNotices()
 					childNoticeSnapshot = new Map(directChildNoticesRef.current)
 					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
 					childMessageSnapshot = new Map(childMessagesRef.current)
@@ -8429,6 +8478,7 @@ export function App({
 							[
 								...(st.contextTexts ?? []),
 								idleNoticeSnapshot.text,
+								monitorSnapshot.text,
 								workflowNoticeSnapshot.size > 0
 									? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
 									: undefined,
@@ -8578,6 +8628,10 @@ export function App({
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
 					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
 					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
+				}
+				if (st.completed && monitorSnapshot.ids.length > 0) {
+					// Carried by this turn: never offered again.
+					session?.monitors?.acknowledge(monitorSnapshot.ids)
 				}
 				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
 					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
@@ -11171,7 +11225,8 @@ export function App({
 			workflowNoticesRef.current.size > 0 ||
 			childMessagesRef.current.size > 0 ||
 			(jobs.ownerSession === session &&
-				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id)))
+				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||
+			session?.monitors?.wakes() === true
 		if (!waiting) return
 		enqueueQueued({
 			kind: 'notice',
@@ -12960,6 +13015,7 @@ export function App({
 						composerMounted={showComposerSurface}
 						restingHint={ctx.statusLine === undefined}
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
+						monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
 						agentCount={footerKeysLive ? runningAgentCount : 0}

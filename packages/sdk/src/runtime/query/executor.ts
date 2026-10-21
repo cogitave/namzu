@@ -395,6 +395,15 @@ export interface ToolExecutorConfig {
 	 * recorder gets no hold rather than a marking call that goes nowhere.
 	 */
 	onJobAwaited?: (id: string) => void
+	/** The longest a monitor may live in this turn; see `QueryParams.monitorTimeoutCapMs`. */
+	monitorTimeoutCapMs?: number
+	/**
+	 * Where a monitor the turn owns itself is recorded, so the turn stays open
+	 * for it. Passed only when the monitor's owner is the turn: a session-owned
+	 * monitor is heard by the host, and holding the turn for it would delay the
+	 * end of every turn for as long as the watch lives.
+	 */
+	onMonitorStarted?: (id: string) => void
 
 	/**
 	 * Where the `skill` tool reads from.
@@ -1948,6 +1957,12 @@ export class ToolExecutor {
 										}
 									: {}),
 								...(this.config.onJobAwaited ? { onAwaited: this.config.onJobAwaited } : {}),
+								...(this.config.monitorTimeoutCapMs !== undefined
+									? { monitorTimeoutCapMs: this.config.monitorTimeoutCapMs }
+									: {}),
+								...(this.config.onMonitorStarted
+									? { onMonitorStarted: this.config.onMonitorStarted }
+									: {}),
 							},
 						),
 					}

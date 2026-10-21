@@ -309,6 +309,14 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					...(event.exitCode !== undefined ? { 'namzu.jobs.exit_code': event.exitCode } : {}),
 				})
 				break
+			case 'monitor_event':
+				log.debug('Monitor event', {
+					'namzu.jobs.id': event.jobId,
+					'namzu.monitor.event_id': event.eventId,
+					'namzu.monitor.kind': event.kind,
+					'namzu.monitor.chars': event.text.length,
+				})
+				break
 			case 'memory_consolidated':
 				log.info('Turn learnings consolidated into the memory store', {
 					'namzu.memory.id': event.memoryId,

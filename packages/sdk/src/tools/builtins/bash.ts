@@ -66,7 +66,7 @@ const MAX_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_MAX_TIMEOUT_MS', 10 *
  */
 export const DISABLE_BACKGROUND_TASKS_ENV = 'NAMZU_DISABLE_BACKGROUND_TASKS'
 
-function backgroundTasksDisabled(): boolean {
+export function backgroundTasksDisabled(): boolean {
 	const value = process.env[DISABLE_BACKGROUND_TASKS_ENV]?.trim().toLowerCase()
 	return value !== undefined && value !== '' && value !== '0' && value !== 'false'
 }
@@ -442,7 +442,8 @@ export function execHostShell(
 	})
 }
 
-function isDangerousCommand(command: string): boolean {
+/** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
+export function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
 }
 

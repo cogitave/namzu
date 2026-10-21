@@ -183,8 +183,9 @@ type**.
 ### Persisted events
 
 The live event union (`SessionEvent`, `packages/sdk/src/types/session/events.ts`)
-has 62 type literals. Every one except the four high-volume ones —
-`text_delta`, `tool_input_delta`, `reasoning_delta` and `tool_progress` — is
+has 63 type literals. Every one except the five high-volume ones —
+`text_delta`, `tool_input_delta`, `reasoning_delta`, `tool_progress` and
+`monitor_event` — is
 appended as a record of the same `type`. The record is the event with
 `sessionId` and `turnId` moved to the envelope and `lineage` dropped (it
 follows from `session_started.parent`). Its payload is the event's.

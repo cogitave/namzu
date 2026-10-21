@@ -340,6 +340,9 @@ export {
 export {
 	SteeringBinding,
 	attachSteering,
+	capMonitorNotifications,
+	formatMonitorEnd,
+	formatMonitorEvent,
 	formatSteeringNote,
 } from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'

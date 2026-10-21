@@ -89,8 +89,41 @@ export async function* releaseTurnResources(
 	// Only jobs bound to this turn. Jobs a host bound to its session are
 	// the host's to stop, when the session ends.
 	if (backgroundJobs && (backgroundJobOwner ?? ctx.turnId) === ctx.turnId) {
+		// A monitor still running here is one the turn held itself open for and
+		// stopped waiting on (the hold hit its bound). The exit listener is
+		// already unsubscribed, so nobody would tell the model or the host it
+		// was stopped: say so here, from the release path itself.
+		const monitors = backgroundJobs
+			.list(ctx.turnId)
+			.filter((job) => job.kind === 'monitor' && job.status === 'running')
+		for (const job of monitors) {
+			ctx.log.warn('A monitor was still running when its turn ended and is being stopped', {
+				[NAMZU.TURN_ID]: ctx.turnId,
+				'namzu.jobs.id': job.id,
+				'namzu.monitor.description': job.description ?? '',
+			})
+		}
 		try {
 			const stopped = await backgroundJobs.killOwner(ctx.turnId)
+			for (const job of stopped) {
+				if (job.kind !== 'monitor') continue
+				await eventTranslator
+					.emitEvent({
+						type: 'background_job_exited',
+						turnId: ctx.turnId,
+						jobId: job.id,
+						command: job.command,
+						status: 'killed',
+						...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+						...(job.signal ? { signal: job.signal } : {}),
+						monitor: {
+							description: job.description ?? '',
+							stopReason: job.stopReason ?? 'stopped',
+						},
+					})
+					.catch(() => {})
+			}
+			if (monitors.length > 0) yield* eventTranslator.drainPending()
 			if (stopped.length > 0) {
 				ctx.log.info('Background jobs stopped with the turn', {
 					[NAMZU.TURN_ID]: ctx.turnId,

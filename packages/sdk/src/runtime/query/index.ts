@@ -145,7 +145,13 @@ import {
 	supersededByRecovery,
 } from './resume-pending.js'
 import { acquireSandbox } from './sandbox-lifecycle.js'
-import { SteeringBinding, type SteeringChannel, isOperatorUserMessage } from './steering.js'
+import {
+	SteeringBinding,
+	type SteeringChannel,
+	formatMonitorEnd,
+	formatMonitorEvent,
+	isOperatorUserMessage,
+} from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
@@ -280,6 +286,22 @@ export interface QueryParams {
 	 * mean the model saw it. A host can carry unacknowledged exits to its next turn.
 	 */
 	onJobNoticeDelivered?: (jobIds: readonly string[]) => void
+	/**
+	 * Called with monitor event ids only when their text enters model context:
+	 * a tool result or a recorded runtime message. A `monitor_event` alone does
+	 * not mean the model saw it, so a host that wakes an idle session for
+	 * events must not treat one as delivered until this says so. The end of a
+	 * monitor is acknowledged through {@link onJobNoticeDelivered}, with its
+	 * job id, as any job's exit is.
+	 */
+	onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
+	/**
+	 * The longest a monitor started in this turn may live, in milliseconds.
+	 * Absent, the SDK ceiling (30 minutes). A host lowers it where nobody will
+	 * be around for the rest, such as a single-shot run. Larger requests are
+	 * clamped to it without an error.
+	 */
+	monitorTimeoutCapMs?: number
 
 	/**
 	 * What else goes in this turn's prompt.
@@ -1373,6 +1395,27 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// subscription that fills it below, because the wait-intent recorder needs
 		// to ask whether its text has been read yet.
 		const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
+		// What this turn's monitors said, in the system-event envelope. Its own
+		// channel because the exit notices above are plain text with a plain ack,
+		// and a monitor's text is untrusted process output with an ack of its own.
+		const monitorNotices = params.backgroundJobs ? new SteeringBinding() : undefined
+		const pendingMonitorEventIds = new Set<string>()
+		const pendingMonitorEndIds = new Set<string>()
+		const acknowledgeMonitorNotices = () => {
+			const eventIds = [...pendingMonitorEventIds]
+			const endIds = [...pendingMonitorEndIds]
+			pendingMonitorEventIds.clear()
+			pendingMonitorEndIds.clear()
+			try {
+				if (eventIds.length > 0) params.onMonitorEventsDelivered?.(eventIds)
+				if (endIds.length > 0) params.onJobNoticeDelivered?.(endIds)
+			} catch (error) {
+				// A host observer cannot retract model-visible context or fail the turn.
+				ctx.log.warn('A monitor notice observer failed', {
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
 		const pendingJobNoticeIds = new Set<string>()
 		const acknowledgeJobNotices = () => {
 			if (pendingJobNoticeIds.size === 0) return
@@ -1391,8 +1434,17 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// thing that can hold this turn open for a job. Built only where there is a
 		// registry, so a host with no background mode carries no recorder and the
 		// bound ref has no `markAwaited` to offer.
+		// A turn that owns its jobs itself has no host listening for a monitor, so
+		// it holds open for the monitors it started; a session-owned monitor is the
+		// host's to hear (`AwaitedJobs`' `MonitorHold`).
+		const turnOwnsJobs = params.backgroundJobOwner === undefined
 		const awaitedJobs = params.backgroundJobs
-			? new AwaitedJobs(params.backgroundJobs, jobOwner, () => jobNotices?.pending ?? false)
+			? new AwaitedJobs(
+					params.backgroundJobs,
+					jobOwner,
+					() => jobNotices?.pending ?? false,
+					turnOwnsJobs ? { unreadNotice: () => monitorNotices?.pending ?? false } : undefined,
+				)
 			: undefined
 		awaitedJobs?.attach()
 
@@ -1424,6 +1476,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 				...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
 				...(awaitedJobs ? { onJobAwaited: (id: string) => awaitedJobs.expect(id) } : {}),
+				...(awaitedJobs ? { onMonitorStarted: (id: string) => awaitedJobs.expectMonitor(id) } : {}),
+				...(params.monitorTimeoutCapMs !== undefined
+					? { monitorTimeoutCapMs: params.monitorTimeoutCapMs }
+					: {}),
 				// The `skill` tool's registry. Threaded from the turn rather than
 				// held by the tool, because a tool that reached for a module-level
 				// registry would answer about whatever the last turn configured.
@@ -1493,8 +1549,31 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// result, and the host as an event — without either polling. Subscribed
 		// for the owner the turn's jobs are bound to, so a session-owned job that
 		// ends during this turn is reported here too.
-		const unsubscribeJobExits = params.backgroundJobs?.onExit((job) => {
+		const unsubscribeExits = params.backgroundJobs?.onExit((job) => {
 			if (job.owner !== jobOwner) return
+			if (job.kind === 'monitor' && params.backgroundJobs) {
+				// A monitor's end is told in the monitor's own words (the same
+				// `describeMonitorEnd` the transcript and a single-shot run use) and
+				// in the same envelope as its events, rather than as a generic exit.
+				monitorNotices?.steer(formatMonitorEnd(job, params.backgroundJobs.monitorStats(job.id)))
+				pendingMonitorEndIds.add(job.id)
+				void eventTranslator
+					.emitEvent({
+						type: 'background_job_exited',
+						turnId: ctx.turnId,
+						jobId: job.id,
+						command: job.command,
+						status: job.status === 'killed' ? 'killed' : 'exited',
+						...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+						...(job.signal ? { signal: job.signal } : {}),
+						monitor: {
+							description: job.description ?? '',
+							...(job.stopReason ? { stopReason: job.stopReason } : {}),
+						},
+					})
+					.catch(() => {})
+				return
+			}
 			const outcome =
 				job.status === 'killed'
 					? 'was stopped'
@@ -1515,6 +1594,38 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				})
 				.catch(() => {})
 		})
+		// What a monitor prints reaches the model as an event on its next tool
+		// result, and the host as `monitor_event`. Subscribed for the owner the
+		// turn's jobs are bound to, like the exits above.
+		const unsubscribeMonitorEvents = params.backgroundJobs?.onMonitorEvent((event) => {
+			if (event.owner !== jobOwner) return
+			let command = ''
+			try {
+				command = params.backgroundJobs?.get(event.jobId).command ?? ''
+			} catch {
+				// The record is gone; the event still stands without its command.
+			}
+			monitorNotices?.steer(formatMonitorEvent(event, command))
+			pendingMonitorEventIds.add(event.id)
+			void eventTranslator
+				.emitEvent({
+					type: 'monitor_event',
+					turnId: ctx.turnId,
+					jobId: event.jobId,
+					eventId: event.id,
+					description: event.description,
+					kind: event.kind,
+					text: event.text,
+				})
+				.catch(() => {})
+		})
+		const unsubscribeJobExits =
+			unsubscribeExits || unsubscribeMonitorEvents
+				? () => {
+						unsubscribeExits?.()
+						unsubscribeMonitorEvents?.()
+					}
+				: undefined
 		let workingStateManager: WorkingStateManager | undefined
 		// Normalised once, defaults applied. A host that passes a partial
 		// object — a strategy and a window, nothing else — used to reach the
@@ -1664,6 +1775,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.steering ? { steering: params.steering } : {}),
 			...(jobNotices ? { jobNotices } : {}),
 			...(jobNotices ? { onJobNoticeDelivered: acknowledgeJobNotices } : {}),
+			...(monitorNotices ? { monitorNotices } : {}),
+			...(monitorNotices ? { onMonitorNoticeDelivered: acknowledgeMonitorNotices } : {}),
 			...(awaitedJobs ? { awaitedJobs } : {}),
 			checkpointMgr,
 			planManager: ctx.planManager,

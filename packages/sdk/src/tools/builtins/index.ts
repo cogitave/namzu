@@ -11,6 +11,12 @@ export {
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './lsp.js'
 export { GrepTool } from './grep.js'
 export { JobTool } from './job.js'
+export {
+	MONITOR_CANNOT_DETACH,
+	MONITOR_TOOL_NAME,
+	MonitorTool,
+	getMonitorTools,
+} from './monitor.js'
 export { WaitForJobTool } from './wait-for-job.js'
 export { SKILL_TOOL_NAME, SkillTool, createSkillTool, parseAllowedTools } from './skill.js'
 export type {

@@ -103,6 +103,7 @@ import {
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './exec-flags.js'
+import { EXEC_MONITOR_CAP_MS, monitorReportMessage, watchMonitors } from './exec-monitors.js'
 import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { parsePriorMessages } from './prior-messages.js'
 import { readStdin } from './stdin.js'
@@ -327,6 +328,7 @@ export async function execJson(
 	const session = await createAgentSession(prefs, probe.detected, {
 		cwd,
 		...(structuredOutput ? { structuredOutput } : {}),
+		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		scope: {
 			sessionId: conversationId ?? generateSessionId(),
 			topicId: cli.topicId,
@@ -483,6 +485,7 @@ export async function execJson(
 	// workflow the model started is waited for and reported on before exit.
 	let history: readonly Message[] | undefined
 	const watch = watchWorkflows(session.workflows)
+	const monitorWatch = watchMonitors(session.monitors)
 	const turnOptions = {
 		signal: turnAbort.signal,
 		...(extraSystem ? { extraSystem } : {}),
@@ -515,15 +518,24 @@ export async function execJson(
 		await stream(messages)
 		for (
 			let rounds = 0;
-			watch && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;
+			(watch || monitorWatch) && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;
 			rounds += 1
 		) {
-			const report = await watch.report({
-				signal: turnAbort.signal,
-				...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
-			})
-			if (report === undefined || stopped) break
-			await stream([...(history ?? messages), reportMessage(report)])
+			const workflowReport = watch
+				? await watch.report({
+						signal: turnAbort.signal,
+						...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
+					})
+				: undefined
+			const monitorReport = stopped
+				? undefined
+				: await monitorWatch?.report({ signal: turnAbort.signal })
+			if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
+			await stream([
+				...(history ?? messages),
+				...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
+				...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
+			])
 		}
 		watch?.dispose()
 	} catch (err) {

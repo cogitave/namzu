@@ -36,6 +36,10 @@ The output view is bounded and shows when earlier bytes were dropped by the job 
 
 An exit that arrives while no model turn is open appears in the transcript and is included in the next request as an observation. Its command and status are request context, not system instructions. Once the kernel acknowledges an exit, the CLI does not announce it again.
 
+# Watching a command
+
+`bash` with `run_in_background` and `wait_for_job` answers "tell me when it finishes". To be told about each line a command prints while it runs, the model uses the `monitor` tool; see [Monitors in the CLI](monitor.md). A monitor is a job of the session, so `/jobs` lists it and the job tool can read or stop it, but the footer counts it apart from shells.
+
 # Waiting for one
 
 By default, `wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.

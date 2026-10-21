@@ -336,6 +336,8 @@ describe('the drain is actually reached', () => {
 		expect(spies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
 			stateRoot: HOME,
 			scope: { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, topicId: TOPIC },
+			// One turn, then the session closes: a monitor would die unreported.
+			monitorTool: false,
 		})
 	})
 

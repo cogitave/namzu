@@ -542,6 +542,8 @@ export async function runFire(
 	const config = projectCtx.config
 	const session = await agent.createAgentSession(prefs, [detected], {
 		cwd: folder.canonical,
+		// One turn, then the session closes: a monitor would be killed unreported.
+		monitorTool: false,
 		stateRoot: paths.home,
 		conversationSessions: sessions,
 		scope: {

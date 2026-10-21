@@ -22,7 +22,7 @@ import type { TurnSettlement } from '../../types/session/turn.js'
  * exists — so a new event can neither reach a wire unexamined nor be left
  * off one silently.
  *
- * Shared rather than copied per wire. Two lists of sixty-two fixtures
+ * Shared rather than copied per wire. Two lists of sixty-three fixtures
  * drift, and the drift is invisible: each file still compiles, each still
  * passes, and the two wires are quietly tested against different events.
  *
@@ -163,6 +163,16 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		command: 'npm test',
 		status: 'exited',
 		exitCode: 0,
+	}),
+	monitor_event: () => ({
+		type: 'monitor_event',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		jobId: 'b00000001',
+		eventId: 'b00000001:1',
+		description: 'errors in deploy log',
+		kind: 'output',
+		text: 'ERROR: deploy failed',
 	}),
 	memory_consolidated: () => ({
 		type: 'memory_consolidated',
