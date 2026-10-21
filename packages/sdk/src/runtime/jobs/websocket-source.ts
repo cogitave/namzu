@@ -312,6 +312,8 @@ export function connectWebSocketSource(options: WebSocketSourceOptions): JobProc
 	let opened = false
 	let rejected = false
 	let oversize = false
+	// The connection failed before it opened: the error notice was the last word.
+	let failedToOpen = false
 	let ended = false
 
 	const write = (text: string): void => {
@@ -369,6 +371,13 @@ export function connectWebSocketSource(options: WebSocketSourceOptions): JobProc
 					client.terminate()
 					return
 				}
+				if (!opened) {
+					// It never opened, so there is no close to report after this:
+					// one notice says it failed, and it is the last.
+					failedToOpen = true
+					host.notice(webSocketErrorNotice(error.message), { final: true })
+					return
+				}
 				host.notice(webSocketErrorNotice(error.message))
 			})
 			client.on('message', (data, isBinary) => {
@@ -385,7 +394,7 @@ export function connectWebSocketSource(options: WebSocketSourceOptions): JobProc
 			})
 			client.on('close', (code, reason) => {
 				const why = reason.toString('utf8')
-				if (!stopping && !rejected && !oversize) {
+				if (!stopping && !rejected && !oversize && !failedToOpen) {
 					host.notice(webSocketClosedNotice(code, why), { final: true })
 					if (opened) host.connectionClosed(code, oneLine(why))
 				}

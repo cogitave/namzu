@@ -237,7 +237,7 @@ describe('a WebSocket monitor ends with a notice, and nothing follows it', () =>
 		)
 	})
 
-	it('reports a connection that could not be made, then that it closed', async () => {
+	it('reports a connection that could not be made in one notice, and no close after it', async () => {
 		const { log, start, exit } = setup()
 		const f = await fixture()
 		const dead = f.url
@@ -245,10 +245,9 @@ describe('a WebSocket monitor ends with a notice, and nothing follows it', () =>
 		const job = start(dead)
 		const ended = await exit(job.id)
 
-		expect(log).toHaveLength(3)
+		expect(log).toHaveLength(2)
 		expect(log[0]).toMatch(/^notice:\[WebSocket error: .*ECONNREFUSED.*\]$/)
-		expect(log[1]).toBe('notice:[WebSocket closed: 1006]')
-		expect(log[2]).toBe('exit:exited')
+		expect(log[1]).toBe('exit:exited')
 		expect(ended.exitCode).toBe(1)
 	})
 
