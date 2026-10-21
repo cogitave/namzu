@@ -105,7 +105,8 @@ By mode:
 | `accept-edits` | starts | asked |
 | `plan` | starts (reading is what plan mode is for) | refused with the plan-mode feedback |
 | `strict` | refused unless a rule allows `Agent` | refused unless a rule allows `Agent` |
-| `auto` | starts | starts |
+| `bypass` | starts | starts |
+| `auto` (the classifier) | starts | decided by the classifier like any other call that `prompt` would ask about |
 
 **To keep every launch asked about**, as before this change, add an `ask` rule
 for the tool: `"permissions": { "Agent": "ask" }` in `namzu.config.json` or
@@ -123,7 +124,7 @@ Escape declines the current request; Ctrl+C rejects all pending requests and
 stops the turn. Closing the application rejects unresolved reviews.
 
 A child is reviewed under the parent turn's live permission mode, read at each
-request. Plan mode entered with Shift+Tab while a child runs refuses that
+request, and has no mode of its own: it runs in `bypass` only while its parent does, and an agent file names a model and tools, never a mode ([Permission modes](permission-modes.md#sub-agents)). Plan mode entered with Shift+Tab while a child runs refuses that
 child's next change with the plan-mode feedback, including one a `permissions`
 rule allows and one of a kind the operator approved earlier in the child's
 turn: the parent turn's "review even what the rules allow" switch reaches every
@@ -134,7 +135,7 @@ retroactively; a refused call stays refused. A paused turn continued with
 at each request like a new turn's, so `/resume` in plan mode refuses the
 resumed turn's changes and its children's, and Shift+Tab during it reaches
 both. With nobody asked on a resumed turn, `prompt` and `accept-edits` approve
-what the rules leave to review, as `auto` does, except a sandbox escape or a
+what the rules leave to review, as the unattended default does, except a sandbox escape or a
 path outside the roots, which is refused; `plan` and `strict` refuse. `namzu
 exec` resumes under the mode the session was started with.
 

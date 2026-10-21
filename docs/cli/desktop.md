@@ -3140,7 +3140,7 @@ unzoomed width.
 
 | Engine | Program and arguments |
 | --- | --- |
-| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>`. The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes as `--message=<text>` (one argument, never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
+| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>` (the CLI's own words: `bypass` for Full access, `auto` for Auto). The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes as `--message=<text>` (one argument, never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
 | Codex CLI | `codex -m <model> -c model_reasoning_effort=<level>` and the approval and sandbox flags below, then `-- <message>` |
 | Second engine | its own program `--model <id> --effort <level> --permission-mode <mode>`, then `-- <message>` |
 
@@ -3318,7 +3318,7 @@ The permission chip beside "+" shows an icon and the current mode; Full access u
 the warning colour in the chip and the menu. It opens a popover titled "When should
 Namzu (or Codex, or the second external engine) check with you?" with one row per mode the engine
 supports: Ask first, Edit automatically (`accept-edits`, Namzu and Codex when the
-engine reports it), Full access (`auto`) and Plan only (titled Read only for Codex).
+engine reports it), Auto (`classify`, Namzu only: a second model checks each step), Full access (`bypass`) and Plan only (titled Read only for Codex).
 Preapproved only (`strict`) appears only when it is the saved mode, and a saved mode
 the engine no longer supports stays visible without changing the stored policy.
 Arrow keys move the highlight; Enter, Space or a click chooses; Escape closes and
@@ -3464,9 +3464,11 @@ known and it does not. A settings read that failed decides nothing: the saved ef
 kept, and only the turn sent meanwhile leaves it off. These controls capture the model and conversation owner, so a late
 interaction cannot modify another selection.
 The underlying Namzu permission modes remain Ask first (`prompt`), Edit automatically
-(`accept-edits`), Full access (`auto`), Preapproved only (`strict`) and Plan only
-(`plan`). Full access remains subject to configured deny rules; Plan refuses
-changes. Settings are captured with each submitted or queued message and do not
+(`accept-edits`), Auto (`classify`), Full access (`bypass`), Preapproved only (`strict`) and Plan only
+(`plan`). Full access (and Auto) remain subject to configured deny rules, `ask` rules and the
+`permissions.disableBypassMode` / `permissions.disableAutoMode` settings; Plan refuses
+changes. A conversation that saved Full access as the kernel's old `auto` shows as Full access and
+means `bypass`. See [Permission modes](permission-modes.md#desktop-and-acp). Settings are captured with each submitted or queued message and do not
 change the turn already running.
 
 The attachment/settings popup exposes Attach images or files and Plugins.

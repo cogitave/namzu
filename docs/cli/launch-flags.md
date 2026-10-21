@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --permission-mode, --message, --continue and --resume on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach auto, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --permission-mode, --message, --continue and --resume on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -23,9 +23,9 @@ Four options choose how one interactive session starts. They are written **befor
 | `--provider <id>` | the provider for this launch | an id from the provider list |
 | `--model <id>` | the model for this launch | a model id the provider offers |
 | `--effort <level>` | the reasoning effort | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
-| `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `auto`, `strict`, `plan` |
+| `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `plan`, `bypass`, `auto`, `strict` ([Permission modes](permission-modes.md)) |
 
-Two switches change what Shift+Tab may reach rather than where the session starts. `--dangerously-skip-permissions` (alias `--yolo`) starts in `auto`, and `--allow-dangerously-skip-permissions` keeps the launch mode but lets Shift+Tab reach `auto`; the cycle is `prompt`, `accept-edits`, `plan`, then `auto` (only when the launch allowed it), then `prompt`. Without either switch, `plan` goes straight back to `prompt`, and `--permission-mode auto` counts as launching in `auto`. Choosing `auto` by name in `/permissions` allows it for the rest of the session. `--allow-dangerously-skip-permissions` is for the interactive session only; `namzu exec` does not take it.
+Two switches change what Shift+Tab may reach rather than where the session starts. `--dangerously-skip-permissions` (alias `--yolo`) starts in `bypass`, and `--allow-dangerously-skip-permissions` keeps the launch mode but lets Shift+Tab and `/permissions` reach `bypass`; the cycle is `prompt`, `accept-edits`, `plan`, then `bypass` (only when the launch allowed it), then `auto` (unless `permissions.disableAutoMode` is set), then `prompt`. `--permission-mode bypass` counts as launching in `bypass`. `--permission-mode auto` is the classifier mode, not the old no-prompt one. A launch the settings or the root guard forbid (`permissions.disableBypassMode`, bypass as the superuser outside a sandbox) is refused with exit status 64 and a plain sentence. The first time a launch starts in `bypass` it asks `Start in bypass mode? [y/N]` once; a no starts in the ordinary mode. `--allow-dangerously-skip-permissions` is for the interactive session only; `namzu exec` does not take it.
 
 A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
 
@@ -46,7 +46,7 @@ These follow the reference terminal and apply to the interactive session only (t
 
 - **`--provider`** replaces the provider chain with that provider alone, so a fallback you saved cannot answer in its place. With `--model` it names that provider's model; without it the provider chooses its own default.
 - **`--model` alone** re-models the saved primary provider and keeps the saved fallbacks behind it. With nothing saved there is no provider to apply it to: the provider list opens and says so.
-- **`--permission-mode`** names the starting mode outright and wins over `--yolo` / `--dangerously-skip-permissions`. The status report (`/permissions`, `/status`) says the mode was selected at launch.
+- **`--permission-mode`** names the starting mode outright and wins over `--yolo` / `--dangerously-skip-permissions`, which in turn win over `permissions.defaultMode`. The status report (`/permissions`, `/status`) says the mode was selected at launch, or by the configuration.
 - **`--effort`** applies to the first session the launch opens. A level the chosen model does not offer is reported (`--effort high is not offered by <model>; using the provider default.`) and the default stays; the levels a model offers are the ones `/effort` lists.
 
 ## When a launch cannot be honoured

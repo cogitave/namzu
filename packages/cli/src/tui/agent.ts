@@ -3751,8 +3751,10 @@ export async function createAgentSession(
 			readonly onClassifierLimit?: ReviewExtras['onClassifierLimit']
 			readonly onClassifierTranscriptTooLong?: ReviewExtras['onClassifierTranscriptTooLong']
 		} = {},
+		registry: Pick<ToolManager, 'get' | 'sourceOf'> = manager,
 	): ReviewExtras => ({
 		roots: () => [cwd, ...directories],
+		registry,
 		...(sessionClassifier ? { classifier: sessionClassifier } : {}),
 		...callbacks,
 	})
@@ -4435,7 +4437,7 @@ export async function createAgentSession(
 								{ unattendedSandboxEscape },
 								reviewHold.reason,
 								screenPolicyFor(() => liveManager()),
-								reviewExtras(),
+								reviewExtras({}, liveManager()),
 							)
 						: makeResumeHandler(
 								// A caller that brings its own prompt (a scheduled turn answered in
@@ -4454,7 +4456,10 @@ export async function createAgentSession(
 								options.planApproval && !options.ephemeral
 									? isPlanFileWrite(paths.planFile({ sessionId: entry.sessionId }), cwd)
 									: undefined,
-								reviewExtras(onAutoModeLimit ? { onClassifierLimit: onAutoModeLimit } : undefined),
+								reviewExtras(
+									onAutoModeLimit ? { onClassifierLimit: onAutoModeLimit } : undefined,
+									liveManager(),
+								),
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -5144,7 +5149,7 @@ export async function createAgentSession(
 										{ unattendedSandboxEscape },
 										opts.reviewHold.reason,
 										screenPolicyFor(() => runManager),
-										reviewExtras(),
+										reviewExtras({}, runManager),
 									)
 								: makeResumeHandler(
 										approval,
@@ -5162,6 +5167,7 @@ export async function createAgentSession(
 											opts?.onAutoModeLimit
 												? { onClassifierLimit: opts.onAutoModeLimit }
 												: undefined,
+											runManager,
 										),
 									),
 					})
@@ -6776,6 +6782,12 @@ export function makeResumeHandler(
 export interface ReviewExtras {
 	/** The working directory and the added directories, read when a call is judged. */
 	readonly roots?: () => readonly string[]
+	/**
+	 * The turn's tools. The policy reads from them how a shell tool names its
+	 * command (for `accept-edits`' file commands) and how a tool describes its
+	 * own call to the classifier; without them both do nothing.
+	 */
+	readonly registry?: Pick<ToolManager, 'get' | 'sourceOf'>
 	readonly classifier?: AutoReviewClassifier
 	/** The classifier has blocked enough that this session should stop relying on it. */
 	readonly onClassifierLimit?: (event: {
@@ -6805,6 +6817,7 @@ function effectiveReviewMode(
 function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 	return {
 		...(extras.roots ? { roots: extras.roots } : {}),
+		...(extras.registry ? { registry: extras.registry } : {}),
 		...(mode === 'classify' && extras.classifier
 			? {
 					classifier: extras.classifier,

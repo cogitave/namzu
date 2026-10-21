@@ -166,8 +166,8 @@ metadata:
 **Only the TUI has it.** The App registers `save_skill` for its own session;
 `namzu exec`, `drain`, a scheduled run, ACP, a resident worker and every
 sub-agent build their tools without it. **Its screen is its own question, not
-the permission gate's**: in `prompt`, `accept-edits` and `auto` the gate does
-not ask about it, and the screen asks every time, `auto` included. `plan` and
+the permission gate's**: in `prompt`, `accept-edits`, `bypass` and `auto` the gate does
+not ask about it, and the screen asks every time, `bypass` and `auto` included. `plan` and
 `strict` refuse it, and a `save_skill` rule in `[permissions]` (`ask` or
 `deny`) still applies (`packages/cli/src/tui/agent.ts` `reviewExemptionFor`).
 A session that can save a skill also carries the `skill` tool, so the saved

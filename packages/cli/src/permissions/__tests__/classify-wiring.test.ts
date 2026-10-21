@@ -19,6 +19,7 @@ import {
 	type ResumeHandler,
 	type SessionId,
 	type TenantId,
+	ToolManager,
 	type TopicId,
 	createUserMessage,
 	query,
@@ -74,6 +75,8 @@ async function turn(options: {
 		success: true,
 		output: 'RESULT-THE-CLASSIFIER-MUST-NOT-SEE',
 	}))
+	const shell = toolset('shell', [{ ...BashTool, execute }])
+	const registry = new ToolManager({ toolsets: [shell], messages: () => [] })
 	const handler = makeResumeHandler(
 		{ all: false },
 		options.onPermission,
@@ -82,7 +85,7 @@ async function turn(options: {
 		{},
 		undefined,
 		undefined,
-		{ roots: () => [cwd], ...options.extras },
+		{ roots: () => [cwd], registry, ...options.extras },
 	)
 	const provider = new MockLLMProvider({
 		turns: [
@@ -93,7 +96,7 @@ async function turn(options: {
 	const events: { type?: string; kind?: string }[] = []
 	for await (const event of query({
 		provider,
-		toolsets: [toolset('shell', [{ ...BashTool, execute }])],
+		toolsets: [shell],
 		messages: [createUserMessage(options.userSays ?? 'publish it')],
 		turnConfig: {
 			model: 'mock-model',

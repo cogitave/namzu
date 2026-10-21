@@ -16,6 +16,7 @@ import {
 	MockLLMProvider,
 	type SessionId,
 	type TenantId,
+	ToolManager,
 	type TopicId,
 	createUserMessage,
 	query,
@@ -34,11 +35,18 @@ afterEach(() => {
 })
 
 /** One turn: the model asks for `command`, and whatever happens, ends. */
-async function run(command: string, mode: PermissionMode, answer: 'approve' | 'reject' = 'reject') {
+async function run(
+	command: string,
+	mode: PermissionMode,
+	answer: 'approve' | 'reject' = 'reject',
+	giveRoots = true,
+) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-bypass-session-'))
 	dirs.push(cwd)
 	mkdirSync(join(cwd, 'sub'))
 	const execute = vi.fn(async () => ({ success: true, output: 'ran' }))
+	const shell = toolset('shell', [{ ...BashTool, execute }])
+	const registry = new ToolManager({ toolsets: [shell], messages: () => [] })
 	const asked = vi.fn<PermissionFn>(async () =>
 		answer === 'approve' ? { kind: 'approve' } : { kind: 'reject', feedback: 'no' },
 	)
@@ -51,7 +59,7 @@ async function run(command: string, mode: PermissionMode, answer: 'approve' | 'r
 		undefined,
 		undefined,
 		{
-			roots: () => [cwd],
+			...(giveRoots ? { roots: () => [cwd], registry } : {}),
 		},
 	)
 	const provider = new MockLLMProvider({
@@ -59,7 +67,7 @@ async function run(command: string, mode: PermissionMode, answer: 'approve' | 'r
 	})
 	for await (const _event of query({
 		provider,
-		toolsets: [toolset('shell', [{ ...BashTool, execute }])],
+		toolsets: [shell],
 		messages: [createUserMessage('go')],
 		turnConfig: {
 			model: 'mock-model',
@@ -128,5 +136,29 @@ describe('a --yolo session', () => {
 
 		expect(outside.asked).toHaveBeenCalled()
 		expect(unnamed.asked).toHaveBeenCalled()
+	})
+})
+
+describe('accept-edits and the folders the session works in', () => {
+	it('runs simple file commands inside the roots without asking, once the policy is told the roots', async () => {
+		for (const command of ['mkdir out', 'touch sub/a.txt', 'cp sub/a.txt sub/b.txt']) {
+			const { asked, execute } = await run(command, 'accept-edits')
+
+			expect(asked, command).not.toHaveBeenCalled()
+			expect(execute, command).toHaveBeenCalledTimes(1)
+		}
+	})
+
+	it('asks about the same commands when the roots are not passed on', async () => {
+		const { asked } = await run('mkdir out', 'accept-edits', 'approve', false)
+
+		expect(asked).toHaveBeenCalledTimes(1)
+	})
+
+	it('asks when a command names a path outside the roots', async () => {
+		const { asked, execute } = await run('touch /tmp/outside.txt', 'accept-edits')
+
+		expect(asked).toHaveBeenCalledTimes(1)
+		expect(execute).not.toHaveBeenCalled()
 	})
 })

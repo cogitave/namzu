@@ -1770,7 +1770,7 @@ it('keeps the trusted host current plan mode stricter than a one-batch authentic
 	}
 })
 
-it.each(['auto', 'accept-edits'] as const)(
+it.each(['auto', 'accept-edits', 'bypass', 'classify'] as const)(
 	'holds a later reviewed batch after approve_once when the current host mode is %s',
 	async (mode) => {
 		const provider = new MockLLMProvider({
@@ -1812,7 +1812,7 @@ it.each(['auto', 'accept-edits'] as const)(
 	},
 )
 
-it.each(['auto', 'accept-edits'] as const)(
+it.each(['auto', 'accept-edits', 'bypass', 'classify'] as const)(
 	'keeps the one-batch ceiling when the live host switches from prompt to %s during the approved guest write',
 	async (nextMode) => {
 		const provider = new MockLLMProvider({
