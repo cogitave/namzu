@@ -26,6 +26,17 @@ function monitors(running: { count: number }): {
 	return { session, inbox }
 }
 
+const stoppedEnd = {
+	id: 'b1',
+	owner: 's',
+	command: 'tail -f log',
+	status: 'killed' as const,
+	stopReason: 'stopped' as const,
+	startedAt: 0,
+	kind: 'monitor' as const,
+	description: 'errors',
+}
+
 const event = {
 	id: 'b1:1',
 	jobId: 'b1',
@@ -92,5 +103,29 @@ describe('the single-shot run and its monitors', () => {
 		const pending = watchMonitors(session)?.report({ signal: abort.signal })
 		abort.abort()
 		expect(await pending).toBeUndefined()
+	})
+
+	it('does not spend a reporting turn on a stop the operator asked for', async () => {
+		const { session, inbox } = monitors({ count: 0 })
+		inbox.addEnd(stoppedEnd, { stdoutChars: 0 })
+		expect(inbox.size).toBe(1)
+		expect(inbox.wakes()).toBe(false)
+		expect(
+			await watchMonitors(session)?.report({ signal: new AbortController().signal }),
+		).toBeUndefined()
+		// Not taken: it is told with the next turn, never lost.
+		expect(inbox.size).toBe(1)
+	})
+
+	it('keeps waiting past a stop, and hands it over with the next real report', async () => {
+		const running = { count: 1 }
+		const { session, inbox } = monitors(running)
+		inbox.addEnd(stoppedEnd, { stdoutChars: 0 })
+		const pending = watchMonitors(session)?.report({ signal: new AbortController().signal })
+		inbox.addEvent({ ...event, jobId: 'b2', id: 'b2:1', text: 'BOOM' })
+		const report = await pending
+		expect(report).toContain('BOOM')
+		expect(report).toContain('stopped')
+		expect(inbox.size).toBe(0)
 	})
 })

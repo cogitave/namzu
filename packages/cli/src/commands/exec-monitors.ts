@@ -8,7 +8,7 @@
  * anything. This waits instead: while the session owns a running monitor it
  * waits for the monitor to speak or end (the registry tells it, nothing is
  * polled), hands the model what arrived as one message, and lets it report.
- * It stops when no monitor is left, and a monitor cannot outlive its timeout
+ * A stop nobody should wake for does not start a reporting turn. It stops when no monitor is left, and a monitor cannot outlive its timeout
  * (`EXEC_MONITOR_CAP_MS`), so the wait is bounded by the watches themselves.
  */
 
@@ -34,7 +34,11 @@ export function watchMonitors(monitors: SessionMonitors | undefined): MonitorWat
 	return {
 		async report({ signal }) {
 			while (!signal.aborted) {
-				if (monitors.size > 0) return monitors.take().text
+				// Only something wake-worthy costs a reporting turn. A stop the
+				// operator asked for is nothing to report on its own: it stays
+				// pending and rides with the next real report, or is dropped with
+				// the session when no monitor is left to speak.
+				if (monitors.wakes()) return monitors.take().text
 				if (monitors.running() === 0) return undefined
 				await new Promise<void>((resolve) => {
 					const done = (): void => {
