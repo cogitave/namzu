@@ -93,10 +93,21 @@ describe('the verdict', () => {
 		expect(verdict?.reason).not.toContain('\n')
 	})
 
-	it('takes the last verdict outside the thinking and none from an unfinished thought', () => {
-		expect(parseVerdict('<verdict>block</verdict> then <verdict>allow</verdict>')).toEqual({
-			block: false,
+	it('reads no verdict from an answer that both blocks and allows, in either order', () => {
+		expect(parseVerdict('<verdict>block</verdict> then <verdict>allow</verdict>')).toBeUndefined()
+		expect(parseVerdict('<verdict>allow</verdict> then <verdict>block</verdict>')).toBeUndefined()
+		expect(
+			parseVerdict('<verdict>block</verdict><reason>r</reason> <verdict>allow</verdict>'),
+		).toBeUndefined()
+		expect(parseVerdict('<verdict>block</verdict><verdict>block</verdict>')).toEqual({
+			block: true,
 		})
+		expect(
+			parseVerdict('<thinking><verdict>block</verdict></thinking><verdict>allow</verdict>'),
+		).toEqual({ block: false })
+	})
+
+	it('takes no verdict from an unfinished thought, and none from nothing', () => {
 		expect(parseVerdict('<thinking><verdict>allow</verdict></thinking>')).toBeUndefined()
 		expect(parseVerdict('<thinking>still going <verdict>allow</verdict>')).toBeUndefined()
 		expect(parseVerdict('nothing here')).toBeUndefined()
