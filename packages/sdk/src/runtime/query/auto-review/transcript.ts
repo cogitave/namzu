@@ -31,6 +31,14 @@ export interface ProjectionOptions {
 
 const DEFAULT_ENTRY_CHARS = 2_000
 
+/**
+ * A file a host inlined into the person's message (`@path`). Its content is
+ * whatever the file says, not the person's words, so a second guard removes it
+ * even from a message that carries no provenance; the host's own marking
+ * (`source`) is the first.
+ */
+const INLINED_FILE_BLOCK = /<file\b[^>]*>[\s\S]*?<\/file>/gi
+
 function clip(text: string, limit: number): string {
 	return text.length <= limit
 		? text
@@ -106,8 +114,9 @@ export function projectTranscript(
 			// A user-role message the kernel wrote (instructions, reminders, a goal
 			// round) is not the person speaking.
 			if (message.source !== undefined) continue
-			if (typeof message.content === 'string' && message.content.trim() !== '') {
-				entries.push({ kind: 'user', text: clip(message.content, limit) })
+			if (typeof message.content === 'string') {
+				const spoken = message.content.replace(INLINED_FILE_BLOCK, ' ').trim()
+				if (spoken !== '') entries.push({ kind: 'user', text: clip(spoken, limit) })
 			}
 			continue
 		}

@@ -32,6 +32,17 @@ describe('expandFileMentions', () => {
 		expect(sendText).toContain('<file path="src/auth.ts">\nexport const x = 1\n</file>')
 	})
 
+	it('hands the file blocks over on their own, so a host can send them as not the operator', () => {
+		const { sendText, inlined } = expandFileMentions(
+			'fix @src/auth.ts please',
+			'/repo',
+			fake({ 'src/auth.ts': 'export const x = 1' }),
+		)
+		expect(inlined).toBe('<file path="src/auth.ts">\nexport const x = 1\n</file>')
+		expect(sendText).toBe(`fix @src/auth.ts please\n\n${inlined}`)
+		expect(expandFileMentions('no mentions', '/repo', fake({})).inlined).toBeUndefined()
+	})
+
 	it('leaves text untouched when there are no mentions', () => {
 		const r = expandFileMentions('no mentions here', '/repo', fake({}))
 		expect(r).toEqual({ sendText: 'no mentions here', attached: [] })

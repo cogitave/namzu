@@ -8152,10 +8152,21 @@ export function App({
 				prompt.kind === 'human'
 					? expandFileMentions(text, ctx.cwd)
 					: { sendText: text, attached: [] as readonly string[] }
-			const { sendText, attached } = expanded
+			const { sendText, attached, inlined } = expanded
 			const historyBeforeTurn = modelHistoryRef.current
+			// File contents are not the operator's words. They travel as their own
+			// message, marked as host-supplied, so nothing that reads "what the
+			// person said" (the auto-mode classifier above all) reads a file as
+			// the person's instruction.
+			const fileMessage =
+				inlined !== undefined
+					? createUserMessage(inlined, undefined, {
+							type: 'runtime-context',
+							kind: 'host-observation',
+						})
+					: undefined
 			const userMessage = createUserMessage(
-				sendText,
+				fileMessage ? text : sendText,
 				attachments,
 				goalRound
 					? {
@@ -8172,7 +8183,11 @@ export function App({
 							? { type: 'runtime-context', kind: noticeKind }
 							: undefined,
 			)
-			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
+			const priorForSdk: Message[] = [
+				...historyBeforeTurn,
+				userMessage,
+				...(fileMessage ? [fileMessage] : []),
+			]
 			const closeStoppedReply = async (): Promise<void> => {
 				const sessions = sessionsRef.current
 				const scope = scopeRef.current
@@ -8757,7 +8772,9 @@ export function App({
 				// one keeps the old text-only shape. The durable record is the session
 				// log, which the kernel appended to as the turn ran; this is only the
 				// in-memory context the next send starts from.
-				const fallbackTurn: Message[] = admitted ? [userMessage] : []
+				const fallbackTurn: Message[] = admitted
+					? [userMessage, ...(fileMessage ? [fileMessage] : [])]
+					: []
 				if (st.text.trim().length > 0) fallbackTurn.push(createAssistantMessage(st.text))
 				const conversationMessages = admitted ? st.conversationMessages : undefined
 				const nextModelHistory = conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
