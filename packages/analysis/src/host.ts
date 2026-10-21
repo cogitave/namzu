@@ -2,7 +2,7 @@ import { type ChildProcess, fork } from 'node:child_process'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, sep } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { HostReply, HostRequest } from './indexer-host.js'
@@ -41,7 +41,9 @@ const BOOT_TIMEOUT_MS = 15_000
 
 export function hostScript(override?: string): string {
 	if (override !== undefined) {
-		if (existsSync(override)) return override
+		// Absolute: the child runs in the temp directory, not this process's
+		// working directory, so a relative path would name a different file there.
+		if (existsSync(override)) return resolve(override)
 		// A path the host named that does not exist is a packaging mistake worth
 		// naming, not something to paper over with a guess.
 		throw new Error(`The indexer host script ${override} does not exist.`)
@@ -74,8 +76,9 @@ export function childEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.P
  * anonymous mapping that has been written to, untouched pages and all. Into a
  * file those pages are holes; into a pipe they are zeros, and a pipe is what
  * `core_pattern` names on Ubuntu (apport) and systemd systems
- * (systemd-coredump). The kernel sends the whole mapping whatever `ulimit -c`
- * says, and the child does not finish dying until the handler has read it.
+ * (systemd-coredump). The kernel does not apply `ulimit -c` to a pipe, so the
+ * handler is sent the whole mapping whatever it then keeps, and the child does
+ * not finish dying until the handler has read it.
  * The dump would also hold the source being parsed. `coredump_filter` 0 drops
  * every anonymous and file mapping from the dump, leaving the registers and
  * the mapping list. Linux only, and best effort: a /proc that refuses the

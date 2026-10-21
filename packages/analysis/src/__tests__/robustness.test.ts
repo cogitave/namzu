@@ -423,6 +423,16 @@ describe('review: the child and the cache', () => {
 			host.dispose()
 		},
 	)
+
+	it('finds a host script named relative to this process, though the child runs elsewhere', async () => {
+		const { relative } = await import('node:path')
+		const { fileURLToPath } = await import('node:url')
+		const script = fileURLToPath(new URL('../../dist/indexer-host.js', import.meta.url))
+		const host = new ParserHost(relative(process.cwd(), script))
+		const out = await host.parse({ rel: 'a.js', abs: '/x/a.js', text: 'function a(){}' })
+		expect(out.kind).toBe('rows')
+		host.dispose()
+	})
 })
 
 describe('cache eviction', () => {
