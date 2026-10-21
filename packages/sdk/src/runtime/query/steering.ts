@@ -1,4 +1,5 @@
 import type { Message, UserMessage } from '../../types/message/index.js'
+import { MONITOR_NOTIFICATION_MAX_CHARS } from '../jobs/monitor-stream.js'
 
 /** User-role runtime reports are context, not new operator intent. */
 export function isOperatorUserMessage(message: Message): message is UserMessage {
@@ -133,6 +134,33 @@ export function attachNotice(
 /** What the model reads when a background job it started has ended. */
 export function formatJobNote(text: string): string {
 	return `\n\n[Background job update]\n${text}`
+}
+
+/**
+ * What the model reads when a monitor it started has something to say.
+ *
+ * One notification is cut to {@link MONITOR_NOTIFICATION_MAX_CHARS}, in the
+ * middle: the first events say what the watch was and the last say where it
+ * stands, and the middle is the part a reader can best do without. The cut is
+ * announced, never silent. The events themselves are already small (a batch is
+ * at most 3000 characters); this bound is for the queue that piled up while the
+ * model was busy.
+ */
+export function formatMonitorNote(text: string): string {
+	return `\n\n[Monitor update]\n${capNotification(text)}`
+}
+
+export function capNotification(
+	text: string,
+	max: number = MONITOR_NOTIFICATION_MAX_CHARS,
+): string {
+	if (text.length <= max) return text
+	const marker = (omitted: number) => `\n...[${omitted} characters omitted]...\n`
+	// Reserve room for the marker itself so the result never exceeds `max`.
+	const room = Math.max(0, max - marker(text.length).length)
+	const head = Math.ceil(room / 2)
+	const tail = room - head
+	return `${text.slice(0, head)}${marker(text.length - head - tail)}${text.slice(text.length - tail)}`
 }
 
 const STEERING_NOTE_HEADER =

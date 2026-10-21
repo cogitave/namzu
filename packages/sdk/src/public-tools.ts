@@ -84,6 +84,16 @@ export {
 	getCodeAnalysisTools,
 } from './tools/builtins/code-analysis.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
+// Watches a command's stdout and tells the model about each line while it keeps
+// working. NOT in the default builtin set: it needs a host that delivers the
+// events and wakes on them, so a host opts in (and may mount it deferred, as
+// it does `code_analysis`).
+export {
+	MONITOR_CANNOT_DETACH,
+	MONITOR_TOOL_NAME,
+	MonitorTool,
+	getMonitorTools,
+} from './tools/builtins/monitor.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'
 // Reads, lists and stops what `bash run_in_background` starts. Ships in

@@ -13,7 +13,7 @@ import {
 } from '../../project-instructions.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
 import { isReviewExempt } from '../../review-policy.js'
-import { attachNotice, attachSteering, formatJobNote } from '../../steering.js'
+import { attachNotice, attachSteering, formatJobNote, formatMonitorNote } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -240,17 +240,28 @@ export async function* runToolReview(
 		// user message wedged between them is rejected by the provider. Same
 		// delivery a denial already uses, without the refusal.
 		let jobNoticeDelivered = false
+		let monitorNoticeDelivered = false
 		for (const msg of attachRepeatNotice(
 			attachNotice(
-				attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
-				ctx.jobNotices,
-				formatJobNote,
-				// The exits that text accounts for have now been read, so the
-				// record of them stops being pending work. Left standing, it
-				// buys the model a turn the next time any job queues a notice.
+				attachNotice(
+					attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
+					ctx.jobNotices,
+					formatJobNote,
+					// The exits that text accounts for have now been read, so the
+					// record of them stops being pending work. Left standing, it
+					// buys the model a turn the next time any job queues a notice.
+					() => {
+						ctx.awaitedJobs?.noticesDelivered()
+						jobNoticeDelivered = true
+					},
+				),
+				ctx.monitorNotices,
+				formatMonitorNote,
+				// Same rule for what a monitor said: read here, so a turn holding
+				// itself open for the monitor does not spend a turn re-reading it.
 				() => {
-					ctx.awaitedJobs?.noticesDelivered()
-					jobNoticeDelivered = true
+					ctx.awaitedJobs?.monitorNoticesDelivered()
+					monitorNoticeDelivered = true
 				},
 			),
 			notices,
@@ -258,6 +269,7 @@ export async function* runToolReview(
 			ctx.recorder.pushMessage(msg)
 		}
 		if (jobNoticeDelivered) ctx.onJobNoticeDelivered?.()
+		if (monitorNoticeDelivered) ctx.onMonitorNoticeDelivered?.()
 		// The complete tool-result batch is already in history before host policy
 		// may react, so a replacement cannot split provider-required adjacency.
 		// Commit each accepted observation before entering the next one. A single

@@ -7,7 +7,30 @@ import type { BackgroundJob, BackgroundJobRegistry } from './registry.js'
  * test that needs two exits and nothing else should not have to spawn
  * processes to produce them.
  */
-export type AwaitedJobSource = Pick<BackgroundJobRegistry, 'get' | 'onExit'>
+export type AwaitedJobSource = Pick<BackgroundJobRegistry, 'get' | 'onExit'> &
+	Partial<Pick<BackgroundJobRegistry, 'onMonitorEvent'>>
+
+/**
+ * Turn the adapter into the holder of a turn for the monitors the TURN owns.
+ *
+ * A monitor is the one kind of job whose point is that it keeps going, so
+ * "the model said it is waiting" cannot be the signal that holds a turn open
+ * for it: the model starts it and goes on. The signal is ownership instead. A
+ * turn that owns its jobs itself (a sub-agent, a plain SDK host: nobody
+ * outside the turn is listening) has no one else to hear a monitor's events,
+ * so ending while one runs would start a watch and discard everything it
+ * finds. A SESSION-owned monitor never comes through here: its host hears the
+ * events and wakes on them, and holding the turn for it would delay the end of
+ * every turn for as long as the watch lives.
+ */
+export interface MonitorHold {
+	/**
+	 * Whether the monitor notices the turn queued are still unread. The same
+	 * second opinion `unreadNotice` is for exits: it can only narrow what counts
+	 * as pending, never open a hold.
+	 */
+	readonly unreadNotice: () => boolean
+}
 
 /** Exits and the text that puts them in front of the model. See {@link AwaitedJobs.takeDelivery}. */
 export interface DeliverableJobExits {
@@ -49,6 +72,10 @@ export class AwaitedJobs {
 	private exits: BackgroundJob[] = []
 	private readonly arrivals = new Set<() => void>()
 	private detach?: () => void
+	/** Running monitors the turn owns and holds itself open for. */
+	private readonly monitors = new Set<string>()
+	/** Monitor events and ends since the notices were last delivered. */
+	private monitorArrivals = 0
 
 	constructor(
 		private readonly source: AwaitedJobSource,
@@ -83,6 +110,8 @@ export class AwaitedJobs {
 		 * unread by definition.
 		 */
 		private readonly unreadNotice?: () => boolean,
+		/** Present when the turn owns its monitors; see {@link MonitorHold}. */
+		private readonly monitorHold?: MonitorHold,
 	) {}
 
 	/**
@@ -94,18 +123,107 @@ export class AwaitedJobs {
 	 */
 	attach(): () => void {
 		if (this.detach) return this.detach
-		this.detach = this.source.onExit((job) => {
+		const stopMonitorEvents = this.monitorHold
+			? this.source.onMonitorEvent?.((event) => {
+					if (event.owner !== this.owner || !this.monitors.has(event.jobId)) return
+					this.arrive()
+				})
+			: undefined
+		const stopExits = this.source.onExit((job) => {
 			// `onExit` is a broadcast over a registry a host may share between
 			// runs, and the filter is the same one the exit-notice channel
 			// applies in `runtime/query/index.ts`.
 			if (job.owner !== this.owner) return
+			// A monitor's end is news of its own kind, delivered with its events
+			// rather than paired with a job-exit notice. It also leaves the
+			// awaited set if the model happened to `wait_for_job` it, so the one
+			// end cannot be waited for twice.
+			if (this.monitors.delete(job.id)) {
+				this.outstanding.delete(job.id)
+				this.arrive()
+				return
+			}
 			// `outstanding` is the gate, so an id nobody awaited is ignored and
 			// a second announcement for the same job cannot queue twice.
 			if (!this.outstanding.delete(job.id)) return
 			this.exits.push(job)
 			for (const wake of [...this.arrivals]) wake()
 		})
+		this.detach = () => {
+			stopMonitorEvents?.()
+			stopExits()
+		}
 		return this.detach
+	}
+
+	private arrive(): void {
+		this.monitorArrivals++
+		for (const wake of [...this.arrivals]) wake()
+	}
+
+	/**
+	 * Say that the turn owns this running monitor and must not end while it
+	 * runs. Called by the executor when the bound registry starts one, and a
+	 * no-op on a turn that does not own its monitors.
+	 */
+	expectMonitor(id: string): void {
+		if (!this.monitorHold) return
+		let job: BackgroundJob
+		try {
+			job = this.source.get(id)
+		} catch {
+			return
+		}
+		if (job.owner !== this.owner || job.status !== 'running') return
+		this.monitors.add(id)
+	}
+
+	/** Monitor events or ends the model has not been shown yet. */
+	private get unreadMonitor(): boolean {
+		if (this.monitorArrivals === 0) return false
+		return this.monitorHold?.unreadNotice() ?? false
+	}
+
+	/**
+	 * Milliseconds until the last held monitor expires, or `undefined` when the
+	 * turn holds none. A monitor's own expiry is the bound on holding for it: a
+	 * hold that ended earlier would walk away from a watch with time left, and
+	 * one that ended later would be waiting for a stop that has already come.
+	 */
+	monitorHoldMs(now: number = Date.now()): number | undefined {
+		let until: number | undefined
+		for (const id of this.monitors) {
+			let expiresAt: number | undefined
+			try {
+				expiresAt = this.source.get(id).expiresAt
+			} catch {
+				continue
+			}
+			if (expiresAt !== undefined) until = Math.max(until ?? 0, expiresAt)
+		}
+		return until === undefined ? undefined : Math.max(0, until - now)
+	}
+
+	/**
+	 * Say that the queued monitor notices have been put in front of the model.
+	 * The counterpart of {@link noticesDelivered}, for the tool-result path.
+	 */
+	monitorNoticesDelivered(): void {
+		this.monitorArrivals = 0
+	}
+
+	/**
+	 * Take the monitor notices together with the record that they were
+	 * delivered, or neither. The pairing is {@link takeDelivery}'s, for the
+	 * same reason: marking them delivered when no text was written would
+	 * strand what arrived.
+	 */
+	takeMonitorDelivery(notice: () => string | undefined): string | undefined {
+		if (this.monitorArrivals === 0) return undefined
+		const text = notice()
+		if (text === undefined) return undefined
+		this.monitorArrivals = 0
+		return text
 	}
 
 	/**
@@ -150,7 +268,9 @@ export class AwaitedJobs {
 
 	/** Whether an awaited job is still running, or one has exited unread. */
 	get hasPendingWork(): boolean {
-		return this.unreadExits || this.outstanding.size > 0
+		return (
+			this.unreadExits || this.outstanding.size > 0 || this.monitors.size > 0 || this.unreadMonitor
+		)
 	}
 
 	/**
@@ -163,8 +283,8 @@ export class AwaitedJobs {
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()
-		if (this.unreadExits) return Promise.resolve()
-		if (this.outstanding.size === 0) return Promise.resolve()
+		if (this.unreadExits || this.unreadMonitor) return Promise.resolve()
+		if (this.outstanding.size === 0 && this.monitors.size === 0) return Promise.resolve()
 
 		return new Promise((resolve) => {
 			const finish = (): void => {
@@ -263,6 +383,8 @@ export class AwaitedJobs {
 		this.detach?.()
 		this.detach = undefined
 		this.outstanding.clear()
+		this.monitors.clear()
+		this.monitorArrivals = 0
 		this.exits = []
 		// Release anyone still waiting. A closed adapter would otherwise hold
 		// them to their own deadline for an exit that can no longer reach them.

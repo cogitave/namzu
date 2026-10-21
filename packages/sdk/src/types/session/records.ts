@@ -648,6 +648,7 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	turn_resuming: true,
 	guardrail_triggered: true,
 	background_job_exited: true,
+	monitor_event: true,
 	memory_consolidated: true,
 	turn_completed: true,
 	turn_failed: true,
@@ -687,7 +688,7 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	child_session_idled: true,
 }
 
-/** All 62 live event type literals. */
+/** All 63 live event type literals. */
 export const SESSION_EVENT_TYPES: readonly SessionEventType[] = Object.freeze(
 	Object.keys(SESSION_EVENT_TYPE_TABLE) as SessionEventType[],
 )

@@ -120,6 +120,21 @@ export interface BackgroundJobRegistryRef {
 		id: string
 		status: string
 	}
+	/**
+	 * Start a command whose stdout lines reach the model as events while it
+	 * runs, and which is stopped at `timeoutMs`. The host clamps the timeout to
+	 * its own ceiling and the clamped value comes back, so the caller reports
+	 * the deadline that will actually fire. Optional, like `adopt`: a host that
+	 * cannot deliver events must omit it, and the `monitor` tool then refuses
+	 * rather than start a watch nobody will hear from. Throws when the owner is
+	 * at its job cap.
+	 */
+	startMonitor?(params: {
+		command: string
+		description: string
+		timeoutMs: number
+		workingDirectory?: string
+	}): { job: { id: string; status: string }; timeoutMs: number }
 	get(id: string): {
 		id: string
 		status: string
@@ -156,7 +171,15 @@ export interface BackgroundJobRegistryRef {
 		error?: string
 	}
 	kill(id: string): Promise<{ id: string; status: string }>
-	list(): readonly { id: string; command: string; status: string }[]
+	list(): readonly {
+		id: string
+		command: string
+		status: string
+		/** `monitor` for a job the `monitor` tool started. */
+		kind?: 'monitor'
+		/** What a monitor watches. */
+		description?: string
+	}[]
 	/**
 	 * Await this job's exit instead of reading it in a loop; resolves at
 	 * once for a job that has already stopped. Optional, and added after

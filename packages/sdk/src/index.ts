@@ -18,7 +18,29 @@ export {
 	BackgroundJobRegistry,
 	UnknownBackgroundJobError,
 	bindOwner,
+	describeMonitorEnd,
 } from './runtime/jobs/registry.js'
+export {
+	MONITOR_BATCH_MAX_CHARS,
+	MONITOR_BATCH_WINDOW_MS,
+	MONITOR_BUCKET_CAPACITY,
+	MONITOR_BUCKET_REFILL_MS,
+	MONITOR_LINE_MAX_CHARS,
+	MONITOR_NOTIFICATION_MAX_CHARS,
+	MONITOR_PARTIAL_LINE_MAX_BYTES,
+	MONITOR_SUPPRESSION_LIMIT_MS,
+	MONITOR_TIMEOUT_CAP_MS,
+	MONITOR_TIMEOUT_DEFAULT_MS,
+	MONITOR_TIMEOUT_MAX_MS,
+	MONITOR_TIMEOUT_MIN_MS,
+	createMonitorStream,
+	formatMonitorDuration,
+} from './runtime/jobs/monitor-stream.js'
+export type {
+	MonitorStream,
+	MonitorStreamOptions,
+	MonitorStreamStats,
+} from './runtime/jobs/monitor-stream.js'
 export {
 	createBackgroundJobId,
 	isBackgroundJobId,
@@ -28,5 +50,6 @@ export type {
 	BackgroundJobOutput,
 	BackgroundJobRegistryConfig,
 	BackgroundJobStatus,
+	MonitorEvent,
 	StartJobParams,
 } from './runtime/jobs/registry.js'

@@ -612,6 +612,28 @@ type CoreSessionEvent =
 			status: 'exited' | 'killed'
 			exitCode?: number
 			signal?: string
+			/** Present when the job was a monitor: what it watched and, if the registry stopped it, why. */
+			monitor?: {
+				description: string
+				stopReason?: 'expired' | 'too_much_output' | 'stopped'
+			}
+	  }
+	/**
+	 * A monitor this session (or the owner it runs under) started has
+	 * something to say: a batch of its stdout lines, or a notice from the
+	 * monitor itself (events suppressed, stopped, expired). The model reads it
+	 * on its next tool result; the host learns it from this, whether or not a
+	 * turn is running. `eventId` is what a host acknowledges.
+	 */
+	| {
+			type: 'monitor_event'
+			sessionId: SessionId
+			turnId?: TurnId
+			jobId: string
+			eventId: string
+			description: string
+			kind: 'output' | 'notice'
+			text: string
 	  }
 	/**
 	 * What the turn learned was written to the host's memory store: its
