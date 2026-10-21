@@ -113,3 +113,52 @@ describe('the paths a shell line names', () => {
 		expect(uses('cut -d , -f 1 a.csv')).toEqual(['read:cut:a.csv'])
 	})
 })
+
+describe('where a relative path starts after a cd', () => {
+	const directories = (line: string) =>
+		shellPathAccess(readShellLine(line, 'bash')).uses.map((u) => [
+			u.path,
+			u.directory === undefined
+				? 'start'
+				: 'relative' in u.directory
+					? u.directory.relative
+					: 'unknown',
+		])
+
+	it('follows a literal relative cd, chained, for the commands and redirections after it', () => {
+		expect(directories('cd a && touch f > g')).toEqual([
+			['a', 'start'],
+			['f', 'a'],
+			['g', 'a'],
+		])
+		expect(directories('cd a && cd b && touch f')).toEqual([
+			['a', 'start'],
+			['b', 'a'],
+			['f', 'a/b'],
+		])
+		expect(directories('touch f && cd a')).toEqual([
+			['f', 'start'],
+			['a', 'start'],
+		])
+	})
+
+	it('reads a cd it cannot follow as unknown, and stays unknown', () => {
+		for (const line of [
+			'cd "$X" && touch f',
+			'cd /abs && touch f',
+			'cd ~ && touch f',
+			'cd - && touch f',
+			'cd && touch f',
+			'pushd a && touch f',
+			'cd a b && touch f',
+		]) {
+			expect(directories(line).at(-1)?.[1], line).toBe('unknown')
+		}
+		expect(directories('cd "$X" && cd a && touch f').at(-1)?.[1]).toBe('unknown')
+	})
+
+	it('skips cd flags and treats a redirection it cannot tie to a command as unknown after a cd', () => {
+		expect(directories('cd -P a && touch f').at(-1)).toEqual(['f', 'a'])
+		expect(directories('cd a; { echo x; } > out').at(-1)).toEqual(['out', 'unknown'])
+	})
+})
