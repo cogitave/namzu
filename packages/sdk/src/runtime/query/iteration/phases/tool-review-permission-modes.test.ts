@@ -339,7 +339,10 @@ describe('a call whose safety checks threw', () => {
 		const c = capture()
 		const t = turn({ resumeHandler: c.resumeHandler })
 		await run(t, response('flaky', { path: 'a.txt' }))
-		expect(c.seen[0]?.escalation?.unfinishedCheck).toContain('read-only check blew up')
+		const reported = c.seen[0]?.escalation?.unfinishedCheck
+		// A fixed sentence and a code, not the error's own words.
+		expect(reported).toBe('the safety checks did not finish (Error)')
+		expect(reported).not.toContain('blew up')
 	})
 
 	it('is refused by every mode when nobody can be asked, and asked about when somebody can', async () => {

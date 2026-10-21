@@ -16,7 +16,7 @@
  */
 
 import { homedir } from 'node:os'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 import { isProtectedPath } from '../../authorization/protected-paths.js'
 import { dangerousRemoval } from '../../authorization/removal.js'
@@ -156,6 +156,16 @@ export async function shellEscalations(
 	const protectedPaths = new Set<string>()
 	const home = homedir()
 	if (cwd !== undefined) {
+		// A link made earlier in this very line leads somewhere that cannot be
+		// read before the line runs: `ln -s /etc l && cd l && echo x > passwd`
+		// writes /etc/passwd through a name that is inside the roots. Every
+		// operand of an `ln` is such a name (the link is the last, but the
+		// check does not guess which), and a path at or under one is outside.
+		const madeHere = reading.invocations
+			.filter((invocation) => invocation.program === 'ln')
+			.flatMap((invocation) => invocation.args.map((arg) => arg.value))
+			.filter((value) => value !== '' && !value.startsWith('-'))
+			.map((value) => resolve(cwd, value))
 		for (const use of access.uses) {
 			for (const spelled of expandBraces(use.path)) {
 				const settled = settle(spelled, home)
@@ -201,6 +211,12 @@ export async function shellEscalations(
 					continue
 				}
 				for (const candidate of absolutes) {
+					if (
+						madeHere.some((link) => candidate === link || candidate.startsWith(`${link}${sep}`))
+					) {
+						outside.add(candidate)
+						continue
+					}
 					const reached = await pathOutsideRoots(context.roots, beforeGlob(candidate))
 					if (reached !== undefined) outside.add(reached)
 				}

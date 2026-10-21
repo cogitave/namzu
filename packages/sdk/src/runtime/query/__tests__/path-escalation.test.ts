@@ -44,6 +44,15 @@ describe('what a shell line reaches', () => {
 	const reach = (line: string, roots: readonly string[] = [worktree], reviewOutside = true) =>
 		shellEscalations(line, 'bash', { roots, reviewOutside })
 
+	it('reads a path under a link made earlier in the same line as outside', async () => {
+		const through = await reach('ln -s /etc l && cd l && echo x > passwd')
+		expect(through.outsidePaths).not.toEqual([])
+		const direct = await reach('ln -s /etc l && echo x > l/passwd')
+		expect(direct.outsidePaths).not.toEqual([])
+		// A line that makes no link keeps its meaning.
+		expect((await reach('cd src && echo x > passwd')).outsidePaths).toEqual([])
+	})
+
 	it('finds a redirection into a protected path and one outside the roots', async () => {
 		const found = await reach('echo x > .git/hooks/post-commit; echo y > /etc/namzu-test')
 		expect(found.protectedPaths).toEqual([join(worktree, '.git', 'hooks', 'post-commit')])

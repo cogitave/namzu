@@ -1039,9 +1039,17 @@ export class ToolExecutor {
 			return await this.escalationOf(call)
 		} catch (error) {
 			this.config.abortSignal.throwIfAborted()
-			return {
-				unfinishedCheck: error instanceof Error ? error.message : 'the check did not finish',
-			}
+			// A fixed sentence and a code, never the error's own message: this text
+			// goes into the audit trail and the prompt a person or the classifier
+			// reads, and a message can carry a path or a command line.
+			const code = (error as { code?: unknown } | null)?.code
+			const label =
+				typeof code === 'string' && /^[\w.-]{1,40}$/.test(code)
+					? code
+					: error instanceof Error && /^\w{1,40}$/.test(error.name)
+						? error.name
+						: 'unknown'
+			return { unfinishedCheck: `the safety checks did not finish (${label})` }
 		}
 	}
 
