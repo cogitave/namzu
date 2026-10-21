@@ -99,7 +99,7 @@ const detected = [
 	},
 ] as unknown as DetectedProvider[]
 
-async function sessionWith(extra: { monitorTimeoutCapMs?: number } = {}) {
+async function sessionWith(extra: { monitorTimeoutCapMs?: number; monitorTool?: boolean } = {}) {
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(prefs, detected, {
 		cwd: workDir,
@@ -130,6 +130,12 @@ describe('the monitor tool reaches the session', () => {
 	it('leaves the kernel cap alone when the host asks for none', async () => {
 		await sessionWith()
 		expect(queryParams).not.toHaveProperty('monitorTimeoutCapMs')
+	})
+
+	it('is not offered to a host that runs one turn and closes', async () => {
+		const session = await sessionWith({ monitorTool: false })
+		expect(session.toolNames()).not.toContain('monitor')
+		expect(deferredNames()).not.toContain('monitor')
 	})
 
 	it('is absent when background tasks are switched off', async () => {

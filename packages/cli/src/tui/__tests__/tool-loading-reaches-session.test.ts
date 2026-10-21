@@ -133,38 +133,53 @@ afterEach(() => {
 })
 
 describe('explicit tool loading reaches the real session and query', () => {
-	it.each([undefined, 'eager'] as const)(
-		'retains existing eager schemas for %s',
-		async (toolLoading) => {
-			// The monitor tool is offered deferred wherever background work is on,
-			// which would put `search_tools` in every request; this case is about
-			// the roster when nothing is deferred.
-			vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
-			mockProvider(() => response())
-			const session = await open({ ...(toolLoading ? { toolLoading } : {}) })
-			try {
-				for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
-					// Drain the real query through the fake provider transport.
-				}
-				expect(requests).toHaveLength(1)
-				expect(names(requests[0])).toEqual(
-					expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
-				)
-				expect(names(requests[0])).not.toContain('search_tools')
-				// Unchanged by `narrate_work`, which mounts only where an operator
-				// is watching (`askUser`) and so is absent from this headless
-				// session — see the pair of cases below.
-				// The owner's Pals (`list_pals`, `send_pal_message`) are mounted but not
-				// sent while the owner has none, as here (see operator-tools.test.ts).
-				expect(names(requests[0])).toHaveLength(25)
-				expect(JSON.stringify(requests[0].messages)).not.toContain(
-					'Before using a tool listed under',
-				)
-			} finally {
-				await session.close()
+	it('retains existing eager schemas when no loading is chosen and nothing is deferred', async () => {
+		// The monitor tool is offered deferred wherever background work is on,
+		// which would put `search_tools` in every request; this case is about
+		// the roster when nothing is deferred.
+		vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
+		mockProvider(() => response())
+		const session = await open({})
+		try {
+			for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
 			}
-		},
-	)
+			expect(requests).toHaveLength(1)
+			expect(names(requests[0])).toEqual(
+				expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
+			)
+			expect(names(requests[0])).not.toContain('search_tools')
+			// Unchanged by `narrate_work`, which mounts only where an operator
+			// is watching (`askUser`) and so is absent from this headless
+			// session — see the pair of cases below.
+			// The owner's Pals (`list_pals`, `send_pal_message`) are mounted but not
+			// sent while the owner has none, as here (see operator-tools.test.ts).
+			expect(names(requests[0])).toHaveLength(25)
+			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
+		} finally {
+			await session.close()
+		}
+	})
+
+	it('mounts the monitor tool eagerly when loading is eager, with no search_tools for its sake', async () => {
+		mockProvider(() => response())
+		const session = await open({ toolLoading: 'eager' })
+		try {
+			for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			expect(requests).toHaveLength(1)
+			expect(names(requests[0])).toEqual(
+				expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
+			)
+			expect(names(requests[0])).toContain('monitor')
+			expect(names(requests[0])).not.toContain('search_tools')
+			expect(names(requests[0])).toHaveLength(26)
+			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
+		} finally {
+			await session.close()
+		}
+	})
 
 	it('offers narration only to a host with an operator watching', async () => {
 		// `narrate_work` answers with "the operator saw this". A headless run

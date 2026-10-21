@@ -161,6 +161,24 @@ async function fire(
 }
 
 describe('a scheduled run', () => {
+	it('does not offer the monitor tool, since the run ends with its one turn', async () => {
+		const opened: string[][] = []
+		const { code } = await fire(confirmedJob(sb), {
+			agent: {
+				...agent(),
+				createAgentSession: (async (prefs, detected, options) => {
+					const session = await createAgentSession(prefs, detected, options)
+					opened.push([...session.toolNames()])
+					return session
+				}) as typeof createAgentSession,
+			},
+		})
+		expect(code).toBe(0)
+		expect(opened).toHaveLength(1)
+		expect(opened[0]).not.toContain('monitor')
+		expect(opened[0]).toContain('read')
+	})
+
 	it('completes, with a one-line summary and its own session', async () => {
 		const job = confirmedJob(sb)
 		const { code, result } = await fire(job)

@@ -14,7 +14,9 @@ The SDK's [monitor tool](../sdk/monitor-tool.md) turns each stdout line of a lon
 
 # Mounting
 
-Every session that has a job registry offers `monitor` **deferred**, as it does `code_analysis`: the model finds it with `search_tools`, and its schema is not sent on turns that never watch anything. That covers the terminal, `exec`, `exec --json`, ACP and Desktop (which runs through ACP). Setting `NAMZU_DISABLE_BACKGROUND_TASKS` removes it, as it removes background `bash`. There is no separate switch. A sub-agent does not get it; a Pal conversation does not either, because a Pal has no host that wakes on events. A single-shot run lowers the longest watch to 10 minutes (`monitorTimeoutCapMs`), since it waits for its monitors before it exits.
+A session that has a job registry offers `monitor` **deferred**, as it does `code_analysis`: the model finds it with `search_tools`, and its schema is not sent on turns that never watch anything. That covers the terminal, `exec`, `exec --json`, ACP and Desktop (which runs through ACP). A session that had nothing deferred before (`exec`, ACP) now carries the `search_tools` tool and one line of hint per request so the monitor can be loaded on demand. With `toolLoading: "eager"` the monitor is mounted eagerly instead, with no `search_tools` and no hint added for its sake. Setting `NAMZU_DISABLE_BACKGROUND_TASKS` removes it, as it removes background `bash`.
+
+Hosts that run one turn and close the session (a scheduled run, `drain`, a resident step) pass `monitorTool: false` to `createAgentSession` and do not offer it: closing would stop the watch before it reported, and nobody is there to wake. The option defaults to true for the hosts that can wait or wake. A sub-agent does not get the tool; a Pal conversation does not either, because a Pal has no host that wakes on events. A single-shot run lowers the longest watch to 10 minutes (`monitorTimeoutCapMs`), since it waits for its monitors before it exits.
 
 # What waits for the next turn
 
@@ -27,7 +29,7 @@ The ledger hands over whole events only, bounded by the kernel's own `capMonitor
 | Host | What a monitor event does |
 | --- | --- |
 | Terminal | An idle session starts a turn by itself, as it does for a workflow that ended; the model reads the events and answers without the person typing. A running turn gets them on its next tool result. Events that arrive while a person's message is queued ride with that message. |
-| `exec`, `exec --json` | After the main turn, while the session still owns a running monitor, the run waits for it to speak or end (the registry tells it; nothing polls), gives the model what arrived as one message, and lets it reply. It does this once per arrival, at most eight times with the workflow reports, and exits when no monitor is left. The printed answer is the last reply's. |
+| `exec`, `exec --json` | After the main turn, while the session still owns a running monitor, the run waits for it to speak or end (the registry tells it; nothing polls), gives the model what arrived as one message, and lets it reply. It does this once per arrival, at most eight times with the workflow reports, and exits when no monitor is left. Only an event or an end that would wake a terminal starts that turn: a stop the operator asked for does not, and is told with the next real report. The printed answer is the last reply's. |
 | ACP and Desktop | ACP starts no turn of its own, so events that arrive between prompts wait and ride with the next prompt as context. A monitor started in a turn still reaches that turn's tool results. |
 
 A stop the person asked for is reported with the next turn but starts none.

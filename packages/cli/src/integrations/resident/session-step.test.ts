@@ -317,6 +317,8 @@ describe('normal CLI runtime reaches a resident admission', () => {
 			sandbox: config.sandbox,
 			additionalDirectories: [join(root, 'shared')],
 			onSessionEvent: mocks.listener,
+			// One step, then the session closes: a monitor would die unreported.
+			monitorTool: false,
 		})
 		expect(options.rules).toHaveLength(1)
 		expect(options).not.toHaveProperty('conversationSessions')

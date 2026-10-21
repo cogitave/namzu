@@ -2190,6 +2190,13 @@ export interface AgentSessionOptions {
 	 */
 	readonly monitorTimeoutCapMs?: number
 	/**
+	 * Offer the `monitor` tool. Defaults to true, for hosts that can wait for
+	 * a monitor or wake on it (terminal, exec, exec --json, ACP). A host that
+	 * runs one turn and closes the session (scheduled fire, drain, resident
+	 * step) passes false: the close would stop the watch before it reported.
+	 */
+	readonly monitorTool?: boolean
+	/**
 	 * Tools this session's rules refuse whatever their input, left out of its
 	 * registry so their schemas are not sent with every model call. A
 	 * scheduled run passes the tools its job can never use
@@ -3777,8 +3784,13 @@ export async function createAgentSession(
 	// work is not switched off, and deferred like `code_analysis` because most
 	// turns never watch anything. Parent session only; a sub-agent's own turn
 	// holds for its monitors, which a deferred hint costs nothing to omit.
-	if (jobRegistry && !backgroundTasksDisabled()) {
-		toolsets.push(deferred(toolset('monitor', getMonitorTools())))
+	// `toolLoading: 'eager'` means eager: the host asked for every schema up
+	// front, so the monitor is mounted plainly and no `search_tools` appears
+	// for its sake. A host that runs one turn and closes (`monitorTool: false`)
+	// would kill the watch before it reported, so it does not offer the tool.
+	if (jobRegistry && !backgroundTasksDisabled() && options.monitorTool !== false) {
+		const monitorToolset = toolset('monitor', getMonitorTools())
+		toolsets.push(options.toolLoading === 'eager' ? monitorToolset : deferred(monitorToolset))
 	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
