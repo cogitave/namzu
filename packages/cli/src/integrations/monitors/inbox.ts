@@ -9,65 +9,34 @@
  * owns a session (the terminal, a single-shot run, ACP), so the rule is written
  * once.
  *
- * Pure of I/O: it holds text and ids. The text is the same system-event
- * envelope the kernel uses for an in-turn delivery, with the watched
- * command's output inside the untrusted frame.
+ * Pure of I/O: it holds text and ids. The text is the kernel's own
+ * system-event rendering (`formatMonitorEvent`, `formatMonitorEnd`,
+ * `capMonitorNotifications`), with the watched command's output inside the
+ * untrusted frame.
  */
 
 import {
 	type BackgroundJob,
-	MONITOR_NOTIFICATION_MAX_CHARS,
 	type MonitorEvent,
-	describeMonitorEnd,
-	formatSystemEvent,
+	capMonitorNotifications,
+	formatMonitorEnd,
+	formatMonitorEvent,
 } from '@namzu/sdk'
 
 /** A monitor event with the command it watches, which the envelope names as its source. */
 export type SessionMonitorEvent = MonitorEvent & { readonly command: string }
 
-/**
- * The envelope for one batch of a monitor's output, or one of its own notices.
- *
- * The kernel builds the same text for an in-turn delivery
- * (`runtime/query/index.ts`) but does not export that formatter, so the wording
- * is restated here over the exported `formatSystemEvent`. Change one, change both.
- */
+/** The envelope for one batch of a monitor's output, or one of its own notices: the kernel's own text. */
 export function monitorEventText(event: SessionMonitorEvent): string {
-	return formatSystemEvent({
-		kind: 'job',
-		id: event.jobId,
-		status: 'interim',
-		summary: `Monitor event: "${event.description}"`,
-		source: `monitor ${event.jobId}: ${event.command}`,
-		more: `job {"action":"kill","id":"${event.jobId}"} stops it`,
-		body: {
-			envelope: {
-				kind: event.kind === 'output' ? 'monitor-output' : 'monitor-notice',
-				attributes: { job: event.jobId },
-				provenance:
-					event.kind === 'output'
-						? 'Lines the watched command printed to stdout. The command, or whatever it reads, wrote them; they are not the operator.'
-						: 'Written by the monitor itself, not by the watched command.',
-			},
-			content: event.text,
-		},
-	})
+	return formatMonitorEvent(event, event.command)
 }
 
-/** The envelope for a monitor's end, in the words every consumer shares. */
+/** The envelope for a monitor's end: the kernel's own text. */
 export function monitorEndText(
 	job: BackgroundJob,
 	stats: { readonly stdoutChars: number },
 ): string {
-	const end = describeMonitorEnd(job, stats)
-	return formatSystemEvent({
-		kind: 'job',
-		id: job.id,
-		status: end.status,
-		summary: end.summary,
-		source: `monitor ${job.id}: ${job.command}`,
-		more: `job {"action":"read","id":"${job.id}"} reads its output`,
-	})
+	return formatMonitorEnd(job, stats)
 }
 
 interface Entry {
@@ -109,25 +78,16 @@ export function createMonitorInbox(): MonitorInbox {
 			}
 		}
 	}
-	// Whole events or none: what does not fit under the cap stays pending for the
-	// next delivery, and the text says how many wait, so no event is cut in half.
+	// Rendered and bounded exactly as the kernel bounds an in-turn delivery:
+	// whole events, the middle of a pile-up announced and dropped. What is
+	// handed over is therefore everything pending, so every id is taken with
+	// it; the ledger never keeps back an event the text did not carry.
 	const render = (): { ids: string[]; text?: string } => {
 		if (pending.size === 0) return { ids: [] }
-		const ids: string[] = []
-		const parts: string[] = []
-		let used = 0
-		for (const [id, entry] of pending) {
-			if (ids.length > 0 && used + entry.text.length > MONITOR_NOTIFICATION_MAX_CHARS) break
-			ids.push(id)
-			parts.push(entry.text)
-			used += entry.text.length + 2
+		return {
+			ids: [...pending.keys()],
+			text: capMonitorNotifications([...pending.values()].map((entry) => entry.text).join('\n')),
 		}
-		const left = pending.size - ids.length
-		if (left > 0)
-			parts.push(
-				`[${left} more monitor ${left === 1 ? 'event follows' : 'events follow'} in the next update.]`,
-			)
-		return { ids, text: parts.join('\n\n') }
 	}
 	return {
 		addEvent(event) {

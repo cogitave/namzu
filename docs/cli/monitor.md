@@ -18,9 +18,9 @@ Every session that has a job registry offers `monitor` **deferred**, as it does 
 
 # What waits for the next turn
 
-The kernel puts an event on the next tool result of a running turn and says which events it delivered. Anything else, an event that arrives between turns or after a turn's last tool result, would be lost, so the session keeps it in a ledger (`createMonitorInbox`), filled for the session's whole life from the job registry. The ledger holds the same system-event text the kernel would have given, with the watched command's output inside the untrusted frame, and an event leaves it exactly once: when the kernel acknowledges it, or when a host takes it. An acknowledgement that arrives before the event is remembered, so subscription order does not matter.
+The kernel puts an event on the next tool result of a running turn and says which events it delivered. Anything else, an event that arrives between turns or after a turn's last tool result, would be lost, so the session keeps it in a ledger (`createMonitorInbox`), filled for the session's whole life from the job registry. The ledger holds the kernel's own system-event text (`formatMonitorEvent`, `formatMonitorEnd` from `@namzu/sdk`, not a copy), with the watched command's output inside the untrusted frame, and an event leaves it exactly once: when the kernel acknowledges it, or when a host takes it. An acknowledgement that arrives before the event is remembered, so subscription order does not matter.
 
-The ledger hands over whole events only. If more is waiting than one notification may hold (100,000 characters), the rest stays for the next delivery and the text says how many follow.
+The ledger hands over whole events only, bounded by the kernel's own `capMonitorNotifications`. If more is waiting than one notification may hold (100,000 characters), the middle events are dropped and the text says `[N monitor events omitted — output exceeded the notification limit]`, exactly as an in-turn delivery does; everything pending is handed over together.
 
 # Each host
 

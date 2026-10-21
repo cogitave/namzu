@@ -134,6 +134,7 @@ import {
 	WebFetchTool,
 	abandonTurn,
 	asTaskId,
+	backgroundTasksDisabled,
 	batchNeedsReview,
 	bindOwner,
 	buildAskUserQuestionTool,
@@ -1917,12 +1918,6 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 			additionalProperties: false,
 		},
 	}
-}
-
-/** `NAMZU_DISABLE_BACKGROUND_TASKS`, read the way `bash` reads it. */
-function backgroundTasksSwitchedOff(): boolean {
-	const value = process.env.NAMZU_DISABLE_BACKGROUND_TASKS?.trim().toLowerCase()
-	return value !== undefined && value !== '' && value !== '0' && value !== 'false'
 }
 
 function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
@@ -3782,7 +3777,7 @@ export async function createAgentSession(
 	// work is not switched off, and deferred like `code_analysis` because most
 	// turns never watch anything. Parent session only; a sub-agent's own turn
 	// holds for its monitors, which a deferred hint costs nothing to omit.
-	if (jobRegistry && !backgroundTasksSwitchedOff()) {
+	if (jobRegistry && !backgroundTasksDisabled()) {
 		toolsets.push(deferred(toolset('monitor', getMonitorTools())))
 	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.

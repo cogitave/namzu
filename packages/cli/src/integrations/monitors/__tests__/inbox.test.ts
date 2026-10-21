@@ -1,7 +1,12 @@
-import type { BackgroundJob } from '@namzu/sdk'
+import {
+	type BackgroundJob,
+	capMonitorNotifications,
+	formatMonitorEnd,
+	formatMonitorEvent,
+} from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { type SessionMonitorEvent, createMonitorInbox } from '../inbox.js'
+import { type SessionMonitorEvent, createMonitorInbox, monitorEventText } from '../inbox.js'
 
 function event(seq: number, text = 'deploy failed'): SessionMonitorEvent {
 	return {
@@ -72,13 +77,38 @@ describe('the monitor inbox', () => {
 		expect(inbox.wakes()).toBe(true)
 	})
 
-	it('hands over whole events under the cap and leaves the rest for the next delivery', () => {
+	it('renders exactly what the kernel renders, so the two cannot drift', () => {
 		const inbox = createMonitorInbox()
-		for (let seq = 1; seq <= 5; seq += 1) inbox.addEvent(event(seq, 'x'.repeat(40_000)))
-		const first = inbox.take()
-		expect(first.ids.length).toBeLessThan(5)
-		expect(first.text).toContain('more monitor')
-		expect(inbox.size).toBe(5 - first.ids.length)
+		const first = event(1, 'line one\nline two')
+		const note = event(2, 'stopped for too much output')
+		inbox.addEvent(first)
+		inbox.addEvent({ ...note, kind: 'notice' })
+		const job = ended()
+		inbox.addEnd(job, { stdoutChars: 10 })
+		expect(inbox.peek().text).toBe(
+			[
+				formatMonitorEvent(first, first.command),
+				formatMonitorEvent({ ...note, kind: 'notice' }, note.command),
+				formatMonitorEnd(job, { stdoutChars: 10 }),
+			].join('\n'),
+		)
+		expect(monitorEventText(first)).toBe(formatMonitorEvent(first, first.command))
+	})
+
+	it('bounds a pile-up with the kernel cap, whole events, announced', () => {
+		const inbox = createMonitorInbox()
+		const events = Array.from({ length: 12 }, (_, i) => event(i + 1, 'x'.repeat(19_000)))
+		for (const e of events) inbox.addEvent(e)
+		const taken = inbox.take()
+		const expected = capMonitorNotifications(
+			events.map((e) => formatMonitorEvent(e, e.command)).join('\n'),
+		)
+		expect(taken.text).toBe(expected)
+		expect(taken.text).toMatch(
+			/\[\d+ monitor events omitted — output exceeded the notification limit\]/,
+		)
+		expect(taken.ids).toHaveLength(12)
+		expect(inbox.size).toBe(0)
 	})
 
 	it('tells a waiting host when something arrives', () => {
