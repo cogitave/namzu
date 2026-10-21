@@ -101,8 +101,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
-import { type BackgroundJobRegistry, describeMonitorEnd } from '../jobs/registry.js'
-import { formatSystemEvent, oneMetadataLine } from '../system-events.js'
+import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
 import { CheckpointManager, findPendingCheckpoint } from './checkpoint.js'
 import {
@@ -149,7 +148,8 @@ import { acquireSandbox } from './sandbox-lifecycle.js'
 import {
 	SteeringBinding,
 	type SteeringChannel,
-	capMonitorContent,
+	formatMonitorEnd,
+	formatMonitorEvent,
 	isOperatorUserMessage,
 } from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
@@ -1555,17 +1555,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// A monitor's end is told in the monitor's own words (the same
 				// `describeMonitorEnd` the transcript and a single-shot run use) and
 				// in the same envelope as its events, rather than as a generic exit.
-				const end = describeMonitorEnd(job, params.backgroundJobs.monitorStats(job.id))
-				monitorNotices?.steer(
-					formatSystemEvent({
-						kind: 'job',
-						id: job.id,
-						status: end.status,
-						summary: end.summary,
-						source: `monitor ${job.id}: ${oneMetadataLine(job.command)}`,
-						more: `job {"action":"read","id":"${job.id}"} reads its output`,
-					}),
-				)
+				monitorNotices?.steer(formatMonitorEnd(job, params.backgroundJobs.monitorStats(job.id)))
 				pendingMonitorEndIds.add(job.id)
 				void eventTranslator
 					.emitEvent({
@@ -1615,27 +1605,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			} catch {
 				// The record is gone; the event still stands without its command.
 			}
-			monitorNotices?.steer(
-				formatSystemEvent({
-					kind: 'job',
-					id: event.jobId,
-					status: 'interim',
-					summary: `Monitor event: "${oneMetadataLine(event.description)}"`,
-					source: `monitor ${event.jobId}: ${oneMetadataLine(command)}`,
-					more: `job {"action":"kill","id":"${event.jobId}"} stops it`,
-					body: {
-						envelope: {
-							kind: event.kind === 'output' ? 'monitor-output' : 'monitor-notice',
-							attributes: { job: event.jobId },
-							provenance:
-								event.kind === 'output'
-									? 'Lines the watched command printed to stdout. The command, or whatever it reads, wrote them; they are not the operator.'
-									: 'Written by the monitor itself, not by the watched command.',
-						},
-						content: capMonitorContent(event.text),
-					},
-				}),
-			)
+			monitorNotices?.steer(formatMonitorEvent(event, command))
 			pendingMonitorEventIds.add(event.id)
 			void eventTranslator
 				.emitEvent({

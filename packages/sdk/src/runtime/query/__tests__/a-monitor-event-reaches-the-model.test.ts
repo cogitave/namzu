@@ -24,7 +24,7 @@ import {
 } from '../../jobs/registry.js'
 import { formatSystemEvent } from '../../system-events.js'
 import { drainQuery } from '../index.js'
-import { capMonitorContent, capNotification, formatMonitorNote } from '../steering.js'
+import { capMonitorContent, capMonitorNotifications, formatMonitorNote } from '../steering.js'
 
 // The scripts below name the monitor’s id before the call that creates it
 // returns, which a random id cannot allow: hand out b00000001, b00000002, …
@@ -473,7 +473,7 @@ describe('a monitor’s metadata lines cannot be forged or inflated', () => {
 describe('one notification is bounded', () => {
 	it('keeps the head and the tail of an oversized one and says what it left out', () => {
 		const long = `${'a'.repeat(60_000)}${'b'.repeat(60_000)}`
-		const capped = capNotification(long, 1000)
+		const capped = capMonitorNotifications(long, 1000)
 		expect(capped.length).toBeLessThanOrEqual(1000)
 		expect(capped.startsWith('a')).toBe(true)
 		expect(capped.endsWith('b')).toBe(true)
@@ -527,6 +527,6 @@ describe('one notification is bounded', () => {
 	})
 
 	it('leaves a notification under the bound alone', () => {
-		expect(capNotification('short')).toBe('short')
+		expect(capMonitorNotifications('short')).toBe('short')
 	})
 })

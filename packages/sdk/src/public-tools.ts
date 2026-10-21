@@ -76,6 +76,7 @@ export {
 	BashTool,
 	type ExecHostShellProgress,
 	SANDBOX_ESCAPE_NOT_APPROVED,
+	backgroundTasksDisabled,
 	execHostShell,
 } from './tools/builtins/bash.js'
 export {
