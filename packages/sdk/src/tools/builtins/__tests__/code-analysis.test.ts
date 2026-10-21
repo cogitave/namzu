@@ -323,6 +323,83 @@ describe('answers', () => {
 		}
 	})
 
+	it('names the root when the turn has several, and not when it has one', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-ca-multi-'))
+		const other = mkdtempSync(join(tmpdir(), 'namzu-ca-multi-other-'))
+		try {
+			const a = join(dir, 'src', 'a.js')
+			const hit = {
+				path: a,
+				line: 3,
+				column: 5,
+				start: 0,
+				end: 1,
+				kind: 'string' as const,
+				value: 'x',
+				valueTruncated: false,
+			}
+			const provider = stub({
+				findLiteral: async () => ({
+					kind: 'ok',
+					value: { items: [hit], total: 1 },
+					evidence: complete,
+				}),
+			})
+			const input = { operation: 'find_literal', text: 'x', path: dir } as const
+			const single = await CodeAnalysisTool.execute(input, {
+				workingDirectory: dir,
+				codeAnalysis: provider,
+			} as ToolContext)
+			expect(single.output.split('\n')[0]).toBe('src/a.js')
+			const several = await CodeAnalysisTool.execute(input, {
+				workingDirectory: dir,
+				additionalDirectories: [other],
+				codeAnalysis: provider,
+			} as unknown as ToolContext)
+			const lines = several.output.split('\n')
+			expect(lines[0]).toBe(`paths are relative to ${dir}`)
+			expect(lines[1]).toBe('src/a.js')
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+			rmSync(other, { recursive: true, force: true })
+		}
+	})
+
+	it('prints a directory named like "..x" relative to the root, not as an absolute path', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-ca-dots-'))
+		try {
+			const a = join(dir, '..x', 'a.js')
+			const provider = stub({
+				findLiteral: async () => ({
+					kind: 'ok',
+					value: {
+						items: [
+							{
+								path: a,
+								line: 1,
+								column: 1,
+								start: 0,
+								end: 1,
+								kind: 'string' as const,
+								value: 'x',
+								valueTruncated: false,
+							},
+						],
+						total: 1,
+					},
+					evidence: complete,
+				}),
+			})
+			const result = await CodeAnalysisTool.execute(
+				{ operation: 'find_literal', text: 'x', path: dir },
+				{ workingDirectory: dir, codeAnalysis: provider } as ToolContext,
+			)
+			expect(result.output.split('\n')[0]).toBe('..x/a.js')
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
 	it('labels text-only and call-via callers, and a position in a class body', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-ca-render-'))
 		try {

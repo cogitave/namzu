@@ -1,5 +1,5 @@
 import { realpath, stat } from 'node:fs/promises'
-import { relative, sep } from 'node:path'
+import { isAbsolute, relative, sep } from 'node:path'
 import { z } from 'zod'
 
 import type {
@@ -218,169 +218,176 @@ export const CodeAnalysisTool = defineTool({
 		}
 		const root = owner.root
 
-		switch (input.operation) {
-			case 'index': {
-				const result = await provider.index({
-					root,
-					// A narrower path indexes just that part of the root, which is
-					// how a root too big to index whole is covered in steps.
-					...(target !== root ? { scope: target } : {}),
-					...(input.force ? { force: true } : {}),
-					...signalOf(context),
-				})
-				return render(result, (value) => {
-					const f = value.files
-					const lines = [
-						`Indexed ${value.root}: ${f.indexed} files (${f.parsed} parsed, ${f.unchanged} unchanged, ${f.removed} removed, ${f.skipped} skipped, ${f.withParseErrors} with parse errors) in ${value.durationMs} ms.`,
-						`${value.functions} functions, ${value.strings} string literals, ${value.calls} calls. ${value.persisted ? 'Cached on disk.' : 'Held in memory only; it is gone when this process exits.'}`,
-					]
-					if (value.truncated) lines.push(value.truncated)
-					const reasons = Object.entries(value.skippedReasons)
-					if (reasons.length > 0) {
-						lines.push(`Skipped: ${reasons.map(([why, n]) => `${n} ${why}`).join(', ')}.`)
-					}
-					return lines
-				})
-			}
-			case 'find_literal': {
-				const result = await provider.findLiteral({
-					root,
-					text: input.text,
-					path: target,
-					...(input.case_sensitive === false ? { caseSensitive: false } : {}),
-					...pageArgs(input),
-					...signalOf(context),
-				})
-				return renderPage(
-					result,
-					(hit) => {
-						const shown = JSON.stringify(hit.value) + (hit.valueTruncated ? ' (cut)' : '')
-						const kind = hit.kind === 'string' ? '' : ` (${hit.kind})`
-						const inside = hit.function ? ` in ${shortFunction(hit.function)}` : ' at top level'
-						return `${hit.line}:${hit.column}  ${shown}${kind}${inside}${staleMark(hit.stale)}`
-					},
-					(hit) => relativeTo(root, hit.path),
-				)
-			}
-			case 'enclosing_function': {
-				const result = await provider.enclosingFunction({
-					root,
-					path: target,
-					line: input.line,
-					...(input.column !== undefined ? { column: input.column } : {}),
-					maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
-					...signalOf(context),
-				})
-				return render(result, (value) => {
-					if (!value.function) {
-						const place = `${relativeTo(root, target)}:${input.line}:${input.column ?? 1}`
-						return [
-							value.inClass !== undefined
-								? `${place} is in the body of class ${value.inClass}, outside every method; not inside any function.`
-								: `${place} is not inside any function.`,
+		const outcome = await (async (): Promise<ToolResult> => {
+			switch (input.operation) {
+				case 'index': {
+					const result = await provider.index({
+						root,
+						// A narrower path indexes just that part of the root, which is
+						// how a root too big to index whole is covered in steps.
+						...(target !== root ? { scope: target } : {}),
+						...(input.force ? { force: true } : {}),
+						...signalOf(context),
+					})
+					return render(result, (value) => {
+						const f = value.files
+						const lines = [
+							`Indexed ${value.root}: ${f.indexed} files (${f.parsed} parsed, ${f.unchanged} unchanged, ${f.removed} removed, ${f.skipped} skipped, ${f.withParseErrors} with parse errors) in ${value.durationMs} ms.`,
+							`${value.functions} functions, ${value.strings} string literals, ${value.calls} calls. ${value.persisted ? 'Cached on disk.' : 'Held in memory only; it is gone when this process exits.'}`,
 						]
-					}
-					const lines = [describeFunction(value.function, root)]
-					if (value.parents.length > 0) {
-						lines.push(`parents: ${value.parents.map(shortFunction).join(' < ')}`)
-					}
-					if (value.source) lines.push(...sourceLines(value.source))
-					return lines
-				})
-			}
-			case 'function_source': {
-				if (input.function_id === undefined && !(input.path !== undefined && input.name)) {
-					return fail('function_source needs `function_id`, or `path` together with `name`.')
+						if (value.truncated) lines.push(value.truncated)
+						const reasons = Object.entries(value.skippedReasons)
+						if (reasons.length > 0) {
+							lines.push(`Skipped: ${reasons.map(([why, n]) => `${n} ${why}`).join(', ')}.`)
+						}
+						return lines
+					})
 				}
-				const result = await provider.functionSource({
-					root,
-					...(input.function_id !== undefined ? { id: input.function_id } : {}),
-					...(input.name ? { name: input.name, path: target } : {}),
-					...(input.line !== undefined
-						? {
-								around: {
-									line: input.line,
-									...(input.column !== undefined ? { column: input.column } : {}),
-								},
-							}
-						: {}),
-					maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
-					...pageArgs(input),
-					...signalOf(context),
-				})
-				return renderPage(result, (item) =>
-					[
-						describeFunction(item.function, root),
-						item.parents.length > 0
-							? `parents: ${item.parents.map(shortFunction).join(' < ')}`
-							: undefined,
-						...sourceLines(item.source),
-					]
-						.filter((l): l is string => l !== undefined)
-						.join('\n'),
-				)
-			}
-			case 'callers_of': {
-				const scope = input.scope ?? 'file'
-				if (scope === 'file' && input.path === undefined) {
-					return fail(
-						'callers_of looks in one file by default, so it needs `path`. Pass `scope: "workspace"` to search the whole index; it matches by name only and will mix unrelated functions that share one.',
+				case 'find_literal': {
+					const result = await provider.findLiteral({
+						root,
+						text: input.text,
+						path: target,
+						...(input.case_sensitive === false ? { caseSensitive: false } : {}),
+						...pageArgs(input),
+						...signalOf(context),
+					})
+					return renderPage(
+						result,
+						(hit) => {
+							const shown = JSON.stringify(hit.value) + (hit.valueTruncated ? ' (cut)' : '')
+							const kind = hit.kind === 'string' ? '' : ` (${hit.kind})`
+							const inside = hit.function ? ` in ${shortFunction(hit.function)}` : ' at top level'
+							return `${hit.line}:${hit.column}  ${shown}${kind}${inside}${staleMark(hit.stale)}`
+						},
+						(hit) => relativeTo(root, hit.path),
 					)
 				}
-				const result = await provider.callersOf({
-					root,
-					name: input.name,
-					scope,
-					...(input.path !== undefined ? { path: target } : {}),
-					...(input.match ? { match: input.match } : {}),
-					...pageArgs(input),
-					...signalOf(context),
-				})
-				return renderPage(
-					result,
-					(site) => {
-						const inside = site.caller ? ` in ${shortFunction(site.caller)}` : ' at top level'
-						const how = site.kind === 'new' ? 'new ' : ''
-						const tag =
-							site.kind === 'call-via'
-								? ' [call/apply/bind]'
-								: site.kind === 'tagged'
-									? ' [tagged template]'
-									: ''
-						const label = site.resolution === 'text-only' ? ' [text-only]' : ''
-						return `${site.line}:${site.column}  ${how}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${tag}${label}${inside}${staleMark(site.stale)}`
-					},
-					(site) => relativeTo(root, site.path),
-				)
+				case 'enclosing_function': {
+					const result = await provider.enclosingFunction({
+						root,
+						path: target,
+						line: input.line,
+						...(input.column !== undefined ? { column: input.column } : {}),
+						maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
+						...signalOf(context),
+					})
+					return render(result, (value) => {
+						if (!value.function) {
+							const place = `${relativeTo(root, target)}:${input.line}:${input.column ?? 1}`
+							return [
+								value.inClass !== undefined
+									? `${place} is in the body of class ${value.inClass}, outside every method; not inside any function.`
+									: `${place} is not inside any function.`,
+							]
+						}
+						const lines = [describeFunction(value.function, root)]
+						if (value.parents.length > 0) {
+							lines.push(`parents: ${value.parents.map(shortFunction).join(' < ')}`)
+						}
+						if (value.source) lines.push(...sourceLines(value.source))
+						return lines
+					})
+				}
+				case 'function_source': {
+					if (input.function_id === undefined && !(input.path !== undefined && input.name)) {
+						return fail('function_source needs `function_id`, or `path` together with `name`.')
+					}
+					const result = await provider.functionSource({
+						root,
+						...(input.function_id !== undefined ? { id: input.function_id } : {}),
+						...(input.name ? { name: input.name, path: target } : {}),
+						...(input.line !== undefined
+							? {
+									around: {
+										line: input.line,
+										...(input.column !== undefined ? { column: input.column } : {}),
+									},
+								}
+							: {}),
+						maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
+						...pageArgs(input),
+						...signalOf(context),
+					})
+					return renderPage(result, (item) =>
+						[
+							describeFunction(item.function, root),
+							item.parents.length > 0
+								? `parents: ${item.parents.map(shortFunction).join(' < ')}`
+								: undefined,
+							...sourceLines(item.source),
+						]
+							.filter((l): l is string => l !== undefined)
+							.join('\n'),
+					)
+				}
+				case 'callers_of': {
+					const scope = input.scope ?? 'file'
+					if (scope === 'file' && input.path === undefined) {
+						return fail(
+							'callers_of looks in one file by default, so it needs `path`. Pass `scope: "workspace"` to search the whole index; it matches by name only and will mix unrelated functions that share one.',
+						)
+					}
+					const result = await provider.callersOf({
+						root,
+						name: input.name,
+						scope,
+						...(input.path !== undefined ? { path: target } : {}),
+						...(input.match ? { match: input.match } : {}),
+						...pageArgs(input),
+						...signalOf(context),
+					})
+					return renderPage(
+						result,
+						(site) => {
+							const inside = site.caller ? ` in ${shortFunction(site.caller)}` : ' at top level'
+							const how = site.kind === 'new' ? 'new ' : ''
+							const tag =
+								site.kind === 'call-via'
+									? ' [call/apply/bind]'
+									: site.kind === 'tagged'
+										? ' [tagged template]'
+										: ''
+							const label = site.resolution === 'text-only' ? ' [text-only]' : ''
+							return `${site.line}:${site.column}  ${how}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${tag}${label}${inside}${staleMark(site.stale)}`
+						},
+						(site) => relativeTo(root, site.path),
+					)
+				}
+				case 'imports': {
+					const result = await provider.imports({
+						root,
+						path: target,
+						...pageArgs(input),
+						...signalOf(context),
+					})
+					return render(
+						result,
+						(page) =>
+							page.items.length === 0
+								? [page.total === 0 ? 'No results.' : 'No results on this page.']
+								: [
+										relativeTo(root, target),
+										...page.items.map((edge) => `  ${describeEdge(edge)}`),
+										page.nextCursor !== undefined
+											? `-- ${page.items.length} of ${page.total} shown. next cursor: ${page.nextCursor}`
+											: `-- ${page.items.length} of ${page.total} shown. last page.`,
+									],
+						(page) => ({
+							total: page.total,
+							count: page.items.length,
+							items: page.items,
+							...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+						}),
+					)
+				}
 			}
-			case 'imports': {
-				const result = await provider.imports({
-					root,
-					path: target,
-					...pageArgs(input),
-					...signalOf(context),
-				})
-				return render(
-					result,
-					(page) =>
-						page.items.length === 0
-							? [page.total === 0 ? 'No results.' : 'No results on this page.']
-							: [
-									relativeTo(root, target),
-									...page.items.map((edge) => `  ${describeEdge(edge)}`),
-									page.nextCursor !== undefined
-										? `-- ${page.items.length} of ${page.total} shown. next cursor: ${page.nextCursor}`
-										: `-- ${page.items.length} of ${page.total} shown. last page.`,
-								],
-					(page) => ({
-						total: page.total,
-						count: page.items.length,
-						items: page.items,
-						...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
-					}),
-				)
-			}
-		}
+		})()
+		// With one root, a relative path is unambiguous. With several, the same
+		// `src/a.ts` could be in any of them, so the reader is told which this is.
+		return roots.length > 1 && outcome.success
+			? { ...outcome, output: `paths are relative to ${root}\n${outcome.output}` }
+			: outcome
 	},
 })
 
@@ -442,7 +449,8 @@ async function owningRoot(roots: readonly string[], target: string): Promise<Own
 /** `path` relative to the root (POSIX separators), or `path` itself when it is not under it. */
 function relativeTo(root: string, path: string): string {
 	const rel = relative(root, path)
-	if (rel === '' || rel.startsWith('..') || rel.startsWith(`..${sep}`)) return path
+	// `..` as a whole segment is outside the root; `..x` is a directory named so.
+	if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return path
 	return sep === '/' ? rel : rel.split(sep).join('/')
 }
 
