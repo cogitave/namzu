@@ -243,8 +243,8 @@ describe('answers', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('/w/a.js:3:17')
-		expect(result.output).toContain('handler [arrow, id 7]')
+		// A path outside the root is printed whole, once, as the heading of its hits.
+		expect(result.output).toContain('/w/a.js\n  3:17  "hello" in handler#7 L3-9')
 		expect(result.output).toContain('1 of 120 shown. next cursor: abc')
 		expect(result.output).toContain('observed: 1 literal contains "hello"')
 		expect(result.output).toContain('inferred: the enclosing function')
@@ -279,6 +279,137 @@ describe('answers', () => {
 			ctx(provider),
 		)
 		expect(result.output).toContain('cut: showing 11 of 90000 characters')
+	})
+
+	it('prints paths relative to the root, once per file, and names methods by their qualified name', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-ca-render-'))
+		try {
+			const a = join(dir, 'src', 'a.js')
+			const b = join(dir, 'src', 'b.js')
+			const method: AnalysisFunction = { ...fn, name: 'init', qualifiedName: 'Svc.init', path: a }
+			const hit = (path: string, line: number) => ({
+				path,
+				line,
+				column: 5,
+				start: 0,
+				end: 1,
+				kind: 'string' as const,
+				value: 'x',
+				valueTruncated: false,
+				function: method,
+			})
+			const provider = stub({
+				findLiteral: async () => ({
+					kind: 'ok',
+					value: { items: [hit(a, 3), hit(a, 8), hit(b, 2)], total: 3 },
+					evidence: complete,
+				}),
+			})
+			const result = await CodeAnalysisTool.execute(
+				{ operation: 'find_literal', text: 'x', path: dir },
+				{ workingDirectory: dir, codeAnalysis: provider } as ToolContext,
+			)
+			const lines = result.output.split('\n')
+			expect(lines.slice(0, 5)).toEqual([
+				'src/a.js',
+				'  3:5  "x" in Svc.init#7 L3-9',
+				'  8:5  "x" in Svc.init#7 L3-9',
+				'src/b.js',
+				'  2:5  "x" in Svc.init#7 L3-9',
+			])
+			expect(result.output).not.toContain(dir)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('labels text-only and call-via callers, and a position in a class body', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-ca-render-'))
+		try {
+			const path = join(dir, 'a.js')
+			const site = (over: Record<string, unknown>) => ({
+				path,
+				line: 4,
+				column: 1,
+				callee: 'x.init',
+				kind: 'call' as const,
+				argumentCount: 2,
+				...over,
+			})
+			const provider = stub({
+				callersOf: async () => ({
+					kind: 'ok',
+					value: {
+						items: [
+							site({ callee: 'this.init', resolution: 'resolved' }),
+							site({ resolution: 'text-only' }),
+							site({ callee: 'f', kind: 'call-via' }),
+						],
+						total: 3,
+					},
+					evidence: complete,
+				}),
+				enclosingFunction: async () => ({
+					kind: 'ok',
+					value: { function: null, parents: [], inClass: 'Svc' },
+					evidence: complete,
+				}),
+			})
+			const ctx = { workingDirectory: dir, codeAnalysis: provider } as ToolContext
+			const callers = await CodeAnalysisTool.execute(
+				{ operation: 'callers_of', name: 'Svc.init', scope: 'workspace', path: dir },
+				ctx,
+			)
+			expect(callers.output).toContain('  4:1  this.init(2 args) at top level')
+			expect(callers.output).toContain('  4:1  x.init(2 args) [text-only] at top level')
+			expect(callers.output).toContain('  4:1  f(2 args) [call/apply/bind] at top level')
+			const enclosing = await CodeAnalysisTool.execute(
+				{ operation: 'enclosing_function', path: path, line: 7 },
+				ctx,
+			)
+			expect(enclosing.output).toContain(
+				'a.js:7:1 is in the body of class Svc, outside every method',
+			)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('passes a position to function_source, and says a windowed slice was cut around it', async () => {
+		const seen: Seen[] = []
+		const provider = stub(
+			{
+				functionSource: async (r) => {
+					seen.push({ op: 'functionSource', request: r as unknown as Record<string, unknown> })
+					return {
+						kind: 'ok',
+						value: {
+							items: [
+								{
+									function: fn,
+									parents: [],
+									source: {
+										text: 'head …tail',
+										chars: 90_000,
+										truncated: true,
+										window: { headerChars: 4, from: 50_000, to: 51_000 },
+									},
+								},
+							],
+							total: 1,
+						},
+						evidence: complete,
+					}
+				},
+			},
+			seen,
+		)
+		const result = await CodeAnalysisTool.execute(
+			{ operation: 'function_source', function_id: 7, line: 40, column: 3 },
+			ctx(provider),
+		)
+		expect(seen[0]?.request.around).toEqual({ line: 40, column: 3 })
+		expect(result.output).toContain("the function's first 4 and the part around the position")
 	})
 
 	it('turns a FAILURE into an error naming it unknown, never an empty result', async () => {

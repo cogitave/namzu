@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises'
+import { relative, sep } from 'node:path'
 import { z } from 'zod'
 
 import type {
@@ -112,7 +113,14 @@ const functionSourceOp = z.object({
 		),
 	function_id: z.number().int().min(0).optional(),
 	path: z.string().optional(),
-	name: z.string().min(1).optional(),
+	name: z.string().min(1).optional().describe('`name` or `Class.method`.'),
+	line: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.describe('With `column`: cut a long function around this position, not at its end.'),
+	column: z.number().int().min(1).optional(),
 	max_chars: maxChars,
 	...paging,
 })
@@ -123,7 +131,10 @@ const callersOp = z.object({
 		.describe(
 			'Call sites of a callee TEXT (not scope-aware), each with its caller. Per file by default.',
 		),
-	name: z.string().min(1).describe('Callee text: `foo`, `obj.foo`, `this.foo`.'),
+	name: z
+		.string()
+		.min(1)
+		.describe('Callee text: `foo`, `obj.foo`, `this.foo`; or a method as `Class.method`.'),
 	scope: z
 		.enum(['file', 'workspace'])
 		.optional()
@@ -240,12 +251,16 @@ export const CodeAnalysisTool = defineTool({
 					...pageArgs(input),
 					...signalOf(context),
 				})
-				return renderPage(result, (hit) => {
-					const where = `${hit.path}:${hit.line}:${hit.column}`
-					const shown = JSON.stringify(hit.value) + (hit.valueTruncated ? ' (cut)' : '')
-					const inside = hit.function ? ` in ${describeFunction(hit.function)}` : ' at top level'
-					return `${where}  ${hit.kind} ${shown}${inside}${staleMark(hit.stale)}`
-				})
+				return renderPage(
+					result,
+					(hit) => {
+						const shown = JSON.stringify(hit.value) + (hit.valueTruncated ? ' (cut)' : '')
+						const kind = hit.kind === 'string' ? '' : ` (${hit.kind})`
+						const inside = hit.function ? ` in ${shortFunction(hit.function)}` : ' at top level'
+						return `${hit.line}:${hit.column}  ${shown}${kind}${inside}${staleMark(hit.stale)}`
+					},
+					(hit) => relativeTo(root, hit.path),
+				)
 			}
 			case 'enclosing_function': {
 				const result = await provider.enclosingFunction({
@@ -258,11 +273,16 @@ export const CodeAnalysisTool = defineTool({
 				})
 				return render(result, (value) => {
 					if (!value.function) {
-						return [`${target}:${input.line}:${input.column ?? 1} is not inside any function.`]
+						const place = `${relativeTo(root, target)}:${input.line}:${input.column ?? 1}`
+						return [
+							value.inClass !== undefined
+								? `${place} is in the body of class ${value.inClass}, outside every method; not inside any function.`
+								: `${place} is not inside any function.`,
+						]
 					}
-					const lines = [`${describeFunction(value.function)}`]
+					const lines = [describeFunction(value.function, root)]
 					if (value.parents.length > 0) {
-						lines.push(`parents: ${value.parents.map(describeFunction).join(' < ')}`)
+						lines.push(`parents: ${value.parents.map(shortFunction).join(' < ')}`)
 					}
 					if (value.source) lines.push(...sourceLines(value.source))
 					return lines
@@ -276,15 +296,23 @@ export const CodeAnalysisTool = defineTool({
 					root,
 					...(input.function_id !== undefined ? { id: input.function_id } : {}),
 					...(input.name ? { name: input.name, path: target } : {}),
+					...(input.line !== undefined
+						? {
+								around: {
+									line: input.line,
+									...(input.column !== undefined ? { column: input.column } : {}),
+								},
+							}
+						: {}),
 					maxChars: input.max_chars ?? DEFAULT_MAX_CHARS,
 					...pageArgs(input),
 					...signalOf(context),
 				})
 				return renderPage(result, (item) =>
 					[
-						describeFunction(item.function),
+						describeFunction(item.function, root),
 						item.parents.length > 0
-							? `parents: ${item.parents.map(describeFunction).join(' < ')}`
+							? `parents: ${item.parents.map(shortFunction).join(' < ')}`
 							: undefined,
 						...sourceLines(item.source),
 					]
@@ -308,10 +336,22 @@ export const CodeAnalysisTool = defineTool({
 					...pageArgs(input),
 					...signalOf(context),
 				})
-				return renderPage(result, (site) => {
-					const inside = site.caller ? ` in ${describeFunction(site.caller)}` : ' at top level'
-					return `${site.path}:${site.line}:${site.column}  ${site.kind === 'new' ? 'new ' : ''}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${inside}${staleMark(site.stale)}`
-				})
+				return renderPage(
+					result,
+					(site) => {
+						const inside = site.caller ? ` in ${shortFunction(site.caller)}` : ' at top level'
+						const how = site.kind === 'new' ? 'new ' : ''
+						const tag =
+							site.kind === 'call-via'
+								? ' [call/apply/bind]'
+								: site.kind === 'tagged'
+									? ' [tagged template]'
+									: ''
+						const label = site.resolution === 'text-only' ? ' [text-only]' : ''
+						return `${site.line}:${site.column}  ${how}${site.callee}(${site.argumentCount} arg${site.argumentCount === 1 ? '' : 's'})${tag}${label}${inside}${staleMark(site.stale)}`
+					},
+					(site) => relativeTo(root, site.path),
+				)
 			}
 			case 'imports': {
 				const result = await provider.imports({
@@ -320,7 +360,25 @@ export const CodeAnalysisTool = defineTool({
 					...pageArgs(input),
 					...signalOf(context),
 				})
-				return renderPage(result, (edge) => describeEdge(edge, target))
+				return render(
+					result,
+					(page) =>
+						page.items.length === 0
+							? [page.total === 0 ? 'No results.' : 'No results on this page.']
+							: [
+									relativeTo(root, target),
+									...page.items.map((edge) => `  ${describeEdge(edge)}`),
+									page.nextCursor !== undefined
+										? `-- ${page.items.length} of ${page.total} shown. next cursor: ${page.nextCursor}`
+										: `-- ${page.items.length} of ${page.total} shown. last page.`,
+								],
+					(page) => ({
+						total: page.total,
+						count: page.items.length,
+						items: page.items,
+						...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+					}),
+				)
 			}
 		}
 	},
@@ -381,13 +439,26 @@ async function owningRoot(roots: readonly string[], target: string): Promise<Own
 	return sawFile ? { kind: 'file' } : { kind: 'none' }
 }
 
-function describeFunction(fn: AnalysisFunction): string {
-	const lines = fn.endLine === fn.line ? `line ${fn.line}` : `lines ${fn.line}-${fn.endLine}`
-	return `${fn.name ?? '(anonymous)'} [${fn.kind}, id ${fn.id}] ${fn.path}:${fn.line}:${fn.column} (${lines})`
+/** `path` relative to the root (POSIX separators), or `path` itself when it is not under it. */
+function relativeTo(root: string, path: string): string {
+	const rel = relative(root, path)
+	if (rel === '' || rel.startsWith('..') || rel.startsWith(`..${sep}`)) return path
+	return sep === '/' ? rel : rel.split(sep).join('/')
 }
 
-function describeEdge(edge: AnalysisModuleEdge, path: string): string {
-	const where = `${path}:${edge.line}:${edge.column}`
+/** `Svc.init#12 L10-40`: enough to cite and to ask for by id, no repeated path or kind. */
+function shortFunction(fn: AnalysisFunction): string {
+	const lines = fn.endLine === fn.line ? `L${fn.line}` : `L${fn.line}-${fn.endLine}`
+	return `${fn.qualifiedName ?? fn.name ?? '(anonymous)'}#${fn.id} ${lines}`
+}
+
+/** The full line a single function gets: kind and place included. */
+function describeFunction(fn: AnalysisFunction, root: string): string {
+	return `${shortFunction(fn)} [${fn.kind}] ${relativeTo(root, fn.path)}:${fn.line}:${fn.column}`
+}
+
+function describeEdge(edge: AnalysisModuleEdge): string {
+	const where = `${edge.line}:${edge.column}`
 	if (edge.direction === 'import') {
 		const names = edge.names.length > 0 ? ` { ${edge.names.join(', ')} }` : ''
 		return `${where}  import (${edge.kind})${names} from ${JSON.stringify(edge.source)}`
@@ -400,7 +471,9 @@ function sourceLines(slice: AnalysisSourceSlice): string[] {
 	const lines = ['--- source ---', slice.text]
 	if (slice.truncated) {
 		lines.push(
-			`--- cut: showing ${slice.text.length} of ${slice.chars} characters; raise max_chars to see more ---`,
+			slice.window
+				? `--- cut: showing ${slice.text.length} of ${slice.chars} characters, the function's first ${slice.window.headerChars} and the part around the position; raise max_chars to see more ---`
+				: `--- cut: showing ${slice.text.length} of ${slice.chars} characters; raise max_chars to see more ---`,
 		)
 	}
 	return lines
@@ -449,6 +522,8 @@ function render<T>(
 function renderPage<T>(
 	result: CodeAnalysisResult<AnalysisPage<T>>,
 	line: (item: T) => string,
+	/** Groups consecutive items of one file under a single heading. */
+	fileOf?: (item: T) => string,
 ): ToolResult {
 	return render(
 		result,
@@ -456,7 +531,16 @@ function renderPage<T>(
 			if (page.items.length === 0) {
 				return [page.total === 0 ? 'No results.' : 'No results on this page.']
 			}
-			const lines = page.items.map(line)
+			const lines: string[] = []
+			let current: string | undefined
+			for (const item of page.items) {
+				const file = fileOf?.(item)
+				if (file !== undefined && file !== current) {
+					lines.push(file)
+					current = file
+				}
+				lines.push(file === undefined ? line(item) : `  ${line(item)}`)
+			}
 			lines.push(
 				page.nextCursor !== undefined
 					? `-- ${page.items.length} of ${page.total} shown. next cursor: ${page.nextCursor}`
