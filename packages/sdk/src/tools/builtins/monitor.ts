@@ -29,7 +29,6 @@ import {
 	backgroundTasksDisabled,
 	isDangerousCommand,
 } from './bash.js'
-import { clip } from './classifier-input.js'
 
 /**
  * Watch a command's output while the model keeps working.
@@ -181,7 +180,7 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 		commandArgument: 'command',
 		classifierInput: (input: MonitorInput) =>
 			input.command !== undefined
-				? `[long-running watch] ${clip(input.command, 4000)}`
+				? `[long-running watch] ${input.command}`
 				: `[long-running WebSocket watch] ${JSON.stringify(input.ws)}`,
 		commandDialect: bashToolDialect,
 		// `network_access` too: a WebSocket call reaches the network. The gate

@@ -45,7 +45,7 @@ import {
 	buildSystemPrompt,
 } from './prompt.js'
 import { type AutoReviewRules, resolveAutoReviewRules } from './rules.js'
-import { projectCall, projectTranscript, renderEntry, renderedLength } from './transcript.js'
+import { projectAction, projectTranscript, renderEntry, renderedLength } from './transcript.js'
 import { parseVerdict } from './verdict.js'
 
 /** Which pass produced a decision. `0` means neither ran. */
@@ -205,7 +205,10 @@ export function createAutoReviewClassifier(
 				controller.abort(new DeadlineError())
 			}, deadlineMs)
 			try {
-				const response = await collectChatCompletion(
+				// Raced against the abort, not only handed the signal: a provider that
+				// ignores it would otherwise hold the call open past its deadline, and
+				// a turn cancelled while it waits would wait with it.
+				const collected = collectChatCompletion(
 					options.provider.chatStream({
 						model: options.model,
 						messages,
@@ -216,6 +219,16 @@ export function createAutoReviewClassifier(
 						signal: controller.signal,
 					}),
 				)
+				collected.catch(() => {})
+				const cutOff = new Promise<never>((_resolve, reject) => {
+					controller.signal.addEventListener(
+						'abort',
+						() => reject(controller.signal.reason ?? new Error('aborted')),
+						{ once: true },
+					)
+				})
+				cutOff.catch(() => {})
+				const response = await Promise.race([collected, cutOff])
 				options.onUsage?.(response.usage, stage)
 				return response.message.content ?? ''
 			} catch (error) {
@@ -288,10 +301,26 @@ export function createAutoReviewClassifier(
 			...(options.maxEntryChars !== undefined ? { maxEntryChars: options.maxEntryChars } : {}),
 		})
 		const lines = entries.map(renderEntry)
+		const projected = projectAction(
+			request.call.name,
+			request.call.input,
+			request.tools,
+			ACTION_CHARS,
+		)
+		// A prefix of a command is not the command: what follows the cut could be
+		// anything, and a verdict on the part that was shown says nothing about it.
+		if (projected.truncated) {
+			return blocked(
+				started,
+				0,
+				'unreadable',
+				'the action is too long for the safety check to read in full, so it was not run',
+			)
+		}
 		const action = renderEntry({
 			kind: 'tool',
 			name: request.call.name,
-			input: projectCall(request.call.name, request.call.input, request.tools, ACTION_CHARS),
+			input: projected.text,
 		})
 		if (renderedLength(lines) + action.length > maxChars) return { verdict: 'too_long' }
 

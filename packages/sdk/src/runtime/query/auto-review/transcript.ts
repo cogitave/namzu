@@ -45,32 +45,53 @@ function parseArguments(raw: string): unknown {
 	}
 }
 
+/** The line shown for a call, and whether it had to be cut to fit. */
+export interface ProjectedCall {
+	readonly text: string
+	/** The call is longer than the limit: `text` is a prefix and the rest was never shown. */
+	readonly truncated: boolean
+}
+
 /**
  * The line shown for a call: the tool's own account of it, or the input as
  * compact JSON when the tool has none or its account is empty or throws.
+ * `truncated` is true when what the tool (or the JSON) said was longer than
+ * `limit`, so a caller judging THIS call can refuse to judge a prefix of it.
  */
+export function projectAction(
+	name: string,
+	input: unknown,
+	tools: Pick<ToolManager, 'get'> | undefined,
+	limit: number = DEFAULT_ENTRY_CHARS,
+): ProjectedCall {
+	const tool = tools?.get(name) ?? tools?.get(name.toLowerCase())
+	let text: string | undefined
+	if (tool?.classifierInput !== undefined) {
+		try {
+			const described = tool.classifierInput(input as never)
+			if (typeof described === 'string' && described.trim() !== '') text = described
+		} catch {
+			// A tool that cannot describe its own call is shown as its input.
+		}
+	}
+	if (text === undefined) {
+		try {
+			text = JSON.stringify(input) ?? ''
+		} catch {
+			text = String(input)
+		}
+	}
+	return { text: clip(text, limit), truncated: text.length > limit }
+}
+
+/** {@link projectAction}'s text, for a line of history where a cut is only context. */
 export function projectCall(
 	name: string,
 	input: unknown,
 	tools: Pick<ToolManager, 'get'> | undefined,
 	limit: number = DEFAULT_ENTRY_CHARS,
 ): string {
-	const tool = tools?.get(name) ?? tools?.get(name.toLowerCase())
-	if (tool?.classifierInput !== undefined) {
-		try {
-			const text = tool.classifierInput(input as never)
-			if (typeof text === 'string' && text.trim() !== '') return clip(text, limit)
-		} catch {
-			// A tool that cannot describe its own call is shown as its input.
-		}
-	}
-	let json: string
-	try {
-		json = JSON.stringify(input) ?? ''
-	} catch {
-		json = String(input)
-	}
-	return clip(json, limit)
+	return projectAction(name, input, tools, limit).text
 }
 
 /** The conversation as the classifier sees it, oldest first. */

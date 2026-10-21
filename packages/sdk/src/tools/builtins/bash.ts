@@ -23,7 +23,6 @@ import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
 import { looksBinary, windowText } from '../text-window.js'
-import { clip } from './classifier-input.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
@@ -481,7 +480,7 @@ const BashToolBase = defineTool({
 	commandArgument: 'command',
 	// The classifier judges the command line, not the surrounding options.
 	classifierInput: (input: BashInput) =>
-		`${input.dangerously_disable_sandbox === true ? '[outside the sandbox] ' : ''}${clip(input.command, 4000)}`,
+		`${input.dangerously_disable_sandbox === true ? '[outside the sandbox] ' : ''}${input.command}`,
 	// The shell that runs it, so the rules read the line as that shell will.
 	commandDialect: bashToolDialect,
 	// The kernel reviews a call that sets it under a sandbox every time and
