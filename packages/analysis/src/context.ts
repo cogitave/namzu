@@ -134,6 +134,15 @@ export interface FileInfo {
 	readonly starts: Uint32Array
 }
 
+/**
+ * A row this query read points at one that is gone: another process replaced
+ * the file's rows while the query was between its reads. Not a failure of the
+ * index; the query is simply run again against the new rows.
+ */
+export class StaleIndexError extends Error {
+	override readonly name = 'StaleIndexError'
+}
+
 /** Per-request cache of file rows, so a page of hits decodes each line table once. */
 export class Files {
 	private readonly byId = new Map<number, FileInfo>()
@@ -161,7 +170,8 @@ export class Files {
 		let info = this.byId.get(id)
 		if (!info) {
 			const row = this.store.get('SELECT * FROM files WHERE id = ?', id)
-			if (!row) throw new Error(`file ${id} is not in the index`)
+			// Another process re-indexed the file between this query's reads.
+			if (!row) throw new StaleIndexError(`file ${id} is not in the index`)
 			info = this.from(row)
 			this.byId.set(id, info)
 		}
@@ -402,8 +412,11 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 	}
 	for (const e of covered) {
 		if (e.c === 0 && (scopeRel === '' || e === covering)) {
+			const where = e.s === '' ? 'the root' : e.s
 			reasons.push(
-				`indexing ${e.s === '' ? 'the root' : e.s} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. Call the index operation with a narrower path to cover more`,
+				e.k === 'cancel'
+					? `indexing ${where} ${e.r}, so what was indexed is partial. Call the index operation to continue`
+					: `indexing ${where} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. Call the index operation with a narrower path to cover more`,
 			)
 		}
 	}

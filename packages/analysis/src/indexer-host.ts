@@ -15,8 +15,7 @@
  * anything that is not a forked child.
  */
 
-import { parseSource } from './parse.js'
-import { ParserUnavailableError } from './parse.js'
+import { ParserUnavailableError, parseSource, useParserModule } from './parse.js'
 import { RowSink, indexProgram } from './walk.js'
 
 export type HostRequest = {
@@ -72,6 +71,7 @@ async function handle(request: HostRequest): Promise<HostReply> {
 }
 
 if (typeof process.send === 'function') {
+	if (process.argv[2]) useParserModule(process.argv[2])
 	const send = process.send.bind(process)
 	process.on('message', (message: HostRequest) => {
 		if (message?.t !== 'parse') return

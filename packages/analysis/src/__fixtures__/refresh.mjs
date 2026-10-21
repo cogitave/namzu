@@ -9,5 +9,5 @@ if (r.kind !== 'ok') {
 	process.exit(1)
 }
 const t = await p.findLiteral({ root, text: needle })
-console.log(JSON.stringify({ pid: process.pid, indexed: r.value.files.indexed, hits: t.kind === 'ok' ? t.value.total : t.kind }))
+console.log(JSON.stringify({ pid: process.pid, indexed: r.value.files.indexed, hits: t.kind === 'ok' ? t.value.total : (t.error ?? t.reason) }))
 await p.dispose()

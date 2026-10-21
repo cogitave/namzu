@@ -53,7 +53,7 @@ describe('cancelling', () => {
 				if (++calls === 3) controller.abort()
 				return await real.parse(job, signal)
 			},
-			kill: () => real.kill(),
+			kill: () => real.killChild(),
 		} as unknown as ParserHost
 		const options = {
 			ignoreDirs: [],
@@ -69,12 +69,14 @@ describe('cancelling', () => {
 		const kept = Number((store.get('SELECT count(*) AS n FROM files') as { n: number }).n)
 		expect(kept).toBeGreaterThanOrEqual(1)
 		expect(kept).toBeLessThan(6)
-		// Not marked covered, so the next call carries on.
-		expect(store.meta('covered')).toBe('[]')
+		// Recorded as partly covered, with the way to continue, and the generation
+		// moved so a cursor issued before the abort stops matching.
+		expect(store.meta('covered')).toContain('"k":"cancel"')
+		expect(Number(store.meta('generation'))).toBeGreaterThan(0)
 		const resumed = await store.run(() => refreshIndex(store, tree.root, tree.root, options, real))
 		expect(resumed.indexed).toBe(6)
 		expect(resumed.unchanged).toBe(kept)
-		real.kill()
+		real.killChild()
 		store.close()
 	})
 
@@ -87,7 +89,7 @@ describe('cancelling', () => {
 		).rejects.toMatchObject({ name: 'AbortError' })
 		const again = await host.parse({ rel: 'b.js', abs: '/x/b.js', text: 'function b(){}' })
 		expect(again.kind).toBe('rows')
-		host.kill()
+		host.killChild()
 	})
 })
 
@@ -289,5 +291,199 @@ describe('doubts settled', () => {
 		).value
 		expect(fn.source?.text).toBe('function f(){ return "bom-literal" }')
 		await p.dispose()
+	})
+})
+
+describe('review: the child and the cache', () => {
+	it('does not record a healthy file as crashed when the provider is disposed mid-index', async () => {
+		const files: Record<string, string> = {}
+		for (let i = 0; i < 200; i++) files[`f${i}.js`] = `function f${i}(){ return "lit-${i}" }\n`
+		const tree = make(files)
+		const cache = make()
+		const p = provider({ cacheDir: cache.root })
+		const running = p.index({ root: tree.root })
+		await p.dispose()
+		const result = await running
+		// A cancellation, never an ok that hides it.
+		expect(result.kind).toBe('failed')
+		expect(failure(result)).toContain('cancelled')
+
+		const again = provider({ cacheDir: cache.root })
+		const out = ok(await again.index({ root: tree.root }))
+		expect(out.value.skippedReasons['parser crashed']).toBeUndefined()
+		expect(out.value.files.indexed).toBe(200)
+		expect(out.evidence.coverage.status).toBe('complete')
+		await again.dispose()
+		// And a disposed provider answers, rather than spawning a child it would leak.
+		expect((await p.index({ root: tree.root })).kind).toBe('failed')
+	})
+
+	it('rejects a parse of a disposed host and of a host killed on purpose, as cancellations', async () => {
+		const host = new ParserHost()
+		const big = `${'var a = 1;\n'.repeat(400_000)}`
+		const inFlight = host.parse({ rel: 'big.js', abs: '/x/big.js', text: big })
+		host.dispose()
+		await expect(inFlight).rejects.toMatchObject({ name: 'AbortError' })
+		await expect(host.parse({ rel: 'b.js', abs: '/x/b.js', text: 'var b' })).rejects.toMatchObject({
+			name: 'AbortError',
+		})
+	})
+
+	it('prefers the most specific covering entry, so a finished narrower scope ends the advice to index it', async () => {
+		const files: Record<string, string> = {}
+		for (let d = 0; d < 6; d++) files[`d${d}/m.js`] = `function m${d}(){ return "lit-${d}" }\n`
+		files['h/h.js'] = 'function h(){ return "h-literal" }\n'
+		const tree = make(files)
+		const p = provider({ maxDirectories: 2 })
+		const root = ok(await p.index({ root: tree.root }))
+		expect(root.value.truncated).toBeDefined()
+		ok(await p.index({ root: tree.root, scope: tree.path('h') }))
+		const hit = ok(
+			await p.findLiteral({ root: tree.root, text: 'h-literal', path: tree.path('h') }),
+		)
+		expect(hit.value.total).toBe(1)
+		expect(hit.evidence.coverage.status).toBe('complete')
+		await p.dispose()
+	})
+
+	it('matches member callers by bytes, not by folded case', async () => {
+		const tree = make({ 'a.js': 'function f(){ obj.run(); obj.Run(); obj.RUN(); run() }\n' })
+		const p = provider()
+		const r = ok(
+			await p.callersOf({ root: tree.root, name: 'run', scope: 'workspace', match: 'member' }),
+		)
+		expect(r.value.items.map((i) => i.callee).sort()).toEqual(['obj.run', 'run'])
+		await p.dispose()
+	})
+
+	it('keeps the parent from exiting being held open by an idle child', async () => {
+		const { execFile } = await import('node:child_process')
+		const { promisify } = await import('node:util')
+		const { fileURLToPath } = await import('node:url')
+		const tree = make({ 'a.js': 'function a(){ return 1 }\n' })
+		const script = fileURLToPath(new URL('../__fixtures__/noexit.mjs', import.meta.url))
+		// If the idle child held the loop open this would never resolve, and the
+		// runner's own test timeout would be what reports it.
+		const { stdout } = await promisify(execFile)(process.execPath, [script, tree.root])
+		expect(JSON.parse(stdout.trim())).toEqual({ kind: 'ok', indexed: 1 })
+	}, 30_000)
+
+	it('gives the child a minimal environment, with no secrets', async () => {
+		const { fileURLToPath } = await import('node:url')
+		const stand = fileURLToPath(new URL('../__fixtures__/env-parser.mjs', import.meta.url))
+		const tree = make({ 'a.js': 'x\n' })
+		process.env.NAMZU_TEST_SECRET_KEY = 'sk-should-not-reach-the-child'
+		try {
+			const p = provider({ parserModule: stand })
+			const hit = ok(await p.findLiteral({ root: tree.root, text: 'PATH' })).value.items[0]
+			const keys = JSON.parse(hit?.value ?? '[]') as string[]
+			expect(keys).toContain('PATH')
+			expect(keys).not.toContain('NAMZU_TEST_SECRET_KEY')
+			expect(keys.every((k) => !/KEY|TOKEN|SECRET/i.test(k))).toBe(true)
+			await p.dispose()
+		} finally {
+			Reflect.deleteProperty(process.env, 'NAMZU_TEST_SECRET_KEY')
+		}
+	})
+
+	it('runs the child under the permission model: it cannot write, spawn or read the project', async () => {
+		const { fileURLToPath } = await import('node:url')
+		const { permissionArguments } = await import('../host.js')
+		const script = fileURLToPath(new URL('../../dist/indexer-host.js', import.meta.url))
+		const args = permissionArguments(script, undefined)
+		expect(args).toContain('--permission')
+		expect(args).toContain('--allow-addons')
+		expect(args.some((a) => a.startsWith('--allow-fs-write'))).toBe(false)
+		expect(args.some((a) => a.startsWith('--allow-child-process'))).toBe(false)
+		// It still parses under it.
+		const host = new ParserHost()
+		const out = await host.parse({
+			rel: 'a.js',
+			abs: '/x/a.js',
+			text: 'function a(){ return "ok" }',
+		})
+		expect(out.kind).toBe('rows')
+		host.dispose()
+	})
+})
+
+describe('cache eviction', () => {
+	const DAY = 24 * 60 * 60 * 1000
+
+	function seed(dir: string, name: string, bytes: number, ageDays: number): void {
+		const path = join(dir, name)
+		writeFileSync(path, Buffer.alloc(bytes))
+		const when = (Date.now() - ageDays * DAY) / 1000
+		utimesSync(path, when, when)
+	}
+
+	it('removes databases unused for the age limit and keeps recent ones and the one in use', async () => {
+		const cache = make()
+		seed(cache.root, 'old-v1-fts.sqlite', 10, 90)
+		seed(cache.root, 'recent-v1-fts.sqlite', 10, 2)
+		const tree = make({ 'a.js': 'function a(){ return 1 }\n' })
+		const p = provider({ cacheDir: cache.root, cacheMaxAgeDays: 30 })
+		ok(await p.index({ root: tree.root }))
+		// Eviction runs beside the open, not before the answer; give it its turn.
+		await p.dispose()
+		const { evictCaches } = await import('../evict.js')
+		await evictCaches(cache.root, 'none', { maxAgeDays: 30, maxBytes: 1e12 })
+		const left = readdirSync(cache.root).filter((f) => f.endsWith('.sqlite'))
+		expect(left).not.toContain('old-v1-fts.sqlite')
+		expect(left).toContain('recent-v1-fts.sqlite')
+		expect(left.length).toBe(2)
+	})
+
+	it('trims least recently used databases until the directory fits, sparing the one named', async () => {
+		const { evictCaches } = await import('../evict.js')
+		const cache = make()
+		seed(cache.root, 'a-v1-fts.sqlite', 1000, 10)
+		seed(cache.root, 'b-v1-fts.sqlite', 1000, 5)
+		seed(cache.root, 'c-v1-fts.sqlite', 1000, 3)
+		const removed = await evictCaches(cache.root, 'c-v1-fts.sqlite', {
+			maxAgeDays: 365,
+			maxBytes: 1500,
+		})
+		expect(removed).toEqual(['a-v1-fts.sqlite', 'b-v1-fts.sqlite'])
+		expect(readdirSync(cache.root)).toEqual(['c-v1-fts.sqlite'])
+	})
+
+	it('does not touch a database used in the last hour, whatever the size limit says', async () => {
+		const { evictCaches } = await import('../evict.js')
+		const cache = make()
+		seed(cache.root, 'busy-v1-fts.sqlite', 1000, 0)
+		expect(await evictCaches(cache.root, 'x', { maxAgeDays: 0, maxBytes: 1 })).toEqual([])
+	})
+})
+
+describe('the descriptor check', () => {
+	it('says an open file inside the root is inside, and one outside is not', async () => {
+		const { descriptorInside } = await import('../fsafe.js')
+		const { openSync, closeSync, fstatSync } = await import('node:fs')
+		const inside = make({ 'a.js': 'x' })
+		const outside = make({ 'b.js': 'y' })
+		const fdIn = openSync(inside.path('a.js'), 'r')
+		const fdOut = openSync(outside.path('b.js'), 'r')
+		try {
+			expect(await descriptorInside(inside.root, fdIn, inside.path('a.js'), fstatSync(fdIn))).toBe(
+				true,
+			)
+			// The path the caller believes in is inside; the descriptor is not.
+			expect(
+				await descriptorInside(inside.root, fdOut, inside.path('a.js'), fstatSync(fdOut)),
+			).toBe(false)
+		} finally {
+			closeSync(fdIn)
+			closeSync(fdOut)
+		}
+	})
+
+	it('refuses a FIFO swapped in for a file, without blocking on it', async () => {
+		const { execFileSync } = await import('node:child_process')
+		const { readRegular } = await import('../fsafe.js')
+		const tree = make()
+		execFileSync('mkfifo', [tree.path('pipe.js')])
+		const out = await readRegular(tree.root, tree.path('pipe.js'))
+		expect(out).toEqual({ ok: false, why: 'not-file' })
 	})
 })

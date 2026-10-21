@@ -24,6 +24,7 @@ import {
 	type FileInfo,
 	Files,
 	PREVIEW_CHARS,
+	StaleIndexError,
 	checkFreshness,
 	clampChars,
 	clampLimit,
@@ -31,7 +32,6 @@ import {
 	decodeCursor,
 	encodeCursor,
 	fingerprint,
-	likeEscape,
 	markReasons,
 	newFileReasons,
 	parentsOf,
@@ -40,6 +40,7 @@ import {
 	toFunction,
 	workspaceGaps,
 } from './context.js'
+import { DEFAULT_CACHE_MAX_AGE_DAYS, DEFAULT_CACHE_MAX_BYTES } from './evict.js'
 import { ParserHost, abortError } from './host.js'
 import {
 	DEFAULT_IGNORED_DIRS,
@@ -86,6 +87,17 @@ export interface CodeAnalysisOptions {
 	 */
 	readonly hostScript?: string
 	/**
+	 * Load the parser from this module specifier instead of `oxc-parser`. For a
+	 * host that vendors the parser, and for tests; the child is started with it
+	 * as an argument, and without Node's permission model, which needs to know
+	 * where the parser lives.
+	 */
+	readonly parserModule?: string
+	/** Remove cache databases unused for this many days. Default 30. */
+	readonly cacheMaxAgeDays?: number
+	/** Trim least recently used cache databases until the directory fits. Default 2 GiB. */
+	readonly cacheMaxBytes?: number
+	/**
 	 * `auto` (default) builds a trigram FTS5 index of literals when this Node
 	 * has FTS5 (22.16 and newer). `off` never does, and `find_literal` scans.
 	 * The two modes use separate cache files.
@@ -131,7 +143,11 @@ export function createCodeAnalysisProvider(
 	options: CodeAnalysisOptions = {},
 ): CodeAnalysisProvider {
 	const opened = new Map<string, Promise<Opened | { error: string }>>()
-	const host = new ParserHost(options.hostScript)
+	const host = new ParserHost(options.hostScript, options.parserModule)
+	/** Fires on dispose: every call still running or queued stops. */
+	const lifetime = new AbortController()
+	const withLifetime = (signal: AbortSignal | undefined): AbortSignal =>
+		signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal
 	const indexOptions = (force: boolean): IndexOptions => ({
 		ignoreDirs: options.ignoreDirs ?? DEFAULT_IGNORED_DIRS,
 		maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
@@ -159,7 +175,10 @@ export function createCodeAnalysisProvider(
 		let pending = opened.get(root)
 		if (!pending) {
 			pending = (async () => {
-				const store = await Store.open(root, options.cacheDir, options.substringIndex !== 'off')
+				const store = await Store.open(root, options.cacheDir, options.substringIndex !== 'off', {
+					maxAgeDays: options.cacheMaxAgeDays ?? DEFAULT_CACHE_MAX_AGE_DAYS,
+					maxBytes: options.cacheMaxBytes ?? DEFAULT_CACHE_MAX_BYTES,
+				})
 				if (!store) {
 					return {
 						error:
@@ -284,10 +303,19 @@ export function createCodeAnalysisProvider(
 	): Promise<Result<T>> {
 		const o = await open(rootInput)
 		if ('error' in o) return { kind: 'unsupported', reason: o.error }
-		return await queued(o, signal, async () => {
-			const env = envOf(o, signal)
+		const lifetimeSignal = withLifetime(signal)
+		return await queued(o, lifetimeSignal, async () => {
+			const env = envOf(o, lifetimeSignal)
 			const built = await ensureCovered(env, scopeAbs ?? o.root)
-			return await body(o, env, built)
+			// Several processes may be rewriting the same files. A read that finds a
+			// row replaced under it is run again against the new rows.
+			for (let attempt = 0; ; attempt++) {
+				try {
+					return await body(o, env, built)
+				} catch (err) {
+					if (!(err instanceof StaleIndexError) || attempt >= 4) throw err
+				}
+			}
 		})
 	}
 
@@ -295,7 +323,8 @@ export function createCodeAnalysisProvider(
 		async index(request: IndexRequest): Promise<Result<IndexSummary>> {
 			const o = await open(request.root)
 			if ('error' in o) return { kind: 'unsupported', reason: o.error }
-			return await queued(o, request.signal, async () => {
+			const signal = withLifetime(request.signal)
+			return await queued(o, signal, async () => {
 				const started = performance.now()
 				const scopeAbs = request.scope ?? o.root
 				const scopeRel = toRel(o.root, scopeAbs)
@@ -307,7 +336,7 @@ export function createCodeAnalysisProvider(
 					scopeAbs,
 					indexOptions(request.force === true),
 					host,
-					request.signal,
+					signal,
 				)
 				const count = (table: string): number =>
 					Number((o.store.get(`SELECT count(*) AS n FROM ${table}`) as Row).n)
@@ -664,10 +693,15 @@ export function createCodeAnalysisProvider(
 					scopeRel = s.rel
 				}
 				const limit = clampLimit(request.limit)
+				// `member` is the callee OR anything ending in `.name`, compared by
+				// bytes: SQLite's LIKE folds ASCII case, which would match `obj.Run`
+				// for `run` while the evidence says it matches `.run`.
 				const test = member
-					? "(c.callee = ? OR c.callee LIKE '%.' || ? ESCAPE '\\')"
+					? "(c.callee = ? OR (length(c.callee) > length(?) AND substr(c.callee, -(length(?) + 1)) = '.' || ?))"
 					: 'c.callee = ?'
-				const testParams = member ? [request.name, likeEscape(request.name)] : [request.name]
+				const testParams = member
+					? [request.name, request.name, request.name, request.name]
+					: [request.name]
 				const where = `WHERE ${test}${scoped.sql}`
 				const params = [...testParams, ...scoped.params]
 
@@ -848,7 +882,10 @@ export function createCodeAnalysisProvider(
 		async dispose(): Promise<void> {
 			const all = [...opened.values()]
 			opened.clear()
-			host.kill()
+			// Stops every call still running or queued, and the child with them. A
+			// call in flight returns a cancellation, not a result.
+			lifetime.abort()
+			host.dispose()
 			for (const pending of all) {
 				const o = await pending.catch(() => undefined)
 				if (!o || 'error' in o) continue

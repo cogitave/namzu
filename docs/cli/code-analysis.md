@@ -21,7 +21,7 @@ There is nothing to install or enable. The CLI bundles `@namzu/analysis`, with i
 
 ## Where the index lives
 
-`~/.namzu/cache/analysis` (under `NAMZU_HOME` when set), one SQLite file per project root, named by a hash of the root's real path, created owner-only. It is a cache: delete it freely and the next call rebuilds it. A re-index reads only files whose size and mtime changed, and parses only those whose content hash changed. If the directory cannot be created, the index is held in memory for the session.
+`~/.namzu/cache/analysis` (under `NAMZU_HOME` when set), one SQLite file per project root, named by a hash of the root's real path, created owner-only. It is a cache: delete it freely and the next call rebuilds it. It holds the string literals of the code it indexed, so databases unused for 30 days are removed, and the least recently used are trimmed when the directory passes 2 GiB. A re-index reads only files whose size and mtime changed, and parses only those whose content hash changed. If the directory cannot be created, the index is held in memory for the session.
 
 The first call in a project builds the index and says so in the result (`... was built for this call`). On a few thousand files that takes a few seconds; a 44 MB bundle took 7 seconds on two cores. Esc stops it, and what it had indexed is kept. Parsing happens in a separate process, so the terminal keeps drawing and a file that crashes the parser costs that file only. Call `index` again after files change to refresh.
 

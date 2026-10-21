@@ -22,11 +22,20 @@ export class ParserUnavailableError extends Error {
 	override readonly name = 'ParserUnavailableError'
 }
 
+/**
+ * The module to load the parser from. `oxc-parser` always, except where the
+ * host names another (a vendored copy; a test's stand-in). It is chosen by the
+ * parent and handed to the child as an argument, never read from the
+ * environment, which a production process should not be steered by.
+ */
+let parserModule = 'oxc-parser'
+export function useParserModule(specifier: string): void {
+	parserModule = specifier
+	oxc = undefined
+}
+
 async function loadOxc(): Promise<{ module: OxcModule; raw: boolean }> {
-	// `NAMZU_ANALYSIS_PARSER` names the module to load. It exists so a test can
-	// make the parser unavailable in the child process, where a module mock
-	// cannot reach; nothing else sets it.
-	oxc ??= (import(process.env.NAMZU_ANALYSIS_PARSER ?? 'oxc-parser') as Promise<OxcModule>).then(
+	oxc ??= (import(parserModule) as Promise<OxcModule>).then(
 		(module) => {
 			let raw = false
 			try {

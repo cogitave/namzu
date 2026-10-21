@@ -6,10 +6,10 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { TextDecoder } from 'node:util'
 
 import { isInside, readRegular } from './fsafe.js'
-import { type ParserHost, abortError } from './host.js'
+import { MIN_PARSE_MS, type ParserHost, abortError } from './host.js'
 import { lineStarts } from './lines.js'
 import { isDeclarationFile, languageOf } from './parse.js'
-import { CRASHED, type Store } from './store.js'
+import { CRASHED, type Store, type StoredFile } from './store.js'
 import { EMPTY_ROWS } from './walk.js'
 
 /** Directories never entered. Names, matched anywhere below the root. */
@@ -33,8 +33,6 @@ export const DEFAULT_MAX_MILLIS = 45_000
 
 /** How long synchronous work may run before the event loop gets a turn. */
 const SLICE_MS = 20
-/** Files per transaction. A crash loses at most this many, never half of one. */
-const BATCH_FILES = 200
 /** Violation / crash lists kept in the cache, for the words in coverage. */
 const NAMED_LIMIT = 20
 
@@ -237,6 +235,10 @@ export function unnote(store: Store, key: 'violations' | 'crashed', rel: string)
 	if (list.includes(rel)) store.setMeta(key, JSON.stringify(list.filter((r) => r !== rel)))
 }
 
+/** Parsed files held before a write, so one short transaction writes many. */
+const FLUSH_FILES = 50
+const FLUSH_ROWS = 150_000
+
 /**
  * Bring the store up to date with `scope` (a path under `root`, or `root`).
  *
@@ -253,8 +255,14 @@ export function unnote(store: Store, key: 'violations' | 'crashed', rel: string)
  * next. The call stops at its limits (directories, time) and says so; what it
  * indexed up to then is committed and kept.
  *
- * The caller holds the store's in-process lock; this takes the cross-process
- * write lock itself, in batches, so another process can interleave.
+ * **The write lock is held only to write.** Parsing happens first, outside any
+ * transaction; parsed files wait in memory and are written together in a short
+ * transaction every few dozen files. A second process that wants to write
+ * waits for one of those, not for the whole run.
+ *
+ * Cancelling (the signal) writes what is parsed so far, bumps the generation so
+ * cursors issued earlier stop matching, records the scope as partially covered,
+ * and throws an abort error.
  */
 export async function refreshIndex(
 	store: Store,
@@ -291,26 +299,46 @@ export async function refreshIndex(
 	let unchanged = 0
 	let removed = 0
 	let changed = false
-	let inBatch = 0
+	let dirty = false
 	let lastYield = performance.now()
-	let open = false
-	const begin = async (): Promise<void> => {
-		await store.begin(signal)
-		open = true
+
+	// Work waiting for the next write transaction.
+	let pending: Array<() => void> = []
+	let pendingRows = 0
+	const flush = async (): Promise<void> => {
+		if (pending.length === 0 && !dirty) return
+		await store.begin()
+		try {
+			for (const write of pending) write()
+			pending = []
+			pendingRows = 0
+			if (dirty) {
+				// Every committed batch invalidates cursors issued before it.
+				store.bumpGeneration()
+				dirty = false
+			}
+			store.commit()
+		} catch (err) {
+			store.rollback()
+			throw err
+		}
 	}
-	const end = (): void => {
-		if (open) store.commit()
-		open = false
+	const queue = (write: () => void, rows = 0): void => {
+		pending.push(write)
+		pendingRows += rows
+		dirty = true
 	}
-	const next = async (): Promise<void> => {
-		end()
-		await begin()
-		inBatch = 0
+	const dropStored = (before: StoredFile | undefined, rel: string, violation: boolean): void => {
+		if (!before) return
+		queue(() => {
+			store.removeFile(before.id)
+			if (violation) noteNamed(store, 'violations', rel)
+		})
+		changed = true
 	}
 
-	await begin()
 	try {
-		if (scopeRel === '') store.setMeta('violations', '[]')
+		if (scopeRel === '') queue(() => store.setMeta('violations', '[]'))
 		for (const candidate of walk.files) {
 			checkAbort(signal)
 			if (overTime(budget)) {
@@ -329,20 +357,13 @@ export async function refreshIndex(
 			if (!lst.isFile()) {
 				// Replaced by a link (or anything but a regular file) since the walk.
 				skip('replaced by a link or not a regular file')
-				if (before) {
-					store.removeFile(before.id)
-					noteNamed(store, 'violations', candidate.rel)
-					changed = true
-				}
+				dropStored(before, candidate.rel, true)
 				seen.delete(candidate.rel)
 				continue
 			}
 			if (lst.size > options.maxFileBytes) {
 				skip(`over the ${Math.round(options.maxFileBytes / 1048576)} MiB size limit`)
-				if (before) {
-					store.removeFile(before.id)
-					changed = true
-				}
+				dropStored(before, candidate.rel, false)
 				continue
 			}
 			if (!options.force && before && before.size === lst.size && before.mtimeMs === lst.mtimeMs) {
@@ -353,11 +374,7 @@ export async function refreshIndex(
 			if (!read.ok) {
 				if (read.why === 'link' || read.why === 'outside' || read.why === 'not-file') {
 					skip('replaced by a link or not a regular file')
-					if (before) {
-						store.removeFile(before.id)
-						noteNamed(store, 'violations', candidate.rel)
-						changed = true
-					}
+					dropStored(before, candidate.rel, true)
 					seen.delete(candidate.rel)
 				} else skip('unreadable')
 				continue
@@ -366,23 +383,30 @@ export async function refreshIndex(
 			if (!options.force && before && before.hash === hash) {
 				// Same bytes under a new timestamp. Record it so the cheap check
 				// passes next time; there is nothing to parse.
-				store
-					.prepare('UPDATE files SET size = ?, mtime_ms = ? WHERE id = ?')
-					.run(read.stat.size, read.stat.mtimeMs, before.id)
+				const { size, mtimeMs } = read.stat
+				queue(() => {
+					store
+						.prepare('UPDATE files SET size = ?, mtime_ms = ? WHERE id = ?')
+						.run(size, mtimeMs, before.id)
+				})
 				unchanged++
 				continue
 			}
 			const text = decodeText(read.buffer)
 			if (text === undefined) {
 				skip('binary or not UTF-8')
-				if (before) {
-					store.removeFile(before.id)
-					changed = true
-				}
+				dropStored(before, candidate.rel, false)
 				continue
 			}
 
-			const result = await host.parse({ rel: candidate.rel, abs: candidate.abs, text }, signal)
+			// The parse counts against the call's time: it gets what is left of the
+			// budget, but never less than the minimum a real file needs.
+			const left = options.maxMillis - (performance.now() - budget.started)
+			const result = await host.parse(
+				{ rel: candidate.rel, abs: candidate.abs, text },
+				signal,
+				Math.max(left, MIN_PARSE_MS),
+			)
 			const base = {
 				path: candidate.rel,
 				chars: text.length,
@@ -393,21 +417,27 @@ export async function refreshIndex(
 				hash,
 			}
 			if (result.kind === 'rows') {
-				store.writeFile({ ...base, parseErrors: result.parseErrors, rows: result.rows })
-				unnote(store, 'crashed', candidate.rel)
+				const rowCount =
+					result.rows.strings.length + result.rows.calls.length + result.rows.functions.length
+				queue(() => {
+					store.writeFile({ ...base, parseErrors: result.parseErrors, rows: result.rows })
+					unnote(store, 'crashed', candidate.rel)
+				}, rowCount)
 				parsed++
 			} else if (result.kind === 'crash') {
 				// Recorded with no rows and the stat it crashed at, so the next
 				// refresh leaves it alone instead of crashing the child again.
-				store.writeFile({ ...base, parseErrors: CRASHED, rows: EMPTY_ROWS })
-				noteNamed(store, 'crashed', candidate.rel)
+				queue(() => {
+					store.writeFile({ ...base, parseErrors: CRASHED, rows: EMPTY_ROWS })
+					noteNamed(store, 'crashed', candidate.rel)
+				})
 				skip('parser crashed')
 			} else {
-				store.writeFile({ ...base, parseErrors: 1, rows: EMPTY_ROWS })
+				queue(() => store.writeFile({ ...base, parseErrors: 1, rows: EMPTY_ROWS }))
 				skip('parser failure')
 			}
 			changed = true
-			if (++inBatch >= BATCH_FILES) await next()
+			if (pending.length >= FLUSH_FILES || pendingRows >= FLUSH_ROWS) await flush()
 			if (performance.now() - lastYield > SLICE_MS) {
 				await nextTurn()
 				lastYield = performance.now()
@@ -420,37 +450,55 @@ export async function refreshIndex(
 			for (const [path, file] of stored) {
 				if (seen.has(path)) continue
 				const gone = await lstat(join(root, ...path.split('/'))).catch(() => undefined)
-				store.removeFile(file.id)
-				if (gone?.isSymbolicLink()) noteNamed(store, 'violations', path)
+				queue(() => {
+					store.removeFile(file.id)
+					if (gone?.isSymbolicLink()) noteNamed(store, 'violations', path)
+				})
 				removed++
 				changed = true
 			}
-			// Directory mtimes, for noticing files created after this index.
-			const prefix = scopeRel === '' ? null : scopeRel
-			if (prefix === null) store.exec('DELETE FROM dirs')
-			else
-				store
-					.prepare('DELETE FROM dirs WHERE path = ? OR (path >= ? AND path < ?)')
-					.run(prefix, `${prefix}/`, `${prefix}0`)
-			const insDir = store.prepare('INSERT OR REPLACE INTO dirs(path, mtime_ms) VALUES(?, ?)')
-			for (const d of walk.dirs) insDir.run(d.rel, d.mtimeMs)
 		}
-		// Bookkeeping inside the same transaction, under the same lock.
-		store.ensureIndexes()
-		if (changed) store.bumpGeneration()
-		recordCoverage(store, scopeRel, skippedReasons, truncated)
-		end()
+		// Bookkeeping in the final write, under the same lock.
+		queue(() => {
+			if (!walk.truncated) recordDirs(store, scopeRel, walk.dirs)
+			store.ensureIndexes()
+			recordCoverage(store, scopeRel, skippedReasons, truncated)
+		})
+		await flush()
 	} catch (err) {
-		// An abort keeps what is already done; anything else is rolled back.
-		if (open && err instanceof Error && err.name === 'AbortError') end()
-		else {
+		if (err instanceof Error && err.name === 'AbortError') {
+			// Keep what is parsed, say the scope is partial, and invalidate cursors.
+			try {
+				queue(() =>
+					recordCoverage(store, scopeRel, skippedReasons, 'was cancelled before it finished', true),
+				)
+				dirty = true
+				await flush()
+			} catch {
+				store.rollback()
+			}
+		} else {
 			store.rollback()
-			open = false
 		}
 		throw err
 	}
 
 	return outcomeOf(store, skippedReasons, parsed, unchanged, removed, changed, truncated)
+}
+
+/** Directory mtimes, for noticing files created after this index. */
+function recordDirs(
+	store: Store,
+	scopeRel: string,
+	dirs: ReadonlyArray<{ rel: string; mtimeMs: number }>,
+): void {
+	if (scopeRel === '') store.exec('DELETE FROM dirs')
+	else
+		store
+			.prepare('DELETE FROM dirs WHERE path = ? OR (path >= ? AND path < ?)')
+			.run(scopeRel, `${scopeRel}/`, `${scopeRel}0`)
+	const insDir = store.prepare('INSERT OR REPLACE INTO dirs(path, mtime_ms) VALUES(?, ?)')
+	for (const d of dirs) insDir.run(d.rel, d.mtimeMs)
 }
 
 function outcomeOf(
@@ -484,6 +532,8 @@ export interface Covered {
 	/** 1 when the call finished, 0 when it stopped at a limit. */
 	readonly c: 0 | 1
 	readonly r?: string
+	/** The call was cancelled rather than stopped at a limit: the next step is just to run it again. */
+	readonly k?: 'cancel'
 }
 
 const MAX_COVERED_ENTRIES = 200
@@ -499,7 +549,15 @@ export function readCovered(store: Store): Covered[] {
 
 /** The entry that covers `scopeRel`: the same scope, an ancestor of it, or the whole root. */
 export function coveringEntry(covered: readonly Covered[], scopeRel: string): Covered | undefined {
-	return covered.find((e) => e.s === '' || e.s === scopeRel || scopeRel.startsWith(`${e.s}/`))
+	// The MOST SPECIFIC entry wins. A root that stopped at its limit and a
+	// narrower scope that finished both cover a path in it; answering with the
+	// root's would tell the model to index the narrower path it just indexed.
+	let best: Covered | undefined
+	for (const e of covered) {
+		if (!(e.s === '' || e.s === scopeRel || scopeRel.startsWith(`${e.s}/`))) continue
+		if (best === undefined || e.s.length > best.s.length) best = e
+	}
+	return best
 }
 
 function recordCoverage(
@@ -507,11 +565,13 @@ function recordCoverage(
 	scopeRel: string,
 	skipped: Record<string, number>,
 	truncated: string | undefined,
+	cancelled = false,
 ): void {
 	const mine: Covered = {
 		s: scopeRel,
 		c: truncated ? 0 : 1,
 		...(truncated ? { r: truncated } : {}),
+		...(cancelled ? { k: 'cancel' as const } : {}),
 	}
 	let covered = readCovered(store)
 	if (scopeRel === '') {

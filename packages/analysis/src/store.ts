@@ -4,6 +4,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 import { cacheKey } from './cache-key.js'
+import { type EvictionPolicy, evictCaches, touchCache } from './evict.js'
 import { abortError } from './host.js'
 import { encodeLineStarts } from './lines.js'
 import type { RowsPayload } from './walk.js'
@@ -148,6 +149,7 @@ export class Store {
 		root: string,
 		cacheDir: string | undefined,
 		allowFts = true,
+		eviction?: EvictionPolicy,
 	): Promise<Store | undefined> {
 		const mod = await loadSqlite()
 		if (!mod) return undefined
@@ -164,7 +166,12 @@ export class Store {
 			let corruptSeen = false
 			for (;;) {
 				try {
-					return Store.openAt(mod, root, location, fts)
+					const store = Store.openAt(mod, root, location, fts)
+					// Mark it used, then trim the cache directory (best effort, off the
+					// caller's path).
+					await touchCache(location)
+					if (eviction) void evictCaches(cacheDir, location.slice(cacheDir.length + 1), eviction)
+					return store
 				} catch (err) {
 					if (isBusy(err) && Date.now() < deadline) {
 						await sleep(50)
