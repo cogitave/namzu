@@ -163,6 +163,7 @@ import {
 	generateTurnId,
 	getBuiltinTools,
 	getCodeAnalysisTools,
+	getMonitorTools,
 	isReviewExempt,
 	isTurnInProgressError,
 	mapTools,
@@ -250,6 +251,7 @@ import {
 	type McpServersConfig,
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
+import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -816,6 +818,8 @@ export interface SendOptions {
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 	/** Job exits the SDK actually inserted into model context during this turn. */
 	readonly onJobNoticeDelivered?: (jobIds: readonly string[]) => void
+	/** Monitor events the SDK actually inserted into model context during this turn. */
+	readonly onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
@@ -1054,6 +1058,14 @@ const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 /** Most tokens of answer the small model gives to a question about a page. */
 const WEB_EXTRACT_MAX_TOKENS = 8192
 
+/** The session's monitors: undelivered events (see `MonitorInbox`) and how many still watch. */
+export type SessionMonitors = MonitorInbox & {
+	/** Monitors of this session that are still running. */
+	running(): number
+	/** What a monitor has printed so far, which decides how its end is worded. */
+	stats(jobId: string): { readonly stdoutChars: number }
+}
+
 export interface AgentSession {
 	/**
 	 * Requests beside the conversation, on a small model: its title and the
@@ -1155,6 +1167,11 @@ export interface AgentSession {
 	readonly directories?: SessionDirectories
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
+	/**
+	 * What this session's monitors said that no turn has read yet, and how many
+	 * are still watching. Absent where the session has no job registry.
+	 */
+	readonly monitors?: SessionMonitors
 	/**
 	 * Shrink a conversation on request, returning the replacement history.
 	 *
@@ -1902,6 +1919,12 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 	}
 }
 
+/** `NAMZU_DISABLE_BACKGROUND_TASKS`, read the way `bash` reads it. */
+function backgroundTasksSwitchedOff(): boolean {
+	const value = process.env.NAMZU_DISABLE_BACKGROUND_TASKS?.trim().toLowerCase()
+	return value !== undefined && value !== '' && value !== '0' && value !== 'false'
+}
+
 function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
 	return getBuiltinTools().flatMap((source) => {
 		if (EXCLUDED_BUILTINS.has(source.name)) return []
@@ -2165,6 +2188,12 @@ export interface AgentSessionOptions {
 	 * model's first call; the index files live under the Namzu home.
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
+	 * Lowest ceiling, in milliseconds, on how long one `monitor` may watch. A
+	 * single-shot run (`exec`) passes 600000 because it waits for its monitors
+	 * before it exits; an interactive host leaves the kernel's 30 minutes.
+	 */
+	readonly monitorTimeoutCapMs?: number
 	/**
 	 * Tools this session's rules refuse whatever their input, left out of its
 	 * registry so their schemas are not sent with every model call. A
@@ -2728,6 +2757,26 @@ export async function createAgentSession(
 	const jobRegistry = backgroundJobs ? new BackgroundJobRegistry() : undefined
 	const jobOwner = scope.sessionId
 	const ownedJobs = jobRegistry ? bindOwner(jobRegistry, jobOwner) : undefined
+	// What this session's monitors said between turns (or after a turn's last
+	// tool result), kept until a turn carries it. Filled for the session's life
+	// from the registry, so no host has to subscribe before the first turn.
+	const monitorInbox = createMonitorInbox()
+	if (jobRegistry) {
+		jobRegistry.onMonitorEvent((event) => {
+			if (event.owner !== jobOwner) return
+			let command = ''
+			try {
+				command = jobRegistry.get(event.jobId).command
+			} catch {
+				// The record is gone; the event still stands without its command.
+			}
+			monitorInbox.addEvent({ ...event, command })
+		})
+		jobRegistry.onExit((job) => {
+			if (job.owner !== jobOwner || job.kind !== 'monitor') return
+			monitorInbox.addEnd(job, jobRegistry.monitorStats(job.id))
+		})
+	}
 	// Session-scoped and mutable: `/add-dir` adds to it, and every turn reads
 	// it fresh — the query, the sandbox binds and the environment prompt.
 	const directories: string[] = []
@@ -3727,6 +3776,15 @@ export async function createAgentSession(
 	if (codeAnalysis) {
 		toolsets.push(deferred(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis))))
 	}
+	// The `monitor` tool: each stdout line of a long-running command becomes an
+	// event the model reads while it works, and wakes an idle host. Mounted where
+	// the session has a job registry (events are the registry's) and background
+	// work is not switched off, and deferred like `code_analysis` because most
+	// turns never watch anything. Parent session only; a sub-agent's own turn
+	// holds for its monitors, which a deferred hint costs nothing to omit.
+	if (jobRegistry && !backgroundTasksSwitchedOff()) {
+		toolsets.push(deferred(toolset('monitor', getMonitorTools())))
+	}
 	// The owner's Pals, reachable from an ordinary conversation of the Namzu engine.
 	// Mounted whether or not any Pal exists yet so one created mid-conversation is
 	// usable at once (the roster never changes, so the cached prefix does not); the
@@ -4632,6 +4690,27 @@ export async function createAgentSession(
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
 			}) ?? (() => {}),
+		...(jobRegistry
+			? {
+					monitors: {
+						addEvent: (event) => monitorInbox.addEvent(event),
+						addEnd: (job, stats) => monitorInbox.addEnd(job, stats),
+						acknowledge: (ids) => monitorInbox.acknowledge(ids),
+						peek: () => monitorInbox.peek(),
+						take: () => monitorInbox.take(),
+						wakes: () => monitorInbox.wakes(),
+						get size() {
+							return monitorInbox.size
+						},
+						onChange: (listener) => monitorInbox.onChange(listener),
+						stats: (jobId) => jobRegistry.monitorStats(jobId),
+						running: () =>
+							jobRegistry
+								.list(jobOwner)
+								.filter((job) => job.kind === 'monitor' && job.status === 'running').length,
+					},
+				}
+			: {}),
 		...(workflowHost
 			? {
 					workflows: ((host: WorkflowHost): SessionWorkflows => ({
@@ -5300,7 +5379,11 @@ export async function createAgentSession(
 									? {
 											backgroundJobs: jobRegistry,
 											backgroundJobOwner: jobOwner,
+											monitors: monitorInbox,
 										}
+									: {}),
+								...(options.monitorTimeoutCapMs !== undefined
+									? { monitorTimeoutCapMs: options.monitorTimeoutCapMs }
 									: {}),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
@@ -6198,6 +6281,9 @@ interface TurnParams {
 	/** The session's job registry and the owner its jobs are bound to. */
 	readonly backgroundJobs?: BackgroundJobRegistry
 	readonly backgroundJobOwner?: string
+	/** Where monitor events the kernel delivered in this turn are marked as read. */
+	readonly monitors?: MonitorInbox
+	readonly monitorTimeoutCapMs?: number
 	/**
 	 * The chain's tail for THIS turn. Empty means no failover, which is what a
 	 * one-member chain means and what every chain meant before this existed.
@@ -6292,6 +6378,8 @@ async function* runTurn({
 	consolidateInto,
 	backgroundJobs,
 	backgroundJobOwner,
+	monitors,
+	monitorTimeoutCapMs,
 	fallbackProviders,
 	model,
 	toolsets,
@@ -6390,7 +6478,18 @@ async function* runTurn({
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
-			...(opts?.onJobNoticeDelivered ? { onJobNoticeDelivered: opts.onJobNoticeDelivered } : {}),
+			// A monitor's end is acknowledged through the job-exit callback with its
+			// job id, its events through their own; both also clear the session's
+			// ledger so a delivered event is never offered to a later turn.
+			onJobNoticeDelivered: (ids: readonly string[]) => {
+				monitors?.acknowledge(ids)
+				opts?.onJobNoticeDelivered?.(ids)
+			},
+			onMonitorEventsDelivered: (ids: readonly string[]) => {
+				monitors?.acknowledge(ids)
+				opts?.onMonitorEventsDelivered?.(ids)
+			},
+			...(monitorTimeoutCapMs !== undefined ? { monitorTimeoutCapMs } : {}),
 			turnConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),

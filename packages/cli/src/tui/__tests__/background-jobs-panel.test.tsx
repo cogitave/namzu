@@ -43,6 +43,63 @@ afterEach(async () => {
 	screen = null
 })
 
+describe('a monitor in the jobs screen', () => {
+	const monitor: BackgroundJob = {
+		...job('b00000003', 'tail -f deploy.log'),
+		kind: 'monitor',
+		description: 'errors in deploy log',
+	}
+
+	it('is listed by what it watches, counted apart from shells, with a stop', async () => {
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				jobs={[monitor, job('b00000001', 'npm run dev')]}
+				selectedJobId="b00000003"
+				detailJobId={null}
+				tailOffset={0}
+				readJob={() => undefined}
+				rows={20}
+				columns={60}
+				now={NOW}
+			/>,
+			{ cols: 60, rows: 20 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('1 active shell · 1 monitor')
+		expect(visible).toContain('Monitoring: errors in deploy log')
+		expect(visible).toContain('x stop')
+		expect(visible).not.toContain('tail -f')
+		expect(visible).not.toContain('b0000000')
+	})
+
+	it('shows what it watches and how it ended in its details', async () => {
+		screen = await renderToScreen(
+			<BackgroundJobsPanel
+				jobs={[
+					{
+						...monitor,
+						status: 'killed',
+						exitedAt: NOW,
+						stopReason: 'expired',
+					},
+				]}
+				selectedJobId="b00000003"
+				detailJobId="b00000003"
+				tailOffset={0}
+				readJob={() => output('line\n')}
+				rows={24}
+				columns={80}
+				now={NOW}
+			/>,
+			{ cols: 80, rows: 24 },
+		)
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('Monitor details')
+		expect(visible).toContain('Watching: errors in deploy log')
+		expect(visible).toContain('ran out of time')
+	})
+})
+
 describe('the shell jobs child screen', () => {
 	it('shows a persistent job as a selectable row at 40 columns without overflowing', async () => {
 		const jobs = [job('b00000001', 'npm run dev'), job('b00000002', 'pnpm build', 'exited')]

@@ -66,6 +66,7 @@ import {
 	unknownOptionMessage,
 } from './exec-flags.js'
 import { execJson } from './exec-json.js'
+import { EXEC_MONITOR_CAP_MS, monitorReportMessage, watchMonitors } from './exec-monitors.js'
 import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
@@ -364,6 +365,7 @@ async function execPrint(
 			tenantId: sessions.tenantId,
 		},
 		stateRoot: sessions.root,
+		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		conversationSessions: sessions,
 		rules: permissions.rules,
 		...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
@@ -555,6 +557,7 @@ async function execPrint(
 	// the model started is reported on in a turn of its own.
 	let history: readonly Message[] | undefined
 	const watch = watchWorkflows(session.workflows)
+	const monitorWatch = watchMonitors(session.monitors)
 	const turnOptions = {
 		signal: turnAbort.signal,
 		...(extraSystem ? { extraSystem } : {}),
@@ -621,15 +624,30 @@ async function execPrint(
 	// printed answer is then the report's.
 	for (
 		let rounds = 0;
-		watch && !stopped && !stop.failed && !stop.paused && !stop.busy && rounds < MAX_REPORT_TURNS;
+		(watch || monitorWatch) &&
+		!stopped &&
+		!stop.failed &&
+		!stop.paused &&
+		!stop.busy &&
+		rounds < MAX_REPORT_TURNS;
 		rounds += 1
 	) {
-		const message = await watch.report({
-			signal: turnAbort.signal,
-			...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
-		})
-		if (message === undefined || stopped) break
-		ctx.formatter.info('workflow finished: the model is reporting on it')
+		const workflowReport = watch
+			? await watch.report({
+					signal: turnAbort.signal,
+					...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
+				})
+			: undefined
+		// A monitor that spoke while the workflows were awaited is told with them.
+		const monitorReport = stopped
+			? undefined
+			: await monitorWatch?.report({ signal: turnAbort.signal })
+		if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
+		ctx.formatter.info(
+			workflowReport !== undefined
+				? 'workflow finished: the model is reporting on it'
+				: 'a monitor reported: the model is responding to it',
+		)
 		phase = 'running'
 		const before = text
 		text = ''
@@ -639,7 +657,8 @@ async function execPrint(
 			session.send(
 				[
 					...(history ?? [...prior, firstMessage, createAssistantMessage(before)]),
-					reportMessage(message),
+					...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
+					...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
 				],
 				turnOptions,
 			),

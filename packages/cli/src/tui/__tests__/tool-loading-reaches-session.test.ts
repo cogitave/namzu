@@ -128,6 +128,7 @@ beforeEach(async () => {
 afterEach(() => {
 	vi.restoreAllMocks()
 	vi.unstubAllGlobals()
+	vi.unstubAllEnvs()
 	removeTempDir(cwd)
 })
 
@@ -135,6 +136,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 	it.each([undefined, 'eager'] as const)(
 		'retains existing eager schemas for %s',
 		async (toolLoading) => {
+			// The monitor tool is offered deferred wherever background work is on,
+			// which would put `search_tools` in every request; this case is about
+			// the roster when nothing is deferred.
+			vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
 			mockProvider(() => response())
 			const session = await open({ ...(toolLoading ? { toolLoading } : {}) })
 			try {

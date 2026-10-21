@@ -29,6 +29,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 const roots: string[] = []
 afterEach(() => {
 	vi.restoreAllMocks()
+	vi.unstubAllEnvs()
 	childTools = undefined
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
@@ -48,6 +49,9 @@ const detected: DetectedProvider[] = [
 ]
 
 it('settles an accepted switch without another inference and preserves its receipt for the next send', async () => {
+	// The monitor tool is deferred wherever background work is on; this case is
+	// about a roster with nothing deferred.
+	vi.stubEnv('NAMZU_DISABLE_BACKGROUND_TASKS', '1')
 	const provider = new MockLLMProvider({
 		turns: [
 			{

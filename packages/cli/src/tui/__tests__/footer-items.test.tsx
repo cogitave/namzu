@@ -50,6 +50,12 @@ describe('the footer row', () => {
 	// cycle key leaves the row only while a background task is counted, and the
 	// count (`Bwt`) leaves agents and workflows out when the agents panel is on —
 	// they are rows of their own. Shells are counted.
+	it('counts monitors apart from shells in the same pill', async () => {
+		expect(await row({ shellCount: 2, monitorCount: 1 })).toContain('2 shells · 1 monitor')
+		expect(await row({ monitorCount: 3 })).toContain('3 monitors')
+		expect(await row({ monitorCount: 3 })).not.toContain('shell')
+	})
+
 	it('keeps the cycle key beside running agents and drops it only for a running shell', async () => {
 		const withAgents = await row(
 			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, canManage: true },

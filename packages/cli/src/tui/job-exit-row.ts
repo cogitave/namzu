@@ -1,3 +1,4 @@
+import { type BackgroundJob, describeMonitorEnd } from '@namzu/sdk'
 import { theme } from './theme.js'
 
 /**
@@ -52,4 +53,40 @@ export function jobExitRow(job: {
 				? `signal ${job.signal}`
 				: 'an unknown exit'
 	return { text: `${label} failed with ${how}`, color: theme.status.error, ...meta }
+}
+
+/**
+ * The row for a monitor that ended, in the words the model was told: the same
+ * `describeMonitorEnd` the kernel uses, so the transcript and the model never
+ * disagree. A watch that ran out its time says so rather than "stopped",
+ * since nobody asked for that stop.
+ */
+export function monitorEndRow(
+	job: BackgroundJob,
+	stats: { readonly stdoutChars: number },
+): JobExitRow {
+	const end = describeMonitorEnd(job, stats)
+	const meta = job.exitedAt === undefined ? {} : { meta: runtime(job.exitedAt - job.startedAt) }
+	const label = job.description ?? 'unnamed'
+	if (job.stopReason === 'expired') {
+		return {
+			text: `Monitoring "${label}" ran out of time`,
+			color: theme.status.warn,
+			...meta,
+		}
+	}
+	if (job.stopReason === 'too_much_output') {
+		return {
+			text: `Monitoring "${label}" stopped: it printed too much`,
+			color: theme.status.warn,
+			...meta,
+		}
+	}
+	const color =
+		end.status === 'completed'
+			? theme.status.ok
+			: end.status === 'failed'
+				? theme.status.error
+				: theme.status.warn
+	return { text: end.summary, color, ...meta }
 }

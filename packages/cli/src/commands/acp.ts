@@ -218,6 +218,7 @@ type AcpLiveSession = Pick<
 	| 'jobs'
 	| 'readJob'
 	| 'stopJob'
+	| 'monitors'
 	| 'plugins'
 	| 'reasoningEffortLevels'
 	| 'reasoningEffortDefault'
@@ -1039,6 +1040,10 @@ export function createCliAcpRuntime(
 					...(computer ? { computer } : {}),
 				}
 				const inputInbox = liveInbox
+				// ACP starts no turn of its own, so what a monitor said while nobody
+				// was prompting waits here and rides with this prompt; what the kernel
+				// delivered during an earlier turn was acknowledged and is not here.
+				const monitorSnapshot = record.session.monitors?.peek() ?? { ids: [] }
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
@@ -1049,6 +1054,7 @@ export function createCliAcpRuntime(
 						: {}),
 					signal,
 					onPermission,
+					...(monitorSnapshot.text ? { hostContext: () => [monitorSnapshot.text as string] } : {}),
 					...(inputInbox
 						? {
 								inboundMessages: () => {
@@ -1073,6 +1079,8 @@ export function createCliAcpRuntime(
 					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
+				if (stopReason === 'end_turn' && monitorSnapshot.ids.length > 0)
+					record.session.monitors?.acknowledge(monitorSnapshot.ids)
 				if (stopReason === 'error' && settledHistory === undefined && failureMessage)
 					throw new Error(failureMessage)
 				return {
