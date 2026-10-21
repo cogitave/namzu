@@ -29,7 +29,13 @@ import { REVIEW_MODES, type ReviewMode, isReviewMode } from '@namzu/sdk'
  */
 export type PermissionMode = ReviewMode
 
-export const PERMISSION_MODES: readonly PermissionMode[] = REVIEW_MODES
+/**
+ * The modes the flag and the picker offer. The SDK's `bypass` and `classify`
+ * are not offered yet; this list keeps the five the CLI has always taken.
+ */
+export const PERMISSION_MODES: readonly PermissionMode[] = REVIEW_MODES.filter(
+	(mode) => mode !== 'bypass' && mode !== 'classify',
+)
 
 export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL } from '@namzu/sdk'
 
