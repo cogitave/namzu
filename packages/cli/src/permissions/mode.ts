@@ -47,6 +47,10 @@ export function permissionModeLabel(mode: PermissionMode): string {
 			return 'Preapproved tools only'
 		case 'plan':
 			return 'Plan (read-only)'
+		case 'bypass':
+			return 'Bypass permissions'
+		case 'classify':
+			return 'Auto (classifier)'
 	}
 }
 
@@ -66,6 +70,8 @@ export function nextCycleMode(current: PermissionMode, bypassAvailable: boolean)
 			return bypassAvailable ? 'auto' : 'prompt'
 		case 'auto':
 		case 'strict':
+		case 'bypass':
+		case 'classify':
 			return 'prompt'
 	}
 }
@@ -96,6 +102,10 @@ export function permissionModeDescription(mode: PermissionMode): string {
 			return 'Allow preapproved tools; refuse other calls without asking.'
 		case 'plan':
 			return 'Read-only: block changes until you leave plan mode.'
+		case 'bypass':
+			return 'Run everything except what always needs a person.'
+		case 'classify':
+			return 'A classifier model decides what you would otherwise be asked.'
 	}
 }
 

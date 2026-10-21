@@ -94,7 +94,10 @@ function modeGlyph(mode: PermissionMode): {
 } {
 	switch (mode) {
 		case 'auto':
+		case 'bypass':
 			return { icon: MODE_MARK.moving, color: theme.status.error, label: 'bypass permissions' }
+		case 'classify':
+			return { icon: MODE_MARK.moving, color: theme.status.warn, label: 'auto mode' }
 		case 'accept-edits':
 			return { icon: MODE_MARK.moving, color: theme.accent.user, label: 'accept edits' }
 		case 'plan':
