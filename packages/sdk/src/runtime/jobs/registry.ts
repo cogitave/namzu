@@ -316,7 +316,11 @@ export class BackgroundJobRegistry {
 	/**
 	 * Be told what a monitor has to say, whoever owns it: a batch of its
 	 * stdout lines, or a notice from the monitor itself. Returns the
-	 * unsubscribe. A listener that throws is its owner's problem, as in
+	 * unsubscribe.
+	 *
+	 * Every listener hears every monitor's events, whatever their `owner`: a
+	 * consumer serving one turn or session MUST filter on `event.owner`, as the
+	 * turn does. A listener that throws is its owner's problem, as in
 	 * {@link onExit}.
 	 */
 	onMonitorEvent(listener: (event: MonitorEvent) => void): () => void {
@@ -665,6 +669,10 @@ export class BackgroundJobRegistry {
 			'notice',
 			expiryNotice(monitor.timeoutMs, monitor.stream.stats().eventsDelivered),
 		)
+		// Nothing follows a terminal notice. A command that ignores SIGTERM keeps
+		// printing until the SIGKILL, and those lines would reach the model after
+		// it was told the watch was over.
+		monitor.stream.close()
 		void this.kill(entry.record.id).catch(() => {
 			// The retained record carries the failure (recoveryRequired).
 		})
@@ -936,6 +944,14 @@ export class BackgroundJobRegistry {
 		// expiry and output rules record their own reason first.
 		const stoppedBy = entry.monitor !== undefined && entry.record.stopReason === undefined
 		if (stoppedBy) entry.record = { ...entry.record, stopReason: 'stopped' }
+		// An accepted stop ends the event stream: what was already complete goes
+		// out, and nothing the dying process prints afterwards does. (The expiry
+		// and output rules close it themselves, after their own notice.)
+		const closeStream = (): void => {
+			if (!stoppedBy) return
+			entry.monitor?.stream.flush()
+			entry.monitor?.stream.close()
+		}
 		if (entry.terminateProcess) {
 			entry.killRequested = true
 			try {
@@ -948,6 +964,9 @@ export class BackgroundJobRegistry {
 				}
 				throw error
 			}
+			// Only once the stop is confirmed: a remote stop that failed leaves a
+			// running monitor, and a closed stream could not be reopened.
+			closeStream()
 			await entry.exit
 			return entry.record
 		}
@@ -956,6 +975,7 @@ export class BackgroundJobRegistry {
 		// tell a kill from an ordinary exit. Set it after and the race decides
 		// which of two different answers a reader gets.
 		entry.record = { ...entry.record, status: 'killed' }
+		closeStream()
 		for (const observer of entry.outputObservers) observer()
 		const signal = (sig: NodeJS.Signals) =>
 			entry.killProcess ? entry.killProcess(sig) : killTree(entry.child, sig)

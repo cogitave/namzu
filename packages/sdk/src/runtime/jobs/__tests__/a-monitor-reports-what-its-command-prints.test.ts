@@ -235,6 +235,29 @@ describe('a monitor ends on a schedule and on a ration', () => {
 		expect(registry.get(job.id)).toMatchObject({ status: 'killed', stopReason: 'stopped' })
 	})
 
+	it('says nothing after a stop was asked for, but delivers what was already complete', async () => {
+		const registry = new BackgroundJobRegistry()
+		const { log } = collect(registry)
+		// A process that outlives the signal: the exit comes later, by hand.
+		const proc = fakeProcess()
+		proc.spawn = () => ({
+			child: proc.child as unknown as ReturnType<typeof spawn>,
+			kill: (signal: NodeJS.Signals) => {
+				proc.signals.push(signal)
+			},
+		})
+		const job = start(registry, proc)
+		proc.out('last complete line\n')
+		const stopping = registry.kill(job.id)
+		proc.out('after the stop\n')
+		await vi.advanceTimersByTimeAsync(1000)
+		proc.close(null, 'SIGTERM')
+		await stopping
+		expect(log.filter((entry) => entry.startsWith('event:'))).toEqual([
+			'event:output:last complete line',
+		])
+	})
+
 	it('leaves an ordinary job without a stop reason when it is killed', async () => {
 		const registry = new BackgroundJobRegistry()
 		const proc = fakeProcess()
@@ -354,6 +377,26 @@ describe('a monitor around a real command', () => {
 		expect(describeMonitorEnd(ended, registry.monitorStats(job.id)).summary).toBe(
 			'Monitor "a real echo" stream ended',
 		)
+	}, 30_000)
+
+	it('says nothing after the expiry notice from a command that ignores SIGTERM', async () => {
+		const registry = new BackgroundJobRegistry()
+		const { events } = collect(registry)
+		const job = registry.start({
+			owner: 'turn-1',
+			// Ignores the polite signal and keeps printing until the SIGKILL that
+			// follows the grace period; the test awaits that exit, not a clock.
+			command: `trap '' TERM; while true; do echo tick; sleep 0.05; done`,
+			workingDirectory: process.cwd(),
+			monitor: { description: 'a stubborn loop', timeoutMs: 1000 },
+		})
+
+		const ended = await registry.waitForExit(job.id)
+
+		expect(ended).toMatchObject({ status: 'killed', stopReason: 'expired' })
+		const notice = events.findIndex((e) => e.kind === 'notice')
+		expect(notice).toBeGreaterThan(-1)
+		expect(events.slice(notice + 1)).toEqual([])
 	}, 30_000)
 
 	it('stops a command that outlives its deadline', async () => {
