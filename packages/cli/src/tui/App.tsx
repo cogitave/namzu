@@ -13464,7 +13464,7 @@ const BYPASS_UNAVAILABLE_NOTICE =
 	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo) to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 
-function permissionPicker(
+export function permissionPicker(
 	mode: PermissionMode,
 	more = false,
 	availability: ModeAvailability = { bypass: true, auto: true },

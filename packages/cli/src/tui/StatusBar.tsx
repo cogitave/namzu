@@ -87,7 +87,7 @@ export interface StatusBarProps {
 export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
 
 /** Icon, color and words for an active (non-default) permission mode; the footer adds ` on`. */
-function modeGlyph(mode: PermissionMode): {
+export function modeGlyph(mode: PermissionMode): {
 	readonly icon: string
 	readonly color: string
 	readonly label: string

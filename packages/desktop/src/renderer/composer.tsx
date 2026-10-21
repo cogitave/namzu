@@ -55,11 +55,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 
 /**
- * The picker's modes are the ones this window offers. The SDK's `bypass` and
- * `classify` have no row here yet, and show as full access until they do.
+ * The picker's modes are the ones this window offers. The kernel's old `auto`,
+ * saved by earlier versions as Full access, is shown as Full access (`bypass`).
  */
 function composerPermissionMode(mode: ReviewMode | undefined): ComposerPermissionMode {
-	return mode === 'bypass' || mode === 'classify' ? 'auto' : (mode ?? 'prompt')
+	return mode === 'auto' ? 'bypass' : (mode ?? 'prompt')
 }
 
 const PROVIDER_EMPTY_HELP =

@@ -13,6 +13,7 @@ import {
 import { join } from 'node:path'
 import type { ImageAttachment } from '@namzu/sdk'
 import type { AttachmentView, ConversationView, DraftSettings } from '../shared/protocol.js'
+import { isReviewModeId } from '../shared/review-modes.js'
 import { type SidebarSectionId, collapsedSectionsFrom } from '../shared/sidebar-sections.js'
 import {
 	type AdmittedAttachment,
@@ -64,7 +65,6 @@ const MAX_DRAFT_CHARACTERS = 1_000_000
 const METADATA_FILE = 'desktop-conversations.json'
 const ATTACHMENT_FILE = /^desktop-draft-attachments\.[a-f0-9]{64}\.json$/
 const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-const PERMISSION_MODES = ['prompt', 'accept-edits', 'auto', 'strict', 'plan']
 
 function record(value: unknown, keys: readonly string[]): Record<string, unknown> {
 	if (
@@ -121,10 +121,7 @@ function settings(input: unknown): DraftSettings {
 		const options = record(value.options, ['effort', 'permissionMode'])
 		if (options.effort !== undefined && !EFFORTS.includes(string(options.effort, 20)))
 			throw new Error('Invalid saved reasoning effort.')
-		if (
-			options.permissionMode !== undefined &&
-			!PERMISSION_MODES.includes(string(options.permissionMode, 20))
-		)
+		if (options.permissionMode !== undefined && !isReviewModeId(string(options.permissionMode, 20)))
 			throw new Error('Invalid saved permission mode.')
 		result.options = {
 			...(options.effort === undefined

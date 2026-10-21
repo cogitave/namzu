@@ -33,7 +33,7 @@ async function row(props: Partial<StatusBarProps>, cols = 100): Promise<string> 
 describe('the footer row', () => {
 	it('reads like the reference: mode, pull request, shells, joined by dots', async () => {
 		const text = await row({
-			permissionMode: 'auto',
+			permissionMode: 'bypass',
 			canCycleMode: true,
 			pr: PR('approved'),
 			shellCount: 1,
@@ -42,7 +42,7 @@ describe('the footer row', () => {
 		expect(text).toContain('⏵⏵ bypass permissions on · PR #592 · 1 shell')
 		expect(text).not.toContain('/jobs')
 		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
-		const noTask = await row({ permissionMode: 'auto', canCycleMode: true, pr: PR('approved') })
+		const noTask = await row({ permissionMode: 'bypass', canCycleMode: true, pr: PR('approved') })
 		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
 	})
 
@@ -58,14 +58,14 @@ describe('the footer row', () => {
 
 	it('keeps the cycle key beside running agents and drops it only for a running shell', async () => {
 		const withAgents = await row(
-			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, canManage: true },
+			{ permissionMode: 'bypass', canCycleMode: true, agentCount: 2, canManage: true },
 			140,
 		)
 		expect(withAgents).toContain(
 			'⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents · ↓ to manage',
 		)
 		const withShell = await row(
-			{ permissionMode: 'auto', canCycleMode: true, agentCount: 2, shellCount: 1 },
+			{ permissionMode: 'bypass', canCycleMode: true, agentCount: 2, shellCount: 1 },
 			140,
 		)
 		expect(withShell).not.toContain('shift+tab to cycle')
@@ -75,7 +75,7 @@ describe('the footer row', () => {
 	it('puts esc to interrupt, the agents hint and the manage hint last, in the reference order', async () => {
 		const text = await row(
 			{
-				permissionMode: 'auto',
+				permissionMode: 'bypass',
 				canCycleMode: true,
 				state: 'thinking',
 				pr: PR('pending'),
@@ -108,7 +108,7 @@ describe('the footer row', () => {
 
 	it('shows no model name beside the hints when they leave no room', async () => {
 		const props: Partial<StatusBarProps> = {
-			permissionMode: 'auto',
+			permissionMode: 'bypass',
 			canCycleMode: true,
 			state: 'thinking',
 			pr: PR('pending'),
@@ -122,7 +122,8 @@ describe('the footer row', () => {
 	})
 
 	it.each([
-		['auto', '⏵⏵ bypass permissions on'],
+		['bypass', '⏵⏵ bypass permissions on'],
+		['classify', '⏵⏵ auto mode on'],
 		['accept-edits', '⏵⏵ accept edits on'],
 		['plan', '‖ plan mode on'],
 		['strict', '‖ preapproved only on'],
@@ -146,7 +147,7 @@ describe('the footer row', () => {
 	})
 
 	it('adds "esc to interrupt" after the mode while a turn runs', async () => {
-		const text = await row({ permissionMode: 'auto', canCycleMode: true, state: 'thinking' })
+		const text = await row({ permissionMode: 'bypass', canCycleMode: true, state: 'thinking' })
 		expect(text).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt')
 		const quiet = await row({ state: 'tool' })
 		expect(quiet).toContain('esc to interrupt')
@@ -191,7 +192,7 @@ describe('the footer row', () => {
 
 	it('drops the manage hint, the agents hint, the interrupt hint, then the pill, and never wraps', async () => {
 		const props: Partial<StatusBarProps> = {
-			permissionMode: 'auto',
+			permissionMode: 'bypass',
 			canCycleMode: true,
 			state: 'thinking',
 			shellCount: 2,

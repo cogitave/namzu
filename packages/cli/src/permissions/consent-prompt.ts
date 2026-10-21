@@ -19,7 +19,10 @@ export async function askBypassConsent(
 	const lines = createInterface({ input, output })
 	try {
 		output.write(`\n${BYPASS_CONSENT_TITLE}\n${BYPASS_CONSENT_BODY}\n\n`)
-		const answer = await lines.question('Start in bypass mode? [y/N] ')
+		// Input that ends before an answer never resolves `question`, so the
+		// close is raced against it: no answer is a no.
+		const closed = new Promise<string>((resolve) => lines.once('close', () => resolve('')))
+		const answer = await Promise.race([lines.question('Start in bypass mode? [y/N] '), closed])
 		return /^\s*y(?:es)?\s*$/i.test(answer)
 	} catch {
 		return false

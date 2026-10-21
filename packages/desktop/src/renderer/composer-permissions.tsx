@@ -14,7 +14,13 @@ import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from './ui/popover.js'
 import './composer-settings.css'
 
-export type ComposerPermissionMode = 'prompt' | 'accept-edits' | 'auto' | 'strict' | 'plan'
+export type ComposerPermissionMode =
+	| 'prompt'
+	| 'accept-edits'
+	| 'plan'
+	| 'bypass'
+	| 'classify'
+	| 'strict'
 export type ComposerPermissionEngine = 'namzu' | 'codex-cli' | 'claude-code'
 type PermissionConfirmation = {
 	engine: ComposerPermissionEngine
@@ -70,10 +76,19 @@ const rowCopy: Record<
 		},
 		'claude-code': undefined,
 	},
-	auto: {
+	classify: {
+		namzu: {
+			label: 'Auto',
+			description: 'Checks each step with a second model and stops the risky ones.',
+		},
+		'codex-cli': undefined,
+		'claude-code': undefined,
+	},
+	bypass: {
 		namzu: {
 			label: 'Full access',
-			description: 'Uses tools without asking, except what your rules block.',
+			description:
+				'Works anywhere on this computer without asking. Removing home folders and your own rules still stop it.',
 		},
 		'codex-cli': {
 			label: 'Full access',
@@ -96,22 +111,31 @@ const rowCopy: Record<
 const rowIcon: Record<ComposerPermissionMode, IconComponent> = {
 	prompt: HandIcon,
 	'accept-edits': FilePenIcon,
-	auto: TriangleAlertIcon,
+	classify: ShieldCheckIcon,
+	bypass: TriangleAlertIcon,
 	plan: ListChecksIcon,
 	strict: ShieldCheckIcon,
 }
 
 // Order the menu shows; strict is never part of it unless it is the saved mode.
-const menuOrder: readonly ComposerPermissionMode[] = ['prompt', 'accept-edits', 'auto', 'plan']
+const menuOrder: readonly ComposerPermissionMode[] = [
+	'prompt',
+	'accept-edits',
+	'classify',
+	'bypass',
+	'plan',
+]
 
 /** The modes an engine offers when its capabilities do not say otherwise. */
 export function defaultPermissionModes(
 	engine: ComposerPermissionEngine,
 ): readonly ComposerPermissionMode[] {
 	// Namzu and Codex run every mode (the main process accepts them all); the second external engine only two.
-	return engine === 'claude-code'
-		? ['prompt', 'plan']
-		: ['prompt', 'accept-edits', 'auto', 'strict', 'plan']
+	if (engine === 'claude-code') return ['prompt', 'plan']
+	// Auto is Namzu's own: it is the kernel's classifier, which no other engine has.
+	return engine === 'codex-cli'
+		? ['prompt', 'accept-edits', 'bypass', 'strict', 'plan']
+		: ['prompt', 'accept-edits', 'classify', 'bypass', 'strict', 'plan']
 }
 
 /**
@@ -134,7 +158,7 @@ export function permissionRows(
 			label: copy?.label ?? value,
 			description: copy?.description ?? '',
 			icon: rowIcon[value],
-			warning: value === 'auto',
+			warning: value === 'bypass',
 			selectable: supportedModes.includes(value),
 		}
 	})
@@ -154,7 +178,7 @@ export function fullAccessCopy(engine: ComposerPermissionEngine): { title: strin
 		}
 	return {
 		title: 'Allow Namzu full access?',
-		body: 'Namzu will run commands and change files on this computer without asking you first, except what your rules block. You can switch back to Ask first at any time. This choice applies only to this conversation.',
+		body: 'Namzu will run commands and change files anywhere on this computer without asking you first, except removing home or top-level folders and what your own rules block. You can switch back to Ask first at any time. This choice applies only to this conversation.',
 	}
 }
 
@@ -203,9 +227,9 @@ export function ComposerPermissions({
 	const [confirmation, setConfirmation] = useState<PermissionConfirmation | null>(null)
 	const pendingConfirmation = useRef<PermissionConfirmation | null>(null)
 	const supportedModes = reviewModes ?? defaultPermissionModes(engine)
-	const supportsAuto = supportedModes.includes('auto')
-	const authority = useRef({ engine, permissionScope, permissionMode, disabled, supportsAuto })
-	authority.current = { engine, permissionScope, permissionMode, disabled, supportsAuto }
+	const supportsBypass = supportedModes.includes('bypass')
+	const authority = useRef({ engine, permissionScope, permissionMode, disabled, supportsBypass })
+	authority.current = { engine, permissionScope, permissionMode, disabled, supportsBypass }
 	const rows = permissionRows(engine, supportedModes, permissionMode)
 	const selected = rows.find(({ value }) => value === permissionMode) ?? rows[0]
 	const currentConfirmation = Boolean(
@@ -215,7 +239,7 @@ export function ComposerPermissions({
 			confirmation.mode === permissionMode &&
 			needsFullAccessConfirmation(engine) &&
 			!disabled &&
-			supportsAuto,
+			supportsBypass,
 	)
 	useEffect(() => {
 		if (confirmation && !currentConfirmation && pendingConfirmation.current === confirmation) {
@@ -233,7 +257,7 @@ export function ComposerPermissions({
 	const choose = (row: PermissionRow) => {
 		setOpen(false)
 		if (disabled || !row.selectable || row.value === permissionMode) return
-		if (needsFullAccessConfirmation(engine) && row.value === 'auto') {
+		if (needsFullAccessConfirmation(engine) && row.value === 'bypass') {
 			// Turning approvals off for a conversation needs one explicit yes, for every engine.
 			const request = { engine, scope: permissionScope, mode: permissionMode }
 			pendingConfirmation.current = request
@@ -344,11 +368,11 @@ export function ComposerPermissions({
 											now.permissionScope !== confirmation?.scope ||
 											now.permissionMode !== confirmation?.mode ||
 											now.disabled ||
-											!now.supportsAuto
+											!now.supportsBypass
 										)
 											return
 										dismiss()
-										onChange('auto')
+										onChange('bypass')
 									}}
 								>
 									Enable full access

@@ -378,7 +378,8 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('Accept')
-	expect(html).toContain('data-composer-permission="auto"')
+	// Saved as the old Full access id (`auto`), shown as Full access (`bypass`).
+	expect(html).toContain('data-composer-permission="bypass"')
 	expect(button(html, 'Stop reply')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Queue message')).not.toMatch(/\bdisabled=/)
 	const offline = render()
