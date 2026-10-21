@@ -27,6 +27,10 @@ export {
 	resolveLogLevel,
 } from './logging.js'
 export { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
+export { hasAcknowledgedBypass, acknowledgeBypass } from './permissions/consent.js'
+export { askBypassConsent } from './permissions/consent-prompt.js'
+export { planLaunchMode } from './permissions/launch.js'
+export { permissionModeFromName } from './permissions/mode.js'
 export {
 	compilePermissionLayers,
 	compilePermissions,

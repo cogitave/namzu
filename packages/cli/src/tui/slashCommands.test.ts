@@ -616,9 +616,14 @@ describe('/permissions', () => {
 			kind: 'permission-mode',
 			mode: 'prompt',
 		})
+		// `auto` is the classifier mode, whose kernel name is `classify`.
 		expect(runSlash('/permissions auto', context())).toEqual({
 			kind: 'permission-mode',
-			mode: 'auto',
+			mode: 'classify',
+		})
+		expect(runSlash('/permissions bypass', context())).toEqual({
+			kind: 'permission-mode',
+			mode: 'bypass',
 		})
 	})
 
@@ -637,18 +642,32 @@ describe('/permissions', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('Ask before changes')
 	})
 
-	it('names the flag when approval is automatic', () => {
+	it('names the flag when approval is bypassed', () => {
 		const r = permissionsReadout(
 			context({
 				permissions: permissions({
-					currentMode: () => ({ mode: 'auto', source: 'launch-bypass' }),
+					currentMode: () => ({ mode: 'bypass', source: 'launch-bypass' }),
 				}),
 			}),
 		)
+		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Allow tools without asking')
+			expect(r.content).toContain('Bypass permissions')
+			expect(r.content).toContain('Run everything without asking')
 			expect(r.content).toContain('--dangerously-skip-permissions')
 		}
+	})
+
+	it('names the configuration when it chose the mode', () => {
+		const r = permissionsReadout(
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'classify', source: 'config-default' }),
+				}),
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') expect(r.content).toContain('permissions.defaultMode')
 	})
 
 	it('lists configured rules with their verb', () => {

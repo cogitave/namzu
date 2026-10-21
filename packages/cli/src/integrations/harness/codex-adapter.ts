@@ -250,7 +250,7 @@ class CodexConnection implements HarnessConnection {
 		permissions: 'interactive',
 		interrupt: 'native-terminal',
 		attachments: [],
-		reviewModes: ['prompt', 'accept-edits', 'auto', 'strict', 'plan'],
+		reviewModes: ['prompt', 'accept-edits', 'auto', 'bypass', 'strict', 'plan'],
 	}
 	get capabilities(): HarnessCapabilities {
 		return this.capabilitiesValue
@@ -576,9 +576,12 @@ class CodexConnection implements HarnessConnection {
 			decisions: ['approve-once', 'reject', 'cancel'],
 		}
 		this.reviews.set(request.requestId, { rpcId: id, method, request, params })
-		if (['auto', 'strict', 'plan'].includes(this.permissionMode)) {
+		if (['auto', 'bypass', 'strict', 'plan'].includes(this.permissionMode)) {
 			await this.respond(request, {
-				kind: this.permissionMode === 'auto' ? 'approve-once' : 'reject',
+				kind:
+					this.permissionMode === 'auto' || this.permissionMode === 'bypass'
+						? 'approve-once'
+						: 'reject',
 			})
 			return
 		}

@@ -14,10 +14,17 @@
  * with "Permissions were not changed. Finish or stop the current work first."
  */
 
+import { rmSync } from 'node:fs'
+
 import { render } from 'ink-testing-library'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import {
+	acknowledgeBypass,
+	acknowledgementsPath,
+	hasAcknowledgedBypass,
+} from '../../permissions/consent.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
@@ -44,6 +51,10 @@ let holdTurn = false
 /** What the running turn would read at its next decision. */
 let readMode: (() => string) | undefined
 const recorded: string[] = []
+/** Whether the mocked session can run the auto mode's classifier. */
+let autoModeUsable = false
+/** The callback the turn hands the kernel for a classifier that stopped being trusted. */
+let limitHandler: ((event: { limit: 'consecutive' | 'total'; reason: string }) => void) | undefined
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -56,6 +67,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
+			autoMode: autoModeUsable
+				? { available: true }
+				: { available: false, reason: 'Auto mode has no model to ask in this test.' },
 			sandbox: { unconfined: true, enforced: [], required: [] },
 			compact: async () => null,
 			providerSummary: 'a-provider',
@@ -83,6 +97,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 				readMode = opts?.currentPermissionMode as (() => string) | undefined
+				limitHandler = opts?.onAutoModeLimit
 				if (holdTurn) {
 					await new Promise<void>((resolve) => {
 						releaseTurn = resolve
@@ -104,11 +119,15 @@ const ctx: TuiContext = {
 } as unknown as TuiContext
 
 const mounted: Array<{ unmount: () => void }> = []
+// The acknowledgement lives in the suite's home, which every test here shares.
+beforeEach(() => rmSync(acknowledgementsPath(), { force: true }))
 afterEach(() => {
 	releaseTurn?.()
 	releaseTurn = null
 	holdTurn = false
 	readMode = undefined
+	autoModeUsable = false
+	limitHandler = undefined
 	recorded.length = 0
 	for (const m of mounted.splice(0)) m.unmount()
 	vi.clearAllMocks()
@@ -228,58 +247,188 @@ describe('Shift+Tab in the composer', () => {
 	})
 })
 
-describe('Shift+Tab and the auto-approve stop', () => {
-	async function press(harness: ReturnType<typeof render>, count: number): Promise<void> {
-		for (let i = 0; i < count; i++) {
-			const before = recorded.length
-			harness.stdin.write(SHIFT_TAB)
-			await vi.waitFor(() => expect(recorded).toHaveLength(before + 1))
-		}
+/** Presses Shift+Tab `count` times, waiting for each change to be recorded. */
+async function press(harness: ReturnType<typeof render>, count: number): Promise<void> {
+	for (let i = 0; i < count; i++) {
+		const before = recorded.length
+		harness.stdin.write(SHIFT_TAB)
+		await vi.waitFor(() => expect(recorded).toHaveLength(before + 1))
 	}
+}
 
-	it('never reaches auto from an ordinary launch', async () => {
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+async function mountReady(extra: Partial<TuiContext> = {}) {
+	const harness = render(<App ctx={{ ...ctx, ...extra }} />)
+	mounted.push(harness)
+	await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+	return harness
+}
+
+describe('Shift+Tab and the two modes that stop asking', () => {
+	it('stays on three stops when neither bypass nor auto can be reached', async () => {
+		const harness = await mountReady()
 		await press(harness, 4)
 		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits'])
 		expect(harness.frames.join('\n')).not.toContain('bypass permissions on')
+		expect(harness.frames.join('\n')).not.toContain('auto mode on')
 	})
 
-	it.each([['--allow-dangerously-skip-permissions', { allowDangerouslySkipPermissions: true }]])(
-		'reaches auto after plan with %s, and falls back to prompt',
-		async (_flag, extra) => {
-			const harness = render(<App ctx={{ ...ctx, ...extra }} />)
-			mounted.push(harness)
-			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
-			await press(harness, 4)
-			expect(recorded).toEqual(['accept-edits', 'plan', 'auto', 'prompt'])
+	it('reaches auto after plan from an ordinary launch when a classifier can be asked', async () => {
+		autoModeUsable = true
+		const harness = await mountReady()
+		await press(harness, 4)
+		expect(recorded).toEqual(['accept-edits', 'plan', 'classify', 'prompt'])
+		await vi.waitFor(() => expect(harness.frames.join('\n')).toContain('⏵⏵ auto mode on'))
+		expect(harness.frames.join('\n'), 'the first entry says what auto does, once').toContain(
+			'a second model checks each call',
+		)
+	})
+
+	it('never reaches bypass or auto when the settings switched auto off and nothing opened bypass', async () => {
+		autoModeUsable = true
+		const harness = await mountReady({
+			permissionSettings: { disableAutoMode: true },
+		})
+		await press(harness, 4)
+		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits'])
+	})
+
+	describe('once bypass has been acknowledged', () => {
+		it('puts bypass, then auto, between plan and prompt', async () => {
+			acknowledgeBypass()
+			autoModeUsable = true
+			const harness = await mountReady({ allowDangerouslySkipPermissions: true })
+			await press(harness, 5)
+			expect(recorded).toEqual(['accept-edits', 'plan', 'bypass', 'classify', 'prompt'])
 			await vi.waitFor(() =>
 				expect(harness.frames.join('\n')).toContain('⏵⏵ bypass permissions on'),
 			)
-		},
-	)
+		})
 
-	it('keeps auto in the cycle after --yolo once the key has left it', async () => {
-		const harness = render(<App ctx={{ ...ctx, skipPermissions: true }} />)
-		mounted.push(harness)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('bypass permissions on'))
-		await tick(60)
-		await press(harness, 5)
-		// auto -> prompt -> accept-edits -> plan -> auto -> prompt
-		expect(recorded).toEqual(['prompt', 'accept-edits', 'plan', 'auto', 'prompt'])
+		it('keeps both in the cycle after --yolo once the key has left them', async () => {
+			acknowledgeBypass()
+			autoModeUsable = true
+			const harness = await mountReady({ skipPermissions: true })
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('bypass permissions on'))
+			await tick(60)
+			await press(harness, 6)
+			// bypass -> auto -> prompt -> accept-edits -> plan -> bypass -> auto
+			expect(recorded).toEqual(['classify', 'prompt', 'accept-edits', 'plan', 'bypass', 'classify'])
+		})
+
+		it('goes from bypass straight to prompt when auto is not available', async () => {
+			acknowledgeBypass()
+			const harness = await mountReady({ skipPermissions: true })
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('bypass permissions on'))
+			await tick(60)
+			await press(harness, 1)
+			expect(recorded).toEqual(['prompt'])
+		})
+
+		it('refuses to switch to bypass by name when the launch did not open it', async () => {
+			acknowledgeBypass()
+			const harness = await mountReady()
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() =>
+				expect(harness.frames.join('\n')).toContain('Bypass mode is not available'),
+			)
+			expect(recorded).toEqual([])
+		})
+
+		it('refuses bypass when permissions.disableBypassMode closed it, even after a flag', async () => {
+			acknowledgeBypass()
+			const harness = await mountReady({
+				allowDangerouslySkipPermissions: true,
+				bypassAvailable: false,
+				permissionSettings: { disableBypassMode: true },
+			})
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() =>
+				expect(harness.frames.join('\n')).toContain('Bypass mode is not available'),
+			)
+			expect(recorded).toEqual([])
+		})
+
+		it('switches to bypass by name when the launch opened it', async () => {
+			acknowledgeBypass()
+			const harness = await mountReady({ allowDangerouslySkipPermissions: true })
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(recorded).toEqual(['bypass']))
+		})
+
+		it('says why auto cannot be entered, and stays where it was', async () => {
+			const harness = await mountReady()
+			harness.stdin.write('/permissions auto')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() =>
+				expect(harness.frames.join('\n')).toContain('no model to ask in this test'),
+			)
+			expect(recorded).toEqual([])
+		})
 	})
 
-	it('treats choosing auto by name as the same consent', async () => {
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
+	describe('the first switch into bypass', () => {
+		it('asks once, remembers a yes, and does not ask again', async () => {
+			expect(hasAcknowledgedBypass()).toBe(false)
+			const harness = await mountReady({ allowDangerouslySkipPermissions: true })
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Run without asking?'))
+			expect(recorded, 'nothing changes while the question is open').toEqual([])
+			harness.stdin.write('\u001b[B')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(recorded).toEqual(['bypass']))
+			expect(hasAcknowledgedBypass()).toBe(true)
+
+			// Leave and come back: no second question.
+			await press(harness, 1)
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(recorded).toEqual(['bypass', 'prompt', 'bypass']))
+			expect(harness.frames.slice(-3).join('\n')).not.toContain('Run without asking?')
+		})
+
+		it('stays in the current mode when the answer is no, and asks again next time', async () => {
+			const harness = await mountReady({ allowDangerouslySkipPermissions: true })
+			harness.stdin.write('/permissions bypass')
+			await tick(30)
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Run without asking?'))
+			harness.stdin.write('\r')
+			await tick(100)
+			expect(recorded).toEqual([])
+			expect(hasAcknowledgedBypass()).toBe(false)
+		})
+	})
+
+	it('drops to prompt, with the reason in the transcript, when the classifier stops being trusted', async () => {
+		autoModeUsable = true
+		const harness = await mountReady()
 		harness.stdin.write('/permissions auto')
 		await tick(30)
 		harness.stdin.write('\r')
-		await vi.waitFor(() => expect(recorded).toEqual(['auto']))
-		await tick(60)
-		await press(harness, 4)
-		expect(recorded).toEqual(['auto', 'prompt', 'accept-edits', 'plan', 'auto'])
+		await vi.waitFor(() => expect(recorded).toEqual(['classify']))
+		harness.stdin.write('hello')
+		await tick(20)
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(limitHandler).toBeDefined())
+		limitHandler?.({ limit: 'consecutive', reason: 'It tried to publish the package.' })
+		await vi.waitFor(() => expect(recorded).toEqual(['classify', 'prompt']))
+		await vi.waitFor(() => {
+			const seen = (harness.lastFrame() ?? '').replace(/\s+/g, ' ')
+			expect(seen).toContain('blocked three actions in a row')
+			expect(seen).toContain('ask before changes again')
+			expect(seen).toContain('It tried to publish the package.')
+			expect(seen, 'the footer follows').not.toContain('auto mode on')
+		})
 	})
 })

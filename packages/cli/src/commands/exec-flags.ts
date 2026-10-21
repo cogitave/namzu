@@ -54,7 +54,7 @@ export interface ExecFlags {
 	effort: ReasoningEffort | null
 	/** Where the agent works: filesystem tools, sub-agents, session store, skills. */
 	cwd: string | null
-	/** How calls no `[permissions]` rule decided are resolved: prompt/auto/strict. */
+	/** How calls no `[permissions]` rule decided are resolved: one of the `--permission-mode` words. */
 	permissionMode: string | null
 	/** --yolo / --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
@@ -338,12 +338,11 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
-		// Was accepted and ignored, because a headless turn never prompted and so
-		// had nothing to bypass. Now that an operator can write rules, it means
-		// something: `auto` for the calls no rule decided. It still cannot reopen
-		// a `deny` or the dangerous-pattern floor, so it promises more than it
-		// delivers — deliberately, since a flag with this name should read as
-		// more dangerous than it is rather than less.
+		// Bypass mode: the calls no rule decided run without a question, a path
+		// outside the folder and a program the line does not name included. It
+		// cannot reopen a `deny`, an `ask` rule or the dangerous-pattern floor,
+		// and a catastrophic removal still needs a person, so with nobody to ask
+		// that one is refused.
 		if (a === '--yolo' || a === '--dangerously-skip-permissions') {
 			out.skipPermissions = true
 			continue

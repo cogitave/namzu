@@ -1,4 +1,4 @@
-import { isPermissionMode } from '../permissions/mode.js'
+import { isPermissionModeName } from '../permissions/mode.js'
 import { type ExecFlags, parseExecFlags } from './exec-flags.js'
 
 const actions = [
@@ -107,8 +107,10 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--max-revisions must not exceed 4096.')
 	const run = parseExecFlags(forwarded)
 	if (run.unknown.length) throw new Error(`Unknown option(s): ${run.unknown.join(', ')}.`)
-	if (run.permissionMode && !isPermissionMode(run.permissionMode))
-		throw new Error('Invalid --permission-mode; use prompt, accept-edits, auto, strict or plan.')
+	if (run.permissionMode && !isPermissionModeName(run.permissionMode))
+		throw new Error(
+			'Invalid --permission-mode; use prompt, accept-edits, plan, bypass, auto or strict.',
+		)
 	if (
 		run.gateRetries !== null &&
 		(!run.gates.length || !Number.isSafeInteger(run.gateRetries) || run.gateRetries < 1)

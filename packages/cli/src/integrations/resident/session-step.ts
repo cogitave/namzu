@@ -30,6 +30,7 @@ import {
 } from '../../commands/exec-flags.js'
 import type { CommandContext } from '../../commands/types.js'
 import { cliLogger } from '../../logging.js'
+import { launchRefusal } from '../../permissions/launch.js'
 import { resolvePermissionMode } from '../../permissions/mode.js'
 import {
 	compilePermissionLayers,
@@ -228,6 +229,8 @@ export function createResidentSessionStep(
 		interactive: false,
 	})
 	if ('error' in mode) throw new Error(mode.error)
+	const modeRefusal = launchRefusal(mode.mode, { settings: ctx.config.permissionSettings })
+	if (modeRefusal) throw new Error(modeRefusal)
 	return async (pursuit, signal, context) => {
 		signal.throwIfAborted()
 		const claimId = pursuit.state.claimId
@@ -384,6 +387,9 @@ export function createResidentSessionStep(
 					: {}),
 				rules: permissions.rules,
 				permissionMode: mode.mode,
+				...(ctx.config.permissionSettings
+					? { permissionSettings: ctx.config.permissionSettings }
+					: {}),
 				reviewAnswer,
 				maxAnswerReviews: gate?.maxAnswerReviews ?? 3,
 				...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),

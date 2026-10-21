@@ -111,10 +111,21 @@ export interface TuiContext {
 	 * standalone CLI always supplies it; the command says when an embed did not.
 	 */
 	readonly configDebug?: ConfigDebugSnapshot
-	/** Initial TUI mode is auto (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
+	/** Initial TUI mode is bypass (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
 	readonly skipPermissions?: boolean
-	/** --allow-dangerously-skip-permissions: Shift+Tab may reach auto without starting in it. */
+	/** --allow-dangerously-skip-permissions: Shift+Tab may reach bypass without starting in it. */
 	readonly allowDangerouslySkipPermissions?: boolean
+	/**
+	 * Whether Shift+Tab and `/permissions` may reach bypass. Worked out at launch
+	 * from the flags, the operator's `permissions.defaultMode` and
+	 * `permissions.disableBypassMode`. Absent (a hand-built context): the flags
+	 * alone decide.
+	 */
+	readonly bypassAvailable?: boolean
+	/** Where the starting mode came from, when a configured default chose it. */
+	readonly permissionSource?: 'launch-flag' | 'launch-bypass' | 'config-default' | 'default'
+	/** `permissions.disableAutoMode` and friends, for the status and the picker. */
+	readonly permissionSettings?: import('../permissions/settings.js').PermissionSettings
 	/**
 	 * `--provider`, `--model`, `--effort` and `--permission-mode` for this launch.
 	 * Session-only: none of them is saved, and `/model`, `/effort` and

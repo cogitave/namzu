@@ -171,12 +171,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.option(
 			'--dangerously-skip-permissions',
-			'Run tools without asking for approval (no permission prompts). Only use in a sandbox or a folder you fully trust.',
+			'Start in bypass mode: run tools without asking, except for what always needs a person. Only use in a sandbox or a folder you fully trust.',
 		)
 		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		.option(
 			'--allow-dangerously-skip-permissions',
-			'Let Shift+Tab reach the auto-approve mode, without starting in it.',
+			'Let Shift+Tab reach bypass mode, without starting in it.',
 		)
 		.option(
 			'--provider <id>',
@@ -195,7 +195,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.addOption(
 			new Option(
 				'--permission-mode <mode>',
-				'Permission mode for this launch only; wins over --yolo. /permissions changes it from inside.',
+				'Permission mode for this launch only; wins over --yolo. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
 			).choices(PERMISSION_MODE_NAMES),
 		)
 		.option(
@@ -520,13 +520,46 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					)
 				: undefined
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
+			// What the command line and the configuration let this launch start in.
+			// A mode that stops asking is refused here, in plain words, before
+			// anything is built: a flag the settings or the root guard forbid is an
+			// error, not a quiet downgrade.
+			const permissionPlanFor = (config: NamzuCliConfig) =>
+				runtime().planLaunchMode({
+					permissionModeFlag: launchOpts.permissionMode,
+					skipPermissions,
+					allowBypassFlag: launchOpts.allowDangerouslySkipPermissions === true,
+					settings: config.permissionSettings,
+				})
+			const firstPlan = permissionPlanFor(getBootstrapContext().config)
+			if ('error' in firstPlan) {
+				getBootstrapContext().formatter.error({ message: firstPlan.error })
+				setExitCode(EX_USAGE)
+				return
+			}
+			let launchPlan = firstPlan.plan
+			// Bypass runs everything, so the person is asked once, here, before the
+			// screen opens. Declining starts the session in the ordinary mode.
+			if (launchPlan.mode === 'bypass' && !runtime().hasAcknowledgedBypass()) {
+				if (await runtime().askBypassConsent()) {
+					try {
+						runtime().acknowledgeBypass()
+					} catch {
+						// An unwritable home costs a repeat of the question next time.
+					}
+				} else {
+					launchPlan = { ...launchPlan, mode: 'prompt', source: 'default' }
+				}
+			}
 			const provider = launchOpts.provider?.trim()
 			const model = launchOpts.model?.trim()
 			const launchSettings = {
 				...(provider ? { provider } : {}),
 				...(model ? { model } : {}),
 				...(launchOpts.effort ? { effort: launchOpts.effort } : {}),
-				...(launchOpts.permissionMode ? { permissionMode: launchOpts.permissionMode } : {}),
+				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
+					? { permissionMode: launchPlan.mode }
+					: {}),
 				...(launchOpts.message?.trim() ? { message: launchOpts.message } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
@@ -563,9 +596,19 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(structuredOutput ? { structuredOutput } : {}),
 					version: CLI_VERSION,
 					configDebug: resolvedCtx.configDebug,
-					skipPermissions,
+					skipPermissions: skipPermissions && launchPlan.source === 'launch-bypass',
 					...(launchOpts.allowDangerouslySkipPermissions
 						? { allowDangerouslySkipPermissions: true }
+						: {}),
+					permissionSource: launchPlan.source,
+					// The project's own file may close bypass or auto for its folder, so the
+					// door is recomputed from the full configuration.
+					bypassAvailable: (() => {
+						const full = permissionPlanFor(resolvedCtx.config)
+						return 'plan' in full && full.plan.bypassAvailable
+					})(),
+					...(resolvedCtx.config.permissionSettings
+						? { permissionSettings: resolvedCtx.config.permissionSettings }
 						: {}),
 					...(Object.keys(launchSettings).length > 0 ? { launchSettings } : {}),
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),

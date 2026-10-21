@@ -41,6 +41,12 @@ import {
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import { type PermissionsConfig, mergePermissionTables } from '../permissions/rules.js'
+import {
+	type SettingsAuthority,
+	mergePermissionSettings,
+	permissionSettingsProblem,
+	splitPermissionsTable,
+} from '../permissions/settings.js'
 import { homePath } from '../tui/person-terms.js'
 import {
 	COMPOSER_TRIGGER_IDS,
@@ -375,7 +381,7 @@ export function readPermissionLayers(
 			layers.push({
 				source,
 				path,
-				permissions: config.permissions ?? {},
+				permissions: splitPermissionsTable(config.permissions ?? {}, 'operator', source).rules,
 				...(browserDenies.length > 0 ? { browserDenies } : {}),
 			})
 	}
@@ -723,8 +729,14 @@ const CONFIG_READERS: ConfigReaders = {
 	// reports a bad effect or an unusable pattern as a diagnostic the user
 	// sees; dropping those entries here would silence it.
 	permissions: (v, context) => {
-		if (isConfigMapping(v)) return v as PermissionsConfig
-		return invalidConfigValue(context, [], 'must be a mapping of tool names')
+		if (!isConfigMapping(v)) {
+			return invalidConfigValue(context, [], 'must be a mapping of tool names')
+		}
+		// The mode settings share the table with the tool rules, so they are
+		// checked here, where a typo can still name its file and line.
+		const problem = permissionSettingsProblem(v as Readonly<Record<string, unknown>>)
+		if (problem) return invalidConfigValue(context, problem.path, problem.message)
+		return v as PermissionsConfig
 	},
 	// Shape only, like `permissions` and for the same reason: per-entry
 	// validation belongs to `verifyPermissionChecks`, which reports a bad
@@ -738,6 +750,14 @@ const CONFIG_READERS: ConfigReaders = {
 	// a file that wrote it would be claiming to be several layers at once.
 	permissionLayers: (_v, context) =>
 		invalidConfigValue(context, [], 'is worked out from the permissions tables; remove it'),
+	// Lifted out of the same tables, so a file that wrote it would be claiming
+	// an authority it does not have: set the keys inside `permissions` instead.
+	permissionSettings: (_v, context) =>
+		invalidConfigValue(
+			context,
+			[],
+			'is worked out from the permissions table; set defaultMode, disableBypassMode, disableAutoMode or autoMode inside permissions',
+		),
 	// Every declared profile is checked when its file loads, not only when it is
 	// selected. Typed config in a lower-precedence layer cannot become valid
 	// merely because another layer happens to win today. Unknown profile keys
@@ -1661,6 +1681,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	permissionChecks: undefined,
 	// Derived from the files' tables, never set from outside.
 	permissionLayers: undefined,
+	permissionSettings: undefined,
 	// The SET of profiles is not env-settable — it is the thing being chosen
 	// BETWEEN, and a variable that could replace it could hand a shell a
 	// profile the files never declared. `NAMZU_PROFILE` selects one of the
@@ -1863,6 +1884,29 @@ interface ConfigLayer {
 	readonly sourceFor: (key: keyof NamzuCliConfig) => ConfigSource
 }
 
+/**
+ * Whose word a layer is, for the settings that stop the agent asking. The
+ * user's file, the managed file and the environment are the operator's; the
+ * project's two files are the workspace's, and so is a profile declared in one.
+ */
+function settingsAuthorityOf(source: ConfigSource): SettingsAuthority {
+	switch (source.kind) {
+		case 'project-file':
+		case 'local-file':
+			return 'workspace'
+		case 'profile':
+			return /(?:^|[\\/])namzu\.config(?:\.local)?\.json$/.test(source.path)
+				? 'workspace'
+				: 'operator'
+		default:
+			return 'operator'
+	}
+}
+
+function describeSource(source: ConfigSource): string {
+	return 'path' in source ? shortHomePath(source.path) : source.kind
+}
+
 function constantLayer(config: MutableConfig, source: ConfigSource): ConfigLayer {
 	return { config, sourceFor: () => source }
 }
@@ -1889,11 +1933,22 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Joined, not replaced: a project's table must not erase a user's
 				// deny, nor a managed table the rules below it. See
 				// `compilePermissionLayers`.
-				permissionTables.push(layer.config.permissions)
+				const source = layer.sourceFor(key)
+				const split = splitPermissionsTable(
+					layer.config.permissions,
+					settingsAuthorityOf(source),
+					describeSource(source),
+				)
+				permissionTables.push(split.rules)
 				out.permissions = mergePermissionTables(permissionTables)
 				out.permissionLayers = [...permissionTables]
-				provenance[key] = layer.sourceFor(key)
-				provenance.permissionLayers = layer.sourceFor(key)
+				provenance[key] = source
+				provenance.permissionLayers = source
+				const settings = mergePermissionSettings(out.permissionSettings, split.settings)
+				if (Object.keys(settings).length > 0) {
+					out.permissionSettings = settings
+					provenance.permissionSettings = source
+				}
 				continue
 			}
 			if (key === 'browser' && layer.config.browser) {

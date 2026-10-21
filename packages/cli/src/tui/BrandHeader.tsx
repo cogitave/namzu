@@ -59,11 +59,12 @@ export function BrandHeader({ version, permissionMode, cwd }: BrandHeaderProps) 
 					</Box>
 				) : null}
 			</Box>
-			{permissionMode === 'auto' ? (
+			{permissionMode === 'bypass' ? (
 				<Box marginTop={1}>
-					<Text color={theme.status.warn}>
-						Warning: {permissionModeLabel(permissionMode)} — tools run without asking. Use
-						/permissions to change this.
+					<Text color={theme.status.error}>
+						Warning: {permissionModeLabel(permissionMode)} — commands and edits run without asking,
+						including outside this folder. Rules that deny or ask still apply. Use /permissions to
+						change this.
 					</Text>
 				</Box>
 			) : null}

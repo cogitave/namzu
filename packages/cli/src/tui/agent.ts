@@ -48,6 +48,7 @@ import {
 
 import {
 	type AuthorizationRule,
+	type AutoReviewClassifier,
 	BOOT_EVENT_NAMES,
 	type BackgroundJob,
 	type BackgroundJobOutput,
@@ -357,12 +358,18 @@ import {
 	saveTypedNote,
 } from '../memory/typed.js'
 import {
+	classifierUnavailableReason,
+	createSessionClassifier,
+	withClassifierScope,
+} from '../permissions/auto-classifier.js'
+import {
 	type LiveModeControl,
 	createLiveModeControl,
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
+import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
 import { isPlanFileWrite } from '../plan/plan-file.js'
@@ -856,6 +863,18 @@ export interface SendOptions {
 	 */
 	readonly currentPermissionMode?: () => PermissionMode
 	/**
+	 * The auto mode's classifier has blocked enough calls that it should stop
+	 * being relied on (three in a row, or twenty in the session). The kernel
+	 * never changes the mode; the host does, here: the terminal drops to
+	 * `prompt` and says so. Called once per limit, with a sentence fit to show.
+	 * Absent, the kernel asks the person about the call that tripped it, or ends
+	 * the turn when there is nobody to ask.
+	 */
+	readonly onAutoModeLimit?: (event: {
+		readonly limit: 'consecutive' | 'total'
+		readonly reason: string
+	}) => void
+	/**
 	 * A host that can run workflows says so by passing this, and says who
 	 * answers their reviews for as long as they run. A workflow outlives the
 	 * turn that started it, so it cannot borrow `onPermission`, which belongs to
@@ -984,6 +1003,8 @@ export interface ResumePausedParams {
 	 * children's.
 	 */
 	readonly currentPermissionMode?: () => PermissionMode
+	/** As `SendOptions.onAutoModeLimit`, for the resumed turn. */
+	readonly onAutoModeLimit?: SendOptions['onAutoModeLimit']
 	/**
 	 * The answer to the decision the turn is parked on, applied to exactly the
 	 * parked batch without asking the model again (`resumeSession`'s
@@ -1084,6 +1105,12 @@ export interface AgentSession {
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
+	/**
+	 * Whether the auto mode can be entered in this session: its classifier has a
+	 * model this machine can reach and the settings have not switched it off.
+	 * `reason` says why not, in words for the person.
+	 */
+	readonly autoMode?: { readonly available: boolean; readonly reason?: string }
 	/**
 	 * What the sandbox enforces for this session.
 	 *
@@ -2057,6 +2084,8 @@ export interface AgentSessionOptions {
 	readonly rules?: readonly AuthorizationRule[]
 	/** How undecided calls resolve. Owned Pal guests default to auto; ordinary sessions use prompt/auto by TTY. */
 	readonly permissionMode?: PermissionMode
+	/** `permissions.disableAutoMode` and `permissions.autoMode`, as the loader combined them. */
+	readonly permissionSettings?: PermissionSettings
 	/**
 	 * External tool servers to connect for this session, from the operator's
 	 * config. Absent means none, which is what it meant before they existed.
@@ -3595,6 +3624,8 @@ export async function createAgentSession(
 							reviewExemptionFor(mode, manager, (input) => sub.launchesReadOnlyAgent(input)),
 							{ unattendedSandboxEscape },
 							screenPolicyFor(() => manager),
+							undefined,
+							reviewExtras(),
 						),
 				})
 				liveModeControls.add(control)
@@ -3669,6 +3700,62 @@ export async function createAgentSession(
 		// and got none had nothing on stderr to say why.
 		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
+	// The auto mode's classifier. The session's own model answers unless the
+	// operator named another (`permissions.autoMode.model`); what it costs is
+	// charged to the turn that asked, like any other side request.
+	const autoModeSettings = options.permissionSettings
+	const classifierActive = () => ({
+		providerId: turnRouteTarget?.provider ?? primary.id,
+		model: turnRouteTarget?.model ?? model,
+	})
+	const autoModeReason = classifierUnavailableReason({
+		settings: autoModeSettings?.autoMode,
+		disabled: autoModeSettings?.disableAutoMode === true,
+		active: classifierActive(),
+		isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+		hasCredential: (id) => findDetected(detected, id as ProviderId) != null,
+		hasSmallModel: sideModel !== undefined,
+	})
+	const sessionClassifier: AutoReviewClassifier | undefined =
+		autoModeReason === undefined
+			? createSessionClassifier({
+					settings: autoModeSettings?.autoMode,
+					active: classifierActive,
+					isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+					providerFor: (sessionId, target) =>
+						target.providerId === primary.id && target.model === classifierActive().model
+							? Promise.resolve(providerForSession(sessionId))
+							: providerForModel(sessionId, target.providerId as ProviderId, target.model),
+					...(sideModel
+						? {
+								smallRoute: async (sessionId: SessionId, signal: AbortSignal) => {
+									const route = await (sideModel as SideModel).route(sessionId, signal)
+									return { providerId: route.providerId, model: route.model }
+								},
+							}
+						: {}),
+					log: cliLogger(),
+					charge: ({ sessionId, turnId, usage }) => {
+						void subagentRuntime?.sideLedger.chargeLater({
+							turnId,
+							sessionId,
+							estimatedPromptTokens: usage.promptTokens,
+							usage,
+						})
+					},
+				})
+			: undefined
+	/** What every review handler of this session gets besides its mode. */
+	const reviewExtras = (
+		callbacks: {
+			readonly onClassifierLimit?: ReviewExtras['onClassifierLimit']
+			readonly onClassifierTranscriptTooLong?: ReviewExtras['onClassifierTranscriptTooLong']
+		} = {},
+	): ReviewExtras => ({
+		roots: () => [cwd, ...directories],
+		...(sessionClassifier ? { classifier: sessionClassifier } : {}),
+		...callbacks,
+	})
 	// This capability belongs to the active main turn, never the child roster.
 	const modelSwitchHandlers = new Map<TurnId, NonNullable<SendOptions['onModelSwitch']>>()
 	if (options.allowModelSwitch) {
@@ -4259,6 +4346,7 @@ export async function createAgentSession(
 		listener,
 		permissionMode,
 		currentPermissionMode,
+		onAutoModeLimit,
 		pendingDecision,
 		onPermission,
 		rules,
@@ -4271,6 +4359,7 @@ export async function createAgentSession(
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
 		readonly currentPermissionMode?: () => PermissionMode
+		readonly onAutoModeLimit?: SendOptions['onAutoModeLimit']
 		readonly pendingDecision?: HITLResumeDecision
 		readonly onPermission?: PermissionFn
 		readonly rules?: readonly AuthorizationRule[]
@@ -4346,6 +4435,7 @@ export async function createAgentSession(
 								{ unattendedSandboxEscape },
 								reviewHold.reason,
 								screenPolicyFor(() => liveManager()),
+								reviewExtras(),
 							)
 						: makeResumeHandler(
 								// A caller that brings its own prompt (a scheduled turn answered in
@@ -4364,6 +4454,7 @@ export async function createAgentSession(
 								options.planApproval && !options.ephemeral
 									? isPlanFileWrite(paths.planFile({ sessionId: entry.sessionId }), cwd)
 									: undefined,
+								reviewExtras(onAutoModeLimit ? { onClassifierLimit: onAutoModeLimit } : undefined),
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -4518,6 +4609,7 @@ export async function createAgentSession(
 		signal,
 		permissionMode,
 		currentPermissionMode,
+		onAutoModeLimit,
 		pendingDecision,
 		onPermission,
 		rules,
@@ -4545,6 +4637,7 @@ export async function createAgentSession(
 			...(checkpointId !== undefined ? { checkpointId: checkpointId as CheckpointId } : {}),
 			...(permissionMode ? { permissionMode } : {}),
 			...(currentPermissionMode ? { currentPermissionMode } : {}),
+			...(onAutoModeLimit ? { onAutoModeLimit } : {}),
 			...(pendingDecision ? { pendingDecision } : {}),
 			...(onPermission ? { onPermission } : {}),
 			...(rules ? { rules } : {}),
@@ -4595,6 +4688,10 @@ export async function createAgentSession(
 	}
 	return {
 		hasProvider: true,
+		autoMode: {
+			available: sessionClassifier !== undefined,
+			...(autoModeReason !== undefined ? { reason: autoModeReason } : {}),
+		},
 		sandbox: {
 			unconfined: sandbox.unconfined,
 			...(sandbox.environment ? { environment: sandbox.environment } : {}),
@@ -4786,6 +4883,12 @@ export async function createAgentSession(
 										),
 										{ unattendedSandboxEscape },
 										screenPolicyFor(() => manager),
+										undefined,
+										reviewExtras(
+											opts?.onAutoModeLimit
+												? { onClassifierLimit: opts.onAutoModeLimit }
+												: undefined,
+										),
 									),
 							})
 							liveModeControls.add(control)
@@ -5041,6 +5144,7 @@ export async function createAgentSession(
 										{ unattendedSandboxEscape },
 										opts.reviewHold.reason,
 										screenPolicyFor(() => runManager),
+										reviewExtras(),
 									)
 								: makeResumeHandler(
 										approval,
@@ -5054,6 +5158,11 @@ export async function createAgentSession(
 										{ unattendedSandboxEscape },
 										screenPolicyFor(() => runManager),
 										planModeWrite,
+										reviewExtras(
+											opts?.onAutoModeLimit
+												? { onClassifierLimit: opts.onAutoModeLimit }
+												: undefined,
+										),
 									),
 					})
 					const resumeHandler = modeControl.handler
@@ -6640,9 +6749,11 @@ export function makeResumeHandler(
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' } = {},
 	screen?: ScreenPolicy,
 	planModeWrite?: (call: ToolCallSummary) => boolean,
+	extras: ReviewExtras = {},
 ): ResumeHandler {
-	return createReviewHandler({
-		mode,
+	const effective = effectiveReviewMode(mode, extras, onPermission !== undefined)
+	const handler = createReviewHandler({
+		mode: effective,
 		prompt: onPermission,
 		exempt,
 		remembered: approval,
@@ -6652,7 +6763,58 @@ export function makeResumeHandler(
 		// session with nobody to ask has nobody to consent to leaving the
 		// sandbox, and `auto` is not consent to a command it never showed.
 		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
+		...reviewOptionsOf(effective, extras),
 	})
+	return effective === 'classify' ? withClassifierScope(handler) : handler
+}
+
+/**
+ * What the review policy needs beyond the mode: the roots `accept-edits` keeps
+ * its shell allowance inside, and, for the auto mode, the classifier with what
+ * to do when it stops being trusted.
+ */
+export interface ReviewExtras {
+	/** The working directory and the added directories, read when a call is judged. */
+	readonly roots?: () => readonly string[]
+	readonly classifier?: AutoReviewClassifier
+	/** The classifier has blocked enough that this session should stop relying on it. */
+	readonly onClassifierLimit?: (event: {
+		readonly limit: 'consecutive' | 'total'
+		readonly reason: string
+	}) => void
+	/** The conversation was too long for the classifier to read. */
+	readonly onClassifierTranscriptTooLong?: () => void
+}
+
+/**
+ * The mode a handler is built for. The auto mode needs a classifier; one that
+ * could not be built (no model, a name nobody knows) must not turn into a
+ * crash or into "approve", so the handler asks if a person can be asked and
+ * refuses if not. The mode switch that reaches it is refused earlier, with the
+ * reason; this is the floor under it.
+ */
+function effectiveReviewMode(
+	mode: PermissionMode,
+	extras: ReviewExtras,
+	canAsk: boolean,
+): PermissionMode {
+	if (mode !== 'classify' || extras.classifier) return mode
+	return canAsk ? 'prompt' : 'strict'
+}
+
+function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
+	return {
+		...(extras.roots ? { roots: extras.roots } : {}),
+		...(mode === 'classify' && extras.classifier
+			? {
+					classifier: extras.classifier,
+					...(extras.onClassifierLimit ? { onClassifierLimit: extras.onClassifierLimit } : {}),
+					...(extras.onClassifierTranscriptTooLong
+						? { onClassifierTranscriptTooLong: extras.onClassifierTranscriptTooLong }
+						: {}),
+				}
+			: {}),
+	}
 }
 
 /**
@@ -6686,9 +6848,11 @@ export function makeHoldingResumeHandler(
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' },
 	reason: string,
 	screen?: ScreenPolicy,
+	extras: ReviewExtras = {},
 ): ResumeHandler {
-	const inner = createReviewHandler({
-		mode,
+	const effective = effectiveReviewMode(mode, extras, true)
+	const innerHandler = createReviewHandler({
+		mode: effective,
 		prompt: async () => {
 			throw new ReviewHoldSignal(reason)
 		},
@@ -6696,10 +6860,12 @@ export function makeHoldingResumeHandler(
 		remembered: { all: false },
 		...(screen ? { screenConsent: screen.consent, capturesScreen: screen.capturesScreen } : {}),
 		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
+		...reviewOptionsOf(effective, extras),
 	})
-	return async (request) => {
+	const inner = effective === 'classify' ? withClassifierScope(innerHandler) : innerHandler
+	return async (request, context) => {
 		try {
-			return await inner(request)
+			return await inner(request, context)
 		} catch (error) {
 			if (error instanceof ReviewHoldSignal) return { action: 'pause', reason }
 			throw error
@@ -7662,6 +7828,7 @@ function emptySession(
 	})
 	return {
 		hasProvider: false,
+		autoMode: { available: false, reason: 'Choose a model before using auto mode.' },
 		// A refused session ran nothing, so there is nothing confining anything.
 		// Reporting an enforced control here would be a claim about a sandbox
 		// this path never built.

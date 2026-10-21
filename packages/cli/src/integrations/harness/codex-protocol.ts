@@ -85,7 +85,7 @@ export function codexPermissionConfig(
 } {
 	if (mode === 'plan' || mode === 'strict')
 		return { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly', networkAccess: false } }
-	if (mode === 'auto')
+	if (mode === 'auto' || mode === 'bypass')
 		return { approvalPolicy: 'on-request', sandboxPolicy: { type: 'dangerFullAccess' } }
 	if (mode === 'accept-edits')
 		return {

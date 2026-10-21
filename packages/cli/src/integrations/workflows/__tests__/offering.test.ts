@@ -61,13 +61,14 @@ describe('who may start one', () => {
 
 	it('lets a session set to run without asking start one, with nobody there', () => {
 		expect(workflowRefusal({ interactive: false, mode: 'auto' })).toBeUndefined()
+		expect(workflowRefusal({ interactive: false, mode: 'bypass' })).toBeUndefined()
 	})
 
 	it('refuses, in plain words, when nobody can review it and the session still asks', () => {
-		for (const mode of ['prompt', 'accept-edits', 'strict', 'plan']) {
+		for (const mode of ['prompt', 'accept-edits', 'strict', 'plan', 'classify']) {
 			const reason = workflowRefusal({ interactive: false, mode })
 			expect(reason).toContain('nobody to ask')
-			expect(reason).toContain('--permission-mode auto')
+			expect(reason).toContain('--permission-mode bypass')
 		}
 	})
 })

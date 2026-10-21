@@ -4251,7 +4251,7 @@ export class Operator {
 				)
 			const supportedReviewModes =
 				session.view.harness === 'codex-cli'
-					? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+					? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
 					: ['prompt', 'plan']
 			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
 				throw new Error(
