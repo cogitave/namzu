@@ -80,6 +80,12 @@ export interface CodeAnalysisOptions {
 	/** Milliseconds one call spends before it stops the same way. Default 45,000. */
 	readonly maxMillis?: number
 	/**
+	 * Path of the script to fork as the parsing child. Absent: this package's
+	 * own `dist/indexer-host.js`. A host that bundles this package emits that
+	 * entry itself (`@namzu/analysis/indexer-host`) and names it here.
+	 */
+	readonly hostScript?: string
+	/**
 	 * `auto` (default) builds a trigram FTS5 index of literals when this Node
 	 * has FTS5 (22.16 and newer). `off` never does, and `find_literal` scans.
 	 * The two modes use separate cache files.
@@ -125,7 +131,7 @@ export function createCodeAnalysisProvider(
 	options: CodeAnalysisOptions = {},
 ): CodeAnalysisProvider {
 	const opened = new Map<string, Promise<Opened | { error: string }>>()
-	const host = new ParserHost()
+	const host = new ParserHost(options.hostScript)
 	const indexOptions = (force: boolean): IndexOptions => ({
 		ignoreDirs: options.ignoreDirs ?? DEFAULT_IGNORED_DIRS,
 		maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,

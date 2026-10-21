@@ -54,7 +54,6 @@
 	"dependencies": {
 		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
 		"@modelcontextprotocol/client": "^2.1.0",
-		"@namzu/analysis": "workspace:^",
 		"@namzu/anthropic": "workspace:*",
 		"@namzu/browser": "workspace:*",
 		"@namzu/computer-use": "workspace:*",
@@ -71,6 +70,7 @@
 		"@xterm/headless": "6.0.0",
 		"commander": "^14.0.3",
 		"ink": "7.0.3",
+		"oxc-parser": "0.155.0",
 		"quickjs-emscripten-core": "0.32.0",
 		"react": "19.2.6",
 		"string-width": "8.2.1",
@@ -78,6 +78,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@namzu/analysis": "workspace:*",
 		"@namzu/decision": "workspace:*",
 		"@namzu/telemetry": "workspace:*",
 		"@types/react": "^19.2.15",

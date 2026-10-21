@@ -22,6 +22,10 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
+		},
+		"./indexer-host": {
+			"types": "./dist/indexer-host.d.ts",
+			"import": "./dist/indexer-host.js"
 		}
 	},
 	"files": [

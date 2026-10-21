@@ -4,7 +4,13 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { codeAnalysisCacheDir, createLazyCodeAnalysis } from '../provider.js'
+import { describeCodeAnalysis } from '../../../doctor/checks/code-analysis.js'
+import {
+	codeAnalysisCacheDir,
+	codeAnalysisSelfTest,
+	createLazyCodeAnalysis,
+	parsingChildScript,
+} from '../provider.js'
 
 /**
  * The CLI's half: nothing happens until the first call, and the first call
@@ -63,5 +69,21 @@ describe('createLazyCodeAnalysis', () => {
 		expect(r.kind).toBe('ok')
 		if (r.kind === 'ok') expect(r.value.persisted).toBe(false)
 		await provider.dispose()
+	})
+})
+
+describe('the parsing child in a packaged CLI', () => {
+	it('is the bundle entry beside the running bundle, and absent when running from source', () => {
+		// From source there is no dist/analysis-host.js next to this module, so the
+		// package forks its own build; a packaged CLI finds its own entry.
+		expect(parsingChildScript()).toBeUndefined()
+	})
+
+	it('runs a one-file index through a child process, and the doctor check reports it', async () => {
+		const result = await codeAnalysisSelfTest()
+		expect(result).toMatchObject({ ok: true })
+		const check = await describeCodeAnalysis()
+		expect(check.status).toBe('pass')
+		expect(check.message).toContain('child process')
 	})
 })

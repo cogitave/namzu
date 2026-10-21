@@ -9,7 +9,7 @@
 // Kept external, because they are native, optional, or found by name or path at run time:
 //   @namzu/browser, @namzu/sandbox, @namzu/telemetry, @namzu/computer-use  optional packages
 //   node-pty, playwright-core, react-devtools-core                         native / by path / optional
-//   @namzu/analysis                                                        forks its own parsing child from its dist, so it must stay a package on disk
+//   oxc-parser                                                             native; a real dependency (@namzu/analysis itself is bundled, like @namzu/decision)
 //   quickjs-emscripten-core, @jitl/quickjs-wasmfile-release-sync           resolved by path
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, relative, resolve, sep } from 'node:path'
@@ -27,7 +27,7 @@ const external = [
 	'@namzu/telemetry',
 	'@namzu/computer-use',
 	'node-pty',
-	'@namzu/analysis',
+	'oxc-parser',
 	'playwright-core',
 	'react-devtools-core',
 	'quickjs-emscripten-core',
@@ -38,6 +38,9 @@ const entries = {
 	bin: join(srcDir, 'bin.ts'),
 	index: join(srcDir, 'index.ts'),
 	'integrations/resident/runner-worker': join(srcDir, 'integrations/resident/runner-worker.ts'),
+	// The process that parses for the code index. It is forked by path, so it is an
+	// entry of its own rather than a chunk.
+	'analysis-host': join(srcDir, 'integrations/analysis/host-entry.ts'),
 }
 
 /**

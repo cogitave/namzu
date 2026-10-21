@@ -28,7 +28,21 @@ export type ParseOutcome =
 const PARSE_TIMEOUT_MS = 120_000
 const BOOT_TIMEOUT_MS = 15_000
 
-export function hostScript(): string {
+/**
+ * The file to fork as the parsing child.
+ *
+ * `override` is for a host that bundles this package: its own build puts the
+ * child next to its own output (the CLI does), and a bundled copy of this
+ * module cannot find a `dist` that is not there. Standalone, the child is the
+ * compiled `indexer-host.js` beside this file.
+ */
+export function hostScript(override?: string): string {
+	if (override !== undefined) {
+		if (existsSync(override)) return override
+		// A path the host named that does not exist is a packaging mistake worth
+		// naming, not something to paper over with a guess.
+		throw new Error(`The indexer host script ${override} does not exist.`)
+	}
 	const beside = fileURLToPath(new URL('./indexer-host.js', import.meta.url))
 	if (existsSync(beside)) return beside
 	// Running from source (a test): the compiled child is in `dist`.
@@ -38,13 +52,15 @@ export function hostScript(): string {
 }
 
 export class ParserHost {
+	constructor(private readonly script?: string) {}
+
 	private child: ChildProcess | undefined
 	private ready: Promise<ChildProcess> | undefined
 	private queue: Promise<unknown> = Promise.resolve()
 
 	private spawn(): Promise<ChildProcess> {
 		this.ready ??= new Promise<ChildProcess>((resolve, reject) => {
-			const child = fork(hostScript(), [], {
+			const child = fork(hostScript(this.script), [], {
 				// A heap big enough for the AST of the largest file allowed, and none
 				// of the parent's debugger / loader flags.
 				execArgv: ['--max-old-space-size=4096'],

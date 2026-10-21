@@ -14,7 +14,7 @@ The interactive terminal offers a `code_analysis` tool. It answers the questions
 
 ## On by default
 
-There is nothing to install or enable. The CLI depends on `@namzu/analysis`, which brings the native parser it needs (`oxc-parser`). Two things follow from that:
+There is nothing to install or enable. The CLI bundles `@namzu/analysis`, with its parsing child as `dist/analysis-host.js`, and depends on the native parser it needs (`oxc-parser`). `namzu doctor` has a `codeAnalysis.index` check that runs a one-file index through that child. Two things follow from that:
 
 - **It is deferred.** The tool's schema is about 3,900 characters, roughly 1,000 tokens, so it is not sent with every request. The model sees a one-line hint under `<deferred_tools>` and loads the tool with `search_tools` when it reads minified or unfamiliar code. A request that never needs it carries about 1,050 characters of hint, `search_tools` and guidance instead, roughly 750 tokens less than sending the schema. Once loaded, the schema rides on the rest of that turn.
 - **It costs nothing until used.** The package, the parser and `node:sqlite` are loaded, and the index is built, only when the model first calls the tool. The first frame and the module count at startup are unchanged.
