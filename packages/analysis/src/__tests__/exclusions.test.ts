@@ -137,6 +137,21 @@ describe('.gitignore and the default ignore list', () => {
 		await p.dispose()
 	})
 
+	it('walks a .gitignored directory when it is named as the index scope', async () => {
+		const tree = make({
+			'.gitignore': 'gen/\n',
+			'gen/a.js': 'export const a = () => "gen-scope-literal"\n',
+			'src/b.js': 'export const b = () => "src-literal"\n',
+		})
+		const p = provider()
+		const root = tree.root
+		expect(ok(await p.findLiteral({ root, text: 'gen-scope-literal' })).value.total).toBe(0)
+		ok(await p.index({ root, scope: tree.path('gen') }))
+		const r = ok(await p.findLiteral({ root, text: 'gen-scope-literal', path: tree.path('gen') }))
+		expect(r.value.total).toBe(1)
+		await p.dispose()
+	})
+
 	it('can be told to ignore .gitignore', async () => {
 		const tree = make({
 			'.gitignore': 'generated.js\n',

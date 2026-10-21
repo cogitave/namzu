@@ -195,6 +195,11 @@ export async function collect(
 		}
 	}
 
+	// Naming a path that a rule above it ignores is a request to look inside it:
+	// those rules no longer apply, or `index` of a `.gitignore`d `dist` would
+	// walk it and find every file ignored.
+	if (inherited.length > 0 && gitIgnored(inherited, startRel, true)) inherited.length = 0
+
 	interface Pending {
 		readonly abs: string
 		readonly rel: string
