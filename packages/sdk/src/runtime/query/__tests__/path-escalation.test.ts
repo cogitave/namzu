@@ -68,9 +68,38 @@ describe('what a shell line reaches', () => {
 		expect((await reach('cat "$IN"')).outsidePaths).toEqual([])
 	})
 
-	it('treats a relative write after a cd as one it cannot place', async () => {
-		expect((await reach('cd sub && touch a.txt')).outsidePaths).toContain('a.txt')
-		expect((await reach('cd sub && cat a.txt')).outsidePaths).not.toContain('a.txt')
+	it('follows a literal cd to a directory inside the roots for a later relative write', async () => {
+		expect((await reach('cd src && echo x > out.txt')).outsidePaths).toEqual([])
+		expect((await reach('cd src && touch a.txt')).outsidePaths).toEqual([])
+		expect((await reach('cd src && cd . && touch a.txt')).outsidePaths).toEqual([])
+		expect((await reach('cd src && cat a.txt')).outsidePaths).toEqual([])
+	})
+
+	it('still flags a write after a cd it cannot follow', async () => {
+		expect((await reach('cd "$DIR" && touch a.txt')).outsidePaths).toContain('a.txt')
+		expect((await reach('cd /elsewhere && echo x > f')).outsidePaths).toContain('f')
+		expect((await reach('cd ~ && touch a.txt')).outsidePaths).toContain('a.txt')
+		expect((await reach('pushd src && touch a.txt')).outsidePaths).toContain('a.txt')
+		expect((await reach('cd - && touch a.txt')).outsidePaths).toContain('a.txt')
+	})
+
+	it('still flags a cd that leaves the roots, and a write that climbs out after one inside', async () => {
+		expect((await reach('cd .. && touch a.txt')).outsidePaths.length).toBeGreaterThan(0)
+		expect((await reach('cd src && echo x > ../../out.txt')).outsidePaths.length).toBeGreaterThan(0)
+	})
+
+	it('judges a write before the cd by where the line began', async () => {
+		expect((await reach('echo x > out.txt && cd src')).outsidePaths).toEqual([])
+		expect((await reach('echo x > ../out.txt && cd src')).outsidePaths.length).toBe(1)
+	})
+
+	it('reads the protected name through the directory a cd moved to', async () => {
+		const found = await reach('cd .git && echo x > config')
+		expect(found.protectedPaths).toContain(join(worktree, '.git', 'config'))
+	})
+
+	it('does not trust a redirection it cannot tie to a command once a cd is in the line', async () => {
+		expect((await reach('cd src; { echo x; } > out.txt')).outsidePaths).toContain('out.txt')
 	})
 
 	it('checks a glob at its directory', async () => {

@@ -161,9 +161,25 @@ export async function shellEscalations(
 				const settled = settle(spelled, home)
 				const unresolved = use.unresolved || 'unresolved' in settled
 				const base = 'path' in settled ? settled.path : spelled
-				const absolute = isAbsolute(base) ? resolve(base) : resolve(cwd, base)
-				if (use.access === 'write' && (await isProtectedWrite(spelled, absolute, context.roots))) {
-					protectedPaths.add(absolute)
+				// Where a relative path may start from. Usually the directory the
+				// line began in; after a literal `cd <relative>` also the directory
+				// that moved to. Both are checked, because the `cd` may sit in a
+				// subshell or a pipeline and not apply to this command at all: a
+				// path is only called inside when it is inside under every reading.
+				const starts = [cwd]
+				const moved =
+					use.directory !== undefined && 'relative' in use.directory
+						? resolve(cwd, use.directory.relative)
+						: undefined
+				if (moved !== undefined) starts.push(moved)
+				const absolutes = isAbsolute(base)
+					? [resolve(base)]
+					: starts.map((from) => resolve(from, base))
+				if (use.access === 'write') {
+					for (const candidate of absolutes) {
+						if (await isProtectedWrite(spelled, candidate, context.roots))
+							protectedPaths.add(candidate)
+					}
 				}
 				if (!context.reviewOutside) continue
 				if (unresolved) {
@@ -173,18 +189,21 @@ export async function shellEscalations(
 					continue
 				}
 				if (
-					access.changesDirectory &&
+					use.directory !== undefined &&
+					'unknown' in use.directory &&
 					use.access === 'write' &&
 					!isAbsolute(base) &&
 					!spelled.startsWith('~')
 				) {
-					// A `cd` earlier in the line moves a relative target somewhere the
-					// roots cannot be compared with.
+					// A `cd` earlier in the line, to somewhere the reader cannot name,
+					// moves a relative target out of reach of a comparison with the roots.
 					outside.add(spelled)
 					continue
 				}
-				const reached = await pathOutsideRoots(context.roots, beforeGlob(absolute))
-				if (reached !== undefined) outside.add(reached)
+				for (const candidate of absolutes) {
+					const reached = await pathOutsideRoots(context.roots, beforeGlob(candidate))
+					if (reached !== undefined) outside.add(reached)
+				}
 			}
 		}
 	}

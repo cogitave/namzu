@@ -38,6 +38,8 @@ export interface ShellInvocation {
 	readonly program: string
 	/** Its arguments, as the shell passes them. */
 	readonly args: readonly ShellWord[]
+	/** The redirections written on this command itself, when the lexer attached them. */
+	readonly redirections?: readonly ShellRedirection[]
 }
 
 /** What the lexer found, in the shape this module and the removal check share. */
@@ -50,13 +52,20 @@ export interface ShellReading {
 
 const EXEC_FLAGS = new Set(['-exec', '-execdir', '-ok', '-okdir'])
 
-function invocationOf(words: readonly ShellWord[]): ShellInvocation | undefined {
+function invocationOf(
+	words: readonly ShellWord[],
+	redirections?: readonly ShellRedirection[],
+): ShellInvocation | undefined {
 	if (words.length === 0) return undefined
 	const step = unwrapReexecChain(words)
 	if (!('rest' in step)) return undefined
 	const [head, ...args] = step.rest
 	if (head === undefined || head.expands) return undefined
-	return { program: basename(head.value), args }
+	return {
+		program: basename(head.value),
+		args,
+		...(redirections !== undefined ? { redirections } : {}),
+	}
 }
 
 /** Every program a line runs, and every redirection it carries. */
@@ -64,7 +73,7 @@ export function readShellLine(line: string, dialect: ShellDialect): ShellReading
 	const lexed = lexShellCommandLine(line, { dialect })
 	const invocations: ShellInvocation[] = []
 	for (const command of lexed.commands) {
-		const own = invocationOf(command.words.slice(command.assignments))
+		const own = invocationOf(command.words.slice(command.assignments), command.redirections)
 		if (own === undefined) continue
 		invocations.push(own)
 		if (own.program !== 'find') continue
@@ -102,7 +111,19 @@ export interface ShellPathUse {
 	readonly via: string
 	/** True when the word is decided at runtime and `path` is not what it will be. */
 	readonly unresolved: boolean
+	/**
+	 * Where a relative `path` starts from, when an earlier `cd` in the line moved
+	 * the shell. Absent: the directory the line began in. Only a `cd` to one
+	 * literal relative directory is followed; anything else is `unknown`.
+	 */
+	readonly directory?: ShellDirectory
 }
+
+/** Where a `cd` earlier in the line left the shell, relative to where the line began. */
+export type ShellDirectory =
+	| { readonly relative: string }
+	/** A `cd` to a runtime-decided, absolute, `~` or `-` target, or a `pushd`/`popd`/`chdir`. */
+	| { readonly unknown: true }
 
 export interface ShellPathAccess {
 	readonly uses: readonly ShellPathUse[]
@@ -860,68 +881,117 @@ function editsInPlace(args: Args): boolean {
 	})
 }
 
+/** The directory a line is in after `invocation`, given the one before it. */
+function directoryAfter(
+	before: ShellDirectory | undefined,
+	invocation: ShellInvocation,
+): ShellDirectory {
+	if (before !== undefined && 'unknown' in before) return before
+	if (invocation.program !== 'cd') return { unknown: true }
+	const operands = invocation.args.filter((a) => a.expands || !/^-[LPe@]+$/.test(a.value))
+	const [target, ...extra] = operands
+	if (target === undefined || extra.length > 0 || target.expands || target.value === '') {
+		return { unknown: true }
+	}
+	const value = target.value
+	if (value === '-' || value === '--' || value.startsWith('/') || value.startsWith('~')) {
+		return { unknown: true }
+	}
+	const base = before?.relative
+	return { relative: base === undefined ? value : `${base}/${value}` }
+}
+
 /**
  * The paths `reading` names: positional arguments of the commands in the
  * table, and the targets of its redirections.
+ *
+ * Each use carries the directory an earlier literal `cd` left the shell in
+ * (see {@link ShellPathUse.directory}), so a caller can tell
+ * `cd packages/sdk && echo x > out.txt` from `cd "$X" && echo x > out.txt`.
  */
 export function shellPathAccess(reading: ShellReading): ShellPathAccess {
 	const uses: ShellPathUse[] = []
 	let changesDirectory = false
-	for (const { program, args } of reading.invocations) {
+	let directory: ShellDirectory | undefined
+	const covered = new Set<ShellRedirection>()
+	for (const invocation of reading.invocations) {
+		const { program, args } = invocation
 		if (CD_PROGRAMS.has(program)) changesDirectory = true
 		const extract = EXTRACTORS[program]
-		if (extract === undefined) continue
-		const access: PathAccess =
-			WRITERS.has(program) || (program === 'sed' && editsInPlace(args)) ? 'write' : 'read'
-		for (const arg of extract(args)) {
-			if (arg.value === '' || isHarmlessTarget(arg.value)) continue
-			uses.push({
-				path: arg.value,
-				access,
-				via: program,
-				unresolved: expandsAtRuntime(arg),
-			})
+		if (extract !== undefined) {
+			const access: PathAccess =
+				WRITERS.has(program) || (program === 'sed' && editsInPlace(args)) ? 'write' : 'read'
+			for (const arg of extract(args)) {
+				if (arg.value === '' || isHarmlessTarget(arg.value)) continue
+				uses.push({
+					path: arg.value,
+					access,
+					via: program,
+					unresolved: expandsAtRuntime(arg),
+					...(directory !== undefined ? { directory } : {}),
+				})
+			}
 		}
+		for (const redirection of invocation.redirections ?? []) {
+			covered.add(redirection)
+			pushRedirection(uses, redirection, directory)
+		}
+		if (CD_PROGRAMS.has(program)) directory = directoryAfter(directory, invocation)
 	}
 	for (const redirection of reading.redirections) {
-		const target = redirection.target
-		if (target.value === '' || isHarmlessTarget(target.value)) continue
-		switch (redirection.operator) {
-			case '>':
-			case '>>':
-			case '>|':
-			case '&>':
-			case '&>>':
-			case '<>':
+		if (covered.has(redirection)) continue
+		// Not tied to a command the reader saw (a compound command's own), so
+		// where it runs cannot be told once a `cd` is in the line.
+		pushRedirection(uses, redirection, changesDirectory ? { unknown: true } : undefined)
+	}
+	return { uses, changesDirectory }
+}
+
+function pushRedirection(
+	uses: ShellPathUse[],
+	redirection: ShellRedirection,
+	directory: ShellDirectory | undefined,
+): void {
+	const target = redirection.target
+	if (target.value === '' || isHarmlessTarget(target.value)) return
+	const where = directory !== undefined ? { directory } : {}
+	switch (redirection.operator) {
+		case '>':
+		case '>>':
+		case '>|':
+		case '&>':
+		case '&>>':
+		case '<>':
+			uses.push({
+				path: target.value,
+				access: 'write',
+				via: 'redirect',
+				unresolved: expandsAtRuntime(target),
+				...where,
+			})
+			break
+		case '>&':
+			// `>&2` and `>&-` duplicate or close a descriptor; any other word is a file.
+			if (!/^(?:\d+-?|-)$/.test(target.value)) {
 				uses.push({
 					path: target.value,
 					access: 'write',
 					via: 'redirect',
 					unresolved: expandsAtRuntime(target),
+					...where,
 				})
-				break
-			case '>&':
-				// `>&2` and `>&-` duplicate or close a descriptor; any other word is a file.
-				if (!/^(?:\d+-?|-)$/.test(target.value)) {
-					uses.push({
-						path: target.value,
-						access: 'write',
-						via: 'redirect',
-						unresolved: expandsAtRuntime(target),
-					})
-				}
-				break
-			case '<':
-				uses.push({
-					path: target.value,
-					access: 'read',
-					via: 'redirect',
-					unresolved: expandsAtRuntime(target),
-				})
-				break
-			default:
-				break
-		}
+			}
+			break
+		case '<':
+			uses.push({
+				path: target.value,
+				access: 'read',
+				via: 'redirect',
+				unresolved: expandsAtRuntime(target),
+				...where,
+			})
+			break
+		default:
+			break
 	}
-	return { uses, changesDirectory }
 }
