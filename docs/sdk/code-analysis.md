@@ -31,6 +31,8 @@ export const provider = codeAnalysis
 
 A turn that runs in a sandbox is refused by the tool: the index reads the host file system, and a sandbox's workspace is not that one.
 
+The schema is about 3,900 characters (roughly 1,000 tokens) on every request that carries it. Mount it with `deferred(...)` and a request that never needs it carries a one-line hint and `search_tools` instead, about 1,050 characters; the terminal does this. The first sentence of the description is that hint, so it is written to name both reasons to reach for the tool (minified bundles, and finding the function around a string).
+
 ## Operations
 
 One tool, one `operation` union, like `lsp`. Every operation takes a path through the same resolver and the same review route as `read` (see [Paths](#paths)).
@@ -44,7 +46,9 @@ One tool, one `operation` union, like `lsp`. Every operation takes a path throug
 | `callers_of` | `name`, `scope?`, `path?`, `match?`, paging | Call sites of a name, each with its enclosing function. |
 | `imports` | `path`, paging | One file's imports and exports. |
 
-All operations except `index` build the index on first use and say so in `observed`. Call `index` to refresh after files changed.
+All operations except `index` build the part of the index they need on first use and say so in `observed`. Call `index` to refresh after files changed, or with a narrower `path` to cover one part of a root at a time (see [Large roots](#large-roots)).
+
+Every call takes the turn's abort signal. Cancelling an index abandons it and kills the parsing child; what it had already committed stays, so the next call continues from there. A call still queued behind another never starts.
 
 ### Positions
 
@@ -55,6 +59,10 @@ A method's range is the method (`static async load(id) { ... }`), not the inner 
 ### Paging
 
 Every list takes `limit` (default 50, at most 200) and `cursor`, and returns `total` for all pages. The cursor is opaque. It is bound to its query and to the index state it was cut from: replaying it on another query, or after the index changed, is an error that says to repeat the query without it, never a page from the wrong place.
+
+### Staleness
+
+The index is a snapshot. A hit whose file has since changed carries `stale: 'changed'` (its position may be off), one whose file was deleted carries `stale: 'deleted'`, and coverage says how many. Directories whose modification time moved since the index was built are named too, because files added there are not indexed (up to 400 directories are checked per query). A BOM is kept in the text, so a column on line 1 is a position in exactly the string `read` shows.
 
 ### Source slices
 
@@ -85,21 +93,26 @@ Every operation resolves its `path` with `resolveWithinAnyReal(toolRoots(context
 - The index is built over the session directory that contains the resolved path, never over a path the model passed to the provider directly.
 - A file reached only because a review approved that one file is not widened to its directory. The tool refuses it and says to add the directory.
 - Symbolic links are never followed by the indexer, so a link inside a root cannot lead the walk out of it.
+- The boundary holds after indexing too. Every read of an indexed file goes through one function that refuses anything that is not a regular file by `lstat`, opens without following a final link, checks the open descriptor is the file `lstat` saw, and checks the canonical path is inside the canonical root before and after reading. A file replaced by a link, or under a directory swapped for one, is dropped from the index without being read and named in coverage. This applies to id lookups and to a `find_literal` or `callers_of` with no path as much as to a call that names a file.
 
 ## `@namzu/analysis`
 
 `createCodeAnalysisProvider(options)` returns the provider. Options: `cacheDir`, `ignoreDirs`, `maxFileBytes`, `maxFiles`, `substringIndex`.
 
-- **Parser**: `oxc-parser`, pinned. Raw transfer when the platform supports it, the ordinary parse otherwise. Source type is detected, with a CommonJS fallback; JavaScript is parsed with JSX on.
-- **Store**: one SQLite database (`node:sqlite`) per root, in `cacheDir`, named by a hash of the root's real path. A schema or root mismatch, or a database made with FTS5 on a Node without it, is rebuilt: it is a cache. With no `cacheDir`, or one that cannot be written, the index is held in memory and the summary says `persisted: false`.
+- **Parser**: `oxc-parser`, pinned, in a child process. On a handful of pathological inputs (a 6,000-deep array, 20,000 chained ternaries, 100,000 `+` terms, 100,000 nested calls, all measured on 0.155.0) it dies with SIGSEGV, which a worker thread does not isolate. The child names the file it is on; if it dies the parent records that file with no rows, reports `parser crashed` in coverage, starts a new child and carries on. The parent's event loop is free while a large file parses. Raw transfer when the platform supports it, the ordinary parse otherwise. Source type is detected, with a CommonJS fallback; JavaScript is parsed with JSX on.
+- **Store**: one SQLite database (`node:sqlite`) per root, in `cacheDir`, named by a hash of the root's real path, the schema version and the mode (`<hash>-v1-fts.sqlite`, `-scan`), so two package versions, or a Node with FTS5 and one without, never open the same file. Only a file SQLite calls corrupt is deleted; a busy one is waited for. Writers take the write lock up front (`BEGIN IMMEDIATE`) and wait for it with an `await`, so several processes can index one root, and a terminal does not freeze behind another's index. With no `cacheDir`, or one that cannot be written, the index is held in memory and the summary says `persisted: false`.
 - **Tables**: `files`, `functions`, `strings`, `calls`, `imports`, `exports`, plus a trigram FTS5 table over literals for `find_literal`.
 - **Loading**: `oxc-parser` and `node:sqlite` load on the first call. Nothing is imported when the package is.
 - **Responsiveness**: indexing yields to the event loop every 20 ms.
 - **What is indexed**: `.js .mjs .cjs .jsx .ts .mts .cts .tsx`. Not declaration files, symbolic links, `node_modules`, `.git`, `.hg`, `.svn`, `.namzu`, `.turbo`, `.cache` or `coverage`. A binary file with a `.js` name is skipped by its bytes and counted.
 
+### Large roots
+
+The index root is the session directory that contains the target, which can be a home directory. A call therefore stops at `maxDirectories` (default 20,000) or `maxMillis` (default 45,000), keeps what it indexed, answers from it, and reports `IndexSummary.truncated` and coverage `partial` naming the next step: index a narrower path. `index` with a `path` (or `IndexRequest.scope`) indexes just that file or directory, and a query that names a path builds only that part. A query never retries a capped build; only an explicit `index` does.
+
 ### Node versions
 
-`node:sqlite` needs no flag from Node 22.13. FTS5 is compiled into the official binaries from Node 22.16 and is absent from 22.13, 22.14 and 22.15 (checked against each). There the store still works and `find_literal` scans every literal instead of using the substring index: the same answers, and tens of milliseconds instead of one on a large bundle. `substringIndex: 'off'` forces the scan. `node:sqlite` itself is missing before Node 22.5, below this package's engine floor; the provider then answers `unsupported`.
+`node:sqlite` needs no flag from Node 22.13. FTS5 is compiled into the official binaries from Node 22.16 and is absent from 22.13, 22.14 and 22.15 (checked against each). There the store still works and `find_literal` scans every literal instead of using the substring index: the same answers, and tens of milliseconds instead of one on a large bundle. `substringIndex: 'off'` forces the scan. The two modes use separate cache files. `node:sqlite` itself is missing before Node 22.5, below this package's engine floor; the provider then answers `unsupported`.
 
 ### Measured
 
@@ -116,8 +129,8 @@ The bundle holds 161,463 functions, 468,786 literals and 623,893 calls; peak res
 
 - Callers are matched by text, not scope or binding.
 - Literals are indexed up to 4096 characters, and a template literal one static chunk at a time: a search cannot span a `${...}`.
-- A file with unrecoverable syntax errors has no rows.
-- A directory the indexer ignores (such as `node_modules`) is reachable by adding it to the session as its own directory.
+- A file with unrecoverable syntax errors has no rows, and one that crashes the parser is recorded with none.
+- A directory the indexer ignores (such as `node_modules`) is reachable by naming it: a call with that directory or a file in it as its path indexes it, because the ignore list applies below the path asked for.
 - The index is syntactic. There is no type information.
 
 For the terminal, see [Code analysis in the terminal](../cli/code-analysis.md).
