@@ -79,7 +79,7 @@ describe('the monitor tool’s input', () => {
 describe('the monitor tool’s permissions are bash’s, without the way out', () => {
 	it('reads the command like bash, needs shell execution, and is never read-only', () => {
 		expect(MonitorTool.commandArgument).toBe('command')
-		expect(MonitorTool.permissions).toEqual(['shell_execute'])
+		expect(MonitorTool.permissions).toEqual(['shell_execute', 'network_access'])
 		const input = { description: 'd', command: 'tail -f app.log', timeout_ms: 1000 }
 		expect(MonitorTool.isReadOnly?.(input)).toBe(false)
 		expect(MonitorTool.isConcurrencySafe?.(input)).toBe(false)

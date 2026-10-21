@@ -1,0 +1,11 @@
+---
+'@namzu/sdk': minor
+---
+
+The `monitor` tool can watch a WebSocket. Give it `ws: { url, protocols? }` instead of `command`, and each line of each text frame the server sends reaches the model as a monitor event; binary frames are counted, and a close ends the watch. Everything after the source (batching, rationing, expiry, `job kill`) is shared with command monitors.
+
+Nothing breaks for an existing caller: `command` is now optional in the tool's input (exactly one of `command` and `ws` is required, and a call with neither or both is refused), and every other new field is optional. `BackgroundJobRegistryRef.startMonitor` and `bindOwner(...).startMonitor` accept `{ webSocket }` in place of `{ command }`; `StartJobParams.spawn` now receives a `JobHost`; `JobProcess.child` is the structural `JobChild`, which a `ChildProcess` satisfies; `Sandbox.networkPolicy` is a new optional property.
+
+A WebSocket monitor connects from the host, outside any sandbox, so it is guarded: it is refused unless the turn has web access (`ToolContext.web.fetch`), the host name resolves only to public addresses (all answers are checked and the socket is then pinned to them), and a sandbox that blocks the network lists the host in `networkPolicy.allowedHosts`. It always needs a person's approval (`requiresApproval`), in every mode, and a permission rule written for commands cannot allow it. A host that mounts the tool and wants WebSocket monitors available must give the turn a web capability; one that does not gets a plain refusal.
+
+`ws@8.21.3` is a new runtime dependency of `@namzu/sdk`, loaded only when the first WebSocket monitor starts. `createMonitorTool(options)` and `MonitorToolOptions` are exported for tests that need a server on the local machine.

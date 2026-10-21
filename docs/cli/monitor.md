@@ -10,13 +10,23 @@ generated: { by: claude-code/sonnet-5.5, at: 2026-10-21T00:00:00Z }
 
 # Monitors in the CLI
 
-The SDK's [monitor tool](../sdk/monitor-tool.md) turns each stdout line of a long-running command into an event the model reads while it keeps working. This page is what the CLI does around it: where it is mounted, who listens for events between turns, and how a monitor looks to the person.
+The SDK's [monitor tool](../sdk/monitor-tool.md) turns each stdout line of a long-running command (or each text frame of a WebSocket) into an event the model reads while it keeps working. This page is what the CLI does around it: where it is mounted, who listens for events between turns, and how a monitor looks to the person.
 
 # Mounting
 
 A session that has a job registry offers `monitor` **deferred**, as it does `code_analysis`: the model finds it with `search_tools`, and its schema is not sent on turns that never watch anything. That covers the terminal, `exec`, `exec --json`, ACP and Desktop (which runs through ACP). A session that had nothing deferred before (`exec`, ACP) now carries the `search_tools` tool and one line of hint per request so the monitor can be loaded on demand. With `toolLoading: "eager"` the monitor is mounted eagerly instead, with no `search_tools` and no hint added for its sake. Setting `NAMZU_DISABLE_BACKGROUND_TASKS` removes it, as it removes background `bash`.
 
 Hosts that run one turn and close the session (a scheduled run, `drain`, a resident step) pass `monitorTool: false` to `createAgentSession` and do not offer it: closing would stop the watch before it reported, and nobody is there to wake. The option defaults to true for the hosts that can wait or wake. A sub-agent does not get the tool; a Pal conversation does not either, because a Pal has no host that wakes on events. A single-shot run lowers the longest watch to 10 minutes (`monitorTimeoutCapMs`), since it waits for its monitors before it exits.
+
+# Watching a WebSocket
+
+The model can give `ws: { url, protocols? }` instead of `command` to watch a service that pushes its events. Nothing about mounting changes, and the events, the footer count, `/jobs` and stop work as for any monitor. What is different is the approval and what is refused:
+
+- **It is always asked about.** The approval reads `Monitor · <description> · WebSocket <url>`, because the connection is opened from this machine, not from inside a sandbox. No rule you wrote for commands (`monitor` with a `command` pattern) can allow it, and neither can `auto` mode, an `allow` rule for the tool, or a remembered "approve all". With nobody to ask (`exec` in `auto` mode) it is refused. A `deny` rule still refuses it.
+- **Web access must be on.** A WebSocket monitor follows the same setting as `web_fetch`: with `web.fetch` off (the default) it is refused with a message saying so.
+- **Private addresses are refused.** `localhost`, loopback, link-local and cloud-metadata addresses, private ranges, and any name that resolves to one, are refused before a connection is made. The connection uses only the addresses that were checked.
+- **A sandbox that blocks the network refuses it** unless the sandbox's live policy lists the host, since the connection would otherwise be a way around that isolation.
+- **How it ends.** The row for a monitor that ended reads `Monitor "<description>" connection closed (<code>[ <reason>])` when the server closed it, `... connection failed` when it never opened, and the usual `... stopped` when you or the deadline stopped it. The `/jobs` detail screen shows `websocket <url>` where a command would be.
 
 # What waits for the next turn
 

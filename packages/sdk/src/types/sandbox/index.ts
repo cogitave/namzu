@@ -334,6 +334,16 @@ export interface Sandbox {
 	readonly status: SandboxStatus
 	readonly rootDir: string
 	readonly environment: SandboxEnvironment
+	/**
+	 * The network policy in force right now, when the backend can say.
+	 *
+	 * Optional, and absent does NOT mean open: a caller that needs to know
+	 * whether a host is reachable (the host process opening a connection on a
+	 * turn's behalf, outside the boundary) treats absence as "not allowed" on a
+	 * tier that isolates the network. A backend that enforces
+	 * {@link setNetworkPolicy} should report what it enforces here.
+	 */
+	readonly networkPolicy?: SandboxNetworkPolicy
 	exec(command: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
 
 	/**

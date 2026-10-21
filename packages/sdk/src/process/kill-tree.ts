@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process'
-import type { spawn } from 'node:child_process'
 
 /**
  * Git Bash children that the Windows process tree cannot reach.
@@ -83,7 +82,10 @@ function taskkillPath(): string {
  * already-dead tree that second call is a deliberate no-op, the same as the
  * POSIX SIGKILL that follows a SIGTERM which already worked.
  */
-export function killTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+export function killTree(
+	child: { readonly pid?: number | undefined },
+	signal: NodeJS.Signals,
+): void {
 	if (!child.pid) return
 	try {
 		if (process.platform === 'win32') {

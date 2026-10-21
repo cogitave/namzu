@@ -9,6 +9,7 @@ import type {
 	BackgroundJobOutputWaitOptions,
 	BackgroundJobOutputWaitResult,
 } from '../../types/job/index.js'
+import type { MonitorWebSocketTarget } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { oneMetadataLine } from '../system-events.js'
 import { createBackgroundJobId } from './job-id.js'
@@ -19,6 +20,7 @@ import {
 	expiryNotice,
 	tooMuchOutputNotice,
 } from './monitor-stream.js'
+import { connectWebSocketSource, webSocketJobCommand } from './websocket-source.js'
 
 /**
  * Work that outlives a tool call, owned by whoever started it.
@@ -82,6 +84,15 @@ export interface BackgroundJob {
 	 * runs and when the command ended on its own.
 	 */
 	readonly stopReason?: 'expired' | 'too_much_output' | 'stopped'
+	/**
+	 * What the monitor's source is, when it is not a command: `websocket` for a
+	 * monitor of a WebSocket connection, whose `command` is then
+	 * `websocket <url>` and which has no exit code of a process.
+	 */
+	readonly transport?: 'websocket'
+	/** The close code and reason the server ended a WebSocket connection with, if it did. */
+	readonly closeCode?: number
+	readonly closeReason?: string
 }
 
 /**
@@ -118,9 +129,50 @@ export interface BackgroundJobOutput {
 	readonly error?: string
 }
 
+/**
+ * What the registry reads of a job's process, and nothing more.
+ *
+ * A `ChildProcess` satisfies it, and so does anything else that writes bytes
+ * on two pipes and ends: a WebSocket connection held as a monitor's source is
+ * such a thing. Named so that the registry's contract is the few members it
+ * uses and not a type from `node:child_process` it would have to be cast to.
+ */
+export interface JobChild {
+	readonly pid?: number | undefined
+	readonly stdout?: JobPipe | null
+	readonly stderr?: JobPipe | null
+	once(event: 'spawn', listener: () => void): unknown
+	on(event: 'error', listener: (error: Error) => void): unknown
+	once(
+		event: 'close',
+		listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+	): unknown
+}
+
+/** A readable stream, as far as the registry reads one. */
+export interface JobPipe {
+	on(event: 'data', listener: (data: Buffer | string) => void): unknown
+}
+
+/**
+ * What a process can say to the registry besides its output, handed to the
+ * `spawn` that asked for it.
+ */
+export interface JobHost {
+	/**
+	 * Something the SOURCE has to say, delivered to a monitor's listeners as a
+	 * `notice` event and never rationed as output is. `final` ends the stream:
+	 * what is pending goes out first, and nothing the process writes after the
+	 * notice is delivered. Ignored for a job that is not a monitor.
+	 */
+	notice(text: string, options?: { readonly final?: boolean }): void
+	/** The server closed a WebSocket connection with this code and reason. */
+	connectionClosed(code: number, reason: string): void
+}
+
 /** A job's process, when something other than the registry starts it. */
 export interface JobProcess {
-	readonly child: ReturnType<typeof spawn>
+	readonly child: JobChild
 	/** How to stop it, when the registry's process-group kill would not reach everything. */
 	kill?(signal: NodeJS.Signals): void
 	/** Confirm the owned tree stopped; reject instead of claiming an unconfirmed exit. */
@@ -138,7 +190,7 @@ export interface StartJobParams {
 	 * host in the `bash` tool's shell (`tools/command-shell.ts`). The process must be the leader of its own group and must not
 	 * expect stdin.
 	 */
-	readonly spawn?: () => JobProcess
+	readonly spawn?: (host: JobHost) => JobProcess
 	/**
 	 * Output the process already wrote before the registry took it over, in
 	 * the order it was written. Used when a foreground command is moved to the
@@ -160,7 +212,12 @@ export interface StartJobParams {
 	 * `timeoutMs`. Both streams stay in the retained buffer, so `read` still
 	 * shows everything, stderr included.
 	 */
-	readonly monitor?: { readonly description: string; readonly timeoutMs: number }
+	readonly monitor?: {
+		readonly description: string
+		readonly timeoutMs: number
+		/** The source is a WebSocket connection and not a command; see {@link BackgroundJob.transport}. */
+		readonly transport?: 'websocket'
+	}
 }
 
 export interface BackgroundJobRegistryConfig {
@@ -241,7 +298,7 @@ export class UnknownBackgroundJobError extends Error {
 
 interface JobEntry {
 	record: BackgroundJob
-	child: ReturnType<typeof spawn>
+	child: JobChild
 	/** The spawner's own kill, when it gave one. */
 	killProcess?: (signal: NodeJS.Signals) => void
 	terminateProcess?: (signal?: NodeJS.Signals) => Promise<void>
@@ -269,6 +326,8 @@ interface MonitorState {
 	readonly timeoutMs: number
 	seq: number
 	expiryTimer?: ReturnType<typeof setTimeout>
+	/** A terminal notice went out: nothing more is delivered, from the source or from anywhere. */
+	sealed?: boolean
 }
 
 /** Whether any process of the group led by `pid` is still alive. */
@@ -432,8 +491,14 @@ export class BackgroundJobRegistry {
 		// The same spawn as a foreground `bash` call, so the permission
 		// rules' reading of the line holds for the job too, and so the two
 		// cannot disagree about how a shell is started on a given platform.
-		const started = params.spawn
-			? params.spawn()
+		const host: JobHost = {
+			notice: (text, options) => this.noticeFromSource(entry, text, options?.final === true),
+			connectionClosed: (code, reason) => {
+				entry.record = { ...entry.record, closeCode: code, closeReason: reason }
+			},
+		}
+		const started: JobProcess = params.spawn
+			? params.spawn(host)
 			: {
 					child: spawnHostShell(params.command, {
 						cwd: params.workingDirectory,
@@ -484,6 +549,7 @@ export class BackgroundJobRegistry {
 							// follows is described as what it was and not as a stop
 							// somebody asked for.
 							entry.record = { ...entry.record, stopReason: 'too_much_output' }
+							if (entry.monitor) entry.monitor.sealed = true
 							this.announceMonitorEvent(entry, 'notice', tooMuchOutputNotice(suppressed, overMs))
 							void this.kill(id).catch(() => {
 								// The retained record carries the failure (recoveryRequired).
@@ -507,6 +573,7 @@ export class BackgroundJobRegistry {
 							kind: 'monitor' as const,
 							description: monitor.description,
 							expiresAt: startedAt + monitor.timeoutMs,
+							...(params.monitor?.transport ? { transport: params.monitor.transport } : {}),
 						}
 					: {}),
 			},
@@ -673,10 +740,29 @@ export class BackgroundJobRegistry {
 		// Nothing follows a terminal notice. A command that ignores SIGTERM keeps
 		// printing until the SIGKILL, and those lines would reach the model after
 		// it was told the watch was over.
+		monitor.sealed = true
 		monitor.stream.close()
 		void this.kill(entry.record.id).catch(() => {
 			// The retained record carries the failure (recoveryRequired).
 		})
+	}
+
+	/**
+	 * A notice from the source of a monitor (a WebSocket's upgrade was refused,
+	 * its connection closed). Delivered after whatever was already complete, so
+	 * the last lines are not overtaken by the news that the stream ended.
+	 */
+	private noticeFromSource(entry: JobEntry, text: string, final: boolean): void {
+		const monitor = entry.monitor
+		if (!monitor || monitor.sealed) return
+		monitor.stream.flush()
+		// The flush can itself have stopped the monitor for too much output.
+		if (monitor.sealed) return
+		this.announceMonitorEvent(entry, 'notice', text)
+		if (final) {
+			monitor.sealed = true
+			monitor.stream.close()
+		}
 	}
 
 	/**
@@ -949,9 +1035,10 @@ export class BackgroundJobRegistry {
 		// out, and nothing the dying process prints afterwards does. (The expiry
 		// and output rules close it themselves, after their own notice.)
 		const closeStream = (): void => {
-			if (!stoppedBy) return
-			entry.monitor?.stream.flush()
-			entry.monitor?.stream.close()
+			if (!stoppedBy || !entry.monitor) return
+			entry.monitor.stream.flush()
+			entry.monitor.sealed = true
+			entry.monitor.stream.close()
 		}
 		if (entry.terminateProcess) {
 			entry.killRequested = true
@@ -1100,17 +1187,34 @@ export function bindOwner(
 		// The same spawn, owner and cap as `start`, plus a deadline. The timeout
 		// is clamped to the host's ceiling and the clamped value is returned, so
 		// the number the model is told is the number that will fire.
-		startMonitor: (params: {
-			command: string
-			description: string
-			timeoutMs: number
-			workingDirectory?: string
-		}) => {
+		startMonitor: (
+			params: {
+				description: string
+				timeoutMs: number
+				workingDirectory?: string
+			} & ({ command: string } | { webSocket: MonitorWebSocketTarget }),
+		) => {
 			const timeoutMs = Math.min(
 				params.timeoutMs,
 				defaults.monitorTimeoutCapMs ?? MONITOR_TIMEOUT_CAP_MS,
 			)
-			const job = launch(params, { description: params.description, timeoutMs })
+			let job: BackgroundJob
+			if ('webSocket' in params) {
+				// The host process opens this connection, whatever the sandbox
+				// spawn would have done with a command: the tool has already
+				// checked the address and the sandbox's network rule, and the
+				// socket is pinned to the addresses it checked.
+				const { webSocket } = params
+				job = registry.start({
+					owner,
+					command: webSocketJobCommand(webSocket.url),
+					workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
+					spawn: (host) => connectWebSocketSource({ target: webSocket, host }),
+					monitor: { description: params.description, timeoutMs, transport: 'websocket' },
+				})
+			} else {
+				job = launch(params, { description: params.description, timeoutMs })
+			}
 			defaults.onMonitorStarted?.(job.id)
 			return { job, timeoutMs }
 		},
@@ -1176,11 +1280,32 @@ export function bindOwner(
  * own, so the summary does not repeat it.
  */
 export function describeMonitorEnd(
-	job: Pick<BackgroundJob, 'description' | 'status' | 'exitCode' | 'signal' | 'error'>,
+	job: Pick<
+		BackgroundJob,
+		| 'description'
+		| 'status'
+		| 'exitCode'
+		| 'signal'
+		| 'error'
+		| 'transport'
+		| 'closeCode'
+		| 'closeReason'
+	>,
 	stats: Pick<MonitorStreamStats, 'stdoutChars'>,
 ): { status: 'completed' | 'failed' | 'killed'; summary: string } {
 	const label = `Monitor "${oneMetadataLine(job.description ?? 'unnamed')}"`
 	if (job.status === 'killed') return { status: 'killed', summary: `${label} stopped` }
+	if (job.transport === 'websocket') {
+		// A connection has no script to fail and no exit status to quote: it was
+		// closed, by the server and with a code, or it never opened.
+		if (job.closeCode === undefined)
+			return { status: 'failed', summary: `${label} connection failed` }
+		const reason = job.closeReason ? ` ${oneMetadataLine(job.closeReason)}` : ''
+		return {
+			status: job.exitCode === 0 ? 'completed' : 'failed',
+			summary: `${label} connection closed (${job.closeCode}${reason})`,
+		}
+	}
 	if (job.exitCode === 0 && job.error === undefined) {
 		return stats.stdoutChars > 0
 			? { status: 'completed', summary: `${label} stream ended` }

@@ -92,9 +92,12 @@ export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins
 export {
 	MONITOR_CANNOT_DETACH,
 	MONITOR_TOOL_NAME,
+	MONITOR_WEBSOCKET_WEB_OFF,
 	MonitorTool,
+	createMonitorTool,
 	getMonitorTools,
 } from './tools/builtins/monitor.js'
+export type { MonitorToolOptions } from './tools/builtins/monitor.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'
 // Reads, lists and stops what `bash run_in_background` starts. Ships in

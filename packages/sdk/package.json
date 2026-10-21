@@ -79,6 +79,7 @@
 		"@types/brace-expansion": "^1.1.2",
 		"@types/node": "^22.19.17",
 		"@types/turndown": "^5.0.6",
+		"@types/ws": "8.18.1",
 		"@vitest/coverage-v8": "^4.1.11",
 		"fast-check": "^4.7.0",
 		"jsonschema": "^1.5.0",
@@ -95,6 +96,7 @@
 		"minimatch": "^9.0.9",
 		"pica": "^10.0.3",
 		"quickjs-emscripten-core": "0.32.0",
-		"turndown": "^7.2.4"
+		"turndown": "^7.2.4",
+		"ws": "8.21.3"
 	}
 }

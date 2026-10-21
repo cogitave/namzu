@@ -195,7 +195,16 @@ export function formatMonitorEvent(
 export function formatMonitorEnd(
 	job: Pick<
 		BackgroundJob,
-		'id' | 'command' | 'description' | 'status' | 'exitCode' | 'signal' | 'error'
+		| 'id'
+		| 'command'
+		| 'description'
+		| 'status'
+		| 'exitCode'
+		| 'signal'
+		| 'error'
+		| 'transport'
+		| 'closeCode'
+		| 'closeReason'
 	>,
 	stats: { readonly stdoutChars: number },
 ): string {
