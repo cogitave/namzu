@@ -119,6 +119,14 @@ export interface AnalysisFunction {
 	readonly id: number
 	/** `null` for an anonymous function with nothing to infer a name from. */
 	readonly name: string | null
+	/**
+	 * `name` qualified by what holds it, when it is a member: `Svc.init` for a
+	 * method of the class `Svc` (a class expression assigned to a variable takes
+	 * the variable's name), `obj.run` for a method of an object literal assigned
+	 * to `obj`. Absent for a function that is not a member. `functionSource`
+	 * accepts either spelling.
+	 */
+	readonly qualifiedName?: string
 	readonly kind: AnalysisFunctionKind
 	/** Absolute path. */
 	readonly path: string
@@ -136,6 +144,17 @@ export interface AnalysisSourceSlice {
 	readonly chars: number
 	/** `true` when `text` is shorter than `chars` because of the size cap. */
 	readonly truncated: boolean
+	/**
+	 * Present when the cut was made around a position rather than at the end:
+	 * `text` is the function's first `headerChars` characters, a marker for
+	 * what was left out, then the file's own characters `from` to `to`, which
+	 * contain the position asked about. `from` and `to` are offsets into the file.
+	 */
+	readonly window?: {
+		readonly headerChars: number
+		readonly from: number
+		readonly to: number
+	}
 }
 
 export interface IndexRequest extends AnalysisCallOptions {
@@ -222,6 +241,11 @@ export interface EnclosingFunctionRequest extends AnalysisCallOptions {
 export interface AnalysisEnclosingFunction {
 	/** `null` when the position is not inside any function — a real answer. */
 	readonly function: AnalysisFunction | null
+	/**
+	 * When `function` is `null` because the position is in a class body outside
+	 * every method (a field initializer, a `static {}` block): that class.
+	 */
+	readonly inClass?: string
 	/** The function's parents, innermost first. */
 	readonly parents: readonly AnalysisFunction[]
 	readonly source?: AnalysisSourceSlice
@@ -235,6 +259,11 @@ export interface FunctionSourceRequest extends AnalysisPaging {
 	readonly path?: string
 	readonly name?: string
 	readonly maxChars?: number
+	/**
+	 * A position in the function. When the source is longer than `maxChars`, the
+	 * slice is cut around it instead of at the end, and always contains it.
+	 */
+	readonly around?: { readonly line: number; readonly column?: number }
 }
 
 export interface AnalysisFunctionSource {
@@ -245,7 +274,11 @@ export interface AnalysisFunctionSource {
 
 export interface CallersOfRequest extends AnalysisPaging {
 	readonly root: string
-	/** The callee text: `foo`, `obj.foo`, `this.foo`. */
+	/**
+	 * The callee text: `foo`, `obj.foo`, `this.foo`. A method's qualified name
+	 * (`Svc.init`, as `functionSource` shows it) finds `this.init()` inside
+	 * `Svc` as a resolved call, and every other `<expr>.init()` as `text-only`.
+	 */
 	readonly name: string
 	/**
 	 * `file` looks in `path` only and is the default, because a callee matched
@@ -266,8 +299,19 @@ export interface AnalysisCallSite {
 	readonly line: number
 	readonly column: number
 	readonly callee: string
-	readonly kind: 'call' | 'new'
+	/**
+	 * `call-via` is `f.call(…)`, `f.apply(…)` or `f.bind(…)` of the callee (a
+	 * use, not necessarily a call); `tagged` is a tagged template.
+	 */
+	readonly kind: 'call' | 'new' | 'call-via' | 'tagged'
 	readonly argumentCount: number
+	/**
+	 * Only when the request named a method by its qualified name: `resolved`
+	 * for `this.m()` inside the class that declares it and for the qualified
+	 * text itself, `text-only` for any other receiver, which may be an
+	 * unrelated method of the same name.
+	 */
+	readonly resolution?: 'resolved' | 'text-only'
 	/** The function the call sits in; absent at the top level of a file. */
 	readonly caller?: AnalysisFunction
 	/** See {@link AnalysisLiteralHit.stale}. */
@@ -290,7 +334,11 @@ export type AnalysisModuleEdge =
 	  }
 	| {
 			readonly direction: 'export'
-			readonly kind: 'named' | 'default' | 'reexport' | 'star'
+			/**
+			 * `type` is a type-only export, `commonjs` is `module.exports` or
+			 * `exports.x`, `assign` is `export =`.
+			 */
+			readonly kind: 'named' | 'default' | 'reexport' | 'star' | 'type' | 'commonjs' | 'assign'
 			readonly name: string
 			readonly source?: string
 			readonly line: number

@@ -150,8 +150,9 @@ describe('through the SDK tool, with the real provider', () => {
 			ctx(),
 		)
 		expect(r.success).toBe(true)
-		expect(r.output).toContain(`${at('server.js')}:9:`)
-		expect(r.output).toContain('/login [arrow')
+		// Relative to the root, once per file; the line and column follow.
+		expect(r.output).toMatch(/^server\.js\n {2}9:\d+ {2}"Invalid token/m)
+		expect(r.output).toContain('/login#')
 		expect(r.output).toContain('-- 2 of 2 shown. last page.')
 		expect(r.output).toContain('observed:')
 		expect(r.output).toContain('inferred:')
@@ -163,7 +164,7 @@ describe('through the SDK tool, with the real provider', () => {
 			{ operation: 'find_literal', text: 'refusing login' },
 			ctx(),
 		)
-		const id = Number(/id (\d+)\]/.exec(first.output)?.[1])
+		const id = Number(/#(\d+) L\d/.exec(first.output)?.[1])
 		expect(Number.isInteger(id)).toBe(true)
 		const second = await CodeAnalysisTool.execute(
 			{ operation: 'function_source', function_id: id },
@@ -188,7 +189,7 @@ describe('through the SDK tool, with the real provider', () => {
 				ctx({ additionalDirectories: [other.root] }),
 			)
 			expect(added.success).toBe(true)
-			expect(added.output).toContain('x.js:1:')
+			expect(added.output).toMatch(/^x\.js\n {2}1:/m)
 		} finally {
 			other.dispose()
 		}

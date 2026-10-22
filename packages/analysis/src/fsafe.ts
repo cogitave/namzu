@@ -73,7 +73,16 @@ export async function descriptorInside(
 	}
 }
 
-export async function readRegular(rootReal: string, abs: string): Promise<SafeRead> {
+/**
+ * Read a regular file inside the root. `limit` reads at most that many bytes
+ * from the start (a file's first line, say) and still makes every check the
+ * whole-file read makes.
+ */
+export async function readRegular(
+	rootReal: string,
+	abs: string,
+	limit?: number,
+): Promise<SafeRead> {
 	let before: Stats
 	try {
 		before = await lstat(abs)
@@ -99,7 +108,13 @@ export async function readRegular(rootReal: string, abs: string): Promise<SafeRe
 			}
 			if (!(await descriptorInside(rootReal, handle.fd, abs, opened)))
 				return { ok: false, why: 'outside' }
-			const buffer = await handle.readFile()
+			let buffer: Buffer
+			if (limit === undefined) buffer = await handle.readFile()
+			else {
+				const chunk = Buffer.alloc(Math.min(limit, opened.size))
+				const { bytesRead } = await handle.read(chunk, 0, chunk.length, 0)
+				buffer = chunk.subarray(0, bytesRead)
+			}
 			if (!isInside(rootReal, await realpath(abs))) return { ok: false, why: 'outside' }
 			return { ok: true, buffer, stat: opened }
 		} finally {
@@ -134,4 +149,12 @@ export async function conditionOf(
 		return 'deleted'
 	}
 	return s.size === recorded.size && s.mtimeMs === recorded.mtimeMs ? 'same' : 'changed'
+}
+
+/** Convert a path under `root` to the POSIX relative form the store keys on. */
+export function toRel(root: string, abs: string): string | undefined {
+	if (abs === root) return ''
+	const prefix = root.endsWith(sep) ? root : root + sep
+	if (!abs.startsWith(prefix)) return undefined
+	return abs.slice(prefix.length).split(sep).join('/')
 }

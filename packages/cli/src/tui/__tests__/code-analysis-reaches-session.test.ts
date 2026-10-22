@@ -211,8 +211,8 @@ describe('code_analysis reaches the session', () => {
 			context,
 		)
 		expect(found.success).toBe(true)
-		expect(found.output).toContain('login.js:2:')
-		expect(found.output).toContain('login [declaration')
+		expect(found.output).toMatch(/^src\/login\.js\n {2}2:\d+ /m)
+		expect(found.output).toContain('in login#')
 		expect(found.output).toContain('coverage: complete')
 
 		const { readdirSync } = await import('node:fs')

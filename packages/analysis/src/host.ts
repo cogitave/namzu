@@ -29,7 +29,12 @@ import type { RowsPayload } from './walk.js'
  */
 
 export type ParseOutcome =
-	| { readonly kind: 'rows'; readonly parseErrors: number; readonly rows: RowsPayload }
+	| {
+			readonly kind: 'rows'
+			readonly parseErrors: number
+			readonly degraded: 0 | 1 | 2
+			readonly rows: RowsPayload
+	  }
 	| { readonly kind: 'crash'; readonly detail: string }
 	| { readonly kind: 'error'; readonly error: string }
 
@@ -237,7 +242,12 @@ export class ParserHost {
 					}
 					if (m.t === 'done' && m.rel === job.rel) {
 						cleanup()
-						resolve({ kind: 'rows', parseErrors: m.parseErrors, rows: m.rows })
+						resolve({
+							kind: 'rows',
+							parseErrors: m.parseErrors,
+							degraded: m.degraded,
+							rows: m.rows,
+						})
 					} else if (m.t === 'fail' && m.rel === job.rel) {
 						cleanup()
 						if (m.unavailable) reject(new ParserUnavailableError(m.error))
