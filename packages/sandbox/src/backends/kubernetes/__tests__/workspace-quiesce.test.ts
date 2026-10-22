@@ -318,7 +318,6 @@ describe.skipIf(!CAN_UNSHARE)(
 					stdio: ['ignore', 'pipe', 'pipe'],
 				},
 			)
-			const deadline = Date.now() + 20_000
 			for (;;) {
 				try {
 					const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
@@ -329,7 +328,6 @@ describe.skipIf(!CAN_UNSHARE)(
 				} catch {
 					// Not listening yet.
 				}
-				if (Date.now() > deadline) throw new Error('the namespaced agent never came up')
 				await delay(50)
 			}
 		}
@@ -369,8 +367,8 @@ describe.skipIf(!CAN_UNSHARE)(
 			terminal.write(
 				`setsid sh -c 'while :; do date +%s >> ${marker}; sleep 1; done' </dev/null >/dev/null 2>&1 &\n`,
 			)
-			const deadline = Date.now() + 10_000
-			while (Date.now() < deadline) {
+
+			for (;;) {
 				try {
 					if (statSync(marker).size > 0) break
 				} catch {
@@ -528,7 +526,18 @@ describe.skipIf(!CAN_UNSHARE)(
 				'-c',
 				`setsid sh -c 'while :; do date +%s >> ${marker}; sleep 1; done' </dev/null >/dev/null 2>&1 &`,
 			])
-			await delay(1_500)
+			// Wait for the writer itself, not for a guess at how long it takes to
+			// start: under load the namespace can need far longer than a fixed
+			// pause, and the assertion below needs a file that exists. Vitest's
+			// own test timeout ends a genuine hang.
+			for (;;) {
+				try {
+					if (statSync(marker).size > 0) break
+				} catch {
+					// Not created yet.
+				}
+				await delay(50)
+			}
 			expect(patchedModes).toEqual([])
 
 			// The pod never stops here — the fake cluster keeps answering

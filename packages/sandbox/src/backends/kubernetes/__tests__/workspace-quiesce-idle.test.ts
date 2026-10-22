@@ -502,8 +502,14 @@ describe.skipIf(!CAN_UNSHARE)(
 			// Asking again finds the very same process: it was not touched.
 			const second = await workspace.quiesce({ onlyIfIdle: true }).catch((err: unknown) => err)
 			expect(second).toBeInstanceOf(KubernetesQuiesceBusyError)
+			// Compared on the escapee's shell alone. Its loop forks a fresh `sleep`
+			// every second, so a snapshot may see that child (or, taken before
+			// the first fork, not yet) and its pid changes on every iteration:
+			// the whole row set is not stable, the shell's pid is.
+			const shellPids = seen.filter((row) => row.command === 'sh').map((row) => row.pid)
+			expect(shellPids.length).toBeGreaterThan(0)
 			expect((second as KubernetesQuiesceBusyError).busy.map((row) => row.pid)).toEqual(
-				seen.map((row) => row.pid),
+				expect.arrayContaining(shellPids),
 			)
 			expect(() => statSync(sigfile)).toThrow()
 
