@@ -38,7 +38,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -65,9 +64,9 @@ const SH_BIN = existsSync('/bin/sh') ? '/bin/sh' : '/usr/bin/sh'
 
 /**
  * The real `sleep` this machine has, resolved once through the real
- * environment. Every `prestop` case's stand-in init is this program under
- * another name — see `standInInitBin` — so cases never depend on a process
- * they did not start.
+ * environment. Every `prestop` case's stand-in init is a script named like
+ * the init that waits on this program — see `standInInitBin` — so cases never
+ * depend on a process they did not start.
  */
 const SLEEP_BIN = (() => {
 	const found = spawnSync('sh', ['-c', 'command -v sleep'], { encoding: 'utf8' })
@@ -89,15 +88,46 @@ const PRESTOP_DEFAULT_INIT_NAME = (() => {
 })()
 
 /**
- * A path whose BASENAME is the init's name and whose target is a real
- * `sleep`: exec'ing it gives a process whose `/proc/<pid>/comm` is that
- * name, which is what the hook checks. A symlink, so nothing is copied and
- * the stand-in is the machine's own binary.
+ * A path whose BASENAME is the init's name and which, once exec'd, stays a
+ * process for as long as the caller says: exec'ing it gives a process whose
+ * `/proc/<pid>/comm` is that name, which is what the hook checks.
+ *
+ * A short script, not a symlink to `sleep`. The kernel records the basename
+ * of the file `execve` was handed, and a script is that file (its
+ * interpreter is loaded behind it), so `comm` answers the init's name. A
+ * symlink to the machine's `sleep` answered it too, until `sleep` stopped
+ * being a program of its own: where coreutils is the uutils multicall binary
+ * (Ubuntu 25.10 onward, so the `ubuntu-26.04` runner image) every utility is
+ * the same executable, which picks its job from the name it was exec'd by —
+ * measured to be the path, not `argv[0]`, so `exec -a` cannot help — and
+ * `tini` is no utility: it prints `unknown program 'tini'` and exits at once.
+ * Every stand-in died before the hook ever looked at it. A script names no
+ * utility on its own `execve` and runs `sleep` by name afterwards, which GNU
+ * coreutils, uutils and busybox all answer.
+ *
+ * The script waits on its `sleep` rather than exec'ing it (an exec would
+ * reset `comm` to `sleep`), and forwards a SIGTERM to it before it exits so
+ * the signallable stand-in leaves nothing behind. An IGNORED SIGTERM is
+ * inherited, by the script and its `sleep` alike, and a shell cannot trap a
+ * signal that was ignored when it started, so the unsignallable variant
+ * still cannot be signalled away. What a SIGKILL from the sweep leaves is
+ * that `sleep`, which ends on its own within its thirty seconds.
  */
 function standInInitBin(): string {
-	const link = join(mktempWorkDir(), PRESTOP_DEFAULT_INIT_NAME)
-	symlinkSync(SLEEP_BIN, link)
-	return link
+	const script = join(mktempWorkDir(), PRESTOP_DEFAULT_INIT_NAME)
+	writeFileSync(
+		script,
+		[
+			`#!${SH_BIN}`,
+			`${JSON.stringify(SLEEP_BIN)} "$@" &`,
+			'child=$!',
+			`trap 'kill "$child" 2>/dev/null; exit 0' TERM`,
+			'wait "$child"',
+			'',
+		].join('\n'),
+		{ mode: 0o755 },
+	)
+	return script
 }
 
 function hasCommand(name: string): boolean {
@@ -860,12 +890,11 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 
 	/**
 	 * The name the kernel records for a process — the basename of the path
-	 * handed to `execve`, so a `sleep` exec'd through a symlink called
-	 * `tini` answers `tini` — or `''` when there is no such process to read
-	 * it from. `''` is "cannot tell", never "close enough": the same
-	 * distinction entrypoint.sh's own check makes in its prestop section,
-	 * and for the same reason (a pid is a slot in a process table, not an
-	 * identity).
+	 * handed to `execve`, so a script called `tini` answers `tini` — or
+	 * `''` when there is no such process to read it from. `''` is "cannot
+	 * tell", never "close enough": the same distinction entrypoint.sh's own
+	 * check makes in its prestop section, and for the same reason (a pid is
+	 * a slot in a process table, not an identity).
 	 */
 	function commOf(pid: number): string {
 		try {
@@ -996,10 +1025,11 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	 * signal this machine's init, so `NAMZU_PRESTOP_INIT_PID` names a
 	 * process this case owns instead — and, since the script now checks
 	 * `/proc/<pid>/comm` before it signals anything at all, that process
-	 * has to BE named like the init: a `sleep` exec'd through a symlink
-	 * called `tini`, which is what the kernel records in `comm`. Nothing
-	 * else about it is special, and nothing about the check is bypassed —
-	 * this is the accept path, running against the shipped default name.
+	 * has to BE named like the init: a script called `tini` that waits on a
+	 * `sleep` (see {@link standInInitBin}), which is what the kernel
+	 * records in `comm`. Nothing else about it is special, and nothing about
+	 * the check is bypassed — this is the accept path, running against the
+	 * shipped default name.
 	 */
 	function spawnDummyInit(): number {
 		return spawnStandIn('"$NAMZU_TEST_INIT_BIN" 30 >/dev/null 2>&1 & echo $!', standInInitBin())
@@ -1010,10 +1040,11 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	 * bound exists for.
 	 *
 	 * An ignored SIGTERM disposition survives `exec`, so what this ends up
-	 * as is a `tini`-named `sleep` that the hook's `kill -TERM` cannot
-	 * touch. The obvious stand-in for "will not go" — this machine's real
-	 * pid 1 — is not one: signalling a process this suite did not start is
-	 * the thing neither this file nor the script it drives may ever do.
+	 * as is a `tini`-named script, and the `sleep` under it, that the
+	 * hook's `kill -TERM` cannot touch. The obvious stand-in for "will not
+	 * go" — this machine's real pid 1 — is not one: signalling a process
+	 * this suite did not start is the thing neither this file nor the
+	 * script it drives may ever do.
 	 * Orphaned for the same reason {@link spawnDummyInit} orphans its own.
 	 */
 	function spawnUnsignallableInit(): number {
