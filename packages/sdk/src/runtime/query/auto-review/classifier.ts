@@ -325,8 +325,13 @@ export function createAutoReviewClassifier(
 		if (renderedLength(lines) + action.length > maxChars) return { verdict: 'too_long' }
 
 		const body = `<transcript>\n${lines.join('\n')}\n</transcript>\n\nThe action under review:\n${action}\n\n`
+		// One system message for both passes, built once: the second pass is
+		// meant to reuse the first pass's cached prefix, and a message rebuilt per
+		// pass carries a fresh timestamp, so "the same prefix" held only when both
+		// passes landed in the same millisecond.
+		const system = createSystemMessage(systemPrompt, 'cache')
 		const conversation = (instruction: string): Message[] => [
-			createSystemMessage(systemPrompt, 'cache'),
+			system,
 			createUserMessage(`${body}${instruction}`),
 		]
 
