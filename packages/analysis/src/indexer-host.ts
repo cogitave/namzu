@@ -15,8 +15,8 @@
  * anything that is not a forked child.
  */
 
-import { ParserUnavailableError, parseSource, useParserModule } from './parse.js'
-import { RowSink, indexProgram } from './walk.js'
+import { ParserUnavailableError, useParserModule } from './parse.js'
+import { parseRecovering } from './recover.js'
 
 export type HostRequest = {
 	readonly t: 'parse'
@@ -32,6 +32,8 @@ export type HostReply =
 			readonly t: 'done'
 			readonly rel: string
 			readonly parseErrors: number
+			/** 0: the parser took the file. 1: read after blanking broken lines. 2: read by the tolerant scanner. */
+			readonly degraded: 0 | 1 | 2
 			readonly rows: import('./walk.js').RowsPayload
 	  }
 	| {
@@ -43,21 +45,22 @@ export type HostReply =
 
 async function handle(request: HostRequest): Promise<HostReply> {
 	try {
-		const parsed = await parseSource(request.abs, request.text)
 		// Function ids are local to the file; the parent offsets them when it
 		// writes, inside the transaction that owns the id counter.
-		const sink = new RowSink(0)
-		indexProgram(parsed.program as Parameters<typeof indexProgram>[0], sink)
+		const recovered = await parseRecovering(request.abs, request.text)
+		const rows = recovered.rows
 		return {
 			t: 'done',
 			rel: request.rel,
-			parseErrors: parsed.errors,
+			parseErrors: recovered.errors,
+			degraded: recovered.degraded,
 			rows: {
-				functions: sink.functions,
-				strings: sink.strings,
-				calls: sink.calls,
-				imports: sink.imports,
-				exports: sink.exports,
+				functions: rows.functions,
+				classes: rows.classes,
+				strings: rows.strings,
+				calls: rows.calls,
+				imports: rows.imports,
+				exports: rows.exports,
 			},
 		}
 	} catch (err) {

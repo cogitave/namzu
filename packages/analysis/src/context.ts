@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type {
@@ -9,13 +8,16 @@ import type {
 	AnalysisSourceSlice,
 } from '@namzu/sdk'
 
+import { MAY_HOLD_JS, NEVER_SOURCE_DIRS } from './collect.js'
 import { conditionOf, readRegular } from './fsafe.js'
 import type { ParserHost } from './host.js'
 import {
+	DEFAULT_IGNORED_DIRS,
 	type IndexOptions,
 	coveringEntry,
 	decodeText,
 	hashOf,
+	nextStep,
 	noteNamed,
 	readCovered,
 	refreshIndex,
@@ -128,6 +130,7 @@ export interface FileInfo {
 	readonly abs: string
 	readonly chars: number
 	readonly parseErrors: number
+	readonly degraded: number
 	readonly size: number
 	readonly mtimeMs: number
 	readonly hash: string
@@ -159,6 +162,7 @@ export class Files {
 			abs: join(this.root, ...rel.split('/')),
 			chars: Number(row.chars),
 			parseErrors: Number(row.parse_errors),
+			degraded: Number(row.degraded ?? 0),
 			size: Number(row.size),
 			mtimeMs: Number(row.mtime_ms),
 			hash: String(row.hash),
@@ -332,6 +336,7 @@ export function toFunction(row: Row, info: FileInfo): AnalysisFunction {
 	return {
 		id: Number(row.id),
 		name: row.name === null || row.name === undefined ? null : String(row.name),
+		...(row.qname !== null && row.qname !== undefined ? { qualifiedName: String(row.qname) } : {}),
 		kind: String(row.kind) as AnalysisFunctionKind,
 		path: info.abs,
 		line: at.line,
@@ -355,19 +360,66 @@ export function parentsOf(store: Store, files: Files, parentId: number | null): 
 	return out
 }
 
+/** A character offset that does not land between the halves of a surrogate pair, moved earlier if it does. */
+function safeEnd(text: string, at: number): number {
+	const last = text.charCodeAt(at - 1)
+	return last >= 0xd800 && last <= 0xdbff ? at - 1 : at
+}
+
+/** The header of a windowed slice: its first quarter of the budget, at most this. */
+const HEADER_CHARS = 400
+
+/**
+ * `text[start, end)`, cut to `maxChars`.
+ *
+ * Without `around` the cut is at the end. With it (the offset a question was
+ * asked about) the slice is the function's header, then the characters around
+ * `around`, and the position is inside what is returned: the 2.3 % of literals
+ * in a large bundle that sit past the first 20,000 characters of their function
+ * are exactly the ones a head cut loses.
+ */
 export function sliceOf(
 	text: string,
 	start: number,
 	end: number,
 	maxChars: number,
+	around?: number,
 ): AnalysisSourceSlice {
 	const chars = end - start
 	if (chars <= maxChars) return { text: text.slice(start, end), chars, truncated: false }
-	let stop = start + maxChars
-	const last = text.charCodeAt(stop - 1)
-	// Do not hand back half of a surrogate pair.
-	if (last >= 0xd800 && last <= 0xdbff) stop--
-	return { text: text.slice(start, stop), chars, truncated: true }
+	if (around === undefined || around < start || around >= end) {
+		return { text: text.slice(start, safeEnd(text, start + maxChars)), chars, truncated: true }
+	}
+	const header = Math.min(Math.floor(maxChars / 4), HEADER_CHARS)
+	const headerEnd = safeEnd(text, start + header)
+	const budget = maxChars - header
+	let from = around - Math.floor(budget / 2)
+	let to = from + budget
+	if (from < headerEnd) {
+		from = headerEnd
+		to = from + budget
+	}
+	if (to > end) {
+		to = end
+		from = Math.max(headerEnd, to - budget)
+	}
+	// Whole characters at both ends.
+	const first = text.charCodeAt(from)
+	if (from > headerEnd && first >= 0xdc00 && first <= 0xdfff) from--
+	to = safeEnd(text, to)
+	const gapBefore = from - headerEnd
+	const gapAfter = end - to
+	const cut =
+		text.slice(start, headerEnd) +
+		(gapBefore > 0 ? `\n/* … ${gapBefore.toLocaleString('en-US')} characters omitted … */\n` : '') +
+		text.slice(from, to) +
+		(gapAfter > 0 ? `\n/* … ${gapAfter.toLocaleString('en-US')} characters omitted … */` : '')
+	return {
+		text: cut,
+		chars,
+		truncated: true,
+		window: { headerChars: headerEnd - start, from, to },
+	}
 }
 
 // ─── coverage ───────────────────────────────────────────────────────────────
@@ -390,6 +442,27 @@ function named(list: readonly string[]): string {
 		: list.join(', ')
 }
 
+/** Whether the relative path `path` is `scopeRel` or lies under it (empty: everything). */
+function inScope(path: string, scopeRel: string): boolean {
+	return scopeRel === '' || path === scopeRel || path.startsWith(`${scopeRel}/`)
+}
+
+/** What an operation reports about the part of the tree it searched. */
+export interface Exclusions {
+	/** Why the answer may be incomplete; makes the coverage `partial`. */
+	readonly gaps: string[]
+	/** What was left out that cannot hide an answer; goes into `observed`. */
+	readonly notes: string[]
+}
+
+/** SQL for "the files at or under the scope", without a leading `WHERE`. */
+function scopeWhere(scopeRel: string): { sql: string; params: string[] } {
+	return {
+		sql: 'path = ? OR (path >= ? AND path < ?)',
+		params: [scopeRel, `${scopeRel}/`, `${scopeRel}0`],
+	}
+}
+
 /**
  * What the index is missing for a question about `scopeRel` (empty: the whole
  * root), in words, each with what to do about it.
@@ -397,8 +470,13 @@ function named(list: readonly string[]): string {
  * Nothing here is a refusal. A partial index answers; these are the reasons
  * the answer may not be the whole answer, and the next step that makes it
  * more of one.
+ *
+ * `gaps` make the answer `partial`. `notes` are things the index left out
+ * that cannot hide an answer (vendored and build directories, declaration
+ * files, directories a `.gitignore` lists); they are stated in `observed` and
+ * leave the coverage alone.
  */
-export function workspaceGaps(store: Store, scopeRel = ''): string[] {
+export function workspaceGaps(store: Store, scopeRel = ''): Exclusions {
 	const reasons: string[] = []
 	const covered = readCovered(store)
 	const covering = coveringEntry(covered, scopeRel)
@@ -416,7 +494,7 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 			reasons.push(
 				e.k === 'cancel'
 					? `indexing ${where} ${e.r}, so what was indexed is partial. Call the index operation to continue`
-					: `indexing ${where} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. Call the index operation with a narrower path to cover more`,
+					: `indexing ${where} ${e.r ?? 'stopped at a limit'}, so what was indexed is partial. ${nextStep(e.w)}`,
 			)
 		}
 	}
@@ -437,73 +515,132 @@ export function workspaceGaps(store: Store, scopeRel = ''): string[] {
 	if (totals.size > 0) {
 		reasons.push(`not indexed: ${[...totals].map(([why, n]) => `${n} ${why}`).join(', ')}`)
 	}
-	const crashed = listOf(store, 'crashed')
+	const excluded = exclusionReasons(store, scopeRel)
+	reasons.push(...excluded.gaps)
+	const scoped = scopeRel === '' ? undefined : scopeWhere(scopeRel)
+	const and = scoped ? ` AND (${scoped.sql})` : ''
+	const crashed = store
+		.all(
+			`SELECT path FROM files WHERE parse_errors < 0${and} ORDER BY path`,
+			...(scoped?.params ?? []),
+		)
+		.map((r) => String(r.path))
 	if (crashed.length > 0) {
 		reasons.push(
 			`the parser crashed on ${crashed.length} file(s) (${named(crashed)}), which are recorded with no rows`,
 		)
 	}
-	const violations = listOf(store, 'violations')
+	const violations = listOf(store, 'violations').filter((path) => inScope(path, scopeRel))
 	if (violations.length > 0) {
 		reasons.push(
 			`${violations.length} file(s) (${named(violations)}) became a link or resolved outside the root after they were indexed, and were dropped without being read`,
 		)
 	}
-	const bad = store.get('SELECT count(*) AS n FROM files WHERE parse_errors > 0')
+	const bad = store.get(
+		`SELECT count(*) AS n, coalesce(sum(degraded = 1), 0) AS repaired, coalesce(sum(degraded = 2), 0) AS scanned FROM files WHERE parse_errors > 0${and}`,
+		...(scoped?.params ?? []),
+	)
 	if (bad && Number(bad.n) > 0) {
+		const repaired = Number(bad.repaired)
+		const scanned = Number(bad.scanned)
 		reasons.push(
-			`${bad.n} file(s) had syntax errors; the parser kept whatever tree it could recover, often none, so rows from them may be missing`,
+			`${bad.n} file(s) had syntax errors, so rows from them may be missing${repaired > 0 ? `; ${repaired} read after setting the broken lines aside` : ''}${scanned > 0 ? `; ${scanned} degraded to a tolerant scan that finds strings and function declarations only, with no calls, methods or imports` : ''}`,
 		)
 	}
-	return reasons
+	return { gaps: reasons, notes: excluded.notes }
 }
 
-/** Directories to compare with the disk at most per query. */
-const NEW_FILE_CHECK_DIRS = 400
+/** `dist ×17, build ×2` — the most common first, the rest counted. */
+function tally(rows: ReadonlyArray<{ name: string; n: number }>, shown = 6): string {
+	const sorted = [...rows].sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1))
+	const head = sorted.slice(0, shown).map((r) => `${r.name || '(none)'} ×${r.n}`)
+	return sorted.length > shown
+		? `${head.join(', ')} and ${sorted.length - shown} more`
+		: head.join(', ')
+}
 
 /**
- * Whether anything was created under `scopeRel` since it was indexed.
+ * What the walk saw under `scopeRel` and did not index, as reasons.
  *
- * Compares the mtimes recorded for its directories with the disk — one `lstat`
- * each, up to {@link NEW_FILE_CHECK_DIRS} — because a file's own record cannot
- * say that a sibling appeared. A changed directory may only mean a deletion
- * or a rename, so this says "may", and names where.
+ * "Complete" has to mean nothing that could hold the answer was left out. The
+ * index excludes four things by design, and they are not alike:
+ *
+ * - **Cannot hide an answer, stated as a note:** directories on the ignore
+ *   list (vendored `node_modules`, tool-owned `.git`, build output such as
+ *   `dist` next to a `package.json`), directories a `.gitignore` lists, and
+ *   declaration files (types only).
+ * - **Can hide one, so the answer is `partial`:** a source file a `.gitignore`
+ *   lists, a directory the caller's own ignore list names, and a file in a
+ *   language that holds JavaScript but is not parsed (`.html`, `.vue`, …).
+ *   A string in one cannot be found.
  */
-export async function newFileReasons(
-	store: Store,
-	root: string,
-	scopeRel: string,
-): Promise<string[]> {
-	const rows =
+export function exclusionReasons(store: Store, scopeRel: string): Exclusions {
+	const where =
 		scopeRel === ''
-			? store.all('SELECT path, mtime_ms FROM dirs ORDER BY path LIMIT ?', NEW_FILE_CHECK_DIRS + 1)
-			: store.all(
-					'SELECT path, mtime_ms FROM dirs WHERE path = ? OR (path >= ? AND path < ?) ORDER BY path LIMIT ?',
-					scopeRel,
-					`${scopeRel}/`,
-					`${scopeRel}0`,
-					NEW_FILE_CHECK_DIRS + 1,
-				)
-	const changed: string[] = []
-	for (const row of rows.slice(0, NEW_FILE_CHECK_DIRS)) {
-		const rel = String(row.path)
-		try {
-			const s = await lstat(join(root, ...rel.split('/').filter(Boolean)))
-			if (s.mtimeMs !== Number(row.mtime_ms)) changed.push(rel === '' ? '.' : rel)
-		} catch {
-			changed.push(rel === '' ? '.' : rel)
-		}
+			? { sql: '', params: [] as string[] }
+			: {
+					sql: ' WHERE path = ? OR (path >= ? AND path < ?)',
+					params: [scopeRel, `${scopeRel}/`, `${scopeRel}0`],
+				}
+	let rows: Record<string, unknown>[]
+	try {
+		rows = store.all(
+			`SELECT kind, name, sum(n) AS n FROM excl${where.sql} GROUP BY kind, name`,
+			...where.params,
+		)
+	} catch {
+		return { gaps: [], notes: [] }
 	}
-	const reasons: string[] = []
-	if (changed.length > 0) {
-		reasons.push(
-			`${changed.length} director${changed.length === 1 ? 'y' : 'ies'} changed since the index was built (${named(changed)}), so files added there may be missing. Run the index operation to pick them up`,
+	const pick = (kind: string, keep: (name: string) => boolean = () => true) =>
+		rows
+			.filter((r) => r.kind === kind && keep(String(r.name)))
+			.map((r) => ({ name: String(r.name), n: Number(r.n) }))
+	const isDefaultDir = (name: string): boolean => DEFAULT_IGNORED_DIRS.includes(name)
+	const dirs = pick('dir')
+	const neverSource = dirs.filter((r) => NEVER_SOURCE_DIRS.has(r.name))
+	const buildDirs = dirs.filter((r) => !NEVER_SOURCE_DIRS.has(r.name) && isDefaultDir(r.name))
+	const ownDirs = dirs.filter((r) => !isDefaultDir(r.name))
+	const gitDirs = pick('git', (name) => name.endsWith('/'))
+	const gitFiles = pick('git', (name) => !name.endsWith('/'))
+	const exts = pick('ext')
+	const jsExts = exts.filter((r) => MAY_HOLD_JS.has(r.name))
+	const otherExts = exts.filter((r) => !MAY_HOLD_JS.has(r.name))
+	const dts = pick('dts').reduce((a, r) => a + r.n, 0)
+	const gaps: string[] = []
+	const notes: string[] = []
+	if (ownDirs.length > 0) {
+		gaps.push(
+			`not indexed: ignored directories ${tally(ownDirs)}. To search one, pass its path to the index operation`,
 		)
 	}
-	if (rows.length > NEW_FILE_CHECK_DIRS) {
-		reasons.push(`only the first ${NEW_FILE_CHECK_DIRS} directories were checked for new files`)
+	if (gitFiles.length > 0) {
+		gaps.push(
+			`not indexed: source files a .gitignore lists, ${tally(gitFiles)}. Index one by path to search it`,
+		)
 	}
-	return reasons
+	if (jsExts.length > 0) {
+		gaps.push(
+			`not indexed: files in languages this index does not parse (${tally(jsExts)}); a string in one cannot be found`,
+		)
+	}
+	const left = [...neverSource, ...buildDirs]
+	if (left.length > 0) {
+		notes.push(
+			`left out as never or build-output directories: ${tally(left)} (to search one, pass its path to the index operation)`,
+		)
+	}
+	if (gitDirs.length > 0) {
+		notes.push(`left out as directories a .gitignore lists: ${tally(gitDirs)}`)
+	}
+	if (otherExts.length > 0) {
+		notes.push(`files in other languages are not parsed (${tally(otherExts)})`)
+	}
+	if (dts > 0) {
+		notes.push(
+			`${dts} declaration file(s) (.d.ts) are not indexed; they hold types only, so no literal or call is missing, but a signature there cannot be shown`,
+		)
+	}
+	return { gaps, notes }
 }
 
 export function coverageOf(reasons: readonly string[]): AnalysisCoverage {

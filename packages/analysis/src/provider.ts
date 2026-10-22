@@ -33,7 +33,6 @@ import {
 	encodeCursor,
 	fingerprint,
 	markReasons,
-	newFileReasons,
 	parentsOf,
 	readVerified,
 	sliceOf,
@@ -41,6 +40,7 @@ import {
 	workspaceGaps,
 } from './context.js'
 import { DEFAULT_CACHE_MAX_AGE_DAYS, DEFAULT_CACHE_MAX_BYTES } from './evict.js'
+import { freshenScope } from './freshen.js'
 import { ParserHost, abortError } from './host.js'
 import {
 	DEFAULT_IGNORED_DIRS,
@@ -50,6 +50,7 @@ import {
 	DEFAULT_MAX_MILLIS,
 	type IndexOptions,
 	coveringEntry,
+	nextStep,
 	readCovered,
 	refreshIndex,
 	toRel,
@@ -57,6 +58,7 @@ import {
 import { offsetOf, position } from './lines.js'
 import { ParserUnavailableError } from './parse.js'
 import { Store } from './store.js'
+import { CUT_MARK_CHARS } from './walk.js'
 
 export interface CodeAnalysisOptions {
 	/**
@@ -78,6 +80,11 @@ export interface CodeAnalysisOptions {
 	 * Default 20,000. Reaching it is not an error: see {@link IndexSummary.truncated}.
 	 */
 	readonly maxDirectories?: number
+	/**
+	 * Skip what `.gitignore` files (at the root and below it) list. Default
+	 * `true`. What is skipped is counted and named in coverage.
+	 */
+	readonly respectGitignore?: boolean
 	/** Milliseconds one call spends before it stops the same way. Default 45,000. */
 	readonly maxMillis?: number
 	/**
@@ -154,6 +161,7 @@ export function createCodeAnalysisProvider(
 		maxFiles: options.maxFiles ?? DEFAULT_MAX_FILES,
 		maxDirectories: options.maxDirectories ?? DEFAULT_MAX_DIRECTORIES,
 		maxMillis: options.maxMillis ?? DEFAULT_MAX_MILLIS,
+		respectGitignore: options.respectGitignore !== false,
 		force,
 	})
 	const envOf = (o: Opened, signal: AbortSignal | undefined, force = false): Env => ({
@@ -255,9 +263,12 @@ export function createCodeAnalysisProvider(
 		observed: readonly string[],
 		inferred: readonly string[],
 		gaps: readonly string[],
-		built?: string,
+		built?: string | readonly string[],
 	): AnalysisEvidence => ({
-		observed: built ? [...observed, built] : observed,
+		observed:
+			built === undefined || built === ''
+				? observed
+				: [...observed, ...(typeof built === 'string' ? [built] : built)],
 		inferred,
 		coverage: coverageOf(gaps),
 	})
@@ -271,7 +282,7 @@ export function createCodeAnalysisProvider(
 		const info = files.byPath(rel)
 		if (info) return info
 		return {
-			error: `${rel} is not in the index. Only .js .mjs .cjs .jsx .ts .mts .cts .tsx files are indexed, and not declaration files, symbolic links, files in ignored directories (${(options.ignoreDirs ?? DEFAULT_IGNORED_DIRS).join(', ')}), or files that are binary, too large or unparseable.`,
+			error: `${rel} is not in the index. Only .js .mjs .cjs .jsx .ts .mts .cts .tsx files (and extension-less scripts that start with a node, bun or deno shebang) are indexed, and not declaration files, symbolic links, files in ignored directories (${(options.ignoreDirs ?? DEFAULT_IGNORED_DIRS).join(', ')}), files a .gitignore lists, or files that are binary, too large or unparseable.`,
 		}
 	}
 
@@ -338,6 +349,7 @@ export function createCodeAnalysisProvider(
 					host,
 					signal,
 				)
+				const left = workspaceGaps(o.store, scopeRel)
 				const count = (table: string): number =>
 					Number((o.store.get(`SELECT count(*) AS n FROM ${table}`) as Row).n)
 				const summary: IndexSummary = {
@@ -358,7 +370,7 @@ export function createCodeAnalysisProvider(
 					durationMs: Math.round(performance.now() - started),
 					...(out.truncated
 						? {
-								truncated: `Indexing ${scopeRel === '' ? 'the root' : scopeRel} ${out.truncated}, so the index is partial. Index a narrower path to cover the rest; what was indexed is kept and answers queries now.`,
+								truncated: `Indexing ${scopeRel === '' ? 'the root' : scopeRel} ${out.truncated}, so the index is partial. ${nextStep(out.limits)}; what was indexed is kept and answers queries now.`,
 							}
 						: {}),
 				}
@@ -368,21 +380,32 @@ export function createCodeAnalysisProvider(
 					evidence: evidence(
 						[
 							`walked ${scopeRel === '' ? o.root : scopeRel}: ${out.parsed} file(s) parsed, ${out.unchanged} unchanged by size, mtime or content hash, ${out.removed} removed`,
+							...left.notes,
 						],
 						o.store.fts
 							? []
 							: [
 									'this Node.js has no FTS5, so find_literal scans every literal instead of using a substring index; answers are the same, slower',
 								],
-						workspaceGaps(o.store, scopeRel),
+						left.gaps,
 					),
 				}
 			})
 		},
 
 		findLiteral: (request: FindLiteralRequest) =>
-			withScope(request.root, request.path, request.signal, async (o, _env, built) => {
+			withScope(request.root, request.path, request.signal, async (o, env, built) => {
 				const files = new Files(o.store, o.root)
+				if (CUT_MARK_CHARS.some((c) => request.text.includes(c))) {
+					return failed(
+						'the search text contains U+0001 or U+0002, which the index uses to mark where a long literal was cut; they cannot be searched for',
+					)
+				}
+				const asked = request.path === undefined ? '' : toRel(o.root, request.path)
+				if (asked === undefined)
+					return failed(`${request.path} is outside the indexed root ${o.root}.`)
+				// A negative answer is only as good as the index is current.
+				const current = await freshenScope(env, asked)
 				const scope = scopeSql(o, files, request.path, 's.file_id')
 				if ('error' in scope) return failed(scope.error)
 				const limit = clampLimit(request.limit)
@@ -391,7 +414,9 @@ export function createCodeAnalysisProvider(
 				// would send "😀😀" (four units, two points) to an index that cannot
 				// match it, and report no hits with complete coverage.
 				const codePoints = Array.from(request.text).length
-				const useFts = o.store.fts && codePoints >= 3
+				// A NUL cannot go into an FTS query (it ends the string); the scan below
+				// compares the stored text directly and has no such limit.
+				const useFts = o.store.fts && codePoints >= 3 && !request.text.includes('\u0000')
 				const test = insensitive ? 'instr(lower(s.value), lower(?)) > 0' : 'instr(s.value, ?) > 0'
 				const prefilter = useFts ? ' AND s.id IN (SELECT rowid FROM lit WHERE lit MATCH ?)' : ''
 				const where = `WHERE ${test}${prefilter}${scope.sql}`
@@ -458,7 +483,7 @@ export function createCodeAnalysisProvider(
 						start: Number(r.start),
 						end: Number(r.end),
 						kind: String(r.kind) as AnalysisLiteralHit['kind'],
-						value: value.length > PREVIEW_CHARS ? value.slice(0, PREVIEW_CHARS) : value,
+						value: previewOf(value, request.text, insensitive),
 						valueTruncated: value.length > PREVIEW_CHARS,
 						...(fn ? { function: fn } : {}),
 						...(mark ? { stale: mark } : {}),
@@ -470,6 +495,7 @@ export function createCodeAnalysisProvider(
 					total,
 					...(next < total ? { nextCursor: encodeCursor({ g: generation, o: next, q }) } : {}),
 				}
+				const left = workspaceGaps(o.store, scope.rel)
 				return {
 					kind: 'ok',
 					value: page,
@@ -479,14 +505,17 @@ export function createCodeAnalysisProvider(
 							'each hit lists the innermost function whose source range contains it',
 						],
 						[
-							'literals are indexed up to 4096 characters, and a template literal is indexed per static chunk, so a match cannot span a ${...} or sit past the cut',
+							'a template literal is indexed per static chunk, so a match cannot span a ${...}; a literal over 8192 characters is indexed by its first and last 4096',
 						],
 						[
-							...workspaceGaps(o.store, scope.rel),
+							...left.gaps,
 							...markReasons(fresh.marks),
-							...(await newFileReasons(o.store, o.root, scope.rel)),
+							// One character is not a search for a passage; what a cut literal
+							// dropped is only worth reporting for a needle that could be in it.
+							...(codePoints > 1 ? cutReasons(o.store, scope.sql, scope.params) : []),
+							...current.gaps,
 						],
-						built,
+						[...left.notes, ...(built ? [built] : []), ...current.notes],
 					),
 				}
 			}),
@@ -516,12 +545,26 @@ export function createCodeAnalysisProvider(
 					...(built ? [built] : []),
 				]
 				if (!row) {
+					const cls = o.store.get(
+						'SELECT name FROM classes WHERE file_id = ? AND start <= ? AND "end" > ? ORDER BY start DESC LIMIT 1',
+						info.id,
+						at.offset,
+						at.offset,
+					)
+					const place = `${info.rel}:${request.line}:${request.column ?? 1}`
+					const className = cls && cls.name !== null ? String(cls.name) : undefined
 					return {
 						kind: 'ok',
-						value: { function: null, parents: [] } satisfies AnalysisEnclosingFunction,
+						value: {
+							function: null,
+							parents: [],
+							...(cls ? { inClass: className ?? '(anonymous class)' } : {}),
+						} satisfies AnalysisEnclosingFunction,
 						evidence: {
 							observed: [
-								`${info.rel}:${request.line}:${request.column ?? 1} lies in no function body; it is at the top level of the file`,
+								cls
+									? `${place} is in the body of class ${className ?? '(anonymous)'} outside every method (a field initializer or a static block), not in a function`
+									: `${place} lies in no function body; it is at the top level of the file`,
 								...notes,
 							],
 							inferred: [],
@@ -540,7 +583,7 @@ export function createCodeAnalysisProvider(
 					value: {
 						function: fn,
 						parents,
-						source: sliceOf(text, fn.start, fn.end, clampChars(request.maxChars)),
+						source: sliceOf(text, fn.start, fn.end, clampChars(request.maxChars), at.offset),
 					} satisfies AnalysisEnclosingFunction,
 					evidence: {
 						observed: [
@@ -605,15 +648,17 @@ export function createCodeAnalysisProvider(
 						total = Number(
 							(
 								o.store.get(
-									'SELECT count(*) AS n FROM functions WHERE file_id = ? AND name = ?',
+									'SELECT count(*) AS n FROM functions WHERE file_id = ? AND (name = ? OR qname = ?)',
 									info.id,
+									request.name,
 									request.name,
 								) as Row
 							).n,
 						)
 						rows = o.store.all(
-							'SELECT * FROM functions WHERE file_id = ? AND name = ? ORDER BY start LIMIT ? OFFSET ?',
+							'SELECT * FROM functions WHERE file_id = ? AND (name = ? OR qname = ?) ORDER BY start LIMIT ? OFFSET ?',
 							info.id,
+							request.name,
 							request.name,
 							limit,
 							cursor.offset,
@@ -626,6 +671,16 @@ export function createCodeAnalysisProvider(
 						refresh: request.id === undefined,
 					})
 					if ('error' in verified) return failed(verified.error)
+					const aroundOffset = request.around
+						? offsetOf(
+								verified.info.starts,
+								verified.info.chars,
+								request.around.line,
+								request.around.column ?? 1,
+							)
+						: undefined
+					if (aroundOffset && 'error' in aroundOffset)
+						return failed(`${verified.info.rel}: ${aroundOffset.error}`)
 					const items: AnalysisFunctionSource[] = rows.map((row) => {
 						const fn = toFunction(row, verified.info)
 						return {
@@ -635,7 +690,7 @@ export function createCodeAnalysisProvider(
 								files,
 								row.parent_id === null ? null : Number(row.parent_id),
 							),
-							source: sliceOf(verified.text, fn.start, fn.end, maxChars),
+							source: sliceOf(verified.text, fn.start, fn.end, maxChars, aroundOffset?.offset),
 						}
 					})
 					const next = cursor.offset + items.length
@@ -687,23 +742,49 @@ export function createCodeAnalysisProvider(
 					gaps.push(...fileGaps(fresh.info))
 					scoped = { sql: ' AND c.file_id = ?', params: [fresh.info.id] }
 				} else {
+					const asked = request.path === undefined ? '' : toRel(o.root, request.path)
+					if (asked === undefined)
+						return failed(`${request.path} is outside the indexed root ${o.root}.`)
+					const current = await freshenScope(env, asked)
+					notes.push(...current.notes)
+					gaps.push(...current.gaps)
 					const s = scopeSql(o, files, request.path, 'c.file_id')
 					if ('error' in s) return failed(s.error)
 					scoped = s
 					scopeRel = s.rel
 				}
 				const limit = clampLimit(request.limit)
+				// A qualified name the index declares (`Svc.init`) names a METHOD. The
+				// call is then `this.init()` inside `Svc`, or `<anything>.init()`: the
+				// first is the lexical class and is resolved, the rest is a receiver
+				// whose type the index does not know and is labelled text-only.
+				const dot = request.name.lastIndexOf('.')
+				const method =
+					dot > 0 &&
+					!request.name.startsWith('this.') &&
+					o.store.get('SELECT 1 AS x FROM functions WHERE qname = ? LIMIT 1', request.name) !==
+						undefined
+						? { cls: request.name.slice(0, dot), member: request.name.slice(dot + 1) }
+						: undefined
 				// `member` is the callee OR anything ending in `.name`, compared by
 				// bytes: SQLite's LIKE folds ASCII case, which would match `obj.Run`
 				// for `run` while the evidence says it matches `.run`.
-				const test = member
-					? "(c.callee = ? OR (length(c.callee) > length(?) AND substr(c.callee, -(length(?) + 1)) = '.' || ?))"
-					: 'c.callee = ?'
-				const testParams = member
-					? [request.name, request.name, request.name, request.name]
-					: [request.name]
+				const suffix = `.${method ? method.member : request.name}`
+				const endsWith = '(length(c.callee) > ? AND substr(c.callee, -?) = ?)'
+				const test = method
+					? `(c.callee = ? OR ${endsWith})`
+					: member
+						? `(c.callee = ? OR ${endsWith})`
+						: 'c.callee = ?'
+				const testParams: unknown[] =
+					method || member ? [request.name, suffix.length, suffix.length, suffix] : [request.name]
 				const where = `WHERE ${test}${scoped.sql}`
 				const params = [...testParams, ...scoped.params]
+				const resolvedTest = method
+					? "(c.callee = ? OR (c.callee = 'this.' || ? AND c.owner = ?))"
+					: undefined
+				const resolvedParams = method ? [request.name, method.member, method.cls] : []
+				const tierSql = resolvedTest ? `CASE WHEN ${resolvedTest} THEN 0 ELSE 1 END` : '0'
 
 				let offset = 0
 				let rows: Row[] = []
@@ -721,7 +802,8 @@ export function createCodeAnalysisProvider(
 						(o.store.get(`SELECT count(*) AS n FROM calls c ${where}`, ...params) as Row).n,
 					)
 					rows = o.store.all(
-						`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs FROM calls c ${where} ORDER BY c.rowid LIMIT ? OFFSET ?`,
+						`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs, ${tierSql} AS tier FROM calls c ${where} ORDER BY tier, c.rowid LIMIT ? OFFSET ?`,
+						...resolvedParams,
 						...params,
 						limit,
 						offset,
@@ -759,16 +841,55 @@ export function createCodeAnalysisProvider(
 						callee: String(r.callee),
 						kind: String(r.kind) as AnalysisCallSite['kind'],
 						argumentCount: Number(r.nargs),
+						...(method ? { resolution: Number(r.tier) === 0 ? 'resolved' : 'text-only' } : {}),
 						...(caller ? { caller } : {}),
 						...(mark ? { stale: mark } : {}),
-					}
+					} as AnalysisCallSite
 				})
-				if (scope === 'workspace') {
+				const unresolved = Number(
+					(
+						o.store.get(
+							`SELECT count(*) AS n FROM calls c WHERE c.unres = 1${scoped.sql}`,
+							...scoped.params,
+						) as Row
+					).n,
+				)
+				const callsInScope = Number(
+					(
+						o.store.get(
+							`SELECT count(*) AS n FROM calls c WHERE 1 = 1${scoped.sql}`,
+							...scoped.params,
+						) as Row
+					).n,
+				)
+				// A computed callee (`obj[key]()`, the result of an expression) could be
+				// a call to the name asked about. That only matters to the answer when no
+				// static call was found at all, or when so many calls in scope are of
+				// that kind that a share of them is likely to be one.
+				if (unresolved > 0 && total === 0) {
 					gaps.push(
-						...workspaceGaps(o.store, scopeRel),
-						...markReasons(freshness.marks),
-						...(await newFileReasons(o.store, o.root, scopeRel)),
+						`no static call to ${JSON.stringify(request.name)} found; ${unresolved} call(s) in scope use a computed callee and could reach it`,
 					)
+				} else if (unresolved > 0 && unresolved >= callsInScope * UNRESOLVED_SHARE) {
+					gaps.push(
+						`${unresolved} of ${callsInScope} calls in scope use a computed callee (${Math.round((unresolved / callsInScope) * 100)}%), so a call to ${JSON.stringify(request.name)} made through one of them is not in these results`,
+					)
+				}
+				const resolvedCount = method
+					? Number(
+							(
+								o.store.get(
+									`SELECT count(*) AS n FROM calls c ${where} AND ${resolvedTest}`,
+									...params,
+									...resolvedParams,
+								) as Row
+							).n,
+						)
+					: 0
+				if (scope === 'workspace') {
+					const left = workspaceGaps(o.store, scopeRel)
+					gaps.push(...left.gaps, ...markReasons(freshness.marks))
+					notes.push(...left.notes)
 				} else {
 					gaps.push(...markReasons(freshness.marks))
 				}
@@ -790,12 +911,20 @@ export function createCodeAnalysisProvider(
 					},
 					evidence: evidence(
 						[
-							`${total} call expression(s) whose callee text is ${member ? `${JSON.stringify(request.name)} or ends in .${request.name}` : JSON.stringify(request.name)}, in ${distinct} file(s)`,
+							method
+								? `${total} call expression(s) of ${JSON.stringify(request.name)} or of a .${method.member}() on some other receiver, in ${distinct} file(s): ${resolvedCount} resolved (this.${method.member}() inside ${method.cls}, or the qualified text), ${total - resolvedCount} text-only`
+								: `${total} call expression(s) whose callee text is ${member ? `${JSON.stringify(request.name)} or ends in .${request.name}` : JSON.stringify(request.name)}, in ${distinct} file(s)`,
+							`${unresolved} of ${callsInScope} calls in scope use a computed callee`,
 							...notes,
 						],
 						[
 							'callers are matched by the callee TEXT, not by scope or binding: two unrelated functions called by the same name are the same callee here',
-							'a call through an alias, a destructured binding, .call/.apply or computed access (obj[name]()) is not matched',
+							'(0, a.b)() is read as a.b() and obj["b"]() as obj.b(); f.call(), f.apply() and f.bind() are listed as call-via and tagged templates as tagged; a call through an alias, a destructured binding or a computed key that is not a string literal is not matched',
+							...(method
+								? [
+										`${request.name} is a method: only this.${method.member}() inside ${method.cls} is resolved. A text-only match may be a different class's ${method.member}, or a subclass's; the receiver's type is not known`,
+									]
+								: []),
 							...(scope === 'workspace' && distinct > 1
 								? [
 										`the matches span ${distinct} files and may be different functions that share a name`,
@@ -897,6 +1026,36 @@ export function createCodeAnalysisProvider(
 	return provider
 }
 
+/**
+ * The part of a literal a hit shows: its start when that holds the match, and
+ * otherwise the window around it, so a long prompt or bundle is not shown by an
+ * unrelated first 200 characters.
+ */
+function previewOf(value: string, needle: string, insensitive: boolean): string {
+	if (value.length <= PREVIEW_CHARS) return value
+	const at = insensitive ? value.toLowerCase().indexOf(needle.toLowerCase()) : value.indexOf(needle)
+	if (at < 0 || at + needle.length <= PREVIEW_CHARS) return value.slice(0, PREVIEW_CHARS)
+	const from = Math.max(0, Math.min(at - 60, value.length - PREVIEW_CHARS))
+	const first = value.charCodeAt(from)
+	return value.slice(first >= 0xdc00 && first <= 0xdfff ? from + 1 : from, from + PREVIEW_CHARS)
+}
+
+/** The share of calls in scope with a computed callee at which a caller search is `partial`. */
+const UNRESOLVED_SHARE = 0.05
+
+/** Literals in scope that keep only their two ends: a match in the middle cannot be found. */
+function cutReasons(store: Store, scopeSql: string, params: readonly unknown[]): string[] {
+	const n = Number(
+		(store.get(`SELECT count(*) AS n FROM strings s WHERE s.cut > 0${scopeSql}`, ...params) as Row)
+			.n,
+	)
+	return n === 0
+		? []
+		: [
+				`${n} literal(s) in scope are longer than 8192 characters and keep only their first and last 4096, so a match in the middle of one cannot be found`,
+			]
+}
+
 function fileGaps(info: FileInfo): string[] {
 	if (info.parseErrors < 0) {
 		return [
@@ -905,7 +1064,11 @@ function fileGaps(info: FileInfo): string[] {
 	}
 	if (info.parseErrors > 0) {
 		return [
-			`${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`,
+			info.degraded === 2
+				? `${info.rel} had syntax errors and was read by a tolerant scan: strings and function declarations only, no calls, methods or imports`
+				: info.degraded === 1
+					? `${info.rel} had syntax errors; it was read after setting the broken lines aside, so rows from those lines are missing`
+					: `${info.rel} had syntax errors; the parser kept whatever tree it could recover, which is often none, so rows from it may be missing`,
 		]
 	}
 	return []

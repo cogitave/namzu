@@ -89,18 +89,31 @@ three things next to the answer:
 - **observed**: what was read out of the files;
 - **inferred**: what was concluded rather than read. `callersOf` matches by
   callee *text*, so two unrelated functions with one name are the same callee;
-- **coverage**: `complete`, or `partial` with the reasons (a file that did not
-  parse, a binary file skipped, a file that changed on disk since it was
-  indexed).
+- **coverage**: `complete` only when nothing relevant was left out; otherwise
+  `partial` with the reasons: a file that did not parse, a binary file skipped,
+  more files changed on disk than a query will re-read, and what the walk saw
+  and did not index in the queried part of the tree (ignored directories such
+  as `dist`, paths a `.gitignore` lists, `.html` / `.vue` files, declaration
+  files), and calls whose callee could not be named.
+
+A search compares the files under its path with the disk before it answers and
+re-reads up to 25 that changed, so a literal added by an edit is found without
+an `index` call. Methods carry a qualified name (`Svc.init`), and `callersOf`
+for one lists `this.init()` inside `Svc` as resolved and every other receiver
+as text-only.
 
 Source slices are cut from the file and checked against its content hash, and
 capped at a size you choose. A cut is reported, never silent.
 
 ## Indexing
 
-- **Files**: `.js .mjs .cjs .jsx .ts .mts .cts .tsx`. Declaration files,
-  symbolic links, `node_modules`, `.git` and similar are not entered. A binary
-  file with a `.js` name is skipped and counted, not a crash.
+- **Files**: `.js .mjs .cjs .jsx .ts .mts .cts .tsx`, and extension-less
+  scripts that start with a `node`, `bun` or `deno` shebang. Declaration files,
+  symbolic links, `node_modules`, `.git`, build output (`dist`, `build`, `out`,
+  `.next`) and anything a `.gitignore` lists are not entered, and are counted
+  and named in coverage. A binary file with a `.js` name is skipped and counted,
+  not a crash. A file with a syntax error is read after its broken lines are set
+  aside, or by a tolerant scan, and coverage says which.
 - **Cache**: one SQLite file per root, named by a hash of the root's real path,
   the schema version and the mode, in `cacheDir`. A busy file is waited for,
   never deleted; only a corrupt one is. An unwritable directory falls back to
@@ -115,7 +128,9 @@ capped at a size you choose. A cut is reported, never silent.
 - **Limits**: files over 32 MiB and trees over 150,000 files are cut and
   reported (`maxFileBytes`, `maxFiles`). A call stops after 20,000
   directories or 45 seconds (`maxDirectories`, `maxMillis`), keeps what it
-  indexed and names a narrower path to index next; it is never a refusal.
+  indexed and says which limit it hit: after the time limit, call `index` again
+  to continue; after the directory limit, index a narrower path. It is never a
+  refusal.
 - **Cancelling**: every call takes a `signal`. An aborted index keeps what it
   committed.
 
@@ -130,11 +145,14 @@ the scan.
 
 ## Limits worth knowing
 
-- Callers are matched by text, not by scope. Calls through an alias, a
-  destructured binding, `.call` / `.apply` or `obj[name]()` are not matched.
-- Literals are indexed up to 4096 characters, and a template literal one static
-  chunk at a time.
-- A file with syntax errors is recorded but may yield no rows; coverage says so.
+- Callers are matched by text, not by scope. `(0, a.b)()` is read as `a.b()` and
+  `obj['b']()` as `obj.b()`; calls through an alias, a destructured binding or a
+  non-literal computed key are not matched, and their count is in evidence
+  (`callee_unresolved`).
+- Literals are indexed whole up to 8,192 characters (the first and last 4,096 of
+  a longer one), and a template literal one static chunk at a time.
+- A file with syntax errors may lose the lines around the error; coverage says
+  how it was read.
 - There is no type information. This is a syntactic index.
 
 ## Documentation

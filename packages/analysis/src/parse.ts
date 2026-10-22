@@ -61,6 +61,10 @@ export interface Parsed {
 	readonly program: unknown
 	readonly errors: number
 	readonly firstError?: string
+	/** Where each error starts, as an offset into the text parsed. */
+	readonly errorStarts: readonly number[]
+	/** The parser recovered nothing: the program has no statements. */
+	readonly empty: boolean
 }
 
 export const SOURCE_EXTENSIONS: ReadonlyMap<string, 'js' | 'jsx' | 'ts' | 'tsx'> = new Map([
@@ -103,17 +107,30 @@ export function languageOf(path: string): 'js' | 'jsx' | 'ts' | 'tsx' | undefine
  * Throws when the parser itself throws; a file that merely has syntax errors
  * comes back with `errors > 0` and whatever tree the parser recovered.
  */
-export async function parseSource(path: string, text: string): Promise<Parsed> {
+export async function parseSource(
+	path: string,
+	text: string,
+	as?: 'js' | 'jsx' | 'ts' | 'tsx',
+): Promise<Parsed> {
 	const { module, raw } = await loadOxc()
-	return parseWith(module, raw, path, text)
+	return parseWith(module, raw, path, text, as)
 }
 
-function parseWith(module: OxcModule, raw: boolean, path: string, text: string): Parsed {
-	const lang = languageOf(path)
+function parseWith(
+	module: OxcModule,
+	raw: boolean,
+	path: string,
+	text: string,
+	as?: 'js' | 'jsx' | 'ts' | 'tsx',
+): Parsed {
+	const lang = as ?? languageOf(path)
 	const ext = extname(path).toLowerCase()
 	const base = {
 		preserveParens: false,
-		...(lang === 'jsx' ? { lang: 'jsx' as const } : {}),
+		// An extension-less script (found by its shebang) has no extension to say
+		// what it is: JavaScript, with JSX tolerated like any `.js`.
+		...(lang === 'jsx' || (lang === undefined && ext === '') ? { lang: 'jsx' as const } : {}),
+		...(as === 'tsx' || as === 'ts' ? { lang: as } : {}),
 	}
 	const sourceType = ext === '.cjs' ? 'commonjs' : ext === '.mjs' ? 'module' : 'unambiguous'
 	const attempt = (type: 'unambiguous' | 'commonjs' | 'module', useRaw: boolean) => {
@@ -143,9 +160,12 @@ function parseWith(module: OxcModule, raw: boolean, path: string, text: string):
 		if (script.errors.length < result.errors.length) result = script
 	}
 	const first = result.errors[0]
+	const body = (result.program as { body?: unknown[] }).body
 	return {
 		program: result.program,
 		errors: result.errors.length,
 		...(first ? { firstError: first.message } : {}),
+		errorStarts: result.errors.flatMap((e) => (e.labels ?? []).slice(0, 1).map((l) => l.start)),
+		empty: !Array.isArray(body) || body.length === 0,
 	}
 }

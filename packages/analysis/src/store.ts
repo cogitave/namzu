@@ -44,7 +44,7 @@ import type { RowsPayload } from './walk.js'
  * inside the transaction that uses it.
  */
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 3
 
 type Sqlite = typeof import('node:sqlite')
 let sqlite: Promise<Sqlite | undefined> | undefined
@@ -60,17 +60,23 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS files(
 	id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, chars INTEGER NOT NULL, lang TEXT NOT NULL,
 	parse_errors INTEGER NOT NULL, line_starts BLOB NOT NULL, size INTEGER NOT NULL,
-	mtime_ms REAL NOT NULL, hash TEXT NOT NULL);
+	mtime_ms REAL NOT NULL, hash TEXT NOT NULL, degraded INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS dirs(path TEXT PRIMARY KEY, mtime_ms REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS excl(
+	path TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, n INTEGER NOT NULL,
+	PRIMARY KEY(path, kind, name));
 CREATE TABLE IF NOT EXISTS functions(
 	id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, parent_id INTEGER, kind TEXT NOT NULL, name TEXT,
-	start INTEGER NOT NULL, "end" INTEGER NOT NULL, sline INTEGER NOT NULL, eline INTEGER NOT NULL);
+	start INTEGER NOT NULL, "end" INTEGER NOT NULL, sline INTEGER NOT NULL, eline INTEGER NOT NULL,
+	qname TEXT);
+CREATE TABLE IF NOT EXISTS classes(
+	file_id INTEGER NOT NULL, name TEXT, start INTEGER NOT NULL, "end" INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS strings(
 	id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, fn_id INTEGER, start INTEGER NOT NULL,
-	"end" INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL);
+	"end" INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, cut INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS calls(
 	file_id INTEGER NOT NULL, fn_id INTEGER, start INTEGER NOT NULL, "end" INTEGER NOT NULL,
-	callee TEXT NOT NULL, kind TEXT NOT NULL, nargs INTEGER NOT NULL);
+	callee TEXT NOT NULL, kind TEXT NOT NULL, nargs INTEGER NOT NULL, owner TEXT, unres INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS imports(
 	file_id INTEGER NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, names TEXT NOT NULL, start INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS exports(
@@ -81,6 +87,10 @@ CREATE TABLE IF NOT EXISTS exports(
 const SECONDARY_INDEXES = `
 CREATE INDEX IF NOT EXISTS fn_file_start ON functions(file_id, start);
 CREATE INDEX IF NOT EXISTS fn_name ON functions(name);
+CREATE INDEX IF NOT EXISTS fn_qname ON functions(qname) WHERE qname IS NOT NULL;
+CREATE INDEX IF NOT EXISTS class_file ON classes(file_id, start);
+CREATE INDEX IF NOT EXISTS str_cut ON strings(file_id) WHERE cut > 0;
+CREATE INDEX IF NOT EXISTS call_unres ON calls(file_id) WHERE unres = 1;
 CREATE INDEX IF NOT EXISTS str_fn ON strings(fn_id);
 CREATE INDEX IF NOT EXISTS str_file ON strings(file_id, start);
 CREATE INDEX IF NOT EXISTS call_callee ON calls(callee);
@@ -97,6 +107,8 @@ export interface FileRecord {
 	readonly chars: number
 	readonly lang: string
 	readonly parseErrors: number
+	/** 1: read after blanking broken lines; 2: read by the tolerant scanner. */
+	readonly degraded: number
 	readonly lineStarts: Uint32Array
 	readonly size: number
 	readonly mtimeMs: number
@@ -332,17 +344,45 @@ export class Store {
 	}
 
 	/** Every stored file at or under `scope` (a relative path; empty is all), keyed by path. */
-	storedFiles(scope: string): Map<string, StoredFile> {
+	/**
+	 * The files recorded at or under `scope`. With `shallow`, only the scope
+	 * itself and its direct children, plus everything under the `vanished`
+	 * subdirectories.
+	 */
+	storedFiles(
+		scope: string,
+		only?: { readonly shallow: true; readonly vanished: readonly string[] },
+	): Map<string, StoredFile> {
 		const map = new Map<string, StoredFile>()
-		const rows =
-			scope === ''
-				? this.all('SELECT id, path, size, mtime_ms, hash FROM files')
-				: this.all(
-						'SELECT id, path, size, mtime_ms, hash FROM files WHERE path = ? OR (path >= ? AND path < ?)',
-						scope,
-						`${scope}/`,
-						`${scope}0`,
-					)
+		const select = 'SELECT id, path, size, mtime_ms, hash FROM files'
+		const rows: Record<string, unknown>[] = []
+		if (only) {
+			const prefix = scope === '' ? '' : `${scope}/`
+			// Direct children: past the prefix there is no further separator.
+			rows.push(
+				...this.all(
+					`${select} WHERE path = ? OR (path >= ? AND path < ? AND instr(substr(path, ?), '/') = 0)`,
+					scope,
+					prefix,
+					scope === '' ? '\uffff' : `${scope}0`,
+					Array.from(prefix).length + 1,
+				),
+			)
+			for (const v of only.vanished) {
+				rows.push(...this.all(`${select} WHERE path >= ? AND path < ?`, `${v}/`, `${v}0`))
+			}
+		} else {
+			rows.push(
+				...(scope === ''
+					? this.all(select)
+					: this.all(
+							`${select} WHERE path = ? OR (path >= ? AND path < ?)`,
+							scope,
+							`${scope}/`,
+							`${scope}0`,
+						)),
+			)
+		}
 		for (const r of rows) {
 			map.set(String(r.path), {
 				id: Number(r.id),
@@ -354,6 +394,28 @@ export class Store {
 		return map
 	}
 
+	/** Recorded directories directly below `scope`. */
+	childDirs(scope: string): string[] {
+		const prefix = scope === '' ? '' : `${scope}/`
+		return this.all(
+			"SELECT path FROM dirs WHERE path >= ? AND path < ? AND path != '' AND instr(substr(path, ?), '/') = 0",
+			prefix,
+			scope === '' ? '\uffff' : `${scope}0`,
+			Array.from(prefix).length + 1,
+		).map((r) => String(r.path))
+	}
+
+	/** Forget a directory and everything recorded below it about what its walk saw. */
+	dropDirectoryRows(rel: string): void {
+		for (const table of ['dirs', 'excl']) {
+			this.prepare(`DELETE FROM ${table} WHERE path = ? OR (path >= ? AND path < ?)`).run(
+				rel,
+				`${rel}/`,
+				`${rel}0`,
+			)
+		}
+	}
+
 	/** Remove a file and every row that hangs off it. */
 	removeFile(fileId: number): void {
 		if (this.fts) {
@@ -363,7 +425,7 @@ export class Store {
 				"INSERT INTO lit(lit, rowid, value) SELECT 'delete', id, value FROM strings WHERE file_id = ? AND length(value) >= 3",
 			).run(fileId)
 		}
-		for (const table of ['strings', 'calls', 'functions', 'imports', 'exports']) {
+		for (const table of ['strings', 'calls', 'functions', 'classes', 'imports', 'exports']) {
 			this.prepare(`DELETE FROM ${table} WHERE file_id = ?`).run(fileId)
 		}
 		this.prepare('DELETE FROM files WHERE id = ?').run(fileId)
@@ -399,7 +461,7 @@ export class Store {
 			return lo + 1
 		}
 		const result = this.prepare(
-			'INSERT INTO files(path, chars, lang, parse_errors, line_starts, size, mtime_ms, hash) VALUES(?,?,?,?,?,?,?,?)',
+			'INSERT INTO files(path, chars, lang, parse_errors, line_starts, size, mtime_ms, hash, degraded) VALUES(?,?,?,?,?,?,?,?,?)',
 		).run(
 			record.path,
 			record.chars,
@@ -409,11 +471,12 @@ export class Store {
 			record.size,
 			record.mtimeMs,
 			record.hash,
+			record.degraded,
 		)
 		const id = Number(result.lastInsertRowid)
 		const remap = (local: number | null): number | null => (local === null ? null : base + local)
 
-		const insFn = this.prepare('INSERT INTO functions VALUES(?,?,?,?,?,?,?,?,?)')
+		const insFn = this.prepare('INSERT INTO functions VALUES(?,?,?,?,?,?,?,?,?,?)')
 		for (const f of rows.functions) {
 			insFn.run(
 				base + f.id,
@@ -425,22 +488,28 @@ export class Store {
 				f.end,
 				lineOf(f.start),
 				lineOf(f.end),
+				f.qname !== null && f.qname !== f.name ? f.qname : null,
 			)
 		}
+		const insClass = this.prepare('INSERT INTO classes VALUES(?,?,?,?)')
+		for (const c of rows.classes) insClass.run(id, c.name, c.start, c.end)
 		const insStr = this.prepare(
-			'INSERT INTO strings(file_id, fn_id, start, "end", kind, value) VALUES(?,?,?,?,?,?)',
+			'INSERT INTO strings(file_id, fn_id, start, "end", kind, value, cut) VALUES(?,?,?,?,?,?,?)',
 		)
 		// The substring index is fed row by row from the ids just assigned. A
 		// `SELECT … WHERE file_id = ?` here would scan the whole table once per
 		// file during a first index, when the secondary indexes do not exist yet.
 		const insLit = this.fts ? this.prepare('INSERT INTO lit(rowid, value) VALUES(?, ?)') : undefined
 		for (const s of rows.strings) {
-			const r = insStr.run(id, remap(s.fnId), s.start, s.end, s.kind, s.value)
+			const r = insStr.run(id, remap(s.fnId), s.start, s.end, s.kind, s.value, s.cut)
 			if (insLit && s.value.length >= 3) insLit.run(Number(r.lastInsertRowid), s.value)
 		}
-		const insCall = this.prepare('INSERT INTO calls VALUES(?,?,?,?,?,?,?)')
-		for (const c of rows.calls)
-			insCall.run(id, remap(c.fnId), c.start, c.end, c.callee, c.kind, c.nargs)
+		const insCall = this.prepare('INSERT INTO calls VALUES(?,?,?,?,?,?,?,?,?)')
+		for (const c of rows.calls) {
+			// A callee the index cannot name: not an identifier or a member path.
+			const unresolved = c.callee === '?' || c.callee.endsWith('[]') ? 1 : 0
+			insCall.run(id, remap(c.fnId), c.start, c.end, c.callee, c.kind, c.nargs, c.owner, unresolved)
+		}
 		const insImp = this.prepare('INSERT INTO imports VALUES(?,?,?,?,?)')
 		for (const i of rows.imports) insImp.run(id, i.kind, i.source, i.names, i.start)
 		const insExp = this.prepare('INSERT INTO exports VALUES(?,?,?,?,?)')

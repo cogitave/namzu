@@ -179,7 +179,7 @@ describe('what is and is not indexed', () => {
 		await p.dispose()
 	})
 
-	it('records a file with syntax errors, finds nothing in it, and says rows may be missing', async () => {
+	it('records a file with syntax errors, keeps the lines around the error, and says rows may be missing', async () => {
 		const tree = make({
 			'broken.js': 'function ok1(){return "before-the-error"}\nfunction ( {\nconst x = ;\n',
 			'fine.js': 'function f(){return "after-fine"}',
@@ -189,12 +189,14 @@ describe('what is and is not indexed', () => {
 		const out = ok(await p.index({ root }))
 		expect(out.value.files).toMatchObject({ indexed: 2, withParseErrors: 1 })
 		expect(out.evidence.coverage.status).toBe('partial')
-		// The parser panics on this input and returns an empty program: the
-		// honest result is no rows from the file, with the gap reported.
-		const lost = ok(await p.findLiteral({ root, text: 'before-the-error' }))
-		expect(lost.value.total).toBe(0)
-		expect(lost.evidence.coverage.status).toBe('partial')
-		expect(JSON.stringify(lost.evidence.coverage)).toContain('syntax errors')
+		// The parser panics on this input and returns an empty program. The
+		// broken lines are set aside and the rest is read: the function before the
+		// error is found, with the gap reported.
+		const found = ok(await p.findLiteral({ root, text: 'before-the-error' }))
+		expect(found.value.total).toBe(1)
+		expect(found.value.items[0]?.function?.name).toBe('ok1')
+		expect(found.evidence.coverage.status).toBe('partial')
+		expect(JSON.stringify(found.evidence.coverage)).toContain('syntax errors')
 		const kept = ok(await p.findLiteral({ root, text: 'after-fine' }))
 		expect(kept.value.total).toBe(1)
 		await p.dispose()

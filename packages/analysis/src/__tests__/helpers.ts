@@ -22,6 +22,9 @@ export class Tree {
 		// Pinned, so "unchanged" never depends on the clock's granularity.
 		if (mtimeSeconds !== undefined) utimesSync(this.path(rel), mtimeSeconds, mtimeSeconds)
 	}
+	remove(rel: string): void {
+		rmSync(this.path(rel), { recursive: true, force: true })
+	}
 	dispose(): void {
 		rmSync(this.root, { recursive: true, force: true })
 	}
