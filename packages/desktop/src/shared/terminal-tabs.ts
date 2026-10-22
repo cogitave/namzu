@@ -230,6 +230,7 @@ export function codexPermissionArgs(mode: ReviewMode): string[] {
 	switch (mode) {
 		case 'accept-edits':
 			return ['-a', 'on-request', '-s', 'workspace-write']
+		case 'bypass':
 		case 'auto':
 			return ['-a', 'on-request', '-s', 'danger-full-access']
 		case 'plan':
@@ -240,12 +241,31 @@ export function codexPermissionArgs(mode: ReviewMode): string[] {
 	}
 }
 
+/**
+ * The word Namzu's own `--permission-mode` takes for a mode the window holds.
+ * The kernel's `classify` is the CLI's `auto`; the old Full access id, the
+ * kernel's `auto`, now means `bypass`, which is what the label promised.
+ */
+export function namzuPermissionArgument(mode: ReviewMode): string {
+	switch (mode) {
+		case 'classify':
+			return 'auto'
+		case 'auto':
+			return 'bypass'
+		default:
+			return mode
+	}
+}
+
 export function secondEnginePermissionArgument(mode: ReviewMode): string {
 	switch (mode) {
 		case 'accept-edits':
 			return 'acceptEdits'
+		case 'bypass':
 		case 'auto':
 			return 'bypassPermissions'
+		case 'classify':
+			return 'auto'
 		case 'plan':
 			return 'plan'
 		case 'strict':
@@ -320,7 +340,7 @@ export function buildEngineLaunch(
 		if (choices.provider) args.push('--provider', choices.provider)
 		if (choices.model) args.push('--model', choices.model)
 		if (choices.effort) args.push('--effort', choices.effort)
-		args.push('--permission-mode', choices.permissionMode)
+		args.push('--permission-mode', namzuPermissionArgument(choices.permissionMode))
 		const message = choices.prompt?.trim() ? choices.prompt : undefined
 		// `--message=<text>` is one argument, so a leading dash or a space in the message is not parsed
 		// as anything else; the TUI sends it once, as a plain prompt, when its composer is ready.

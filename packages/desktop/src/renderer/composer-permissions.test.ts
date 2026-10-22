@@ -103,7 +103,7 @@ function entryValue(entry: Node): string {
 	for (const engine of ['namzu', 'codex-cli', 'claude-code'] as const)
 		for (const row of permissionRows(
 			engine,
-			['prompt', 'accept-edits', 'auto', 'plan', 'strict'],
+			['prompt', 'accept-edits', 'classify', 'bypass', 'plan', 'strict'],
 			'strict',
 		))
 			if (label.startsWith(row.label)) return row.value
@@ -120,20 +120,20 @@ function text(node: ReactNode): string {
 	return isValidElement<Record<string, unknown>>(node) ? text(node.props.children as ReactNode) : ''
 }
 
-const all5 = ['prompt', 'accept-edits', 'auto', 'plan', 'strict'] as const
+const all6 = ['prompt', 'accept-edits', 'classify', 'bypass', 'plan', 'strict'] as const
 
 it.each([
-	['namzu', ['prompt', 'accept-edits', 'auto', 'plan']],
-	['codex-cli', ['prompt', 'accept-edits', 'auto', 'plan']],
+	['namzu', ['prompt', 'accept-edits', 'classify', 'bypass', 'plan']],
+	['codex-cli', ['prompt', 'accept-edits', 'bypass', 'plan']],
 	['claude-code', ['prompt', 'plan']],
 ] as const)('lists only what %s supports, in menu order', (engine, expected) => {
 	const supported: readonly ComposerPermissionMode[] =
-		engine === 'claude-code' ? ['prompt', 'plan'] : all5
+		engine === 'claude-code' ? ['prompt', 'plan'] : all6
 	expect(permissionRows(engine, supported, 'prompt').map((row) => row.value)).toEqual(expected)
 })
 
 it('reaches accept-edits whenever the engine supports it', () => {
-	const view = render({ reviewModes: ['prompt', 'accept-edits', 'auto', 'plan'] })
+	const view = render({ reviewModes: ['prompt', 'accept-edits', 'classify', 'bypass', 'plan'] })
 	expect(rows(view).map(entryValue)).toContain('accept-edits')
 	// Without explicit reviewModes (what the app passes for Namzu and Codex) it is still offered.
 	expect(rows(render()).map(entryValue)).toContain('accept-edits')
@@ -141,18 +141,18 @@ it('reaches accept-edits whenever the engine supports it', () => {
 })
 
 it('hides strict unless it is the saved mode, then shows it as preapproved only', () => {
-	expect(permissionRows('namzu', all5, 'prompt').map((row) => row.value)).not.toContain('strict')
-	const saved = permissionRows('namzu', all5, 'strict')
+	expect(permissionRows('namzu', all6, 'prompt').map((row) => row.value)).not.toContain('strict')
+	const saved = permissionRows('namzu', all6, 'strict')
 	expect(saved.at(-1)).toMatchObject({ value: 'strict', label: 'Preapproved only' })
 })
 
 it('titles plan as Read only for Codex and marks only Full access as a warning', () => {
-	const codex = permissionRows('codex-cli', all5, 'prompt')
+	const codex = permissionRows('codex-cli', all6, 'prompt')
 	expect(codex.find((row) => row.value === 'plan')?.label).toBe('Read only')
-	expect(permissionRows('namzu', all5, 'prompt').find((row) => row.value === 'plan')?.label).toBe(
+	expect(permissionRows('namzu', all6, 'prompt').find((row) => row.value === 'plan')?.label).toBe(
 		'Plan only',
 	)
-	expect(codex.filter((row) => row.warning).map((row) => row.value)).toEqual(['auto'])
+	expect(codex.filter((row) => row.warning).map((row) => row.value)).toEqual(['bypass'])
 })
 
 it('titles the menu with the engine name', () => {
@@ -162,9 +162,9 @@ it('titles the menu with the engine name', () => {
 })
 
 it('names the chip by the current mode and flags Full access', () => {
-	const view = render({ permissionMode: 'auto' })
+	const view = render({ permissionMode: 'bypass' })
 	expect(one(view, 'trigger').props['aria-label']).toBe('Permissions: Full access')
-	expect(one(view, 'trigger').props['data-composer-permission']).toBe('auto')
+	expect(one(view, 'trigger').props['data-composer-permission']).toBe('bypass')
 })
 
 it('marks a saved mode the engine no longer supports and never changes it silently', () => {
@@ -192,7 +192,7 @@ it('requires explicit Codex full-access confirmation, focuses cancellation first
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }
 	let view = render(props)
-	choose(view, 'auto')
+	choose(view, 'bypass')
 	expect(onChange).not.toHaveBeenCalled()
 	view = render(props)
 	expect(one(view, 'alert-dialog').props.open).toBe(true)
@@ -204,14 +204,14 @@ it('requires explicit Codex full-access confirmation, focuses cancellation first
 	const apply = confirm(view)
 	apply()
 	apply()
-	expect(onChange).toHaveBeenCalledExactlyOnceWith('auto')
+	expect(onChange).toHaveBeenCalledExactlyOnceWith('bypass')
 	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
 })
 
 it('asks once, with the consequences in words, before Namzu full access', () => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'namzu', onChange }
-	choose(render(props), 'auto')
+	choose(render(props), 'bypass')
 	expect(onChange).not.toHaveBeenCalled()
 	const view = render(props)
 	expect(one(view, 'alert-dialog').props.open).toBe(true)
@@ -221,13 +221,13 @@ it('asks once, with the consequences in words, before Namzu full access', () => 
 	const apply = confirm(view)
 	apply()
 	apply()
-	expect(onChange).toHaveBeenCalledExactlyOnceWith('auto')
+	expect(onChange).toHaveBeenCalledExactlyOnceWith('bypass')
 })
 
 it('dismisses full-access confirmation without policy selection', () => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }
-	choose(render(props), 'auto')
+	choose(render(props), 'bypass')
 	;(one(render(props), 'close').props.onClick as () => void)()
 	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
 	expect(onChange).not.toHaveBeenCalled()
@@ -235,8 +235,8 @@ it('dismisses full-access confirmation without policy selection', () => {
 
 it('does not prompt again for an already-selected Codex full access', () => {
 	const onChange = vi.fn()
-	const view = render({ engine: 'codex-cli', permissionMode: 'auto', onChange })
-	choose(view, 'auto')
+	const view = render({ engine: 'codex-cli', permissionMode: 'bypass', onChange })
+	choose(view, 'bypass')
 	expect(one(view, 'alert-dialog').props.open).toBe(false)
 	expect(onChange).not.toHaveBeenCalled()
 })
@@ -250,7 +250,7 @@ it.each([
 ])('refuses a stale confirmation after current conversation authority changes: %j', (changed) => {
 	const onChange = vi.fn()
 	const props: Partial<Props> = { engine: 'codex-cli', onChange }
-	choose(render(props), 'auto')
+	choose(render(props), 'bypass')
 	const staleConfirm = confirm(render(props))
 	expect(one(render({ ...props, ...changed }), 'alert-dialog').props.open).toBe(false)
 	staleConfirm()
@@ -260,9 +260,46 @@ it.each([
 
 it('refuses a disabled selection without opening confirmation', () => {
 	const onChange = vi.fn()
-	choose(render({ engine: 'codex-cli', disabled: true, onChange }), 'auto')
+	choose(render({ engine: 'codex-cli', disabled: true, onChange }), 'bypass')
 	expect(
 		one(render({ engine: 'codex-cli', disabled: true, onChange }), 'alert-dialog').props.open,
 	).toBe(false)
 	expect(onChange).not.toHaveBeenCalled()
+})
+
+it('offers Auto to Namzu alone, between editing and Full access', () => {
+	const namzu = permissionRows('namzu', all6, 'prompt')
+	expect(namzu.map((row) => row.label)).toEqual([
+		'Ask first',
+		'Edit automatically',
+		'Auto',
+		'Full access',
+		'Plan only',
+	])
+	expect(namzu.find((row) => row.value === 'classify')).toMatchObject({
+		warning: false,
+		selectable: true,
+	})
+	for (const engine of ['codex-cli', 'claude-code'] as const) {
+		expect(permissionRows(engine, all6, 'prompt').map((row) => row.value)).not.toContain('classify')
+	}
+})
+
+it('commits Auto at once, with no confirmation, and keeps the warning for Full access', () => {
+	const onChange = vi.fn()
+	const props: Partial<Props> = { engine: 'namzu', onChange }
+	choose(render(props), 'classify')
+	expect(onChange).toHaveBeenCalledExactlyOnceWith('classify')
+	expect(one(render(props), 'alert-dialog').props.open).toBe(false)
+})
+
+it('names the chip Auto when that is the mode', () => {
+	const view = render({ permissionMode: 'classify' })
+	expect(one(view, 'trigger').props['aria-label']).toBe('Permissions: Auto')
+	expect(one(view, 'trigger').props['data-composer-permission']).toBe('classify')
+})
+
+it('does not offer Auto when the engine’s capabilities leave it out', () => {
+	const view = render({ reviewModes: ['prompt', 'accept-edits', 'bypass', 'plan'] })
+	expect(rows(view).map(entryValue)).not.toContain('classify')
 })

@@ -178,6 +178,10 @@ export function createMonitorTool(options: MonitorToolOptions = {}) {
 		// has no `command`, so a rule written for commands has nothing to match
 		// and cannot allow it; `requiresApproval` below is what asks.
 		commandArgument: 'command',
+		classifierInput: (input: MonitorInput) =>
+			input.command !== undefined
+				? `[long-running watch] ${input.command}`
+				: `[long-running WebSocket watch] ${JSON.stringify(input.ws)}`,
 		commandDialect: bashToolDialect,
 		// `network_access` too: a WebSocket call reaches the network. The gate
 		// reads a tool's `category`, not this list, to route a call, so declaring

@@ -267,13 +267,12 @@ again for <that> this session". A remembered answer is consulted after your
 or tool shown, and never covers a sandbox escape, a path outside the working
 directory, a call a rule asks about, or a destructive one. It is kept in memory
 for the session and is gone when it ends.
-For typed shortcuts, `/permissions prompt`, `accept-edits`, `auto`, `strict`
-and `plan` remain accepted. `/permissions details` opens the rule report directly.
+The menu lists every mode with a sentence each (Ask before changes, Auto-approve edits, Plan, Bypass permissions, Auto), and a mode this session cannot enter says why; only Preapproved tools only and the rules are under "More options". For typed shortcuts, `/permissions prompt`, `accept-edits`, `plan`, `bypass`, `auto` and `strict` are accepted ([Permission modes](permission-modes.md)); `bypass` is refused unless the launch opened it. `/permissions details` opens the rule report directly.
 
 An explicit `ask` in the configured permissions table is retained as a review
 rule, including when it precedes a broader wildcard `allow`. It also prevents
 automatic read-only exemptions in prompt modes. Omitting a rule keeps the normal
-read-only default. Auto mode retains its meaning.
+read-only default. An `ask` rule is asked in every mode, `bypass` and `auto` included.
 
 `/permissions details` also says, in `prompt`, `accept-edits` and `plan`, that
 a read-only agent (`explore`, or an agent file with `readOnly: true`) on the
@@ -355,7 +354,7 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit.
 - **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
-- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `auto` when the session may use it (launched in `auto`, started with `--allow-dangerously-skip-permissions`, or `auto` chosen by name in `/permissions`; see [Launch flags](launch-flags.md)), then `prompt`. `auto` and `strict` go back to `prompt`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
+- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `bypass` when the launch opened it (`--yolo`, `--allow-dangerously-skip-permissions`, `permissions.defaultMode: bypass`; see [Launch flags](launch-flags.md)), then `auto` unless `permissions.disableAutoMode` is set, then `prompt`. `strict` is not on the cycle and goes back to `prompt`; see [Permission modes](permission-modes.md). It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).

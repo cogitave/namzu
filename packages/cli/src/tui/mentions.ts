@@ -154,6 +154,12 @@ export interface ExpandedMessage {
 	readonly sendText: string
 	/** Relative paths that were inlined (for a UI affordance). */
 	readonly attached: readonly string[]
+	/**
+	 * The `<file>` blocks alone, when there are any. They are file contents,
+	 * not the operator's words, so a host that records provenance sends them
+	 * as their own message instead of inside the operator's.
+	 */
+	readonly inlined?: string
 }
 
 /**
@@ -189,7 +195,8 @@ export function expandFileMentions(
 		attached.push(label)
 	}
 	if (blocks.length === 0) return { sendText: text, attached: [] }
-	return { sendText: `${text}\n\n${blocks.join('\n\n')}`, attached }
+	const inlined = blocks.join('\n\n')
+	return { sendText: `${text}\n\n${inlined}`, attached, inlined }
 }
 
 interface LineRange {

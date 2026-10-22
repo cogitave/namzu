@@ -66,6 +66,7 @@ function build(
 		commands?: HostCommandRegistry
 		supportsPromptAttachments?: boolean
 		supportsPromptOptions?: boolean
+		promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	} = {},
 ) {
 	const wire = pair()
@@ -75,6 +76,7 @@ function build(
 	const server = new ACPServer({
 		supportsPromptAttachments: over.supportsPromptAttachments,
 		supportsPromptOptions: over.supportsPromptOptions,
+		promptPermissionModes: over.promptPermissionModes,
 		transport: wire.transport,
 		gateway,
 		commands: over.commands ?? new HostCommandRegistry(),
@@ -1950,5 +1952,68 @@ describe('per-message prompt settings', () => {
 			await fixture.server.stop()
 		}
 		expect(calls).toBe(2)
+	})
+
+	it('accepts bypass and classify per prompt only when the host says it applies them', async () => {
+		for (const mode of ['bypass', 'classify'] as const) {
+			const received: unknown[] = []
+			const undeclared = build({
+				supportsPromptOptions: true,
+				gateway: {
+					prompt: async (request) => {
+						received.push(request.options)
+						return { stopReason: 'end_turn' }
+					},
+				},
+			})
+			await handshake(undeclared)
+			undeclared.deliver({
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'session/prompt',
+				params: {
+					sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+					prompt: 'x',
+					options: { permissionMode: mode },
+				},
+			})
+			await settle()
+			const refusal = undeclared.sent.find((frame) => frame.id === 3)?.error
+			expect(refusal?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+			expect(refusal?.message).toContain(`"${mode}"`)
+			expect(received).toEqual([])
+			expect(undeclared.sent.find((frame) => frame.id === 1)?.result).not.toHaveProperty(
+				'promptPermissionModes',
+			)
+			await undeclared.server.stop()
+
+			const declared = build({
+				supportsPromptOptions: true,
+				promptPermissionModes: [mode],
+				gateway: {
+					prompt: async (request) => {
+						received.push(request.options)
+						return { stopReason: 'end_turn' }
+					},
+				},
+			})
+			await handshake(declared)
+			declared.deliver({
+				jsonrpc: '2.0',
+				id: 3,
+				method: 'session/prompt',
+				params: {
+					sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+					prompt: 'x',
+					options: { permissionMode: mode },
+				},
+			})
+			await settle()
+			expect(received).toEqual([{ permissionMode: mode }])
+			expect(declared.sent.find((frame) => frame.id === 1)?.result).toMatchObject({
+				promptPermissionModes: [mode],
+			})
+			await declared.server.stop()
+		}
 	})
 })

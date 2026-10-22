@@ -478,6 +478,9 @@ const BashToolBase = defineTool({
 	// so a permission rule about it is a rule about several commands more often
 	// than not. Naming the argument is what lets the gate read it that way.
 	commandArgument: 'command',
+	// The classifier judges the command line, not the surrounding options.
+	classifierInput: (input: BashInput) =>
+		`${input.dangerously_disable_sandbox === true ? '[outside the sandbox] ' : ''}${input.command}`,
 	// The shell that runs it, so the rules read the line as that shell will.
 	commandDialect: bashToolDialect,
 	// The kernel reviews a call that sets it under a sandbox every time and

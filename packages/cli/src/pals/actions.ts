@@ -195,7 +195,10 @@ export function createCliPalReviewActions(
 		if (!isPermissionMode(mode)) throw new Error('Invalid trusted Pal review permission mode.')
 		// This action grants one exact batch. A current automatic mode is not
 		// a grant for later reviewed calls; independent explicit rules remain.
-		return mode === 'auto' || mode === 'accept-edits' ? 'prompt' : mode
+		// Bypass and the classifier are automatic modes too.
+		return mode === 'auto' || mode === 'accept-edits' || mode === 'bypass' || mode === 'classify'
+			? 'prompt'
+			: mode
 	}
 	const log = DiskSessionLog.at(options.paths, { sessionId: scope.sessionId })
 	const checkpoints = new DiskSessionCheckpointStore({

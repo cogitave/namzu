@@ -85,6 +85,7 @@ import {
 } from '../integrations/sessions/store.js'
 import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import {
 	compilePermissionLayers,
@@ -307,6 +308,10 @@ export async function execJson(
 		interactive: false,
 	})
 	if ('error' in modeResult) return fail(modeResult.error)
+	const modeRefusal = launchRefusal(modeResult.mode, {
+		settings: ctx.config.permissionSettings,
+	})
+	if (modeRefusal) return fail(modeRefusal)
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissionLayers(
@@ -345,6 +350,7 @@ export async function execJson(
 		// gates is byte-identical to the one that shipped before them.
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
+		...(ctx.config.permissionSettings ? { permissionSettings: ctx.config.permissionSettings } : {}),
 		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
@@ -379,6 +385,10 @@ export async function execJson(
 		// to prevent, and would make that sentence unrewordable.
 		const message = session.errorHint ?? 'agent is not ready'
 		return session.errorKind === 'invocation' ? fail(message) : refuse(message)
+	}
+	if (modeResult.mode === 'classify' && session.autoMode?.available === false) {
+		await session.close()
+		return fail(session.autoMode.reason ?? 'Auto mode is not available.')
 	}
 	// A configured tool server that is not here means the turn cannot do what
 	// the operator set it up to do, and this command answers a host, not a

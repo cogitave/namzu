@@ -464,7 +464,7 @@ export function withCliHarnesses(
 				const mode = request.options?.permissionMode ?? 'prompt'
 				const supportedReviewModes =
 					choice.engine === 'codex-cli'
-						? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+						? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
 						: ['prompt', 'plan']
 				if (!supportedReviewModes.includes(mode))
 					throw new Error(

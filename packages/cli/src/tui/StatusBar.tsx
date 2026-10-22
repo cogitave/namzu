@@ -87,14 +87,20 @@ export interface StatusBarProps {
 export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
 
 /** Icon, color and words for an active (non-default) permission mode; the footer adds ` on`. */
-function modeGlyph(mode: PermissionMode): {
+export function modeGlyph(mode: PermissionMode): {
 	readonly icon: string
 	readonly color: string
 	readonly label: string
 } {
 	switch (mode) {
-		case 'auto':
+		case 'bypass':
 			return { icon: MODE_MARK.moving, color: theme.status.error, label: 'bypass permissions' }
+		case 'classify':
+			return { icon: MODE_MARK.moving, color: theme.status.warn, label: 'auto mode' }
+		case 'auto':
+			// The kernel's unattended default: nobody is asked and routine calls run.
+			// It is not bypass, so it does not borrow bypass's red.
+			return { icon: MODE_MARK.moving, color: theme.status.warn, label: 'unattended' }
 		case 'accept-edits':
 			return { icon: MODE_MARK.moving, color: theme.accent.user, label: 'accept edits' }
 		case 'plan':

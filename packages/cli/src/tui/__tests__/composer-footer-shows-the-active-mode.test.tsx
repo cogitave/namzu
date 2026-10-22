@@ -74,7 +74,7 @@ const autoMode = (
 		provider="a-provider"
 		model="gpt-5.6-terra"
 		state="idle"
-		permissionMode="auto"
+		permissionMode="bypass"
 		canCycleMode
 	/>
 )

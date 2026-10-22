@@ -23,6 +23,8 @@ Each layer decides a call on its own, by the rules it always had: the most speci
 
 Which layer is higher does not change the outcome. A project table cannot erase a user's deny, and a managed table adds to the rules below it. `permissions` on the loaded config is the combined view (the stricter effect where two layers name the same pattern); `permissionLayers` is the list the decision is made from. `permissionLayers` is the loader's own field: a file that writes it is refused.
 
+The same table also holds four settings that are not tools: `defaultMode`, `disableBypassMode`, `disableAutoMode` and `autoMode`. The loader lifts them out before the rules are compiled, and the file they came from decides which of them stand (a project file cannot make `bypass` or `auto` the default, and cannot set `autoMode`); they are the `permissionSettings` field of the loaded config, which a file cannot write. [Permission modes](permission-modes.md#settings) has the table.
+
 Before this, a layer that wrote a `permissions` table replaced the whole table of every layer below it, key by key.
 
 ## The local file

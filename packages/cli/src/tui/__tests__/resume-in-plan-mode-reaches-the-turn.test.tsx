@@ -146,6 +146,7 @@ describe('/resume on a parked turn', () => {
 		// Leaving plan mode later is what the running turn reads next.
 		harness.stdin.write(SHIFT_TAB)
 		await until(() => !(harness.lastFrame() ?? '').includes('plan mode on'), 'leaving plan mode')
-		expect(params?.currentPermissionMode?.()).toBe('prompt')
+		// The next stop on the cycle after plan: this session can run the auto mode.
+		expect(params?.currentPermissionMode?.()).toBe('classify')
 	})
 })

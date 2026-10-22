@@ -49,8 +49,8 @@ items are joined by a dim ` · `, left to right:
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
   `(shift+tab to cycle)` when Shift+Tab actually cycles it here and no
   background shell is running (as in the reference, a running task takes the
-  reminder off the row). `auto` reads `⏵⏵ bypass permissions on` in the error
-  color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
+  reminder off the row). `bypass` reads `⏵⏵ bypass permissions on` in the error
+  color, `auto` reads `⏵⏵ auto mode on` in the warn color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
   reads `‖ plan mode on` in teal, `strict` reads `‖ preapproved only on` in the
   warn color. The default mode (`prompt`) has no item: the row shows a quiet
   `shift+tab to cycle` only when nothing else would be on it.

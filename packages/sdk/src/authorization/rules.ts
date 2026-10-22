@@ -24,6 +24,30 @@ export interface EvaluateRuleOptions {
 	readonly toolSource?: ToolSourceRef
 }
 
+/**
+ * What the dangerous-pattern floor reads of a call: the text that will be
+ * executed, and nothing that merely talks about it.
+ *
+ * - A tool that names its command argument (`bash`, `monitor`): that argument.
+ * - A shell-category tool that does not (an MCP tool that takes `cmd`): the
+ *   whole serialized input, because there is no telling which field runs.
+ * - Any other tool: nothing. A delegation prompt, a file's content, an edit, a
+ *   fetched page or a memory note can quote `sudo` or `curl … | sh` without
+ *   running it, and a delegated child's own shell calls are floored when they
+ *   run. A call with no definition to ask is read whole, as it always was.
+ */
+function executedText(toolDef: ToolDefinition | undefined, toolInput: unknown): string | undefined {
+	if (toolDef === undefined) return JSON.stringify(toolInput) ?? ''
+	const argument = toolDef.commandArgument
+	if (argument !== undefined) {
+		const value = (toolInput as Record<string, unknown> | null | undefined)?.[argument]
+		if (value === undefined || value === null) return undefined
+		return typeof value === 'string' ? value : (JSON.stringify(value) ?? '')
+	}
+	if (toolDef.category === 'shell') return JSON.stringify(toolInput) ?? ''
+	return undefined
+}
+
 export function evaluateRule(
 	rule: AuthorizationRule,
 	toolName: string,
@@ -66,9 +90,10 @@ export function evaluateRule(
 		}
 
 		case 'deny_dangerous_patterns': {
-			const serialized = JSON.stringify(toolInput)
+			const executed = executedText(toolDef, toolInput)
+			if (executed === undefined) return null
 			for (const pattern of DANGEROUS_PATTERNS) {
-				if (pattern.test(serialized)) {
+				if (pattern.test(executed)) {
 					return 'deny'
 				}
 			}

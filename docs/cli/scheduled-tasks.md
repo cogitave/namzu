@@ -993,8 +993,8 @@ In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
 from its own computation, never from the model's words. That screen is the
 only question: the tool's `create`, `resume` and `delete` skip the ordinary
-permission review ("Do you want to run schedule?") in `prompt`, `accept-edits`
-and `auto`, as they draw their own. `plan` and `strict` still refuse them, a
+permission review ("Do you want to run schedule?") in `prompt`, `accept-edits`,
+`bypass` and `auto`, as they draw their own. `plan` and `strict` still refuse them, a
 `schedule: ask` or `deny` rule still applies, and `pause` is reviewed as
 before. The proposal has a compact summary with its schedule, folder and
 critical warnings; its full permissions and exact script or prompt remain

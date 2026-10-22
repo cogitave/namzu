@@ -88,7 +88,8 @@ The kernel.
 * [The bash tool](bash-tool.md) - Which shell the bash tool runs a command in, on the host and in a sandbox, and how the permission rules follow that choice.
 * [The monitor tool](monitor-tool.md) - The opt-in monitor tool: each stdout line of a long-running command, or each frame of a WebSocket, becomes an event the model reads while it works, batched and rationed, with an expiry, events steered onto tool results, and a turn that stays open for a monitor it owns.
 * [How command lines are read](command-lines.md) - The one bash lexer behind command-line permission rules and skill Bash(<pattern>) grants, and when it calls a line opaque.
-* [The review policy](review-policy.md) - The five modes a turn resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
+* [The review policy](review-policy.md) - The seven modes a turn resolves undecided tool calls under (including `bypass` and `classify`), which calls skip review, and how a host supplies the person to ask.
+* [The auto-review classifier](auto-review.md) - The model behind the `classify` review mode: two passes, what it is shown, the rule lists, failing closed, block limits.
 * [Crossing the tool boundary](escalations.md) - A file tool's path outside the turn's roots, or a command outside its sandbox, as a reviewed question: `outsideRootAccess`, `sandboxEscape`, `confirmedEscalations` and the audit records.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 

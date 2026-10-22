@@ -5,6 +5,7 @@ import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
+import { clip, describeChange } from './classifier-input.js'
 import { fingerprintContent, staleFileError, unreadFileError } from './content-fingerprint.js'
 import { type NormalizedEditInput, applyEdit, normalizeEditInput } from './edit-apply.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
@@ -393,6 +394,18 @@ export const EditTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// The classifier judges which file changes and in what way, in a line.
+	classifierInput: (input: EditInput) => {
+		if (input.edits !== undefined) {
+			const shown = input.edits.slice(0, 5).map((e) => describeChange(e.old_string, e.new_string))
+			const more =
+				input.edits.length > shown.length ? `; ${input.edits.length - shown.length} more` : ''
+			return clip(`${input.path}: ${input.edits.length} edits: ${shown.join('; ')}${more}`, 1500)
+		}
+		const removed = input.old_string ?? input.oldStr
+		const added = input.new_string ?? input.newStr
+		return clip(`${input.path}: ${describeChange(removed, added)}`, 1500)
+	},
 	permissions: ['file_write'],
 	readOnly: false,
 	destructive: false,

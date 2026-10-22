@@ -693,11 +693,13 @@ describe('publishing a picker selection', () => {
 
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'More options')
-		harness.stdin.write('4')
+		// Every mode a person cycles through is listed; only the rest is under More.
+		expect(harness.lastFrame()).toContain('Bypass permissions')
+		expect(harness.lastFrame()).toContain('Auto')
+		harness.stdin.write('6')
 		await frameShows(harness.lastFrame, 'More permission options')
-		expect(harness.lastFrame()).toContain('Auto-approve tools')
+		expect(harness.lastFrame()).toContain('Preapproved tools only')
 		expect(harness.lastFrame()).toContain('View rules')
-		harness.stdin.write('\x1b[B')
 		harness.stdin.write('\r')
 		await frameShows(
 			harness.lastFrame,
@@ -705,9 +707,9 @@ describe('publishing a picker selection', () => {
 		)
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'More options')
-		harness.stdin.write('4')
+		harness.stdin.write('6')
 		await frameShows(harness.lastFrame, 'More permission options')
-		harness.stdin.write('3')
+		harness.stdin.write('2')
 		await frameShows(harness.lastFrame, 'No custom rules.')
 
 		await submit(harness, 'use the selected settings')
@@ -919,15 +921,15 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/settings')
 		await frameShows(harness.lastFrame, 'Configuration')
 		expect(harness.lastFrame()).toContain('Reasoning effort')
-		expect(harness.lastFrame()).toContain('Auto-approve tools')
+		expect(harness.lastFrame()).toContain('Bypass permissions')
 		expect(harness.lastFrame()).not.toContain('/status config')
 		harness.stdin.write('Permissions')
 		await tick(40)
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Current: Auto-approve tools')
+		await frameShows(harness.lastFrame, 'Current: Bypass permissions')
 		expect(harness.lastFrame()).not.toContain('Never prompted')
-		expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
-		harness.stdin.write('4')
+		expect(harness.lastFrame()).toMatch(/Bypass permissions\s+\[current\]/)
+		harness.stdin.write('6')
 		await frameShows(harness.lastFrame, 'More permission options')
 		harness.stdin.write('\x1b')
 		await frameShows(harness.lastFrame, 'Plan (read-only)')
@@ -944,39 +946,60 @@ describe('publishing a picker selection', () => {
 		await vi.waitFor(() => expect(modes).toEqual(['prompt']))
 	})
 
-	it.each([
-		['auto', 'Auto-approve tools'],
-		['strict', 'Preapproved tools only'],
-	] as const)(
-		'keeps %s visible while browsing and cancelling permission options',
-		async (mode, label) => {
-			const sent: unknown[] = []
-			createSession = async () => ({
-				...sessionFixture(),
-				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
-					sent.push(opts?.permissionMode)
-					yield { kind: 'done', stopReason: 'end_turn' }
-				},
-			})
-			const harness = render(<App ctx={ctx} />)
-			mounted.push(harness)
-			await frameShows(harness.lastFrame, 'Type a message')
-			await tick(80)
-			await submit(harness, `/permissions ${mode}`)
-			await frameShows(harness.lastFrame, `Permissions: ${label} for this conversation.`)
-			await submit(harness, '/permissions')
-			await frameShows(harness.lastFrame, `Current: ${label}`)
-			expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
-			harness.stdin.write('4')
-			await frameShows(harness.lastFrame, 'More permission options')
-			harness.stdin.write('\x1b')
-			await frameShows(harness.lastFrame, 'Plan (read-only)')
-			harness.stdin.write('\x1b')
-			await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('More options'))
-			await submit(harness, 'keep this mode')
-			await vi.waitFor(() => expect(sent).toEqual([mode]))
-		},
-	)
+	it('keeps strict visible while browsing and cancelling permission options', async () => {
+		const sent: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture(),
+			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				sent.push(opts?.permissionMode)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, '/permissions strict')
+		await frameShows(
+			harness.lastFrame,
+			'Permissions: Preapproved tools only for this conversation.',
+		)
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'Current: Preapproved tools only')
+		expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
+		harness.stdin.write('6')
+		await frameShows(harness.lastFrame, 'More permission options')
+		harness.stdin.write('\x1b')
+		await frameShows(harness.lastFrame, 'Plan (read-only)')
+		harness.stdin.write('\x1b')
+		await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('More options'))
+		await submit(harness, 'keep this mode')
+		await vi.waitFor(() => expect(sent).toEqual(['strict']))
+	})
+
+	it('lists auto as a mode of its own, marks it current, and sends the classifier mode', async () => {
+		const sent: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture(),
+			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				sent.push(opts?.permissionMode)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, '/permissions auto')
+		await frameShows(harness.lastFrame, 'Permissions: Auto for this conversation.')
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'Current: Auto')
+		expect(harness.lastFrame()).toMatch(/Auto\s+\[current\]/)
+		harness.stdin.write('\x1b')
+		await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('More options'))
+		await submit(harness, 'keep this mode')
+		await vi.waitFor(() => expect(sent).toEqual(['classify']))
+	})
 
 	it('applies and clears reasoning effort at the mounted App send boundary', async () => {
 		const efforts: unknown[] = []

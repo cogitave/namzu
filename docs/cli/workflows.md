@@ -80,10 +80,10 @@ under `d`. A script whose `meta` cannot be read is still shown, with the reason.
 
 | Situation | What happens |
 |---|---|
-| `prompt` or `accept-edits` mode with a person at the terminal | the review above |
-| `auto` mode (`--dangerously-skip-permissions`, "bypass permissions on") | it starts without asking, like any other call |
+| `prompt`, `accept-edits` or `auto` mode with a person at the terminal | the review above |
+| `bypass` mode (`--yolo`, `--dangerously-skip-permissions`, "bypass permissions on") | it starts without asking, like any other call |
 | `plan` or `strict` mode | refused by the mode, as any change is |
-| no one to ask (`exec`, `exec --json`) and not `auto` | refused, in words the model can pass on, naming `--permission-mode auto` |
+| no one to ask (`exec`, `exec --json`) and not `bypass` | refused, in words the model can pass on, naming `--permission-mode bypass` |
 
 Answering `Do not start` is the person's own No: the model is told it was
 declined and the transcript shows `○ Workflow(…)` and `You declined this, so it
@@ -212,9 +212,9 @@ which point whatever is still going is stopped and reported as stopped. It then
 gives the model the one message above, lets it take a reporting turn, and only
 then closes the session. The text printed (or the final `done`) is the report
 turn's. The `Tokens:` line on stderr (and `budget` in `exec --json`) is what the whole command spent: the first turn plus the reporting turn for `own`, and for `including descendants` also the workflow's agents, which are counted on the run and not on the turn. A first turn that failed or paused is not waited on. Nobody is there to
-review the script, so a headless run may start a workflow only in `auto` mode
-(`--dangerously-skip-permissions`, the headless default); in `prompt`,
-`accept-edits`, `strict` and `plan` the model is told why it was refused.
+review the script, so a headless run may start a workflow only in `bypass` mode
+(`--yolo`, `--dangerously-skip-permissions`) or the unattended default; in `prompt`,
+`accept-edits`, `auto`, `strict` and `plan` the model is told why it was refused.
 
 ## `/workflows`
 
@@ -253,7 +253,7 @@ Stopping a run or skipping an agent cancels a model request that may not have re
 
 ## Three choices worth knowing
 
-- In `auto` mode ("bypass permissions on") a workflow starts without a review, like any other call.
+- In `bypass` mode ("bypass permissions on") a workflow starts without a review, like any other call.
 - A run has its own token ledger, apart from the turn's: its agents share the turn's budget limit but are counted on the run.
 - An agent's `schema` option is carried as an instruction in its prompt, and the reply is parsed and validated against the schema; a reply that does not match makes that agent's `agent()` give `null`.
 

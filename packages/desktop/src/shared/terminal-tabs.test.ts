@@ -9,6 +9,7 @@ import {
 	codexPermissionArgs,
 	findWindowsProgram,
 	isTerminalTabId,
+	namzuPermissionArgument,
 	resolveShell,
 	secondEnginePermissionArgument,
 	terminalActivity,
@@ -200,13 +201,31 @@ describe('Namzu engine launch', () => {
 	it('runs the installed namzu when no CLI is bundled', () => {
 		const dev = { ...linux, cliEntry: undefined }
 		expect(
-			buildEngineLaunch({ engine: 'namzu', permissionMode: 'auto' }, dev, { name: 'p' }),
-		).toMatchObject({ command: 'namzu', args: ['--permission-mode', 'auto'] })
+			buildEngineLaunch({ engine: 'namzu', permissionMode: 'bypass' }, dev, { name: 'p' }),
+		).toMatchObject({ command: 'namzu', args: ['--permission-mode', 'bypass'] })
 		// Command Prompt looks in the project folder first, so a bare name is never run there.
 		const win = { ...windows, cliEntry: undefined }
 		expect(() =>
 			buildEngineLaunch({ engine: 'namzu', permissionMode: 'auto' }, win, { name: 'p' }),
 		).toThrow(/bundled Namzu CLI is not available/)
+	})
+
+	it.each([
+		['prompt', 'prompt'],
+		['plan', 'plan'],
+		['bypass', 'bypass'],
+		['classify', 'auto'],
+		// The old Full access id, the kernel's own `auto`, is bypass from here on.
+		['auto', 'bypass'],
+	] as const)('hands the CLI its own word for %s', (mode, word) => {
+		expect(namzuPermissionArgument(mode)).toBe(word)
+		expect(
+			buildEngineLaunch(
+				{ engine: 'namzu', permissionMode: mode },
+				{ ...linux, cliEntry: undefined },
+				{ name: 'p' },
+			).args,
+		).toEqual(['--permission-mode', word])
 	})
 
 	it('starts Command Prompt by its absolute path when the host knows it', () => {
@@ -255,6 +274,7 @@ describe('Codex engine launch', () => {
 		['prompt', ['-a', 'on-request', '-s', 'read-only']],
 		['accept-edits', ['-a', 'on-request', '-s', 'workspace-write']],
 		['auto', ['-a', 'on-request', '-s', 'danger-full-access']],
+		['bypass', ['-a', 'on-request', '-s', 'danger-full-access']],
 		['plan', ['-a', 'never', '-s', 'read-only']],
 		['strict', ['-a', 'never', '-s', 'read-only']],
 	] as const)('maps the %s mode to approval and sandbox flags', (mode, flags) => {
@@ -425,6 +445,8 @@ describe('Claude Code engine launch', () => {
 		['prompt', 'default'],
 		['accept-edits', 'acceptEdits'],
 		['auto', 'bypassPermissions'],
+		['bypass', 'bypassPermissions'],
+		['classify', 'auto'],
 		['plan', 'plan'],
 		['strict', 'dontAsk'],
 	] as const)('maps %s to %s', (mode, argument) => {

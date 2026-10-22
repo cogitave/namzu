@@ -1,4 +1,4 @@
-import type { ResumeHandler, SessionApprovalPolicy } from '@namzu/sdk'
+import { type ResumeHandler, type SessionApprovalPolicy, modeReviewsAllowedCalls } from '@namzu/sdk'
 
 import { type PermissionMode, permissionModeLabel } from './mode.js'
 
@@ -58,9 +58,10 @@ export interface LiveModeControl {
 	/**
 	 * Whether the kernel must send a batch to `handler` even when a rule allows
 	 * every call in it, or a grant from earlier in the turn covers it
-	 * (`reviewAllowedCalls`). True only in plan mode, the one mode stricter than
-	 * the rules: it refuses a change a rule would let through. Read per batch,
-	 * so entering plan mode mid-turn reaches the next batch.
+	 * (`reviewAllowedCalls`). True in plan mode, the one mode stricter than
+	 * the rules (it refuses a change a rule would let through), and in the
+	 * classifier mode, which looks at a call an allow rule is too wide to vouch
+	 * for. Read per batch, so entering either mid-turn reaches the next batch.
 	 */
 	reviewAllowedCalls(): boolean
 	/** Receive the turn's approval-policy box (`onApprovalPolicy`). */
@@ -101,7 +102,7 @@ export function createLiveModeControl(options: LiveModeOptions): LiveModeControl
 	let box: SessionApprovalPolicy | undefined
 	let recording: Promise<void> = Promise.resolve()
 
-	const handler: ResumeHandler = async (request) => {
+	const handler: ResumeHandler = async (request, context) => {
 		// A change being recorded lands before anything is decided under it —
 		// including one that began while this request was already waiting.
 		let pending: Promise<void>
@@ -111,7 +112,9 @@ export function createLiveModeControl(options: LiveModeOptions): LiveModeControl
 		} while (pending !== recording)
 		// Read ONCE. A dialog this request opens is decided under this mode even
 		// if the operator switches while it is on screen.
-		return handlerOf(current())(request)
+		// The second argument carries the conversation the classifier reads; a
+		// wrapper that dropped it would leave that mode judging blind.
+		return handlerOf(current())(request, context)
 	}
 
 	const record = (mode: PermissionMode, reason: string): Promise<void> => {
@@ -128,7 +131,7 @@ export function createLiveModeControl(options: LiveModeOptions): LiveModeControl
 		handler,
 		initialName,
 		current,
-		reviewAllowedCalls: () => current() === 'plan',
+		reviewAllowedCalls: () => modeReviewsAllowedCalls(current()),
 		attach(next) {
 			box = next
 			const now = current()

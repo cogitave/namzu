@@ -370,11 +370,11 @@ it('paints /permissions choices before a later key can select one', async () => 
 
 	// A later key, sent after the menu is visible, does own a choice.
 	// A submenu also waits for its own visible frame before accepting a choice.
-	screen.press('4')
+	screen.press('6')
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('More permission options'))
-	expect(painted(screen)).not.toContain('Permissions: Auto-approve tools for this conversation.')
-	screen.press('2')
+	expect(painted(screen)).not.toContain('Permissions: Bypass permissions for this conversation.')
+	screen.press('1')
 	await waitUntil(screen, () =>
 		painted(screen).includes('Permissions: Preapproved tools only for this conversation.'),
 	)

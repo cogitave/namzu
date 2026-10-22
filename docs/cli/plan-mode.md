@@ -31,7 +31,7 @@ The model finishes planning by calling `exit_plan_mode`, which takes no argument
 
 The approval box shows the plan and its path, then:
 
-1. **Yes, and auto-approve edits**: leaves plan mode for `accept-edits`. When the session may run without asking (`--yolo`, `--dangerously-skip-permissions`, `--permission-mode auto`, `--allow-dangerously-skip-permissions`, or `auto` chosen by name), this row is **Yes, and approve every tool without asking** and leaves for `auto`, as in the reference.
+1. **Yes, and auto-approve edits**: leaves plan mode for `accept-edits`. When the session may run without asking (`--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypass`, `--allow-dangerously-skip-permissions`, or `permissions.defaultMode: bypass`), this row is **Yes, and run every tool without asking** and leaves for `bypass`, as in the reference.
 2. **Yes, and ask before each edit**: leaves plan mode for `prompt`.
 3. **No, keep planning**: a text row. Type what to change and press Enter; the words go to the model as the reason the plan was not approved, and the mode stays `plan`. Enter on an empty text row does nothing.
 

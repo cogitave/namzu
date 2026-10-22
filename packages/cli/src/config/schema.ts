@@ -13,6 +13,7 @@ import type { FormatName } from '../output/index.js'
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import type { PermissionSettings } from '../permissions/settings.js'
 import type { ToolResultScreenConfig } from './tool-result-screens.js'
 
 /**
@@ -200,6 +201,14 @@ export interface NamzuCliConfig {
 	 * (`compilePermissionLayers`).
 	 */
 	readonly permissionLayers?: readonly PermissionsConfig[]
+	/**
+	 * The mode settings written beside the tool rules in the `permissions`
+	 * table (`defaultMode`, `disableBypassMode`, `disableAutoMode`, `autoMode`),
+	 * lifted out and combined by the loader with each file's authority applied:
+	 * a project file cannot make `bypass` or `auto` the default. Never read from
+	 * a file as a key of its own.
+	 */
+	readonly permissionSettings?: PermissionSettings
 	/**
 	 * What the operator believes the table above decides, checked at startup.
 	 *

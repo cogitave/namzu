@@ -25,19 +25,40 @@ describe('resolving the mode from flag, alias and terminal', () => {
 	it('refuses a mode it does not know, and names the ones it does', () => {
 		const result = resolvePermissionMode({ flag: 'yolo', interactive: false })
 
-		expect('error' in result && result.error).toContain('prompt, accept-edits, auto, strict, plan')
+		expect('error' in result && result.error).toContain(
+			'prompt, accept-edits, plan, bypass, auto, strict',
+		)
 	})
 
-	it('maps the bypass aliases to auto', () => {
+	it('maps the bypass aliases to bypass', () => {
 		expect(resolvePermissionMode({ skipPermissions: true, interactive: true })).toEqual({
-			mode: 'auto',
+			mode: 'bypass',
 		})
+		expect(resolvePermissionMode({ skipPermissions: true, interactive: false })).toEqual({
+			mode: 'bypass',
+		})
+	})
+
+	it('reads --permission-mode auto as the classifier and bypass as bypass', () => {
+		expect(resolvePermissionMode({ flag: 'auto', interactive: true })).toEqual({
+			mode: 'classify',
+		})
+		expect(resolvePermissionMode({ flag: 'bypass', interactive: false })).toEqual({
+			mode: 'bypass',
+		})
+	})
+
+	it('lets a named mode win over the bypass alias', () => {
+		expect(
+			resolvePermissionMode({ flag: 'plan', skipPermissions: true, interactive: true }),
+		).toEqual({ mode: 'plan' })
 	})
 
 	it('asks when there is someone to ask, and does not when there is not', () => {
 		// `prompt` without a terminal would silently become `auto` anyway;
 		// resolving it as `auto` makes the resolved mode honest in a log.
 		expect(resolvePermissionMode({ interactive: true })).toEqual({ mode: 'prompt' })
+		// The kernel's own unattended default, which has no name a person types.
 		expect(resolvePermissionMode({ interactive: false })).toEqual({ mode: 'auto' })
 	})
 
@@ -152,12 +173,19 @@ describe('what each mode does with an undecided call', () => {
 })
 
 describe('accept-edits', () => {
-	it('is a mode the flag accepts, between prompt and auto', () => {
+	it('is a mode the flag accepts, between prompt and plan', () => {
 		expect(isPermissionMode('accept-edits')).toBe(true)
 		expect(resolvePermissionMode({ flag: 'accept-edits', interactive: true })).toEqual({
 			mode: 'accept-edits',
 		})
-		expect(PERMISSION_MODES).toEqual(['prompt', 'accept-edits', 'auto', 'strict', 'plan'])
+		expect(PERMISSION_MODES).toEqual([
+			'prompt',
+			'accept-edits',
+			'plan',
+			'bypass',
+			'classify',
+			'strict',
+		])
 	})
 })
 

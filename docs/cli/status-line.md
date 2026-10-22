@@ -45,7 +45,7 @@ One JSON object on stdin, the shell's working directory is the session's, and
 |---|---|
 | `hook_event_name` | `"StatusLine"` |
 | `session_id` | the conversation id |
-| `cwd`, `permission_mode` | the working directory; `prompt`, `accept-edits`, `plan`, `strict` or `auto` |
+| `cwd`, `permission_mode` | the working directory; `prompt`, `accept-edits`, `plan`, `bypass`, `auto` (the classifier mode) or `strict`, in the words `--permission-mode` takes |
 | `model` | `{ id, display_name }`, both the model name the footer shows |
 | `workspace` | `{ current_dir, project_dir, added_dirs, git_worktree?, repo? }`; `repo` is `{ host, owner, name }` from `origin` |
 | `version` | the CLI version |

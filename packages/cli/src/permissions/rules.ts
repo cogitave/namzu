@@ -20,6 +20,7 @@ import {
 	builtinCommandArguments,
 	permissionPatternToRegExpSource,
 } from '@namzu/sdk'
+import { isPermissionSettingKey } from './settings.js'
 
 import { cliLogger } from '../logging.js'
 import { type PermissionChecksConfig, verifyPermissionChecks } from './checks.js'
@@ -289,6 +290,8 @@ export function compilePermissions(
 	const commandArguments = builtinCommandArguments()
 
 	for (const [tool, permission] of Object.entries(config)) {
+		// Mode settings share the table with the rules; they are not tools.
+		if (isPermissionSettingKey(tool)) continue
 		if (tool === 'sources') {
 			if (typeof permission !== 'object' || permission === null || Array.isArray(permission)) {
 				diagnostics.push({ tool, message: 'expected a table of source id globs and effects' })

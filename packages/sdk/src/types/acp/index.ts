@@ -43,6 +43,13 @@ export interface AcpInitializeResult {
 	readonly promptAttachments?: boolean
 	/** True only when this host applies captured effort and review settings per prompt. */
 	readonly promptOptions?: boolean
+	/**
+	 * The review modes beyond the original five (`prompt`, `plan`,
+	 * `accept-edits`, `auto`, `strict`) that this host applies per prompt:
+	 * `bypass` and `classify`, when it supports them. Absent: it accepts only
+	 * the original five, and refuses the others before a turn starts.
+	 */
+	readonly promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	/** Optional, explicitly installed Namzu host methods; core ACP peers can ignore them. */
 	readonly extensions?: readonly string[]
 	readonly protocolVersion: number

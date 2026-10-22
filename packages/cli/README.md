@@ -124,7 +124,7 @@ Type a request and press Enter. While a turn is running, you can keep typing:
 - **Enter** sends a message that steers the running turn at its next safe point.
 - **Tab** queues a message to run after the current turn.
 - **Esc** interrupts the running turn. **Ctrl+C** exits.
-- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), and on to auto-approve when the session was launched with `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`.
+- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--yolo`, `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
 - **Ctrl+T** opens or closes the view of delegated agents. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
 - **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
 - **Alt+W** drops, restores or arms the composer trigger nearest the cursor.
@@ -137,7 +137,7 @@ These commands cover most sessions:
 |---|---|
 | `/model` | Choose a model, and its reasoning effort where supported. |
 | `/login`, `/logout` | Sign in to, or remove, a Namzu-owned subscription. |
-| `/permissions` | Choose between asking before changes, auto-approving edits, and plan mode. |
+| `/permissions` | Choose between asking before changes, auto-approving edits, plan mode, bypass and auto. |
 | `/resume` | Choose a saved conversation in this project. |
 | `/fork` | Continue in a copy of this conversation. |
 | `/worktree` | Create a managed Git worktree for a separate checkout. |

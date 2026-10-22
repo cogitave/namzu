@@ -3,6 +3,7 @@
  * `terminal-protocol.ts`; a window never speaks it, it asks main, which owns the connection.
  */
 import type { ReasoningEffort, ReviewMode } from '@namzu/sdk'
+import { isReviewModeId } from './review-modes.js'
 import type { TerminalEngine, TerminalTabView } from './terminal-tabs.js'
 
 export const TERMINAL_VIEW_LIMITS = {
@@ -90,7 +91,6 @@ export interface TerminalShellChoice {
 }
 
 const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
-const MODES = ['prompt', 'accept-edits', 'auto', 'strict', 'plan'] as const
 const ENGINE_IDS = ['namzu', 'codex-cli', 'claude-code'] as const
 
 function record(value: unknown, what: string): Record<string, unknown> {
@@ -154,8 +154,7 @@ export function readTerminalOpenRequest(value: unknown): TerminalOpenRequest {
 		? (input.engine as TerminalEngine)
 		: undefined
 	if (!engine) throw new Error('Invalid terminal engine.')
-	if (!(MODES as readonly unknown[]).includes(input.permissionMode))
-		throw new Error('Invalid terminal permission mode.')
+	if (!isReviewModeId(input.permissionMode)) throw new Error('Invalid terminal permission mode.')
 	if (input.effort !== undefined && !(EFFORTS as readonly unknown[]).includes(input.effort))
 		throw new Error('Invalid terminal effort.')
 	if (

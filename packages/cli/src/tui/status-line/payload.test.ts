@@ -103,3 +103,16 @@ describe('buildStatusLinePayload', () => {
 		}
 	})
 })
+
+describe('permission_mode', () => {
+	it.each([
+		['bypass', 'bypass'],
+		['classify', 'auto'],
+		['strict', 'strict'],
+		['auto', 'unattended'],
+	] as const)('names %s the way a person types it', (mode, word) => {
+		const payload = buildStatusLinePayload({ ...base, permissionMode: mode })
+
+		expect(payload.permission_mode).toBe(word)
+	})
+})

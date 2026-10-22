@@ -369,7 +369,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		async (...args) => {
 			const f = await fixture({}, args)
 			await new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })
-			expect(creationOptions().permissionMode).toBe(args[0] === '--yolo' ? 'auto' : 'strict')
+			expect(creationOptions().permissionMode).toBe(args[0] === '--yolo' ? 'bypass' : 'strict')
 		},
 	)
 

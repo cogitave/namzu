@@ -142,6 +142,14 @@ export interface AcpServerOptions {
 	readonly supportsPromptAttachments?: boolean
 	/** The host applies optional effort and permission settings to the exact turn. */
 	readonly supportsPromptOptions?: boolean
+	/**
+	 * Which of the newer review modes, `bypass` and `classify`, the gateway
+	 * applies when a prompt asks for one in its options. Omitted, a prompt that
+	 * asks for either is refused with an error that says so, before any turn
+	 * starts, rather than reaching a gateway that cannot honour it. Advertised
+	 * as `promptPermissionModes` at initialization.
+	 */
+	readonly promptPermissionModes?: readonly ('bypass' | 'classify')[]
 	/** Emit planning notifications only to clients declaring namzu/tasks. */
 	readonly supportsTaskNotifications?: boolean
 	readonly transport: MCPTransport
@@ -465,6 +473,9 @@ export class ACPServer {
 			protocolVersion: ACP_PROTOCOL_VERSION,
 			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
 			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
+			...(this.options.supportsPromptOptions && this.options.promptPermissionModes?.length
+				? { promptPermissionModes: [...this.options.promptPermissionModes] }
+				: {}),
 			agentInfo: this.options.agentInfo,
 			// From the registry, per call. A hard-coded list here would be a
 			// second definition of the command surface.
@@ -850,6 +861,15 @@ export class ACPServer {
 			(permissionMode !== undefined && !isReviewMode(permissionMode))
 		)
 			throw new AcpError(ACP_ERROR_CODES.INVALID_PARAMS, 'Invalid prompt settings.')
+		if (
+			(permissionMode === 'bypass' || permissionMode === 'classify') &&
+			this.options.promptPermissionModes?.includes(permissionMode) !== true
+		) {
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_PARAMS,
+				`This agent does not accept the "${permissionMode}" permission mode in prompt settings.`,
+			)
+		}
 		return {
 			...(effort
 				? { effort: effort as NonNullable<AcpSessionPromptParams['options']>['effort'] }

@@ -42,6 +42,7 @@ import {
 import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { loadOutputSchema } from '../output-schema.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import {
 	compilePermissionLayers,
@@ -282,6 +283,15 @@ async function execPrint(
 		ctx.formatter.error({ message: modeResult.error })
 		return EXIT_USAGE
 	}
+	// Bypass is refused where the settings or the root guard forbid it: a flag
+	// that cannot be honoured is an error, not a quiet downgrade.
+	const modeRefusal = launchRefusal(modeResult.mode, {
+		settings: ctx.config.permissionSettings,
+	})
+	if (modeRefusal) {
+		ctx.formatter.error({ message: modeRefusal })
+		return EXIT_USAGE
+	}
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissionLayers(
@@ -374,6 +384,7 @@ async function execPrint(
 		// gates is byte-identical to the one that shipped before them.
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
+		...(ctx.config.permissionSettings ? { permissionSettings: ctx.config.permissionSettings } : {}),
 		// Run from the user's own terminal, so a page can be opened on their
 		// desktop. Never `exec --json`, `drain` or a scheduled run.
 		openUrl: true,
@@ -405,6 +416,13 @@ async function execPrint(
 			message: session.errorHint ?? 'agent is not ready',
 		})
 		return 1
+	}
+	if (modeResult.mode === 'classify' && session.autoMode?.available === false) {
+		await session.close()
+		closeSessions(sessions)
+		await sessionExport?.shutdown()
+		ctx.formatter.error({ message: session.autoMode.reason ?? 'Auto mode is not available.' })
+		return EXIT_USAGE
 	}
 	// A configured tool server that is not here means the turn cannot do what
 	// the operator set it up to do, and there is nobody watching to notice.

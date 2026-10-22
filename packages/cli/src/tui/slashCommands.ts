@@ -46,10 +46,11 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import { workflowCommandPrompt } from '../integrations/workflows/offering.js'
+import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
 import {
 	type PermissionMode,
-	isPermissionMode,
 	permissionModeDescription,
+	permissionModeFromName,
 	permissionModeLabel,
 } from '../permissions/mode.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
@@ -373,7 +374,7 @@ export interface SlashContext {
 		/** Live mode and why it currently has that value, read at render time. */
 		readonly currentMode: () => {
 			readonly mode: PermissionMode
-			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'session'
+			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
 		}
 		readonly rules: readonly AuthorizationRule[]
 		/**
@@ -1386,9 +1387,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			usage: ['/permissions', '/permissions details', '/permissions <mode>'],
 			details: [
 				'Choose a preset in the menu, or use a typed mode:',
-				...(['prompt', 'accept-edits', 'plan', 'auto', 'strict'] as const).map(
-					(mode) => `  ${mode}: ${permissionModeLabel(mode)}`,
-				),
+				...PERMISSION_MODE_NAMES.map((name) => {
+					const mode = permissionModeFromName(name) as PermissionMode
+					return `  ${name}: ${permissionModeDescription(mode)}`
+				}),
 				'Changes apply to this conversation. Explicit deny rules and sandbox restrictions still apply.',
 			],
 		},
@@ -1402,7 +1404,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: renderPermissions(ctx.permissions, true),
 				}
 			}
-			if (isPermissionMode(mode)) return { kind: 'permission-mode', mode }
+			const chosen = permissionModeFromName(mode)
+			if (chosen !== undefined) return { kind: 'permission-mode', mode: chosen }
 			return {
 				kind: 'message',
 				role: 'system',
@@ -1973,6 +1976,8 @@ export function renderPermissions(
 	if (current.source === 'launch-bypass')
 		lines.push('Selected at launch with --dangerously-skip-permissions.')
 	if (current.source === 'launch-flag') lines.push('Selected at launch with --permission-mode.')
+	if (current.source === 'config-default')
+		lines.push('Selected by permissions.defaultMode in your configuration.')
 	lines.push('Explicit deny rules and the built-in safety gate apply in every mode.')
 	if (current.mode === 'plan')
 		lines.push('Plan mode also blocks writes that an allow rule would otherwise permit.')

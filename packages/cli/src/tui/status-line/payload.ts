@@ -10,6 +10,7 @@
  * `transcript_path`, `cost.total_api_duration_ms` and the line counters.
  */
 
+import { permissionModeName } from '../../permissions/mode.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 import type { PrFooterState } from '../pr-status.js'
 
@@ -67,7 +68,7 @@ export function buildStatusLinePayload(input: StatusLinePayloadInput): Record<st
 		session_id: input.sessionId ?? '',
 		...(input.sessionName ? { session_name: input.sessionName } : {}),
 		cwd: input.cwd,
-		...(input.permissionMode ? { permission_mode: input.permissionMode } : {}),
+		...(input.permissionMode ? { permission_mode: permissionModeName(input.permissionMode) } : {}),
 		model: { id: model, display_name: model },
 		workspace: {
 			current_dir: input.cwd,

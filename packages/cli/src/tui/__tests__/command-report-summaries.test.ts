@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { PERMISSION_MODES, permissionModeDescription } from '../../permissions/mode.js'
+import {
+	PERMISSION_MODES,
+	permissionModeDescription,
+	permissionModeName,
+} from '../../permissions/mode.js'
 import { type SlashContext, renderPermissions, renderStatus, runSlash } from '../slashCommands.js'
 
 function context(over: Partial<SlashContext> = {}): SlashContext {
@@ -120,7 +124,11 @@ describe('permission reports match all selectable modes', () => {
 			currentMode: () => ({ mode, source: 'session' as const }),
 		}
 		expect(renderPermissions(permissions)).toContain(permissionModeDescription(mode))
-		expect(runSlash(`/permissions ${mode}`, ctx)).toEqual({ kind: 'permission-mode', mode })
+		// A person types the CLI's word, which is not always the kernel's name.
+		expect(runSlash(`/permissions ${permissionModeName(mode)}`, ctx)).toEqual({
+			kind: 'permission-mode',
+			mode,
+		})
 		expect(report('/permissions invalid', ctx)).toContain('/permissions opens the permission menu')
 		expect(report('/permissions invalid', ctx)).not.toContain('prompt|accept-edits')
 	})

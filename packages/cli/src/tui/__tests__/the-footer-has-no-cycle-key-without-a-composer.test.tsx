@@ -47,7 +47,7 @@ describe('the footer with no composer on screen', () => {
 					provider="a-provider"
 					model="gpt-5.6-terra"
 					state="idle"
-					permissionMode="auto"
+					permissionMode="bypass"
 					canCycleMode
 					composerMounted={false}
 				/>,

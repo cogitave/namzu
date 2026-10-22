@@ -1,3 +1,4 @@
+import type { ReviewMode } from '@namzu/sdk'
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react'
 import type {
 	AttachmentView,
@@ -52,6 +53,14 @@ import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
+
+/**
+ * The picker's modes are the ones this window offers. The kernel's old `auto`,
+ * saved by earlier versions as Full access, is shown as Full access (`bypass`).
+ */
+function composerPermissionMode(mode: ReviewMode | undefined): ComposerPermissionMode {
+	return mode === 'auto' ? 'bypass' : (mode ?? 'prompt')
+}
 
 const PROVIDER_EMPTY_HELP =
 	'Namzu needs a model provider to answer. Paste an API key, or sign in with Claude Code or Codex and Namzu will find that sign-in.'
@@ -306,7 +315,7 @@ export function Composer({
 			engine={permissionEngine ?? harnessView?.selected}
 			permissionScope={permissionScope}
 			reviewModes={reviewModes}
-			permissionMode={settings.permissionMode ?? 'prompt'}
+			permissionMode={composerPermissionMode(settings.permissionMode)}
 			disabled={sending || !connected || !toolsAvailable}
 			onPermissionModeChange={(permissionMode) => onSettingsChange({ ...settings, permissionMode })}
 		/>
@@ -691,7 +700,7 @@ export function Composer({
 											<ComposerPermissions
 												engine={permissionEngine ?? harnessView?.selected}
 												permissionScope={permissionScope}
-												permissionMode={settings.permissionMode ?? 'prompt'}
+												permissionMode={composerPermissionMode(settings.permissionMode)}
 												reviewModes={reviewModes}
 												disabled={sending || !connected}
 												onChange={(permissionMode) =>

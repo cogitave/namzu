@@ -4,6 +4,7 @@ import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 import type { PluginInventoryView } from '../../integrations/plugins/inventory.js'
 import type { CliPluginInfo } from '../../integrations/plugins/runtime.js'
 import type { Preferences } from '../../integrations/providers/index.js'
+import type { PermissionSettings } from '../../permissions/settings.js'
 import type { SendOptions } from '../../tui/agent.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 
@@ -15,7 +16,13 @@ function deferred<T>() {
 	return { promise, resolve }
 }
 
-function fixture(ownedPal = false) {
+function fixture(
+	ownedPal = false,
+	extras: {
+		readonly permissionSettings?: PermissionSettings
+		readonly autoMode?: { readonly available: boolean; readonly reason?: string }
+	} = {},
+) {
 	const sessionId = asSessionId(fixtureUuid('desktop-settings-owner'))
 	const preferences: Preferences = {
 		version: 3,
@@ -65,6 +72,7 @@ function fixture(ownedPal = false) {
 			close,
 			reasoningEffortLevels: ['low', 'high'] as const,
 			reasoningEffortDefault: 'low' as const,
+			...(extras.autoMode ? { autoMode: extras.autoMode } : {}),
 			jobs: () => jobs,
 			plugins: { list: () => [plugin], setEnabled, rememberState: vi.fn(async () => {}) },
 			send,
@@ -109,7 +117,10 @@ function fixture(ownedPal = false) {
 	}
 	const runtime = createCliAcpRuntime(
 		{
-			config: { plugins: { enabled: true } },
+			config: {
+				plugins: { enabled: true },
+				...(extras.permissionSettings ? { permissionSettings: extras.permissionSettings } : {}),
+			},
 			formatter: { name: 'text', print: () => {}, info: () => {}, error: () => {} },
 		},
 		{
@@ -241,6 +252,84 @@ describe('ACP composer settings use the exact owned session', () => {
 			expect(f.send).not.toHaveBeenCalled()
 			await f.prompt({ effort: 'low', permissionMode: 'strict' })
 			expect(f.send).toHaveBeenCalledOnce()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+})
+
+describe('ACP carries the two modes that stop asking', () => {
+	it('passes bypass and auto to the session as chosen, and hands it the settings', async () => {
+		const settings: PermissionSettings = { autoMode: { model: 'cheap' } }
+		const f = fixture(false, { permissionSettings: settings })
+		try {
+			await f.prompt({ permissionMode: 'bypass' })
+			await f.prompt({ permissionMode: 'classify' })
+
+			expect(f.send.mock.calls.map((call) => call[1].permissionMode)).toEqual([
+				'bypass',
+				'classify',
+			])
+			expect((f.createSession.mock.calls[0] as unknown[])[2]).toMatchObject({
+				permissionSettings: settings,
+			})
+		} finally {
+			await f.runtime.close()
+		}
+	})
+
+	it('refuses bypass before any send when the settings shut it', async () => {
+		const f = fixture(false, { permissionSettings: { disableBypassMode: true } })
+		try {
+			await expect(f.prompt({ permissionMode: 'bypass' })).rejects.toThrow(
+				'permissions.disableBypassMode',
+			)
+			expect(f.send).not.toHaveBeenCalled()
+			await f.prompt({ permissionMode: 'prompt' })
+			expect(f.send).toHaveBeenCalledOnce()
+		} finally {
+			await f.runtime.close()
+		}
+	})
+
+	it('refuses auto before any send when the settings shut it or no model can be asked', async () => {
+		const shut = fixture(false, { permissionSettings: { disableAutoMode: true } })
+		try {
+			await expect(shut.prompt({ permissionMode: 'classify' })).rejects.toThrow(
+				'permissions.disableAutoMode',
+			)
+			expect(shut.send).not.toHaveBeenCalled()
+		} finally {
+			await shut.runtime.close()
+		}
+		const noModel = fixture(false, {
+			autoMode: { available: false, reason: 'Auto mode has no model to ask in this conversation.' },
+		})
+		try {
+			await expect(noModel.prompt({ permissionMode: 'classify' })).rejects.toThrow(
+				'no model to ask',
+			)
+			expect(noModel.send).not.toHaveBeenCalled()
+		} finally {
+			await noModel.runtime.close()
+		}
+	})
+
+	it('drops the rest of a turn to asking when the classifier stops being trusted', async () => {
+		const f = fixture()
+		const seen: string[] = []
+		f.holdSend(async (options) => {
+			seen.push(options.currentPermissionMode?.() ?? 'none')
+			options.onAutoModeLimit?.({ limit: 'consecutive', reason: 'three in a row' })
+			seen.push(options.currentPermissionMode?.() ?? 'none')
+		})
+		try {
+			await f.prompt({ permissionMode: 'classify' })
+
+			expect(seen).toEqual(['classify', 'prompt'])
+			// The next message starts from what the person chose.
+			await f.prompt({ permissionMode: 'classify' })
+			expect(seen.at(-2)).toBe('classify')
 		} finally {
 			await f.runtime.close()
 		}

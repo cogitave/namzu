@@ -498,7 +498,7 @@ Current plan mode refuses changes in a restored approved batch and sends later
 rule-allowed batches through the same CLI plan review controls. This callback is
 trusted host state; action payloads cannot change the permission mode.
 
-Within this authenticated action only, current `auto` and `accept-edits` modes
+Within this authenticated action only, current `auto`, `bypass`, `classify` and `accept-edits` modes
 are limited to `prompt` for later review requests, including a mode changed
 while the approved batch runs. Current `plan` and `strict` remain stricter.
 Independent explicit operator rules can still authorize their own calls; this
@@ -706,7 +706,7 @@ of an owner without Pals creates no Pal files.
   this application runs a conversation for it (`idle`; another application's
   conversation is not visible, so `idle` is not proof the Pal is free).
 - `send_pal_message { palId, body }` asks you first, every time: the tool declares
-  that a person must approve it, so `auto`, `accept-edits`, a rule and a remembered
+  that a person must approve it, so `bypass`, `auto`, `accept-edits`, a rule and a remembered
   "don't ask again" do not cover it, `strict` refuses it, and a session with nobody to
   ask refuses it rather than sending. On approval the message is accepted into the
   Pal's durable inbox and the tool answers "Sent to *name*'s inbox. This is durable

@@ -1019,11 +1019,38 @@ export class ToolExecutor {
 				!hostModifiedCallIds?.has(toolCall.id),
 			)
 			calls.set(toolCall.id, call)
-			const escalation = await this.escalationOf(call)
+			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
+	}
+
+	/**
+	 * {@link escalationOf}, except that a check which itself throws is not
+	 * read as "nothing found". The failure becomes an escalation of its own
+	 * (`unfinishedCheck`), which no mode approves in advance: a call whose
+	 * safety checks did not run is the one a person must look at.
+	 */
+	private async escalationOrUnfinished(
+		call: PreparedDirectCall,
+	): Promise<ToolCallEscalation | undefined> {
+		try {
+			return await this.escalationOf(call)
+		} catch (error) {
+			this.config.abortSignal.throwIfAborted()
+			// A fixed sentence and a code, never the error's own message: this text
+			// goes into the audit trail and the prompt a person or the classifier
+			// reads, and a message can carry a path or a command line.
+			const code = (error as { code?: unknown } | null)?.code
+			const label =
+				typeof code === 'string' && /^[\w.-]{1,40}$/.test(code)
+					? code
+					: error instanceof Error && /^\w{1,40}$/.test(error.name)
+						? error.name
+						: 'unknown'
+			return { unfinishedCheck: `the safety checks did not finish (${label})` }
+		}
 	}
 
 	/**
@@ -1180,7 +1207,7 @@ export class ToolExecutor {
 			if (changedCallIds.has(toolCall.id)) {
 				const call = await prepareDirectCall(this.admissionHost(), toolCall, false)
 				calls.set(toolCall.id, call)
-				const escalation = await this.escalationOf(call)
+				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)
 			}

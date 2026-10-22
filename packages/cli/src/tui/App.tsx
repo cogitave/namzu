@@ -178,8 +178,15 @@ import {
 } from '../memory/presentation.js'
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
+	BYPASS_CONSENT_BODY,
+	BYPASS_CONSENT_TITLE,
+	acknowledgeBypass,
+	hasAcknowledgedBypass,
+} from '../permissions/consent.js'
+import {
+	type ModeAvailability,
 	type PermissionMode,
-	bypassAvailableAtLaunch,
+	autoAvailable as autoModeAvailable,
 	nextCycleMode,
 	permissionModeDescription,
 	permissionModeLabel,
@@ -674,6 +681,16 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly (PermissionMode | 'more' | 'rules')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** The first switch into bypass: asked once, then remembered. */
+			readonly kind: 'bypass-consent'
+			readonly title: string
+			readonly notice?: string
+			/** Whether the switch was asked for by name (and so gets a reply line). */
+			readonly announce: boolean
+			readonly values: readonly ('decline' | 'accept')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1284,24 +1301,30 @@ export function App({
 	// `--permission-mode` names the starting mode outright and wins over the bypass alias.
 	const launchPermissionMode = ctx.palId ? undefined : ctx.launchSettings?.permissionMode
 	const [permissionMode, setPermissionModeState] = useState<PermissionMode>(
-		launchPermissionMode ?? (ctx.skipPermissions === true || ctx.palId ? 'auto' : 'prompt'),
+		launchPermissionMode ??
+			(ctx.skipPermissions === true ? 'bypass' : ctx.palId ? 'auto' : 'prompt'),
 	)
 	const permissionModeRef = useRef<PermissionMode>(permissionMode)
-	// Whether Shift+Tab may land on `auto`. Fixed at launch by the launch
-	// mode or --allow-dangerously-skip-permissions; naming `auto` in
-	// /permissions grants it for the rest of the session.
+	// Whether Shift+Tab and /permissions may land on bypass. Fixed at launch
+	// (a flag that names it, or the operator's own default) and shut by
+	// `permissions.disableBypassMode`; nothing typed inside the session opens it.
+	const autoModeNoticeShownRef = useRef(false)
 	const bypassAvailableRef = useRef(
-		bypassAvailableAtLaunch({
-			launchMode: permissionMode,
-			allowDangerouslySkipPermissions: ctx.allowDangerouslySkipPermissions === true,
-		}),
+		ctx.bypassAvailable ??
+			(ctx.skipPermissions === true ||
+				ctx.allowDangerouslySkipPermissions === true ||
+				permissionMode === 'bypass'),
 	)
-	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'launch-flag' | 'session'>(
-		launchPermissionMode
-			? 'launch-flag'
-			: ctx.skipPermissions === true
-				? 'launch-bypass'
-				: 'default',
+	const permissionModeSourceRef = useRef<
+		'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
+	>(
+		ctx.permissionSource === 'config-default'
+			? 'config-default'
+			: launchPermissionMode
+				? 'launch-flag'
+				: ctx.skipPermissions === true
+					? 'launch-bypass'
+					: 'default',
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
@@ -3303,17 +3326,24 @@ export function App({
 	 * a reply. Shift+Tab is a reflex key: the footer is its reply, as it is in
 	 * the reference, and five presses no longer leave five transcript lines.
 	 */
-	const applyPermissionMode = useCallback(
-		(mode: PermissionMode, announce = true): void => {
-			if (!session?.hasProvider) {
-				pushMessage('system', 'Choose a model before changing permissions.')
-				return
-			}
+	/** The two modes that stop asking, as Shift+Tab and the picker see them right now. */
+	const permissionAvailability = useCallback(
+		(): ModeAvailability => ({
+			bypass: bypassAvailableRef.current,
+			auto: autoModeAvailable({
+				disabled: ctx.permissionSettings?.disableAutoMode === true,
+				classifierUsable: session?.autoMode?.available ?? true,
+			}),
+		}),
+		[ctx.permissionSettings, session],
+	)
+
+	const commitPermissionMode = useCallback(
+		(mode: PermissionMode, announce: boolean): void => {
+			if (!session?.hasProvider) return
 			// The ref first: a running turn reads it at its next decision, and the
 			// record below makes the change durable before that decision is made.
 			permissionModeRef.current = mode
-			// Asking for `auto` by name is the same consent as the launch flag.
-			if (mode === 'auto' && announce) bypassAvailableRef.current = true
 			permissionModeSourceRef.current = 'session'
 			setPermissionModeState(mode)
 			void session.setPermissionMode?.(mode)
@@ -3322,9 +3352,73 @@ export function App({
 					'system',
 					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode)}`,
 				)
+			} else if (mode === 'classify' && !autoModeNoticeShownRef.current) {
+				// Shift+Tab is a reflex and its reply is the footer, but this mode
+				// hands decisions to a second model, which is worth saying once.
+				autoModeNoticeShownRef.current = true
+				pushMessage(
+					'system',
+					'Auto mode: a second model checks each call you would be asked about.',
+				)
 			}
 		},
 		[pushMessage, session],
+	)
+
+	const applyPermissionMode = useCallback(
+		(mode: PermissionMode, announce = true): void => {
+			if (!session?.hasProvider) {
+				pushMessage('system', 'Choose a model before changing permissions.')
+				return
+			}
+			if (mode === 'bypass' && permissionModeRef.current !== 'bypass') {
+				// Opening this door is the launch's decision: a flag that names it, or
+				// the operator's own default. Nothing typed here opens it.
+				if (!bypassAvailableRef.current) {
+					pushMessage('system', BYPASS_UNAVAILABLE_NOTICE)
+					return
+				}
+				// Asked once per person, and only here, where it is about to start.
+				if (!hasAcknowledgedBypass()) {
+					if (permissionResolveRef.current !== null) {
+						pushMessage('system', 'Answer the question on screen before switching to bypass.')
+						return
+					}
+					setChoicePicker(bypassConsentPicker(announce))
+					return
+				}
+			}
+			if (mode === 'classify' && permissionModeRef.current !== 'classify') {
+				if (
+					!autoModeAvailable({
+						disabled: ctx.permissionSettings?.disableAutoMode === true,
+						classifierUsable: session.autoMode?.available ?? true,
+					})
+				) {
+					pushMessage('system', session.autoMode?.reason ?? AUTO_UNAVAILABLE_NOTICE)
+					return
+				}
+			}
+			commitPermissionMode(mode, announce)
+		},
+		[commitPermissionMode, ctx.permissionSettings, pushMessage, session, setChoicePicker],
+	)
+
+	/**
+	 * The classifier has blocked too many calls to be relied on. The kernel
+	 * leaves the mode alone; this is the half that changes it, quietly: back to
+	 * asking, with the reason in the transcript, and the footer follows.
+	 */
+	const handleAutoModeLimit = useCallback(
+		(event: { readonly limit: 'consecutive' | 'total'; readonly reason: string }): void => {
+			if (permissionModeRef.current !== 'classify') return
+			commitPermissionMode('prompt', false)
+			pushMessage(
+				'system',
+				`${event.limit === 'consecutive' ? 'Auto mode blocked three actions in a row' : 'Auto mode has blocked twenty actions in this conversation'}, so Namzu will ask before changes again. ${event.reason}`,
+			)
+		},
+		[commitPermissionMode, pushMessage],
 	)
 
 	const applyReasoningEffort = useCallback(
@@ -3757,8 +3851,8 @@ export function App({
 	 */
 	const cyclePermissionMode = useCallback((): void => {
 		const current = permissionModeRef.current
-		applyPermissionMode(nextCycleMode(current, bypassAvailableRef.current), false)
-	}, [applyPermissionMode])
+		applyPermissionMode(nextCycleMode(current, permissionAvailability()), false)
+	}, [applyPermissionMode, permissionAvailability])
 
 	const runConversationExport = useCallback(
 		(destination: ConversationExportDestination): void => {
@@ -4158,9 +4252,20 @@ export function App({
 				})
 				return
 			}
+			if (picker.kind === 'bypass-consent') {
+				if (value === 'accept') {
+					try {
+						acknowledgeBypass()
+					} catch {
+						// An unwritable home costs a repeat of the question next time.
+					}
+					commitPermissionMode('bypass', picker.announce)
+				}
+				return
+			}
 			if (picker.kind === 'permission-mode') {
 				if (value === 'more') {
-					const child = permissionPicker(permissionModeRef.current, true)
+					const child = permissionPicker(permissionModeRef.current, true, permissionAvailability())
 					setSelectedChoice(
 						Math.max(
 							0,
@@ -5664,6 +5769,7 @@ export function App({
 								// `/resume` in plan mode stays read-only, and so do its children.
 								permissionMode: permissionModeRef.current,
 								currentPermissionMode: () => permissionModeRef.current,
+								onAutoModeLimit: handleAutoModeLimit,
 								...(resume?.handoffReason
 									? { systemNote: handoffContinuationNote(resume.handoffReason) }
 									: {}),
@@ -5708,6 +5814,7 @@ export function App({
 			detected,
 			finalizeMessage,
 			flushStream,
+			handleAutoModeLimit,
 			pushMessage,
 			session,
 			setHandoffPark,
@@ -7053,6 +7160,7 @@ export function App({
 				signal,
 				permissionMode: permissionModeRef.current,
 				currentPermissionMode: () => permissionModeRef.current,
+				onAutoModeLimit: handleAutoModeLimit,
 				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
 				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
 				...(hypermodeRef.current ? { hypermode: true } : {}),
@@ -7082,7 +7190,7 @@ export function App({
 			activeTurnInboxRef.current?.notify()
 			return receipt
 		},
-		[activeSkills, appLifetime.signal, onPermission, session],
+		[activeSkills, appLifetime.signal, handleAutoModeLimit, onPermission, session],
 	)
 	const reviewSchedule = useCallback(
 		(request: ScheduleReviewRequest, signal?: AbortSignal) =>
@@ -8044,10 +8152,21 @@ export function App({
 				prompt.kind === 'human'
 					? expandFileMentions(text, ctx.cwd)
 					: { sendText: text, attached: [] as readonly string[] }
-			const { sendText, attached } = expanded
+			const { sendText, attached, inlined } = expanded
 			const historyBeforeTurn = modelHistoryRef.current
+			// File contents are not the operator's words. They travel as their own
+			// message, marked as host-supplied, so nothing that reads "what the
+			// person said" (the auto-mode classifier above all) reads a file as
+			// the person's instruction.
+			const fileMessage =
+				inlined !== undefined
+					? createUserMessage(inlined, undefined, {
+							type: 'runtime-context',
+							kind: 'host-observation',
+						})
+					: undefined
 			const userMessage = createUserMessage(
-				sendText,
+				fileMessage ? text : sendText,
 				attachments,
 				goalRound
 					? {
@@ -8064,7 +8183,11 @@ export function App({
 							? { type: 'runtime-context', kind: noticeKind }
 							: undefined,
 			)
-			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
+			const priorForSdk: Message[] = [
+				...historyBeforeTurn,
+				userMessage,
+				...(fileMessage ? [fileMessage] : []),
+			]
 			const closeStoppedReply = async (): Promise<void> => {
 				const sessions = sessionsRef.current
 				const scope = scopeRef.current
@@ -8465,6 +8588,7 @@ export function App({
 						// Read at every decision: the operator may change the mode
 						// while this turn runs, and the change governs what follows.
 						currentPermissionMode: () => permissionModeRef.current,
+						onAutoModeLimit: handleAutoModeLimit,
 						limits: turnLimits,
 						// A trigger that pins the highest effort does so for this
 						// turn only; the session's own setting is untouched.
@@ -8648,7 +8772,9 @@ export function App({
 				// one keeps the old text-only shape. The durable record is the session
 				// log, which the kernel appended to as the turn ran; this is only the
 				// in-memory context the next send starts from.
-				const fallbackTurn: Message[] = admitted ? [userMessage] : []
+				const fallbackTurn: Message[] = admitted
+					? [userMessage, ...(fileMessage ? [fileMessage] : [])]
+					: []
 				if (st.text.trim().length > 0) fallbackTurn.push(createAssistantMessage(st.text))
 				const conversationMessages = admitted ? st.conversationMessages : undefined
 				const nextModelHistory = conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
@@ -9745,7 +9871,11 @@ export function App({
 							pushMessage('system', 'Finish or stop the current work before changing permissions.')
 							return
 						}
-						const picker = permissionPicker(permissionModeRef.current)
+						const picker = permissionPicker(
+							permissionModeRef.current,
+							false,
+							permissionAvailability(),
+						)
 						setSelectedChoice(
 							Math.max(
 								0,
@@ -13346,14 +13476,25 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 	}
 }
 
-function permissionPicker(
+/** Why bypass cannot be entered, in the words a person can act on. */
+const BYPASS_UNAVAILABLE_NOTICE =
+	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo) to use it, unless permissions.disableBypassMode is set.'
+const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
+
+export function permissionPicker(
 	mode: PermissionMode,
 	more = false,
+	availability: ModeAvailability = { bypass: true, auto: true },
 ): Extract<ChoicePickerState, { kind: 'permission-mode' }> {
 	const current = mode
 	const values = more
-		? (['auto', 'strict', 'rules'] as const)
-		: (['prompt', 'accept-edits', 'plan', 'more'] as const)
+		? (['strict', 'rules'] as const)
+		: (['prompt', 'accept-edits', 'plan', 'bypass', 'classify', 'more'] as const)
+	const unavailable = (value: PermissionMode): string | undefined => {
+		if (value === 'bypass' && !availability.bypass) return BYPASS_UNAVAILABLE_NOTICE
+		if (value === 'classify' && !availability.auto) return AUTO_UNAVAILABLE_NOTICE
+		return undefined
+	}
 	return {
 		kind: 'permission-mode',
 		title: more ? 'More permission options' : 'Permissions',
@@ -13363,20 +13504,39 @@ function permissionPicker(
 			if (value === 'more')
 				return {
 					label: 'More options',
-					description: 'Other approval modes and permission rules',
-					current: current === 'auto' || current === 'strict',
+					description: 'Preapproved-only mode and permission rules',
+					current: current === 'strict',
 				}
 			if (value === 'rules')
 				return {
 					label: 'View rules',
 					description: 'Show the permission rules in use',
 				}
+			const disabledReason = unavailable(value)
 			return {
 				label: permissionModeLabel(value),
 				description: permissionModeDescription(value),
 				current: value === current,
+				...(disabledReason ? { disabledReason } : {}),
 			}
 		}),
+	}
+}
+
+/** The one-time question before the first switch into bypass. */
+function bypassConsentPicker(
+	announce: boolean,
+): Extract<ChoicePickerState, { kind: 'bypass-consent' }> {
+	return {
+		kind: 'bypass-consent',
+		title: BYPASS_CONSENT_TITLE,
+		notice: BYPASS_CONSENT_BODY,
+		announce,
+		values: ['decline', 'accept'],
+		options: [
+			{ label: 'No, keep asking', description: 'Stay in the current mode.' },
+			{ label: 'Yes, bypass permissions', description: 'Remembered; you will not be asked again.' },
+		],
 	}
 }
 

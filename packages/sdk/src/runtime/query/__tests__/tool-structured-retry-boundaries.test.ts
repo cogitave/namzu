@@ -324,11 +324,15 @@ describe('tool structured schema retry boundaries', () => {
 				expect.objectContaining({
 					toolCalls: [expect.objectContaining({ input: { score: 99 } })],
 				}),
+				// The turn's own context: the conversation and the abort signal.
+				expect.objectContaining({ transcript: expect.any(Function) }),
 			],
 			[
 				expect.objectContaining({
 					toolCalls: [expect.objectContaining({ input: { score: 2 } })],
 				}),
+				// The turn's own context: the conversation and the abort signal.
+				expect.objectContaining({ transcript: expect.any(Function) }),
 			],
 		])
 		expect(run.steps?.[0]?.toolResults).toContainEqual(

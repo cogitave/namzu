@@ -74,13 +74,13 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
  *
  * A workflow is reviewed before it starts, like a destructive call: someone
  * has to approve the script. A session set to run tools without asking
- * (`auto`, which is what "bypass permissions" is) has already decided that.
+ * (bypass, or the unattended default) has already decided that.
  * Anything else with nobody to ask refuses, in words the model can pass on.
  */
 export function workflowRefusal(turn: {
 	readonly interactive: boolean
 	readonly mode: string
 }): string | undefined {
-	if (turn.mode === 'auto' || turn.interactive) return undefined
-	return 'A workflow starts many agents on one decision, so a person has to approve it first. This session has nobody to ask and is not set to run without asking, so no workflow was started. Run it from the terminal, or start the session with --permission-mode auto.'
+	if (turn.mode === 'auto' || turn.mode === 'bypass' || turn.interactive) return undefined
+	return 'A workflow starts many agents on one decision, so a person has to approve it first. This session has nobody to ask and is not set to run without asking, so no workflow was started. Run it from the terminal, or start the session with --permission-mode bypass.'
 }

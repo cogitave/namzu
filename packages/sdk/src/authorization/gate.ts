@@ -305,3 +305,38 @@ export class AuthorizationGate {
 		return result
 	}
 }
+
+/**
+ * How wide an `allow` rule is, for the review modes that must not let a broad
+ * rule stand in for a closer look.
+ *
+ * `tool` for a rule that names a whole tool, a category, a tier or a source, or
+ * a pattern that matches every input; `pattern` for any other allow, a
+ * predicate included (it decides some inputs only). `undefined` for a rule that
+ * does not allow, and for the read-only allowance, which is about what a call
+ * does and not about which tool it is.
+ */
+export function allowRuleScope(rule: AuthorizationRule | null): 'tool' | 'pattern' | undefined {
+	if (rule === null) return undefined
+	switch (rule.type) {
+		case 'allow_by_name':
+		case 'allow_by_category':
+		case 'allow_by_tier':
+			return 'tool'
+		case 'by_source':
+			return rule.decision === 'allow' ? 'tool' : undefined
+		case 'argument_pattern':
+		case 'custom_pattern':
+			if (rule.decision !== 'allow') return undefined
+			return matchesEverything(rule.pattern) ? 'tool' : 'pattern'
+		case 'predicate':
+			return 'pattern'
+		default:
+			return undefined
+	}
+}
+
+/** Whether a pattern accepts any text at all: empty, `*`, `.*`, `^.*$` and their kin. */
+function matchesEverything(pattern: string): boolean {
+	return /^\^?(?:\.\*|\*|\(\?:\.\*\)|\[\\s\\S\]\*)?\$?$/.test(pattern.trim())
+}

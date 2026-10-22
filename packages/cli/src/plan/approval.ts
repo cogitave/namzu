@@ -49,8 +49,8 @@ export function planApprovalRows(bypassAvailable: boolean): readonly PlanApprova
 		bypassAvailable
 			? {
 					id: 'approve-auto',
-					label: 'Yes, and approve every tool without asking',
-					mode: 'auto',
+					label: 'Yes, and run every tool without asking',
+					mode: 'bypass',
 				}
 			: {
 					id: 'approve-accept-edits',

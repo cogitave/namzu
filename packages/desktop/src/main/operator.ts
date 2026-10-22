@@ -63,6 +63,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import { isReviewModeId } from '../shared/review-modes.js'
 import {
 	type SidebarSectionId,
 	collapsedSectionsFrom,
@@ -4040,10 +4041,7 @@ export class Operator {
 				))
 		)
 			throw new Error('Invalid reasoning effort.')
-		if (
-			options?.permissionMode !== undefined &&
-			!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
-		)
+		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
 		if (
 			options?.attachmentIds !== undefined &&
@@ -4251,7 +4249,7 @@ export class Operator {
 				)
 			const supportedReviewModes =
 				session.view.harness === 'codex-cli'
-					? ['prompt', 'plan', 'accept-edits', 'auto', 'strict']
+					? ['prompt', 'plan', 'accept-edits', 'auto', 'bypass', 'strict']
 					: ['prompt', 'plan']
 			if (options?.permissionMode && !supportedReviewModes.includes(options.permissionMode))
 				throw new Error(
@@ -4287,10 +4285,7 @@ export class Operator {
 				))
 		)
 			throw new Error('Invalid reasoning effort.')
-		if (
-			options?.permissionMode !== undefined &&
-			!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
-		)
+		if (options?.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 			throw new Error('Invalid permission mode.')
 		if (
 			(options?.effort !== undefined ||
@@ -4554,8 +4549,7 @@ export class Operator {
 					!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(
 						options.effort,
 					)) ||
-				(options.permissionMode !== undefined &&
-					!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)))
+				(options.permissionMode !== undefined && !isReviewModeId(options.permissionMode)))
 		)
 			throw new Error('Invalid retry settings.')
 		const admission = Symbol('retry admission')
@@ -4985,10 +4979,7 @@ export class Operator {
 					))
 			)
 				throw new Error('Invalid reasoning effort.')
-			if (
-				options.permissionMode !== undefined &&
-				!['prompt', 'accept-edits', 'auto', 'strict', 'plan'].includes(options.permissionMode)
-			)
+			if (options.permissionMode !== undefined && !isReviewModeId(options.permissionMode))
 				throw new Error('Invalid permission mode.')
 			next.options = {
 				...(options.effort !== undefined ? { effort: options.effort } : {}),

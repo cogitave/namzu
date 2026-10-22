@@ -1,3 +1,4 @@
+import { allowRuleScope } from '../../../../authorization/gate.js'
 import type { AuthorizationGate } from '../../../../authorization/index.js'
 import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
@@ -22,6 +23,9 @@ interface VerificationAwareContext extends IterationContext {
 
 /** Why an escalated call cannot be waved through by the rule that would otherwise allow it. */
 function escalationReason(escalation: ToolCallSummary['escalation']): string {
+	if (escalation?.unfinishedCheck !== undefined) {
+		return `the safety checks on this call did not finish (${escalation.unfinishedCheck})`
+	}
 	if (escalation?.unknownProgram !== undefined) {
 		return `this call's program cannot be verified ahead of time (${escalation.unknownProgram})`
 	}
@@ -153,6 +157,8 @@ export async function* runToolReview(
 								decision: 'review' as const,
 								reason: hookAskedReason(hookPermission.reason),
 								explicitReview: true as const,
+								// Immune to a mode that auto-approves, as a rule's ask is.
+								askRule: true as const,
 							}
 						: { decision: 'review' as const },
 				...(requiresApproval ? { requiresApproval: true as const } : {}),
@@ -410,6 +416,17 @@ export async function* runToolReview(
 				reason,
 			})
 		}
+		if (tc.escalation?.unfinishedCheck !== undefined) {
+			await ctx.recorder.recordAudit({
+				what: {
+					action: 'unfinished_check',
+					tool: tc.name,
+					resource: tc.escalation.unfinishedCheck,
+				},
+				outcome: 'refused',
+				reason,
+			})
+		}
 	}
 
 	// Gate-denied ids survive the whole function: a later human approval
@@ -450,6 +467,9 @@ export async function* runToolReview(
 			}),
 		}))
 		for (const gr of gateResults) {
+			// Before the overrides below: only a rule that was WRITTEN to ask a
+			// person, not an allow demoted to a question, is an ask rule.
+			const ruleAsked = gr.gateResult.decision === 'review' && gr.gateResult.matchedRule !== null
 			// An `allow` rule was written about a tool, not about a path outside
 			// the working directory or a command outside the sandbox, which
 			// were refused outright when it was written. So an escalated call
@@ -490,6 +510,10 @@ export async function* runToolReview(
 				...(gateResult.reason ? { reason: gateResult.reason } : {}),
 				...(gateResult.decision === 'review' && (gateResult.matchedRule || hookAsked)
 					? { explicitReview: true as const }
+					: {}),
+				...(ruleAsked || hookAsked ? { askRule: true as const } : {}),
+				...(gateResult.decision === 'allow' && allowRuleScope(gateResult.matchedRule)
+					? { allowScope: allowRuleScope(gateResult.matchedRule) }
 					: {}),
 			}
 		}
@@ -601,6 +625,12 @@ export async function* runToolReview(
 		gateDenied.size === 0 &&
 		escalated().length === 0 &&
 		requiresApproval().length === 0 &&
+		// A remembered grant is an answer to an earlier question, never to an
+		// operator's ask rule or a hook's ask: those exist to put THIS call to a
+		// person each time.
+		toolCallSummaries.every(
+			(tc) => !tc.authorization?.askRule && !tc.authorization?.explicitReview,
+		) &&
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
 	) {
 		ctx.log.debug('Every tool call is covered by an approval already granted', {
@@ -776,6 +806,17 @@ export async function* runToolReview(
 						action: 'dangerous_removal',
 						tool: tc.name,
 						resource: tc.escalation.dangerousRemoval,
+					},
+					outcome: 'approved',
+					reason: "the turn's review approved this call",
+				})
+			}
+			if (tc.escalation?.unfinishedCheck !== undefined) {
+				await ctx.recorder.recordAudit({
+					what: {
+						action: 'unfinished_check',
+						tool: tc.name,
+						resource: tc.escalation.unfinishedCheck,
 					},
 					outcome: 'approved',
 					reason: "the turn's review approved this call",

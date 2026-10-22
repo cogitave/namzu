@@ -68,11 +68,14 @@ import { createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { launchRefusal } from '../permissions/launch.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import {
 	compilePermissionLayers,
 	permissionLayersOf,
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
+import type { PermissionSettings } from '../permissions/settings.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -226,6 +229,7 @@ type AcpLiveSession = Pick<
 	| 'documentAttachmentsSupported'
 	| 'checkpoints'
 	| 'markFilesChanged'
+	| 'autoMode'
 > & {
 	readonly resumePaused?: AgentSession['resumePaused']
 	readonly abandonTurn?: AgentSession['abandonTurn']
@@ -264,6 +268,8 @@ interface AcpRuntimeRecord {
 	readonly palId?: string
 	readonly readyComputer?: () => PalEnvironmentLease | undefined
 	readonly provider: string
+	/** `permissions.disableBypassMode` and friends, which the host cannot be talked out of. */
+	readonly permissionSettings?: PermissionSettings
 	/** The model this connection runs on now; a retry repeats the paused turn on it, not on the failed one. */
 	readonly model: string
 	retrySettings?: {
@@ -272,6 +278,20 @@ interface AcpRuntimeRecord {
 		computer?: { generation: number; environmentId: string }
 	}
 	route: ((event: SessionEvent) => void) | undefined
+}
+
+/**
+ * Whether this conversation may run in `mode`. The Desktop's own confirmation
+ * is the person's consent to bypass, so there is no launch flag to look for;
+ * what the settings shut and the root guard still hold, and the auto mode
+ * needs a model it can ask.
+ */
+function assertModeAllowed(record: AcpRuntimeRecord, mode: PermissionMode): void {
+	const refusal = launchRefusal(mode, { settings: record.permissionSettings })
+	if (refusal) throw new Error(refusal)
+	if (mode === 'classify' && record.session.autoMode?.available === false) {
+		throw new Error(record.session.autoMode.reason ?? 'Auto mode is not available here.')
+	}
 }
 
 const MISSING_RETRY_COMPUTER =
@@ -820,6 +840,9 @@ export function createCliAcpRuntime(
 						: {}),
 					...(target.origin ? { origin: target.origin } : {}),
 					rules: permissions.rules,
+					...(projectCtx.config.permissionSettings
+						? { permissionSettings: projectCtx.config.permissionSettings }
+						: {}),
 					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
 					...(projectCtx.config.skills ? { skills: projectCtx.config.skills } : {}),
@@ -879,6 +902,9 @@ export function createCliAcpRuntime(
 						? { palId: palBinding.pal.id, readyComputer: palEnvironment?.readyComputer }
 						: {}),
 					provider: primary.id,
+					...(projectCtx.config.permissionSettings
+						? { permissionSettings: projectCtx.config.permissionSettings }
+						: {}),
 					model:
 						primary.model ??
 						probe.detected.find(({ entry }) => entry.id === primary.id)?.entry.defaultModel ??
@@ -1018,6 +1044,10 @@ export function createCliAcpRuntime(
 					record.session,
 					record.ownedPal ? 'auto' : 'prompt',
 				)
+				assertModeAllowed(record, settings.permissionMode)
+				// A classifier that stops being trusted drops the rest of this turn to
+				// asking, which the person sees as the approval prompts they now get.
+				let turnMode: PermissionMode = settings.permissionMode
 				if (!record.ownedPal) {
 					liveInputs.get(sessionId)?.close()
 					liveInbox = new LivePromptInbox(
@@ -1048,6 +1078,10 @@ export function createCliAcpRuntime(
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
+					currentPermissionMode: () => turnMode,
+					onAutoModeLimit: () => {
+						turnMode = 'prompt'
+					},
 					...(undoNote ? { systemNote: undoNote } : {}),
 					...(computer
 						? { assertExecutionAllowed: () => assertRetryComputer(record, original) }
@@ -1120,6 +1154,7 @@ export function createCliAcpRuntime(
 				record.session,
 				'prompt',
 			)
+			assertModeAllowed(record, settings.permissionMode)
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
 			const started = facts?.records.find(
 				(row) => row.type === 'turn_started' && row.turnId === turnId,
@@ -1884,6 +1919,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const server: ACPServer = new ACPServer({
 		supportsPromptAttachments: true,
 		supportsPromptOptions: true,
+		// `assertModeAllowed` below applies the settings that shut either door.
+		promptPermissionModes: ['bypass', 'classify'],
 		supportsTaskNotifications: desktop,
 		transport,
 		gateway: runtime.gateway,
