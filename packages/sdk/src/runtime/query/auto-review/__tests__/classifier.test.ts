@@ -169,6 +169,25 @@ describe('the two passes', () => {
 		expect(text(one?.messages[1] as Message)).not.toBe(text(two?.messages[1] as Message))
 	})
 
+	it('keeps the same prefix when the passes land in different milliseconds', async () => {
+		// The clock moves between the passes on purpose: the prefix used to be
+		// rebuilt per pass with a fresh timestamp, so it matched only when both
+		// passes ran within one millisecond.
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(1_700_000_000_000)
+		const { classifier, requests } = make([
+			async () => {
+				vi.setSystemTime(Date.now() + 5)
+				return '<verdict>block'
+			},
+			'<verdict>allow</verdict>',
+		])
+		await review(classifier)
+		const [one, two] = requests
+		expect(requests).toHaveLength(2)
+		expect(one?.messages[0]).toEqual(two?.messages[0])
+	})
+
 	it('reports what each pass cost', async () => {
 		const onUsage = vi.fn()
 		const { classifier } = make(['<verdict>block', '<verdict>allow</verdict>'], { onUsage })
