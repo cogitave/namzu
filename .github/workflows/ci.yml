@@ -167,9 +167,10 @@ jobs:
       # one behind the other. `@namzu/sdk` and `@namzu/cli` run in their own
       # jobs below (sdk-coverage / test-sdk, test-cli), so they are filtered
       # out here; `check-test-coverage-union.mjs` fails if any package with a
-      # `test` script is left out of every job.
+      # `test` script is left out of every job. `!{.}` drops the workspace root,
+      # whose own `test` script is `pnpm -r test` and would run it all again.
       - name: Test
-        run: pnpm -r --no-sort --filter '!@namzu/sdk' --filter '!@namzu/cli' test
+        run: pnpm -r --no-sort --filter '!@namzu/sdk' --filter '!@namzu/cli' --filter '!{.}' test
 
       # namzu takes its naming from nobody. A design explained by reference
       # to another product has borrowed its shape, and the borrowing

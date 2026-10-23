@@ -138,7 +138,8 @@ export function analyse(ciText, packages) {
 		for (const name of packages)
 			if (!excluded.has(name)) covered.get(name).push(`${job}: ${command}`);
 		for (const name of excluded)
-			if (!covered.has(name))
+			// `{.}` is the workspace root, whose `test` is `pnpm -r test` itself.
+			if (name !== "{.}" && !covered.has(name))
 				problems.push(
 					`\`${command}\` excludes ${name}, which has no \`test\` script in the workspace`,
 				);
