@@ -251,6 +251,14 @@ export interface SessionLogCoreOptions {
 	 */
 	readonly spillAboveBytes?: number
 	/**
+	 * A `compaction` record whose summary would exceed this many bytes spills
+	 * it even when under {@link spillAboveBytes}. A re-base summary should be
+	 * small, so a large one is written beside the log rather than inline, which
+	 * keeps the log compact and cheap to replay. Capped at `spillAboveBytes`.
+	 * Default {@link COMPACTION_SPILL_ABOVE_BYTES}.
+	 */
+	readonly compactionSpillAboveBytes?: number
+	/**
 	 * Spill screened structured tool JSON and accepted structured output when
 	 * their record exceeds spillAboveBytes. Default false preserves inline
 	 * records. Each JSON body is limited to STRUCTURED_RESULT_MAX_BYTES.
@@ -280,6 +288,8 @@ const BOUNDARY_TYPES: ReadonlySet<string> = new Set([
 
 /** Characters of a spilled message kept inline as its preview. */
 const PREVIEW_CHARS = 2000
+/** Default byte bound above which a `compaction` record's summary is spilled. */
+const COMPACTION_SPILL_ABOVE_BYTES = 256 * 1024
 
 const ZERO_USAGE = {
 	promptTokens: 0,
@@ -314,6 +324,7 @@ export class SessionLogCore implements SessionLog {
 	readonly #spills: SpillStore
 	readonly #now: () => number
 	readonly #spillAbove: number
+	readonly #compactionSpillAbove: number
 	readonly #structuredResultSpilling: boolean
 	readonly #sync: 'boundaries' | 'all' | 'none'
 	readonly #mutex = new Mutex()
@@ -344,6 +355,10 @@ export class SessionLogCore implements SessionLog {
 		this.#spillAbove = Math.min(
 			options.spillAboveBytes ?? SESSION_RECORD_MAX_BYTES,
 			SESSION_RECORD_MAX_BYTES,
+		)
+		this.#compactionSpillAbove = Math.min(
+			options.compactionSpillAboveBytes ?? COMPACTION_SPILL_ABOVE_BYTES,
+			this.#spillAbove,
 		)
 		this.#sync = options.sync ?? 'boundaries'
 	}
@@ -659,7 +674,10 @@ export class SessionLogCore implements SessionLog {
 		)
 			return candidate
 		const size = Buffer.byteLength(`${JSON.stringify(candidate)}\n`, 'utf8')
-		if (size <= this.#spillAbove) return candidate
+		// A compaction summary should be small; spill it at a lower bound so a
+		// single large one never sits inline and bloats the log.
+		const spillAbove = type === 'compaction' ? this.#compactionSpillAbove : this.#spillAbove
+		if (size <= spillAbove) return candidate
 		if (type === 'turn_completed') {
 			if (typeof candidate.result !== 'string') return candidate
 			const ref = await this.#spills.write(
