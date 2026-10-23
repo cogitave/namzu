@@ -68,7 +68,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
-| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
+| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/prune-stale-tsc-outputs.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Type check | `pnpm typecheck` |
 | Build | `pnpm -r build` |

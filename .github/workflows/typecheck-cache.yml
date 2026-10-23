@@ -1,0 +1,84 @@
+name: Type check cache
+
+# Writes the incremental `tsc --build` state that ci.yml restores before its
+# Type check step. It runs on pushes to main and nowhere else, because of how
+# GitHub scopes caches: a run can read caches written on its own ref, its base
+# branch and the default branch, and can write only to its own ref. A cache
+# written here lands in main's scope, so every pull request can read it, and
+# a pull request cannot write into that scope, so it cannot poison what the
+# next one starts from. ci.yml only restores.
+#
+# ci.yml does not run on main pushes (release.yml validates inline), so this
+# is the one workflow that produces main-scoped entries.
+#
+# Nothing here is a gate and nothing is published from it: it holds
+# `contents: read`, installs from the lockfile, runs the same `pnpm typecheck`
+# the gate runs, and saves only after that succeeds, so a tree that does not
+# type check never leaves a cache. The cache is never restored by release.yml:
+# what is published is built there from a clean checkout.
+#
+# The key and path must stay identical to the restore step in ci.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: typecheck-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  save:
+    name: Save type check cache (${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - id: tsc-toolchain
+        run: |
+          echo "key=tsc-v1-${{ runner.os }}-node$(node -p process.version)-ts$(pnpm exec tsc -v | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Start from the previous main state so this run is cheap too; tsc is
+      # exactly as correct from a restored state as from none (see ci.yml).
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            packages/*/tsconfig.tsbuildinfo
+            packages/*/dist
+            packages/providers/*/tsconfig.tsbuildinfo
+            packages/providers/*/dist
+          key: ${{ steps.tsc-toolchain.outputs.key }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'packages/*/tsconfig*.json', 'packages/providers/*/tsconfig*.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ steps.tsc-toolchain.outputs.key }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'packages/*/tsconfig*.json', 'packages/providers/*/tsconfig*.json') }}-
+            ${{ steps.tsc-toolchain.outputs.key }}-
+
+      - run: node .github/scripts/prune-stale-tsc-outputs.mjs
+
+      - run: pnpm typecheck
+
+      - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            packages/*/tsconfig.tsbuildinfo
+            packages/*/dist
+            packages/providers/*/tsconfig.tsbuildinfo
+            packages/providers/*/dist
+          key: ${{ steps.tsc-toolchain.outputs.key }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'packages/*/tsconfig*.json', 'packages/providers/*/tsconfig*.json') }}-${{ github.sha }}
