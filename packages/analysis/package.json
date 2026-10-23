@@ -1,7 +1,7 @@
 {
 	"name": "@namzu/analysis",
 	"version": "0.2.0",
-	"description": "Native, paged semantic index of JavaScript and TypeScript for @namzu/sdk. Answers \"which function holds this string, what is its source, who calls it\" with cited, evidence-carrying results, built on oxc-parser and node:sqlite.",
+	"description": "Semantic index of JavaScript and TypeScript (oxc-parser, node:sqlite) plus the native lane: a Rust sidecar (ELF, PE, Mach-O parsing, symbols, strings, Bun and Node SEA payload extraction), its TypeScript client and an asar reader. Answers \"which function holds this string, what is its source, who calls it\" with cited, evidence-carrying results.",
 	"license": "FSL-1.1-MIT",
 	"engines": {
 		"node": ">=22.13.0"
@@ -41,6 +41,11 @@
 		"!src/**/__tests__",
 		"!src/**/__fixtures__",
 		"!src/**/test-setup.*",
+		"native/src",
+		"native/Cargo.toml",
+		"native/Cargo.lock",
+		"native/deny.toml",
+		"rust-toolchain.toml",
 		"LICENSE.md",
 		"README.md",
 		"CHANGELOG.md"
@@ -50,13 +55,14 @@
 		"provenance": true
 	},
 	"scripts": {
-		"build": "tsc --build",
+		"build": "node scripts/native.mjs build && tsc --build",
 		"dev": "tsc --build --watch",
-		"lint": "biome check src/",
+		"lint": "biome check src/ && node scripts/native.mjs lint",
 		"lint:fix": "biome check --write src/",
 		"format": "biome format --write src/",
-		"test": "vitest run --passWithNoTests",
+		"test": "node scripts/native.mjs test && vitest run --passWithNoTests",
 		"typecheck": "tsc --noEmit",
+		"licenses": "node scripts/check-licenses.mjs --list",
 		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
 	},
 	"peerDependencies": {

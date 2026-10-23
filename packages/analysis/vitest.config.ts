@@ -12,11 +12,18 @@ import { defineConfig } from 'vitest/config'
  * implicit, because `exclude` replaces the default list instead of extending
  * it. The spelling matches `packages/files/vitest.config.ts` and the sibling
  * configs.
+ *
+ * The timeout is raised from 5 s for the native suites: they spawn the real
+ * sidecar and, on a loaded runner, process start-up plus a 290 MB extraction
+ * can take longer than that without anything being wrong. No test decides its
+ * outcome by racing a timer: a genuine hang is caught by this limit alone.
  */
 export default defineConfig({
 	test: {
 		// Keeps the kernel's default state root out of the user's home.
 		globalSetup: ['../../tools/vitest-state-root.mjs'],
 		exclude: ['**/node_modules/**', '**/dist/**'],
+		testTimeout: 60_000,
+		hookTimeout: 60_000,
 	},
 })

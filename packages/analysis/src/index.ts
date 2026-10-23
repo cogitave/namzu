@@ -1,6 +1,28 @@
 export { createCodeAnalysisProvider } from './provider.js'
 export type { CodeAnalysisOptions } from './provider.js'
 export {
+	createNativeAnalysis,
+	platformPackageName,
+	resolveSidecar,
+	SIDECAR_ENV,
+	extractAsar,
+	unsafeComponent,
+	NativeAnalysisError,
+	AsarError,
+} from './native/index.js'
+export type {
+	NativeAnalysis,
+	NativeAnalysisOptions,
+	RequestOptions,
+	NativeOp,
+	ResolvedSidecar,
+	SidecarSource,
+	AsarEntryReport,
+	AsarEntryStatus,
+	AsarResult,
+	ExtractAsarOptions,
+} from './native/index.js'
+export {
 	DEFAULT_IGNORED_DIRS,
 	DEFAULT_MAX_DIRECTORIES,
 	DEFAULT_MAX_FILES,
