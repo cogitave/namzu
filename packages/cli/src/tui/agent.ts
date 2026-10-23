@@ -253,6 +253,7 @@ import {
 	type McpServersConfig,
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
+import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
@@ -5389,6 +5390,27 @@ export async function createAgentSession(
 								messages: () => [],
 							})
 						}
+						// External servers whose tool definitions would take a tenth of
+						// this turn's window or more are offered by name only, loaded
+						// through `search_tools` — see `integrations/mcp/tool-search.ts`.
+						// After every other addition, because those rebuild from
+						// `sessionToolsets`.
+						const mcpDeferred = deferLargeMcpToolsets(
+							runToolsets,
+							resolveContextWindow(
+								options.compaction?.contextWindowTokens,
+								autoRoute?.model ?? model,
+							).tokens,
+						)
+						if (mcpDeferred) {
+							runToolsets = mcpDeferred
+							if (runManager !== manager) runManager.dispose()
+							runManager = new ToolManager({
+								toolsets: runToolsets,
+								...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+								messages: () => [],
+							})
+						}
 						const systemPrompt =
 							[
 								NAMZU_IDENTITY,
@@ -5408,7 +5430,7 @@ export async function createAgentSession(
 								// `toolLoading: 'deferred'`: a deferred tool the model was
 								// never told how to load is a tool it does not have.
 								options.toolLoading === 'deferred' ||
-								sessionToolsets.some(
+								runToolsets.some(
 									(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
 								)
 									? DEFERRED_TOOL_GUIDANCE
