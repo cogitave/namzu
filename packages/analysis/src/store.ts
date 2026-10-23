@@ -291,6 +291,30 @@ export class Store {
 		}
 	}
 
+	/**
+	 * Run `read` against one consistent view of the database.
+	 *
+	 * Statements outside a transaction each see whatever was committed when
+	 * they started, so another process that replaces a file's rows between two
+	 * of them leaves the second looking for ids the first found and no longer
+	 * existing. A deferred `BEGIN` takes no write lock (a writer is never made
+	 * to wait for a reader, and a reader never waits) and pins the view that
+	 * the first read sees until `COMMIT`. `read` must be synchronous: an
+	 * `await` inside would hold the view open across the event loop.
+	 */
+	snapshot<T>(read: () => T): T {
+		this.db.exec('BEGIN')
+		try {
+			return read()
+		} finally {
+			try {
+				this.db.exec('COMMIT')
+			} catch {
+				this.rollback()
+			}
+		}
+	}
+
 	commit(): void {
 		this.db.exec('COMMIT')
 	}
@@ -448,6 +472,25 @@ export class Store {
 	 */
 	writeFile(record: FileRecord): void {
 		const { rows, lineStarts } = record
+		// Another process may have stored this very file, from the same bytes, a
+		// moment ago: several indexers started on one root all parse every file.
+		// Replacing identical rows would only re-issue their ids under every
+		// reader that is looking at them, so keep what is there.
+		const held = this.get(
+			'SELECT chars, lang, parse_errors, size, mtime_ms, hash, degraded FROM files WHERE path = ?',
+			record.path,
+		)
+		if (
+			held &&
+			Number(held.chars) === record.chars &&
+			held.lang === record.lang &&
+			Number(held.parse_errors) === record.parseErrors &&
+			Number(held.size) === record.size &&
+			Number(held.mtime_ms) === record.mtimeMs &&
+			held.hash === record.hash &&
+			Number(held.degraded) === record.degraded
+		)
+			return
 		this.removeByPath(record.path)
 		const base = Number(this.meta('next_fn_id') ?? '1')
 		const lineOf = (offset: number): number => {
