@@ -391,6 +391,9 @@ jobs:
       - name: Test
         run: pnpm --filter @namzu/sdk test
 
+      - name: Process-level regression tests
+        run: pnpm --filter @namzu/sdk test:proc
+
   # The CLI suite is the longest in the workspace (about 500s) and needs no
   # order beyond the build, so it is cut into thirds that run side by side, on
   # both node versions. `check-test-coverage-union.mjs` fails if the shard list
