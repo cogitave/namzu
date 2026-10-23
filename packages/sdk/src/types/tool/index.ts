@@ -2,7 +2,6 @@ import type { ChildProcess } from 'node:child_process'
 import type { z } from 'zod'
 import type { CodeAnalysisProvider } from '../code-analysis/index.js'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
-import type { NativeAnalysisProvider } from '../native-analysis/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
 // terms of the tool that produced the result, and the registry that holds
 // the guardrails is described here. Erased at compile time, so neither
@@ -11,6 +10,7 @@ import type { ToolResultGuardrailSpec } from '../guardrail/index.js'
 import type { SessionId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { BackgroundJobOutputWaitOptions, BackgroundJobOutputWaitResult } from '../job/index.js'
+import type { NativeAnalysisProvider } from '../native-analysis/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
 import type { ToolPresentation } from './presentation.js'
