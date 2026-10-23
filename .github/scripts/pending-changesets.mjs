@@ -18,6 +18,9 @@
  * the validated-tree lookup and, failing that, every gate. Being wrong toward
  * "pending" would publish a tree nothing checked, so every doubt is "none".
  *
+ * A changeset with empty frontmatter still counts: the action treats any
+ * non-empty changeset set as "version, do not publish", empty ones included.
+ *
  * Usage (as release.yml runs it, ahead of find-validated-tree.mjs):
  *
  *   node .github/scripts/pending-changesets.mjs --tree "$(git rev-parse 'HEAD^{tree}')"
