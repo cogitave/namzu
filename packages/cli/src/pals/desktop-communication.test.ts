@@ -56,12 +56,34 @@ afterEach(() => {
 })
 const host = (cwd: string) => createDesktopHostExtensions({} as CliAcpRuntime, cwd)
 async function fixture() {
-	const source = createPal({ name: 'Research', purpose: 'PRIVATE_PURPOSE' })
-	const recipient = createPal({
-		name: 'Review',
-		model: { provider: 'PRIVATE_PROVIDER', model: 'PRIVATE_MODEL' },
-	})
-	const stranger = createPal({ name: 'Unrelated' })
+	// Stamp each Pal a second apart so the store's (createdAt, id) ordering is
+	// deterministic: source, then recipient, then stranger. Created back-to-back
+	// they shared a millisecond, and the tiebreak on the random UUID decided
+	// their order — which randomly put the stranger before the recipient and
+	// broke the two tests that read `peers` in order (the name-order assertion,
+	// and the mid-read mutation that must land on the recipient read first).
+	vi.useFakeTimers()
+	try {
+		vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
+		const source = createPal({ name: 'Research', purpose: 'PRIVATE_PURPOSE' })
+		vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'))
+		const recipient = createPal({
+			name: 'Review',
+			model: { provider: 'PRIVATE_PROVIDER', model: 'PRIVATE_MODEL' },
+		})
+		vi.setSystemTime(new Date('2026-01-01T00:00:02.000Z'))
+		const stranger = createPal({ name: 'Unrelated' })
+		vi.useRealTimers()
+		return await assemble(source, recipient, stranger)
+	} finally {
+		vi.useRealTimers()
+	}
+}
+async function assemble(
+	source: ReturnType<typeof createPal>,
+	recipient: ReturnType<typeof createPal>,
+	stranger: ReturnType<typeof createPal>,
+) {
 	const sessionId = generateSessionId()
 	await claimPalConversation(source.workspace, source.id, sessionId)
 	return {
