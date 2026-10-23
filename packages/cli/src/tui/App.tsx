@@ -2586,15 +2586,20 @@ export function App({
 		[stdout.isTTY, writeStdout],
 	)
 
-	// The scroll view grows the live frame to nearly the screen height. When it
-	// closes Ink repaints the shorter frame in place, which strands the composer
-	// near the top with blank rows under it. Rebuild the transcript the way a
-	// resize does (clear, remount <Static>, reprint once) so the screen is tidy.
+	// The scroll view grows the live frame to nearly the screen height, and
+	// closing it shrinks the frame back. Either way Ink repaints the frame in
+	// place rather than reprinting it, so a band is left unpainted: on open the
+	// taller frame leaves it at the TOP (the live region is bottom-anchored by
+	// `ViewportBound`, so the top is what gives way to the growth), and on close
+	// the shorter frame strands the composer near the top with blank rows under
+	// it. Rebuild the transcript the way a resize does (clear, remount <Static>,
+	// reprint once) on EITHER transition so the screen is tidy. Open used to go
+	// unhandled, which is what left the blank band above a scrolled transcript.
 	const scrollWasOpenRef = useRef(false)
 	useEffect(() => {
 		const wasOpen = scrollWasOpenRef.current
 		scrollWasOpenRef.current = scrollOpen
-		if (wasOpen && !scrollOpen) resetTranscript({ preserveOutputViewer: true })
+		if (wasOpen !== scrollOpen) resetTranscript({ preserveOutputViewer: true })
 	}, [scrollOpen, resetTranscript])
 
 	const previousTerminalRef = useRef(terminal)
@@ -2603,16 +2608,21 @@ export function App({
 		previousTerminalRef.current = terminal
 		if (
 			externalEditorRequestRef.current === null &&
-			(terminal.columns !== previous.columns || terminal.rows < previous.rows)
+			(terminal.columns !== previous.columns ||
+				terminal.rows < previous.rows ||
+				(scrollOpen && terminal.rows !== previous.rows))
 		) {
 			// A contraction can move live rows into native scrollback before Ink
 			// receives resize; expansion leaves already-printed Static rows wrapped
-			// at their old width. Rebuild the normal-buffer transcript at the new
-			// width, retaining messages, draft and selected child. Regular frames
-			// remain incremental.
+			// at their old width. A pure height expansion needs no rebuild normally,
+			// but WHILE SCROLLED the frame is near-full-screen and grows in place
+			// with the same top-blank the open transition has, so rebuild on any
+			// height change in that mode. Rebuild the normal-buffer transcript at
+			// the new width, retaining messages, draft and selected child. Regular
+			// frames remain incremental.
 			resetTranscript({ preserveOutputViewer: true })
 		}
-	}, [terminal, resetTranscript])
+	}, [terminal, resetTranscript, scrollOpen])
 
 	const requestExternalEditor = useCallback(
 		(seed: string): Promise<string> => {
