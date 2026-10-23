@@ -1,5 +1,12 @@
 # Changelog
 
+## 52.6.1
+
+### Patch Changes
+
+- 3c46858: Fix a re-base (`context-rewrite` compaction) copying the whole conversation into its summary and stripping every message id. When the live context diverged from the recorded view by anything other than an appended tail — most often the provider-rejected-image repair, which rebuilds one middle message as a fresh object — the recorder fell back to inlining the ENTIRE context into the compaction record's `summary` with nothing kept by id, then stripped all ids, so the next re-base was again "not ordered" and re-inlined an ever-larger context forever. One long session reached 53 MB, 76% of it the same context copied dozens of times, which made auto-compaction and resume pathologically heavy (and could abort the process). A re-base now keeps the in-order run of recorded messages by id and re-records only the messages that actually moved, under fresh ids, so repeated re-bases stay bounded and ids survive. No public API change; fold reconstruction is unchanged.
+- 7edd8d3: Spill a large `compaction` summary beside the log instead of inline. A `context-rewrite` re-base keeps its summary small, but nothing enforced it — a summary under the 4 MiB record cap was written inline and could bloat the session file and make replay heavy. A new `compactionSpillAboveBytes` option (default 256 KiB, capped at `spillAboveBytes`) spills a summary over the bound through the existing spill store; the fold reads it back transparently, so the on-disk record stays small and the model sees the same conversation. Defence-in-depth alongside the re-base fix, which already keeps summaries small in normal operation.
+
 ## 52.6.0
 
 ### Minor Changes
