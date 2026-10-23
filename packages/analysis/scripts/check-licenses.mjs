@@ -63,6 +63,6 @@ const bad = rows.filter((p) => !acceptable(p.license))
 if (process.argv.includes('--list')) {
 	for (const p of rows) console.log(`${p.name}@${p.version}\t${p.license}`)
 }
-console.log(`[analysis-native] ${rows.length} crates, ${bad.length} with a disallowed licence`)
+console.log(`[analysis] ${rows.length} crates, ${bad.length} with a disallowed licence`)
 for (const p of bad) console.error(`  ${p.name}@${p.version}: ${p.license}`)
 process.exit(bad.length === 0 ? 0 : 1)

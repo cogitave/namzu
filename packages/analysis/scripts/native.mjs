@@ -10,7 +10,7 @@
  *
  * - The shell may export `CARGO_TARGET_DIR` for some other project. Building
  *   into it would write into that project's tree, so the target directory is
- *   always set here, to `packages/analysis-native/target` (gitignored).
+ *   always set here, to `packages/analysis/target` (gitignored).
  * - `pnpm -r build` runs this package with every other one. A contributor with
  *   no Rust toolchain should still be able to build the TypeScript packages, so
  *   without `cargo` the step is skipped with a loud line, but only when `CI` is
@@ -35,7 +35,7 @@ const env = { ...process.env, CARGO_TARGET_DIR: join(root, 'target') }
 
 const probe = spawnSync('cargo', ['--version'], { env, encoding: 'utf8' })
 if (probe.error || probe.status !== 0) {
-	const why = `[analysis-native] \`cargo\` is not available, so the native ${mode} step`
+	const why = `[analysis] \`cargo\` is not available, so the native ${mode} step`
 	if (process.env.CI) {
 		console.error(`${why} cannot run, and CI requires it. Install a Rust toolchain.`)
 		process.exit(1)

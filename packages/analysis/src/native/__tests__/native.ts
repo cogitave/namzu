@@ -17,14 +17,14 @@ export function describeNative(name: string, body: () => void): void {
 		describe(name, () => {
 			it('needs the built sidecar binary, which CI must provide', () => {
 				throw new Error(
-					'the sidecar binary is missing in CI: `pnpm --filter @namzu/analysis-native build` must run first',
+					'the sidecar binary is missing in CI: `pnpm --filter @namzu/analysis build` must run first',
 				)
 			})
 		})
 	} else {
 		// biome-ignore lint/suspicious/noConsole: the reason a suite was skipped must reach the log
 		console.warn(
-			`[analysis-native] skipping "${name}": the sidecar binary is not built and CI is unset. Run \`pnpm --filter @namzu/analysis-native build\` (needs Rust).`,
+			`[analysis] skipping "${name}": the sidecar binary is not built and CI is unset. Run \`pnpm --filter @namzu/analysis build\` (needs Rust).`,
 		)
 		describe.skip(name, body)
 	}

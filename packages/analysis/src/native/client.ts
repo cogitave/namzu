@@ -110,7 +110,7 @@ export function createNativeAnalysis(options: NativeAnalysisOptions = {}): Nativ
 			'sidecar_not_found',
 			options.binaryPath
 				? `the sidecar binary ${options.binaryPath} does not exist`
-				: 'the native analysis binary was not found. Install the optional package for this platform, set NAMZU_ANALYSIS_NATIVE_BIN, or run `pnpm --filter @namzu/analysis-native build` in a checkout.',
+				: 'the native analysis binary was not found. Install the optional package for this platform, set NAMZU_ANALYSIS_NATIVE_BIN, or run `pnpm --filter @namzu/analysis build` in a checkout.',
 		)
 	}
 	const sidecar: ResolvedSidecar = resolved

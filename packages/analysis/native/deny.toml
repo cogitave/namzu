@@ -1,5 +1,5 @@
 # Dependency policy for the sidecar. `cargo deny check licenses bans sources`
-# is what `pnpm --filter @namzu/analysis-native lint` runs.
+# is what `pnpm --filter @namzu/analysis lint` runs.
 #
 # Namzu is FSL-1.1-MIT. The sidecar is shipped as an executable, so a
 # copyleft licence anywhere in the tree would bind the binary: none is allowed.

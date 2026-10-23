@@ -78,7 +78,10 @@ export function resolveSidecar(options: ResolveOptions = {}): ResolvedSidecar | 
 		// The optional package is not installed on this platform.
 	}
 
-	const root = options.packageRoot ?? join(dirname(fileURLToPath(import.meta.url)), '..')
+	// This module sits in `dist/native/` (or `src/native/`) inside the package,
+	// so the checkout's cargo target directory is two levels up.
+	const here = dirname(fileURLToPath(import.meta.url))
+	const root = options.packageRoot ?? join(here, '..', '..')
 	for (const profile of ['release', 'debug']) {
 		const candidate = join(root, 'target', profile, exeName(platform))
 		if (isFile(candidate)) return { path: candidate, source: 'development' }
