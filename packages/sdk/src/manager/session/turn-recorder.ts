@@ -1140,23 +1140,30 @@ export class TurnRecorder {
 			this.#view.filter((entry) => entry.id).map((entry, index) => [entry.id as MessageId, index]),
 		)
 		const first = durable.findIndex((entry) => entry.id !== undefined)
-		let last = -1
-		for (let i = durable.length - 1; i >= 0; i--) {
-			if (durable[i]?.id !== undefined) {
-				last = i
-				break
+		// Keep the longest run of recorded messages from `first` that is still in
+		// log order by id; the first new (id-less) or out-of-order entry and
+		// everything after it is re-recorded below with fresh ids, so the next
+		// re-base sees an ordered view and does nothing wholesale. Only genuinely
+		// new messages BEFORE the first recorded one — the one slot the fold's
+		// [summary, ...kept, ...after] shape leaves them — become the summary.
+		// Collapsing the WHOLE context into the summary and stripping every id (the
+		// old fallback) is what made each pass re-inline an ever-larger context
+		// forever; this bounds a re-base to the messages that actually moved.
+		let runEnd = first < 0 ? 0 : first + 1
+		if (first >= 0) {
+			let prev = recordedOrder.get(durable[first]?.id as MessageId) ?? -1
+			for (let i = first + 1; i < durable.length; i++) {
+				const id = durable[i]?.id
+				if (id === undefined) break
+				const order = recordedOrder.get(id) ?? -1
+				if (order <= prev) break
+				prev = order
+				runEnd = i + 1
 			}
 		}
-		const middle = first < 0 ? [] : durable.slice(first, last + 1)
-		let ordered = middle.every((entry) => entry.id !== undefined)
-		for (let i = 1; ordered && i < middle.length; i++) {
-			const before = recordedOrder.get(middle[i - 1]?.id as MessageId) ?? -1
-			const after = recordedOrder.get(middle[i]?.id as MessageId) ?? -1
-			if (after <= before) ordered = false
-		}
-		const summaryEntries = !ordered ? durable : first < 0 ? durable : durable.slice(0, first)
-		const keptEntries = ordered ? middle : []
-		const tailEntries = ordered && first >= 0 ? durable.slice(last + 1) : []
+		const summaryEntries = first < 0 ? [] : durable.slice(0, first)
+		const keptEntries = first < 0 ? [] : durable.slice(first, runEnd)
+		const tailEntries = durable.slice(first < 0 ? 0 : runEnd)
 		for (const entry of summaryEntries) {
 			entry.id = undefined
 			this.#ids.delete(entry.message)
@@ -1187,6 +1194,11 @@ export class TurnRecorder {
 		}).catch(() => undefined)
 		for (const entry of tailEntries) {
 			const message = entry.message
+			// A tail entry recorded before the break keeps its object, but its old
+			// record is inside the replaced range; drop the stale id so it is
+			// re-recorded under a fresh one instead of duplicating the old id.
+			this.#ids.delete(message)
+			this.#recorded.delete(message)
 			const id = this.#idFor(message)
 			entry.id = id
 			void this.#enqueue(() =>
