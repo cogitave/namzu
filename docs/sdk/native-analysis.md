@@ -2,7 +2,7 @@
 type: Reference
 title: Native binary analysis
 description: The namzu-analysis-native sidecar (a Rust process speaking NDJSON over stdio) and its TypeScript client, for reading ELF, PE and Mach-O files, their symbols and strings, and the JavaScript inside Bun and Node SEA executables, plus the asar reader.
-resource: packages/analysis-native/src/index.ts
+resource: packages/analysis/src/native/index.ts
 tags: [analysis, native, sidecar, bun, sea, asar, binary]
 status: draft
 generated: { by: claude-code/sonnet-5.5, at: 2026-10-21T00:00:00Z }
@@ -10,9 +10,9 @@ generated: { by: claude-code/sonnet-5.5, at: 2026-10-21T00:00:00Z }
 
 # Native binary analysis
 
-`@namzu/analysis` answers questions about JavaScript. A compiled program is a different input: a file that is a Linux, Windows or macOS executable, often with its JavaScript appended as a payload (a Bun `--compile` build, a Node.js single executable, an Electron `app.asar`). `packages/analysis-native` is the first stage of the native lane: it reads those files, lists what is in them, and recovers the embedded JavaScript so the JavaScript index can take over.
+`@namzu/analysis` answers questions about JavaScript. A compiled program is a different input: a file that is a Linux, Windows or macOS executable, often with its JavaScript appended as a payload (a Bun `--compile` build, a Node.js single executable, an Electron `app.asar`). `packages/analysis` carries the native lane beside its JavaScript index: it reads those files, lists what is in them, and can hand the recovered JavaScript to the index later.
 
-The package is **private** (`"private": true`) and has no changeset until it is published. Nothing in `@namzu/sdk`, `@namzu/cli` or `@namzu/analysis` imports it yet; integration is a later step.
+The lane lives in `@namzu/analysis`, the package the CLI already depends on for the JavaScript index. The SDK declares the seam a host mounts — `NativeAnalysisProvider` in `types/native-analysis` — and serves the `binary_analysis` tool (`tools/builtins/native-analysis.ts`) over it; the CLI holds one whose constructor spawns nothing until the model's first call, and `namzu doctor` runs the sidecar's hello (`analysisNative.hello`).
 
 ## Shape
 
@@ -23,14 +23,14 @@ It is a separate process, not a Node addon and not WebAssembly, for three reason
 It is read-only. No operation executes, loads or links the target, and nothing is written except by `extract_embedded`, into a directory the caller names.
 
 ```text
-packages/analysis-native/
+packages/analysis/
   native/            Rust crate (Cargo.lock committed, deny.toml)
     src/main.rs      the executable: argument parsing, the serve loop
     src/lib.rs       protocol, dispatch, bounded line reader
     src/{info,symbols,imports,strings,embedded}.rs   the ops
     src/{bun,sea}.rs readers for the two payload formats
     src/safepath.rs  confined writes
-  src/               TypeScript client, asar reader, tests
+  src/native/        TypeScript client, asar reader, tests
   scripts/           native.mjs (cargo wrapper), check-licenses.mjs
 ```
 
@@ -101,7 +101,7 @@ The sidecar's memory is the mapped file (page cache, not anonymous memory) plus 
 The client is `createNativeAnalysis(options)`.
 
 ```ts sketch
-import { createNativeAnalysis } from '@namzu/analysis-native'
+import { createNativeAnalysis } from '@namzu/analysis'
 
 const native = createNativeAnalysis({ deadlineMs: 30_000, maxOutputBytes: 4 << 20 })
 const info = await native.binaryInfo({ path: '/usr/bin/ls' })
@@ -128,11 +128,11 @@ Relative `path` and `outDir` are resolved against the caller's working directory
 
 | Command | What it runs |
 |---|---|
-| `pnpm --filter @namzu/analysis-native build` | `cargo build --release --locked`, then `tsc --build`. |
+| `pnpm --filter @namzu/analysis build` | `cargo build --release --locked`, then `tsc --build`. |
 | `... test` | `cargo test --locked`, then `vitest run`. |
 | `... lint` | Biome on `src/`, `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, and the licence check. |
 
-`scripts/native.mjs` always sets `CARGO_TARGET_DIR` to `packages/analysis-native/target` (gitignored), because the shell may export it for another project. Without `cargo` the Rust step is skipped with a logged line when `CI` is unset and **fails when `CI` is set**; the TypeScript suites that spawn the real sidecar follow the same rule (skipped with a logged reason locally, failing in CI if the binary is absent). One test, extraction of the Claude Code executable, is local-only and skipped in CI because the 290 MB file is not there.
+`scripts/native.mjs` always sets `CARGO_TARGET_DIR` to `packages/analysis/target` (gitignored), because the shell may export it for another project. Without `cargo` the Rust step is skipped with a logged line when `CI` is unset and **fails when `CI` is set**; the TypeScript suites that spawn the real sidecar follow the same rule (skipped with a logged reason locally, failing in CI if the binary is absent). One test, extraction of the Claude Code executable, is local-only and skipped in CI because the 290 MB file is not there.
 
 Because the package's scripts are named `build`, `test` and `lint`, `pnpm -r build`, `pnpm -r test` and `pnpm lint` already include the Rust steps; no workflow change is needed.
 
@@ -142,4 +142,6 @@ Exact versions are pinned in `native/Cargo.toml` and `Cargo.lock`. Direct depend
 
 ## Not yet
 
-Per-platform packaging and publishing (`@namzu/analysis-native-<platform>-<arch>`), function discovery, disassembly, cross-references, decompilation, DWARF/PDB names, a `binary_analysis` tool in the SDK, and feeding recovered JavaScript into the `@namzu/analysis` index are later steps. Node SEA with a V8 snapshot or code cache keeps its raw blob only.
+Per-platform packaging and publishing (`@namzu/analysis-native-<platform>-<arch>`), function discovery, disassembly, cross-references, decompilation, DWARF/PDB names, and feeding recovered JavaScript into the index are later steps. Node SEA with a V8 snapshot or code cache keeps its raw blob only.
+
+The SDK seam is `NativeAnalysisProvider` (`packages/sdk/src/types/native-analysis/index.ts`), and the `binary_analysis` deferred tool in `packages/sdk/src/tools/builtins/native-analysis.ts` serves it — `info`, `symbols`, `imports`, `exports` and `strings` under the model's control, one `path` resolved as `read` resolves its own, refused inside a sandboxed turn. The CLI mounts the provider and runs the sidecar's hello in `namzu doctor` (`analysisNative.hello`). `createNativeAnalysisProvider` in `packages/analysis/src/native/provider.ts` is the adapter: it spawns nothing and resolves no binary until the model's first call, so a host can hold one without paying for it before it is used.

@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
-import type { NativeAnalysisProvider, NativeSymbolsParams } from '../../types/native-analysis/index.js'
+import type {
+	NativeAnalysisProvider,
+	NativeSymbolsParams,
+} from '../../types/native-analysis/index.js'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
@@ -62,7 +65,9 @@ const symbolsOp = z.object({
 const importsOp = z.object({
 	operation: z
 		.literal('imports')
-		.describe('Import libraries (DT_NEEDED, PE import tables, Mach-O dylibs) and imported symbols.'),
+		.describe(
+			'Import libraries (DT_NEEDED, PE import tables, Mach-O dylibs) and imported symbols.',
+		),
 	contains: z.string().min(1).optional(),
 	library: z.string().min(1).optional().describe('Keep only imports from this library.'),
 	...target,
@@ -79,7 +84,9 @@ const exportsOp = z.object({
 const stringsOp = z.object({
 	operation: z
 		.literal('strings')
-		.describe('Printable runs over the file, in offset order; how a prompt or URL is found in a binary.'),
+		.describe(
+			'Printable runs over the file, in offset order; how a prompt or URL is found in a binary.',
+		),
 	contains: z.string().min(1).optional().describe('Keep strings containing this text.'),
 	min_length: z.number().int().min(2).max(4096).optional().describe('Default 4.'),
 	section: z.string().min(1).optional().describe('Keep only strings inside this section.'),
@@ -89,7 +96,7 @@ const stringsOp = z.object({
 		.int()
 		.min(0)
 		.optional()
-		.describe('File offset to continue from: the previous page\'s `nextCursor`.'),
+		.describe("File offset to continue from: the previous page's `nextCursor`."),
 	...target,
 	limit: paging.limit,
 })
@@ -165,7 +172,10 @@ export const NativeAnalysisTool = defineTool({
 			return fail(err instanceof Error ? err.message : String(err))
 		}
 
-		const common = { path: target, ...(input.slice !== undefined ? { slice: input.slice } : {}) } as const
+		const common = {
+			path: target,
+			...(input.slice !== undefined ? { slice: input.slice } : {}),
+		} as const
 		try {
 			switch (input.operation) {
 				case 'info': {
@@ -189,7 +199,9 @@ export const NativeAnalysisTool = defineTool({
 						const size = s.size > 0 ? ` size ${s.size}` : ''
 						const from = s.source === 'dynamic' ? ' dyn' : ''
 						const undef = s.undefined ? ' undefined' : ''
-						lines.push(`${s.name}${size}${from}${undef} @ 0x${s.address.toString(16)}${s.section ? ` (${s.section})` : ''}`)
+						lines.push(
+							`${s.name}${size}${from}${undef} @ 0x${s.address.toString(16)}${s.section ? ` (${s.section})` : ''}`,
+						)
 					}
 					lines.push(pageLine(result, result.symbols.length, result.total))
 					return ok(lines, result)
@@ -281,7 +293,10 @@ export const NativeAnalysisTool = defineTool({
 	},
 })
 
-function describeInfo(path: string, info: Awaited<ReturnType<NativeAnalysisProvider['binaryInfo']>>): string[] {
+function describeInfo(
+	path: string,
+	info: Awaited<ReturnType<NativeAnalysisProvider['binaryInfo']>>,
+): string[] {
 	const lines: string[] = []
 	const bits = info.bits !== undefined ? ` ${info.bits}-bit` : ''
 	const arch = info.arch !== undefined ? ` ${info.arch}${bits}` : ''
