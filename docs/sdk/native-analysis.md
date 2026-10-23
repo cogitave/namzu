@@ -132,7 +132,7 @@ Relative `path` and `outDir` are resolved against the caller's working directory
 | `... test` | `cargo test --locked`, then `vitest run`. |
 | `... lint` | Biome on `src/`, `cargo fmt --check`, `cargo clippy --all-targets -D warnings`, and the licence check. |
 
-`scripts/native.mjs` always sets `CARGO_TARGET_DIR` to `packages/analysis/target` (gitignored), because the shell may export it for another project. Without `cargo` the Rust step is skipped with a logged line when `CI` is unset and **fails when `CI` is set**; the TypeScript suites that spawn the real sidecar follow the same rule (skipped with a logged reason locally, failing in CI if the binary is absent). One test, extraction of the Claude Code executable, is local-only and skipped in CI because the 290 MB file is not there.
+`scripts/native.mjs` always sets `CARGO_TARGET_DIR` to `packages/analysis/target` (gitignored), because the shell may export it for another project. Without `cargo` the Rust step is skipped with a logged line when `CI` is unset and **fails when `CI` is set**; the TypeScript suites that spawn the real sidecar follow the same rule (skipped with a logged reason locally, failing in CI if the binary is absent). One test — extraction of the developer's locally installed Bun-compiled CLI (its installed path under `~/.local/share`) — is local-only and skipped in CI because that file is only on one machine.
 
 Because the package's scripts are named `build`, `test` and `lint`, `pnpm -r build`, `pnpm -r test` and `pnpm lint` already include the Rust steps; no workflow change is needed.
 

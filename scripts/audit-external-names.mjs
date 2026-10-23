@@ -320,6 +320,11 @@ const WIRE_VALUE_FILES = [
 	'packages/sdk/src/tools/builtins/computer-use.ts',
 	'packages/computer-use/src/',
 	'packages/cli/src/integrations/',
+	// The native sidecar's local-only suite extracts a real executable found on
+	// this machine and asserts its real layout; the on-disk path is the test
+	// question, the same category as a model-id table — deleting the name
+	// deletes the feature.
+	'packages/analysis/src/native/__tests__/client.test.ts',
 	// Provider selection fixtures exercise registry keys and cross-provider catalogues.
 	'packages/cli/src/tui/__tests__/conversation-search-reaches-session.test.ts',
 	'packages/cli/src/tui/__tests__/model-picker-search.test.tsx',

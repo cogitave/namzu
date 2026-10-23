@@ -18,6 +18,7 @@ export type {
 	RequestOptions,
 	NativeOp,
 	ResolvedSidecar,
+	ResolveOptions,
 	SidecarSource,
 	AsarEntryReport,
 	AsarEntryStatus,
