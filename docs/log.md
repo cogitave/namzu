@@ -2,6 +2,8 @@
 
 ## 2026-10-23
 
+- **Update** [File tools](sdk/file-tool-limits.md): a large `context-rewrite` compaction summary now spills beside the log (new `compactionSpillAboveBytes`, default 256 KiB) instead of sitting inline, so no single compaction record can bloat the session file; the fold reads it back transparently. `.changeset/compaction-spill-threshold.md` (`@namzu/sdk` patch).
+
 - **Update** [File tools](sdk/file-tool-limits.md): a `context-rewrite` compaction re-base no longer copies the whole conversation into its summary and strips every message id (the loop that bloated a session log to 53 MB/76% duplicated context and made resume heavy); it keeps recorded messages by id and re-records only what moved. `.changeset/compaction-no-reinline.md` (`@namzu/sdk` patch).
 
 - **Update** File tools: `edit` now recovers quote and `\uXXXX`-escape near-misses in `old_string` (reference-parity), carries the change onto `new_string`, and a line deletion takes its trailing newline. Whitespace/indentation still must match exactly. `.changeset/edit-flexible-match.md` (`@namzu/sdk` minor).
