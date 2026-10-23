@@ -2,6 +2,7 @@ export { createCodeAnalysisProvider } from './provider.js'
 export type { CodeAnalysisOptions } from './provider.js'
 export {
 	createNativeAnalysis,
+	createNativeAnalysisProvider,
 	platformPackageName,
 	resolveSidecar,
 	SIDECAR_ENV,
@@ -13,6 +14,7 @@ export {
 export type {
 	NativeAnalysis,
 	NativeAnalysisOptions,
+	NativeAnalysisProviderOptions,
 	RequestOptions,
 	NativeOp,
 	ResolvedSidecar,

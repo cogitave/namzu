@@ -97,6 +97,32 @@ export type {
 	SymbolSearchResult,
 } from './types/code-navigation/index.js'
 
+export type {
+	BinaryFormat,
+	NativeAnalysisProvider,
+	NativeBinaryInfo,
+	NativeEmbeddedPayload,
+	NativeExportRecord,
+	NativeExportsResult,
+	NativeFatSlice,
+	NativeImportLibrary,
+	NativeImportRecord,
+	NativeImportsParams,
+	NativeImportsResult,
+	NativeOp,
+	NativePage,
+	NativePageParams,
+	NativeSectionInfo,
+	NativeSegmentInfo,
+	NativeStringRecord,
+	NativeStringsParams,
+	NativeStringsResult,
+	NativeSymbolRecord,
+	NativeSymbolsParams,
+	NativeSymbolsResult,
+	NativeTargetParams,
+} from './types/native-analysis/index.js'
+
 // ─── wire schemas + a2a (contracts/) ─────────────────────────────────────
 
 // Turn and session schemas (CreateTurnSchema, CreateEphemeralSessionSchema,

@@ -84,6 +84,16 @@ export {
 	CodeAnalysisTool,
 	getCodeAnalysisTools,
 } from './tools/builtins/code-analysis.js'
+// Reads a native binary (ELF, PE, Mach-O): format, symbols, imports, strings,
+// and the Bun or Node SEA JavaScript inside it. NOT in the default builtin
+// set, and registered only when a host supplies a provider — the same reason
+// `code_analysis` is deferred and conditional: a sidecar process per session
+// is real work, and a tool with nothing to call only ever refuses.
+export {
+	NATIVE_ANALYSIS_TOOL_NAME,
+	NativeAnalysisTool,
+	getNativeAnalysisTools,
+} from './tools/builtins/native-analysis.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
 // Watches a command's stdout and tells the model about each line while it keeps
 // working. NOT in the default builtin set: it needs a host that delivers the

@@ -4,7 +4,11 @@ export {
 	type NativeAnalysisOptions,
 	type RequestOptions,
 } from './client.js'
-export { NativeAnalysisError } from './errors.js'
+	export { NativeAnalysisError } from './errors.js'
+export {
+	createNativeAnalysisProvider,
+	type NativeAnalysisProviderOptions,
+} from './provider.js'
 export {
 	platformPackageName,
 	resolveSidecar,

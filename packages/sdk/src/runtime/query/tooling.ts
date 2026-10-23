@@ -20,6 +20,7 @@ import type { EmitEvent } from './events.js'
 export interface ToolingBootstrapConfig {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	codeAnalysis?: import('../../types/code-analysis/index.js').CodeAnalysisProvider
+	nativeAnalysis?: import('../../types/native-analysis/index.js').NativeAnalysisProvider
 	tools: ToolManager
 	/** Exact runtime output-tool owner for opt-in JSON retention; see ToolExecutorConfig. */
 	durableStructuredOutputTool?: ToolDefinition
@@ -92,6 +93,7 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.fileReadTracker ? { fileReadTracker: config.fileReadTracker } : {}),
 				...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),
+				...(config.nativeAnalysis ? { nativeAnalysis: config.nativeAnalysis } : {}),
 				sessionId: config.sessionId,
 				turnId: config.turnId,
 				workingDirectory: config.workingDirectory,

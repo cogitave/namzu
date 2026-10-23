@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { z } from 'zod'
 import type { CodeAnalysisProvider } from '../code-analysis/index.js'
 import type { CodeNavigationProvider } from '../code-navigation/index.js'
+import type { NativeAnalysisProvider } from '../native-analysis/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
 // terms of the tool that produced the result, and the registry that holds
 // the guardrails is described here. Erased at compile time, so neither
@@ -524,6 +525,15 @@ export interface ToolContext {
 	 * exists. See `tools/builtins/code-analysis.ts`.
 	 */
 	codeAnalysis?: CodeAnalysisProvider
+	/**
+	 * A native binary reader over `@namzu/analysis`'s Rust sidecar, for the
+	 * `binary_analysis` tool.
+	 *
+	 * Same rule as the two providers above: absent means the tool is not
+	 * registered, so a tool that always says "unavailable" never exists. See
+	 * `tools/builtins/native-analysis.ts`.
+	 */
+	nativeAnalysis?: NativeAnalysisProvider
 	fileReadTracker?: FileReadTracker
 
 	/**

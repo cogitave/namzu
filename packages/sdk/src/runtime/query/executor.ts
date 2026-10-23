@@ -337,6 +337,7 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
 	codeAnalysis?: import('../../types/code-analysis/index.js').CodeAnalysisProvider
+	nativeAnalysis?: import('../../types/native-analysis/index.js').NativeAnalysisProvider
 	tools: ToolManager
 	/** Exact runtime output-tool owner allowed to retain post-screen, post-hook JSON before preview capping. */
 	durableStructuredOutputTool?: ToolDefinition
@@ -1943,6 +1944,7 @@ export class ToolExecutor {
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			...(this.config.codeAnalysis ? { codeAnalysis: this.config.codeAnalysis } : {}),
+			...(this.config.nativeAnalysis ? { nativeAnalysis: this.config.nativeAnalysis } : {}),
 			// Bound to this turn, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there
 			// is no argument a tool could pass to reach another turn's jobs.
