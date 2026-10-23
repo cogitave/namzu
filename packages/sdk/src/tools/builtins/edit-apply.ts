@@ -1,3 +1,4 @@
+import { reconcileNewString, resolveOldString } from './edit-match.js'
 import type { EditInput } from './edit.js'
 
 /**
@@ -177,27 +178,47 @@ function applyOne(
 
 	const replacement = normalizeLineEndings(content, input)
 
-	if (!content.includes(replacement.oldString)) {
-		return {
-			success: false,
-			error:
-				'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.',
+	// Exact first — which, after the CRLF reconciliation above, is what nearly
+	// every call is. On a miss, recover the span across a difference the model
+	// did not mean: a curly quote for a straight one, a `\uXXXX` escape for the
+	// character or the reverse. `resolveOldString` returns the real span in the
+	// file, and `reconcileNewString` carries the same change onto the
+	// replacement so it fits where it lands. See `edit-match.ts`.
+	let oldString = replacement.oldString
+	let newString = replacement.newString
+	if (!content.includes(oldString)) {
+		const resolved = resolveOldString(content, oldString)
+		if (resolved === null) {
+			return {
+				success: false,
+				error:
+					'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.',
+			}
 		}
+		newString = reconcileNewString(oldString, resolved, newString)
+		oldString = resolved
+	}
+
+	// A deletion takes the line's trailing newline with it, so removing a whole
+	// line does not leave a blank one behind. Only when the anchor is not
+	// already newline-terminated and the file has it followed by one.
+	if (newString === '' && !oldString.endsWith('\n') && content.includes(`${oldString}\n`)) {
+		oldString = `${oldString}\n`
 	}
 
 	if (replacement.replace_all) {
-		const parts = content.split(replacement.oldString)
+		const parts = content.split(oldString)
 		const replacements = parts.length - 1
 		return {
 			success: true,
-			content: parts.join(replacement.newString),
+			content: parts.join(newString),
 			replacements,
 		}
 	}
 
 	// Uniqueness check: old_string/oldStr must appear exactly once
-	const firstIndex = content.indexOf(replacement.oldString)
-	const secondIndex = content.indexOf(replacement.oldString, firstIndex + 1)
+	const firstIndex = content.indexOf(oldString)
+	const secondIndex = content.indexOf(oldString, firstIndex + 1)
 
 	if (secondIndex !== -1) {
 		const lineNumber = content.slice(0, firstIndex).split('\n').length
@@ -211,9 +232,7 @@ function applyOne(
 	return {
 		success: true,
 		content:
-			content.slice(0, firstIndex) +
-			replacement.newString +
-			content.slice(firstIndex + replacement.oldString.length),
+			content.slice(0, firstIndex) + newString + content.slice(firstIndex + oldString.length),
 		replacements: 1,
 	}
 }
