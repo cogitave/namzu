@@ -91,3 +91,26 @@ test("reaches nested providers and ignores a directory with no tsbuildinfo", () 
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("removes the restored state of a package deleted from the repo", () => {
+	const root = fixture([
+		"packages/old/tsconfig.tsbuildinfo",
+		...emitted("packages/old/dist/index"),
+		"packages/providers/gone/tsconfig.tsbuildinfo",
+		...emitted("packages/providers/gone/dist/index"),
+		"packages/live/package.json",
+		"packages/live/src/index.ts",
+		"packages/live/tsconfig.tsbuildinfo",
+		...emitted("packages/live/dist/index"),
+	]);
+	try {
+		prune(root);
+		assert.ok(!existsSync(join(root, "packages/old/dist")));
+		assert.ok(!existsSync(join(root, "packages/old/tsconfig.tsbuildinfo")));
+		assert.ok(!existsSync(join(root, "packages/providers/gone/dist")));
+		assert.ok(existsSync(join(root, "packages/live/dist/index.js")));
+		assert.ok(existsSync(join(root, "packages/live/tsconfig.tsbuildinfo")));
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

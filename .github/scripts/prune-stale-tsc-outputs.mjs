@@ -105,8 +105,42 @@ export function pruneProject(projectDir) {
 	return removed;
 }
 
+/**
+ * A package deleted from the repo comes back from the cache as a directory
+ * holding only dist/ and tsconfig.tsbuildinfo. With no package.json it is not
+ * a workspace member, so no gate reads it; remove it so the tree matches a
+ * clean checkout.
+ */
+export function pruneOrphanPackages(root) {
+	const removed = [];
+	const visit = (dir, depth) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			if (!entry.isDirectory() || entry.name === "node_modules") continue;
+			const full = join(dir, entry.name);
+			if (
+				existsSync(join(full, "package.json")) ||
+				existsSync(join(full, "src"))
+			)
+				continue;
+			if (existsSync(join(full, "tsconfig.tsbuildinfo"))) {
+				rmSync(join(full, "tsconfig.tsbuildinfo"));
+				removed.push(join(full, "tsconfig.tsbuildinfo"));
+				if (existsSync(join(full, "dist"))) {
+					rmSync(join(full, "dist"), { recursive: true });
+					removed.push(join(full, "dist"));
+				}
+			} else if (depth > 0) visit(full, depth - 1);
+		}
+	};
+	visit(join(root, "packages"), 1);
+	return removed;
+}
+
 export function prune(root) {
-	return projectDirs(root).flatMap(pruneProject);
+	return [
+		...pruneOrphanPackages(root),
+		...projectDirs(root).flatMap(pruneProject),
+	];
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
