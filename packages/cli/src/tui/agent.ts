@@ -205,6 +205,7 @@ import type {
 	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
+	NativeAnalysisConfig,
 	PluginConfig,
 	RoutingConfig,
 	SandboxConfig,
@@ -2217,6 +2218,16 @@ export interface AgentSessionOptions {
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/**
+	 * Mount the `binary_analysis` tool over `@namzu/analysis`'s sidecar:
+	 * read-only native binary questions (ELF/PE/Mach-O info, symbols,
+	 * strings, the embedded JavaScript of a Bun or Node SEA build). Only the
+	 * TUI passes it, and only when the config did not switch it off
+	 * (`NamzuCliConfig.nativeAnalysis`). The sidecar spawns nothing until the
+	 * model's first call; a checkout without the binary answers there, and
+	 * `namzu doctor`'s `analysisNative.hello` says so up front.
+	 */
+	readonly nativeAnalysis?: NativeAnalysisConfig
+	/**
 	 * Lowest ceiling, in milliseconds, on how long one `monitor` may watch. A
 	 * single-shot run (`exec`) passes 600000 because it waits for its monitors
 	 * before it exits; an interactive host leaves the kernel's 30 minutes.
@@ -3877,7 +3888,10 @@ export async function createAgentSession(
 	// sidecar answers sidecar-not-found on that call, and `namzu doctor` says
 	// so up front. Deferred, like `code_analysis`: most turns never touch a
 	// compiled binary. Parent session only, for the same reason.
-	const nativeAnalysis = options.ephemeral ? undefined : createLazyNativeAnalysis()
+	const nativeAnalysis =
+		options.nativeAnalysis && options.nativeAnalysis.enabled !== false && !options.ephemeral
+			? createLazyNativeAnalysis()
+			: undefined
 	if (nativeAnalysis) {
 		toolsets.push(deferred(toolset('native-analysis', getNativeAnalysisTools(nativeAnalysis))))
 	}

@@ -145,6 +145,12 @@ export interface CodeAnalysisConfig {
 	readonly enabled?: boolean
 }
 
+/** See `NamzuCliConfig.nativeAnalysis`. */
+export interface NativeAnalysisConfig {
+	/** Mount the `binary_analysis` tool in the interactive terminal. Default `true`. */
+	readonly enabled?: boolean
+}
+
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
 	/** Web search is live by default. Set off to disable it. */
@@ -305,6 +311,18 @@ export interface NamzuCliConfig {
 	 * from the environment. `exec`, `drain` and `acp` never mount it.
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
+	 * The `binary_analysis` tool in the interactive terminal: read-only native
+	 * binary questions (ELF/PE/Mach-O info, symbols, strings, the embedded
+	 * JavaScript of a Bun or Node SEA build) over the sidecar in
+	 * `@namzu/analysis`.
+	 *
+	 * On by default. `{ "enabled": false }` keeps the tool off the session (and
+	 * the deferred-tool hint out of every request). Merged across files like
+	 * `codeAnalysis`: `enabled: false` in any file holds. Not settable from the
+	 * environment. `exec`, `drain` and `acp` never mount it.
+	 */
+	readonly nativeAnalysis?: NativeAnalysisConfig
 	/**
 	 * A System-1 decision model. When set, the host and Pal agents get an
 	 * optional, advisory `decide` tool (yes/no, choice or score). A failing

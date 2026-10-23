@@ -15,6 +15,7 @@ import type {
 	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
+	NativeAnalysisConfig,
 	PluginConfig,
 	RoutingConfig,
 	SandboxConfig,
@@ -167,6 +168,8 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/** See `NamzuCliConfig.nativeAnalysis`. */
+	readonly nativeAnalysis?: NativeAnalysisConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */

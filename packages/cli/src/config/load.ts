@@ -61,6 +61,7 @@ import type {
 	ComposerTriggerArming,
 	ComposerTriggerId,
 	ComposerTriggerLanguage,
+	NativeAnalysisConfig,
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
@@ -1112,6 +1113,18 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['enabled'], 'must be true or false')
 		return raw.enabled !== undefined ? { enabled: raw.enabled } : {}
 	},
+	nativeAnalysis: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'enabled') {
+				return invalidConfigValue(context, [key], 'is not a nativeAnalysis setting (enabled)')
+			}
+		}
+		const raw = v as { enabled?: unknown }
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be true or false')
+		return raw.enabled !== undefined ? { enabled: raw.enabled } : {}
+	},
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1704,6 +1717,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Reads project files into an index kept under the Namzu home; a file
 	// decision, never a variable a shell profile could carry invisibly.
 	codeAnalysis: undefined,
+	nativeAnalysis: undefined,
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
@@ -1963,6 +1977,15 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'nativeAnalysis' && layer.config.nativeAnalysis) {
+				// Same rule: off in any file stays off.
+				out.nativeAnalysis = mergeNativeAnalysisConfig(
+					out.nativeAnalysis,
+					layer.config.nativeAnalysis,
+				)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'composerTriggers' && layer.config.composerTriggers) {
 				// Merged per key; a project layer only lowers. See `mergeComposerTriggers`.
 				out.composerTriggers = mergeComposerTriggers(
@@ -2181,6 +2204,17 @@ export function mergeCodeAnalysisConfig(
 	below: CodeAnalysisConfig | undefined,
 	layer: CodeAnalysisConfig,
 ): CodeAnalysisConfig {
+	if (!below) return layer
+	const enabled =
+		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
+	return enabled !== undefined ? { enabled } : {}
+}
+
+/** `nativeAnalysis` from one more layer, under the same rule: off stays off. */
+export function mergeNativeAnalysisConfig(
+	below: NativeAnalysisConfig | undefined,
+	layer: NativeAnalysisConfig,
+): NativeAnalysisConfig {
 	if (!below) return layer
 	const enabled =
 		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
