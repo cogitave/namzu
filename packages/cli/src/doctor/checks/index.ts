@@ -7,6 +7,7 @@ import { codeAnalysisCheck } from './code-analysis.js'
 import { credentialSourcesCheck } from './credentials.js'
 import { invariantsCheck } from './invariants.js'
 import { loggingPipelineCheck } from './logging.js'
+import { nativeAnalysisCheck } from './native-analysis.js'
 import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
@@ -55,6 +56,7 @@ export const browserInstalledCheck: DoctorCheck = installedCheck('@namzu/browser
 export {
 	browserEngineCheck,
 	codeAnalysisCheck,
+	nativeAnalysisCheck,
 	credentialSourcesCheck,
 	providerChainCheck,
 	providersRegisteredCheck,
@@ -87,6 +89,8 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	browserEngineCheck,
 	// After the packages it rests on: the index parses in a child process of its own.
 	codeAnalysisCheck,
+	// The binary lane's own question: its sidecar starts and speaks here.
+	nativeAnalysisCheck,
 	telemetryInstalledCheck,
 	schedulerCheck,
 	// Last, deliberately: it reports what the pipeline did to the records

@@ -75,6 +75,7 @@ import {
 	type MemoryType,
 	type Message,
 	type ModelInfo,
+	type NativeAnalysisProvider,
 	type Origin,
 	type PluginLifecycleManager,
 	type PluginNotificationInfo,
@@ -166,6 +167,7 @@ import {
 	getBuiltinTools,
 	getCodeAnalysisTools,
 	getMonitorTools,
+	getNativeAnalysisTools,
 	isReviewExempt,
 	isTurnInProgressError,
 	mapTools,
@@ -241,6 +243,7 @@ import {
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { createLazyNativeAnalysis } from '../integrations/analysis/native-analysis.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
 	maybeCreateDecisionModel,
@@ -3868,6 +3871,16 @@ export async function createAgentSession(
 	if (codeAnalysis) {
 		toolsets.push(deferred(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis))))
 	}
+	// The native binary lane reads an executable the model names. Its provider
+	// spawns nothing and looks for no binary until the first call, so a session
+	// that never asks a binary question pays nothing; a checkout without the
+	// sidecar answers sidecar-not-found on that call, and `namzu doctor` says
+	// so up front. Deferred, like `code_analysis`: most turns never touch a
+	// compiled binary. Parent session only, for the same reason.
+	const nativeAnalysis = options.ephemeral ? undefined : createLazyNativeAnalysis()
+	if (nativeAnalysis) {
+		toolsets.push(deferred(toolset('native-analysis', getNativeAnalysisTools(nativeAnalysis))))
+	}
 	// The `monitor` tool: each stdout line of a long-running command becomes an
 	// event the model reads while it works, and wakes an idle host. Mounted where
 	// the session has a job registry (events are the registry's) and background
@@ -4191,6 +4204,7 @@ export async function createAgentSession(
 			mcp.close(),
 			computerUseHost?.dispose(),
 			browserControl?.dispose(),
+			nativeAnalysis?.dispose(),
 			codeAnalysis?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
 			checkpoints.release(),
@@ -5606,6 +5620,7 @@ export async function createAgentSession(
 											sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
 										}
 									: {}),
+								...(nativeAnalysis ? { nativeAnalysis } : {}),
 								...(codeAnalysis ? { codeAnalysis } : {}),
 							})) {
 								yield event
@@ -6494,6 +6509,8 @@ interface TurnParams {
 	readonly sandboxTeardownTimeoutMs?: number
 	/** The `code_analysis` tool's index; see `AgentSessionOptions.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisProvider
+	/** The `binary_analysis` provider; see `AgentSessionOptions.nativeAnalysis`. */
+	readonly nativeAnalysis?: NativeAnalysisProvider
 }
 
 async function* runTurn({
@@ -6548,6 +6565,7 @@ async function* runTurn({
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
 	codeAnalysis,
+	nativeAnalysis,
 	onSessionEvent,
 }: TurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
@@ -6600,6 +6618,7 @@ async function* runTurn({
 			...(sandboxProvider ? { sandboxProvider } : {}),
 			...(sandboxTeardownTimeoutMs !== undefined ? { sandboxTeardownTimeoutMs } : {}),
 			...(codeAnalysis ? { codeAnalysis } : {}),
+			...(nativeAnalysis ? { nativeAnalysis } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
