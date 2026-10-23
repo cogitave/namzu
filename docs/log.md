@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-23
+
+- **Update** File tools: `edit` now recovers quote and `\uXXXX`-escape near-misses in `old_string` (reference-parity), carries the change onto `new_string`, and a line deletion takes its trailing newline. Whitespace/indentation still must match exactly. `.changeset/edit-flexible-match.md` (`@namzu/sdk` minor).
+
 ## 2026-10-22
 
 - **Update** [Tool servers](cli/mcp-servers.md#large-servers-and-tool-search): automatic tool search for external tool servers. When the connected servers' tool definitions come to 10% of the turn model's context window or more (measured at 2.5 characters per token), they are offered by name and loaded with `search_tools`, as the reference client does; below that nothing changes. A large server (REA: 207 tools, about 792,000 characters) no longer overflows a 200,000-token model on the first message. `.changeset/cli-mcp-tool-search.md`, **minor** for `@namzu/cli`.

@@ -5,7 +5,7 @@ description: The size and token caps on read, the read-before-edit rule, the gre
 resource: packages/sdk/src/tools/builtins/read-file.ts
 tags: [sdk, tools, read, edit, grep, budget]
 status: stable
-generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-10-23T00:00:00Z }
 ---
 
 # File tools: reads, edits and searches
@@ -57,6 +57,17 @@ text replacement is still applied if `old_string` still matches the current cont
 `replace_all`, still matches). Otherwise it is refused as stale and the model is told to read again. An
 insertion by line number is never recovered, because the line it named may be a different line now. `write`
 has no `old_string` and is always refused on drift.
+
+`edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
+the text, only about one interchangeable detail — the same set the reference terminal recovers, in the same
+order: a straight quote against the file's curly one (`' ' " "`) or the reverse, and a `\uXXXX` escape where
+the file holds the character, or a character where the file holds the escape. The span it finds is a real
+substring of the file, so the uniqueness rule still applies to it, and the same change is carried onto
+`new_string` so the replacement matches the span it lands in. A whitespace or indentation difference is **not**
+recovered — the reference does not either — so the error still tells the model to match whitespace and
+indentation exactly. This kernel additionally reconciles CRLF against LF when the file's line endings are
+consistent, which the reference does not. A deletion (`new_string` empty) takes the matched line's trailing
+newline with it, so removing a whole line leaves no blank one behind.
 
 ## grep
 
