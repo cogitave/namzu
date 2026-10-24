@@ -83,3 +83,11 @@ describe('the description the model reads', () => {
 		}
 	})
 })
+
+describe('what the tool description says about failures', () => {
+	it('tells the model parallel and pipeline never reject and to filter nulls', () => {
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('never rejects: a thunk that throws becomes null')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('a stage that throws drops its item to null')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('filter the nulls')
+	})
+})
