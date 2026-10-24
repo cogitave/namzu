@@ -2864,7 +2864,14 @@ export function App({
 			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
 			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
-			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
+			const candidate = {
+				role,
+				content,
+				pending,
+				glyph: rowGlyph,
+				detail,
+				activity,
+			}
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -12739,7 +12746,13 @@ export function App({
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId)
 	railRowsRef.current = liveSubagents
-	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
+		hypermode,
+		...(ctxRef.current.workflow?.sizeGuideline !== undefined
+			? { configuredGuideline: ctxRef.current.workflow.sizeGuideline }
+			: {}),
+		env: process.env,
+	})
 	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents

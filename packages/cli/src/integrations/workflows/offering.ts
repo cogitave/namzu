@@ -62,15 +62,22 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'Then plain code. Everything below is a global:',
 	'- agent(prompt, opts?) starts one subagent and resolves to its final text, or to a parsed value when opts.schema (a JSON Schema) is given, or to null when it failed or was skipped. Always handle null. opts: label (a short row title), phase (a phase title), schema, agentType ("general-purpose", "explore", or a project agent), model, effort. The subagent cannot see this conversation or your variables: put everything it needs in the prompt.',
 	'- parallel([() => agent(...), ...]) starts every thunk now and resolves when all are done. It never rejects: a thunk that throws becomes null in its place and the reason goes through log(), so filter the nulls (.filter(Boolean)).',
-	'- pipeline(items, stage1, stage2, ...) runs one chain per item with no barrier between stages; a stage gets (value, index, item) and an item whose stage gives null stops there. It never rejects either: a stage that throws drops its item to null and the reason goes through log(), so filter the nulls.',
+	'- pipeline(items, stage1, stage2, ...) runs one chain per item with no barrier between stages; a stage gets (prevResult, originalItem, index), where the first stage gets the item as prevResult, and an item whose stage gives null stops there. It never rejects either: a stage that throws drops its item to null and the reason goes through log(), so filter the nulls.',
 	'- phase(title) names the stage that the following agents belong to; inside parallel() or pipeline() pass opts.phase instead. Use the same titles as in meta.phases.',
-	'- log(message) writes a progress line. args is exactly the JSON you pass in the args input of the call (undefined when you omit it). budget is { tokensUsed, tokenLimit? }.',
+	'- log(message) writes a progress line. args is exactly the JSON you pass in the args input of the call (undefined when you omit it). budget is { total, spent(), remaining() }: total is the token target the person typed (a standalone "+500k" in their message) or null when there is none; spent() is the tokens this run has used; remaining() is max(0, total - spent()), or Infinity with no target. The target is a hard ceiling: once spent() reaches total, agent() throws, so wrap loops in try/catch and guard them on budget.total (with no target remaining() is Infinity). Example: while (budget.total && budget.remaining() > 50_000) { ... }.',
 	'- return a small JSON value: it is what you get back, capped at about 8000 characters. Have agents write large results to files and return the paths.',
 	'',
-	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 8) and at most 200 start per run (up to 1000 if configured); a script that asks for more fails. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
+	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 16) and at most 1000 start per run (fewer if configured); a script that asks for more fails, so give any loop a hard iteration cap. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
 	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')
+
+/** The tool's description with the session's size advice (if any) after it. */
+export function workflowToolDescription(sizeAdvice = ''): string {
+	return sizeAdvice === ''
+		? WORKFLOW_TOOL_DESCRIPTION
+		: `${WORKFLOW_TOOL_DESCRIPTION}\n\n${sizeAdvice}`
+}
 
 /**
  * Why a turn may not start a workflow, or `undefined` when it may.

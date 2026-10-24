@@ -25,7 +25,7 @@ import {
 
 import type { SubagentRuntime } from '../subagents/runtime.js'
 import { completionNotice, launchedText } from './notice.js'
-import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
+import { WORKFLOW_TOOL_NAME, workflowToolDescription } from './offering.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
 
 /** Longest script the tool takes, in characters. The review shows all of it. */
@@ -74,6 +74,11 @@ export interface WorkflowHostOptions {
 	readonly refusal: (turnId: TurnId) => string | undefined
 	/** Register the run with the delegation path under a turn id of its own. */
 	readonly openRunTurn: (originTurnId: TurnId, runId: string) => WorkflowRunTurn
+	/**
+	 * The size advice paragraph for the tool description (see `workflowSizeAdvice`),
+	 * fixed for the session. Absent or empty adds nothing.
+	 */
+	readonly sizeAdvice?: string
 	/** Limits the run is held to, from the turn that started it. */
 	readonly limitsFor?: (turnId: TurnId) => WorkflowLimits | undefined
 	/** Called once when a run ends (the conversation line and the model's message). */
@@ -124,7 +129,12 @@ function endedBeforeAgents(end: WorkflowRunEnd, noArgs: boolean) {
 		return {
 			success: true,
 			output: completionNotice(view),
-			data: { run_id: view.runId, name: view.name, status: 'completed', inline: true },
+			data: {
+				run_id: view.runId,
+				name: view.name,
+				status: 'completed',
+				inline: true,
+			},
 		}
 	}
 	const reason = plainScriptFailure(view.error ?? 'no reason was given')
@@ -171,7 +181,7 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 	const registry = options.registry ?? new WorkflowRunRegistry()
 	const tool = defineTool({
 		name: WORKFLOW_TOOL_NAME,
-		description: WORKFLOW_TOOL_DESCRIPTION,
+		description: workflowToolDescription(options.sizeAdvice),
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {

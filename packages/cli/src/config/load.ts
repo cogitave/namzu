@@ -32,6 +32,7 @@ import { parse as yamlParse } from 'yaml'
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { isWorkflowSizeGuideline } from '../integrations/workflows/size.js'
 import { isFormatName } from '../output/index.js'
 import {
 	type BrowserSiteLevel,
@@ -317,7 +318,10 @@ function assertAutoModelHasDefault(config: NamzuCliConfig, provenance: ConfigPro
 	const valueSource: ConfigValueSource =
 		source?.kind === 'env'
 			? { kind: 'environment', variable: source.variable }
-			: { kind: 'file', path: source && 'path' in source ? source.path : '(config)' }
+			: {
+					kind: 'file',
+					path: source && 'path' in source ? source.path : '(config)',
+				}
 	throw new ConfigValueError(
 		valueSource,
 		'model',
@@ -1165,13 +1169,22 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
 		for (const key of Object.keys(v)) {
+			const value = (v as Record<string, unknown>)[key]
+			if (key === 'sizeGuideline') {
+				if (!isWorkflowSizeGuideline(value))
+					return invalidConfigValue(
+						context,
+						[key],
+						'must be one of unrestricted, small, medium or large',
+					)
+				continue
+			}
 			if (key !== 'maxConcurrency' && key !== 'maxAgents')
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a workflow setting (maxConcurrency, maxAgents)',
+					'is not a workflow setting (maxConcurrency, maxAgents, sizeGuideline)',
 				)
-			const value = (v as Record<string, unknown>)[key]
 			if (
 				typeof value !== 'number' ||
 				!Number.isSafeInteger(value) ||
@@ -2024,7 +2037,10 @@ function readRoutingConfig(v: unknown, context: ConfigReaderContext): RoutingCon
 				return invalidConfigValue(context, [...path, key], 'must be a non-empty string')
 			}
 		}
-		return { provider: (entry.provider as string).trim(), model: (entry.model as string).trim() }
+		return {
+			provider: (entry.provider as string).trim(),
+			model: (entry.model as string).trim(),
+		}
 	}
 	if (raw.default === undefined) {
 		return invalidConfigValue(context, ['default'], 'is required: the model auto falls back to')
@@ -2218,7 +2234,10 @@ export function mergeBrowserConfig(
 ): BrowserConfig {
 	if (layer.defaultProfile !== undefined && isProjectSource(source)) {
 		throw new ConfigValueError(
-			{ kind: 'file', path: 'path' in source ? source.path : 'namzu.config.json' },
+			{
+				kind: 'file',
+				path: 'path' in source ? source.path : 'namzu.config.json',
+			},
 			'browser.defaultProfile',
 			'cannot be set in a project file: a profile holds your sign-ins, so choose it in your user config or with /browser profile',
 		)

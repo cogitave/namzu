@@ -10,8 +10,15 @@ import {
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import {
+	LARGE_WORKFLOW_WARNING,
+	LARGE_WORKFLOW_WARNING_SHORT,
+	type WorkflowSizeGuideline,
+	isLargeRun,
+} from '../integrations/workflows/size.js'
+import {
 	type WorkflowRunStatus,
 	type WorkflowRunView,
+	countAgents,
 	isWorkflowRunAgent,
 } from '../integrations/workflows/view.js'
 import { fitHints } from './key-hints.js'
@@ -267,6 +274,15 @@ export interface RailWorkflow {
 	readonly agents: readonly SubagentActivity[]
 	/** The `workflow` tool's run this row stands for; absent for a group of labelled `Agent` calls. */
 	readonly runId?: string
+	/** The run is big enough to warn about (see `isLargeRun`); only set while it runs. */
+	readonly large?: true
+}
+
+/** What the rail needs to decide whether a running workflow is a large one. */
+export interface LargeRunSettings {
+	readonly hypermode: boolean
+	readonly configuredGuideline?: WorkflowSizeGuideline
+	readonly env?: Readonly<Record<string, string | undefined>>
 }
 
 const WORKFLOW_FOCUS_PREFIX = 'workflow:'
@@ -287,11 +303,12 @@ export function railWorkflows(
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
 	runs: readonly WorkflowRunView[] = [],
+	large?: LargeRunSettings,
 ): readonly RailWorkflow[] {
 	return [
 		...groupWorkflows(agents, now, dismissed, true),
 		...visibleRuns(runs, now, AGENT_RAIL_FINISHED_LINGER_MS, dismissed).map((run) =>
-			runRailWorkflow(run, agents),
+			runRailWorkflow(run, agents, large),
 		),
 	].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
 }
@@ -300,9 +317,25 @@ export function railWorkflows(
 export function runRailWorkflow(
 	run: WorkflowRunView,
 	agents: readonly SubagentActivity[],
+	large?: LargeRunSettings,
 ): RailWorkflow {
 	const facts = runRailFacts(run)
+	const counts = countAgents(run)
+	const isLarge =
+		large !== undefined &&
+		run.status === 'running' &&
+		isLargeRun({
+			scheduledAgents: counts.total,
+			startedAgents: counts.total - counts.queued,
+			totalTokens: facts.tokens ?? 0,
+			hypermode: large.hypermode,
+			...(large.configuredGuideline !== undefined
+				? { configuredGuideline: large.configuredGuideline }
+				: {}),
+			...(large.env !== undefined ? { env: large.env } : {}),
+		})
 	return {
+		...(isLarge ? { large: true as const } : {}),
 		id: run.groupId,
 		focusId: `${WORKFLOW_FOCUS_PREFIX}${run.groupId}`,
 		name: run.name,
@@ -431,8 +464,28 @@ export function workflowRowVariants(
 	const join = (parts: readonly (string | undefined)[]): string =>
 		parts.filter((part): part is string => part !== undefined).join(' · ')
 	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
+	const warned: WorkflowRowVariant[] = workflow.large
+		? [
+				{
+					barWidth: wide,
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
+				},
+				{
+					barWidth: wide,
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
+				},
+				{
+					barWidth: wide,
+					text: join([elapsed, spent && `↓ ${spent}`, LARGE_WORKFLOW_WARNING_SHORT]),
+				},
+			]
+		: []
 	const variants: WorkflowRowVariant[] = [
-		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+		...warned,
+		{
+			barWidth: wide,
+			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
+		},
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -471,7 +524,10 @@ export function layoutWorkflowRow(
 		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
 	for (const variant of variants) {
 		if (room - widthOf(variant) >= wanted) {
-			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
+			return {
+				variant,
+				nameWidth: Math.min(nameWidth, room - widthOf(variant)),
+			}
 		}
 	}
 	const last = variants[variants.length - 1] as WorkflowRowVariant

@@ -64,7 +64,7 @@ The screen shows, in order:
 │   Phases:                                                                    │
 │     1. Tarama                                                                │
 │     2. Duzeltme — yalnizca guvenli duzeltmeler                               │
-│   Agents: up to 8 at a time, 200 in all, each with the same tools and        │
+│   Agents: up to 16 at a time, 1000 in all, each with the same tools and        │
 │   approval rules as an Agent call                                            │
 │   Runs in the background; you can stop it from the rail or /workflows        │
 │   Script · 14 lines                                                          │
@@ -118,8 +118,8 @@ when the model's turn is over, under the permission mode the operator has chosen
 at that moment. Leaving the conversation (`/resume`, `/new`) stops running
 workflows.
 
-Limits come from the configuration below, or the SDK defaults: at most `min(8, CPUs − 2)` agents run at
-once, 200 start per run, one value crossing the bridge is at most 1 MiB, and the
+Limits come from the configuration below, or the SDK defaults: at most `min(16, CPUs − 2)` agents (at least 2) run at
+once, 1000 start per run, one value crossing the bridge is at most 1 MiB, and the
 turn's token budget (when one is set) stops new agents once it is spent. A script
 that asks for more fails with a plain reason.
 
@@ -258,16 +258,39 @@ child transcript under `<session>/subagents/`.
 ## Configuration
 
 ```json
-{ "workflow": { "maxConcurrency": 4, "maxAgents": 300 } }
+{ "workflow": { "maxConcurrency": 4, "maxAgents": 300, "sizeGuideline": "medium" } }
 ```
 
 in `namzu.config.json` or `~/.namzu/config.yaml`. `maxConcurrency` is how many of a
-run's agents go at once: a whole number from 1 to 16, default `min(8, CPUs − 2)` and
-at least 1. `maxAgents` is how many agents one run may start: 1 to 1000, default 200.
-Both are optional, are refused with the file and key named when out of range or not
+run's agents go at once: a whole number from 1 to 16, default `min(16, CPUs − 2)` and
+at least 2. `maxAgents` is how many agents one run may start: 1 to 1000, default 1000.
+`sizeGuideline` is how big a workflow the model is advised to write (see below). All are optional, are refused with the file and key named when out of range or not
 whole numbers, and are never read from the environment. The review shows the values
 in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 ([Turn limits](turn-limits.md)) also stops a run from starting agents once it is spent.
+
+### Size guideline and the large-run warning
+
+`sizeGuideline` is `small` (fewer than 5 agents), `medium` (fewer than 10, the
+default), `large` (fewer than 50) or `unrestricted`. Except for `unrestricted`
+it adds one paragraph to the `workflow` tool's description saying so; it is
+advice, never a limit, and the paragraph is fixed when the session starts. A
+running workflow that schedules more than 25 agents (or the guideline's count,
+when you set one), spends more than 1.5 million tokens, or is on course to (the
+average of the agents that started, or 70 000 each before any has, times the
+agents scheduled) gets `Large workflow · /workflows to stop` on its rail row,
+shortened to `Large workflow` when the row is narrow. It does not appear while
+hypermode is on. `NAMZU_WORKFLOW_SIZE_WARNING_AGENTS` and
+`NAMZU_WORKFLOW_SIZE_WARNING_TOKENS` override the two thresholds.
+
+### Token target
+
+A standalone `+500k`, `+1.5m` or `+2b` in a message you type is the token target
+for that turn (the last one wins; text the model or a tool wrote is never read).
+A workflow started in the turn sees it as `budget.total`, and `agent()` throws
+once the run has spent that many output tokens, so a script can size itself
+(`budget.total ? Math.floor(budget.total / 100_000) : 5`). With the turn's own
+token limit set too, the smaller of the two applies.
 
 ## Skipping and stopping under a token budget
 
@@ -281,5 +304,5 @@ Stopping a run or skipping an agent cancels a model request that may not have re
 
 ## Not in this version
 
-Named or saved workflows, resuming a run from its journal, nested `workflow()`,
+Named or saved workflows, resuming a run from its journal, `scriptPath`, nested `workflow()`,
 worktree isolation per agent, and a pause key.
