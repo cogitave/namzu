@@ -22,7 +22,7 @@ import type { TurnSettlement } from '../../types/session/turn.js'
  * exists — so a new event can neither reach a wire unexamined nor be left
  * off one silently.
  *
- * Shared rather than copied per wire. Two lists of sixty-three fixtures
+ * Shared rather than copied per wire. Two lists of sixty-four fixtures
  * drift, and the drift is invisible: each file still compiles, each still
  * passes, and the two wires are quietly tested against different events.
  *
@@ -183,6 +183,15 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		decisions: 1,
 		discoveries: 0,
 		failures: 0,
+	}),
+	compaction_started: () => ({
+		type: 'compaction_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		reason: 'threshold',
+		tokensBefore: 1,
+		contextWindowTokens: 1,
 	}),
 	compaction_tool_results_cleared: () => ({
 		type: 'compaction_tool_results_cleared',
