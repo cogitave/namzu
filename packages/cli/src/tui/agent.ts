@@ -841,6 +841,12 @@ export interface SendOptions {
 	 */
 	readonly hypermode?: boolean
 	/**
+	 * Offer the `workflow` tool for this turn because the operator's message
+	 * armed the `workflow` composer trigger. Default `false`; the bare word in
+	 * a message offers nothing by itself.
+	 */
+	readonly workflow?: boolean
+	/**
 	 * What the host tells the model about this turn in its own words — the
 	 * composer triggers the operator armed (`./triggers/context-text.ts`).
 	 * Read at every iteration and sent through the kernel's `context`
@@ -5379,6 +5385,7 @@ export async function createAgentSession(
 							!residentContext &&
 							workflowOffered({
 								hypermode: opts?.hypermode === true,
+								workflow: opts?.workflow === true,
 								userText: lastUserText(messages),
 							})
 						if (workflowOffer && workflowHost) {

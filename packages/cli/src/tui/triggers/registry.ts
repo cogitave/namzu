@@ -36,7 +36,7 @@ export type Arming = 'arm' | 'suggest' | 'off'
 export type TriggerLocale = 'en' | 'tr'
 
 /** The fixed texts namzu adds for a turn; operator text never enters them. */
-export type ContextTextId = 'hypermode' | 'save-skill' | 'schedule'
+export type ContextTextId = 'hypermode' | 'workflow' | 'save-skill' | 'schedule'
 
 /** A command a trigger may run after its turn. Only this one exists. */
 export type TriggerableCommand = '/skills save'
@@ -126,6 +126,20 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		effect: { kind: 'turn-context', text: 'hypermode', effort: 'hypermode' },
 		scope: 'turn',
 		arming: COMPOSER_TRIGGER_DEFAULTS.hypermode,
+	},
+	{
+		id: 'workflow',
+		label: 'workflow',
+		// The bare word, matched like `hypermode` (no Turkish phrase: `iş`
+		// folds onto `is`, which the fold test forbids; `/workflow` works in any language): a request edge, not talk
+		// about workflows. It offers the `workflow` tool for this message; the
+		// script is still shown for approval before anything starts.
+		keywords: ['workflow', 'workflows'],
+		phrases: {},
+		loose: {},
+		effect: { kind: 'turn-context', text: 'workflow' },
+		scope: 'turn',
+		arming: COMPOSER_TRIGGER_DEFAULTS.workflow,
 	},
 	{
 		id: 'save-skill',

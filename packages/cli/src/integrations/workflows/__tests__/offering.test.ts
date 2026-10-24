@@ -2,54 +2,44 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	WORKFLOW_TOOL_DESCRIPTION,
-	messageAsksForWorkflow,
+	isWorkflowCommandPrompt,
 	workflowCommandPrompt,
 	workflowOffered,
 	workflowRefusal,
 } from '../offering.js'
 
 describe('when the workflow tool is offered', () => {
+	const none = { hypermode: false, workflow: false }
+
 	it('is not offered to an ordinary message', () => {
-		expect(workflowOffered({ hypermode: false, userText: 'fix the failing test in cart.ts' })).toBe(
-			false,
-		)
-		expect(workflowOffered({ hypermode: false, userText: '' })).toBe(false)
+		expect(workflowOffered({ ...none, userText: 'fix the failing test in cart.ts' })).toBe(false)
+		expect(workflowOffered({ ...none, userText: '' })).toBe(false)
 	})
 
 	it('is offered whenever hypermode is on, whatever the message says', () => {
-		expect(workflowOffered({ hypermode: true, userText: 'fix the failing test' })).toBe(true)
+		expect(workflowOffered({ ...none, hypermode: true, userText: 'fix the failing test' })).toBe(
+			true,
+		)
+	})
+
+	it('is offered when the workflow trigger is armed for the turn', () => {
+		expect(workflowOffered({ ...none, workflow: true, userText: 'audit the packages' })).toBe(true)
 	})
 
 	it.each([
 		'use a workflow to audit the packages',
-		'Run a WORKFLOW over all of them',
-		'workflow: scan then fix',
-		'make the workflows smaller',
-		'/workflow audit the packages',
+		'how does the build workflow cache work?',
 		'bir iş akışı kur',
-		'İş Akışı ile tara',
-		'IŞ AKIŞI başlat',
-		'is akisi olustur',
-		'iş akışları nelerdi',
-	])('is offered when the message asks for one: %s', (text) => {
-		expect(messageAsksForWorkflow(text)).toBe(true)
-		expect(workflowOffered({ hypermode: false, userText: text })).toBe(true)
+	])('the word alone offers nothing; the composer trigger does that: %s', (text) => {
+		expect(workflowOffered({ ...none, userText: text })).toBe(false)
 	})
 
-	it.each([
-		'rework the flow of the checkout',
-		'my network workflowless setup',
-		'is akıllı değil',
-		'akış kontrolü ekle',
-	])('is not offered when the word only sits inside another: %s', (text) => {
-		expect(messageAsksForWorkflow(text)).toBe(false)
-	})
-
-	it('turns /workflow <task> into a message that asks for one', () => {
+	it('turns /workflow <task> into a message that offers one', () => {
 		const prompt = workflowCommandPrompt('  audit the packages ')
 		expect(prompt).toBe('Use a workflow for this: audit the packages')
-		expect(messageAsksForWorkflow(prompt)).toBe(true)
-		expect(messageAsksForWorkflow(workflowCommandPrompt(''))).toBe(true)
+		expect(isWorkflowCommandPrompt(prompt)).toBe(true)
+		expect(isWorkflowCommandPrompt(workflowCommandPrompt(''))).toBe(true)
+		expect(workflowOffered({ ...none, userText: prompt })).toBe(true)
 	})
 })
 

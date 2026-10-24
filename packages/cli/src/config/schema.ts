@@ -476,7 +476,7 @@ export interface StatusLineConfig {
 export type ComposerTriggerArming = 'arm' | 'suggest' | 'off'
 
 /** The built-in composer triggers. */
-export type ComposerTriggerId = 'hypermode' | 'save-skill' | 'schedule' | 'max-effort'
+export type ComposerTriggerId = 'hypermode' | 'workflow' | 'save-skill' | 'schedule' | 'max-effort'
 
 /** Languages whose phrases are matched. */
 export type ComposerTriggerLanguage = 'en' | 'tr'
@@ -490,7 +490,7 @@ export interface ComposerTriggersConfig {
 	/** Languages whose phrases are matched. Default `[en, tr]`. */
 	readonly languages?: readonly ComposerTriggerLanguage[]
 	/**
-	 * Per built-in trigger. Defaults: `hypermode: arm`, `save-skill: arm`,
+	 * Per built-in trigger. Defaults: `hypermode: arm`, `workflow: arm`, `save-skill: arm`,
 	 * `schedule: suggest`, `max-effort: off`.
 	 */
 	readonly builtin?: Readonly<Partial<Record<ComposerTriggerId, ComposerTriggerArming>>>

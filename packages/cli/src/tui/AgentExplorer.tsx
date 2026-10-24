@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import stringWidth from 'string-width'
 
 import {
@@ -14,12 +14,12 @@ import {
 	type WorkflowRunView,
 	isWorkflowRunAgent,
 } from '../integrations/workflows/view.js'
-import { formatElapsed } from './LiveActivity.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { formatElapsed } from './units.js'
 import { formatCompactCount } from './units.js'
 import { nextRunEviction, runPhaseId, runRailFacts, visibleRuns } from './workflow-runs.js'
 
@@ -804,6 +804,8 @@ export interface AgentWorkflow {
 	readonly runId?: string
 	readonly description?: string
 	readonly runStatus?: WorkflowRunStatus
+	/** What the script's `log()` said, oldest first. */
+	readonly logs?: readonly string[]
 }
 
 export interface AgentPhase {
@@ -950,26 +952,31 @@ export function phaseTitle(phase: Pick<AgentPhase, 'name'>): string {
 	return phase.name === DEFAULT_AGENT_PHASE ? UNLABELLED_PHASE_TITLE : phase.name
 }
 
-export type PhaseOutcome = 'not-started' | 'running' | 'done' | 'failed'
+export type PhaseOutcome = 'not-started' | 'running' | 'done' | 'failed' | 'skipped'
 
 /**
  * How a phase stands, from its agents alone: `done` once every agent has
  * settled cleanly, `failed` once every agent has settled and any failed or
  * was stopped, `running` otherwise. Only a workflow run declares phases ahead
- * of their agents, so only a run's phase is ever `not-started`.
+ * of their agents, so only a run's phase is ever `not-started`. A run's phase
+ * whose agents were all skipped has nothing that finished, so it is `skipped`,
+ * never `done`.
  */
 export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
 	// A phase a script declared and nothing has started in.
 	if (phase.agents.length === 0) return 'not-started'
 	if (phase.agents.some((agent) => !isTerminalStatus(agent.status))) return 'running'
 	// An agent the operator skipped in a workflow run is not a failure of its phase.
-	return phase.agents.some(
-		(agent) =>
-			agent.status !== 'completed' &&
-			!(agent.workflowRunId !== undefined && agent.status === 'cancelled'),
+	if (
+		phase.agents.some(
+			(agent) =>
+				agent.status !== 'completed' &&
+				!(agent.workflowRunId !== undefined && agent.status === 'cancelled'),
+		)
 	)
-		? 'failed'
-		: 'done'
+		return 'failed'
+	// Skipped is not done: the tick is for a phase where something finished.
+	return phase.agents.some((agent) => agent.status === 'completed') ? 'done' : 'skipped'
 }
 
 /** The phase list's `done/total`: settled agents over every agent seen in it. */
@@ -1203,7 +1210,12 @@ export function WorkflowDetail({
 		return {
 			outcome,
 			color,
-			text: outcome === 'done' ? '✔' : outcome === 'failed' ? '✘' : String(index + 1),
+			text:
+				outcome === 'done'
+					? '✔'
+					: outcome === 'failed' || outcome === 'skipped'
+						? '✘'
+						: String(index + 1),
 		}
 	}
 
@@ -1216,6 +1228,11 @@ export function WorkflowDetail({
 	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
 	const rightInner = boxWidth - 3 - leftInner
 	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
+
+	// The script's last log() line sits under the header, the two before it dim.
+	const recentLogs = (workflow.logs ?? [])
+		.slice(-(terminalRows >= 30 ? 3 : terminalRows >= 24 ? 1 : 0))
+		.map((line) => terminalDisplayText(oneLine(line)))
 
 	const header = (
 		<>
@@ -1237,6 +1254,18 @@ export function WorkflowDetail({
 					<Text color={theme.text.muted}>{stats}</Text>
 				</Box>
 			</Box>
+			{recentLogs.map((line, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: the last few lines, in order
+				<Box key={index} paddingX={1}>
+					<Text
+						color={index === recentLogs.length - 1 ? theme.text.primary : theme.text.muted}
+						dimColor={index !== recentLogs.length - 1}
+						wrap="truncate-end"
+					>
+						{line}
+					</Text>
+				</Box>
+			))}
 			<Text> </Text>
 		</>
 	)
@@ -1247,6 +1276,18 @@ export function WorkflowDetail({
 			</Text>
 		</Box>
 	)
+
+	// Stacked, the selected phase's own detail sits right under its row.
+	const stackedDetail =
+		level === 1 &&
+		terminalRows >= 20 &&
+		phase?.detail &&
+		phaseWindow.items.length + 1 + 1 <= pageSize
+			? wrapPhaseDetailLines(phase.detail, columns - 4).slice(
+					0,
+					Math.min(PHASE_DETAIL_LINE_BUDGET, pageSize - phaseWindow.items.length - 1),
+				)
+			: []
 
 	if (!sideBySide) {
 		return (
@@ -1264,27 +1305,38 @@ export function WorkflowDetail({
 								const active = index === selectedPhaseIndex
 								const glyph = phaseGlyph(item, index)
 								return (
-									<Box key={item.id}>
-										<Box width={2} flexShrink={0}>
-											<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+									<Fragment key={item.id}>
+										<Box>
+											<Box width={2} flexShrink={0}>
+												<Text color={theme.accent.assistant}>{active ? '❯' : ' '}</Text>
+											</Box>
+											<Box width={3} flexShrink={0}>
+												<Text color={glyph.color}>{glyph.text}</Text>
+											</Box>
+											<Box flexGrow={1} flexShrink={1} minWidth={0}>
+												<Text
+													color={active ? theme.accent.assistant : theme.text.primary}
+													bold={active}
+													dimColor={glyph.outcome === 'not-started' && !active}
+													wrap="truncate-end"
+												>
+													{oneLine(phaseTitle(item))}
+												</Text>
+											</Box>
+											<Box flexShrink={0} marginLeft={1}>
+												<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+											</Box>
 										</Box>
-										<Box width={3} flexShrink={0}>
-											<Text color={glyph.color}>{glyph.text}</Text>
-										</Box>
-										<Box flexGrow={1} flexShrink={1} minWidth={0}>
-											<Text
-												color={active ? theme.accent.assistant : theme.text.primary}
-												bold={active}
-												dimColor={glyph.outcome === 'not-started' && !active}
-												wrap="truncate-end"
-											>
-												{oneLine(phaseTitle(item))}
-											</Text>
-										</Box>
-										<Box flexShrink={0} marginLeft={1}>
-											<Text color={theme.text.muted}>{phaseCount(item)}</Text>
-										</Box>
-									</Box>
+										{active
+											? stackedDetail.map((line, lineIndex) => (
+													// biome-ignore lint/suspicious/noArrayIndexKey: order-stable lines of one wrap pass
+													<Text key={lineIndex} color={theme.text.muted} wrap="truncate-end">
+														{'     '}
+														{line}
+													</Text>
+												))
+											: null}
+									</Fragment>
 								)
 							})
 						: agentWindow.items.map((agent, offset) => {
@@ -1326,24 +1378,6 @@ export function WorkflowDetail({
 							{emptyNote}
 						</Text>
 					) : null}
-					{level === 1 &&
-					terminalRows >= 20 &&
-					phase?.detail &&
-					phaseWindow.items.length + 1 + 1 <= pageSize ? (
-						<Box flexDirection="column" marginTop={1}>
-							{wrapPhaseDetailLines(phase.detail, columns - 4)
-								.slice(
-									0,
-									Math.min(PHASE_DETAIL_LINE_BUDGET, pageSize - phaseWindow.items.length - 1),
-								)
-								.map((line, index) => (
-									// biome-ignore lint/suspicious/noArrayIndexKey: order-stable lines of one wrap pass
-									<Text key={index} color={theme.text.muted} wrap="truncate-end">
-										{line}
-									</Text>
-								))}
-						</Box>
-					) : null}
 				</Box>
 				{footer}
 			</Box>
@@ -1357,7 +1391,9 @@ export function WorkflowDetail({
 			? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
 			: []
 	const showDetail =
-		detailLines.length > 0 && agentWindow.items.length + 1 + detailLines.length <= pageSize
+		detailLines.length > 0 && detailLines.length + 1 + agentWindow.items.length <= pageSize
+	// The phase's detail sits under its title, ahead of the agents, then a blank row.
+	const detailRows = showDetail ? detailLines.length + 1 : 0
 	const border = theme.border.default
 	const leftTitle = ' Phases '
 	const rightTitle = ` ${truncateChoiceText(agentsTitle, Math.max(1, rightInner - 4))} `
@@ -1385,15 +1421,16 @@ export function WorkflowDetail({
 				const index = phaseWindow.start + row
 				const phaseActive = level === 1 && index === selectedPhaseIndex
 				const glyph = item ? phaseGlyph(item, index) : undefined
-				const agent = agentWindow.items[row]
-				const agentActive = level === 2 && agentWindow.start + row === selectedAgentIndex
+				const agentRow = row - detailRows
+				const agent = agentRow >= 0 ? agentWindow.items[agentRow] : undefined
+				const agentActive = level === 2 && agentWindow.start + agentRow === selectedAgentIndex
 				const agentGlyph = agent ? agentDetailGlyph(agent) : undefined
 				const queued = agent?.status === 'queued' || agent?.status === 'starting'
 				const labelCells = Math.min(
 					Math.max(0, ...agentWindow.items.map((value) => stringWidth(agentDetailLabel(value)))),
 					Math.floor(rightInner * 0.45),
 				)
-				const detailRow = !agent && showDetail ? row - agentWindow.items.length - 1 : -1
+				const detailRow = showDetail && row < detailLines.length ? row : -1
 				return (
 					<Box key={item?.id ?? `row-${row}`} paddingX={1}>
 						<Text color={border}>│</Text>
@@ -1421,6 +1458,7 @@ export function WorkflowDetail({
 							{agent && agentGlyph ? (
 								<>
 									<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
+									<Text> </Text>
 									<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
 									<Text> </Text>
 									<Box width={labelCells + 3} flexShrink={0}>
@@ -1448,15 +1486,15 @@ export function WorkflowDetail({
 										</Text>
 									</Box>
 								</>
-							) : row === 0 && emptyNote ? (
+							) : detailRow >= 0 && detailLines[detailRow] !== undefined ? (
+								<Text color={theme.text.muted} wrap="truncate-end">
+									{'    '}
+									{detailLines[detailRow]}
+								</Text>
+							) : row === detailRows && emptyNote ? (
 								<Text color={theme.text.muted} dimColor wrap="truncate-end">
 									{'  '}
 									{emptyNote}
-								</Text>
-							) : detailRow >= 0 && detailLines[detailRow] !== undefined ? (
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{'  '}
-									{detailLines[detailRow]}
 								</Text>
 							) : null}
 						</Box>
@@ -1515,7 +1553,14 @@ export function agentWorkflows(
 				status: members.length > 0 ? phaseStatus(members) : 'working',
 				phases: run ? runPhases(run, members) : agentPhases(members),
 				agents: members,
-				...(run ? { runId: run.runId, description: run.description, runStatus: run.status } : {}),
+				...(run
+					? {
+							runId: run.runId,
+							description: run.description,
+							runStatus: run.status,
+							logs: run.logs,
+						}
+					: {}),
 			} satisfies AgentWorkflow
 		})
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))

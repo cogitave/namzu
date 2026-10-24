@@ -45,6 +45,7 @@ Three rules hold for every trigger:
 | Trigger | You type | Default | What it does |
 | --- | --- | --- | --- |
 | `hypermode` | the word `hypermode` at the start or end of a clause | arms | For this turn only: effort pinned to `xhigh` (or the highest level below it the model publishes), and namzu tells the model to delegate independent work to parallel agents (the one-turn form of [`/hypermode`](slash-commands.md#hypermode)). |
+| `workflow` | the word `workflow` or `workflows` at the start or end of a clause | arms | For this turn only: the `workflow` tool is offered to the model, and namzu tells it a workflow was asked for. You still read and approve the script before anything starts ([Workflows](workflows.md)). `/workflow <task>` is unchanged. |
 | `save-skill` | "save this as a skill", "turn it into a skill", "bunu skill olarak kaydet", "bunu skill'e çevir", "bundan bir skill yap" … | arms | After the turn, if it completed and did tool work, runs exactly `/skills save` ([Learning from a task](skills.md#learning-from-a-task)). |
 | `schedule` | "schedule this", "run it every day", "bunu her sabah çalıştır" … | suggests | Armed with Alt+W: namzu asks the model to propose a job with the `schedule` tool, which you confirm on screen ([Scheduled tasks](scheduled-tasks.md)). |
 | `max-effort` | "think as hard as you can", "en yüksek eforla düşün" | off | Armed: effort pinned to the model's highest published level (`max` where there is one) for this turn. |
@@ -198,6 +199,7 @@ composerTriggers:
   languages: [en, tr]    # whose phrases are matched
   builtin:
     hypermode: arm       # arm | suggest | off
+    workflow: arm        # arm | suggest | off
     save-skill: arm
     schedule: suggest
     max-effort: off

@@ -659,6 +659,8 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'workflow-runs'
 			readonly title: string
 			readonly notice?: string
+			/** `1 running, 2 finished`, counted when the list opened. */
+			readonly subtitle?: string
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -8606,6 +8608,7 @@ export function App({
 							? { effort: pinnedEffort ?? turnReasoningEffort }
 							: {}),
 						...(turnHypermode ? { hypermode: true } : {}),
+						...(turnTriggers.includes('workflow') ? { workflow: true } : {}),
 						// Read at every iteration, so an after-turn trigger a steer
 						// binds to this turn is said from the next one on.
 						hostContext: () =>
@@ -9514,6 +9517,7 @@ export function App({
 								setChoicePicker({
 									kind: 'workflow-runs',
 									title: 'Workflows',
+									subtitle: workflowRunsSubtitle(runs),
 									values: runs.map((run) => run.runId),
 									options: runs.map(workflowRunOption),
 								})
@@ -12361,6 +12365,18 @@ export function App({
 					)
 					return
 				}
+				if (picker.kind === 'workflow-runs' && input === 'x' && !key.ctrl && !key.meta) {
+					// Stops the highlighted run when it is still going; a finished one has nothing to stop.
+					const chosen = options[selectedChoiceRef.current]
+					const runId = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					const run = workflowRunsRef.current.find((item) => item.runId === runId)
+					if (run?.status === 'running') {
+						session?.workflows?.stop(run.runId)
+						setChoicePicker(null)
+						pushMessage('system', `Stopping ${run.name}.`)
+					}
+					return
+				}
 				if (/^[1-9]$/.test(input)) {
 					const index = Number(input) - 1
 					if (options[index]) applyVisibleChoice(index)
@@ -12705,9 +12721,16 @@ export function App({
 		!composerHasDraft &&
 		permission === null &&
 		railFocus === null
-	const runningAgentCount =
-		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
-		liveWorkflows.filter((flow) => flow.status === 'running').length
+	const runningAgentCount = liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length
+	// `/workflows`: `x to stop` is offered only on a run that is still going.
+	const workflowPickerCanStop = (() => {
+		if (choicePicker?.kind !== 'workflow-runs') return false
+		const chosen = filterChoiceOptions(choicePicker.options, choiceQuery)[selectedChoice]
+		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
+		return workflowRunsRef.current.find((run) => run.runId === runId)?.status === 'running'
+	})()
+	// A run is one workflow, not an agent: the footer says so.
+	const runningWorkflowCount = liveWorkflows.filter((flow) => flow.status === 'running').length
 	// While the rail has the keyboard its key line replaces the footer's mode line.
 	const railHintText =
 		railFocus !== null &&
@@ -12984,6 +13007,12 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								title={choicePicker.title}
 								notice={choicePicker.notice}
+								{...(choicePicker.kind === 'workflow-runs'
+									? {
+											subtitle: choicePicker.subtitle,
+											hints: workflowRunsHints(workflowPickerCanStop),
+										}
+									: {})}
 								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
 								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 								selected={selectedChoice}
@@ -13159,6 +13188,7 @@ export function App({
 						pr={prStatus}
 						hyperlinks={hyperlinks}
 						agentCount={footerKeysLive ? runningAgentCount : 0}
+						workflowCount={footerKeysLive ? runningWorkflowCount : 0}
 						canManage={
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
@@ -13405,6 +13435,21 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	]
 	if (batch.live) columns.push('live')
 	return { label: batch.name, description: columns.join(' · ') }
+}
+
+/** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
+function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]): string {
+	const running = runs.filter((run) => run.status === 'running').length
+	return `${running} running, ${runs.length - running} finished`
+}
+
+/** The `/workflows` list's own key hints: Enter opens a run, `x` stops one that is going. */
+function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
+	return [
+		{ text: 'enter to view', rank: 5 },
+		...(canStop ? [{ text: 'x to stop', rank: 3 }] : []),
+		{ text: 'esc to close', rank: 4 },
+	]
 }
 
 /** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */

@@ -3,8 +3,9 @@
  *
  * A workflow is a lot of work started on one decision, so the tool is only
  * offered when the operator asked for orchestration: hypermode is on, or the
- * message says "workflow" (or the Turkish "iş akışı"), or it is the `/workflow`
- * command. Everything else gets the `Agent` tool alone. Pure.
+ * message armed the `workflow` composer trigger (the word "workflow", shown as
+ * a tag and dropped with Alt+W), or it is the
+ * `/workflow` command. Everything else gets the `Agent` tool alone. Pure.
  */
 
 export const WORKFLOW_TOOL_NAME = 'workflow'
@@ -12,28 +13,30 @@ export const WORKFLOW_TOOL_NAME = 'workflow'
 /** The line under a workflow's launch row in the conversation. */
 export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
 
-/** `workflow`, `workflows`, `Workflow`; and `iş akışı` in any case, with or without the diacritics. */
-const WORKFLOW_WORD = /(?:^|[^\p{L}\p{N}])workflows?(?![\p{L}\p{N}])/u
-const TURKISH_WORKFLOW = /(?:^|[^\p{L}\p{N}])i[sş]\s+ak[ıi][sş]\p{L}*/u
+/** The words `workflowCommandPrompt` starts a message with. */
+const COMMAND_PROMPT_PREFIX = 'Use a workflow for '
 
-/** Whether a message asks for a workflow in words. */
-export function messageAsksForWorkflow(text: string): boolean {
-	if (text.length === 0) return false
-	// Lower-cased twice: a Turkish capital `İ` or `I` only becomes `i` or `ı`
-	// under the Turkish rules, and a message may be in either language.
-	const lowered = [text.toLowerCase(), text.toLocaleLowerCase('tr-TR')]
-	return lowered.some((value) => WORKFLOW_WORD.test(value) || TURKISH_WORKFLOW.test(value))
+/**
+ * Whether a message is the one `/workflow` composes. The bare word in a
+ * message the operator typed is not a request by itself: it goes through the
+ * composer-trigger matcher (`tui/triggers/`), which shows a tag and lets
+ * Alt+W drop it.
+ */
+export function isWorkflowCommandPrompt(text: string): boolean {
+	return text.startsWith(COMMAND_PROMPT_PREFIX)
 }
 
 export interface WorkflowOffering {
 	/** The session's hypermode. */
 	readonly hypermode: boolean
+	/** The operator's `workflow` trigger is armed for this turn. */
+	readonly workflow: boolean
 	/** The text of the operator's latest message. */
 	readonly userText: string
 }
 
 export function workflowOffered(input: WorkflowOffering): boolean {
-	return input.hypermode || messageAsksForWorkflow(input.userText)
+	return input.hypermode || input.workflow || isWorkflowCommandPrompt(input.userText)
 }
 
 /**
@@ -43,8 +46,8 @@ export function workflowOffered(input: WorkflowOffering): boolean {
 export function workflowCommandPrompt(task: string): string {
 	const trimmed = task.trim()
 	return trimmed.length === 0
-		? 'Use a workflow for the work I describe next.'
-		: `Use a workflow for this: ${trimmed}`
+		? `${COMMAND_PROMPT_PREFIX}the work I describe next.`
+		: `${COMMAND_PROMPT_PREFIX}this: ${trimmed}`
 }
 
 /** The tool's description, as the model reads it. */

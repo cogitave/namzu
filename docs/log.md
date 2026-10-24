@@ -2,6 +2,8 @@
 
 ## 2026-10-24
 
+- **Update** [Workflows](cli/workflows.md), [Workflows (SDK)](sdk/workflows.md) and [Composer triggers](cli/composer-triggers.md): the bare word "workflow" is now a `workflow` composer trigger (tag row, Alt+W to drop, hypermode's matcher rules) instead of silently offering the tool; `parallel()` and `pipeline()` never reject (a throwing thunk or stage yields `null` and is reported through `log()`); the detail shows the last `log()` lines, a fully skipped phase shows `✘`, the phase detail sits under its title, the footer counts `1 workflow` rather than an agent, `/workflows` has its own footer and subtitle with `x` to stop, and a script failure reads as one plain sentence. `.changeset/tui-r2-workflows-sdk.md` (`@namzu/sdk` minor), `.changeset/tui-r2-workflows-cli.md` (`@namzu/cli` minor).
+
 - **Update** `@namzu/sdk` packaging: `files` in `packages/sdk/package.json` now lists shipped files by extension (`dist/**/!(*.test|...).js`, ...) instead of `dist`/`src` plus one `!` glob per kind of test file. pnpm's packer expands each `!` glob into one ignore rule per matching file and tests every entry against every rule, so 4244 compiled test files made `pnpm pack` take 83 s (`npm pack`: 3.6 s); it now takes 4 s with the same 4321 files. `check-publish-metadata.mjs` fails if such an allow-list would silently omit a non-test file. `.changeset/sdk-faster-pack.md` (`@namzu/sdk` patch).
 
 ## 2026-10-23

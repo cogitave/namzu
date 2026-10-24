@@ -29,7 +29,12 @@ export interface TagCopyContext {
 }
 
 /** Turn-scoped triggers apply only to a new turn: Enter mid-turn steers without them. */
-const TURN_SCOPED: ReadonlySet<TriggerId> = new Set(['hypermode', 'schedule', 'max-effort'])
+const TURN_SCOPED: ReadonlySet<TriggerId> = new Set([
+	'hypermode',
+	'workflow',
+	'schedule',
+	'max-effort',
+])
 
 export function tagRow(detection: Detection, context: TagCopyContext): string | null {
 	if (detection.paused) return fit(`${OTHER_MARK} triggers paused: draft too long`, context.columns)
@@ -79,6 +84,16 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 					full: `this reply: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
 					short: `this reply${effort ? `, ${effort}` : ''}`,
 					...(effort ? { tiny: effort } : {}),
+				}
+			case 'workflow':
+				if (detection.onlyTriggers)
+					return {
+						full: 'type the task in the same message',
+						short: 'add the task',
+					}
+				return {
+					full: 'this turn, offers the workflow tool',
+					short: 'this turn, offers the tool',
 				}
 			case 'save-skill':
 				if (detection.onlyTriggers && context.standaloneAllowed)
@@ -173,6 +188,8 @@ export function transcriptTagLine(
 		switch (id) {
 			case 'hypermode':
 				return context.steered ? [] : [`hypermode (this reply${effort})`]
+			case 'workflow':
+				return context.steered ? [] : ['workflow (this reply)']
 			case 'save-skill':
 				return [
 					`save as skill (${context.steered ? 'after the running reply' : 'after this reply'})`,
