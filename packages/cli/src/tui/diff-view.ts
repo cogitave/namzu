@@ -175,7 +175,7 @@ function entriesOf(hunk: ToolDiffHunk): Entry[] {
 	}
 	// Numbers: a removed run is numbered from the counter and the counter is
 	// wound back, so the rows that replace it start at the same number.
-	let counter = hunk.newStart
+	let counter = hunk.oldStart
 	for (let i = 0; i < entries.length; i++) {
 		const entry = entries[i]
 		if (!entry) continue

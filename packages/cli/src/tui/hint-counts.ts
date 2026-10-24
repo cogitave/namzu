@@ -55,7 +55,7 @@ export function writeHintCount(name: string, count: number, home?: string): void
 /** The queued-messages hint's count, stored under its own key. */
 export function fileQueuedHintCount(home?: string): QueuedHintCount {
 	return {
-		read: () => readHintCount('queuedCommandUpHintCount', home),
-		write: (count) => writeHintCount('queuedCommandUpHintCount', count, home),
+		read: () => readHintCount('queuedMessagesHint', home),
+		write: (count) => writeHintCount('queuedMessagesHint', count, home),
 	}
 }
