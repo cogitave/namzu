@@ -1,8 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { CodeRuntime, RunCodeOptions } from '../../code-runtime/types.js'
 import { WorkflowRuntime } from '../runtime.js'
 import { META, makeHost, runScript } from './host.js'
+
+// Every test here starts a real worker thread and a fresh QuickJS interpreter,
+// about 0.3 s on an idle machine. That is scheduler-bound, not logic-bound: on
+// a CPU-starved CI runner one run was measured at several seconds, so Vitest's
+// five-second default decided the outcome by machine speed. The interrupt
+// tests are bounded by CPU budgets inside the interpreter (not by this
+// timeout), so a genuine hang still ends in the generous limit below.
+vi.setConfig({ testTimeout: 60_000 })
 
 describe('the script runs in the interpreter and reaches nothing of the host', () => {
 	// SharedArrayBuffer is a QuickJS intrinsic with nothing to share with: there
@@ -70,7 +78,9 @@ describe('the script runs in the interpreter and reaches nothing of the host', (
 	})
 
 	it('interrupts a synchronous busy loop', async () => {
-		const { result } = await runScript(`${META}while (true) {}`, { limits: { cpuSliceMs: 50 } })
+		const { result } = await runScript(`${META}while (true) {}`, {
+			limits: { cpuSliceMs: 50 },
+		})
 		expect(result.status).toBe('failed')
 		expect(result.error).toMatch(/synchronous stretch/)
 	})
@@ -178,7 +188,10 @@ describe('the host re-validates every call, whatever the worker sends', () => {
 			{ name: 'agent', input: { prompt: () => 'x' } },
 			{ name: 'agent', input: { prompt: 'x', schema: cyclic } },
 			{ name: 'agent', input: { prompt: 'x', schema: 'nope' } },
-			{ name: 'agent', input: { prompt: 'x', schema: { type: 'x'.repeat(40_000) } } },
+			{
+				name: 'agent',
+				input: { prompt: 'x', schema: { type: 'x'.repeat(40_000) } },
+			},
 			{ name: 'agent', input: { prompt: 'x', label: 'x'.repeat(500) } },
 			{ name: 'agent', input: { prompt: 'x', cursor: 7 } },
 			{ name: 'agent', input: { prompt: 'x', model: {} } },

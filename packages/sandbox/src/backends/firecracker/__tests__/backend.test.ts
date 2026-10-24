@@ -70,6 +70,9 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+	const unexpectedGuestErrors = guestSocketErrors
+		.splice(0)
+		.filter((error) => error.code !== 'ECONNRESET' && error.code !== 'EPIPE')
 	vi.restoreAllMocks()
 	globalThis.fetch = realFetch
 	process.env.PATH = realPath
@@ -86,11 +89,29 @@ afterEach(async () => {
 		server = undefined
 	}
 	rmSync(workDir, { recursive: true, force: true })
+	expect(unexpectedGuestErrors).toEqual([])
 })
+
+/**
+ * Socket errors a fake guest sees because the code under test dropped the
+ * connection. Closing a socket whose reply it has not read resets the peer on
+ * Linux (`ECONNRESET`), and writing to it after that is `EPIPE`; whether the
+ * client or the fake guest is scheduled first decides which one a given run
+ * sees. A socket with no `error` listener turns either into an uncaught
+ * exception that fails an unrelated test, so every fake-guest connection owns
+ * its listener and the suite asserts nothing other than these two happened.
+ */
+const guestSocketErrors: NodeJS.ErrnoException[] = []
 
 function startAgentServer(connectionHandler: (socket: Socket) => void): Promise<Server> {
 	return new Promise((resolve, reject) => {
-		const s = createServer(connectionHandler)
+		const s = createServer((socket) => {
+			// The real agent owns its sockets' errors; do not mask a defect there.
+			if (connectionHandler !== agent.handleConnection) {
+				socket.on('error', (error: NodeJS.ErrnoException) => guestSocketErrors.push(error))
+			}
+			connectionHandler(socket)
+		})
 		s.on('error', reject)
 		s.listen(sockPath, () => resolve(s))
 	})
@@ -460,7 +481,6 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 	it('retires after an admitted data stream is lost and cancellation cannot be confirmed', async () => {
 		let executeCalls = 0
 		let cancelCalls = 0
-		const cancellationReplyErrors: NodeJS.ErrnoException[] = []
 		server = await startAgentServer((socket) => {
 			const reader = new __framing.FrameReader()
 			socket.on('data', (chunk: Buffer) => {
@@ -498,10 +518,6 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				}
 				if (request.op === 'cancel-execution') {
 					cancelCalls += 1
-					// The last attempt can exhaust its deadline while this fake
-					// guest is replying. Own that socket's expected broken-pipe
-					// error and assert it after every connection has closed.
-					socket.on('error', (error: NodeJS.ErrnoException) => cancellationReplyErrors.push(error))
 					socket.end(
 						__framing.frame(JSON.stringify({ ok: false, error: 'cancellation_unconfirmed' })),
 					)
@@ -533,11 +549,6 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 			server?.close((error) => (error ? reject(error) : resolve()))
 		})
 		server = undefined
-		expect(
-			cancellationReplyErrors.filter(
-				(error) => error.code !== 'EPIPE' || error.syscall !== 'write',
-			),
-		).toEqual([])
 	}, 12_000)
 
 	it('does not let a held failure DELETE keep create pending forever', async () => {
