@@ -544,7 +544,7 @@
 
   Agent sessions expose optional image/document attachment support declarations from their exact primary provider route. ACP rejects new attachments before a model request when that route explicitly cannot receive them; undeclared support retains the existing runtime policy.
 
-- a5e0038: Codex model names in the Desktop model list now read like the Codex app ("GPT-5.6 Sol" instead of "GPT-5.6-Sol"), and each engine's model list marks that engine's own recommended default with an optional `default: true` flag on the row. Namzu provider lists no longer say "Namzu default" in a row's note; the flagged row replaces it. Model ids are unchanged, so saved selections keep working; clients that read the model list can ignore the new flag.
+- a5e0038: Codex model names in the Desktop model list now show as "GPT-5.6 Sol" instead of "GPT-5.6-Sol", and each engine's model list marks that engine's own recommended default with an optional `default: true` flag on the row. Namzu provider lists no longer say "Namzu default" in a row's note; the flagged row replaces it. Model ids are unchanged, so saved selections keep working; clients that read the model list can ignore the new flag.
 - e94e149: `namzu acp --desktop` gains four methods for the Desktop conversation header: `namzu/conversations/rename` (`{ sessionId, title }` returns `{ title }`; an empty title restores the title derived from the first message), `namzu/conversations/fork` (`{ sessionId }` returns `{ id, title }`; refused while a reply is running or when there is nothing to copy), `namzu/conversations/markdown` (`{ sessionId }` returns `{ markdown, truncated }`, cut at 4 MiB of UTF-8) and `namzu/project/git` (returns `{ branch, subject }`, or `null` when the folder is untrusted, not a repository, git is missing or git takes over 3 seconds). All are new; existing methods and clients are unaffected. Each conversation method needs a trusted folder and a conversation this project owns, the same as archive.
 - 9ef6506: Expose live tool progress and actual turn failure messages through optional fields on existing ACP update variants. Add explicit optional `namzu/*` ACP host extensions and advertise their method names. Gateway history loading now receives the requested workspace as an optional second argument; existing one-argument gateways remain compatible.
 
@@ -889,7 +889,7 @@
   unchanged. Update an existing guest bridge from the shipped asset while idle,
   then reconfigure normally to load its updated description.
 
-- b0b6afa: The Desktop model list writes a GPT display name such as "GPT-5.6-Sol" as "GPT-5.6 Sol", the way the Codex app does. Only names that start with "GPT-" and end in "-<Word>" change; model ids sent to providers, and every other family's labels, are unchanged. Nothing to do on upgrade.
+- b0b6afa: The Desktop model list writes a GPT display name such as "GPT-5.6-Sol" as "GPT-5.6 Sol". Only names that start with "GPT-" and end in "-<Word>" change; model ids sent to providers, and every other family's labels, are unchanged. Nothing to do on upgrade.
 - e03a000: On Windows, `namzu upgrade` now removes the `namzu.ps1` wrapper that npm writes
   next to `namzu.cmd` after each update (only when it belongs to `@namzu/cli`).
   PowerShell prefers that wrapper and the default execution policy refuses it, so
@@ -9386,7 +9386,7 @@ progress in <a local notes directory>/...` — a runtime error
 - 2837e6c: **Dark theme, trust-folder gate, bypass-permissions mode, tool rendering, and a big token-cost fix.**
 
   - **Fully dark theme.** The TUI now uses a curated dark hex palette on a black canvas (the root fills with the background and the screen is cleared on launch) for a cohesive, immersed look.
-  - **Trust folder gate.** On first launch in a directory, namzu shows the working directory and asks you to trust it before reading/running/editing files there (Claude-Code style). Trusted folders are remembered in `~/.namzu/trust.json`; trusting a repo root covers its subfolders. Declining exits.
+  - **Trust folder gate.** On first launch in a directory, namzu shows the working directory and asks you to trust it before reading/running/editing files there. Trusted folders are remembered in `~/.namzu/trust.json`; trusting a repo root covers its subfolders. Declining exits.
   - **Bypass permissions.** `namzu --dangerously-skip-permissions` (alias `--yolo`) runs tools without the approval prompt; a red banner warns while it's active.
   - **Tool rendering.** Tool calls render as `⏺ Bash(ls -la)` with a dim `⎿ result` line hugging the call, grouped with one blank line between call+result units.
   - **Token-cost fix.** clawtool's ~70-tool catalog no longer inflates the prompt (it could push a single message past 200k tokens). It's registered as deferred tools the model loads on demand via `search_tools` — see the separate changeset.
@@ -9480,7 +9480,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - c8d6b66: **`namzu run` — headless one-shot mode for scripts and CI.**
 
-  `namzu run "your prompt"` runs a single prompt through the same agent the TUI uses and prints the reply to stdout (the equivalent of claude-code's `--print`). The prompt can also come from stdin (`echo "…" | namzu run`), and `--format json` emits `{"text": "…"}`. Status lines go to stderr (silenced by `--quiet`), so stdout is just the answer. It's non-interactive (tools auto-run, but the safety gate still hard-denies catastrophic commands) and uses an ephemeral session, so one-shots don't clutter `/resume`.
+  `namzu run "your prompt"` runs a single prompt through the same agent the TUI uses and prints the reply to stdout. The prompt can also come from stdin (`echo "…" | namzu run`), and `--format json` emits `{"text": "…"}`. Status lines go to stderr (silenced by `--quiet`), so stdout is just the answer. It's non-interactive (tools auto-run, but the safety gate still hard-denies catastrophic commands) and uses an ephemeral session, so one-shots don't clutter `/resume`.
 
 - 1587792: **The agent gets the SDK's structured memory (search / read / save).**
 
@@ -9713,7 +9713,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - 142b695: **M0 hotfix** (`ses_002-clawtool-bridge`) — align CLI shape with the TUI-as-default product vision.
 
-  - **Removed:** `namzu chat` stub command. The `chat` subcommand was a misread of the product shape: namzu's primary user surface is a TUI (like claude-code, gemini-cli, opencode, and hermes-agent's TUI), and the TUI **is** the chat. Having a separate `chat` subcommand framed the CLI as "command-first" when it's actually "TUI-first with utility subcommands".
+  - **Removed:** `namzu chat` stub command. The `chat` subcommand was a misread of the product shape: namzu's primary user surface is a TUI, and the TUI **is** the chat. Having a separate `chat` subcommand framed the CLI as "command-first" when it's actually "TUI-first with utility subcommands".
   - **Added:** default behavior for `namzu` (no args) — prints a one-line placeholder (`namzu — TUI coming in M3. For utility subcommands run namzu --help.`) and exits 0. M3 will replace this with the actual Ink + React TUI launch.
   - `namzu --help` still lists the utility surface (`doctor`, `tools`, `providers`, `skills`, `serve`).
 
@@ -9753,7 +9753,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - a96b5c0: **Clean-screen takeover + a gradient NAMZU splash on launch.**
 
-  namzu now clears the terminal (screen + scrollback) when it starts, so it opens on a fresh canvas instead of below leftover shell output — the clean "takeover" feel of claude-code / gemini-cli. It stays in the normal screen buffer, so native scrollback still works as the conversation grows.
+  namzu now clears the terminal (screen + scrollback) when it starts, so it opens on a fresh canvas instead of below leftover shell output. It stays in the normal screen buffer, so native scrollback still works as the conversation grows.
 
   The startup banner is now an ASCII "NAMZU" wordmark rendered as a vertical teal→violet gradient, with a tagline, version, and connected provider beneath it. On narrow terminals (< 48 cols) it falls back to a compact `▲ namzu` mark.
 
