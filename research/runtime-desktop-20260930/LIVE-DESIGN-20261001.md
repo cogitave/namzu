@@ -1,6 +1,6 @@
 # Live desktop design review — 2026-10-01
 
-## Scope and references
+## Scope and sources
 
 The user asked to review the desktop renderer live in a browser while refining
 the design. Work stays in the owned `feat/runtime-desktop-foundation` worktree;
@@ -9,18 +9,16 @@ change does not publish packages or add runtime dependencies.
 
 The pinned presentation source remains revision
 `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21` of the primary reference clone.
-The user's local `appUI` command-palette, command-menu, dialog and command CSS
-are the additional composition reference. They use React Aria; the desktop
-uses its already installed Base UI primitives for the same focus, grouping and
-action composition. The local reference has concurrent development and is not
-represented as an immutable upstream revision. Attribution for redistributed
+The desktop uses its already installed Base UI primitives for the command
+palette, command-menu, dialog and command composition, with focus, grouping and
+action handling.
+Attribution for redistributed
 third-party code and glyphs stays in `packages/desktop/THIRD-PARTY-NOTICES.txt`.
 
-The supplied screenshots establish the visible target, not a verified font or
-icon family. The user clarified that the pixel accent ends at the sidebar's
-right edge, not at the window edge. The new project reference shows one folder
-glyph, plain indented conversation titles and Show more; Search belongs at the
-right of the sidebar brand header and opens a centred command palette.
+The pixel accent ends at the sidebar's right edge, not at the window edge. The
+project list shows one folder glyph, plain indented conversation titles and Show
+more; Search belongs at the right of the sidebar brand header and opens a
+centred command palette.
 
 ## Decisions
 

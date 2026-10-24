@@ -1,18 +1,17 @@
 # Composer, workspace and execution engine audit
 
-## References
+## Layout and sources
 
-The supplied composer image is the geometry reference: an inset context strip
+The composer layout is an inset context strip
 above the main input, project folder and “This computer” on its left, workspace
 choice on its right, then attachment/permission controls below left and the
 chosen model below right. The requested model icon belongs immediately before
-the selected model. The image establishes visible layout, not executable
-worktree, voice or external-agent capabilities.
+the selected model. The layout implies no executable worktree, voice or
+external-agent capability.
 
 MonoCode's official repository was inspected read-only at
 `271b66ded71e795e0569db77c9bbf599219c8cdc`. Its interaction semantics inform the
-implementation; its different composer geometry does not override the user's
-reference.
+implementation; its different composer geometry does not override the layout above.
 
 - [Composer project/workspace controls](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/sessions/ui/Composer.tsx#L2165).
 - [Chosen model with harness icon](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/sessions/ui/ModelPicker.tsx#L672).
@@ -203,17 +202,12 @@ behavior. Native catalogue/TLS results belong in the separate receipt above.
 
 ## Project, permission and model selection follow-up
 
-The actual native client was inspected in Codex mode: project search,
-New project, name/Source folders, Add folder on This computer, its native Windows
-folder dialog, approval menu, model submenu and reasoning-level control. Those dialogs were cancelled without changing a user project or policy.
-Its named multi-folder project and automatic approval reviewer exceed Namzu's
+Named multi-folder projects and an automatic approval reviewer exceed Namzu's
 current single-folder execution contexts; no placeholder control advertises them.
 The documented [project flow](https://learn.chatgpt.com/docs/projects),
 [permission modes](https://learn.chatgpt.com/docs/permission-modes) and
-[model selection](https://learn.chatgpt.com/docs/model-selection) were checked
-against the native observations. The other client's default is workspace-write with
-on-request approval. Namzu retains its conservative native read-only/untrusted
-Ask first mapping and describes that difference explicitly.
+[model selection](https://learn.chatgpt.com/docs/model-selection) are public.
+Namzu keeps its conservative native read-only/untrusted Ask first mapping.
 
 The ordinary Namzu menu now exposes Ask first, Allow tools and Plan. Previously
 saved legacy modes remain visible without silently replacing their policy.

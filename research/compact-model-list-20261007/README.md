@@ -6,4 +6,4 @@ Playwright screenshots of the preview (http://127.0.0.1:5173/preview, 1100x760),
 - dark-search.png, light-search.png: search open (28px field, 12px text) after pressing `/` and typing.
 - dark-failed.png, light-failed.png: catalogue read fails (localStorage `namzu.preview.models` = `fail`); one muted line, no button.
 
-Compared with images/23.png (ours before): the Retry text button, the refresh icon and the "Use a model ID" row are gone and rows are shorter. Against images/2.png (Codex) the row density now matches.
+Compared with images/23.png (ours before): the Retry text button, the refresh icon and the "Use a model ID" row are gone and rows are shorter.

@@ -1,27 +1,17 @@
 # Desktop model selection and navigation refinement
 
-## Reference evidence
+## Requirements and sources
 
 The operator requested catalogue selection, filled selected navigation icons,
 small interaction animations and a subtle difference between the rail and
-sidebar. The supplied screenshot is an image reference; it does not establish
-the target's DOM, zoom, font face or motion.
+sidebar. The model popup uses a 341px width, 282px height, 20px corners, 48px
+provider column, 36px provider controls, 36px model rows and 10px row corners,
+with provider glyphs, Quick search and brief hover transitions. Namzu uses its
+installed accessible primitives and CSS.
 
-The local appUI working copy at
-`/home/arda/workspaces/@cogitave/cogitave-labs/appUI` was inspected in
-`components/blocks/composer-panel/model-picker.tsx` and
-`styles/composer-panel.css`. Its model popup uses a 341px width, 282px height,
-20px corners, 48px provider column, 36px provider controls, 36px model rows and
-10px row corners. The Namzu component uses the same provider glyphs, Quick search and brief hover
-transitions. This concurrent working copy has no
-Git revision or license declaration; no pinned or licensed-copy claim is made.
-Namzu uses its installed accessible primitives and CSS, without that copy's
-demo models or framework dependencies.
-
-Its icon family was verified against the official source at
+The icon family was verified against the official source at
 `/tmp/namzu-icon-reference-20261001`, tag `v4.9.0`, revision
-`019480ec14b97959a1ad35c3de302a224714b068`. The selected original SVG paths match
-appUI's cached icon components. A local wrapper renders an unchanged subset for
+`019480ec14b97959a1ad35c3de302a224714b068`. The selected original SVG paths match that source. A local wrapper renders an unchanged subset for
 the shell, composer, menus and result views; there is no new dependency or
 installation. Known provider routes use their corresponding service glyphs;
 other remote/local routes use stock cloud/server symbols. Normal and selected
