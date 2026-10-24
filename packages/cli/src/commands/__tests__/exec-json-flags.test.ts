@@ -28,6 +28,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 // the directory the SESSION is created in is observable. What the session then
 // does with that directory is asserted in `src/tui/__tests__/`.
 const effortValues: Array<string | undefined> = []
+const typedInputs: Array<string | undefined> = []
 const sessionOptions: Array<
 	{ cwd?: string; rules?: unknown[]; permissionMode?: string } | undefined
 > = []
@@ -61,6 +62,7 @@ vi.mock('../../tui/agent.js', () => ({
 				modelSummary: 'stub',
 				send: async function* (_messages, opts) {
 					effortValues.push(opts?.effort)
+					typedInputs.push(opts?.typedInput)
 					yield { kind: 'done', stopReason: 'end_turn' }
 				},
 			})
@@ -96,6 +98,7 @@ beforeEach(() => {
 	vi.mocked(openSessions).mockClear()
 	sessionOptions.length = 0
 	effortValues.length = 0
+	typedInputs.length = 0
 })
 
 afterEach(() => {
@@ -116,6 +119,11 @@ describe('streaming reasoning effort', () => {
 	it('forwards an explicit low level to the session', async () => {
 		await run(['--effort=low', 'hello'])
 		expect(effortValues).toEqual(['low'])
+	})
+
+	it('hands the typed prompt to the session as typed input', async () => {
+		await run(['hello', '+500k'])
+		expect(typedInputs).toEqual(['hello +500k'])
 	})
 })
 

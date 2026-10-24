@@ -459,6 +459,9 @@ export function workflowRowVariants(
 	now: number,
 ): readonly WorkflowRowVariant[] {
 	const count = `${workflow.done}/${workflow.total}`
+	// A failed agent shows beside the counter, so a run that finished with a
+	// failure never reads as a clean one.
+	const counted = workflow.failed > 0 ? `${count} · ${workflow.failed} failed` : count
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
 	const join = (parts: readonly (string | undefined)[]): string =>
@@ -468,11 +471,16 @@ export function workflowRowVariants(
 		? [
 				{
 					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
+					text: join([counted, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
 				},
 				{
 					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
+					text: join([
+						counted,
+						elapsed,
+						spent && `↓ ${spent} tokens`,
+						LARGE_WORKFLOW_WARNING_SHORT,
+					]),
 				},
 				{
 					barWidth: wide,
@@ -484,8 +492,11 @@ export function workflowRowVariants(
 		...warned,
 		{
 			barWidth: wide,
-			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
+			text: join([counted, elapsed, spent && `↓ ${spent} tokens`]),
 		},
+		...(counted === count
+			? []
+			: [{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) }]),
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -1252,9 +1263,10 @@ export function WorkflowDetail({
 	const title = named
 		? oneLine(workflow.name)
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
+	const failedAgents = workflow.agents.filter((agent) => agent.status === 'failed').length
 	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${
-		ended && total > 0 ? ` · ${endedWord(workflow)}` : ''
-	}`
+		failedAgents > 0 ? ` · ${failedAgents} failed` : ''
+	}${ended && total > 0 ? ` · ${endedWord(workflow)}` : ''}`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
 		level === 1

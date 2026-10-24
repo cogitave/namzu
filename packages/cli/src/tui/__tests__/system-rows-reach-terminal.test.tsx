@@ -6,6 +6,10 @@
  * the absence of developer vocabulary are checked where the person reads them.
  */
 
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import type { SessionEvent, SessionId, TurnId } from '@namzu/sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 
@@ -28,19 +32,58 @@ const sdk = (value: object) => ({ ...env, ...value }) as unknown as SessionEvent
 let scripts: Record<string, (toAgentEvent: ToAgentEvent) => AgentEvent[]> = {}
 type ToAgentEvent = (event: SessionEvent) => AgentEvent | null
 let compactCalls = 0
+/** Mail waiting for the conversation, and runs the schedule delivered to it. */
+let waitingMail: Array<{
+	id: string
+	owner: number
+	from: Record<string, string>
+	text: string
+}> = []
+let deliveredRuns: unknown[] = []
+const sessionsRoot = mkdtempSync(join(tmpdir(), 'namzu-rows-'))
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () => undefined,
-	openSessions: async () => ({ tenantId: 'a3b15478-78be-44e8-ad59-f6e4cec8a1ec' }),
+	openSessions: async () => ({
+		tenantId: 'a3b15478-78be-44e8-ad59-f6e4cec8a1ec',
+		projectId: '5f0a6f7e-3a43-4c8d-b4d5-1d5b3d4e9c11',
+		topicId: 'b2f6c1de-0a5c-4d45-8f0c-7d7a1b9a2e33',
+		slug: 'rows-project',
+		root: sessionsRoot,
+	}),
 	startConversation: async () => 'f173a4b7-62d2-4705-878b-d15f52c8cde8',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
+vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/peers/runtime.js')>()
+	return {
+		...actual,
+		openLivePeers: async () => ({
+			enabled: true,
+			publish: () => {},
+			peek: () => waitingMail.slice(0, 1),
+			take: () => waitingMail.splice(0),
+			takeExact: (_generation: number, id: string) => {
+				const index = waitingMail.findIndex((mail) => mail.id === id)
+				return index === -1 ? undefined : waitingMail.splice(index, 1)[0]
+			},
+			close: async () => {},
+		}),
+	}
+})
+vi.mock('../../schedule/delivery.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../schedule/delivery.js')>()
+	return {
+		...actual,
+		readSourceDeliveryPage: async () => ({ entries: deliveredRuns.splice(0), hasMore: false }),
+	}
+})
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	const session = () =>
@@ -81,6 +124,8 @@ const { App } = await import('../App.js')
 beforeEach(() => {
 	scripts = {}
 	compactCalls = 0
+	waitingMail = []
+	deliveredRuns = []
 })
 
 async function until(screen: Screen, predicate: () => boolean): Promise<void> {
@@ -293,6 +338,83 @@ it('shows the stop-all hint in the footer, below the composer, not in the transc
 		const hintRow = rows.findIndex((row) => row.includes('No background agents running'))
 		const composerRow = rows.findIndex((row) => row.includes('Type a message'))
 		expect(hintRow).toBeGreaterThan(composerRow)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('draws a scheduled run that finished while the conversation was open as one plain line', async () => {
+	deliveredRuns = [
+		{
+			v: 1,
+			kind: 'schedule-source-delivery',
+			source: {
+				kind: 'source-conversation',
+				sessionId,
+				projectSlug: 'rows-project',
+				projectId: '5f0a6f7e-3a43-4c8d-b4d5-1d5b3d4e9c11',
+				tenantId: 'a3b15478-78be-44e8-ad59-f6e4cec8a1ec',
+			},
+			jobId: 'job-one',
+			jobName: 'status-check',
+			runId: 'run-one',
+			status: 'completed',
+			at: '2026-10-24T09:00:00.000Z',
+			summary: 'A change needs attention.',
+		},
+	]
+	const screen = await boot()
+	try {
+		await submit(screen, 'hello')
+		await until(screen, () => text(screen).includes('Scheduled job "status-check" finished'))
+		const shown = text(screen)
+		expect(shown).toContain('A change needs attention.')
+		expect(shown).not.toMatch(/run-one|job-one|schedule-source-delivery/)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('draws mail from another Namzu as a notice row named for who sent it', async () => {
+	waitingMail = [
+		{
+			id: 'mail-1',
+			owner: 0,
+			from: {
+				sessionId: 'peer-session',
+				ref: 'a1b2c3',
+				name: 'Ada',
+				address: '/tmp/peer.sock',
+				mode: 'default',
+				kind: 'tui',
+			},
+			text: 'ship it',
+		},
+	]
+	const screen = await boot()
+	try {
+		await until(screen, () => text(screen).includes('Message from Ada: ship it'))
+		const row = text(screen)
+			.split('\n')
+			.find((line) => line.includes('Message from Ada'))
+		expect(row).toMatch(/^\s*● Message from Ada: ship it\s*$/)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('draws no footer under a picker', async () => {
+	const screen = await boot()
+	const lastRow = () => {
+		const rows = screen.viewport().filter((row) => row.trim().length > 0)
+		return rows.at(-1) ?? ''
+	}
+	try {
+		expect(lastRow()).toContain('rows-fixture')
+		await submit(screen, '/model')
+		await until(screen, () => screen.viewport().join('\n').includes('No providers detected'))
+		expect(lastRow()).not.toContain('rows-fixture')
+		expect(lastRow()).not.toContain('shift+tab')
 	} finally {
 		await screen.unmount()
 	}

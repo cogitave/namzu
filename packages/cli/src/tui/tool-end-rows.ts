@@ -233,6 +233,31 @@ export function toolEndRows(
 			{ role: 'tool', content: WORKFLOW_BACKGROUND_NOTE, glyph: '⎿' },
 		])
 	}
+	if (event.isError && event.toolName === WORKFLOW_TOOL_NAME && event.output !== undefined) {
+		// A script that could not run: the person gets one plain sentence. The
+		// line it stopped on, the hint for the model about missing arguments
+		// and the rest of the model's text stay behind ctrl+o.
+		const [first = '', ...rest] = event.output.split('\n')
+		const sentence = first.trim().replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+		const body = rest.filter((line) => line.trim().length > 0)
+		return rows([
+			{
+				role: 'tool',
+				content: headOf(event, start),
+				glyph: '●',
+				glyphColor: theme.status.error,
+			},
+			{
+				role: 'tool',
+				content: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`,
+				glyph: '⎿',
+				glyphColor: theme.status.error,
+				...(body.length > 0
+					? { detail: body, meta: EXPAND_HINT, activity: 'evidence' as const }
+					: {}),
+			},
+		])
+	}
 	const catalogue =
 		!event.isError && event.toolName === 'agent_models' && event.output !== undefined
 			? modelCatalogueView(event.output)

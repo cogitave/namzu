@@ -439,6 +439,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { typedInputOf } from './typed-input.js'
 import { formatCompactCount } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
@@ -8798,6 +8799,7 @@ export function App({
 					if (prompt.kind === 'human' && destination) {
 						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
 					}
+					const typedInput = typedInputOf(prompt)
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -8805,6 +8807,8 @@ export function App({
 							protocol: 'cli',
 							kind: goalRound ? 'goal-round' : 'prompt',
 						},
+						// Only the person's own words can set a token target.
+						...(typedInput !== undefined ? { typedInput } : {}),
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
@@ -12974,6 +12978,23 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
+	// A question or a picker owns the screen: the footer is not drawn under it,
+	// so a dialog never shows a half footer (the model alone, or a mode label
+	// without its cycle hint). Only a transient notice, such as the press-again
+	// to exit line, still needs the footer row.
+	const dialogShowing =
+		permission !== null ||
+		scheduleReviewPrompt !== null ||
+		saveSkillPrompt !== null ||
+		planPrompt !== null ||
+		questionDialog !== null ||
+		textPrompt !== null ||
+		choicePicker !== null ||
+		copyPicker !== null ||
+		phase === 'resume' ||
+		phase === 'unarchive' ||
+		phase === 'edit' ||
+		phase === 'picker'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
 		: stopAllNotice
@@ -13536,7 +13557,10 @@ export function App({
 				{/* The tool-output viewer carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
 				{/* The workflow detail (the cockpit) carries its own key line as well. */}
-				{phase === 'trust' || outputViewer !== null || agentSurface?.kind === 'cockpit' ? null : (
+				{phase === 'trust' ||
+				outputViewer !== null ||
+				agentSurface?.kind === 'cockpit' ||
+				(dialogShowing && !exitHint && !stopAllNotice) ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
