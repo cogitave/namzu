@@ -1,5 +1,5 @@
 /** Real Vite renderer, synthetic DesktopEvents, no native/model/guest actions.
- * Semantic content and actual disclosure/keyboard/layout checks; no reference pixel-parity claim.
+ * Semantic content and actual disclosure/keyboard/layout checks; no pixel-level match claim.
  */
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'

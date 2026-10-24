@@ -6,11 +6,11 @@ centred empty-state composer. This supersedes the earlier shell composition.
 Existing adapted controls, approvals, model selection and diff views remain in
 use. Namzu retains its two-row ASCII wordmark and phosphor accent.
 
-## Observed reference and implementation
+## Observed target and implementation
 
-The reference is a screenshot, so its DOM, zoom, actual font face and motion are
+The target is a screenshot, so its DOM, zoom, actual font face and motion are
 not available. Measurements below describe the implementation, not a claim of
-pixel parity with an inaccessible reference DOM.
+pixel-level match with an inaccessible target DOM.
 
 - One 32px window strip replaces the default caption plus separate menu row.
   Native caption buttons and resizing are retained. File has working local

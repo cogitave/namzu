@@ -18,14 +18,14 @@ Before captures: `artifacts/fidelity-before-approval.png`, `artifacts/fidelity-b
 - Focused deterministic projection tests cover tool/message interleaving and progress update stability.
 - Native Electron/real CLI probes retain approval, queue, reconnect, offline draft, model, background process and diff checks.
 - Capture matching dark, light, narrow, collapsed sidebar, expanded/resting input and docked approval scenes. Inspect geometry, typography, materials, keyboard focus and reduced motion.
-- Extend the independent source render with the original stateless header artwork and exact resting/approval branches; record its limited scope honestly. Do not claim the full reference application's runtime was run.
+- Extend the independent source render with the original stateless header artwork and exact resting/approval branches; record its limited scope honestly. Do not claim that the full runtime was run.
 - Package build/typecheck/lint/tests and documentation gate, then notify the parent when desktop source is frozen for full workspace gates.
 
 ## Status
 
 Complete on the owned production source. Original header/banner/resting-state
 composition is ported; before/after source/local captures are available. The
-font audit additionally found the reference's runtime code 13px/smoothing
+font audit additionally found the runtime code 13px/smoothing
 defaults, which the earlier CSS-only comparison had omitted. Those defaults now
 match, and actual Chromium font faces are recorded. Tool receipt identity is
 turn-scoped, with a reused-call-ID regression. Independent native review also

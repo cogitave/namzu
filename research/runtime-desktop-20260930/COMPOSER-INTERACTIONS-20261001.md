@@ -3,7 +3,7 @@
 ## Scope and sources
 
 The operator reported Quick search breaking and asked for the actual model,
-settings and attachment interactions shown in the reference composers. The
+settings and attachment interactions shown in the other product's composers. The
 work continues from `3ff96b40` in the owned `feat/runtime-desktop-foundation`
 worktree. The primary reference remains the MIT-licensed source clone
 `/tmp/namzu-workflow-peers-20260930.ckQyBT/t3code`, revision
@@ -103,7 +103,7 @@ Verified shape corrections use existing licensed assets: rounded outline
 navigation glyphs, a plain clock instead of a rewind/history arrow, and a filled
 home with the real doorway cutout. Service marks still identify only their
 actual providers. This is a visual adaptation, not a claim of literal source
-parity. Grouped project conversations and opened-conversation tabs are a layout
+match. Grouped project conversations and opened-conversation tabs are a layout
 direction to evaluate separately from composer delivery; no decorative navigation
 action is added for a host operation that does not exist.
 

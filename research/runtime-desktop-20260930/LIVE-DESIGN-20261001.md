@@ -156,13 +156,13 @@ its restrictive CSP and excludes the development preview and sample data.
 This is a local design correction, with no fresh native-kernel proof, push or
 publication.
 
-## Follow-up Plugins reference density
+## Follow-up Plugins target density
 
-The user identified another mismatch: the reference uses plain compact rows,
+The user identified another mismatch: the target design uses plain compact rows,
 not large raised cards. The supplied screenshot suggests about 900px of main
 content, 36px icons, 12px icon-to-copy gaps, two columns with a 48px gutter,
 14px names and 13px descriptions. These are image measurements/inferences;
-the reference application's DOM and exact font family were not available.
+the DOM and exact font family of the target were not available.
 
 The implementation now uses that icon/content/action composition. A 960px
 frame including 24px side padding provides 912px of content at wide sizes;

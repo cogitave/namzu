@@ -20,7 +20,7 @@ Normal surfaces fit at the inspected widths: the table, text, and three-line dra
 
 ## Scope
 
-Pal/project/conversation creation happens only in the preview's disposable sample catalogue. Messages and model labels are fixtures, and the computer is explicitly stopped. These images establish the inspected layout and hierarchy, not native behavior, harness correctness or reference-app pixel parity. All four images were visually inspected. Later focused verification can use the same four conditions without a large motion matrix.
+Pal/project/conversation creation happens only in the preview's disposable sample catalogue. Messages and model labels are fixtures, and the computer is explicitly stopped. These images establish the inspected layout and hierarchy, not native behavior, harness correctness or pixel-level agreement with another app. All four images were visually inspected. Later focused verification can use the same four conditions without a large motion matrix.
 
 ```sh
 node research/chat-surface-20261007/audit.mjs .

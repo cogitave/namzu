@@ -12,8 +12,8 @@ rendered in an isolated native reference window:
 | `zai-org/ZCode` | `29628c9acdb81b703bbd4080c207a0e7ce5e276e` | Apache-2.0 |
 
 The main-process/runtime implementation remains Namzu's existing host work.
-After the user's further review, the renderer directly adapts composed source
-render branches, not just low-level controls: the main reference's three-row
+After the user's further review, the renderer composes whole
+render branches, not just low-level controls: the three-row
 conversation cards, project-scope menu, titlebar, timeline rows, centred/docked
 composer body/footer/context strip, changed-files card and diff surface.
 The secondary reference supplies only the compatible error frame. Namzu owns
@@ -102,5 +102,5 @@ closing the app is an explicit end of its owned runtime processes.
   of the local styles, with matching viewport/theme/message content/draft/scroll
   offset. It asserts selected component geometry and typography and saves both
   captures. This is a scoped presentation comparison, not a run of the full peer
-  application or pixel parity across all screens. `UI-AUDIT.md` records the
+  application or pixel-level match across all screens. `UI-AUDIT.md` records the
   observed scope and intentional brand differences.
