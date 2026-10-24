@@ -418,7 +418,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
-import { formatCompactCount } from './units.js'
+import { formatCompactCount, formatTook } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
 
@@ -7739,7 +7739,7 @@ export function App({
 							'○',
 							undefined,
 							theme.text.muted,
-							event.durationMs !== undefined ? formatElapsed(event.durationMs) : undefined,
+							event.durationMs !== undefined ? formatTook(event.durationMs) : undefined,
 						)
 						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7841,9 +7841,9 @@ export function App({
 						done?.detail,
 						event.isError ? theme.status.error : theme.status.ok,
 						event.durationMs !== undefined
-							? formatElapsed(event.durationMs)
+							? formatTook(event.durationMs)
 							: done
-								? formatElapsed(Date.now() - done.startedAt)
+								? formatTook(Date.now() - done.startedAt)
 								: undefined,
 					)
 					if (

@@ -131,7 +131,8 @@ export function LiveActivity({
 	}
 	if (!active) startedAtRef.current = null
 	if (waitingForYou && pausedRef.current.since === null) pausedRef.current.since = Date.now()
-	if (!waitingForYou && pausedRef.current.since !== null) {
+	const resumedFromWait = !waitingForYou && pausedRef.current.since !== null
+	if (resumedFromWait && pausedRef.current.since !== null) {
 		pausedRef.current.total += Date.now() - pausedRef.current.since
 		pausedRef.current.since = null
 	}
@@ -148,7 +149,7 @@ export function LiveActivity({
 	else if (progressRef.current.key !== progressKey)
 		progressRef.current = { key: progressKey, at: Date.now(), stall: 0, eased: Date.now() }
 	// Waiting on the person is not the model being slow: count again from their answer.
-	else if (waitingForYou) progressRef.current.at = Date.now()
+	else if (waitingForYou || resumedFromWait) progressRef.current.at = Date.now()
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
 		interval: 120,

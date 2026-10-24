@@ -65,7 +65,7 @@ The screen shows, in order:
 │ Do you want to start this workflow?                                          │
 │ ❯ 1. Start this workflow                                                     │
 │   2. Do not start                                                            │
-│ ↑↓ select · enter confirm · y / n answer · esc decline · d script            │
+│ ↑↓ select · enter confirm · y / n answer · esc cancel · d script             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 

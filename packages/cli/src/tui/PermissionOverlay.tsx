@@ -509,33 +509,31 @@ export function PermissionOverlay({
 				<Text color={theme.text.muted}>
 					{/* The answer keys are the last to go: this is the one screen where a
 					    missing hint costs an approval. Then the key that stops the reply,
-					    which is not `esc` (esc declines and the agent carries on). The
+					    which is not `esc` (esc cancels and the agent carries on). The
 					    detail toggle says itself short first. The keys still act when
 					    their hint is gone. */}
 					{fitHints(
 						[
 							{ text: '↑↓ select', rank: 5 },
-							{ text: 'enter confirm', short: 'enter ok', rank: 5 },
+							{ text: 'enter confirm', rank: 5 },
 							{
 								text: 'y / n answer',
-								short: 'y / n',
 								rank: 5,
 							},
-							{ text: 'esc decline', short: 'esc no', rank: 5 },
-							{ text: 'ctrl+c stop the reply', short: 'ctrl+c stop', rank: 4 },
+							{ text: 'esc cancel', rank: 5 },
+							{ text: 'ctrl+c stop', rank: 4 },
 							{
 								text: `d ${
 									scriptView
 										? detailsOpen
-											? 'collapse script'
-											: 'read the whole script'
+											? 'collapse'
+											: 'script'
 										: detailsOpen
-											? 'readable view'
+											? 'readable'
 											: compact
-												? 'full instructions'
-												: 'exact input'
+												? 'instructions'
+												: 'input'
 								}`,
-								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
 								rank: 3,
 							},
 						],

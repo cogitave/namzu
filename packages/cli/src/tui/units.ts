@@ -17,6 +17,17 @@ export function formatElapsed(ms: number): string {
 	return `${minutes}m ${seconds}s`
 }
 
+/**
+ * A finished call's duration. Like the reference's formatter, a value under a
+ * second is said in milliseconds (`420ms`) instead of rounding down to `0s`;
+ * a live counter keeps using {@link formatElapsed}, which never flickers
+ * through milliseconds.
+ */
+export function formatTook(ms: number): string {
+	if (ms > 0 && ms < 1000) return `${Math.round(ms)}ms`
+	return formatElapsed(ms)
+}
+
 /** `950` → `950`, `1100` → `1.1k`, `2_500_000` → `2.50M`. */
 export function formatCompactCount(value: number): string {
 	if (value < 1_000) return String(value)

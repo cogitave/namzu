@@ -195,15 +195,15 @@ export function QuestionDialog({ question, columns, onAnswer }: QuestionDialogPr
 	const hints = fitHints(
 		s.typing
 			? [
-					{ text: 'enter keep', rank: 5 },
+					{ text: 'enter confirm', rank: 5 },
 					{ text: 'esc back', rank: 4 },
 				]
 			: [
 					{ text: '↑↓ select', rank: 5 },
-					{ text: 'enter choose', rank: 5 },
+					{ text: 'enter confirm', rank: 5 },
 					...(!lone ? [{ text: '←→ questions', rank: 3 }] : []),
 					...(items[s.tab]?.multiSelect ? [{ text: 'space toggle', rank: 4 }] : []),
-					{ text: 'esc skip', rank: 4 },
+					{ text: 'esc cancel', rank: 4 },
 				],
 		width,
 	)

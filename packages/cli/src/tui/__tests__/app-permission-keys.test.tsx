@@ -54,6 +54,7 @@ let requestedToolCalls: PermissionRequest['toolCalls'] = [
 	},
 ]
 let holdAfterPermissionDecision = false
+let finishTurnAfterDecision = false
 let releasePermissionHandoff: () => void = () => {}
 let permissionHandoff = Promise.resolve()
 
@@ -190,6 +191,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						if (decision.kind === 'approve') toolExecutions += 1
 						if (holdAfterPermissionDecision) await permissionHandoff
 					}
+					if (finishTurnAfterDecision) yield { kind: 'done' } as AgentEvent
 				},
 			}
 		},
@@ -281,6 +283,7 @@ beforeEach(() => {
 		},
 	]
 	holdAfterPermissionDecision = false
+	finishTurnAfterDecision = false
 	permissionHandoff = new Promise<void>((resolve) => {
 		releasePermissionHandoff = resolve
 	})
@@ -462,9 +465,7 @@ describe('the permission prompt', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(frame.toLowerCase(), 'the key that stops the turn is unnamed').toContain('ctrl+c')
-		expect(frame, 'named the key without naming what makes it different').toContain(
-			'stop the reply',
-		)
+		expect(frame, 'named the key without naming what makes it different').toContain('ctrl+c stop')
 	})
 
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
@@ -700,5 +701,27 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toHaveLength(2)
 		expect(decisions.every((decision) => decision.kind === 'reject')).toBe(true)
+	})
+})
+
+describe('the closing "Worked for" line', () => {
+	it('leaves the time spent on an approval out of the figure', async () => {
+		holdAfterPermissionDecision = true
+		finishTurnAfterDecision = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+
+		// The person takes a minute to answer. The agent was not working then.
+		nowMs += 60_000
+		settle()
+		stdin.write('\r')
+		await decisionSettles()
+		// Five seconds of real work after the answer, then the turn ends.
+		nowMs += 5_000
+		releasePermissionHandoff()
+
+		await vi.waitFor(() => expect(lastFrame() ?? '').toContain('Worked for'))
+		const frame = lastFrame() ?? ''
+		expect(frame).toMatch(/Worked for [5-6]s/u)
+		expect(frame, 'the minute spent waiting counted as work').not.toMatch(/Worked for 1m/u)
 	})
 })
