@@ -85,13 +85,13 @@
    "mark": "hypermode-off"
   },
   {
-   "type": "ultracode fix the flaky test"
+   "type": "megamode fix the flaky test"
   },
   {
    "wait": 2
   },
   {
-   "mark": "ultracode"
+   "mark": "megamode"
   },
   {
    "key": "ctrl-u"
