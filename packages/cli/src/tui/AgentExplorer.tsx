@@ -459,6 +459,9 @@ export function workflowRowVariants(
 	now: number,
 ): readonly WorkflowRowVariant[] {
 	const count = `${workflow.done}/${workflow.total}`
+	// A failed agent shows beside the counter, so a run that finished with a
+	// failure never reads as a clean one.
+	const counted = workflow.failed > 0 ? `${count} · ${workflow.failed} failed` : count
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
 	const join = (parts: readonly (string | undefined)[]): string =>
@@ -468,11 +471,16 @@ export function workflowRowVariants(
 		? [
 				{
 					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
+					text: join([counted, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
 				},
 				{
 					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
+					text: join([
+						counted,
+						elapsed,
+						spent && `↓ ${spent} tokens`,
+						LARGE_WORKFLOW_WARNING_SHORT,
+					]),
 				},
 				{
 					barWidth: wide,
@@ -484,8 +492,20 @@ export function workflowRowVariants(
 		...warned,
 		{
 			barWidth: wide,
-			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
+			text: join([counted, elapsed, spent && `↓ ${spent} tokens`]),
 		},
+		// A failure is the last thing to go: the elapsed time and the spend are
+		// dropped before the failure count is, and the bar shrinks around it.
+		...(counted === count
+			? []
+			: [
+					{ barWidth: wide, text: join([counted, elapsed, spent && `↓ ${spent}`]) },
+					{ barWidth: wide, text: join([counted, elapsed]) },
+					{ barWidth: wide, text: counted },
+					{ barWidth: mid, text: counted },
+					{ barWidth: narrow, text: counted },
+					{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+				]),
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -579,11 +599,6 @@ function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean):
 	return label ? `${label} · ${status}` : status
 }
 
-/** Whether every listed agent is the same kind, so a type column would only repeat itself. */
-export function railSharesType(agents: readonly SubagentActivity[]): boolean {
-	return agents.length > 1 && agents.every((agent) => agent.agentId === agents[0]?.agentId)
-}
-
 /** Cells the `↓ N more` row and the pointer share with a row's first slot. */
 const RAIL_POINTER_CELLS = 2
 
@@ -637,9 +652,8 @@ export function AgentTaskPanel({
 	// One name column for agent and workflow rows alike: as wide as the longest
 	// name on screen (never past the cap), so the second column starts right
 	// after it instead of at a fixed tab.
-	// Every agent the same kind and no workflow row: the type would only repeat
-	// itself on each line, so the column goes and the description takes the room.
-	const hideType = workflows.length === 0 && railSharesType(agents)
+	// One label rule for every row: the type column is always there, so a row
+	// reads the same whatever its neighbours are doing.
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
@@ -734,19 +748,17 @@ export function AgentTaskPanel({
 										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
-								{hideType ? null : (
-									<Box width={nameWidth} flexShrink={0}>
-										<Text
-											bold={bright}
-											dimColor={!bright}
-											color={theme.text.primary}
-											wrap="truncate-end"
-										>
-											{terminalDisplayText(oneLine(agent.agentId))}
-										</Text>
-									</Box>
-								)}
-								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={hideType ? 0 : 2}>
+								<Box width={nameWidth} flexShrink={0}>
+									<Text
+										bold={bright}
+										dimColor={!bright}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.agentId))}
+									</Text>
+								</Box>
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
 									<Text
 										bold={bright}
 										dimColor={!bright}
@@ -1252,9 +1264,10 @@ export function WorkflowDetail({
 	const title = named
 		? oneLine(workflow.name)
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
+	const failedAgents = workflow.agents.filter((agent) => agent.status === 'failed').length
 	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${
-		ended && total > 0 ? ` · ${endedWord(workflow)}` : ''
-	}`
+		failedAgents > 0 ? ` · ${failedAgents} failed` : ''
+	}${ended && total > 0 ? ` · ${endedWord(workflow)}` : ''}`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
 		level === 1

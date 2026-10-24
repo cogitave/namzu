@@ -39,7 +39,8 @@ const CAUSES: readonly (readonly [RegExp, string])[] = [
 	],
 ]
 
-const GENERIC = 'This agent stopped because of an error. Run with --debug for details.'
+const GENERIC =
+	'This agent stopped because something went wrong. Message the agent to try again, or start the task again.'
 
 /** A message that is already a finished sentence for a person: short, capitalised, one line, no code. */
 function isPlainSentence(text: string): boolean {

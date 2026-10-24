@@ -40,7 +40,11 @@ afterEach(() => {
 
 const CHILD_RESULT = 'LATE_CHILD_RESULT: the beta branch is 719.'
 
-async function launchWithoutAskingForBackground(options: { backgroundByDefault: boolean }) {
+async function launchWithoutAskingForBackground(options: {
+	backgroundByDefault: boolean
+	/** Ask for a foreground agent whose wait the operator's next message releases. */
+	foregroundReleasedByInput?: boolean
+}) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-outlive-'))
 	workdirs.push(cwd)
 	const parent = await subagentParentFixture(cwd)
@@ -53,6 +57,12 @@ async function launchWithoutAskingForBackground(options: { backgroundByDefault: 
 		model: 'mock-model',
 		tokenBudget: 1_000_000,
 		backgroundByDefault: options.backgroundByDefault,
+		...(options.foregroundReleasedByInput
+			? {
+					// The operator types once the child is running: the wait is released.
+					resolveWaitForInbound: () => () => childStarted.promise.then(() => undefined),
+				}
+			: {}),
 		resolveResumeHandler: () => async () => ({ action: 'continue' }),
 		buildTools: (): readonly Toolset[] => [],
 		buildProvider: () =>
@@ -79,7 +89,11 @@ async function launchWithoutAskingForBackground(options: { backgroundByDefault: 
 								id: 'launch',
 								name: 'Agent',
 								// No run_in_background: the default decides.
-								args: { description: 'beta lookup', prompt: 'Find the beta branch id.' },
+								args: {
+									description: 'beta lookup',
+									prompt: 'Find the beta branch id.',
+									...(options.foregroundReleasedByInput ? { run_in_background: false } : {}),
+								},
 							},
 						],
 					}
@@ -177,6 +191,32 @@ it('keeps the original contract without the option: the release cancels what is 
 		const turn = await t.run()
 		expect(turn.messages.some((m) => String(m.content).includes('LATE_CHILD_RESULT'))).toBe(true)
 	} finally {
+		await t.runtime.close()
+	}
+})
+
+it('keeps a foreground agent whose wait the operator released, like a background one', async () => {
+	// Releasing the wait moves the agent to the background: it is not stopped
+	// with the turn, and its end is reported once.
+	const t = await launchWithoutAskingForBackground({
+		backgroundByDefault: true,
+		foregroundReleasedByInput: true,
+	})
+	try {
+		await t.run()
+		const [task] = t.gateway.listTasks()
+		expect(task?.state).not.toBe('completed')
+		await t.runtime.releaseTurn(t.parent.scope.turnId)
+		const signal = await t.childStarted.promise
+		expect(signal.aborted).toBe(false)
+		expect(t.gateway.listTasks().every((entry) => entry.state !== 'canceled')).toBe(true)
+		t.childRelease.resolve()
+		await t.gateway.waitForTask(task?.taskId as never)
+		await Promise.resolve()
+		expect(t.completions).toHaveLength(1)
+		expect(t.completions[0]).toMatchObject({ state: 'completed', description: 'beta lookup' })
+	} finally {
+		t.childRelease.resolve()
 		await t.runtime.close()
 	}
 })

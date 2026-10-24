@@ -81,6 +81,9 @@ export function formatToolCall(toolName: string, summary: string, standalone = f
 }
 
 /** The words a call is headed with when its start was never seen. */
+/** What the person reads when a workflow script stopped with an error. */
+const SCRIPT_STOPPED = 'The workflow script stopped with an error.'
+
 /** A failure line without the interpreter's error name (`Error: `, `TypeError: `) in front of the sentence. */
 export function withoutErrorName(text: string): string {
 	return text.replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
@@ -231,6 +234,34 @@ export function toolEndRows(
 				glyphColor: theme.accent.assistant,
 			},
 			{ role: 'tool', content: WORKFLOW_BACKGROUND_NOTE, glyph: '⎿' },
+		])
+	}
+	if (event.isError && event.toolName === WORKFLOW_TOOL_NAME && event.output !== undefined) {
+		// A script that could not run: the person gets one plain sentence. The
+		// position it stopped at, the engine's own message, the line it stopped
+		// on and the hint for the model about missing arguments stay behind
+		// ctrl+o.
+		const [first = '', ...rest] = event.output.split('\n')
+		const said = first.trim().replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+		const scripted = /^The script stopped\b/.test(said)
+		const sentence = scripted ? SCRIPT_STOPPED : said
+		const body = [...(scripted ? [said] : []), ...rest.filter((line) => line.trim().length > 0)]
+		return rows([
+			{
+				role: 'tool',
+				content: headOf(event, start),
+				glyph: '●',
+				glyphColor: theme.status.error,
+			},
+			{
+				role: 'tool',
+				content: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`,
+				glyph: '⎿',
+				glyphColor: theme.status.error,
+				...(body.length > 0
+					? { detail: body, meta: EXPAND_HINT, activity: 'evidence' as const }
+					: {}),
+			},
 		])
 	}
 	const catalogue =

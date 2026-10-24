@@ -750,6 +750,12 @@ The rest of the prompt carries the date only, and a run with no shell used to
 guess the time in UTC. A parked run continued from the TUI is told the time
 again, as it is then: an answer can come days later.
 
+With `hypermode: true` in the user or project config, the run is also told in
+its request that hypermode is on. A scheduled run cannot start a workflow (no
+one is there to review a script), so the note says to delegate substantial
+work to parallel agents with the `Agent` tool; see
+[Slash commands](slash-commands.md#hypermode).
+
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
 `blocked-config`, `interrupted`, `approval-expired`, `check-failed`
 (`script`/`script+agent` only — the script or its wake-gate malfunctioned:

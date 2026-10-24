@@ -25,7 +25,7 @@ import {
 	railWorkflows,
 	workflowRowVariants,
 } from '../AgentExplorer.js'
-import { workflowNotice } from '../agent-transcript-rows.js'
+import { workflowAgentCount, workflowNotice } from '../agent-transcript-rows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const NOW = 1_000_000
@@ -236,6 +236,32 @@ describe('narrowing a row', () => {
 		expect(texts.slice(3)).toEqual(workflowRowVariants(row, NOW).map((variant) => variant.text))
 	})
 
+	it('names a failed agent beside the counter, and keeps the plain counter as a narrower form', () => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		const texts = workflowRowVariants(withFailure, NOW).map((variant) => variant.text)
+		expect(texts[0]).toBe('3/7 · 1 failed · 2m 14s · ↓ 48.2k tokens')
+		expect(texts).toContain('3/7 · 2m 14s · ↓ 48.2k tokens')
+	})
+
+	it.each([
+		[100, '3/7 · 1 failed · 2m 14s · ↓ 48.2k tokens'],
+		[60, '3/7 · 1 failed · 2m 14s'],
+		[50, '3/7 · 1 failed'],
+	])('keeps the failure count at %i columns while the time and spend give way', (columns, text) => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		const { variant } = layoutWorkflowRow(withFailure, NOW, columns, 4)
+		expect(variant.text).toBe(text)
+	})
+
+	it('keeps the failure count on a bar that has shrunk to its narrowest', () => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		const failing = workflowRowVariants(withFailure, NOW)
+		expect(
+			failing.some((variant) => variant.barWidth === 8 && variant.text === '3/7 · 1 failed'),
+		).toBe(true)
+		expect(failing.at(-1)?.text).toBe('')
+	})
+
 	it('shows no token segment before any agent reported spend', () => {
 		const quiet = workflowOf([agent({ viewId: 'q' })])
 		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m 14s')
@@ -399,7 +425,7 @@ describe('the closing line', () => {
 			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'failed'))).toMatchObject({
-			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 1 failed · 112.0k tokens',
+			content: 'Workflow Release audit failed · 2m 13s · 2/2 agents · 1 failed · 112.0k tokens',
 			tone: 'error',
 			glyph: '●',
 		})
@@ -408,6 +434,25 @@ describe('the closing line', () => {
 			tone: 'warn',
 			glyph: '●',
 		})
+	})
+
+	it('counts a run with one failed agent as 2/3, the way the detail and the list do', () => {
+		const run: RailWorkflow = {
+			...finished('completed', 'completed', 'failed'),
+			done: 2,
+			total: 3,
+			failed: 1,
+		}
+		expect(workflowNotice(run).content).toBe(
+			'Workflow Release audit failed · 2m 13s · 2/3 agents · 1 failed · 112.0k tokens',
+		)
+	})
+
+	it('says one count everywhere', () => {
+		expect(workflowAgentCount({ done: 3, total: 3, failed: 0 })).toEqual(['3 agents'])
+		expect(workflowAgentCount({ done: 1, total: 1, failed: 0 })).toEqual(['1 agent'])
+		expect(workflowAgentCount({ done: 2, total: 3, failed: 1 })).toEqual(['2/3 agents', '1 failed'])
+		expect(workflowAgentCount({ done: 2, total: 3, failed: 0 })).toEqual(['2/3 agents'])
 	})
 
 	it('has no escape sequences of its own', () => {

@@ -282,6 +282,7 @@ import {
 	childMessageRow,
 	failureReason,
 	settleLine,
+	workflowAgentCount,
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import {
@@ -336,10 +337,11 @@ import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
 	HYPERMODE,
+	HYPERMODE_ROW_LABEL,
 	HYPERMODE_SUMMARY,
 	ORCHESTRATE_ALIAS_NOTICE,
-	hypermodeEffort,
-	hypermodeStopLabel,
+	hypermodeOffMessage,
+	hypermodeOnMessage,
 } from './hypermode.js'
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
@@ -438,6 +440,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { typedInputOf } from './typed-input.js'
 import { formatCompactCount } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
@@ -1444,8 +1447,10 @@ export function App({
 	// A session setting layered above effort, not a level a provider publishes
 	// — see docs/cli/slash-commands.md's /effort section. In-memory and
 	// per-session like reasoningEffort above; no preferences file involved.
-	const [hypermode, setHypermodeState] = useState(false)
-	const hypermodeRef = useRef(false)
+	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
+	// for this conversation only.
+	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
+	const hypermodeRef = useRef(initialCtx.hypermode === true)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
@@ -3013,6 +3018,32 @@ export function App({
 		})
 	}, [])
 	/**
+	 * The operator stops every background agent still going: the model is told
+	 * once, the conversation gets the one row that says so, and nothing else is
+	 * written for the stop. The agents' own end rows and the turn's closing line
+	 * would only repeat it (or split it), so they are marked as already said.
+	 */
+	const stopBackgroundAgentsByOperator = useCallback(
+		(stopped: readonly SubagentActivity[], notice: string) => {
+			tellModelAgentsStopped(stopped)
+			for (const agent of stopped) {
+				reportedAgentsRef.current.add(agent.viewId)
+				session?.stopSubagent?.(agent.viewId)
+			}
+			const wait = closingWaitRef.current
+			if (wait !== null) closingWaitRef.current = { ...wait, silent: true }
+			pushMessage(
+				'system',
+				notice,
+				false,
+				systemRowStyle('error').glyph,
+				undefined,
+				systemRowStyle('error').color,
+			)
+		},
+		[pushMessage, session, tellModelAgentsStopped],
+	)
+	/**
 	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
 	 * running says so, the first press arms a 3 s confirm, the second stops every
 	 * background agent still going and says how many.
@@ -3031,16 +3062,7 @@ export function App({
 		}
 		if (step.kind === 'stop') {
 			setStopAllNotice(null)
-			tellModelAgentsStopped(running)
-			for (const agent of running) session?.stopSubagent?.(agent.viewId)
-			pushMessage(
-				'system',
-				step.notice,
-				false,
-				systemRowStyle('error').glyph,
-				undefined,
-				systemRowStyle('error').color,
-			)
+			stopBackgroundAgentsByOperator(running, step.notice)
 			return
 		}
 		// "Nothing running" and "press again" are footer feedback that times out
@@ -3055,7 +3077,7 @@ export function App({
 		timer.unref?.()
 		if (step.kind === 'arm') stopAllArmedRef.current = timer
 		else stopAllNoticeTimerRef.current = timer
-	}, [pushMessage, session, tellModelAgentsStopped])
+	}, [stopBackgroundAgentsByOperator])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -3132,6 +3154,8 @@ export function App({
 		readonly since: number
 		readonly pausedMs: number
 		readonly lastEndedAt: number
+		/** The operator stopped the agents: the wait ends without a line of its own. */
+		readonly silent?: boolean
 	} | null>(null)
 	const [closingWaitVersion, setClosingWaitVersion] = useState(0)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the version is what moves; the ref holds the wait.
@@ -3153,7 +3177,8 @@ export function App({
 		if (workflowRuns.some((run) => run.status === 'running')) return
 		closingWaitRef.current = null
 		setClosingWaitVersion((version) => version + 1)
-		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine)
+		if (wait.silent === true) return
+		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
 		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, theme.text.muted)
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
@@ -3828,22 +3853,12 @@ export function App({
 	/**
 	 * Turn the session's hypermode on or off.
 	 *
-	 * On: pins effort to the model's highest published level (last entry of
-	 * `reasoningEffortLevels`, which every provider publishes low-to-high) and
-	 * strengthens delegation guidance for future turns via `SendOptions.hypermode`
-	 * — see `applyReasoningEffort` above for the mirrored guard shape. When the
-	 * model publishes no exact menu, effort is left alone and the notice says
-	 * so explicitly rather than silently doing nothing.
+	 * An independent switch: it never changes the reasoning effort, and the
+	 * message says so ("Effort stays X"). While it is on, `SendOptions.hypermode`
+	 * tells the model, in request-only context, to use the `workflow` tool for
+	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
+	 * above for the mirrored guard shape.
 	 */
-	/**
-	 * The effort in force before hypermode pinned the highest level, and the
-	 * level it pinned. Turning the mode off puts the effort back — unless the
-	 * operator chose another level meanwhile, which then stays.
-	 */
-	const hypermodePinRef = useRef<{
-		readonly before: ReasoningEffort | undefined
-		readonly pinned: ReasoningEffort
-	} | null>(null)
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -3878,71 +3893,14 @@ export function App({
 			const newlyEnabled = enabled && !hypermodeRef.current
 			setHypermode(enabled)
 			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
-			if (!enabled) {
-				const pin = hypermodePinRef.current
-				hypermodePinRef.current = null
-				if (pin && reasoningEffortRef.current === pin.pinned) {
-					setReasoningEffort(pin.before)
-					pushMessage(
-						'system',
-						`Hypermode is off. Effort is back to ${pin.before ?? 'the provider default'}.`,
-					)
-					return
-				}
-				pushMessage('system', 'Hypermode is off.')
-				return
-			}
-			const pinNow = (): boolean => {
-				const pinned = hypermodeEffort(session.reasoningEffortLevels)
-				if (pinned === undefined) return false
-				// Turning it on twice keeps the effort from before the first time.
-				if (!hypermodePinRef.current)
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
-				setReasoningEffort(pinned)
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: ${pinned} effort, and Namzu will split big tasks across agents.`,
-				)
-				return true
-			}
-			if (pinNow()) return
-			if (
-				session.reasoningSettled !== undefined &&
-				session.reasoningEffortLevels === undefined &&
-				// Only a listing that has not answered yet is "still loading"; one that
-				// answered with no levels has said so already, and /effort agrees.
-				reasoningListedRef.current !== session
-			) {
-				// The model's effort menu is still loading: say so, and pin when it lands
-				// unless the mode was switched off or the session replaced meanwhile.
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: Namzu will split big tasks across agents. Effort is set once ${session.modelSummary ?? 'the model'}'s settings finish loading.`,
-				)
-				void session.reasoningSettled.then(() => {
-					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
-					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
-					const pinned = hypermodeEffort(session.reasoningEffortLevels)
-					if (pinned === undefined) return
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-					setReasoningEffort(pinned)
-					pushMessage('system', `Effort set to ${pinned} for hypermode.`)
-				})
-				return
-			}
+			const effort = reasoningEffortRef.current
+			const hasLevels = (session.reasoningEffortLevels?.length ?? 0) > 0
 			pushMessage(
 				'system',
-				`Hypermode is on for this conversation: Namzu will split big tasks across agents. ${session.modelSummary ?? 'This model'} has no effort levels to choose from, so effort stays as it is.`,
+				enabled ? hypermodeOnMessage(effort, hasLevels) : hypermodeOffMessage(effort, hasLevels),
 			)
 		},
-		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
+		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -5204,15 +5162,9 @@ export function App({
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
 			// above, so they leave the current session selection untouched. Hypermode
-			// mode survives the switch: re-pin to the new model's highest published
-			// level instead of clearing, exactly as it pinned when first turned on.
-			if (signal !== undefined) {
-				const repinned = hypermodeRef.current ? hypermodeEffort(s.reasoningEffortLevels) : undefined
-				// A new model starts at its own default; that is what turning
-				// hypermode off returns to now.
-				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
-				setReasoningEffort(repinned)
-			}
+			// does not depend on effort, so it survives the switch as it is, and the
+			// new model starts at its own default effort.
+			if (signal !== undefined) setReasoningEffort(undefined)
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -5234,28 +5186,9 @@ export function App({
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
 				}
-				// A model switch under hypermode cleared the pin above; with the levels
-				// final, pin the new model's highest level, unless the operator turned
-				// the mode off or chose an effort while the list was loading.
-				if (
-					signal !== undefined &&
-					hypermodeRef.current &&
-					hypermodePinRef.current === null &&
-					reasoningEffortRef.current === undefined
-				) {
-					const repin = hypermodeEffort(s.reasoningEffortLevels)
-					if (repin !== undefined) {
-						hypermodePinRef.current = { before: undefined, pinned: repin }
-						setReasoningEffort(repin)
-					}
-				}
-				// Hypermode already re-pinned effort above; reopening this picker
-				// would ask the operator to redo a choice the mode just made for them.
-				if (
-					!hypermodeRef.current &&
-					options.chooseReasoningEffort &&
-					s.reasoningEffortLevels?.length
-				) {
+				// Hypermode is independent of effort, so the picker a model change
+				// asks for opens whether or not it is on.
+				if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
 					setSelectedChoice(0)
@@ -7402,7 +7335,9 @@ export function App({
 					: null
 
 				resetTranscript()
-				setMessages(projectConversation(forked.messages, nextId, readablePrefix))
+				setMessages(
+					projectConversation(forked.messages, nextId, readablePrefix, { cwd: ctxRef.current.cwd }),
+				)
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
@@ -8260,7 +8195,7 @@ export function App({
 						}
 						const closing =
 							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
-								? settleLine(Date.now() - since - pausedMs, delegated)
+								? settleLine(Date.now() - since - pausedMs, delegated, new Date())
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -8821,14 +8756,30 @@ export function App({
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
-			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
-				if (!stillHere() || activeTurnTokenRef.current !== turnToken || ac.signal.aborted) {
-					return Promise.resolve({
-						kind: 'reject',
-						feedback: 'Turn is no longer active.',
-					})
+			//
+			// A background agent this turn launched outlives it and keeps asking
+			// through this same callback, so a turn that has merely ended (or been
+			// followed by another) still answers: only a stopped turn, another
+			// conversation or a closing app refuse.
+			const askPermission = async (req: PermissionRequest): Promise<PermissionDecision> => {
+				if (!stillHere() || ac.signal.aborted || appLifetime.signal.aborted) {
+					return { kind: 'reject', feedback: 'Turn is no longer active.' }
 				}
-				return onPermission(req)
+				const decision = await onPermission(req)
+				// An agent can ask after its turn has ended. Answering puts the screen
+				// in the working state for the resumed provider call, and no turn is
+				// left whose end would put the input back: with none running, hand the
+				// conversation back so the agent's finish can wake it.
+				if (
+					stillHere() &&
+					!appLifetime.signal.aborted &&
+					activeTurnTokenRef.current === null &&
+					!abortRef.current &&
+					!permissionResolveRef.current
+				) {
+					setState('idle')
+				}
+				return decision
 			}
 			// A goal round is a turn of a durable conversation: its round is recorded
 			// on the turn (`origin.kind: 'goal-round'`), and a conversation that is
@@ -8889,6 +8840,7 @@ export function App({
 					if (prompt.kind === 'human' && destination) {
 						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
 					}
+					const typedInput = typedInputOf(prompt)
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -8896,6 +8848,8 @@ export function App({
 							protocol: 'cli',
 							kind: goalRound ? 'goal-round' : 'prompt',
 						},
+						// Only the person's own words can set a token target.
+						...(typedInput !== undefined ? { typedInput } : {}),
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
@@ -12725,6 +12679,12 @@ export function App({
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
+				if (key.tab && picker.kind === 'reasoning-effort') {
+					// Tab flips hypermode at whatever effort is highlighted, like the
+					// hypermode row does on Enter; the effort itself is left alone.
+					applyChoiceSelection(picker.options.length - 1)
+					return
+				}
 				if (key.downArrow) {
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
@@ -12917,16 +12877,7 @@ export function App({
 				// agents first, once, and says so. Exit arms only when none is left.
 				const stoppable = stoppableBackgroundAgents(railRowsRef.current)
 				if (stoppable.length > 0) {
-					tellModelAgentsStopped(stoppable)
-					for (const agent of stoppable) session?.stopSubagent?.(agent.viewId)
-					pushMessage(
-						'system',
-						stopAllStep(stoppable.length, true).notice,
-						false,
-						systemRowStyle('error').glyph,
-						undefined,
-						systemRowStyle('error').color,
-					)
+					stopBackgroundAgentsByOperator(stoppable, stopAllStep(stoppable.length, true).notice)
 					return
 				}
 				armExit('Ctrl-C')
@@ -13058,6 +13009,23 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
+	// A question or a picker owns the screen: the footer is not drawn under it,
+	// so a dialog never shows a half footer (the model alone, or a mode label
+	// without its cycle hint). Only a transient notice, such as the press-again
+	// to exit line, still needs the footer row.
+	const dialogShowing =
+		permission !== null ||
+		scheduleReviewPrompt !== null ||
+		saveSkillPrompt !== null ||
+		planPrompt !== null ||
+		questionDialog !== null ||
+		textPrompt !== null ||
+		choicePicker !== null ||
+		copyPicker !== null ||
+		phase === 'resume' ||
+		phase === 'unarchive' ||
+		phase === 'edit' ||
+		phase === 'picker'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
 		: stopAllNotice
@@ -13090,7 +13058,6 @@ export function App({
 		: undefined
 	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
-	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
 		? {
 				registry: composerTriggerRegistry,
@@ -13104,7 +13071,6 @@ export function App({
 					scheduleTool: true,
 				},
 				...(highestEffort ? { highestEffort } : {}),
-				...(hypermodeLevel ? { hypermodeEffort: hypermodeLevel } : {}),
 			}
 		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
@@ -13622,7 +13588,10 @@ export function App({
 				{/* The tool-output viewer carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
 				{/* The workflow detail (the cockpit) carries its own key line as well. */}
-				{phase === 'trust' || outputViewer !== null || agentSurface?.kind === 'cockpit' ? null : (
+				{phase === 'trust' ||
+				outputViewer !== null ||
+				agentSurface?.kind === 'cockpit' ||
+				(dialogShowing && !exitHint && !stopAllNotice) ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
@@ -13631,6 +13600,7 @@ export function App({
 								: (session?.modelSummary ?? null)
 						}
 						effort={reasoningEffort}
+						hypermode={hypermode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}
@@ -13908,7 +13878,7 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const columns = [
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
-		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		...workflowAgentCount(counts),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]
@@ -14107,7 +14077,7 @@ function reasoningEffortPicker(
 				// Below a rule, visually apart from the levels above: a session
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
-				label: hypermodeStopLabel(hypermodeEffort(levels)),
+				label: HYPERMODE_ROW_LABEL,
 				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,

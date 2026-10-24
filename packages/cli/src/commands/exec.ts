@@ -584,11 +584,20 @@ async function execPrint(
 		// model is not offered the tool. Nobody is here to review a script, so
 		// only a session set to run without asking may start one.
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
+		// The `hypermode` config key reaches a headless turn too.
+		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
 		onConversationMessages: (messages: readonly Message[]) => {
 			history = messages
 		},
 	}
-	await consume(session.send([...prior, firstMessage], turnOptions))
+	// Only the first turn carries words the person typed; the report turns after a
+	// workflow or monitor are written by Namzu and can never set a token target.
+	await consume(
+		session.send([...prior, firstMessage], {
+			...turnOptions,
+			typedInput: expansion.kind === 'expanded' ? prompt : finalPrompt,
+		}),
+	)
 	afterPhase()
 
 	// A provider pause is answered by waiting, when the caller gave time to

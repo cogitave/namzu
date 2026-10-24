@@ -8,9 +8,9 @@ import { hintCountsPath, readHintCount, writeHintCount } from './hint-counts.js'
 describe('hint counts', () => {
 	it('read as zero until written, then survive a second reader', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-hints-'))
-		expect(readHintCount('queuedCommandUpHintCount', home)).toBe(0)
-		writeHintCount('queuedCommandUpHintCount', 2, home)
-		expect(readHintCount('queuedCommandUpHintCount', home)).toBe(2)
+		expect(readHintCount('queuedMessagesHint', home)).toBe(0)
+		writeHintCount('queuedMessagesHint', 2, home)
+		expect(readHintCount('queuedMessagesHint', home)).toBe(2)
 	})
 
 	it('read a damaged file as zero instead of failing', () => {

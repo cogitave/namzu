@@ -217,10 +217,9 @@ fetched in the background and the effort menu appears when it arrives. A message
 sent before then goes to the chosen model with the provider's default effort,
 and a launch `--effort` is not applied to it: the flag is checked against the
 menu, so it takes effect when the menu arrives (a notice says if the model does
-not offer it). Hypermode keeps working while the menu loads. Turning it on says
-the menu is still loading and pins the highest level when it lands; a `/model`
-switch under hypermode re-pins to the new model's highest level at the same
-point, unless hypermode was switched off or an effort was chosen in between. If
+not offer it). Hypermode keeps working while the menu loads: it is independent of effort, so
+it needs nothing from the menu, and turning it on says `Effort stays …`
+whether or not the levels have arrived. If
 the listing fails, the effort menu never appears for that session and nothing
 says so; sending is unaffected. `/model` reads its own listing when opened and
 says plainly when it cannot. `namzu exec` and ACP session creation still wait,

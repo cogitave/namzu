@@ -26,14 +26,17 @@ by hand.
 
 ## When the model can start one
 
-The `workflow` tool is not in the tool list on an ordinary turn. It is offered
-for a turn when the operator asked for orchestration:
+The `workflow` tool is in the tool list on every turn of a terminal or `exec`
+run that can run one, and the model is gated by wording, not by the list: the
+tool's text and a stable note in the system prompt say it may be called only
+after an explicit opt-in (the list does not change from message to
+message, which keeps the cached prompt prefix stable). The opt-in is the operator asking for orchestration:
 
 - hypermode is on (`/hypermode`), or
 - the message arms the `workflow` composer trigger: `workflow` or `workflows`
    as the first or last word of a clause, matched by
   the same rules as `hypermode`. The composer shows a tag
-  (`Workflow · this turn, offers the workflow tool · alt+w drop`) before you
+  (`Workflow · this turn, opts into the workflow tool · alt+w drop`) before you
   send, and Alt+W drops it. A question about workflows ("how does the build
   workflow cache work?") only suggests it, and `composerTriggers` can turn it
   off ([Composer triggers](composer-triggers.md)), or
@@ -45,11 +48,18 @@ Each agent a workflow starts is told in its prompt that its step is its
 assigned job, which the person approved with the script, so a note elsewhere
 that a message carries no user authority is not a reason to skip it.
 
-It is offered for that turn only; the next message gets the tool back only if
-it asks again (or hypermode is on). A scheduled or resident run never gets it.
-When the tool is offered, the model is also told to prefer it for multi-phase
-or many-agent work and to keep `Agent` calls with a `workflow` label for small
-fan-outs.
+The keyword, the `workflow` trigger and `/workflow` opt in one message only;
+the next message needs to ask again unless hypermode is on. Hypermode on is a
+standing opt-in: the model is told so in a hidden reminder kept in the conversation (full the
+first time, sparsely after ten of your messages, once when it ends; a resumed
+conversation reads what was already said from its history and does not hear the
+full text again), to use the tool for every
+substantial task and to work alone only on conversational or trivial turns. A
+scheduled run has no one to review a script and no `workflow` tool; with the
+`hypermode` config key on it is told to delegate to parallel agents instead, and
+a resident run is told nothing. The tool text carries the quality patterns
+(adversarial verify, judge panel, loop until dry, completeness critic) and
+keeps `Agent` calls with a `workflow` label for small fan-outs.
 
 ## The review
 
@@ -131,13 +141,15 @@ one of three events of the run itself (never a timer), and answers on the first:
 - **The script asks for its first `agent()`.** The run is real work now; the call
   returns the launch receipt and the run goes on in the background, as below.
 - **The script fails before that.** The call is a **failed tool call** carrying the
-  located message in one plain sentence (`The script stopped at line 3, column
-  20: <what went wrong>`, then the line's text, then "No agent had started.");
-  the interpreter's error names are not shown. There is no rail row, no launch
-  line and no completion message afterwards; the person sees the call as failed,
-  like any other. When the call passed no `args` and the error mentions `args`,
-  it says so, because `args` is exactly the object given in the call's `args`
-  field and is `undefined` when it is omitted.
+  located message. The conversation row is one plain sentence (`The workflow
+  script stopped with an error.`) with no `Error:` or `failed:` prefix; the
+  position (`line 3, column 20`), the engine's own message, the line's text, "No
+  agent had started." and the hint about a missing `args` stay behind ctrl+o, and
+  the model gets all of them unchanged. There is
+  no rail row, no launch line and no completion message afterwards. The hint
+  appears when the call passed no `args` and the error mentions `args`, because
+  `args` is exactly the object given in the call's `args` field and is
+  `undefined` when it is omitted.
 - **The script finishes without asking for an agent.** The call returns the same
   summary the completion message carries, inline, and no message follows.
 
@@ -199,7 +211,15 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
 A skipped agent does not fail its phase, and a run in the footer counts as
 `1 workflow`, never as an agent (`← 2 agents · 1 workflow`). The header reads `denetim  <purpose>
 3/6 agents · 12s` and, once the run has ended, ends with `· completed`,
-`· failed` or `· stopped`.
+`· failed` or `· stopped`. An agent that failed adds `· N failed` after the
+count, in the header, on the rail row (`3/7 · 1 failed · 2m 14s`), in the
+`/workflows` list and in the closing line, all in one form (`2/3 agents · 1
+failed`; a run with no failure and every agent done reads `3 agents`), so a run
+that finished with a failure never reads as clean. As the rail row narrows, the
+time and the spend go before the failure count does. A step
+that throws before it asks for an agent (inside `parallel()` or `pipeline()`) is
+not an agent: it shows as the progress line `Step 2 stopped: <why>` and is
+listed for the model among the failures.
 
 ## When it ends
 
@@ -287,6 +307,10 @@ hypermode is on. `NAMZU_WORKFLOW_SIZE_WARNING_AGENTS` and
 
 A standalone `+500k`, `+1.5m` or `+2b` in a message you type is the token target
 for that turn (the last one wins; text the model or a tool wrote is never read).
+It is read from the prompt a person typed in the terminal, from the prompt given to
+`namzu exec` (plain or `--json`) and from a prompt sent over ACP. The turns Namzu
+starts itself, such as the report after a workflow or monitor finishes, a goal
+round, peer mail, a scheduled run or a resident step, never carry one.
 A workflow started in the turn sees it as `budget.total`, and `agent()` throws
 once the run has spent that many output tokens, so a script can size itself
 (`budget.total ? Math.floor(budget.total / 100_000) : 5`). With the turn's own

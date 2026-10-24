@@ -76,6 +76,34 @@ describe('a hunk row', () => {
 		])
 	})
 
+	it('numbers a hunk from the line it starts at before the change, whatever the new start is', () => {
+		const later = hunk(40, [' keep', '-gone', '+one', '+two', ' tail'], 43)
+		const rows = diffViewRows([later], { width: 20, colors })
+		expect(rows.map((row) => viewRowText(row).slice(0, 5).trim())).toEqual([
+			'40',
+			'41 -',
+			'41 +',
+			'42 +',
+			'43',
+		])
+	})
+
+	it('advances the counter on a context or added row and not on a removed one', () => {
+		const rows = diffViewRows([hunk(7, ['-a', ' b', '+c', '-d', '-e', ' f'])], {
+			width: 20,
+			colors,
+		})
+		// A removed run takes the counter without moving it, so the row after it repeats the number.
+		expect(rows.map((row) => viewRowText(row).slice(0, 5).trim())).toEqual([
+			'7 -',
+			'7',
+			'8 +',
+			'9 -',
+			'10 -',
+			'9',
+		])
+	})
+
 	it('sizes the gutter to the widest number in the hunk', () => {
 		const rows = diffViewRows([hunk(98, [' a', ' b', ' c'])], { width: 20, colors })
 		expect(rows.map((row) => viewRowText(row))).toEqual(['  98  a', '  99  b', ' 100  c'])

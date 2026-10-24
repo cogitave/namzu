@@ -687,6 +687,9 @@ export async function runFire(
 					...(wakeGateContext !== undefined ? { wakeGateContext } : {}),
 				}),
 				...(model.effort ? { effort: model.effort as never } : {}),
+				// The user's `hypermode` key reaches a scheduled run: a run that
+				// cannot start a workflow is told to delegate to agents instead.
+				...(config.hypermode === true ? { hypermode: true } : {}),
 			}),
 		)
 		// A provider pause is waited out inside the job's budget, from the

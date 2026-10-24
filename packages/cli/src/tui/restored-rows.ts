@@ -360,7 +360,7 @@ export function createRestoredTurnWriter(
 			)
 			const line =
 				stand.length > 0 || completed
-					? settleLine(Math.max(0, turn.endedAt - turn.startedAt), stand)
+					? settleLine(Math.max(0, turn.endedAt - turn.startedAt), stand, new Date(turn.endedAt))
 					: undefined
 			if (line)
 				rows.push({

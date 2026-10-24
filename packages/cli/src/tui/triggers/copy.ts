@@ -24,8 +24,6 @@ export interface TagCopyContext {
 	readonly turnActive: boolean
 	/** The model's highest published effort level, when it publishes a menu (max effort). */
 	readonly highestEffort: string | undefined
-	/** The level hypermode pins on this model (`xhigh`, or the nearest below it). */
-	readonly hypermodeEffort: string | undefined
 	/** No paste chips and no attachments: a trigger-only message may run its command. */
 	readonly standaloneAllowed: boolean
 }
@@ -68,8 +66,8 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 	const { columns, turnActive } = context
 	const label = `${cap(hit.label)}`
 	if (columns < 40) return label
-	const pinned = hit.id === 'hypermode' ? context.hypermodeEffort : context.highestEffort
-	const effort = pinned ? `effort ${pinned}` : undefined
+	const effort =
+		hit.id === 'max-effort' && context.highestEffort ? `effort ${context.highestEffort}` : undefined
 	const detail = ((): { full: string; short: string; tiny?: string } => {
 		if (turnActive && TURN_SCOPED.has(hit.id))
 			return {
@@ -84,9 +82,9 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 						short: 'add the task',
 					}
 				return {
-					full: `this reply: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
-					short: `this reply${effort ? `, ${effort}` : ''}`,
-					...(effort ? { tiny: effort } : {}),
+					full: 'this reply: offers workflows, effort unchanged',
+					short: 'this reply: workflows',
+					tiny: 'workflows',
 				}
 			case 'workflow':
 				if (detection.onlyTriggers)
@@ -95,8 +93,8 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 						short: 'add the task',
 					}
 				return {
-					full: 'this turn, offers the workflow tool',
-					short: 'this turn, offers the tool',
+					full: 'this turn, opts into the workflow tool',
+					short: 'this turn, opts into the tool',
 				}
 			case 'save-skill':
 				if (detection.onlyTriggers && context.standaloneAllowed)
@@ -134,7 +132,7 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 }
 
 function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
-	const { columns, hypermodeEffort } = context
+	const { columns } = context
 	const armedCount = hits.filter((hit) => hit.state === 'armed').length
 	const offCount = hits.filter((hit) => hit.state === 'dropped').length
 	const key = armedCount > 0 ? 'alt+w drop' : offCount > 0 ? 'alt+w restores' : 'alt+w arms'
@@ -154,10 +152,7 @@ function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
 		const name = index === 0 ? cap(hit.label) : hit.label
 		switch (hit.state) {
 			case 'armed':
-				// The effort pin is said wherever hypermode is armed.
-				return hit.id === 'hypermode' && hypermodeEffort
-					? `${name} (effort ${hypermodeEffort})`
-					: name
+				return hit.id === 'hypermode' ? `${name} (workflows)` : name
 			case 'suggested':
 				return `${name}?`
 			case 'dropped':
@@ -178,8 +173,8 @@ function fit(text: string, columns: number): string {
 
 /**
  * The line under the operator's row in the transcript, naming what the
- * message carried in a sentence: `Hypermode is on for this reply (effort
- * xhigh).` Undefined when nothing applies.
+ * message carried in a sentence: `Hypermode is on for this reply: Namzu may
+ * use workflows.` Undefined when nothing applies.
  */
 export function transcriptTagLine(
 	ids: readonly TriggerId[],
@@ -193,7 +188,7 @@ export function transcriptTagLine(
 	const parts = ids.flatMap((id) => {
 		switch (id) {
 			case 'hypermode':
-				return context.steered ? [] : [`Hypermode is on for this reply${effort}.`]
+				return context.steered ? [] : ['Hypermode is on for this reply: Namzu may use workflows.']
 			case 'workflow':
 				return context.steered ? [] : ['Workflow is on for this reply.']
 			case 'save-skill':

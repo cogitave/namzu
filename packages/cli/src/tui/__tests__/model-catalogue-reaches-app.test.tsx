@@ -168,6 +168,7 @@ it.each([40, 80])(
 		expect(painted()).not.toContain('supportsAnonymousAccess')
 		expect(painted()).not.toContain('Explored')
 		screen.press('\x0f')
-		await waitUntil(screen, () => painted().includes('supportsAnonymousAccess'))
+		// A long JSON key breaks across rows at a narrow width; read it with the breaks removed.
+		await waitUntil(screen, () => painted().replace(/\s+/g, '').includes('supportsAnonymousAccess'))
 	},
 )

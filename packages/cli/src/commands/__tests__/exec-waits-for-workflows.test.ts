@@ -191,6 +191,10 @@ describe('a headless run whose model starts a workflow', () => {
 		// A host that waits for background runs says so, or the tool is not offered.
 		expect(options[0]?.workflowReview?.currentPermissionMode()).toBe('auto')
 		expect(options[0]?.workflowReview?.onPermission).toBeUndefined()
+		// The first turn carries the words the person typed; the report turn, which
+		// Namzu writes itself, carries none and so can never set a token target.
+		expect(options[0]?.typedInput).toBe('audit everything')
+		expect(options[1]?.typedInput).toBeUndefined()
 	})
 
 	it('takes one turn, and does not wait, when no workflow was started', async () => {
@@ -277,5 +281,28 @@ describe('a headless run whose model starts a workflow', () => {
 		expect(code).toBe(0)
 		// 90 000 + 7 000 over the two turns; the run's 40 000 joins the descendants only.
 		expect(infos).toContain('Tokens: 97000 own · 137000 including descendants')
+	})
+})
+
+describe('a headless run and the hypermode config key', () => {
+	it.each([
+		[{ hypermode: true }, true],
+		[{ hypermode: false }, undefined],
+		[{}, undefined],
+	])('with %j sends hypermode %s on the turn', async (config, expected) => {
+		const flow = fakeWorkflows()
+		const options: (SendOptions | undefined)[] = []
+		withWorkflows(flow.source)
+		sessionStub.close = (async () => {}) as AgentSession['close']
+		sessionStub.send = ((_messages: readonly Message[], opts?: SendOptions) => {
+			options.push(opts)
+			return turn([
+				{ kind: 'delta', text: 'ok' },
+				{ kind: 'done', stopReason: 'end_turn' },
+			])
+		}) as AgentSession['send']
+		const { code } = await run(['say ok'], config)
+		expect(code).toBe(0)
+		expect(options[0]?.hypermode).toBe(expected)
 	})
 })

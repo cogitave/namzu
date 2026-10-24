@@ -168,6 +168,8 @@ export interface TuiContext {
 	readonly skills?: SkillsConfig
 	/** See `NamzuCliConfig.composerTriggers`. Only the interactive terminal reads it. */
 	readonly composerTriggers?: ComposerTriggersConfig
+	/** See `NamzuCliConfig.hypermode`: the conversation starts with hypermode on. */
+	readonly hypermode?: boolean
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
 	/** See `NamzuCliConfig.smallModel`. */

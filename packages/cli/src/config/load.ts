@@ -725,6 +725,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	hypermode: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	// Shape only. Per-entry validation belongs to `compilePermissions`, which
 	// reports a bad effect or an unusable pattern as a diagnostic the user
 	// sees; dropping those entries here would silence it.
@@ -1751,6 +1755,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Runs a command with the operator's authority, like `hooks`: a file
 	// decision, never a variable a shell profile could carry invisibly.
 	statusLine: undefined,
+	// Changes what the model is told on every turn; a file decision, never a variable a shell profile could carry invisibly.
+	hypermode: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
