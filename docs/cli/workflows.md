@@ -293,6 +293,10 @@ hypermode is on. `NAMZU_WORKFLOW_SIZE_WARNING_AGENTS` and
 
 A standalone `+500k`, `+1.5m` or `+2b` in a message you type is the token target
 for that turn (the last one wins; text the model or a tool wrote is never read).
+It is read from the prompt a person typed in the terminal, from the prompt given to
+`namzu exec` (plain or `--json`) and from a prompt sent over ACP. The turns Namzu
+starts itself, such as the report after a workflow or monitor finishes, a goal
+round, peer mail, a scheduled run or a resident step, never carry one.
 A workflow started in the turn sees it as `budget.total`, and `agent()` throws
 once the run has spent that many output tokens, so a script can size itself
 (`budget.total ? Math.floor(budget.total / 100_000) : 5`). With the turn's own

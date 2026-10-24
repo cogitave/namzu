@@ -510,10 +510,13 @@ export async function execJson(
 	// The budgets of the turns before the last one (a workflow's reporting turn
 	// comes after the first); the command's total is all of them.
 	const earlierBudgets: NonNullable<typeof budget>[] = []
-	const stream = async (turn: readonly Message[]): Promise<void> => {
+	const stream = async (turn: readonly Message[], typedInput?: string): Promise<void> => {
 		if (budget) earlierBudgets.push(budget)
 		budget = undefined
-		for await (const event of session.send(turn, turnOptions)) {
+		for await (const event of session.send(turn, {
+			...turnOptions,
+			...(typedInput !== undefined ? { typedInput } : {}),
+		})) {
 			if (stopped) continue
 			if ('budget' in event && event.budget) budget = event.budget
 			if (event.kind === 'paused') paused = event
@@ -525,7 +528,8 @@ export async function execJson(
 		}
 	}
 	try {
-		await stream(messages)
+		// Only the first turn carries words the person typed; report turns are Namzu's own.
+		await stream(messages, prompt)
 		for (
 			let rounds = 0;
 			(watch || monitorWatch) && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;

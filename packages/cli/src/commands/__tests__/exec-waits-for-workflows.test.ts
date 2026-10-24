@@ -191,6 +191,10 @@ describe('a headless run whose model starts a workflow', () => {
 		// A host that waits for background runs says so, or the tool is not offered.
 		expect(options[0]?.workflowReview?.currentPermissionMode()).toBe('auto')
 		expect(options[0]?.workflowReview?.onPermission).toBeUndefined()
+		// The first turn carries the words the person typed; the report turn, which
+		// Namzu writes itself, carries none and so can never set a token target.
+		expect(options[0]?.typedInput).toBe('audit everything')
+		expect(options[1]?.typedInput).toBeUndefined()
 	})
 
 	it('takes one turn, and does not wait, when no workflow was started', async () => {

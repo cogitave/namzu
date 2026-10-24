@@ -588,7 +588,14 @@ async function execPrint(
 			history = messages
 		},
 	}
-	await consume(session.send([...prior, firstMessage], turnOptions))
+	// Only the first turn carries words the person typed; the report turns after a
+	// workflow or monitor are written by Namzu and can never set a token target.
+	await consume(
+		session.send([...prior, firstMessage], {
+			...turnOptions,
+			typedInput: expansion.kind === 'expanded' ? prompt : finalPrompt,
+		}),
+	)
 	afterPhase()
 
 	// A provider pause is answered by waiting, when the caller gave time to
