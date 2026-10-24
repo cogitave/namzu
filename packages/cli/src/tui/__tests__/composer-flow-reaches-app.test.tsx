@@ -185,6 +185,33 @@ afterEach(() => {
 })
 
 describe('the two composer destinations', () => {
+	it('suggests an example on the first prompt only, and then asks for a message plainly', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} examplePrompts />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => /❯ Try ".+"/.test(screen.viewport().join('\n')),
+				'the first prompt never suggested an example',
+			)
+			expect(screen.viewport().join('\n')).not.toContain('Type a message')
+			screen.press('hello')
+			await screen.waitForRender()
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'the first turn did not start')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'the plain placeholder did not return',
+			)
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('submits the exact cursor-edited draft through App', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,
@@ -827,7 +854,7 @@ describe('the two composer destinations', () => {
 
 	it('keeps a new paste chip when Alt+Up arrives before a render', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
-		const pasted = 'first pasted line\nsecond pasted line'
+		const pasted = 'first pasted line\nsecond pasted line\nthird\nfourth'
 		try {
 			await waitUntil(
 				screen,
@@ -1187,7 +1214,7 @@ describe('the external draft editor', () => {
 	})
 
 	it('releases raw input, replaces the text draft, and returns control to the composer', async () => {
-		const pasted = 'p'.repeat(81)
+		const pasted = 'p'.repeat(801)
 		let releaseEditor = () => {}
 		const editorGate = new Promise<void>((resolve) => {
 			releaseEditor = resolve
@@ -1227,7 +1254,7 @@ describe('the external draft editor', () => {
 			)
 
 			expect(editor.mock.calls[0]?.[0]).toMatchObject({
-				seed: `first\nsecond\n\n${pasted}`,
+				seed: `first\nsecond${pasted}[Image #1]`,
 				cwd: '/w',
 			})
 			expect(rawWhileEditorStarted).toBe(false)

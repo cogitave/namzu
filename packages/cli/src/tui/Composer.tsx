@@ -17,10 +17,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
+import { QUEUED_HINT, QUEUED_HINT_LIMIT } from './composer-hints.js'
 import { fitHints } from './key-hints.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
-import { formatSize } from './person-terms.js'
+import {
+	attachmentChip,
+	chipBefore,
+	expandChips,
+	isChipPaste,
+	pasteChip,
+	stripAttachmentChips,
+} from './paste-chips.js'
 import { explainFailure } from './plain-failure.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
 import { wrapChoiceText } from './terminal-choice-text.js'
@@ -233,8 +241,6 @@ export interface ComposerDraft {
 const MIN_SUGGESTIONS = 6
 const MAX_SUGGESTIONS = 12
 const SUGGESTION_FURNITURE_ROWS = 12
-// A bracketed paste longer than this (with no newline) is held as a chip rather than typed in.
-const PASTE_THRESHOLD = 80
 // A recalled or branch-restored prompt can be much larger than anything the
 // operator typed one key at a time. Keep the exact source in state, but never
 // hand an unbounded string to Ink's wrapping engine. The bounded view follows
@@ -599,18 +605,16 @@ export function Composer({
 	const killBufferRef = useRef('')
 	const [selected, setSelected] = useState<number>(0)
 	const selectedRef = useRef(0)
-	// Large pastes are held as attachments (shown as chips) instead of being
-	// dumped into the input, then folded into the message on submit.
-	const [pastes, setPastes] = useState<readonly string[]>([])
-	const pastesRef = useRef<readonly string[]>([])
-	const replacePastes = useCallback(
-		(next: readonly string[] | ((previous: readonly string[]) => readonly string[])) => {
-			const resolved = typeof next === 'function' ? next(pastesRef.current) : next
-			pastesRef.current = resolved
-			setPastes(resolved)
-		},
-		[],
-	)
+	// A large paste stands in the text as a chip such as `[Pasted text #1 +40 lines]`;
+	// what it stands for is held here and put back when the message is sent.
+	const pasteStoreRef = useRef<Map<number, string>>(new Map())
+	const nextPasteIdRef = useRef(1)
+	const queuedHintEpisodeRef = useRef({ active: false, show: false })
+	const queuedHintShownRef = useRef(0)
+	const clearPastes = useCallback(() => {
+		pasteStoreRef.current = new Map()
+		nextPasteIdRef.current = 1
+	}, [])
 	// Pasted images and restored durable attachments, shown as chips and sent
 	// back in the exact SDK union on submit.
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
@@ -632,20 +636,17 @@ export function Composer({
 	const draftPresenceRef = useRef(false)
 	useEffect(() => {
 		onDraftChange?.({
-			text: [value, ...pastes].filter(Boolean).join('\n\n'),
+			text: expandChips(value, pasteStoreRef.current),
 			...(attachments.length ? { attachments } : {}),
 		})
-	}, [attachments, onDraftChange, pastes, value])
+	}, [attachments, onDraftChange, value])
 
 	useEffect(() => {
-		const hasDraft =
-			value.trim().length > 0 ||
-			pastes.some((paste) => paste.trim().length > 0) ||
-			attachments.length > 0
+		const hasDraft = value.trim().length > 0 || attachments.length > 0
 		if (hasDraft === draftPresenceRef.current) return
 		draftPresenceRef.current = hasDraft
 		onDraftPresenceChange?.(hasDraft)
-	}, [attachments.length, onDraftPresenceChange, pastes, value])
+	}, [attachments.length, onDraftPresenceChange, value])
 
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
@@ -789,12 +790,12 @@ export function Composer({
 		setBuffer('', 0, 'typed')
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
-		replacePastes([])
+		clearPastes()
 		replaceAttachments([])
 		setEditPreviousArmed(false)
 	}, [
+		clearPastes,
 		replaceAttachments,
-		replacePastes,
 		setBuffer,
 		setHistoryIndex,
 		setHistorySearch,
@@ -805,7 +806,16 @@ export function Composer({
 	/** Restore synchronously when Alt+Up is pressed, before the next typed key. */
 	const restoreDraft = useCallback(
 		(draft: Omit<ComposerDraft, 'token'>) => {
-			setBuffer(draft.text, draft.text.length, 'restored')
+			// A stored image has no chip in text that never showed it: add one.
+			let restoredText = draft.text
+			const restoredAttachments = draft.attachments ? [...draft.attachments] : []
+			restoredAttachments.forEach((attachment, index) => {
+				const chip = chipFor(attachment, index)
+				if (!restoredText.includes(chip))
+					restoredText = `${chip}${restoredText ? ' ' : ''}${restoredText}`
+			})
+			clearPastes()
+			setBuffer(restoredText, restoredText.length, 'restored')
 			if (triggers && draft.triggers?.length) {
 				const selected = new Set(draft.triggers)
 				const hits = detectTriggers(draft.text, triggers.registry, triggers.context, {
@@ -822,13 +832,12 @@ export function Composer({
 			verticalColumnRef.current = null
 			historyDraftRef.current = null
 			setHistorySearch(null)
-			replacePastes([])
-			replaceAttachments(draft.attachments ? [...draft.attachments] : [])
+			replaceAttachments(restoredAttachments)
 			setEditPreviousArmed(false)
 		},
 		[
+			clearPastes,
 			replaceAttachments,
-			replacePastes,
 			setBuffer,
 			setHistoryIndex,
 			setHistorySearch,
@@ -844,6 +853,14 @@ export function Composer({
 		onDraftRestored?.(draftToRestore.token)
 	}, [draftToRestore, onDraftRestored, restoreDraft])
 
+	/** Hold a large paste beside the draft and return the chip that stands for it. */
+	const holdPaste = (text: string): string => {
+		const id = nextPasteIdRef.current
+		nextPasteIdRef.current += 1
+		pasteStoreRef.current.set(id, text)
+		return pasteChip(id, text)
+	}
+
 	// Bracketed paste is one event even when the terminal splits its bytes.
 	// Its newlines are content, never Enter/shortcut events.
 	usePaste(
@@ -851,15 +868,14 @@ export function Composer({
 			if (disabled || hidden) return
 			const normalized = text.replace(/\r\n?/g, '\n')
 			if (normalized.length === 0) return
-			if (normalized.includes('\n') || normalized.length > PASTE_THRESHOLD) {
-				replacePastes((previous) => [...previous, normalized])
-				return
-			}
 			const position = cursorRef.current
 			setSelectedIndex(0)
+			const inserted = isChipPaste(normalized, terminal.rows ?? 24)
+				? holdPaste(normalized)
+				: normalized
 			editBuffer(
-				valueRef.current.slice(0, position) + normalized + valueRef.current.slice(position),
-				position + normalized.length,
+				valueRef.current.slice(0, position) + inserted + valueRef.current.slice(position),
+				position + inserted.length,
 				'pasted',
 			)
 		},
@@ -883,10 +899,7 @@ export function Composer({
 				return
 			}
 			if (queuedEdit) {
-				const empty =
-					valueRef.current.length === 0 &&
-					pastesRef.current.length === 0 &&
-					attachmentsRef.current.length === 0
+				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
 				// Read from the host's ref, not the last render: Up then Enter can arrive together.
 				if (empty && key.return && !key.shift && !key.meta) {
 					const loaded = queuedEdit.onLoad()
@@ -962,11 +975,7 @@ export function Composer({
 				return false
 			}
 			if (key.meta && key.upArrow && onRecallQueued) {
-				if (
-					valueRef.current.length > 0 ||
-					pastesRef.current.length > 0 ||
-					attachmentsRef.current.length > 0
-				) {
+				if (valueRef.current.length > 0 || attachmentsRef.current.length > 0) {
 					onNotice?.('Send or clear the current draft before recalling a queued message.')
 					return
 				}
@@ -992,28 +1001,33 @@ export function Composer({
 			}
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
-				const message = [valueRef.current, ...pastesRef.current]
-					.map((s) => s.trim())
-					.filter(Boolean)
-					.join('\n\n')
-				const currentAttachments = attachmentsRef.current
+				const pastes = pasteStoreRef.current
+				// Chips become the words they stand for; image chips go, the image travels beside.
+				const toMessage = (draft: string) => expandChips(stripAttachmentChips(draft), pastes)
+				const message = toMessage(valueRef.current).trim()
+				// An image whose chip was deleted from the text is not sent.
+				const currentAttachments = attachmentsRef.current.filter((attachment, index) =>
+					valueRef.current.includes(chipFor(attachment, index)),
+				)
 				if (message.length === 0 && currentAttachments.length === 0) return false
 				const submittedAttachments = currentAttachments.length > 0 ? currentAttachments : undefined
 				// Read again from what the last key left, not from the last render.
 				const detection = detect(valueRef.current)
 				// The message is the draft trimmed: offsets move by what the trim took.
-				const lead = valueRef.current.length - valueRef.current.trimStart().length
+				const whole = toMessage(valueRef.current)
+				const lead = whole.length - whole.trimStart().length
 				const armed = detection.hits
 					.filter((hit) => hit.state === 'armed')
-					.map((hit) => ({ id: hit.id, start: hit.start - lead, end: hit.end - lead }))
+					.map((hit) => ({
+						id: hit.id,
+						start: toMessage(valueRef.current.slice(0, hit.start)).length - lead,
+						end: toMessage(valueRef.current.slice(0, hit.end)).length - lead,
+					}))
 				onSubmit(message, submittedAttachments, mode, {
 					source: 'composer',
 					triggers: armed,
 					onlyTriggers:
-						armed.length > 0 &&
-						detection.onlyTriggers &&
-						pastesRef.current.length === 0 &&
-						currentAttachments.length === 0,
+						armed.length > 0 && detection.onlyTriggers && currentAttachments.length === 0,
 				})
 				reset()
 				return true
@@ -1099,10 +1113,7 @@ export function Composer({
 					setHistorySearch(null)
 					return
 				}
-				const empty =
-					valueRef.current.length === 0 &&
-					pastesRef.current.length === 0 &&
-					attachmentsRef.current.length === 0
+				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
 				if (empty && onEditPrevious) {
 					if (editPreviousArmed) {
 						setEditPreviousArmed(false)
@@ -1123,17 +1134,20 @@ export function Composer({
 				return
 			}
 			if (key.backspace) {
-				// Backspace on an empty line removes the last durable attachment first,
-				// then pasted text.
-				if (valueRef.current.length === 0 && attachmentsRef.current.length > 0) {
-					replaceAttachments((p) => p.slice(0, -1))
-					return
-				}
-				if (valueRef.current.length === 0 && pastesRef.current.length > 0) {
-					replacePastes((p) => p.slice(0, -1))
-					return
-				}
 				const position = cursorRef.current
+				// A chip goes whole: half a chip would send its brackets as text.
+				const chip = chipBefore(valueRef.current, position)
+				if (chip) {
+					const gone = attachmentsRef.current.findIndex(
+						(attachment, index) => chipFor(attachment, index) === chip.chip,
+					)
+					if (gone >= 0) replaceAttachments((p) => p.filter((_, index) => index !== gone))
+					editBuffer(
+						valueRef.current.slice(0, chip.start) + valueRef.current.slice(position),
+						chip.start,
+					)
+					return
+				}
 				// Right after an armed keyword, Backspace drops the trigger first
 				// and deletes nothing; the next Backspace deletes as usual.
 				const keyword = detect(valueRef.current).hits.find(
@@ -1172,7 +1186,6 @@ export function Composer({
 				!key.shift &&
 				onOpenAgents &&
 				valueRef.current.length === 0 &&
-				pastesRef.current.length === 0 &&
 				attachmentsRef.current.length === 0
 			) {
 				onOpenAgents()
@@ -1268,11 +1281,7 @@ export function Composer({
 				}
 				verticalColumnRef.current = null
 				if (historyIndexRef.current < 0) {
-					if (
-						valueRef.current.length === 0 &&
-						pastesRef.current.length === 0 &&
-						attachmentsRef.current.length === 0
-					) {
+					if (valueRef.current.length === 0 && attachmentsRef.current.length === 0) {
 						onOpenAgentPanel?.()
 					}
 					return
@@ -1294,14 +1303,16 @@ export function Composer({
 					onNotice?.('External editor support is unavailable in this terminal.')
 					return
 				}
-				const seed = [valueRef.current, ...pastesRef.current]
-					.map((part) => part.trim())
-					.filter(Boolean)
-					.join('\n\n')
+				const seed = expandChips(valueRef.current, pasteStoreRef.current).trim()
 				void onExternalEdit(seed)
 					.then((edited) => {
-						const cleaned = edited.trimEnd()
-						replacePastes([])
+						// An image the editor text no longer names stays attached: its chip goes back.
+						let cleaned = edited.trimEnd()
+						attachmentsRef.current.forEach((attachment, index) => {
+							const chip = chipFor(attachment, index)
+							if (!cleaned.includes(chip)) cleaned += `${cleaned ? ' ' : ''}${chip}`
+						})
+						clearPastes()
 						setHistoryIndex(-1)
 						setHistorySearch(null)
 						setSelectedIndex(0)
@@ -1334,7 +1345,14 @@ export function Composer({
 				}
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
+					const position = cursorRef.current
+					const chip = chipFor(read.image, attachmentsRef.current.length)
 					replaceAttachments((p) => [...p, read.image])
+					editBuffer(
+						valueRef.current.slice(0, position) + chip + valueRef.current.slice(position),
+						position + chip.length,
+						'pasted',
+					)
 				} else if (read.kind === 'empty') {
 					onNotice?.('No image on the clipboard. Copy one, then press Ctrl+V.')
 				} else {
@@ -1402,7 +1420,14 @@ export function Composer({
 			// the model received. A real paste reaches `usePaste` above, where a
 			// long one is still a chip.
 			if (input.includes('\n')) {
-				replacePastes((p) => [...p, input])
+				const position = cursorRef.current
+				const inserted = isChipPaste(input, terminal.rows ?? 24) ? holdPaste(input) : input
+				setSelectedIndex(0)
+				editBuffer(
+					valueRef.current.slice(0, position) + inserted + valueRef.current.slice(position),
+					position + inserted.length,
+					'pasted',
+				)
 				return
 			}
 			setSelectedIndex(0)
@@ -1431,13 +1456,9 @@ export function Composer({
 	if (hidden) return null
 
 	const modelIntent =
-		!plainText && !attachments.length && !pastes.length
-			? parseModelSelectionIntent(value)
-			: undefined
+		!plainText && !attachments.length ? parseModelSelectionIntent(value) : undefined
 	const effortIntent =
-		!plainText && !attachments.length && !pastes.length
-			? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1]
-			: undefined
+		!plainText && !attachments.length ? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1] : undefined
 	const effortAvailable =
 		effortIntent === 'default' ||
 		(effortIntent !== undefined && reasoningEffortLevels?.includes(effortIntent))
@@ -1449,7 +1470,7 @@ export function Composer({
 				turnActive,
 				highestEffort: triggers.highestEffort,
 				hypermodeEffort: triggers.hypermodeEffort,
-				standaloneAllowed: pastes.length === 0 && attachments.length === 0,
+				standaloneAllowed: attachments.length === 0,
 			})
 		: null
 	const styledSpans = detection.hits.flatMap((hit) =>
@@ -1461,6 +1482,16 @@ export function Composer({
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
 	const promptGlyph = disabled ? '…' : '❯'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
+	// The queued-messages hint is offered for the first few times it would show,
+	// then the plain placeholder takes over. One decision per appearance.
+	const queuedHintWanted = showPlaceholder && queuedEdit?.available === true
+	if (queuedHintWanted && !queuedHintEpisodeRef.current.active) {
+		const show = queuedHintShownRef.current < QUEUED_HINT_LIMIT
+		if (show) queuedHintShownRef.current += 1
+		queuedHintEpisodeRef.current = { active: true, show }
+	} else if (!queuedHintWanted && queuedHintEpisodeRef.current.active) {
+		queuedHintEpisodeRef.current = { active: false, show: false }
+	}
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null
@@ -1492,26 +1523,6 @@ export function Composer({
 					</Text>
 				</Box>
 			) : null}
-			{plainText && pastes.length > 0 ? (
-				<Text color={theme.text.secondary} wrap="truncate-end">
-					{pastes.length} text paste{pastes.length === 1 ? '' : 's'} attached
-				</Text>
-			) : pastes.length > 0 || attachments.length > 0 ? (
-				<Box flexDirection="column" paddingBottom={1}>
-					{attachments.map((attachment, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-						<Text key={`attachment-${i}`} color={theme.accent.tool}>
-							⎘ {attachmentLabel(attachment, i)}
-						</Text>
-					))}
-					{pastes.map((p, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-						<Text key={`paste-${i}`} color={theme.text.secondary}>
-							⎘ Pasted text #{i + 1} · {Array.from(p).length} chars
-						</Text>
-					))}
-				</Box>
-			) : null}
 			<Box>
 				<Box width={2} flexShrink={0}>
 					<Text color={theme.text.muted}>{promptGlyph}</Text>
@@ -1519,7 +1530,7 @@ export function Composer({
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
 						<Text color={theme.text.muted}>
-							{queuedEdit?.available ? 'Press up to edit queued messages' : placeholder}
+							{queuedHintWanted && queuedHintEpisodeRef.current.show ? QUEUED_HINT : placeholder}
 						</Text>
 					) : editPreviousArmed ? (
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
@@ -1614,14 +1625,9 @@ export function Composer({
 	)
 }
 
-function attachmentLabel(attachment: MessageAttachment, index: number): string {
-	if (attachment.type === 'stored') {
-		const kind = attachment.kind === 'image' ? 'Image' : 'Document'
-		return `${kind} #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (stored)`
-	}
-	const size = formatSize((attachment.data.length * 3) / 4)
-	if (attachment.type === 'document') {
-		return `Document #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (${size})`
-	}
-	return `Image #${index + 1} (${size})`
+/** The chip that stands for the `index`th attachment in the draft text. */
+function chipFor(attachment: MessageAttachment, index: number): string {
+	const isDocument =
+		attachment.type === 'document' || (attachment.type === 'stored' && attachment.kind !== 'image')
+	return attachmentChip(isDocument ? 'Document' : 'Image', index + 1)
 }

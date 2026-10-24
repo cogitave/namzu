@@ -436,6 +436,7 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
+import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -499,6 +500,12 @@ export interface AppProps {
 	 * as `/exit` does". The conversation's lease is already given back by then.
 	 */
 	readonly terminationExit?: { current: (() => void) | null }
+	/**
+	 * The launcher turns this on: an empty first prompt suggests an example
+	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
+	 * for the plain placeholder keep waiting for it.
+	 */
+	readonly examplePrompts?: boolean
 }
 
 type PendingPermission = ScreenPermissionRequest & {
@@ -1129,6 +1136,7 @@ export function App({
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
+	examplePrompts = false,
 }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
@@ -1354,6 +1362,10 @@ export function App({
 	/** Git-admitted file paths cached once per successful session hydration. */
 	const [mentionCandidates, setMentionCandidates] = useState<readonly string[]>([])
 	const mentionLoadOwnerRef = useRef<object | null>(null)
+	/** A frequently edited file of this repository, for the first prompt's example. */
+	const [exampleFile, setExampleFile] = useState<string | undefined>(undefined)
+	/** Which example to show; chosen once per launch so it does not change while the operator reads it. */
+	const exampleSeedRef = useRef(Math.random())
 	// What compaction has done this session, summed over passes; `/context`
 	// prints it. Reset with the session, never by a pass that declined.
 	const [compactionTally, setCompactionTally] = useState({
@@ -4863,6 +4875,10 @@ export function App({
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
 			})
+			if (examplePrompts)
+				void frequentlyModifiedFile(activeCtx.cwd, appLifetime.signal).then((file) => {
+					if (!appLifetime.signal.aborted) setExampleFile(file)
+				})
 			setCurrentProvider(primaryProvider(prefs).id)
 			// Failed and superseded provider choices returned above. A usable
 			// provider change can recover a failed turn's dependent queue, but a
@@ -13056,7 +13072,13 @@ export function App({
 									? {
 											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
 										}
-									: {})}
+									: examplePrompts &&
+											history.length === 0 &&
+											!messages.some((message) => message.role === 'user')
+										? {
+												placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
+											}
+										: {})}
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={

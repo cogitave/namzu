@@ -67,6 +67,7 @@ export async function launchTui(
 				exitSummary = summary
 			},
 			terminationExit,
+			examplePrompts: true,
 		}),
 		{
 			stdout: process.stdout,
