@@ -722,6 +722,7 @@ export {
 	CompletionInbox,
 	formatCompletionNotification,
 } from './scheduler/completion-inbox.js'
+export type { CompletionInboxOptions } from './scheduler/completion-inbox.js'
 
 // Scheduled jobs: WHEN something is due, and nothing about how a host stores
 // or runs a job. The time engine and the evaluator are pure (`Intl` for time

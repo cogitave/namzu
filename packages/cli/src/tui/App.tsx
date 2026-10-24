@@ -240,6 +240,7 @@ import {
 	runRailWorkflow,
 	settledWorkflows,
 } from './AgentExplorer.js'
+import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
@@ -299,6 +300,13 @@ import {
 	describeProviderModels,
 	probeAgentSession,
 } from './agent.js'
+import {
+	backgroundWaitLine,
+	isRunning,
+	liveGroups,
+	pendingBackgroundAgents,
+	stoppedByUserNote,
+} from './background-agents.js'
 import {
 	describeCapabilityNotice,
 	describeHistoryRepairNotice,
@@ -2992,6 +3000,20 @@ export function App({
 		[pushMessage],
 	)
 	/**
+	 * Stopping background agents is the operator's act, so the model is told once,
+	 * with its next turn and without waking it: one note for however many
+	 * (REFERENCE.md section 3).
+	 */
+	const tellModelAgentsStopped = useCallback((stopped: readonly SubagentActivity[]) => {
+		const note = stoppedByUserNote(stopped.map((agent) => agent.description || agent.agentId))
+		if (note === undefined) return
+		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+			context: note,
+			label: note,
+			kind: 'advisory',
+		})
+	}, [])
+	/**
 	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
 	 * running says so, the first press arms a 3 s confirm, the second stops every
 	 * background agent still going and says how many.
@@ -3010,6 +3032,7 @@ export function App({
 		}
 		if (step.kind === 'stop') {
 			setStopAllNotice(null)
+			tellModelAgentsStopped(running)
 			for (const agent of running) session?.stopSubagent?.(agent.viewId)
 			pushMessage(
 				'system',
@@ -3033,7 +3056,7 @@ export function App({
 		timer.unref?.()
 		if (step.kind === 'arm') stopAllArmedRef.current = timer
 		else stopAllNoticeTimerRef.current = timer
-	}, [pushMessage, session])
+	}, [pushMessage, session, tellModelAgentsStopped])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -3082,6 +3105,58 @@ export function App({
 			setNoticeVersion((version) => version + 1)
 		})
 	}, [session, pushMessage])
+	// A background agent that ends after the turn that launched it was over: the
+	// model hears it with the next turn, or an idle session wakes for it. Every
+	// agent that ended meanwhile joins the one wake (they share `childMessagesRef`,
+	// which the wake empties into a single message). The operator's own stop is
+	// not news; the stop key tells the model once, itself.
+	useEffect(
+		() =>
+			session?.onSubagentCompletion?.((completion) => {
+				if (
+					previousSessionRef.current !== session ||
+					scopeRef.current?.sessionId !== completion.parentSessionId ||
+					completion.stoppedBy === 'user'
+				)
+					return
+				childMessagesRef.current.set(++childMessageIdRef.current, completion.text)
+				setNoticeVersion((version) => version + 1)
+			}),
+		[session],
+	)
+	/**
+	 * A turn that ended over background agents still running. Its closing line is
+	 * written when they end, with the wait counted; until then one dim line names
+	 * what is pending.
+	 */
+	const closingWaitRef = useRef<{
+		readonly since: number
+		readonly pausedMs: number
+		readonly lastEndedAt: number
+	} | null>(null)
+	const [closingWaitVersion, setClosingWaitVersion] = useState(0)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the version is what moves; the ref holds the wait.
+	useEffect(() => {
+		closingWaitRef.current = null
+		setClosingWaitVersion((version) => version + 1)
+	}, [session])
+	// The agents ended: write the closing line the turn was holding, with the
+	// wait counted. Only between turns, so it never lands inside a streaming reply.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the version moves with the ref.
+	useEffect(() => {
+		const wait = closingWaitRef.current
+		if (wait === null || state !== 'idle') return
+		const mine = subagents.filter(
+			(agent) =>
+				agent.replayed !== true && !isWorkflowRunAgent(agent) && agent.startedAt >= wait.since,
+		)
+		if (pendingBackgroundAgents(mine, isWorkflowRunAgent).length > 0) return
+		if (workflowRuns.some((run) => run.status === 'running')) return
+		closingWaitRef.current = null
+		setClosingWaitVersion((version) => version + 1)
+		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine)
+		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, theme.text.muted)
+	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
 	const queueSelectionRef = useRef<number | null>(null)
@@ -3443,6 +3518,9 @@ export function App({
 				const stamp =
 					previous !== undefined && previous.count === members.length ? previous.at : now
 				if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
+				// A batch the turn waits on is a live group while it runs and writes its
+				// one finished receipt when every member has ended.
+				if (members.some((agent) => agent.background !== true) && members.some(isRunning)) continue
 				const settledMember = members.some((agent) =>
 					['completed', 'failed', 'cancelled'].includes(agent.status),
 				)
@@ -3494,7 +3572,17 @@ export function App({
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
 			// Its receipt first, even if that means writing it alone.
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
-			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
+			const batchMembers = batches.get(key) ?? [agent]
+			// A batch the turn waits on writes its one receipt when every member has
+			// ended (the receipt loop above); each member still says how it ended now.
+			const batchStillLive =
+				batchMembers.some((member) => member.background !== true) && batchMembers.some(isRunning)
+			if (
+				!agent.replayed &&
+				!agent.resumed &&
+				!batchStillLive &&
+				!reportedBatchesRef.current.has(key)
+			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
 					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
@@ -8155,14 +8243,25 @@ export function App({
 						// A turn that delegated always says what its agents came to; one
 						// that did not closes with its time only when it finished, since
 						// a stop or a cancellation has already said how it ended.
+						const pausedMs = pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)
+						// Background agents still running: the turn is over, its closing line
+						// waits for them (`Waiting for N background agents to finish` until
+						// they end), and counts the wait.
+						if (
+							pendingBackgroundAgents(delegated, isWorkflowRunAgent).length > 0 &&
+							(st.completed || st.outcome === 'completed')
+						) {
+							const earlier = closingWaitRef.current
+							closingWaitRef.current = {
+								since: earlier?.since ?? since,
+								pausedMs: (earlier?.pausedMs ?? 0) + pausedMs,
+								lastEndedAt: Date.now(),
+							}
+							setClosingWaitVersion((version) => version + 1)
+						}
 						const closing =
-							delegated.length > 0 || st.completed
-								? settleLine(
-										Date.now() -
-											since -
-											(pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)),
-										delegated,
-									)
+							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
+								? settleLine(Date.now() - since - pausedMs, delegated)
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -12816,6 +12915,15 @@ export function App({
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
 				if (interruptWithRow(false)) return
+				// Nothing is running in the conversation: Ctrl+C ends the background
+				// agents first, once, and says so. Exit arms only when none is left.
+				const stoppable = stoppableBackgroundAgents(railRowsRef.current)
+				if (stoppable.length > 0) {
+					tellModelAgentsStopped(stoppable)
+					for (const agent of stoppable) session?.stopSubagent?.(agent.viewId)
+					pushMessage('system', stopAllStep(stoppable.length, true).notice)
+					return
+				}
 				armExit('Ctrl-C')
 			}
 		},
@@ -12837,6 +12945,18 @@ export function App({
 			: {}),
 		env: process.env,
 	})
+	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent)
+	const closingWait = closingWaitRef.current
+	const backgroundWaitText =
+		closingWait !== null && state === 'idle'
+			? backgroundWaitLine(
+					pendingBackgroundAgents(
+						subagents.filter((agent) => agent.startedAt >= closingWait.since),
+						isWorkflowRunAgent,
+					).length,
+					workflowRuns.filter((run) => run.status === 'running').length,
+				)
+			: undefined
 	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
@@ -13189,6 +13309,18 @@ export function App({
 									questionDialog !== null ||
 									scheduleReviewPrompt !== null
 								}
+							/>
+						) : null}
+						{agentSurface === null &&
+						outputViewer === null &&
+						!scrollOpen &&
+						jobSurface === null &&
+						permission === null &&
+						scheduleReviewPrompt === null ? (
+							<BackgroundAgentRows
+								groups={backgroundGroups}
+								waitLine={backgroundWaitText}
+								glyph={CLOSING_GLYPH}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.

@@ -80,6 +80,9 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 			].map((label) => oneLine(label))
 		: []
 	const where = labels.length > 0 ? ` · ${labels.join(' / ')}` : ''
+	const ended = (agent: SubagentActivity): boolean =>
+		agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled'
+	const allEnded = members.every(ended)
 	if (members.length === 1 && first) {
 		// `↓ to manage` only for background work: a foreground agent is waited on.
 		const hint = first.background === true ? ` (${AGENT_MANAGE_HINT})` : ''
@@ -93,7 +96,9 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// Agents started in the background say so; a batch the turn waits on does not.
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
-		: `Launched ${members.length} agents${where}`
+		: allEnded
+			? `${members.length} agents finished${where}`
+			: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
 }
 

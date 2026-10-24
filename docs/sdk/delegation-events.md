@@ -107,6 +107,15 @@ completion retained, rather than announcing success over an unchanged plan.
 The tracking promise and inbox belong to the live turn; they do not reconstruct
 worker execution or replay interrupted writes after a process restart.
 
+`new CompletionInbox(log, { holdsTurnOpen: false })` lets a turn end while the
+tasks it launched are still running. By default (`true`) a turn about to end waits
+at its settle point for them, so their results enter the same turn. With `false`
+it does not wait and does not report them as abandoned (`abandonedTaskIds` stays
+absent); the host owns them from then on and must keep them alive and tell the
+model when they end. A completion that has already arrived is delivered either
+way. The terminal uses this so that it can end a turn over background agents and
+wake the model when they finish.
+
 Hosts composing `CompletionInbox` can register an owned task's persistence
 promise with `deferDelivery(taskId, settlement)` immediately after
 `launched(taskId)`. This accepts only an owned, undelivered task; it does not
