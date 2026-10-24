@@ -97,8 +97,8 @@ describe('restoring a selected prompt', () => {
 
 		expect(harness.lastFrame()).toContain('original prompt')
 		expect(harness.lastFrame()).toContain('Image #1')
-		expect(harness.lastFrame()).toContain('Document #2 — design.pdf')
-		expect(harness.lastFrame()).toContain('Image #3 — diagram.webp (stored)')
+		expect(harness.lastFrame()).toContain('[Document #2]')
+		expect(harness.lastFrame()).toContain('[Image #3]')
 		expect(harness.onDraftRestored).toHaveBeenCalledWith(7)
 
 		harness.stdin.write(' revised')

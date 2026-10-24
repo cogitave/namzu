@@ -224,8 +224,8 @@ it('forks before the selection, restores every attachment, and never mutates the
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Forked into "Source conversation (fork)"')
 	await frameShows(harness, 'selected prompt')
-	await frameShows(harness, 'Document #2 — design.pdf')
-	await frameShows(harness, 'Image #3 — diagram.webp (stored)')
+	await frameShows(harness, '[Document #2]')
+	await frameShows(harness, '[Image #3]')
 
 	harness.stdin.write(' revised')
 	await tick()
