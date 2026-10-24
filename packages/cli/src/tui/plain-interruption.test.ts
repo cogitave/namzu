@@ -259,17 +259,17 @@ describe('a paused reply in the terminal app', () => {
 		[
 			'server error',
 			unavailable,
-			'Paused: OpenAI is having problems on its side. Press Enter to try again, or type a new message.',
+			'Paused. OpenAI is having problems on its side. Press Enter to continue, or Esc to stop.',
 		],
 		[
 			'offline',
 			offline,
-			'Paused: Namzu could not reach OpenAI. Press Enter to try again, or type a new message.',
+			'Paused. Namzu could not reach OpenAI. Press Enter to continue, or Esc to stop.',
 		],
 		[
 			'rate limited',
 			limited,
-			'Paused: OpenAI is limiting requests right now. Wait about 1m 05s, then press Enter to try again, or type a new message.',
+			'Paused. OpenAI is limiting requests right now. Wait about 1m 05s. Press Enter to continue, or Esc to stop.',
 		],
 	])('reads plainly when %s, with no checkpoint id', (_name, extra, expected) => {
 		const text = describePlainInterruption(paused(extra))
@@ -294,7 +294,24 @@ describe('a paused reply in the terminal app', () => {
 				},
 			}),
 		)
-		expect(text).toBe('Paused, and needs you: Sign in to the site\npage: login')
+		expect(text).toBe(
+			'Paused. Sign in to the site. Press Enter to continue, or Esc to stop.\nPage: login',
+		)
+	})
+
+	it('labels a tool’s attached facts instead of printing their raw keys', () => {
+		const text = describePlainInterruption(
+			paused({
+				handoff: {
+					kind: 'human-required',
+					reason: 'Sign in',
+					detail: { login_url: 'https://x.test', siteName: 'x' },
+				},
+			}),
+		)
+		expect(text).toContain('Login url: https://x.test')
+		expect(text).toContain('Site name: x')
+		expect(text).not.toContain('login_url')
 	})
 })
 

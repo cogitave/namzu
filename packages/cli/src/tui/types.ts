@@ -49,7 +49,7 @@ export interface TranscriptMessage {
 	 * a blank line between consecutive calls, and never wrap: they are cut at
 	 * the terminal's width with an ellipsis.
 	 */
-	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web'
+	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web' | 'summary'
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */

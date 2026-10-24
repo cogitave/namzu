@@ -442,6 +442,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 			case 'hosted_tool':
 			case 'tool_calls_admitted':
 			case 'compaction_shed':
+			case 'compaction_started':
 				// Deliberately silent. The report is what a human reads about a
 				// run; replaying every shed message into it would bury the
 				// summary line that says the pass happened, in exactly the

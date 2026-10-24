@@ -310,6 +310,15 @@ import {
 	moveChoiceSelection,
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
+import {
+	COMPACTED_HINT,
+	COMPACTING_LABEL,
+	COMPACT_NOT_SAVED_TEXT,
+	COMPACT_RESULT_HINT,
+	COMPACT_RESULT_TEXT,
+	NOTHING_TO_COMPACT_TEXT,
+	compactionSummaryLines,
+} from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { contextMeter } from './context-meter.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
@@ -372,6 +381,7 @@ import { needsQuestionDialog } from './question-dialog.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
+	deliveryLevel,
 	sourceConversationBinding,
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
@@ -398,6 +408,16 @@ import {
 	writeSuggestionLedger,
 } from './skills/suggestion-ledger.js'
 import {
+	CLOSING_GLYPH,
+	CONTINUATION_GLYPH,
+	SYSTEM_ROW_GLYPH,
+	type SystemLevel,
+	clipboardSentNotice,
+	goalRoundHeadline,
+	interruptionRow,
+	systemRowStyle,
+} from './system-rows.js'
+import {
 	type TaskOperation,
 	applyTaskOperation,
 	isTaskTool,
@@ -409,7 +429,7 @@ import {
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
 import { declinedLine } from './tidy-tool-output.js'
 import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
-import { transcriptTagLine } from './triggers/copy.js'
+import { STEERED_NOT_APPLIED_REASON, notAppliedLine, transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
 import {
 	BUILTIN_TRIGGERS,
@@ -611,7 +631,10 @@ type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin
 	readonly options: readonly ChoicePickerOption[]
 }
 
-type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?: object } & (
+type ChoicePickerState = {
+	readonly back?: ChoicePickerState
+	readonly request?: object
+} & (
 	| PluginChoiceState
 	| {
 			readonly kind: 'resume-goal'
@@ -881,6 +904,7 @@ export function projectConversation(
 	readableUserTexts: readonly string[] = [],
 ): readonly TranscriptMessage[] {
 	let userOrdinal = 0
+	let detailOrdinal = 0
 	return messages.flatMap<TranscriptMessage>((message) => {
 		if (message.role === 'user') {
 			if (message.source?.type === 'project-instructions') {
@@ -889,7 +913,8 @@ export function projectConversation(
 						id: nextId(),
 						role: 'system',
 						content: 'Project instructions',
-						glyph: '◇',
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
 						detail: message.source.files.map(
 							(file) => `In force: ${visibleProjectInstructionPath(file)}`,
 						),
@@ -901,9 +926,16 @@ export function projectConversation(
 					{
 						id: nextId(),
 						role: 'system',
-						content: `Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
-						glyph: '◎',
-						detail: [`Objective: ${message.source.objective}`],
+						content: goalRoundHeadline(message.source.round, message.source.maxGoalRounds),
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
+					},
+					{
+						id: nextId(),
+						role: 'system',
+						content: message.source.objective,
+						glyph: CONTINUATION_GLYPH,
+						glyphColor: theme.text.muted,
 					},
 				]
 			}
@@ -917,7 +949,8 @@ export function projectConversation(
 						id: nextId(),
 						role: 'system',
 						content: runtimeContextLabel(message.source.kind),
-						glyph: '↳',
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
 						detail: [message.content],
 					},
 				]
@@ -940,13 +973,18 @@ export function projectConversation(
 			}))
 		}
 		if (message.role === 'system' && isCompactionMessage(message.content)) {
+			detailOrdinal += 1
 			return [
 				{
 					id: nextId(),
 					role: 'system',
-					content: 'Earlier replies are summarised below.',
-					glyph: '⌫',
+					content: 'Conversation compacted',
+					glyph: CLOSING_GLYPH,
+					glyphColor: theme.text.muted,
+					meta: COMPACTED_HINT,
+					activity: 'summary',
 					detail: summaryDetail(message),
+					detailRef: detailOrdinal,
 				},
 			]
 		}
@@ -1372,7 +1410,12 @@ export function App({
 		readonly pending: Map<string, string>
 		readonly delivered: Set<string>
 		readonly shown: Set<string>
-	}>({ ownerSession: null, pending: new Map(), delivered: new Set(), shown: new Set() })
+	}>({
+		ownerSession: null,
+		pending: new Map(),
+		delivered: new Set(),
+		shown: new Set(),
+	})
 	const [jobSnapshot, setJobSnapshot] = useState<{
 		readonly ownerSession: AgentSession | null
 		readonly jobs: readonly BackgroundJob[]
@@ -1622,6 +1665,12 @@ export function App({
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
+	// A summary is being written inside a running reply (the clearing pass was
+	// not enough), so the live area says so until the pass ends.
+	const [summarising, setSummarising] = useState(false)
+	// The session whose effort listing has answered, so "still loading" is never
+	// said about a model that already reported it has no levels.
+	const reasoningListedRef = useRef<AgentSession | null>(null)
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
 	const {
 		selection: selectedResume,
@@ -1711,7 +1760,10 @@ export function App({
 		readonly turnId: string
 		readonly reason?: string
 	} | null>(null)
-	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(null)
+	const handoffParkRef = useRef<{
+		readonly turnId: string
+		readonly reason?: string
+	} | null>(null)
 	const setHandoffPark = useCallback(
 		(value: { readonly turnId: string; readonly reason?: string } | null) => {
 			handoffParkRef.current = value
@@ -2116,7 +2168,10 @@ export function App({
 		codexLoginRef.current = null
 	}, [])
 	const runProbeRef = useRef<
-		| ((options?: { readonly signal?: AbortSignal; readonly announce?: boolean }) => Promise<void>)
+		| ((options?: {
+				readonly signal?: AbortSignal
+				readonly announce?: boolean
+		  }) => Promise<void>)
 		| null
 	>(null)
 	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
@@ -2322,7 +2377,10 @@ export function App({
 				scheduleLiveRef.current?.review(request, signal) ?? Promise.resolve('cancel' as const),
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
-				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
+				Promise.resolve({
+					kind: 'reject' as const,
+					feedback: 'Nobody can answer yet.',
+				}),
 			submit: (text, createdBy) => scheduleLiveRef.current?.submit(text, createdBy),
 		})
 	}
@@ -2714,8 +2772,14 @@ export function App({
 			shell?: ShellOutput,
 			diff?: TranscriptMessage['diff'],
 		) => {
+			// One mapping for every system row: a caller that names no glyph gets
+			// the dim notice dot, so no producer can bypass `systemRowStyle`.
+			const noticeStyle =
+				role === 'system' && glyph === undefined && !pending ? systemRowStyle('notice') : undefined
+			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
+			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
-			const candidate = { role, content, pending, glyph, detail, activity }
+			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -2728,9 +2792,9 @@ export function App({
 								role,
 								content,
 								pending,
-								glyph,
+								glyph: rowGlyph,
 								detail,
-								glyphColor,
+								glyphColor: rowGlyphColor,
 								meta,
 								activity,
 								...(shell ? { shell } : {}),
@@ -2757,6 +2821,44 @@ export function App({
 			return id
 		},
 		[nextId],
+	)
+	/**
+	 * Every system row except the two `✻` lines goes through here: the level
+	 * picks the dot's colour, and a second line, when there is one, hangs
+	 * under the dot as `⎿`. No caller chooses a glyph of its own.
+	 */
+	const pushSystem = useCallback(
+		(
+			level: SystemLevel,
+			content: string,
+			options?: {
+				readonly detail?: readonly string[]
+				readonly meta?: string
+				readonly continuation?: string
+			},
+		) => {
+			const style = systemRowStyle(level)
+			const id = pushMessage(
+				'system',
+				content,
+				false,
+				style.glyph,
+				options?.detail,
+				style.color,
+				options?.meta,
+			)
+			if (options?.continuation)
+				pushMessage(
+					'system',
+					options.continuation,
+					false,
+					CONTINUATION_GLYPH,
+					undefined,
+					theme.text.muted,
+				)
+			return id
+		},
+		[pushMessage],
 	)
 	useEffect(
 		() =>
@@ -2878,7 +2980,11 @@ export function App({
 	 * has proposed one, and whether it has used a skill. Keyed by the
 	 * conversation generation, so `/clear`, `/resume` and a fork start over.
 	 */
-	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
+	const learningRef = useRef({
+		generation: -1,
+		proposed: false,
+		skillUsed: false,
+	})
 	/** `/skills save off|on` in this session, over whatever the config files say. */
 	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
 	/** `/config triggers on|off` in this session, over whatever the config files say. */
@@ -3423,7 +3529,10 @@ export function App({
 	 * asking, with the reason in the transcript, and the footer follows.
 	 */
 	const handleAutoModeLimit = useCallback(
-		(event: { readonly limit: 'consecutive' | 'total'; readonly reason: string }): void => {
+		(event: {
+			readonly limit: 'consecutive' | 'total'
+			readonly reason: string
+		}): void => {
 			if (permissionModeRef.current !== 'classify') return
 			commitPermissionMode('prompt', false)
 			pushMessage(
@@ -3542,7 +3651,7 @@ export function App({
 					setReasoningEffort(pin.before)
 					pushMessage(
 						'system',
-						`Hypermode is off — effort back to ${pin.before ?? 'the provider default'}.`,
+						`Hypermode is off. Effort is back to ${pin.before ?? 'the provider default'}.`,
 					)
 					return
 				}
@@ -3554,37 +3663,49 @@ export function App({
 				if (pinned === undefined) return false
 				// Turning it on twice keeps the effort from before the first time.
 				if (!hypermodePinRef.current)
-					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					hypermodePinRef.current = {
+						before: reasoningEffortRef.current,
+						pinned,
+					}
 				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
 				setReasoningEffort(pinned)
 				pushMessage(
 					'system',
-					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this conversation.`,
+					`Hypermode is on for this conversation: ${pinned} effort, and Namzu will split big tasks across agents.`,
 				)
 				return true
 			}
 			if (pinNow()) return
-			if (session.reasoningSettled !== undefined && session.reasoningEffortLevels === undefined) {
+			if (
+				session.reasoningSettled !== undefined &&
+				session.reasoningEffortLevels === undefined &&
+				// Only a listing that has not answered yet is "still loading"; one that
+				// answered with no levels has said so already, and /effort agrees.
+				reasoningListedRef.current !== session
+			) {
 				// The model's effort menu is still loading: say so, and pin when it lands
 				// unless the mode was switched off or the session replaced meanwhile.
 				pushMessage(
 					'system',
-					`Hypermode is on — the effort menu for ${session.modelSummary ?? 'this model'} is still loading; effort will be pinned once it arrives. Delegation guidance is strengthened for this conversation.`,
+					`Hypermode is on for this conversation: Namzu will split big tasks across agents. Effort is set once ${session.modelSummary ?? 'the model'}'s settings finish loading.`,
 				)
 				void session.reasoningSettled.then(() => {
 					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
 					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
 					const pinned = hypermodeEffort(session.reasoningEffortLevels)
 					if (pinned === undefined) return
-					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					hypermodePinRef.current = {
+						before: reasoningEffortRef.current,
+						pinned,
+					}
 					setReasoningEffort(pinned)
-					pushMessage('system', `Effort pinned to ${pinned} for hypermode.`)
+					pushMessage('system', `Effort set to ${pinned} for hypermode.`)
 				})
 				return
 			}
 			pushMessage(
 				'system',
-				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this conversation.`,
+				`Hypermode is on for this conversation: Namzu will split big tasks across agents. ${session.modelSummary ?? 'This model'} has no effort levels to choose from, so effort stays as it is.`,
 			)
 		},
 		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
@@ -3637,7 +3758,7 @@ export function App({
 		(sessionId: SessionId, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			const sessions = sessionsRef.current
 			if (!sessions) {
-				pushMessage('system', 'Could not record feedback: this conversation is not being saved.')
+				pushSystem('error', 'Could not record feedback: this conversation is not being saved.')
 				return
 			}
 			// Feedback lives beside the conversation's log (`<session-id>/feedback/`)
@@ -3662,11 +3783,11 @@ export function App({
 					})
 					pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
 				} catch (error) {
-					pushMessage('system', explainFailure(error, 'Could not record feedback.'))
+					pushSystem('error', explainFailure(error, 'Could not record feedback.'))
 				}
 			})()
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	const activateSkill = useCallback(
@@ -3688,10 +3809,10 @@ export function App({
 				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not load skill "${name}".`))
+				pushSystem('error', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
-		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
+		[conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -3734,7 +3855,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not remove ${homePath(path)}.`))
+				pushSystem('error', explainFailure(error, `Could not remove ${homePath(path)}.`))
 				return
 			}
 			pushMessage(
@@ -3746,7 +3867,7 @@ export function App({
 				),
 			)
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	/** Publish one recoverable, read-only tombstone before leaving the TUI. */
@@ -3907,7 +4028,10 @@ export function App({
 						case 'request-sent':
 							pushMessage(
 								'system',
-								`Export copy request sent for ${plural(projected.turns, 'reply', 'replies')} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+								clipboardSentNotice(
+									projected.markdown.length,
+									plural(projected.turns, 'reply', 'replies'),
+								),
 							)
 							break
 						case 'unavailable':
@@ -4147,7 +4271,7 @@ export function App({
 							return
 						if (!mergeBase) {
 							setChoicePicker(null)
-							pushMessage('system', `Could not resolve a merge base for ${branch}.`)
+							pushSystem('error', `Could not resolve a merge base for ${branch}.`)
 							return
 						}
 						advanceQueueContinuation()
@@ -4198,7 +4322,10 @@ export function App({
 					false,
 					'?',
 				)
-				resolveQuestion({ kind: 'answer', selectedOptionIds: [value as string] })
+				resolveQuestion({
+					kind: 'answer',
+					selectedOptionIds: [value as string],
+				})
 				return
 			}
 			if (picker.kind === 'review-commit') {
@@ -4367,15 +4494,12 @@ export function App({
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
 			switch (result.kind) {
 				case 'request-sent':
-					pushMessage(
-						'system',
-						`Copy request sent for ${selection} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
-					)
+					pushMessage('system', clipboardSentNotice(target.text.length, selection))
 					break
 				case 'unavailable':
 					pushMessage(
 						'system',
-						`Cannot send a copy request here — ${result.detail}. /copy needs an interactive terminal with OSC 52 clipboard support.`,
+						`Couldn’t copy here: ${result.detail}. /copy needs a terminal that allows clipboard access.`,
 					)
 					break
 				case 'too-large':
@@ -4385,7 +4509,7 @@ export function App({
 					)
 					break
 				case 'write-failed':
-					pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
+					pushSystem('error', `Could not send the terminal copy request: ${result.detail}`)
 					break
 				default: {
 					const exhaustive: never = result
@@ -4393,7 +4517,7 @@ export function App({
 				}
 			}
 		},
-		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout],
+		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout, pushSystem],
 	)
 
 	const sendTerminalNotification = useCallback(
@@ -4759,7 +4883,10 @@ export function App({
 				options.beforePublish?.()
 				commands = definition
 					? []
-					: discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
+					: discoverUserCommands({
+							cwd: activeCtx.cwd,
+							reserved: hostCommandNames(),
+						})
 				// Construction and validation precede the saved change. There is no
 				// await between this atomic write and publishing the usable session.
 				if (persistSelection && !definition) writePreferences(prefs)
@@ -4852,6 +4979,7 @@ export function App({
 				// listing. A listing that fails costs the effort menu and nothing else.
 				void s.reasoningSettled.then(({ notice }) => {
 					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					reasoningListedRef.current = s
 					setReasoningVersion((version) => version + 1)
 					if (notice) pushMessage('system', notice)
 					settleEffort()
@@ -5125,7 +5253,12 @@ export function App({
 	)
 
 	const runProbe = useCallback(
-		async (options: { readonly signal?: AbortSignal; readonly announce?: boolean } = {}) => {
+		async (
+			options: {
+				readonly signal?: AbortSignal
+				readonly announce?: boolean
+			} = {},
+		) => {
 			const { signal, announce = false } = options
 			try {
 				if (signal?.aborted) return
@@ -5163,7 +5296,10 @@ export function App({
 				if (pinnedPal?.model) {
 					const preferences = tuiPalPreferences(pinnedPal, probe.preferences)
 					if (!preferences) throw new Error('The Pal has no available model route.')
-					await hydrateSession(preferences, probe.detected, { signal, announce })
+					await hydrateSession(preferences, probe.detected, {
+						signal,
+						announce,
+					})
 					return
 				}
 				const launch = ctxRef.current.launchSettings
@@ -5255,7 +5391,10 @@ export function App({
 				if (probe.preferences) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
-					await hydrateSession(probe.preferences, probe.detected, { signal, announce })
+					await hydrateSession(probe.preferences, probe.detected, {
+						signal,
+						announce,
+					})
 					return
 				}
 				const signedIn = signedInSubscriptionProviders(probe.detected)
@@ -5279,7 +5418,10 @@ export function App({
 						if (!admissionSignal.aborted)
 							pushMessage(
 								'system',
-								describeAutomaticChoice({ provider: chosen, kind: automaticKind(chosen) }),
+								describeAutomaticChoice({
+									provider: chosen,
+									kind: automaticKind(chosen),
+								}),
 							)
 						return
 					} catch (error) {
@@ -5684,10 +5826,10 @@ export function App({
 				await session.abandonTurn(active.turnId as TurnId, reason)
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t stop the paused reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
-		[pushMessage, session, state],
+		[pushMessage, session, state, pushSystem],
 	)
 
 	/**
@@ -5784,7 +5926,9 @@ export function App({
 								currentPermissionMode: () => permissionModeRef.current,
 								onAutoModeLimit: handleAutoModeLimit,
 								...(resume?.handoffReason
-									? { systemNote: handoffContinuationNote(resume.handoffReason) }
+									? {
+											systemNote: handoffContinuationNote(resume.handoffReason),
+										}
 									: {}),
 							}),
 				})) {
@@ -5810,7 +5954,7 @@ export function App({
 					advanceQueueContinuation()
 				}
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t continue this reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t continue this reply.'))
 			} finally {
 				if (abortRef.current === ac) abortRef.current = null
 				setState('idle')
@@ -5832,6 +5976,7 @@ export function App({
 			session,
 			setHandoffPark,
 			state,
+			pushSystem,
 		],
 	)
 
@@ -5897,7 +6042,7 @@ export function App({
 				setSelectedResume(0)
 				setPhase('resume')
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+				pushSystem('error', explainFailure(err, 'Could not list conversations.'))
 			}
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
@@ -5941,7 +6086,7 @@ export function App({
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list archived conversations.'))
+			pushSystem('error', explainFailure(err, 'Could not list archived conversations.'))
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
@@ -5952,7 +6097,10 @@ export function App({
 		screenConsent: pending.screenConsent === true,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
-			? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
+			? {
+					commandArguments: session.commandArguments,
+					rememberWhere: homePath(ctx.cwd),
+				}
 			: {}),
 	})
 
@@ -6064,6 +6212,7 @@ export function App({
 				setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 			} else discardQueued()
 			clearActiveTools()
+			setSummarising(false)
 			setState('idle')
 			return true
 		},
@@ -6079,16 +6228,40 @@ export function App({
 		],
 	)
 	/**
+	 * The one way a turn is interrupted from the keyboard: stop it, then leave
+	 * the one interruption row behind. The row hangs under the call that was
+	 * running when there was one (read before the stop clears it), and says
+	 * only "Interrupted" after a send-now steer, whose answer is already on its
+	 * way. `always` draws the row even when nothing was running to stop.
+	 */
+	const interruptWithRow = useCallback(
+		(
+			recoverInput: boolean,
+			options?: { readonly steered?: boolean; readonly always?: boolean },
+		) => {
+			const callRunning = activeToolsRef.current.length > 0
+			const interrupted = interruptTurn(recoverInput)
+			if (interrupted || options?.always === true) {
+				const row = interruptionRow({
+					callRunning,
+					...(options?.steered ? { steered: true } : {}),
+				})
+				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
+			}
+			return interrupted
+		},
+		[interruptTurn, pushMessage],
+	)
+	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
 	 * pending steer (the reply stops, the steer starts the next one); a queue
 	 * that was only held by that interruption is released so it runs too.
 	 */
 	const sendPendingNow = useCallback(() => {
 		if (!abortRef.current) return
-		interruptTurn(true)
+		interruptWithRow(true, { steered: true, always: true })
 		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
-		pushMessage('system', 'Interrupted.')
-	}, [interruptTurn, pushMessage, setQueuePause])
+	}, [interruptWithRow, setQueuePause])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -6174,7 +6347,7 @@ export function App({
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not resume that conversation.'))
+				pushSystem('error', explainFailure(err, 'Could not resume that conversation.'))
 				return
 			}
 			resumeCommittedRef.current = false
@@ -6265,6 +6438,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6416,7 +6590,7 @@ export function App({
 									? ''
 									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
 							}`
-						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
+						: `Started a fresh conversation. Conversations cannot be saved right now, so this one is lost when you quit.${
 								clearScreen
 									? ''
 									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
@@ -6435,8 +6609,8 @@ export function App({
 					)
 				}
 			} catch (err) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						err,
 						'Couldn’t start a new conversation. The current one and any running reply are unchanged.',
@@ -6461,6 +6635,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6617,10 +6792,10 @@ export function App({
 						: `Named "${title}".`,
 				)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save the name.'))
+				pushSystem('error', explainFailure(err, 'Could not save the name.'))
 			}
 		},
-		[materializeConversation, pushMessage, setTextPrompt],
+		[materializeConversation, pushMessage, setTextPrompt, pushSystem],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -6640,7 +6815,11 @@ export function App({
 				if (pending) {
 					pushMessage('system', `Answered "${pending.question.question}": ${text}`, false, '?')
 				}
-				resolveQuestion({ kind: 'answer', selectedOptionIds: [], freeText: text })
+				resolveQuestion({
+					kind: 'answer',
+					selectedOptionIds: [],
+					freeText: text,
+				})
 				return
 			}
 
@@ -6681,8 +6860,7 @@ export function App({
 					}
 					pushMessage('system', `Named "${value.trim()}".`)
 				},
-				(error: unknown) =>
-					pushMessage('system', explainFailure(error, 'Could not save the name.')),
+				(error: unknown) => pushSystem('error', explainFailure(error, 'Could not save the name.')),
 			)
 		},
 		[pushMessage, runConversationExport, setTextPrompt],
@@ -6771,7 +6949,7 @@ export function App({
 				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not fork.'))
+			pushSystem('error', explainFailure(err, 'Could not fork.'))
 		} finally {
 			conversationMutationRef.current = null
 			setConversationMutation(null)
@@ -6786,6 +6964,7 @@ export function App({
 		resetSubagentActivity,
 		session,
 		wakeGoalDriver,
+		pushSystem,
 	])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
@@ -6856,10 +7035,10 @@ export function App({
 				// this before its next turn.
 				operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not restore the files.'))
+				pushSystem('error', explainFailure(err, 'Could not restore the files.'))
 			}
 		},
-		[hasUnsettledTurn, pushMessage, session, state],
+		[hasUnsettledTurn, pushMessage, session, state, pushSystem],
 	)
 
 	/** Fork before the selected prompt, then reopen that prompt in the composer. */
@@ -6944,7 +7123,7 @@ export function App({
 				)
 			} catch (err) {
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not edit the selected prompt.'))
+				pushSystem('error', explainFailure(err, 'Could not edit the selected prompt.'))
 			} finally {
 				editCommittedRef.current = false
 				conversationMutationRef.current = null
@@ -6964,6 +7143,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -7060,7 +7240,12 @@ export function App({
 							...(option.recommended === true ? { recommended: true } : {}),
 						})),
 						...(question.allowFreeText
-							? [{ label: 'Something else…', description: 'Answer in your own words' }]
+							? [
+									{
+										label: 'Something else…',
+										description: 'Answer in your own words',
+									},
+								]
 							: []),
 					],
 				}
@@ -7362,7 +7547,11 @@ export function App({
 					totalTokens: budget.ownTokens,
 					budget,
 					cost: {
-						...(own?.cost ?? { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 }),
+						...(own?.cost ?? {
+							totalCost: 0,
+							cacheDiscount: 0,
+							unpricedTokens: 0,
+						}),
 						unpricedTokens:
 							(own?.cost.unpricedTokens ?? 0) +
 							Math.max(0, budget.ownTokens - (own?.totalTokens ?? 0)),
@@ -7436,7 +7625,10 @@ export function App({
 							: undefined
 					const tool: RunningTool = {
 						...(waitingAgent
-							? { taskId: waitingAgent.taskId, waitingOn: waitingAgent.description }
+							? {
+									taskId: waitingAgent.taskId,
+									waitingOn: waitingAgent.description,
+								}
 							: {}),
 						id: event.toolUseId,
 						...(event.turnId ? { turnId: event.turnId } : {}),
@@ -7472,7 +7664,9 @@ export function App({
 						...withoutFraction,
 						progress: event.message,
 						...(current.command !== undefined
-							? { tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES) }
+							? {
+									tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES),
+								}
 							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 					}
@@ -7749,7 +7943,12 @@ export function App({
 						// words in stdout; they read as the error they are.
 						const settled: ShellOutput =
 							event.isError && event.shell.stderr.length === 0
-								? { ...event.shell, stdout: [], stderr: event.shell.stdout, failed: true }
+								? {
+										...event.shell,
+										stdout: [],
+										stderr: event.shell.stdout,
+										failed: true,
+									}
 								: { ...event.shell, failed }
 						pushMessage(
 							'tool',
@@ -7872,7 +8071,24 @@ export function App({
 					// someone reading back could not tell whether the gap they are
 					// looking at was compacted. The event is a fact about the
 					// conversation and belongs in its record.
-					pushMessage('system', event.text, false, event.shed ? '⌫' : '⌦')
+					// Tool-result clearing is tallied for /context and never drawn;
+					// the summary that follows a clearing pass that was not enough
+					// shows as a live "Compacting conversation…" line meanwhile.
+					setSummarising(event.compacting === true)
+					if (event.row === 'compacted') {
+						pushMessage(
+							'system',
+							event.text,
+							false,
+							CLOSING_GLYPH,
+							event.detail,
+							theme.text.muted,
+							COMPACTED_HINT,
+							'summary',
+						)
+					} else if (event.row !== 'hidden') {
+						pushSystem(event.row === 'warning' ? 'warning' : 'notice', event.text)
+					}
 					if (event.shed) {
 						setCompactionTally((tally) => ({
 							passes: tally.passes + 1,
@@ -7884,7 +8100,7 @@ export function App({
 					}
 					break
 				case 'hook-notice':
-					pushMessage('system', event.text, false, '!')
+					pushSystem(event.halted ? 'warning' : 'notice', event.text)
 					break
 				case 'provider-fallback':
 					// The transcript, for the reason compaction is in the transcript
@@ -7892,11 +8108,11 @@ export function App({
 					// thing happens, and someone reading back a session needs to know
 					// which answers came from the provider they picked and which did
 					// not. A swap is a permanent fact about this turn.
-					pushMessage('system', event.text, false, '⇄')
+					pushSystem('warning', event.text)
 					break
 				case 'capability-warning':
-					pushMessage(
-						'system',
+					pushSystem(
+						'warning',
 						withDebugDetail(
 							describeCapabilityNotice({
 								capability: event.capability,
@@ -7906,13 +8122,11 @@ export function App({
 							event.text,
 							debugRequested(),
 						),
-						false,
-						'!',
 					)
 					break
 				case 'history-repair':
-					pushMessage(
-						'system',
+					pushSystem(
+						'notice',
 						withDebugDetail(
 							describeHistoryRepairNotice({
 								source: event.source,
@@ -7929,11 +8143,10 @@ export function App({
 							event.text,
 							debugRequested(),
 						),
-						false,
-						'!',
 					)
 					break
 				case 'done': {
+					setSummarising(false)
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
 					if (event.text !== undefined) st.text = event.text
@@ -7950,7 +8163,7 @@ export function App({
 					}
 					closeAssistant()
 					const stopNotice = describeTurnStop(event.stopReason, event.budget)
-					if (stopNotice) pushMessage('system', stopNotice, false, '■')
+					if (stopNotice) pushSystem('warning', stopNotice)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
@@ -7967,7 +8180,8 @@ export function App({
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
-						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
+						if (closing)
+							pushMessage('system', closing, false, CLOSING_GLYPH, undefined, theme.text.muted)
 					}
 					// A save the operator asked for in words takes the place of
 					// the proposal to save it.
@@ -7976,6 +8190,7 @@ export function App({
 					break
 				}
 				case 'paused':
+					setSummarising(false)
 					// Paused is a recoverable SDK verdict, not success and not failure.
 					// Conversation evidence has no paused member, so it records the
 					// truthful coarse outcome (`stopped`) while queue copy retains the
@@ -7994,28 +8209,26 @@ export function App({
 						// Without a window the sign-in happens in `namzu browser
 						// login`, which needs the profile this session holds.
 						if (browserNotice && browser && browserStatus?.headless) void browser.release()
-						pushMessage(
-							'system',
-							browserNotice ??
-								`${describePlainInterruption(event, plainOptions())}\nWhen that is done, press Enter to continue · Esc to stop.`,
-							false,
-							'‖',
-						)
-						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
+						pushSystem('warning', browserNotice ?? describePlainInterruption(event, plainOptions()))
+						setHandoffPark({
+							turnId: event.turnId,
+							reason: event.handoff.reason,
+						})
 					} else {
-						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '‖')
+						pushSystem('warning', describePlainInterruption(event, plainOptions()))
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
 						setHandoffPark({ turnId: event.turnId })
 					}
 					break
 				case 'error':
+					setSummarising(false)
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					triggerFollowUpsRef.current?.(st, st.outcome)
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '!')
+						pushSystem('error', describePlainInterruption(event, plainOptions()))
 					} else st.notification = null
 					break
 			}
@@ -8079,8 +8292,8 @@ export function App({
 			try {
 				durableScope = await materializeConversation()
 			} catch (error) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						error,
 						'This conversation could not be saved. It will continue, but it cannot be resumed later.',
@@ -8108,7 +8321,7 @@ export function App({
 						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
 						wakeGoalDriver()
 					}
-					pushMessage('system', explainFailure(err, 'Your message was not sent.'))
+					pushSystem('error', explainFailure(err, 'Your message was not sent.'))
 					setState('idle')
 					return
 				}
@@ -8233,18 +8446,14 @@ export function App({
 			const pinnedEffort = triggerEffort(turnTriggers, session.reasoningEffortLevels)
 
 			if (prompt.kind === 'peer') {
-				pushMessage('system', peerMailLabel(prompt.mail), false, '↳')
+				pushSystem('notice', peerMailLabel(prompt.mail))
 			} else if (prompt.kind === 'notice') {
 				// The closing line for what ended is already in the conversation; the
 				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
-				pushMessage(
-					'system',
-					`Goal round ${goalRound.round} / ${goalRound.maxGoalRounds}`,
-					false,
-					'◎',
-					[`Objective: ${goalRound.objective}`],
-				)
+				pushSystem('notice', goalRoundHeadline(goalRound.round, goalRound.maxGoalRounds), {
+					continuation: goalRound.objective,
+				})
 			} else {
 				pushMessage(
 					'user',
@@ -8259,18 +8468,10 @@ export function App({
 					effort: pinnedEffort,
 					steered: false,
 				})
-				if (tagLine) pushMessage('system', tagLine, false, '✦', undefined, theme.accent.trigger)
+				if (tagLine) pushSystem('notice', tagLine)
 				for (const id of requestedTriggers) {
 					const reason = triggerUnavailable(id, triggerContext)
-					if (reason)
-						pushMessage(
-							'system',
-							`${triggerDefinition(id).label} · not applied: ${reason}`,
-							false,
-							'✧',
-							undefined,
-							theme.text.muted,
-						)
+					if (reason) pushSystem('notice', notAppliedLine([triggerDefinition(id).label], reason))
 				}
 			}
 			// A plan is scoped to the request it was made for. Cleared here, at
@@ -8359,7 +8560,10 @@ export function App({
 					activeTurnTokenRef.current !== turnToken ||
 					previousSessionRef.current !== session
 				) {
-					return { kind: 'rejected', reason: 'The requesting turn is no longer active.' }
+					return {
+						kind: 'rejected',
+						reason: 'The requesting turn is no longer active.',
+					}
 				}
 				const accepted = pendingModelSwitchRef.current
 				if (
@@ -8402,7 +8606,10 @@ export function App({
 						!stillHere() ||
 						activeTurnTokenRef.current !== turnToken
 					) {
-						return { kind: 'rejected', reason: 'The model switch was cancelled or superseded.' }
+						return {
+							kind: 'rejected',
+							reason: 'The model switch was cancelled or superseded.',
+						}
 					}
 					if (result.kind === 'rejected') return result
 					pending.selection = result.selection
@@ -8547,7 +8754,10 @@ export function App({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = {
+			let idleNoticeSnapshot: {
+				readonly ids: readonly string[]
+				readonly text?: string
+			} = {
 				ids: [],
 			}
 			let monitorSnapshot: {
@@ -8594,7 +8804,10 @@ export function App({
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
-						origin: { protocol: 'cli', kind: goalRound ? 'goal-round' : 'prompt' },
+						origin: {
+							protocol: 'cli',
+							kind: goalRound ? 'goal-round' : 'prompt',
+						},
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
@@ -8635,7 +8848,10 @@ export function App({
 						workflowReview: {
 							onPermission: async (request) => {
 								if (!workflowOwns()) {
-									return { kind: 'reject', feedback: 'The owning conversation changed.' }
+									return {
+										kind: 'reject',
+										feedback: 'The owning conversation changed.',
+									}
 								}
 								const decision = await onPermission(request)
 								// An agent can ask while no turn runs; nothing else would put the
@@ -8692,7 +8908,7 @@ export function App({
 									finalizeMessage(st.assistantId)
 									st.assistantId = null
 								}
-								for (const item of mail) pushMessage('system', peerMailLabel(item), false, '↳')
+								for (const item of mail) pushSystem('notice', peerMailLabel(item))
 							}
 							return [
 								...operatorMessages,
@@ -8761,7 +8977,7 @@ export function App({
 					// the failure would be discarded along with the turn.
 					flushStream(st)
 					if (st.assistantId) finalizeMessage(st.assistantId)
-					pushMessage('system', explainFailure(err, 'That reply failed.'))
+					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
 				if (st.completed && stillHere()) {
@@ -8829,9 +9045,15 @@ export function App({
 					// around it are decoration too.
 					abortRef.current = null
 					if (ownsTurn) activeTurnTokenRef.current = null
-					permissionResolveRef.current?.({ kind: 'reject', feedback: 'The owning turn ended.' })
+					permissionResolveRef.current?.({
+						kind: 'reject',
+						feedback: 'The owning turn ended.',
+					})
 					for (const pending of permissionQueueRef.current.splice(0))
-						pending.resolve({ kind: 'reject', feedback: 'The owning turn ended.' })
+						pending.resolve({
+							kind: 'reject',
+							feedback: 'The owning turn ended.',
+						})
 					setQueuedPermissionCount(0)
 					permissionResolveRef.current = null
 					permissionOpenedAtRef.current = null
@@ -9144,13 +9366,16 @@ export function App({
 					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
 					return
 				}
-				const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
+				const saved = appendMemoryWithStatus(note, {
+					scope: 'project',
+					cwd: ctx.cwd,
+				})
 				pushMessage('system', renderMemorySaveResult(saved, note))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save memory.'))
+				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session],
+		[ctx.cwd, pushMessage, session, pushSystem],
 	)
 
 	/**
@@ -9170,20 +9395,22 @@ export function App({
 				live.contextTexts = [
 					...new Set([...(live.contextTexts ?? []), ...triggerContextTexts(afterTurn)]),
 				]
-				const line = transcriptTagLine(afterTurn, { effort: undefined, steered: true })
-				if (line) pushMessage('system', line, false, '✦', undefined, theme.accent.trigger)
+				const line = transcriptTagLine(afterTurn, {
+					effort: undefined,
+					steered: true,
+				})
+				if (line) pushSystem('notice', line)
 			}
 			if (turnOnly.length > 0)
-				pushMessage(
-					'system',
-					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running reply. Tab queues it as a new message.`,
-					false,
-					'✧',
-					undefined,
-					theme.text.muted,
+				pushSystem(
+					'notice',
+					notAppliedLine(
+						turnOnly.map((id) => triggerDefinition(id).label),
+						STEERED_NOT_APPLIED_REASON,
+					),
 				)
 		},
-		[pushMessage],
+		[pushSystem],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -9322,7 +9549,7 @@ export function App({
 				if (palDefinitionRef.current) {
 					pushMessage(
 						'system',
-						'Host shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command in its own computer.',
+						'Shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command on its own computer.',
 					)
 					return
 				}
@@ -9367,13 +9594,12 @@ export function App({
 					(id) => triggerDefinition(id).standalone === undefined,
 				)
 				if (needTask.length > 0)
-					pushMessage(
-						'system',
-						`${needTask.map((id) => triggerDefinition(id).label).join(', ')} · not applied: the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}.`,
-						false,
-						'✧',
-						undefined,
-						theme.text.muted,
+					pushSystem(
+						'notice',
+						notAppliedLine(
+							needTask.map((id) => triggerDefinition(id).label),
+							`the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}`,
+						),
 					)
 				armedTriggers = []
 				if (!command) return
@@ -9458,7 +9684,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer message failed.')),
+									pushSystem('error', explainFailure(error, 'Peer message failed.')),
 								)
 						} else if (!verb || verb === 'list') {
 							void peers
@@ -9470,7 +9696,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer discovery failed.')),
+									pushSystem('error', explainFailure(error, 'Peer discovery failed.')),
 								)
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
@@ -9525,7 +9751,7 @@ export function App({
 								})
 							})
 							.catch((error) =>
-								pushMessage('system', explainFailure(error, 'Could not read the workflows.')),
+								pushSystem('error', explainFailure(error, 'Could not read the workflows.')),
 							)
 						return
 					}
@@ -9579,7 +9805,10 @@ export function App({
 							return
 						}
 						if (slash.kind === 'turn-limits-set') {
-							turnLimitsOverrideRef.current = { ...turnLimitsOverrideRef.current, ...slash.limits }
+							turnLimitsOverrideRef.current = {
+								...turnLimitsOverrideRef.current,
+								...slash.limits,
+							}
 						}
 						const commands = turnLimitCommands(
 							resolveTurnGuards(currentLimits, turnLimitsOverrideRef.current),
@@ -9610,7 +9839,9 @@ export function App({
 								label: 'Reasoning effort',
 								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future replies in this conversation.`,
 								...(session?.reasoningEffortLevels === undefined
-									? { problem: 'This model does not publish reasoning choices.' }
+									? {
+											problem: 'This model does not publish reasoning choices.',
+										}
 									: {}),
 							},
 							{
@@ -9724,7 +9955,10 @@ export function App({
 												name: 'goal status',
 												description: 'View goal progress and continuation status.',
 											},
-											{ name: 'goal edit', description: 'Change the objective.' },
+											{
+												name: 'goal edit',
+												description: 'Change the objective.',
+											},
 											...(goal.phase === 'complete'
 												? []
 												: [
@@ -9772,7 +10006,7 @@ export function App({
 									choicePickerRef.current?.request === request
 								) {
 									setChoicePicker(null)
-									pushMessage('system', explainFailure(error, 'Could not load goal.'))
+									pushSystem('error', explainFailure(error, 'Could not load goal.'))
 								}
 							} finally {
 								wakeGoalDriver()
@@ -9992,10 +10226,13 @@ export function App({
 							return
 						}
 						try {
-							const saved = appendMemoryWithStatus(slash.text, { scope: slash.scope, cwd: ctx.cwd })
+							const saved = appendMemoryWithStatus(slash.text, {
+								scope: slash.scope,
+								cwd: ctx.cwd,
+							})
 							pushMessage('system', renderMemorySaveResult(saved, slash.text))
 						} catch (err) {
-							pushMessage('system', explainFailure(err, 'Could not save memory.'))
+							pushSystem('error', explainFailure(err, 'Could not save memory.'))
 						}
 						return
 					case 'import-notes': {
@@ -10008,13 +10245,14 @@ export function App({
 						}
 						void session.importCuratedNotes().then(
 							(report) => pushMessage('system', report),
-							(err: unknown) =>
-								pushMessage('system', explainFailure(err, 'Notes were not copied.')),
+							(err: unknown) => pushSystem('error', explainFailure(err, 'Notes were not copied.')),
 						)
 						return
 					}
 					case 'show-memory': {
-						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd })
+						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), {
+							cwd: ctx.cwd,
+						})
 						const stored = session?.storedMemoryIndex
 						if (!stored) {
 							pushMessage('system', curated)
@@ -10033,8 +10271,8 @@ export function App({
 								)
 							},
 							(err: unknown) =>
-								pushMessage(
-									'system',
+								pushSystem(
+									'error',
 									explainFailure(err, `${curated}\n\nStored memories not loaded.`),
 								),
 						)
@@ -10395,7 +10633,7 @@ export function App({
 								)
 							} catch (error) {
 								if (conversationGenRef.current !== generation) return
-								pushMessage('system', explainFailure(error, `Could not run /${slash.name}.`))
+								pushSystem('error', explainFailure(error, `Could not run /${slash.name}.`))
 							} finally {
 								releaseGoalCommand()
 							}
@@ -10525,10 +10763,7 @@ export function App({
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
 									// operator asked on purpose.
-									pushMessage(
-										'system',
-										'Nothing to compact yet — this conversation is short enough that adding a summary would save no messages.',
-									)
+									pushSystem('notice', NOTHING_TO_COMPACT_TEXT)
 									return
 								}
 
@@ -10553,24 +10788,31 @@ export function App({
 								// the projection just as `/resume` does when it replaces the log.
 								resetTranscript()
 								setMessages((prev) => {
+									const kept = keepRecentRows(prev, keptTurns)
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: `Summarised ${plural(result.shed, 'earlier message')} into a short recap.${
-											result.usage.totalTokens > 0
-												? ` Verifier used ${result.usage.totalTokens.toLocaleString('en-US')} tokens.`
-												: ''
-										}${
-											durable
-												? ''
-												: ' This conversation could not be saved, so the summary lasts only until you quit.'
-										}`,
+										content: durable
+											? COMPACT_RESULT_TEXT
+											: `${COMPACT_RESULT_TEXT}. ${COMPACT_NOT_SAVED_TEXT}`,
+										glyph: CLOSING_GLYPH,
+										glyphColor: theme.text.muted,
+										meta: COMPACT_RESULT_HINT,
+										activity: 'summary',
 										detail: summaryDetail(result.summary),
+										// Numbered after the rows that stay, so Ctrl+O can name it.
+										detailRef: Math.max(0, ...kept.map((m) => m.detailRef ?? 0)) + 1,
 									}
-									return [summaryRow, ...keepRecentRows(prev, keptTurns)]
+									return [summaryRow, ...kept]
 								})
+								// /context counts a manual pass like an automatic one.
+								setCompactionTally((tally) => ({
+									...tally,
+									passes: tally.passes + 1,
+									summaries: tally.summaries + 1,
+								}))
 							} catch (err) {
-								pushMessage('system', explainFailure(err, 'Couldn’t summarise the conversation.'))
+								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)
@@ -10844,7 +11086,9 @@ export function App({
 		)
 			return
 		launchMessageRef.current = undefined
-		handleSubmit(message.trim(), undefined, 'submit', { source: 'launch-message' })
+		handleSubmit(message.trim(), undefined, 'submit', {
+			source: 'launch-message',
+		})
 	}, [phase, state, session, permission, textPrompt, choicePicker, handleSubmit])
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
 	// picker is also used by review/export flows. Keep only this dispatch hop in
@@ -10877,13 +11121,9 @@ export function App({
 									? 'the reply already saved a skill'
 									: triggerUnavailable('save-skill', triggerContextNow())
 		if (reason) {
-			pushMessage(
-				'system',
-				`save as skill · not run: ${reason} · /skills save runs it anyway`,
-				false,
-				'✧',
-				undefined,
-				theme.text.muted,
+			pushSystem(
+				'notice',
+				`Namzu did not offer to save a skill: ${reason}. /skills save saves one anyway.`,
 			)
 			return true
 		}
@@ -10896,14 +11136,7 @@ export function App({
 			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
 			...queuedRef.current,
 		])
-		pushMessage(
-			'system',
-			'save as skill · running /skills save for this reply',
-			false,
-			'✦',
-			undefined,
-			theme.accent.trigger,
-		)
+		pushSystem('notice', 'Saving a skill from this reply.')
 		return true
 	}
 	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
@@ -10947,9 +11180,9 @@ export function App({
 						'system',
 						sourceDeliveryLine(delivery),
 						false,
-						'◷',
+						SYSTEM_ROW_GLYPH,
 						undefined,
-						undefined,
+						systemRowStyle(deliveryLevel(delivery.status)).color,
 						undefined,
 						undefined,
 						true,
@@ -10973,9 +11206,9 @@ export function App({
 				const key = JSON.stringify([generation, source])
 				if (sourceDeliveryIssueRef.current === key) return
 				sourceDeliveryIssueRef.current = key
-				pushMessage('system', sourceDeliveryReadError(error), false, '◷')
+				pushSystem('warning', sourceDeliveryReadError(error))
 			})
-	}, [appLifetime.signal, pushMessage])
+	}, [appLifetime.signal, pushMessage, pushSystem])
 	sourceDeliveryPollRef.current = pollSourceDeliveries
 	useEffect(() => {
 		pollSourceDeliveries()
@@ -11295,9 +11528,9 @@ export function App({
 			.catch((error) => {
 				peersStartingRef.current = false
 				appLifetime.signal.removeEventListener('abort', onClose)
-				if (!disposed) pushMessage('system', explainFailure(error, 'Peer messaging unavailable.'))
+				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
@@ -11471,7 +11704,9 @@ export function App({
 			const prefs: Preferences =
 				saved && primaryProvider(saved).id === credential.entry.id
 					? saved
-					: selectPrimaryProvider(saved, { id: credential.entry.id as ProviderId })
+					: selectPrimaryProvider(saved, {
+							id: credential.entry.id as ProviderId,
+						})
 			void (async () => {
 				const started = await hydrateFromPicker(prefs, next, signal)
 				if (!started || credential.entry.id !== 'google') return
@@ -11807,11 +12042,18 @@ export function App({
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
-					setJobSurface({ ...shellView, busyJobId: selectedJob.id, notice: undefined })
+					setJobSurface({
+						...shellView,
+						busyJobId: selectedJob.id,
+						notice: undefined,
+					})
 					void stopJob(selectedJob.id).then(
 						(result) => {
 							if (previousSessionRef.current !== owner) return
-							setJobSnapshot({ ownerSession: owner, jobs: owner.jobs?.() ?? [] })
+							setJobSnapshot({
+								ownerSession: owner,
+								jobs: owner.jobs?.() ?? [],
+							})
 							const current = jobSurfaceRef.current
 							if (current?.busyJobId === selectedJob.id)
 								setJobSurface({
@@ -11866,7 +12108,12 @@ export function App({
 											: key.downArrow
 												? Math.max(0, offset - 1)
 												: null
-					if (next !== null) setJobSurface({ ...shellView, tailOffset: next, notice: undefined })
+					if (next !== null)
+						setJobSurface({
+							...shellView,
+							tailOffset: next,
+							notice: undefined,
+						})
 					return
 				}
 				if (key.return && selectedJob) {
@@ -11897,7 +12144,12 @@ export function App({
 										? Math.max(0, current - 1)
 										: Math.min(backgroundJobs.length - 1, current + 1)
 					const job = backgroundJobs[next]
-					if (job) setJobSurface({ ...shellView, selectedJobId: job.id, notice: undefined })
+					if (job)
+						setJobSurface({
+							...shellView,
+							selectedJobId: job.id,
+							notice: undefined,
+						})
 				}
 				return
 			}
@@ -12223,7 +12475,7 @@ export function App({
 						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
 						setAgentSurface(null)
 						setViewNotice(undefined)
-						if (abortRef.current && interruptTurn()) pushMessage('system', 'Interrupted.')
+						if (abortRef.current) interruptWithRow(false)
 						return
 					}
 					if (key.pageUp || key.pageDown || key.home || key.end) {
@@ -12454,8 +12706,7 @@ export function App({
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
-				interruptTurn(true)
-				pushMessage('system', 'Interrupted.')
+				interruptWithRow(true, { always: true })
 				return
 			}
 			// Small expansions stay in place. Older or oversized bodies open a viewer.
@@ -12513,10 +12764,7 @@ export function App({
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
-				if (interruptTurn()) {
-					pushMessage('system', 'Interrupted.')
-					return
-				}
+				if (interruptWithRow(false)) return
 				if (exitArmedRef.current) {
 					exitWithSummary()
 					return
@@ -12857,6 +13105,7 @@ export function App({
 						scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
+								{...(compacting || summarising ? { activityLabel: COMPACTING_LABEL } : {})}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
@@ -12916,11 +13165,18 @@ export function App({
 								batchOnly={permission.batchOnly === true}
 								mode={permissionMode}
 								{...(session?.allowForSession && session.commandArguments
-									? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
+									? {
+											commandArguments: session.commandArguments,
+											rememberWhere: homePath(ctx.cwd),
+										}
 									: {})}
 								siteNotes={permission.siteNotes}
 								{...(permission.screenConsent === true
-									? { screenConsent: { provider: session?.providerSummary ?? null } }
+									? {
+											screenConsent: {
+												provider: session?.providerSummary ?? null,
+											},
+										}
 									: {})}
 							/>
 						) : null}
@@ -13556,7 +13812,10 @@ function bypassConsentPicker(
 		values: ['decline', 'accept'],
 		options: [
 			{ label: 'No, keep asking', description: 'Stay in the current mode.' },
-			{ label: 'Yes, bypass permissions', description: 'Remembered; you will not be asked again.' },
+			{
+				label: 'Yes, bypass permissions',
+				description: 'Remembered; you will not be asked again.',
+			},
 		],
 	}
 }
@@ -13570,14 +13829,14 @@ function bypassConsentPicker(
  */
 const HYPERMODE_VALUE = 'hypermode' as const
 
-/** ` · ✦ save as skill` when queued messages carry composer triggers, so the queue line says so. */
+/** ` · save as skill` when queued messages carry composer triggers, so the queue line says so. */
 function queuedTriggerLabels(queued: readonly QueuedPrompt[]): string {
 	const labels = new Set<string>()
 	for (const prompt of queued) {
 		if (prompt.kind !== 'human') continue
 		for (const id of prompt.triggers ?? []) labels.add(triggerDefinition(id).label)
 	}
-	return labels.size > 0 ? ` · ✦ ${[...labels].join(', ')}` : ''
+	return labels.size > 0 ? ` · ${[...labels].join(', ')}` : ''
 }
 
 /** Last entry of a low-to-high menu every provider publishes in that order; `undefined` when none is known. */
@@ -13649,7 +13908,7 @@ function reasoningEffortDescription(effort: ReasoningEffort | undefined): string
 		case 'max':
 			return 'Maximum reasoning depth offered by this model'
 		case 'ultra':
-			return 'Highest host-level reasoning setting when supported'
+			return 'Highest reasoning setting, when the model supports it'
 	}
 }
 
@@ -13663,6 +13922,5 @@ function reasoningEffortDescription(effort: ReasoningEffort | undefined): string
  * check what survived has to be able to.
  */
 function summaryDetail(summary: Message): readonly string[] {
-	const text = typeof summary.content === 'string' ? summary.content : ''
-	return text.length > 0 ? text.split('\n') : ['(the summary was empty)']
+	return compactionSummaryLines(typeof summary.content === 'string' ? summary.content : '')
 }

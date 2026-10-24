@@ -323,7 +323,7 @@ it('continues across admitted rounds, completes through run authority, and persi
 	expect(
 		(await listRecent(sessions)).find((conversation) => conversation.id === sessionId)?.title,
 	).toBe('finish the verified release')
-	expect(harness.frames.join('\n')).toContain('Goal round 2 / 256')
+	expect(harness.frames.join('\n')).toContain('Goal, attempt 2 of 256')
 	expect(harness.frames.join('\n')).not.toContain('Admitted session goal round')
 
 	await submit(harness, '/new')
@@ -341,7 +341,7 @@ it('continues across admitted rounds, completes through run authority, and persi
 		() => (harness.lastFrame() ?? '').includes('Resumed: finish the verified release'),
 		'the durable goal conversation was not restored',
 	)
-	expect(harness.lastFrame()).toContain('Goal round 2 / 256')
+	expect(harness.lastFrame()).toContain('Goal, attempt 2 of 256')
 	expect(harness.lastFrame()).not.toContain('Admitted session goal round')
 	await tick(100)
 	expect(calls).toHaveLength(2)

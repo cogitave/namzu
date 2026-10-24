@@ -378,7 +378,7 @@ describe('the cockpit of a phased workflow', () => {
 				{ cols: 120, rows: 24 },
 			)
 			const levelOne = mounted.viewport().join('\n')
-			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · done/u)
+			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · finished/u)
 			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
 			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()

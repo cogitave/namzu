@@ -17,6 +17,7 @@ import {
 import { formatElapsed } from './LiveActivity.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
+import { END_WORDS, endWord } from './system-rows.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -1041,13 +1042,12 @@ interface WorkflowDetailProps {
 	readonly now: number
 }
 
-/** The word a finished workflow's stats carry: `3/3 agents · 1m05s · done`. */
+/** The word a finished workflow's stats carry: `3/3 agents · 1m05s · finished`. */
 function endedWord(workflow: AgentWorkflow): string {
-	if (workflow.runStatus !== undefined)
-		return workflow.runStatus === 'completed' ? 'done' : workflow.runStatus
-	if (workflow.agents.some((agent) => agent.status === 'failed')) return 'failed'
-	if (workflow.agents.some((agent) => agent.status === 'cancelled')) return 'stopped'
-	return 'done'
+	if (workflow.runStatus !== undefined) return endWord(workflow.runStatus)
+	if (workflow.agents.some((agent) => agent.status === 'failed')) return END_WORDS.failed
+	if (workflow.agents.some((agent) => agent.status === 'cancelled')) return END_WORDS.stopped
+	return END_WORDS.finished
 }
 
 function padEndCells(text: string, cells: number): string {

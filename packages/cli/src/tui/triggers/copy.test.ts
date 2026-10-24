@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { tagRow, transcriptTagLine } from './copy.js'
+import { STEERED_NOT_APPLIED_REASON, notAppliedLine, tagRow, transcriptTagLine } from './copy.js'
 import { type TriggerContext, detectTriggers } from './detect.js'
 import { compileRegistry } from './registry.js'
 
@@ -153,10 +153,21 @@ describe('the transcript line', () => {
 	it('names what the message carried', () => {
 		expect(
 			transcriptTagLine(['hypermode', 'save-skill'], { effort: 'xhigh', steered: false }),
-		).toBe('hypermode (this reply, effort xhigh) · save as skill (after this reply)')
+		).toBe(
+			'Hypermode is on for this reply (effort xhigh). Namzu will offer to save a skill after this reply.',
+		)
 		expect(transcriptTagLine(['hypermode'], { effort: undefined, steered: true })).toBeUndefined()
 		expect(transcriptTagLine(['save-skill'], { effort: undefined, steered: true })).toBe(
-			'save as skill (after the running reply)',
+			'Namzu will offer to save a skill after the running reply.',
+		)
+	})
+
+	it('says why a trigger did not apply, in a sentence', () => {
+		expect(notAppliedLine(['hypermode'], 'the message has no task')).toBe(
+			'Hypermode was not applied: the message has no task.',
+		)
+		expect(notAppliedLine(['hypermode', 'save as skill'], STEERED_NOT_APPLIED_REASON)).toBe(
+			'Hypermode, save as skill were not applied: Enter sent this message into the running reply. Press Tab to queue it as a new message instead.',
 		)
 	})
 })

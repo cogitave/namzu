@@ -74,6 +74,11 @@ export interface LiveActivityProps {
 	 * `Retrying in 5s · attempt 2/10` that counts down.
 	 */
 	readonly waitNotice?: ProviderWaitNotice | null
+	/**
+	 * What the row says in place of `Working`, for a stretch that is not a reply
+	 * (`Compacting conversation…`). The spinner and the clock stay.
+	 */
+	readonly activityLabel?: string
 }
 
 /** Redraws once a second while a retry is being waited out, so its countdown moves. */
@@ -99,6 +104,7 @@ export function LiveActivity({
 	tokens,
 	waitingForYou = false,
 	waitNotice = null,
+	activityLabel,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -137,7 +143,7 @@ export function LiveActivity({
 			</Box>
 		)
 	}
-	const label = 'Working'
+	const label = activityLabel ?? 'Working'
 	const edge = tick % (label.length + 1)
 	const mark = (
 		<Text>

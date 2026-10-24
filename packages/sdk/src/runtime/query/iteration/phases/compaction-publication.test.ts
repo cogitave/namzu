@@ -145,7 +145,9 @@ describe('compaction publication is one coherent transition', () => {
 
 		expect(calls).toBe(1)
 		expect(messages).toEqual(original)
-		expect(events.filter((event) => event.type.startsWith('compaction_'))).toEqual([])
+		expect(
+			events.map((event) => event.type).filter((type) => type.startsWith('compaction_')),
+		).toEqual(['compaction_started'])
 		expect(clearLastPromptTokens).not.toHaveBeenCalled()
 
 		release.resolve()
@@ -155,7 +157,12 @@ describe('compaction publication is one coherent transition', () => {
 		expect(String(original[3]?.content)).toHaveLength(80_000)
 		expect(
 			events.map((event) => event.type).filter((type) => type.startsWith('compaction_')),
-		).toEqual(['compaction_shed', 'compaction_tool_results_cleared', 'compaction_completed'])
+		).toEqual([
+			'compaction_started',
+			'compaction_shed',
+			'compaction_tool_results_cleared',
+			'compaction_completed',
+		])
 		const snapshot = events.at(-1)
 		expect(snapshot?.type).toBe('token_usage_updated')
 		if (snapshot?.type !== 'token_usage_updated') throw new Error('missing status snapshot')

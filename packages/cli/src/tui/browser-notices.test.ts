@@ -29,7 +29,7 @@ const STATUS: BrowserStatus = {
 describe('the browser handoff notice', () => {
 	it('sends the operator to the window when there is one', () => {
 		expect(describeBrowserHandoff(HANDOFF, STATUS)).toBe(
-			'The browser needs you: https://github.com is showing a sign-in page.\nSign in to https://github.com in the browser window (profile work), then press Enter to continue · Esc to stop.',
+			'Paused. The browser needs you: https://github.com is showing a sign-in page.\nSign in to https://github.com in the browser window (profile work), then press Enter to continue, or Esc to stop.',
 		)
 	})
 
@@ -59,7 +59,7 @@ describe('the browser handoff notice', () => {
 	it('gives the login command when the browser has no window', () => {
 		const text = describeBrowserHandoff(HANDOFF, { ...STATUS, headless: true })
 		expect(text).toContain('  namzu browser login work https://github.com/login\n')
-		expect(text).toContain('then press Enter here to continue · Esc to stop.')
+		expect(text).toContain('then press Enter here to continue, or Esc to stop.')
 		expect(text).not.toContain('browser window (profile')
 	})
 
@@ -77,7 +77,7 @@ describe('the browser handoff notice', () => {
 })
 
 describe('the site rule on the review screen', () => {
-	it('names the rule, profile and engine for each browser call', () => {
+	it('says in words what the rule decided for each browser call', () => {
 		expect(
 			browserSiteNotes(
 				[
@@ -93,9 +93,9 @@ describe('the site rule on the review screen', () => {
 				STATUS,
 			),
 		).toEqual([
-			'site rule: https://github.com → ask · profile work · windows-cdp',
-			'site rule: https://a.example.com (https://*.example.com) → act · profile work · windows-cdp',
-			'site rule: https://other.example (any other site) → ask · profile work · windows-cdp',
+			'Browser: asks before using github.com (profile work).',
+			'Browser: can use a.example.com without asking (profile work).',
+			'Browser: asks before using other.example (profile work).',
 		])
 	})
 

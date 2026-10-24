@@ -779,6 +779,17 @@ async function runCompactionCheckInner(
 		}
 	}
 
+	// Tell the host the pass is starting: summarising can take many seconds
+	// and every other compaction event arrives after the work.
+	await ctx.emitEvent?.({
+		type: 'compaction_started',
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
+		reason: pass.reason,
+		tokensBefore: estimatedTokens,
+		contextWindowTokens: budget,
+	})
+
 	// A reducer, when the turn has one, OWNS reduction — the structured pass
 	// below does not also run. `strategy: 'sliding-window'` resolves to the
 	// built-in one; a host-supplied reducer outranks the strategy entirely,

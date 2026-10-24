@@ -418,14 +418,14 @@ describe('the conversation', () => {
 		flows.set([ended])
 		flows.end(ended)
 		await waitUntil(screen, () =>
-			/✓ Workflow audit completed · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
+			/✓ Workflow audit finished · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
 		)
 	})
 
 	it('says a stopped run was stopped and a failed one failed', async () => {
 		const screen = await start()
 		flows.end(run({ status: 'stopped', endedAt: NOW }))
-		await waitUntil(screen, () => /■ Workflow audit stopped/.test(everything(screen)))
+		await waitUntil(screen, () => /● Workflow audit stopped/.test(everything(screen)))
 		flows.end(run({ name: 'build', status: 'failed', endedAt: NOW, error: 'it threw' }))
 		await waitUntil(screen, () => /✗ Workflow build failed/.test(everything(screen)))
 	})
@@ -508,7 +508,7 @@ describe('what the model is told when a run ends', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => everything(screen).includes('long work'))
 		flows.end(run({ status: 'completed', endedAt: NOW }))
-		await waitUntil(screen, () => everything(screen).includes('Workflow audit completed'))
+		await waitUntil(screen, () => everything(screen).includes('Workflow audit finished'))
 		releaseTurn()
 		await waitUntil(screen, () => delivered.length > 0)
 		expect(String(delivered[0]?.content)).toContain('Workflow "audit" (wrun00001) completed.')
@@ -549,7 +549,7 @@ describe('/workflows', () => {
 		await waitUntil(screen, () => text(screen).includes('nightly'))
 		await waitUntil(screen, () => text(screen).includes('Phases'))
 		expect(text(screen)).toContain('1/1 agent')
-		expect(text(screen)).toContain('· done')
+		expect(text(screen)).toContain('· finished')
 		expect(text(screen)).not.toContain('x to stop')
 	})
 })
