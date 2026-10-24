@@ -31,6 +31,7 @@ import {
 import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { formatTook } from './units.js'
 
 /**
  * The key that reaches the agents from an empty composer: `↓` focuses the
@@ -195,7 +196,7 @@ export function agentDoneRows(
 	now = Date.now(),
 ): { readonly header: string; readonly result: string } {
 	const uses = agent.toolCalls ?? 0
-	const took = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatTook(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	return {
 		header: `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
 		result: `Done (${[
@@ -234,7 +235,7 @@ export function agentNotice(
 	previousFailure?: string,
 ): AgentNotice {
 	const label = oneLine(agent.description || agent.agentId)
-	const took = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatTook(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
 		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }
 	if (agent.status === 'cancelled') {

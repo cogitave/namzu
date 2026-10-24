@@ -177,11 +177,11 @@ describe('what a finished agent leaves in the conversation', () => {
 				}),
 			),
 		).toEqual({
-			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 3s',
+			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 2s',
 			tone: 'error',
 		})
 		expect(agentNotice(agent({ ...base, status: 'cancelled', completedAt: 500 }))).toEqual({
-			content: 'Agent "Count words in a.txt" was stopped · 1s',
+			content: 'Agent "Count words in a.txt" was stopped · 500ms',
 			tone: 'warn',
 		})
 	})

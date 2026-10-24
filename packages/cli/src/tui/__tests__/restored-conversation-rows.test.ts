@@ -142,11 +142,11 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
 			['user', 'tidy up'],
-			['└', 'Read a.ts'],
-			['└', 'Searched for foo'],
-			['✓', 'Edit(a.ts)'],
-			['⎿', 'Edited a.ts +2 −1'],
-			['✓', 'Write(n.txt)'],
+			['⎿', 'Read a.ts'],
+			['⎿', 'Searched for foo'],
+			['●', 'Edit(a.ts)'],
+			['⎿', 'Edited a.ts'],
+			['●', 'Write(n.txt)'],
 			['⎿', 'Created n.txt +2'],
 			['●', 'Bash(echo hi)'],
 			['assistant', 'Done.'],
@@ -196,7 +196,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		expect(plain(tools)).toEqual([...liveRows(events.r), ...liveRows(events.e)].map((row) => row))
 		// And the typed fact shows: the read names its file, as live.
 		expect(tools[0]?.content).toBe('Read a.ts')
-		expect(tools.map((row) => row.content)).toContain('Edited a.ts +2 −1')
+		expect(tools.map((row) => row.content)).toContain('Edited a.ts')
 	})
 
 	it('shows a failed call and a call that never reported a result', () => {
@@ -216,7 +216,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
 			['user', 'go'],
-			['✗', 'Nope tool({"a":1})'],
+			['●', 'Nope tool({"a":1})'],
 			['⎿', 'failed: boom'],
 			['○', 'Bash(sleep 99)'],
 			['⎿', 'Interrupted'],
@@ -300,7 +300,7 @@ describe('a resumed conversation closes and interrupts its turns as the live run
 		const limited = projectConversation(base, ids(), [], {
 			trail: trailFromRecords(turnRecords(base, { stopReason: 'max_iterations' }, 30)),
 		})
-		expect(limited.at(-1)?.content).toBe('Stopped: the step limit was reached.')
+		expect(limited.at(-1)?.content).toBe('The reply stopped at its step limit.')
 	})
 })
 
@@ -355,7 +355,7 @@ describe('the agents a resumed conversation launched', () => {
 		expect(placed.map((row) => row.content)).toEqual([
 			'delegate',
 			'On it.',
-			'Launched Count words (↓ to manage)',
+			'Launched Count words',
 			'general-purpose (Count words)',
 			'Done (3 tool uses · 1.2k tokens · 8s)',
 			'All done.',
