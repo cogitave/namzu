@@ -3834,7 +3834,7 @@ export function App({
 	 * An independent switch: it never changes the reasoning effort, and the
 	 * message says so ("Effort stays X"). While it is on, `SendOptions.hypermode`
 	 * tells the model, in request-only context, to use the `workflow` tool for
-	 * substantial work (see `HypermodeReminders`). See `applyReasoningEffort`
+	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
 	 * above for the mirrored guard shape.
 	 */
 	const applyHypermode = useCallback(

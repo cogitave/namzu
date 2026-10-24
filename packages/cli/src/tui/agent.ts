@@ -398,7 +398,6 @@ import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
-import { HypermodeReminders } from './hypermode.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
@@ -876,10 +875,11 @@ export interface SendOptions {
 	readonly effort?: ReasoningEffort
 	/**
 	 * The session's hypermode (`/hypermode`, or the `hypermode` config key) is
-	 * on for this turn. Default `false`. It tells the model, in request-only
-	 * context, to use the `workflow` tool for substantive work: in full the
-	 * first time, sparsely every few messages, and once when it ends
-	 * (`HypermodeReminders`). It changes no effort, no tool list and no
+	 * on for this turn. Default `false`. It tells the model, in a hidden
+	 * reminder kept in the conversation, to use the `workflow` tool for
+	 * substantive work: in full the first time, sparsely every few messages, and
+	 * once when it ends (`hypermodeReminders`); a resumed conversation reads
+	 * what was already said from its own history. It changes no effort, no tool list and no
 	 * permission; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
@@ -3159,9 +3159,6 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
-	// What the model has been told about the standing hypermode, so it hears it
-	// in full once, sparsely now and then, and once when it ends.
-	const hypermodeReminders = new HypermodeReminders()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
@@ -5423,13 +5420,9 @@ export async function createAgentSession(
 						const childOperatorNotices = options.ephemeral
 							? []
 							: await readChildOperatorNotices(paths, turnScope.sessionId)
-						// The standing hypermode's reminder for this message, set once the
-						// tool list is known (below); request-only, like the trigger texts.
-						let hypermodeReminder: string | undefined
 						const hostContext = () => [
 							...new Set([
 								...(opts?.hostContext?.() ?? []),
-								...(hypermodeReminder ? [hypermodeReminder] : []),
 								...childOperatorNotices.map((notice) => notice.text),
 							]),
 						]
@@ -5493,8 +5486,6 @@ export async function createAgentSession(
 						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
 							workflowHost !== undefined && opts?.workflowReview !== undefined && !residentContext
-						if (!residentContext)
-							hypermodeReminder = hypermodeReminders.next(opts?.hypermode === true, workflowOffer)
 						if (workflowOffer && workflowHost) {
 							runToolsets = [...runToolsets, toolset('workflow', [workflowHost.tool])]
 							if (runManager !== manager) runManager.dispose()
@@ -5589,18 +5580,36 @@ export async function createAgentSession(
 						}
 						claimTurn(turnId)
 						const turnTaskStore = selectTaskStore(turnScope)
-						const reminderSource = options.reminders
-							? createCliReminderSource({
-									mode: () => modeControl.current(),
-									...(planPath
-										? {
-												planPath: () => planPath,
-												canAsk: Boolean(options.askUser && subagentRuntime),
-											}
-										: {}),
-									tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
-								})
-							: undefined
+						// The standing hypermode is told to the model through the same
+						// channel, so what was said is read back from the conversation.
+						// A host without the other reminders still gets this one while the
+						// mode is on.
+						const turnHypermode = opts?.hypermode === true && !residentContext
+						const reminderSource =
+							options.reminders || turnHypermode
+								? createCliReminderSource({
+										mode: () => modeControl.current(),
+										...(options.reminders
+											? {
+													...(planPath
+														? {
+																planPath: () => planPath,
+																canAsk: Boolean(options.askUser && subagentRuntime),
+															}
+														: {}),
+													tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
+												}
+											: {}),
+										...(residentContext
+											? {}
+											: {
+													hypermode: () => ({
+														on: opts?.hypermode === true,
+														toolListed: workflowOffer,
+													}),
+												}),
+									})
+								: undefined
 						// An ephemeral session keeps its whole turn in memory: a fresh
 						// log per send, opened with the `session_started` a turn follows.
 						// A durable one appends to `<session-id>.jsonl`, created first

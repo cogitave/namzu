@@ -180,10 +180,11 @@ What the model is told. The `workflow` tool is in the tool list on every turn of
 a terminal that can run one, with its opt-in rule in the tool text and a stable
 note in the system prompt (the operator's keyword, hypermode on, the operator's
 own words or `/workflow`, a named saved workflow; anything else uses `Agent`).
-While hypermode is on, a short note in the request only (never the cached system
-prompt, never saved into the conversation) says so: in full on the first
-message after it was turned on, again sparsely every ten messages, and once
-when it ends (`Hypermode is off: the workflow tool's standard opt-in rule
+While hypermode is on, a short hidden reminder (never the cached system prompt, never shown
+as something you typed) says so: in full on the first message after it was
+turned on, again sparsely after ten of your messages, and once when it ends;
+the reminders are kept in the conversation, so a resumed conversation does not
+hear the full text again. The end reminder reads (`Hypermode is off: the workflow tool's standard opt-in rule
 applies again.`). A run that cannot start a workflow (a scheduled run) is told
 to delegate substantial work to parallel agents with the `Agent` tool instead.
 

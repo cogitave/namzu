@@ -215,9 +215,7 @@ async function mount() {
 it('arms hypermode for one turn: namzu’s context and no effort change, then neither', async () => {
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
-	expect(now()).toContain(
-		'Hypermode · this reply: offers workflows, effort unchanged · alt+w drop',
-	)
+	expect(now()).toContain('Hypermode · this reply: offers workflows, effort unchanged · alt+w drop')
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
 	expect(sent[0]?.prompt).toBe('hypermode fix the flaky test')

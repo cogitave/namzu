@@ -592,6 +592,47 @@ it('says the effort stays at the model default when none was chosen', async () =
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
+it('leaves the effort unset on a model that publishes levels, turning hypermode on and then off', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/hypermode off')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is off'), 'off')
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBeUndefined()
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+})
+
+it('keeps hypermode on when an effort level is chosen, and says nothing about turning it off', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/effort high')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'high')
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).not.toMatch(/hypermode (is )?off/i)
+	expect(text).toContain('effort high · Hypermode on')
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('high')
+	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+it('opts a keyword turn into workflows without touching the effort or the standing mode', async () => {
+	const screen = await open()
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), 'low')
+	// The keyword arms only when it is typed, one key at a time.
+	for (const ch of 'hypermode audit the repo') await press(screen, ch)
+	await press(screen, '\r')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('low')
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+	expect((sent[0]?.options?.hostContext?.() ?? []).join('\n')).toContain('use the `workflow` tool')
+	expect(screen.viewport().join('\n')).not.toContain('Hypermode is on for this conversation')
+})
+
 it('keeps /orchestrate working as a deprecated alias that says so', async () => {
 	const screen = await open()
 	await submit(screen, '/orchestrate on')

@@ -9,18 +9,23 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-	PromptContributionRegistry,
-	ToolContext,
-	ToolDefinition,
-	Toolset,
-	TurnId,
+import {
+	type Message,
+	type ReminderSource,
+	type ToolContext,
+	type ToolDefinition,
+	type Toolset,
+	type TurnId,
+	createAssistantMessage,
+	createRuntimeContextMessage,
+	createUserMessage,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
+import { hypermodeReminders } from '../../reminders/hypermode.js'
 import type { SendOptions } from '../agent.js'
 
 const queryCalls: Record<string, unknown>[] = []
@@ -107,11 +112,6 @@ function offered(call: { toolsets: readonly Toolset[] }): ToolDefinition | undef
 	return undefined
 }
 
-function contextOf(call: { promptContributions?: unknown } | undefined): string {
-	const registry = call?.promptContributions as PromptContributionRegistry | undefined
-	return (registry?.render('context', { iteration: 2 } as never) ?? []).join('\n')
-}
-
 describe('when the model is offered the workflow tool', () => {
 	it('lists it on an ordinary request, with the opt-in rule in the system prompt', async () => {
 		const call = await sendWith('fix the failing test in cart.ts')
@@ -148,29 +148,67 @@ describe('when the model is offered the workflow tool', () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), {
 			cwd,
+			reminders: true,
 		})
+		// The conversation the kernel would hold: each send's message, then the
+		// reminders it appended to it.
+		let history: Message[] = []
+		const said: string[][] = []
 		try {
 			for (const hypermode of [true, true, false, false]) {
-				for await (const _event of session.send([{ role: 'user', content: 'go', timestamp: 0 }], {
+				history = [...history, createUserMessage('go')]
+				for await (const _event of session.send([...history], {
 					workflowReview: REVIEWER,
 					...(hypermode ? { hypermode: true } : {}),
 				})) {
 					// drain
 				}
+				const call = queryCalls.at(-1) as { reminders?: ReminderSource } | undefined
+				const reminders = [...((await call?.reminders?.({ messages: history } as never)) ?? [])]
+				said.push(reminders)
+				history = [
+					...history,
+					...reminders.map((text) => createRuntimeContextMessage(text, 'reminder')),
+				]
 			}
 		} finally {
 			await session.close()
 		}
-		const calls = queryCalls as Array<{
-			systemPrompt?: string
-			promptContributions?: unknown
-		}>
-		expect(contextOf(calls[0])).toContain('Hypermode is on: optimize for the most exhaustive')
-		expect(contextOf(calls[0])).toContain('Use the `workflow` tool on every substantive task')
-		expect(contextOf(calls[1])).not.toContain('Hypermode')
-		expect(contextOf(calls[2])).toContain('Hypermode is off')
-		expect(contextOf(calls[3])).not.toContain('Hypermode')
+		const calls = queryCalls as Array<{ systemPrompt?: string }>
+		expect(said[0]?.join('\n')).toContain('Hypermode is on: optimize for the most exhaustive')
+		expect(said[0]?.join('\n')).toContain('Use the `workflow` tool on every substantive task')
+		expect(said[1]).toEqual([])
+		expect(said[2]?.join('\n')).toContain('Hypermode is off')
+		expect(said[3]).toEqual([])
 		for (const call of calls) expect(call.systemPrompt ?? '').not.toContain('Hypermode is on')
+	})
+
+	it('does not repeat the full text to a resumed conversation that already heard it', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
+		const heard = hypermodeReminders({
+			messages: [createUserMessage('earlier')],
+			on: true,
+			toolListed: true,
+		})
+		const resumed: Message[] = [
+			createUserMessage('earlier'),
+			...heard.map((text) => createRuntimeContextMessage(text, 'reminder')),
+			createAssistantMessage('ok'),
+			createUserMessage('after the resume'),
+		]
+		try {
+			for await (const _event of session.send(resumed, {
+				workflowReview: REVIEWER,
+				hypermode: true,
+			})) {
+				// drain
+			}
+		} finally {
+			await session.close()
+		}
+		const call = queryCalls[0] as { reminders?: ReminderSource } | undefined
+		expect(await call?.reminders?.({ messages: resumed } as never)).toEqual([])
 	})
 
 	it('tells a host that cannot start a workflow to use parallel agents instead', async () => {
@@ -189,11 +227,12 @@ describe('when the model is offered the workflow tool', () => {
 		}
 		const [call] = queryCalls as Array<{
 			toolsets: readonly Toolset[]
-			promptContributions?: unknown
+			reminders?: ReminderSource
 		}>
 		expect(call && offered(call)).toBeUndefined()
-		expect(contextOf(call)).toContain('not available in this run')
-		expect(contextOf(call)).toContain('`Agent`')
+		const [text] = (await call?.reminders?.({ messages: [createUserMessage('go')] } as never)) ?? []
+		expect(text).toContain('not available in this run')
+		expect(text).toContain('`Agent`')
 	})
 
 	it('lists it for the slash command and the armed trigger too', async () => {

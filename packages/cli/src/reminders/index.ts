@@ -3,10 +3,12 @@ import { existsSync } from 'node:fs'
 import type { ReminderSource, Task } from '@namzu/sdk'
 
 import type { PermissionMode } from '../permissions/mode.js'
+import { hypermodeReminders } from './hypermode.js'
 import { planModeReminders } from './plan-mode.js'
 import { taskNudge } from './task-nudge.js'
 
 export { frameReminder, reminderKindOf } from './frame.js'
+export { HYPERMODE_REMINDER_EVERY, hypermodeReminders } from './hypermode.js'
 export { planModeReminders } from './plan-mode.js'
 export { taskNudge } from './task-nudge.js'
 
@@ -19,12 +21,14 @@ export interface CliReminderOptions {
 	readonly canAsk?: boolean
 	/** The session's tasks, when it has task tools; absent means no nudge. */
 	readonly tasks?: () => Promise<readonly Pick<Task, 'id' | 'status' | 'subject'>[]>
+	/** Whether hypermode is on, and whether the `workflow` tool is listed; absent means no hypermode reminders. */
+	readonly hypermode?: () => { readonly on: boolean; readonly toolListed: boolean }
 	/** Whether the plan file exists; defaults to the filesystem. */
 	readonly planExists?: (path: string) => boolean
 }
 
 /**
- * The reminders this terminal feeds a turn: plan mode's, then the task nudge.
+ * The reminders this terminal feeds a turn: plan mode's, hypermode's, then the task nudge.
  * Both read the conversation they are handed, so there is nothing to carry
  * between requests.
  */
@@ -43,6 +47,7 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 				}),
 			)
 		}
+		if (options.hypermode) out.push(...hypermodeReminders({ messages, ...options.hypermode() }))
 		if (options.tasks) {
 			// Counted before the read: no list is fetched on the many requests that owe no nudge.
 			const nudge = taskNudge(messages, [])

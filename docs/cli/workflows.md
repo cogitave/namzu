@@ -50,8 +50,10 @@ that a message carries no user authority is not a reason to skip it.
 
 The keyword, the `workflow` trigger and `/workflow` opt in one message only;
 the next message needs to ask again unless hypermode is on. Hypermode on is a
-standing opt-in: the model is told so in request-only context (full the first
-time, sparsely every ten messages, once when it ends), to use the tool for every
+standing opt-in: the model is told so in a hidden reminder kept in the conversation (full the
+first time, sparsely after ten of your messages, once when it ends; a resumed
+conversation reads what was already said from its history and does not hear the
+full text again), to use the tool for every
 substantial task and to work alone only on conversational or trivial turns. A
 scheduled run has no one to review a script and no `workflow` tool; with the
 `hypermode` config key on it is told to delegate to parallel agents instead, and
