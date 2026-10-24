@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
-import type { ToolResult } from '../../types/tool/index.js'
+import type { ToolDiffHunk, ToolResult } from '../../types/tool/index.js'
+import { lineDiff } from './line-diff.js'
 
-/** A final newline terminates a line; it does not add an empty line. */
-function lines(text: string): string[] {
-	if (text === '') return []
-	const result = text.split('\n')
-	if (result.at(-1) === '') result.pop()
-	return result
+/** One side of a change, context included: the rows that exist before (`-`) or after (`+`). */
+function previewSide(hunks: readonly ToolDiffHunk[], changed: '+' | '-'): string {
+	return hunks
+		.flatMap((hunk) => hunk.lines)
+		.filter((row) => row.startsWith(' ') || row.startsWith(changed))
+		.map((row) => `${row.slice(1)}\n`)
+		.join('')
 }
 
 /** null means the backend could not establish the previous state. */
@@ -24,26 +26,10 @@ export function fileWriteResult(
 				: before === after
 					? 'unchanged'
 					: 'replace'
-	const oldLines = lines(before ?? '')
-	const newLines = lines(after)
-	let start = 0
-	let end = 0
-	if (typeof before === 'string') {
-		while (
-			start < oldLines.length &&
-			start < newLines.length &&
-			oldLines[start] === newLines[start]
-		)
-			start++
-		while (
-			end < oldLines.length - start &&
-			end < newLines.length - start &&
-			oldLines[oldLines.length - end - 1] === newLines[newLines.length - end - 1]
-		)
-			end++
-	}
-	const removed = oldLines.slice(start, oldLines.length - end)
-	const added = newLines.slice(start, newLines.length - end)
+	// Counted from a real line diff of the whole file, not from the span
+	// between the first and last changed line.
+	const diff = lineDiff(typeof before === 'string' ? before : '', after)
+	const known = before !== null
 	const bytes = Buffer.byteLength(after, 'utf8')
 	const label =
 		operation === 'create'
@@ -55,7 +41,7 @@ export function fileWriteResult(
 					: 'Wrote'
 	const newlineChanged =
 		typeof before === 'string' && before.endsWith('\n') !== after.endsWith('\n')
-	const summary = `${label} ${path}${before === null ? '' : ` (+${added.length} -${removed.length})`}${newlineChanged ? ' · final newline changed' : ''}`
+	const summary = `${label} ${path}${before === null ? '' : ` (+${diff.added} -${diff.removed})`}${newlineChanged ? ' · final newline changed' : ''}`
 	return {
 		success: true,
 		output: `${summary} · ${bytes} bytes`,
@@ -71,7 +57,14 @@ export function fileWriteResult(
 							? 'unchanged'
 							: 'wrote',
 			bytes,
-			...(before === null ? {} : { added: added.length, removed: removed.length }),
+			...(known
+				? {
+						added: diff.added,
+						removed: diff.removed,
+						...(diff.hunks.length > 0 ? { hunks: diff.hunks } : {}),
+						...(diff.truncated ? { hunksTruncated: true as const } : {}),
+					}
+				: {}),
 		},
 		data: {
 			path,
@@ -83,15 +76,15 @@ export function fileWriteResult(
 					? {}
 					: {
 							preview: {
-								before: removed.length ? `${removed.join('\n')}\n` : '',
-								after: added.length ? `${added.join('\n')}\n` : '',
+								before: previewSide(diff.hunks, '-'),
+								after: previewSide(diff.hunks, '+'),
 							},
 						}),
 				bytes,
 				sha256: createHash('sha256').update(after, 'utf8').digest('hex'),
 				...(before === null
 					? {}
-					: { added: added.length, removed: removed.length, newlineChanged }),
+					: { added: diff.added, removed: diff.removed, newlineChanged }),
 			},
 		},
 	}

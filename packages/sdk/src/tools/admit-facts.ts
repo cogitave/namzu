@@ -1,4 +1,4 @@
-import type { ToolFacts, ToolFailureReason } from '../types/tool/presentation.js'
+import type { ToolDiffHunk, ToolFacts, ToolFailureReason } from '../types/tool/presentation.js'
 
 const FAILURE_REASONS: readonly ToolFailureReason[] = [
 	'not_found',
@@ -43,6 +43,45 @@ function pick<T extends object>(entries: Record<string, unknown>): T {
 	const out: Record<string, unknown> = {}
 	for (const [key, value] of Object.entries(entries)) if (value !== undefined) out[key] = value
 	return out as T
+}
+
+const MAX_HUNKS = 100
+const MAX_HUNK_ROWS = 400
+const MAX_ROW_CHARS = 600
+
+/** Hunks read back from a record: bounded, every row marked, or dropped as a whole. */
+function hunks(value: unknown): readonly ToolDiffHunk[] | undefined {
+	if (!Array.isArray(value) || value.length > MAX_HUNKS) return undefined
+	const out: ToolDiffHunk[] = []
+	let rows = 0
+	for (const entry of value) {
+		if (!isRecord(entry) || !Array.isArray(entry.lines)) return undefined
+		const oldStart = count(entry.oldStart)
+		const oldLines = count(entry.oldLines)
+		const newStart = count(entry.newStart)
+		const newLines = count(entry.newLines)
+		if (
+			oldStart === undefined ||
+			oldLines === undefined ||
+			newStart === undefined ||
+			newLines === undefined
+		)
+			return undefined
+		rows += entry.lines.length
+		if (rows > MAX_HUNK_ROWS) return undefined
+		const lines: string[] = []
+		for (const row of entry.lines) {
+			if (
+				typeof row !== 'string' ||
+				row.length > MAX_ROW_CHARS ||
+				!(row.startsWith(' ') || row.startsWith('+') || row.startsWith('-'))
+			)
+				return undefined
+			lines.push(row)
+		}
+		out.push({ oldStart, oldLines, newStart, newLines, lines })
+	}
+	return out.length > 0 ? out : undefined
 }
 
 /**
@@ -116,6 +155,10 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 				kind: 'edit',
 				path: text(value.path),
 				replacements: count(value.replacements),
+				added: count(value.added),
+				removed: count(value.removed),
+				hunks: hunks(value.hunks),
+				hunksTruncated: flag(value.hunksTruncated),
 			})
 		case 'write': {
 			const path = text(value.path)
@@ -128,6 +171,8 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 				bytes: count(value.bytes),
 				added: count(value.added),
 				removed: count(value.removed),
+				hunks: hunks(value.hunks),
+				hunksTruncated: flag(value.hunksTruncated),
 			})
 		}
 		case 'failure': {
