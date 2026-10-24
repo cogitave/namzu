@@ -1062,7 +1062,7 @@ describe('Ctrl+T', () => {
 			// itself settles later, when the closing line is written.
 			await waitUntil(
 				screen,
-				() => /✻ Worked for \S+ · 4 agents/u.test(painted(screen)),
+				() => /✻ Worked for \S+ · done [^·]+ · 4 agents/u.test(painted(screen)),
 				'real parent query did not settle',
 			)
 			expect(painted(screen)).toContain('parent completed')
@@ -1080,7 +1080,7 @@ describe('Ctrl+T', () => {
 			).toHaveLength(1)
 			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
-			expect(painted(screen)).toMatch(/✻ Worked for \S+ · 4 agents/u)
+			expect(painted(screen)).toMatch(/✻ Worked for \S+ · done [^·]+ · 4 agents/u)
 		} finally {
 			releaseChildren()
 			delete sendOverride.current
@@ -1280,6 +1280,28 @@ describe('Ctrl+T', () => {
 			'the second press did not report the stop',
 		)
 		expect(stoppedChildren.sort()).toEqual(['bg-1', 'bg-2'])
+		// Once they report as stopped, the one row above is all the conversation says.
+		activity.set([
+			agent({
+				viewId: 'bg-1',
+				description: 'First child',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+			}),
+			agent({
+				viewId: 'bg-2',
+				description: 'Second child',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+			}),
+			agent({ viewId: 'fg-1', description: 'Waited child' }),
+		])
+		await screen.waitForRender()
+		await screen.waitForRender()
+		expect(painted(screen).match(/All background agents stopped/gu)).toHaveLength(1)
+		expect(painted(screen)).not.toContain('was stopped by user')
 	})
 
 	it('says so when ctrl+x ctrl+k finds no background agent', async () => {
@@ -4268,6 +4290,101 @@ describe('background agents outlive the turn', () => {
 		)
 		expect(stoppedChildren).toEqual(['bg-1'])
 		expect(painted(screen)).not.toContain('again to exit')
+	})
+
+	it('asks the person when a background agent needs approval after its turn has ended', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		let ask: ((request: never) => Promise<{ kind: string }>) | undefined
+		sendOverride.current = async function* (_messages, opts) {
+			ask = opts?.onPermission as never
+			activity.set([
+				agent({
+					viewId: 'bg-1',
+					description: 'Slow lookup',
+					background: true,
+					startedAt: Date.now() + 60_000,
+				}),
+			])
+			yield { kind: 'delta', text: 'Started the lookup.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'look it up')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the turn did not end over the agent',
+		)
+		// The turn is over; the agent it launched now wants to write a file.
+		const answer = ask?.({
+			toolCalls: [
+				{
+					id: 'c1',
+					name: 'write',
+					input: { path: 'notes.txt', content: 'hi' },
+					isDestructive: true,
+				},
+			],
+		} as never)
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Do you want to write this file?'),
+			'the question never reached the screen',
+		)
+		let decided = false
+		void answer?.then(() => {
+			decided = true
+		})
+		// A key inside the prompt's settle window decides nothing; keep answering.
+		await waitUntil(
+			screen,
+			() => {
+				if (!decided) screen.press('y')
+				return decided
+			},
+			'the answer never reached the agent',
+		)
+		await expect(answer).resolves.toMatchObject({ kind: 'approve' })
+		expect(painted(screen)).not.toContain('Turn is no longer active')
+	})
+
+	it('leaves one row for an idle Ctrl+C stop: no per-agent rows and no closing line', async () => {
+		stoppedChildren.length = 0
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await answerOverBackgroundAgent(screen)
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the waiting line never appeared',
+		)
+		screen.press('\x03')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('All background agents stopped'),
+			'the stop was not announced',
+		)
+		// The agent now reports as stopped by the operator.
+		activity.set([
+			agent({
+				viewId: 'bg-1',
+				description: 'Slow lookup',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+				startedAt: Date.now() + 60_000,
+				completedAt: Date.now() + 61_000,
+			}),
+		])
+		await screen.waitForRender()
+		await screen.waitForRender()
+		const text = painted(screen)
+		expect(text.match(/All background agents stopped/gu)).toHaveLength(1)
+		expect(text).not.toContain('was stopped by user')
+		expect(text).not.toContain('Worked for')
+		expect(screen.viewport().join('\n')).not.toContain('Waiting for 1 background agent')
 	})
 
 	it('wakes an idle conversation once for everything that ended meanwhile', async () => {

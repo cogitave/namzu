@@ -292,29 +292,37 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
  */
 export const SETTLE_LINE_MIN_MS = 3_000
 
+/** The clock time a closing line was written at, `3:45 PM` in the person's own locale. */
+export function doneClock(at: Date): string {
+	return at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
 /**
- * `Worked for 38s · 3 agents · 27.0k tokens`, or `Worked for 46s`
- * for a turn that delegated nothing — a finished turn closes with how long it
- * took, as the reference terminal's do — or `undefined` for a turn that
- * delegated nothing and finished within {@link SETTLE_LINE_MIN_MS}.
+ * `Worked for 38s · done 3:45 PM · 3 agents · 27.0k tokens`, or
+ * `Worked for 46s · done 3:45 PM` for a turn that delegated nothing — a
+ * finished turn closes with how long it took and when it ended — or
+ * `undefined` for a turn that delegated nothing and finished within
+ * {@link SETTLE_LINE_MIN_MS}. The clock part is left out when no time is given.
  *
- * Phases never appear here: the reference shows them only inside a
- * workflow's detail view. The tokens appear only when a child reported
- * spend, and `· 1 failed` only when one did.
+ * Phases never appear here: they show only inside a workflow's detail view.
+ * The tokens appear only when a child reported spend, and `· 1 failed` only
+ * when one did.
  */
 export function settleLine(
 	elapsedMs: number,
 	agents: readonly SubagentActivity[],
+	doneAt?: Date,
 ): string | undefined {
-	if (agents.length <= 0)
-		return elapsedMs >= SETTLE_LINE_MIN_MS ? `Worked for ${formatElapsed(elapsedMs)}` : undefined
+	const worked = (ms: number): string =>
+		`Worked for ${formatElapsed(Math.max(0, ms))}${doneAt ? ` · done ${doneClock(doneAt)}` : ''}`
+	if (agents.length <= 0) return elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
 	const spent = agents.reduce<number | undefined>(
 		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 		undefined,
 	)
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
-		`Worked for ${formatElapsed(Math.max(0, elapsedMs))}`,
+		worked(elapsedMs),
 		`${agents.length} agent${agents.length === 1 ? '' : 's'}`,
 		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
 		...(failed > 0 ? [`${failed} failed`] : []),

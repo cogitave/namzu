@@ -285,8 +285,8 @@ first tool call on, and nothing until it has reported usage); an agent
 still waiting for a slot reads `waiting` instead of a clock, and messages sent
 to it that it has not taken in yet read `N queued` in the warning colour. The
 name column is as wide as the longest type or workflow name on screen, up to 28
-cells, shared by agent and workflow rows; when every row is the same type and no
-workflow row is shown, the column is left out. The description is always the
+cells, shared by agent and workflow rows; every agent row has it, so a row reads
+the same whether it is alone or among others. The description is always the
 sentence the agent was launched with, and its **live label** (cut to 24 cells,
 left out below 64 columns) sits in the right-hand block before the clock:
 every 30 seconds, while a background agent runs and has done something new
@@ -485,7 +485,7 @@ and never redrawn; the live state belongs to the rail.
   └ Choose second colour
 ● Agent "Choose first colour" finished · 1m 4s (ctrl+o to expand)
 ● Agent "Choose second colour" failed: Provider refused the request · 3s
-✻ Worked for 38s · 3 agents · 27.0k tokens
+✻ Worked for 38s · done 3:45 PM · 3 agents · 27.0k tokens
 ```
 
 Delegated work leaves these rows, each written once and never redrawn; the
@@ -543,7 +543,7 @@ live state belongs to the rail.
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
-  `✻ Worked for 46s`, when it finished normally and took three seconds or more
+  `✻ Worked for 46s · done 3:45 PM`, when it finished normally and took three seconds or more
   (time spent waiting for a permission or a question to be answered is left
   out);
   a quicker answer, or a turn that was stopped or cancelled (which already says
@@ -1028,7 +1028,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
 - **The tool-output viewer (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above their boxes; both carry their own key line.
 - **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.
-- **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
+- **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`, and that is the only row it leaves: the stopped agents write no row of their own and the waiting line ends without a closing line. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
 - **`/compact` leaves its echo and result where it ran**: the turns that stay, then `› /compact`, then `✻ Compacted (ctrl+o to see full summary)`. `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.
 - **A launch receipt is written before the reply that follows the launch**, even when the reply arrives inside the receipt's 250 ms settle window.
 - **`/workflows` and every choice list use a rounded frame**; below 70 columns a description wraps under its label (two lines at most) and a `·`-separated row drops whole trailing parts rather than cutting a number. The permission box labels its toggle `d view input`.

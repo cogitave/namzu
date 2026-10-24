@@ -3017,6 +3017,32 @@ export function App({
 		})
 	}, [])
 	/**
+	 * The operator stops every background agent still going: the model is told
+	 * once, the conversation gets the one row that says so, and nothing else is
+	 * written for the stop. The agents' own end rows and the turn's closing line
+	 * would only repeat it (or split it), so they are marked as already said.
+	 */
+	const stopBackgroundAgentsByOperator = useCallback(
+		(stopped: readonly SubagentActivity[], notice: string) => {
+			tellModelAgentsStopped(stopped)
+			for (const agent of stopped) {
+				reportedAgentsRef.current.add(agent.viewId)
+				session?.stopSubagent?.(agent.viewId)
+			}
+			const wait = closingWaitRef.current
+			if (wait !== null) closingWaitRef.current = { ...wait, silent: true }
+			pushMessage(
+				'system',
+				notice,
+				false,
+				systemRowStyle('error').glyph,
+				undefined,
+				systemRowStyle('error').color,
+			)
+		},
+		[pushMessage, session, tellModelAgentsStopped],
+	)
+	/**
 	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
 	 * running says so, the first press arms a 3 s confirm, the second stops every
 	 * background agent still going and says how many.
@@ -3035,16 +3061,7 @@ export function App({
 		}
 		if (step.kind === 'stop') {
 			setStopAllNotice(null)
-			tellModelAgentsStopped(running)
-			for (const agent of running) session?.stopSubagent?.(agent.viewId)
-			pushMessage(
-				'system',
-				step.notice,
-				false,
-				systemRowStyle('error').glyph,
-				undefined,
-				systemRowStyle('error').color,
-			)
+			stopBackgroundAgentsByOperator(running, step.notice)
 			return
 		}
 		// "Nothing running" and "press again" are footer feedback that times out
@@ -3059,7 +3076,7 @@ export function App({
 		timer.unref?.()
 		if (step.kind === 'arm') stopAllArmedRef.current = timer
 		else stopAllNoticeTimerRef.current = timer
-	}, [pushMessage, session, tellModelAgentsStopped])
+	}, [stopBackgroundAgentsByOperator])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -3136,6 +3153,8 @@ export function App({
 		readonly since: number
 		readonly pausedMs: number
 		readonly lastEndedAt: number
+		/** The operator stopped the agents: the wait ends without a line of its own. */
+		readonly silent?: boolean
 	} | null>(null)
 	const [closingWaitVersion, setClosingWaitVersion] = useState(0)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the version is what moves; the ref holds the wait.
@@ -3157,7 +3176,8 @@ export function App({
 		if (workflowRuns.some((run) => run.status === 'running')) return
 		closingWaitRef.current = null
 		setClosingWaitVersion((version) => version + 1)
-		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine)
+		if (wait.silent === true) return
+		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
 		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, theme.text.muted)
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
@@ -8170,7 +8190,7 @@ export function App({
 						}
 						const closing =
 							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
-								? settleLine(Date.now() - since - pausedMs, delegated)
+								? settleLine(Date.now() - since - pausedMs, delegated, new Date())
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -8731,8 +8751,13 @@ export function App({
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
+			//
+			// A background agent this turn launched outlives it and keeps asking
+			// through this same callback, so a turn that has merely ended (or been
+			// followed by another) still answers: only a stopped turn, another
+			// conversation or a closing app refuse.
 			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
-				if (!stillHere() || activeTurnTokenRef.current !== turnToken || ac.signal.aborted) {
+				if (!stillHere() || ac.signal.aborted || appLifetime.signal.aborted) {
 					return Promise.resolve({
 						kind: 'reject',
 						feedback: 'Turn is no longer active.',
@@ -12837,16 +12862,7 @@ export function App({
 				// agents first, once, and says so. Exit arms only when none is left.
 				const stoppable = stoppableBackgroundAgents(railRowsRef.current)
 				if (stoppable.length > 0) {
-					tellModelAgentsStopped(stoppable)
-					for (const agent of stoppable) session?.stopSubagent?.(agent.viewId)
-					pushMessage(
-						'system',
-						stopAllStep(stoppable.length, true).notice,
-						false,
-						systemRowStyle('error').glyph,
-						undefined,
-						systemRowStyle('error').color,
-					)
+					stopBackgroundAgentsByOperator(stoppable, stopAllStep(stoppable.length, true).notice)
 					return
 				}
 				armExit('Ctrl-C')

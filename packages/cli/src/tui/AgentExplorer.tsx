@@ -590,11 +590,6 @@ function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean):
 	return label ? `${label} · ${status}` : status
 }
 
-/** Whether every listed agent is the same kind, so a type column would only repeat itself. */
-export function railSharesType(agents: readonly SubagentActivity[]): boolean {
-	return agents.length > 1 && agents.every((agent) => agent.agentId === agents[0]?.agentId)
-}
-
 /** Cells the `↓ N more` row and the pointer share with a row's first slot. */
 const RAIL_POINTER_CELLS = 2
 
@@ -648,9 +643,8 @@ export function AgentTaskPanel({
 	// One name column for agent and workflow rows alike: as wide as the longest
 	// name on screen (never past the cap), so the second column starts right
 	// after it instead of at a fixed tab.
-	// Every agent the same kind and no workflow row: the type would only repeat
-	// itself on each line, so the column goes and the description takes the room.
-	const hideType = workflows.length === 0 && railSharesType(agents)
+	// One label rule for every row: the type column is always there, so a row
+	// reads the same whatever its neighbours are doing.
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
@@ -745,19 +739,17 @@ export function AgentTaskPanel({
 										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
-								{hideType ? null : (
-									<Box width={nameWidth} flexShrink={0}>
-										<Text
-											bold={bright}
-											dimColor={!bright}
-											color={theme.text.primary}
-											wrap="truncate-end"
-										>
-											{terminalDisplayText(oneLine(agent.agentId))}
-										</Text>
-									</Box>
-								)}
-								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={hideType ? 0 : 2}>
+								<Box width={nameWidth} flexShrink={0}>
+									<Text
+										bold={bright}
+										dimColor={!bright}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.agentId))}
+									</Text>
+								</Box>
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
 									<Text
 										bold={bright}
 										dimColor={!bright}

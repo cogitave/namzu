@@ -47,9 +47,10 @@ under the answer says what is pending:
 ✻ Waiting for 2 background agents to finish
 ```
 
-(`and 1 dynamic workflow` joins it when a workflow is running too.) When the
-last one ends the line becomes the turn's closing line, `✻ Worked for 3m 12s ·
-2 agents`, with the wait counted.
+(`and 1 dynamic workflow` joins it when a workflow is running too.) A blank row
+separates it from the line above. When the last one ends the line becomes the
+turn's closing line, `✻ Worked for 3m 12s · done 3:45 PM · 2 agents`, with the
+wait counted and the clock time the work ended right after the duration.
 
 Each agent that ends after its turn is over wakes the model. Everything that
 ended while the conversation was idle goes to the model in **one** message and
@@ -59,10 +60,11 @@ not wake the model.
 
 - **Esc** interrupts only the model's reply. It never stops a background agent.
 - **Ctrl+C** with a reply running interrupts the reply and leaves the agents
-  alone. With nothing running it stops every background agent, says `N
-  background agents stopped`, and tells the model once (`Background agent "X"
-  was stopped by the user.`); the exit reminder only appears when no agent is
-  left. In an agent's own view it stops only that agent and returns to the main
+  alone. With nothing running it stops every background agent, says `All
+  background agents stopped` and tells the model once (`Background agent "X"
+  was stopped by the user.`); that one row is all the conversation gets for the
+  stop: no `was stopped by user` row per agent and no `Worked for` line
+  splitting it. The exit reminder only appears when no agent is left. In an agent's own view it stops only that agent and returns to the main
   conversation.
 - Closing the conversation or the terminal stops the agents, as before.
 
@@ -284,7 +286,7 @@ Their launch writes a single `● Workflow <name>` line with
 `⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
 receipt or completion row, and the workflow closes with one line
 (`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens`). A turn that
-launched agents ends with `✻ Worked for <time> · <N> agents`, adding the tokens
+launched agents ends with `✻ Worked for <time> · done <clock> · <N> agents`, adding the tokens
 the agents spent when any reported them and `<N> failed` when one failed; it
 never counts phases, which appear only in a workflow's detail view. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
@@ -305,7 +307,7 @@ while the next launch is decided. That row names no key, since the dialog holds
 rail. With none running it says `No background agents running`; the first
 press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer for
 3 seconds (it is not a transcript row); the second stops them and leaves
-`All background agents stopped`. Agents
+`All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
 
 A failed agent's row says one plain sentence with a next step, for example
@@ -322,8 +324,8 @@ background agents and the agents' notices print after it.
 
 The rail lists running agents, plus a failed or stopped one for 30 seconds (a
 background agent that completed leaves at once), five at a time, one row each
-(type, description, time and spend; the type column is left out when every row
-is the same type). A running background agent's live label sits beside its clock: every 30 seconds, when it has done something new
+(type, description, time and spend; every row has the type column, however many
+agents there are or what the others are doing). A running background agent's live label sits beside its clock: every 30 seconds, when it has done something new
 and has at least three messages, it is asked once on its own model, with no
 tools, for a three-to-five-word present-tense label naming the file or function,
 in the predominant language of what the agent has been doing (there is no
@@ -354,7 +356,12 @@ see a background agent that a finished turn left running. Background work keeps
 the same parent authority, shared tree budget and capacity limit. In the terminal
 a background agent outlives the turn that started it and is stopped by you (Ctrl+C
 when idle, `ctrl+x ctrl+k`, `x` on its rail row) or by closing the conversation;
-a turn that ends or is interrupted does not cancel it. Foreground agents and
+a turn that ends or is interrupted does not cancel it. A foreground agent whose
+wait you released by typing is treated the same way: it keeps running, and its
+end is reported once, like a background agent. If a background agent needs
+approval after its turn has ended (to write a file, say), the question appears
+on screen under the mode you have now and your answer reaches that agent; only a
+stopped turn, another conversation or a closing app refuses it. Foreground agents and
 headless hosts keep the original rule: releasing the parent turn cancels the
 children it still owns, and a normal parent query waits for them before final
 settlement while handling operator input meanwhile.

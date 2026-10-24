@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { journalOf, rememberJournal } from '../../integrations/sessions/journal-trail.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { projectConversation } from '../App.js'
+import { doneClock } from '../agent-transcript-rows.js'
 import { type AgentEvent, builtinToolPresenter, toAgentEvent } from '../agent.js'
 import { numberDetailRows, trailFromRecords, withSavedAgentRows } from '../restored-rows.js'
 import { type ToolRow, formatToolCall, toolEndRows } from '../tool-end-rows.js'
@@ -337,7 +338,12 @@ describe('a resumed conversation closes and interrupts its turns as the live run
 	it('ends a turn that took a while with its Worked-for line', () => {
 		const trail = trailFromRecords(turnRecords(base, {}, 46))
 		const rows = projectConversation(base, ids(), [], { trail })
-		expect(rows.map((row) => row.content)).toEqual(['slow one', 'Finished.', 'Worked for 46s'])
+		const endedAt = Date.parse('2026-10-24T10:00:00.000Z') + 46 * 1000
+		expect(rows.map((row) => row.content)).toEqual([
+			'slow one',
+			'Finished.',
+			`Worked for 46s · done ${doneClock(new Date(endedAt))}`,
+		])
 		expect(rows.at(-1)?.glyph).toBe('✻')
 	})
 
