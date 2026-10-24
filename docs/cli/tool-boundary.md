@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-09-22T00:00:00Z }
 
 # Where tools run
 
-By default the CLI runs the model's tools **on this machine**, the way other coding agents do, and the permission system decides what runs. The OS sandbox is an opt-in for an operator who wants commands confined.
+By default the CLI runs the model's tools **on this machine**, and the permission system decides what runs. The OS sandbox is an opt-in for an operator who wants commands confined.
 
 ## The default: host execution under the permission system
 
