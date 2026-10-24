@@ -168,7 +168,9 @@ and the effort is left as it is, the next message is not, and the session
 setting is not touched. See [Composer triggers](composer-triggers.md).
 
 Hypermode never changes the reasoning effort, turning it on or off, with the
-keyword or without (a reference check is in the changeset). `/hypermode on`
+keyword or without (a reference check is in the changeset). Choosing an effort
+level never turns hypermode off either, unlike the reference's ultracode, which
+turns off when a numeric level is chosen. `/hypermode on`
 answers `Hypermode is on for this conversation: Namzu will use workflows for
 substantial tasks. Effort stays high.` and `/hypermode off` answers
 `Hypermode is off: workflows are offered only when you ask for one. Effort
