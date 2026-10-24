@@ -205,7 +205,7 @@ it('shows the queued-messages hint with Enter-to-send, only for its first three 
 		onLeave: () => {},
 	}
 	const none = { ...available, available: false }
-	const hint = 'Press up to edit queued messages, Enter to send them now'
+	const hint = 'Press up to edit queued messages'
 	const screen = await renderToScreen(
 		<Composer onSubmit={vi.fn()} history={[]} queuedEdit={none} />,
 		{

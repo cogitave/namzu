@@ -158,7 +158,7 @@ accent colour and the others lose their pointer. Up and Down move, Enter loads
 the chosen message into the input with its attachments and armed triggers,
 and Esc only leaves the choice. Typing anything else leaves it too. While
 messages can be edited the input's placeholder reads `Press up to edit queued
-messages, Enter to send them now`, the first three times it would appear in a
+messages`, the first three times it would appear in a
 launch (the count restarts every launch), then the usual placeholder returns. On the very first prompt of a
 conversation the placeholder is a rotating example, `Try "fix lint errors"`,
 and, in a git repository, ones that name a frequently modified source file

@@ -611,6 +611,7 @@ export function Composer({
 	const nextPasteIdRef = useRef(1)
 	const queuedHintEpisodeRef = useRef({ active: false, show: false })
 	const queuedHintShownRef = useRef(0)
+	const [queuedHintShow, setQueuedHintShow] = useState(false)
 	const clearPastes = useCallback(() => {
 		pasteStoreRef.current = new Map()
 		nextPasteIdRef.current = 1
@@ -1516,13 +1517,18 @@ export function Composer({
 	// The queued-messages hint is offered for the first few times it would show,
 	// then the plain placeholder takes over. One decision per appearance.
 	const queuedHintWanted = showPlaceholder && queuedEdit?.available === true
-	if (queuedHintWanted && !queuedHintEpisodeRef.current.active) {
-		const show = queuedHintShownRef.current < QUEUED_HINT_LIMIT
-		if (show) queuedHintShownRef.current += 1
-		queuedHintEpisodeRef.current = { active: true, show }
-	} else if (!queuedHintWanted && queuedHintEpisodeRef.current.active) {
-		queuedHintEpisodeRef.current = { active: false, show: false }
-	}
+	useEffect(() => {
+		const episode = queuedHintEpisodeRef.current
+		if (queuedHintWanted && !episode.active) {
+			const show = queuedHintShownRef.current < QUEUED_HINT_LIMIT
+			if (show) queuedHintShownRef.current += 1
+			queuedHintEpisodeRef.current = { active: true, show }
+			setQueuedHintShow(show)
+		} else if (!queuedHintWanted && episode.active) {
+			queuedHintEpisodeRef.current = { active: false, show: false }
+			setQueuedHintShow(false)
+		}
+	}, [queuedHintWanted])
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null
@@ -1561,7 +1567,7 @@ export function Composer({
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
 						<Text color={theme.text.muted}>
-							{queuedHintWanted && queuedHintEpisodeRef.current.show ? QUEUED_HINT : placeholder}
+							{queuedHintWanted && queuedHintShow ? QUEUED_HINT : placeholder}
 						</Text>
 					) : editPreviousArmed ? (
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
