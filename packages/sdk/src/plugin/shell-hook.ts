@@ -57,7 +57,7 @@
  * - `systemMessage` — a warning for the operator, reported through the logger.
  * - `suppressOutput` — keep this hook's stdout out of the debug log.
  * - `hookSpecificOutput` with `hookEventName` naming this event (Namzu's
- *   name or the reference spelling `PreToolUse`, `Stop`, ...):
+ *   name or the PascalCase spelling `PreToolUse`, `Stop`, ...):
  *   `permissionDecision` (`allow`, `deny` or `ask`) with
  *   `permissionDecisionReason`, `updatedInput` and `additionalContext` for
  *   `pre_tool_use`; `additionalContext` for `user_prompt_submit`,
@@ -458,8 +458,8 @@ function pathOf(toolInput: unknown): string | undefined {
 	return undefined
 }
 
-/** The reference spelling of each event name, which a hook's JSON may use. */
-const REFERENCE_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
+/** The PascalCase spelling of each event name, which a hook's JSON may use. */
+const PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
 	user_prompt_submit: 'UserPromptSubmit',
 	session_start: 'SessionStart',
 	session_end: 'SessionEnd',
@@ -565,7 +565,7 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 	if (typeof named !== 'string') {
 		return { invalid: '`hookSpecificOutput` is missing its `hookEventName`' }
 	}
-	if (named !== event && named !== REFERENCE_EVENT_NAMES[event]) {
+	if (named !== event && named !== PASCAL_EVENT_NAMES[event]) {
 		return {
 			invalid: `\`hookSpecificOutput.hookEventName\` is "${named}" but this hook ran for ${event}`,
 		}

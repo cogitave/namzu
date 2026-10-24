@@ -337,7 +337,7 @@ function codeFromMessage(message: string, status?: number): ProviderErrorCode | 
 		// overflow rescue tests for by exact equality. The turn died holding
 		// the remedy.
 		m.includes('too long for') ||
-		// The reference terminal's own wordings (its `context window` and
+		// Known wordings: `context window` and
 		// `input length and max_tokens exceed context limit` matchers).
 		// Only where the status cannot say otherwise: a 429, 5xx or 401 that
 		// mentions the window is still a rate limit, a server fault or an auth

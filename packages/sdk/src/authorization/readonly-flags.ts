@@ -1,8 +1,7 @@
 /**
  * Per-flag allowlists for the shell commands that may run without a prompt.
  *
- * Read from the reference terminal (version 2.1.302): for each command, the
- * flags it vets and what each takes, `none` (a switch), `string` or `number`.
+ * For each command, the flags it vets and what each takes, `none` (a switch), `string` or `number`.
  * A flag not listed here is not read-only, which is how `git diff --output=f`
  * (writes a file), `git -c`, `--exec-path` and `--config-env` stay out: they
  * are not in any table. Space-separated lists per kind keep the file readable;

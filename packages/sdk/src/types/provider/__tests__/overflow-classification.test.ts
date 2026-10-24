@@ -112,7 +112,7 @@ describe('an already-classified error', () => {
 	})
 })
 
-describe('the reference terminal context-overflow wordings', () => {
+describe('context-overflow wordings', () => {
 	it.each([
 		'prompt is too long: 213000 tokens > 200000 maximum',
 		'Input is too long for requested model.',

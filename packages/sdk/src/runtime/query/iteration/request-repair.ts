@@ -21,7 +21,7 @@ import { isProviderRejectedImageError } from './provider-rejected-image.js'
  * Repair-and-retry for a request a provider rejects as invalid (a 400 that is
  * not a context overflow), so a conversation does not dead-end on it.
  *
- * Mirrors the reference terminal's table of silent 400 recoveries: pair tool
+ * The silent 400 recoveries, in order: pair tool
  * calls with results before a send, strip rejected reasoning, drop a
  * parameter the model refuses, and take rejected media out of the OUTGOING
  * request. Stored history is never edited.
@@ -77,7 +77,7 @@ type Rejection =
 /** Most repair resends for one original request, across every send it makes. */
 export const MAX_REPAIRS_PER_REQUEST = 5
 const MAX_STRIPS_PER_INDEX = 3
-/** The reference drops media in these steps for an unprocessable request. */
+/** Media is dropped in these steps for an unprocessable request. */
 const GENERIC_MEDIA_LIMITS: readonly number[] = [510, 255, 127]
 
 const PARAMETER_CODES: ReadonlySet<string> = new Set([
@@ -608,7 +608,7 @@ export class RequestRepair {
 				victims = slots.filter((slot) => slot.messageIndex === newest.messageIndex)
 			}
 		} else {
-			// The reference's steps, then halving for smaller requests, down to
+			// The media steps, then halving for smaller requests, down to
 			// none: each step keeps fewer than the request held, newest first.
 			const limit =
 				GENERIC_MEDIA_LIMITS.find((candidate) => candidate < slots.length) ??

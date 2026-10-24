@@ -15,8 +15,7 @@ import {
 
 /**
  * A bare read of a big file used to load all of it and render a 2000-line
- * window, however many tokens those lines were. The caps below are the
- * reference terminal's: 256 KiB without a window, 25,000 tokens, and a first
+ * window, however many tokens those lines were. The caps below are: 256 KiB without a window, 25,000 tokens, and a first
  * page that is cut to fit and says what to call next.
  */
 
@@ -33,7 +32,7 @@ const line = (n: number) => `line ${String(n).padStart(5, '0')} ${'x'.repeat(70)
 const lines = (count: number) => Array.from({ length: count }, (_, i) => line(i + 1)).join('\n')
 
 describe('read size cap', () => {
-	it('uses the reference numbers', () => {
+	it('uses the read caps', () => {
 		expect(MAX_READ_BYTES).toBe(262_144)
 		expect(MAX_READ_TOKENS).toBe(25_000)
 	})

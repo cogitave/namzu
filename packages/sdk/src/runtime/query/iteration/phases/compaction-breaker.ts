@@ -30,8 +30,8 @@ export const COMPACTION_REFILL_LIMIT = 3
 
 /**
  * One short line, shown once, when the turn stops on refills. It names the
- * cause and a step that keeps the conversation: the reference terminal also
- * offers to start over here, and Namzu never does.
+ * cause and a step that keeps the conversation: starting over is never
+ * offered here.
  */
 export const COMPACTION_REFILL_MESSAGE =
 	'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large for the context window. Try reading it in smaller parts.'

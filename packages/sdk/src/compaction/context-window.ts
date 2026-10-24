@@ -121,7 +121,7 @@ export const MIN_DERIVED_TRIGGER_FRACTION = 0.5
  * The fraction of the window at which older history is summarised.
  *
  * A host that set `triggerThreshold` gets exactly that. Otherwise the
- * trigger is the one Claude Code uses: the window, less room kept for the
+ * trigger is the window, less room kept for the
  * reply (the model's output cap, at most 20,000 tokens), less a 13,000-token
  * buffer. On a 200,000-token window that is 167,000 tokens (83.5%); on a
  * 1,000,000-token window, 967,000 (96.7%).

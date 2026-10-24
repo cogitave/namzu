@@ -1,6 +1,5 @@
 /**
- * The summariser's own overflow, handled as the reference terminal's round
- * ladder does: send less (the older half of the excerpt, behind a placeholder,
+ * The summariser's own overflow, handled by a round ladder: send less (the older half of the excerpt, behind a placeholder,
  * at most three times), then work from everything already extracted.
  */
 

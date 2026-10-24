@@ -22,7 +22,7 @@ export interface CreateWorkspaceParams {
 	/**
 	 * Traceable name below the configured workspace root. Nested names are
 	 * accepted; absolute paths, traversal, and paths rewritten by a filesystem
-	 * link are refused by the reference Git driver.
+	 * link are refused by the Git driver.
 	 */
 	label?: string
 }

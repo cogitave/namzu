@@ -8,7 +8,7 @@ import { DEFAULT_HEAD_LIMIT, GrepTool, MAX_LINE_COLUMNS } from '../grep.js'
 
 /**
  * Grep returned matching lines and nothing else, capped at 100 matches with no
- * way to page. The reference terminal's default is the list of matching files,
+ * way to page. The default is the list of matching files,
  * newest first, with `content` and `count` as the other two modes.
  */
 

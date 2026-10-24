@@ -29,7 +29,7 @@ import type { JobHost, JobSource } from './registry.js'
  * asks a person first (see `tools/builtins/monitor.ts`).
  */
 
-/** The largest frame accepted; a bigger one ends the watch. Same as the reference. */
+/** The largest frame accepted; a bigger one ends the watch. */
 export const WEBSOCKET_MAX_PAYLOAD_BYTES = 1_048_576
 export const WEBSOCKET_HANDSHAKE_TIMEOUT_MS = 15_000
 /** After a polite close, how long a peer gets to answer before the socket is destroyed. */

@@ -6,15 +6,15 @@
  * and `echo x > ~/.profile` carry their paths inside one string, and a
  * boundary that only reads declared arguments let both through.
  *
- * This is the reference terminal's answer, ported: a table of the commands
- * whose positional arguments are paths (its path-command table and
- * per-command extractors, version 2.1.302), the kind of access each makes (read,
- * write or create), and the output redirections of the line. It is a
+ * This reads the paths a shell line touches: a table of the commands whose
+ * positional arguments are paths, with an extractor for each command, the kind
+ * of access each makes (read, write or create), and the output redirections of
+ * the line. It is a
  * reading of the text, not a model of the shell:
  *
  * - a word that expands at runtime (`$VAR`, `$(...)`) has no path to read;
  *   it is reported with `unresolved` so the caller decides what an unreadable
- *   write target is worth (the reference asks);
+ *   write target is worth;
  * - a `cd` earlier in the line moves every relative path after it, which the
  *   reading does not follow, so the caller is told one happened;
  * - a command that is not in the table contributes nothing.
@@ -279,7 +279,7 @@ interface FlagTable {
 	readonly valuedLong: ReadonlySet<string>
 }
 
-/** Operands of a command whose flags are known: an unknown flag stops flag parsing, as in the reference. */
+/** Operands of a command whose flags are known: an unknown flag stops flag parsing, . */
 function operandsByTable(table: FlagTable): (args: Args) => ShellWord[] {
 	const kind = (flag: string): 'boolean' | 'valued' | 'attached' | 'unknown' => {
 		if (flag.startsWith('--')) {

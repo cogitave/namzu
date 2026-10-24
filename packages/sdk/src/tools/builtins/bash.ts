@@ -52,8 +52,7 @@ const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
  *
  * So the tool declares a ceiling and the executor is given a deadline above
  * it (see `timeoutMs` on the definition), which makes this the only clock
- * that can fire in practice. A request past the ceiling is CLAMPED to it, as
- * the reference terminal does: the command still runs, and a timeout reports
+ * that can fire in practice. A request past the ceiling is CLAMPED to it: the command still runs, and a timeout reports
  * the deadline that was actually applied, so the number the model sees on a
  * timeout is the one that fired.
  */
