@@ -836,7 +836,7 @@ describe('/effort', () => {
 	it('never resolves the hypermode name, or its old name, as an effort token', () => {
 		// The mode is a session setting layered above effort, not a level the
 		// provider published — /effort must refuse it exactly like any other
-		// unpublished token, the same guarantee it gives any other unpublished token.
+		// unpublished token.
 		const ctx = context({
 			providerSummary: 'openai (openai)',
 			modelSummary: 'gpt-5.2',

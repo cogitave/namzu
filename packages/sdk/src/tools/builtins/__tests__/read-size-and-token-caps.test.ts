@@ -15,7 +15,7 @@ import {
 
 /**
  * A bare read of a big file used to load all of it and render a 2000-line
- * window, however many tokens those lines were. The caps below are: 256 KiB without a window, 25,000 tokens, and a first
+ * window, however many tokens those lines were. The caps below are 256 KiB without a window, 25,000 tokens, and a first
  * page that is cut to fit and says what to call next.
  */
 

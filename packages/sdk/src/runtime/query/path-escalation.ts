@@ -193,7 +193,7 @@ export async function shellEscalations(
 				if (!context.reviewOutside) continue
 				if (unresolved) {
 					// A write whose target is decided at runtime cannot be checked; a
-					// read of one is left, alone.
+					// read of one is left alone.
 					if (use.access === 'write') outside.add(spelled)
 					continue
 				}

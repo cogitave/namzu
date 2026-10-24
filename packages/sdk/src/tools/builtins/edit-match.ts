@@ -18,7 +18,7 @@
  *   4. character in `old_string`, `\uXXXX` escape in the file
  *
  * Prompt delimiters from a transcript format (`<fnr>` →
- * `<function_results>`, `\n\nH:` → `\n\nHuman:`, …). They are deliberately NOT
+ * `<function_results>`, `\n\nH:` → `\n\nHuman:`, …) are deliberately NOT
  * expanded: those tokens are artifacts of a transcript format,
  * not a mismatch a Namzu model produces against a real source file.
  *
