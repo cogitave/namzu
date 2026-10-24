@@ -554,6 +554,33 @@ describe('/workflows', () => {
 	})
 })
 
+describe('a slash command is shown as typed', () => {
+	it('echoes the command, with its answer hung under it', async () => {
+		const screen = await start()
+		screen.press('/cost')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => everything(screen).includes('No usage reported yet'))
+		expect(everything(screen)).toMatch(/› \/cost\n+\s*⎿ No usage reported yet/)
+	})
+
+	it('shows /workflow <task> as typed and sends the rewritten sentence to the model only', async () => {
+		const sent: string[] = []
+		sendOverride.current = async function* (messages) {
+			sent.push(String(messages.at(-1)?.content))
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		screen.press('/workflow audit the repo')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => sent.length === 1)
+		expect(sent[0]).toBe('Use a workflow for this: audit the repo')
+		expect(everything(screen)).toContain('› /workflow audit the repo')
+		expect(everything(screen)).not.toContain('Use a workflow for this')
+	})
+})
+
 describe('a workflow agent that asks after the turn is over', () => {
 	it('reaches the person, under the mode they have now, and a No is answered as one', async () => {
 		let review: Parameters<AgentSession['send']>[1] extends infer O
@@ -576,7 +603,7 @@ describe('a workflow agent that asks after the turn is over', () => {
 				{ id: 'c1', name: 'write', input: { path: 'a.txt', content: 'b' }, isDestructive: true },
 			],
 		} as never)
-		await waitUntil(screen, () => text(screen).includes('Do you want to write a.txt?'))
+		await waitUntil(screen, () => text(screen).includes('Do you want to write this file?'))
 		screen.press('\x1b')
 		const decision = await answer
 		expect(decision?.kind).toBe('reject')

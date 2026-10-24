@@ -14,7 +14,8 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
-import { join, relative } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
 import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
@@ -159,6 +160,7 @@ import {
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
+import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { completionNotice, isBackgroundLaunch } from '../integrations/workflows/notice.js'
@@ -362,7 +364,7 @@ import {
 	resolveModelSwitch,
 } from './model-switch.js'
 import { isRepeatedNotice } from './notices.js'
-import { formatSize, homePath, plural, productName } from './person-terms.js'
+import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
@@ -471,6 +473,7 @@ import {
 	type CommandPickerEntry,
 	type SlashContext,
 	baseBranchReviewPrompt,
+	commandPickerDescription,
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
@@ -891,6 +894,16 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 		}
 	}
 	return null
+}
+
+/** The first thing a person typed in a conversation, short enough for a title; `undefined` when none. */
+function firstTypedPrompt(messages: readonly Message[]): string | undefined {
+	for (const message of messages) {
+		if (message.role !== 'user' || message.source) continue
+		const text = typedTextOf(message.content).text.replace(/\s+/g, ' ').trim()
+		if (text.length > 0) return text.length > 60 ? `${text.slice(0, 59)}…` : text
+	}
+	return undefined
 }
 
 /** Exact operator-authored prompts that belong in terminal input history. */
@@ -2307,6 +2320,8 @@ export function App({
 	 * could first have been SEEN rather than when it was decided upon.
 	 */
 	const trustShownAtRef = useRef<number | null>(null)
+	// What the folder's own config pre-approves, read once for the gate.
+	const trustGrants = useMemo(() => readFolderGrants(trustedCwdRef.current), [])
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
@@ -4728,7 +4743,27 @@ export function App({
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
-			setMessages(projectConversation(restored, nextId))
+			// The same closing row every resume path draws: the title a person gave
+			// it, else the first thing they typed.
+			let named: string | undefined
+			try {
+				named = await titleOf(sessions, asSessionId(requestedConversationId))
+			} catch {
+				// A title is a courtesy; the conversation opens without it.
+			}
+			const resumedTitle = named ?? firstTypedPrompt(restored)
+			setMessages([
+				...projectConversation(restored, nextId),
+				...(resumedTitle
+					? [
+							{
+								id: nextId(),
+								role: 'system' as const,
+								content: `Resumed: ${displayConversationTitle(resumedTitle)}`,
+							},
+						]
+					: []),
+			])
 			setHistory(promptHistoryFromConversation(restored))
 			const persistedOutput = latestAssistantOutput(restored)
 			lastCompletedOutputRef.current = persistedOutput
@@ -6169,7 +6204,7 @@ export function App({
 		...(session?.allowForSession && session.commandArguments
 			? {
 					commandArguments: session.commandArguments,
-					rememberWhere: homePath(ctx.cwd),
+					rememberWhere: displayPath(ctx.cwd, 28),
 				}
 			: {}),
 	})
@@ -7230,6 +7265,7 @@ export function App({
 			}
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
+				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
@@ -8532,7 +8568,9 @@ export function App({
 			} else {
 				pushMessage(
 					'user',
-					text,
+					// What the operator typed: a command that composes the model's
+					// message (`/workflow <task>`) shows the command, not the rewrite.
+					prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
 					false,
 					undefined,
 					undefined,
@@ -8773,7 +8811,7 @@ export function App({
 						for (const input of delivered) {
 							pushMessage(
 								'user',
-								input.prompt.text,
+								input.prompt.recallText ?? input.prompt.text,
 								false,
 								undefined,
 								undefined,
@@ -9704,6 +9742,10 @@ export function App({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
+						// The command as typed, then its answer hung under `⎿`, so a readout
+						// in the scrollback says which command it answers. A system row, not
+						// a user one: it is not a prompt and must not be offered for editing.
+						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
 						if (slash.statusRows) {
 							setMessages((previous) => [
 								...previous,
@@ -9714,7 +9756,7 @@ export function App({
 									statusRows: slash.statusRows,
 								},
 							])
-						} else pushMessage(slash.role, slash.content)
+						} else pushMessage(slash.role, slash.content, false, '⎿')
 						return
 					case 'command-picker': {
 						if (slash.commands.length === 0) {
@@ -9730,7 +9772,7 @@ export function App({
 								label: `/${command.name}`,
 								description: command.problem
 									? `Unavailable: ${command.problem}`
-									: command.description,
+									: commandPickerDescription(command.description),
 								disabledReason: command.problem,
 							})),
 							windowSize: suggestionWindowSize(terminal.rows),
@@ -12027,6 +12069,10 @@ export function App({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// The focus rests on the exit choice, so a deliberate Enter exits. It
+				// can only leave: the in-flight Enter above is still ignored, and
+				// nothing here grants trust.
+				else if (key.return) exitWithSummary()
 				return
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
@@ -13141,7 +13187,7 @@ export function App({
 						}}
 					/>
 				) : phase === 'trust' ? (
-					<TrustPrompt cwd={ctx.cwd} />
+					<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
 				) : phase === 'unhealthy' ? (
 					// The sentence above already says what to do when it is a complete
 					// one; saying "resolve the error above" under it is the same advice
@@ -13274,7 +13320,7 @@ export function App({
 								{...(session?.allowForSession && session.commandArguments
 									? {
 											commandArguments: session.commandArguments,
-											rememberWhere: homePath(ctx.cwd),
+											rememberWhere: displayPath(ctx.cwd, 28),
 										}
 									: {})}
 								siteNotes={permission.siteNotes}
@@ -13509,10 +13555,15 @@ export function App({
 				{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
-				{phase === 'trust' || !showComposerSurface || statusLineText === undefined ? null : (
+				{phase === 'trust' ||
+				outputViewer !== null ||
+				!showComposerSurface ||
+				statusLineText === undefined ? null : (
 					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
 				)}
-				{phase === 'trust' ? null : (
+				{/* The tool-output viewer carries its own key line; the mode footer above
+				    its box was a stale row from the composer it replaced. */}
+				{phase === 'trust' || outputViewer !== null ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={

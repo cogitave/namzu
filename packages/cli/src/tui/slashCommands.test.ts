@@ -5,15 +5,19 @@ import {
 	CLI_LOCAL_COMMANDS,
 	type SlashCommand,
 	type SlashContext,
+	commandPickerDescription,
 	initPrompt,
 	kernelCommandDescriptors,
 	matchSlashCommands,
 	mergeHostCommands,
 	parseSlash,
 	renderAgents,
+	renderContext,
 	renderCost,
 	renderPermissions,
+	renderStatus,
 	runSlash,
+	statusRows,
 } from './slashCommands.js'
 
 /**
@@ -521,7 +525,7 @@ describe('/cost', () => {
 			// version with this disclaimer deleted. Matched against the prose
 			// with its wrapping collapsed: the sentence is the property, and
 			// where the line happens to break is not.
-			expect(r.content).toContain('no known price and are excluded from the cost')
+			expect(r.content).toContain('no known price and are left out of the cost')
 			// It must not read as the free case.
 			expect(r.content).not.toContain('measured zero')
 			// And it must not assert something about the provider that nothing
@@ -593,8 +597,9 @@ describe('/cost', () => {
 		// without naming which it is invites the same misreading back.
 		const r = runSlash('/cost', context({ usage: { totalTokens: 10, cost: cost(1) } }))
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Current or latest reply')
-			expect(r.content).toContain('own model calls')
+			expect(r.content).toContain('Latest reply')
+			expect(r.content).not.toContain('own model calls')
+			expect(r.content).not.toContain('Context:')
 			expect(r.content).not.toContain('across every turn')
 		}
 	})
@@ -1267,7 +1272,7 @@ describe('/context', () => {
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
 		expect(r.content).toContain('No context size yet')
-		expect(r.content).toContain('starts with the conversation')
+		expect(r.content).not.toContain('Counted by the provider')
 	})
 
 	it('names the strategy, its thresholds and what the passes did', () => {
@@ -1297,10 +1302,10 @@ describe('/context', () => {
 		expect(r.content).toContain('Strategy: salience')
 		expect(r.content).toContain('from 50%')
 		expect(r.content).toContain('summarised at 70%')
-		expect(r.content).toContain('Summarised 3 times in this conversation')
+		expect(r.content).toContain('Summarised 3 times')
 		expect(r.content).toContain('Tool results cleared: 4')
 		expect(r.content).toContain('Messages shortened: 2')
-		expect(r.content).toContain('freeing about 2,400 tokens')
+		expect(r.content).toContain('freeing about 2.4k tokens')
 	})
 })
 
@@ -1418,5 +1423,74 @@ describe('/compact with instructions', () => {
 
 	it('bare /compact has none', () => {
 		expect(runSlash('/compact', context())).toEqual({ kind: 'compact' })
+	})
+})
+
+describe('readouts say one plain thing per line', () => {
+	it('keeps provider provenance out of the default /context card', () => {
+		const text = renderContext(
+			{
+				totalTokens: 10,
+				cost: cost(0),
+				context: { tokens: 10, windowTokens: 128_000, measured: true, windowAssumed: true },
+			},
+			null,
+		)
+		expect(text).toContain('Context: 10 of 128k used (about 0%)')
+		expect(text).not.toContain('Counted by the provider')
+		expect(text).not.toContain('table or default')
+		expect(text).not.toContain('cumulative')
+	})
+
+	it('leaves the id and the tool count out of the default /status card', () => {
+		const rows = statusRows(
+			context({ sessionId: '01a16d8c-ffff-4fff-8fff-0123456789ab' as never, cwd: '/srv/app' }),
+		)
+		const labels = rows.map(([label]) => label)
+		expect(labels).not.toContain('Tools')
+		expect(labels).not.toContain('Conversation')
+		expect(
+			renderStatus(context({ sessionId: 'abcdef12-ffff-4fff-8fff-0123456789ab' as never }), true),
+		).toContain('Conversation: abcdef12-ffff-4fff-8fff-0123456789ab')
+	})
+
+	it('shows a long folder from home or its last folders, not clipped mid-name', () => {
+		const rows = statusRows(
+			context({
+				cwd: '/tmp/a-very-long-parent/another-long-folder/yet-another/project',
+				columns: 60,
+			}),
+		)
+		const folder = rows.find(([label]) => label === 'Folder')?.[1] ?? ''
+		expect(folder.length).toBeLessThanOrEqual(34)
+		expect(folder).toMatch(/^…\/(.*\/)?project$/)
+	})
+
+	it('lets the one-line command list cut a description at its first clause', () => {
+		expect(
+			commandPickerDescription(
+				'Inspect delegated agents; /agents available lists configured agents.',
+			),
+		).toBe('Inspect delegated agents')
+		expect(commandPickerDescription('Ask for a workflow: the model writes a script.')).toBe(
+			'Ask for a workflow',
+		)
+		expect(commandPickerDescription('Choose a model, or change providers.')).toBe(
+			'Choose a model, or change providers',
+		)
+	})
+
+	it('keeps every command description in the picker under the width it is drawn at', () => {
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const r = runSlash('/help', { ...ctx, builtins: merged }, merged)
+		expect(r?.kind).toBe('command-picker')
+		if (r?.kind !== 'command-picker') return
+		for (const command of r.commands) {
+			// 100 columns leave about 70 for the description beside the name.
+			expect(
+				commandPickerDescription(command.description).length,
+				command.name,
+			).toBeLessThanOrEqual(64)
+		}
 	})
 })

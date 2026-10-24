@@ -83,4 +83,21 @@ describe('the question before the screen opens', () => {
 		expect(shown).toContain('including outside this folder')
 		expect(shown).toContain('Start in bypass mode? [y/N]')
 	})
+
+	it('wraps the explanation on words at the width of the terminal', async () => {
+		const input = new PassThrough()
+		const output = Object.assign(new PassThrough(), { columns: 50 })
+		let shown = ''
+		output.on('data', (chunk) => {
+			shown += String(chunk)
+		})
+		const pending = askBypassConsent({ input, output })
+		input.write('n\n')
+		await pending
+		const body = shown.split('\n').filter((line) => !line.startsWith('Start in') && line !== '')
+		for (const line of body) expect(line.length).toBeLessThanOrEqual(49)
+		// A word is never cut: the sentence reads the same once rejoined.
+		expect(body.join(' ')).toContain('including outside this folder')
+		expect(body.join(' ')).toContain('on a machine you trust.')
+	})
 })

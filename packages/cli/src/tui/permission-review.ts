@@ -284,6 +284,12 @@ export interface PermissionSummaryContext {
 	 */
 	readonly describeUiRef?: (ref: string) => string | undefined
 	/**
+	 * Whether a path a `write` names already exists, so the review can say
+	 * "New file" or "Replaces the existing file". Absent: the body is shown
+	 * without a claim either way.
+	 */
+	readonly fileExists?: (path: string) => boolean
+	/**
 	 * The caps a workflow would run under (`workflow.maxConcurrency` and
 	 * `workflow.maxAgents`, defaults filled in). Absent: the runtime defaults.
 	 */
@@ -324,7 +330,21 @@ export function buildPermissionSummary(
 		) {
 			return { text: review, complete: false }
 		}
-		const readable = summarizeKnownCall(call.name, call.input, context)
+		let readable = summarizeKnownCall(call.name, call.input, context)
+		// A lone write is named by the box title and question; among several
+		// calls its row has to say which file it is.
+		if (
+			parsed.calls.length > 1 &&
+			call.name === 'write' &&
+			isRecord(call.input) &&
+			typeof call.input.path === 'string' &&
+			readable.lines.length > 0
+		) {
+			readable = {
+				...readable,
+				lines: [`${call.input.path} · ${readable.lines[0]}`, ...readable.lines.slice(1)],
+			}
+		}
 		complete &&= readable.complete
 		calls.push({
 			name: call.name,
@@ -387,6 +407,14 @@ export function buildPermissionSummary(
 				}
 			: {}),
 		complete,
+	}
+}
+
+function fileExistsSafely(context: PermissionSummaryContext, path: string): boolean | undefined {
+	try {
+		return context.fileExists?.(path)
+	} catch {
+		return undefined
 	}
 }
 
@@ -467,9 +495,17 @@ function summarizeKnownCall(
 			const lines = (body as string) === '' ? [] : (body as string).split('\n')
 			if (lines.at(-1) === '') lines.pop()
 			return {
+				// The box title already names the file; the first row says what the
+				// write does to it.
 				lines: [
-					`${input.path as string} · write ${lines.length} line${lines.length === 1 ? '' : 's'}`,
-					'Full replacement body · may overwrite an existing file',
+					`${(() => {
+						const exists = fileExistsSafely(context, input.path as string)
+						return exists === undefined
+							? 'Write'
+							: exists
+								? 'Replaces the existing file'
+								: 'New file'
+					})()} · ${lines.length} line${lines.length === 1 ? '' : 's'}`,
 					...lines.map((line) => `  ${line}`),
 				],
 				complete: true,
@@ -678,9 +714,9 @@ function summarizeWorkflow(
 				? [`  … ${hidden} more line${hidden === 1 ? '' : 's'} (d shows all of it)`]
 				: []),
 		],
-		...(hidden > 0 || argsClipped
-			? { expandedLines: [...head, ...argsFor(true), count, ...body(scriptLines)] }
-			: {}),
+		// Always present: `d` reads the script itself, line by line, never the
+		// wire envelope, however short the script is.
+		expandedLines: [...head, ...argsFor(true), count, ...body(scriptLines)],
 		complete: true,
 		label: oneLine(typeof input.description === 'string' ? input.description : 'workflow'),
 	}
@@ -1118,23 +1154,52 @@ export function permissionReviewRows(
 	const visible = terminalDisplayText(review)
 	const rows: PermissionReviewRow[] = []
 
+	const cellsOf = (point: string): number => {
+		const codePoint = point.codePointAt(0)
+		return codePoint !== undefined && codePoint <= 0x7e ? 1 : 2
+	}
+
 	for (const logical of visible.split('\n')) {
-		let text = ''
+		// A row breaks after the last space that fits, so a word is never cut in
+		// the middle; the space stays at the end of the row above, which keeps
+		// the rows a lossless projection of the source. A word wider than a whole
+		// row (a path, a long token) is still cut at the width, as before.
+		let text: string[] = []
 		let cells = 0
 		let continuation = false
 		for (const point of logical) {
-			const codePoint = point.codePointAt(0)
-			const pointCells = codePoint !== undefined && codePoint <= 0x7e ? 1 : 2
+			const pointCells = cellsOf(point)
 			if (text.length > 0 && cells + pointCells > width) {
-				rows.push({ index: rows.length, text, continuation })
-				text = ''
-				cells = 0
+				const space = text.lastIndexOf(' ')
+				if (point === ' ') {
+					// A space that would be cell width + 1 opens the next row instead,
+					// so no row is ever wider than the width.
+					rows.push({ index: rows.length, text: text.join(''), continuation })
+					text = []
+					cells = 0
+					continuation = true
+				} else if (space >= 0 && space < text.length - 1) {
+					const rest = text.slice(space + 1)
+					rows.push({
+						index: rows.length,
+						text: text.slice(0, space + 1).join(''),
+						continuation,
+					})
+					text = rest
+					cells = rest.reduce((sum, p) => sum + cellsOf(p), 0)
+				} else {
+					rows.push({ index: rows.length, text: text.join(''), continuation })
+					text = []
+					cells = 0
+				}
 				continuation = true
 			}
-			text += point
+			text.push(point)
 			cells += pointCells
 		}
-		rows.push({ index: rows.length, text, continuation })
+		if (text.length > 0 || !continuation) {
+			rows.push({ index: rows.length, text: text.join(''), continuation })
+		}
 	}
 
 	return rows

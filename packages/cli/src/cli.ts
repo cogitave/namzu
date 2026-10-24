@@ -463,7 +463,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		})
 	}
 
-	const launchInteractiveTui = async (initialConversationId?: string): Promise<void> => {
+	const launchInteractiveTui = async (
+		initialConversationId?: string,
+		/** `namzu resume` with no id: open the picker of this folder's conversations. */
+		pickConversation = false,
+	): Promise<void> => {
 		if (process.stdout.isTTY) {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
@@ -482,7 +486,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// `-c` / `-r`: pick the conversation before anything else is built, so a
 			// refusal costs no provider discovery and never falls back to a new one.
 			let conversationId = initialConversationId
-			let openResumePicker: { readonly query?: string } | undefined
+			let openResumePicker: { readonly query?: string } | undefined = pickConversation
+				? {}
+				: undefined
 			if (
 				conversationId === undefined &&
 				(launchOpts.continue || launchOpts.resume !== undefined)
@@ -687,9 +693,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// not already known.
 	program
 		.command('resume')
-		.description('Resume an interactive conversation by its durable id')
-		.argument('<conversation-id>', 'Conversation id printed when the TUI exited')
-		.action(async (conversationId: string) => {
+		.description('Resume an interactive conversation; without an id, choose from a list')
+		.argument(
+			'[conversation-id]',
+			'Conversation id printed when the TUI exited; leave out to pick one',
+		)
+		.action(async (conversationId: string | undefined) => {
+			if (conversationId === undefined) {
+				await launchInteractiveTui(undefined, true)
+				return
+			}
 			// Conversations are stored per folder. A scheduled run's id resumed
 			// from elsewhere would only be "not found"; say where it lives.
 			const { scheduledSessionElsewhere } = await import('./schedule/resume-command.js')

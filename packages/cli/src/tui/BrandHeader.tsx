@@ -7,8 +7,8 @@ import {
 	NAMZU_WORDMARK,
 	NAMZU_WORDMARK_MIN_WIDTH,
 } from './logo.js'
-import { homePath } from './person-terms.js'
-import { shortenPathToFit } from './shorten-path.js'
+import { displayPath } from './person-terms.js'
+import { wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -17,6 +17,13 @@ interface BrandHeaderProps {
 	readonly permissionMode: PermissionMode
 	/** The folder Namzu works in, shown under the version, as a welcome header does. */
 	readonly cwd?: string
+}
+
+/** The bypass warning wrapped on words, every continuation row indented by the same two columns. */
+export function bypassWarningLines(label: string, columns: number): readonly string[] {
+	const room = Math.max(10, columns - 3)
+	const sentence = `Warning: ${label} — commands and edits run without asking, including outside this folder. Rules that deny or ask still apply. Use /permissions to change this.`
+	return wrapChoiceText(sentence, room - 2).map((line, at) => (at === 0 ? line : `  ${line}`))
 }
 
 /** Printed once by the transcript's Static owner; active model state lives in the footer. */
@@ -36,7 +43,7 @@ export function BrandHeader({ version, permissionMode, cwd }: BrandHeaderProps) 
 	const folderRoom = columns - wordmarkWidth - 3
 	const folder =
 		cwd && cwd.length > 0 && columns >= 16 && folderRoom >= 8
-			? shortenPathToFit(terminalDisplayText(homePath(cwd)), folderRoom)
+			? terminalDisplayText(displayPath(cwd, folderRoom))
 			: null
 	return (
 		<Box flexDirection="column" marginY={1}>
@@ -60,12 +67,15 @@ export function BrandHeader({ version, permissionMode, cwd }: BrandHeaderProps) 
 				) : null}
 			</Box>
 			{permissionMode === 'bypass' ? (
-				<Box marginTop={1}>
-					<Text color={theme.status.error}>
-						Warning: {permissionModeLabel(permissionMode)} — commands and edits run without asking,
-						including outside this folder. Rules that deny or ask still apply. Use /permissions to
-						change this.
-					</Text>
+				<Box marginTop={1} flexDirection="column">
+					{/* Wrapped by hand: the renderer keeps the space a break falls on, so
+					    continuation rows came out one column off and ragged. */}
+					{bypassWarningLines(permissionModeLabel(permissionMode), columns).map((line, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+						<Text key={at} color={theme.status.error}>
+							{line}
+						</Text>
+					))}
 				</Box>
 			) : null}
 		</Box>

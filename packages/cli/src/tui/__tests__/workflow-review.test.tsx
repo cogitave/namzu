@@ -63,11 +63,13 @@ describe('the review of a workflow start', () => {
 		expect(summary.text).toMatch(/Agents: up to \d+ at a time, 200 in all/)
 	})
 
-	it('shows a short script whole and has nothing further to expand', () => {
+	it('shows a short script whole and `d` reads the same script verbatim, never the wire JSON', () => {
 		const { summary } = summaryOf({ script: SHORT })
 		expect(summary.text).toContain('Script · 3 lines')
 		expect(summary.text).toContain("phase('Scan')")
-		expect(summary.expandedText).toBeUndefined()
+		expect(summary.expandedText).toContain("phase('Scan')")
+		expect(summary.expandedText).toContain('return 1')
+		expect(summary.expandedText).not.toContain('"calls"')
 	})
 
 	it('collapses a long script to its first lines and keeps all of it for the expanded view', () => {
@@ -235,5 +237,33 @@ describe('a large script', () => {
 		expect(summary.text).toContain('more characters (d shows all of it)')
 		expect(summary.text).not.toContain('item-399')
 		expect(summary.expandedText).toContain('item-399')
+	})
+})
+
+describe('the review at a narrow width', () => {
+	it('keeps the key that reads the script, and breaks lines between words', async () => {
+		const toolCalls = call({ script: SHORT })
+		const { review, summary } = summaryOf({ script: SHORT })
+		const screen = await renderToScreen(
+			<PermissionOverlay
+				toolCalls={toolCalls}
+				review={review}
+				summary={summary}
+				detailsOpen={false}
+				columns={60}
+				rows={40}
+			/>,
+			{ cols: 60, rows: 40 },
+		)
+		try {
+			await screen.waitForRender()
+			const text = screen.viewport().join('\n')
+			expect(text).toMatch(/d script|d read the whole script/)
+			// A word is never split across two rows (`r / ail`, `t / he`).
+			expect(text).not.toMatch(/\bt\s*\n\s*(↳ )?he\b/)
+			expect(text).toContain('Agent call')
+		} finally {
+			await screen.unmount()
+		}
 	})
 })

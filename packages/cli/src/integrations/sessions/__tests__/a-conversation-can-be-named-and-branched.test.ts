@@ -77,6 +77,26 @@ describe('naming a conversation', () => {
 		expect(row?.named).toBe(true)
 	})
 
+	it('counts what a person wrote and read, not the tool traffic between', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [
+			said('user', 'first question'),
+			{
+				role: 'assistant',
+				content: '',
+				toolCalls: [{ id: 't1', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			} as Message,
+			{ role: 'tool', toolCallId: 't1', content: 'file text' } as Message,
+			said('assistant', 'the answer'),
+			said('user', 'second question'),
+			said('assistant', 'another answer'),
+		])
+		const [row] = await listRecent(s)
+
+		expect(row?.count).toBe(4)
+	})
+
 	it('says a derived title is derived, which the text alone cannot', async () => {
 		const s = await project()
 		const id = await startConversation(s)

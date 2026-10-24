@@ -32,8 +32,9 @@ for a turn when the operator asked for orchestration:
 - hypermode is on (`/hypermode`), or
 - the message says `workflow` or `workflows` in any case, or `iş akışı` in
   Turkish (with or without the diacritics), or
-- the message is `/workflow <what to do>`, which sends `Use a workflow for
-  this: <what to do>`.
+- the message is `/workflow <what to do>`. The transcript shows what you
+  typed (`› /workflow <what to do>`); only the model receives `Use a workflow
+  for this: <what to do>`.
 
 It is offered for that turn only; the next message gets the tool back only if
 it asks again (or hypermode is on). A scheduled or resident run never gets it.
@@ -70,7 +71,9 @@ The screen shows, in order:
 ```
 
 The name, purpose and phases are read from the script's `meta` literal
-without running anything. `d` shows the whole script, every line verbatim;
+without running anything. The review shows the script's first lines, however
+short the script is; `d` ("d read the whole script") shows every line of it
+verbatim under the heading "Workflow script", never the raw prepared input;
 `d` again collapses it; the full view scrolls with PgUp, PgDn, Home and End.
 The script may be as large as the runtime accepts (256 KiB, with `args` up to
 64 KiB): the 8 000-byte limit that refuses an oversized batch of ordinary tool

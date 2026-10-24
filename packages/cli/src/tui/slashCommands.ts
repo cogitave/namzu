@@ -1,6 +1,6 @@
 import { installationRows } from '../installation.js'
 import { CLI_VERSION } from '../version.js'
-import { homePath, plural, shortId } from './person-terms.js'
+import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
@@ -710,7 +710,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
-		description: 'View configuration and change model, reasoning, permissions and reply limits.',
+		description: 'View or change model, reasoning, permissions and limits.',
 		help: {
 			usage: [
 				'/config',
@@ -748,7 +748,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'settings',
-		description: 'View current settings and change model, reasoning or permissions.',
+		description: 'View or change model, reasoning and permissions.',
 		action: () => ({ kind: 'settings-picker' }),
 	},
 	{
@@ -780,7 +780,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'workflows',
-		description: 'List this conversation’s workflows, running and finished, and open one.',
+		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
 		action: () => ({ kind: 'workflows' }),
 	},
@@ -842,7 +842,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'loop',
-		description: 'Re-send a prompt to this conversation on an interval, between replies.',
+		description: 'Re-send a prompt on an interval, between replies.',
 		help: {
 			usage: ['/loop <interval> <prompt or /command>', '/loop list', '/loop stop <id>|all'],
 			details: [
@@ -964,7 +964,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'fork',
-		description: 'Continue in a copy of this conversation, leaving the original where it is.',
+		description: 'Continue in a copy, leaving the original unchanged.',
 		action: () => ({ kind: 'fork' }),
 	},
 	{
@@ -1037,7 +1037,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 		},
 		description:
-			'Show memory, or save a typed project memory with /memory add <text>. Use /memory --user add <text> for every project.',
+			'Show memory, or save a note with /memory add <text>. Use /memory --user add <text> for every project.',
 		action: (_ctx, args) => {
 			const user = args[0] === '--user'
 			const memoryArgs = user ? args.slice(1) : args
@@ -1136,8 +1136,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
-		description:
-			'Inspect plugins, turn them on or off for this conversation, or remember it after restart.',
+		description: 'See plugins and turn them on or off.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
 			details: [
@@ -1159,14 +1158,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
-		description:
-			'Continue this conversation’s paused reply, or, when it has none, resume a past conversation in this folder.',
+		description: 'Continue a paused reply, or resume a past conversation.',
 		action: () => ({ kind: 'resume' }),
 	},
 	{
 		name: 'abandon',
-		description:
-			'Close this conversation’s paused or stopped reply without resuming it, so the next prompt starts a new one.',
+		description: 'Close a paused or stopped reply without resuming it.',
 		help: { usage: ['/abandon [reason]'] },
 		action: (_ctx, args) => ({
 			kind: 'abandon',
@@ -1175,7 +1172,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'model',
-		description: 'Choose a model for the current provider, or change providers.',
+		description: 'Choose a model, or change providers.',
 		help: {
 			usage: ['/model', '/model <model-or-provider/model>'],
 			details: [
@@ -1228,7 +1225,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'jobs',
-		description: 'Inspect background shells, read output, and stop a running shell.',
+		description: 'See background shells, read output, stop one.',
 		help: { usage: ['/jobs', '/jobs list'] },
 		action: (ctx, args) =>
 			args.length === 0
@@ -1293,7 +1290,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'compact',
-		description: 'Summarise the older half of this conversation to free up context.',
+		description: 'Summarise older messages to free up context.',
 		help: {
 			usage: ['/compact [what to keep]'],
 			details: [
@@ -1308,7 +1305,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
-		description: 'Choose the whole latest answer, a code block, or a quote to copy.',
+		description: 'Copy the latest answer, a code block or a quote.',
 		action: () => ({ kind: 'copy' }),
 	},
 	{
@@ -1335,7 +1332,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'Without a path, choose the clipboard or a Markdown file. Existing files are not overwritten. Paths may contain spaces.',
 			],
 		},
-		description: 'Export this verified conversation to the clipboard or a Markdown file.',
+		description: 'Export this conversation to the clipboard or a file.',
 		action: (_ctx, args) => {
 			const path = args.join(' ').trim()
 			return path.length > 0 ? { kind: 'export', path } : { kind: 'export-picker' }
@@ -1637,12 +1634,35 @@ function reportCommand(
 	}
 }
 
-function contextMeasurement(usage: SlashContext['usage']): string[] {
+/**
+ * A command's description for the one-line picker: its first clause, so a long
+ * description ends at a word of its own instead of being cut mid-sentence by
+ * the row. The full text stays in `/help` and the docs.
+ */
+export function commandPickerDescription(description: string): string {
+	const clause = description.split(/[;:]\s|\.\s/u, 1)[0] ?? description
+	return clause.trim().replace(/\.$/u, '')
+}
+
+/** `128000` → `128k`, `1500` → `1.5k`, `54` → `54`: a size a person reads at a glance. */
+function humanTokens(value: number): string {
+	if (value < 1_000) return String(value)
+	if (value < 1_000_000) return `${Number((value / 1_000).toFixed(1))}k`
+	return `${Number((value / 1_000_000).toFixed(2))}M`
+}
+
+function contextMeasurement(usage: SlashContext['usage'], details = false): string[] {
 	const context = usage?.context
 	if (!context || context.windowTokens <= 0)
 		return ['No context size yet. It appears after the first reply.']
 	const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
 	const approx = context.measured && !context.windowAssumed ? '' : '~'
+	if (!details) {
+		const about = context.measured && !context.windowAssumed ? '' : 'about '
+		return [
+			`Context: ${humanTokens(context.tokens)} of ${humanTokens(context.windowTokens)} used (${about}${percent}%)`,
+		]
+	}
 	return [
 		`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
 		`${context.measured ? 'Counted by the provider' : 'Estimated by Namzu'}; window ${context.windowAssumed ? 'assumed from a table or default' : 'declared by the provider or config'}.`,
@@ -1654,15 +1674,16 @@ export function renderContext(
 	compaction: CompactionSummary | null,
 	details = false,
 ): string {
-	const lines = contextMeasurement(usage)
-	if (usage?.context) lines.push('Latest reported context size; not cumulative token usage.')
+	const lines = contextMeasurement(usage, details)
+	if (usage?.context && details)
+		lines.push('Latest reported context size; not cumulative token usage.')
 	if (!compaction) {
-		lines.push('Automatic summarising starts with the conversation.')
+		lines.push('Older messages are summarised automatically when the context fills.')
 	} else {
 		lines.push(
 			compaction.passes === 0
-				? 'Nothing summarised yet in this conversation.'
-				: `Summarised ${plural(compaction.passes, 'time')} in this conversation, freeing about ${compaction.reclaimedTokens.toLocaleString('en-US')} tokens.`,
+				? 'Nothing summarised yet.'
+				: `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`,
 		)
 		if (details) {
 			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
@@ -1683,7 +1704,7 @@ export function renderContext(
 			)
 		}
 	}
-	if (!details) lines.push('/context details for how the conversation was summarised.')
+	if (!details) lines.push('/context details for how it was summarised.')
 	return lines.join('\n')
 }
 
@@ -1702,19 +1723,21 @@ export function renderCost(
 ): string {
 	if (usage === null) return 'No usage reported yet. Send a message to begin.'
 	const lines = [
-		'Current or latest reply',
-		`Tokens: ${usage.totalTokens.toLocaleString('en-US')} (own model calls)`,
+		'Latest reply',
+		`Tokens: ${usage.totalTokens.toLocaleString('en-US')}`,
 		`Cost: ${costAmount(usage.cost)}`,
 	]
 	if (usage.cost.unpricedTokens > 0) {
 		lines.push(
-			`${usage.cost.unpricedTokens.toLocaleString('en-US')} tokens have no known price and are excluded from the cost.`,
+			`${usage.cost.unpricedTokens.toLocaleString('en-US')} tokens have no known price and are left out of the cost.`,
 		)
 	}
 	if (usage.budget) {
 		lines.push(
-			`Including delegated agents: ${usage.budget.treeTokens.toLocaleString('en-US')} tokens; limit ${usage.budget.limit === 0 ? 'unlimited' : usage.budget.limit.toLocaleString('en-US')}.`,
+			`With the agents it started: ${usage.budget.treeTokens.toLocaleString('en-US')} tokens`,
 		)
+		if (usage.budget.limit !== 0)
+			lines.push(`Limit: ${usage.budget.limit.toLocaleString('en-US')} tokens`)
 		if ((usage.budget.unresolvedRequests ?? 0) > 0)
 			lines.push(
 				`${plural(usage.budget.unresolvedRequests ?? 0, 'request')} without confirmed usage; token totals are measured usage, not a complete spend total.`,
@@ -1734,7 +1757,7 @@ export function renderCost(
 		if (usage.cost.cacheDiscount > 0)
 			lines.push(`Cache discount: $${usage.cost.cacheDiscount.toFixed(4)}`)
 		if (usage.context && usage.context.windowTokens > 0) {
-			lines.push('', ...contextMeasurement(usage), '/context details for automatic cleanup.')
+			lines.push('', ...contextMeasurement(usage, true), '/context details for automatic cleanup.')
 		}
 		if (compaction) lines.push(`Cleanup passes in this conversation: ${compaction.passes}.`)
 	} else {
@@ -1883,11 +1906,10 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 		['Model', ctx.modelSummary ?? 'Not selected'],
 		['Reasoning', ctx.reasoningEffort.current() ?? 'Model default'],
 		['Provider', ctx.providerSummary ?? 'None. Run /model to choose one.'],
-		['Folder', homePath(ctx.cwd)],
+		['Folder', displayPath(ctx.cwd, Math.max(16, Math.min(96, (ctx.columns ?? 80) - 6) - 20))],
 		['Permissions', permissionModeLabel(permissions)],
 		['Sandbox', sandboxInWords(ctx.sandbox)],
 		['Web search', ctx.webSearchSummary ?? 'Not set up yet'],
-		['Tools', String(ctx.availableTools().length)],
 		['Instructions', ctx.instructionFiles.map((file) => homePath(file)).join(', ') || 'None'],
 	]
 	if (ctx.sandbox?.workspace)
@@ -1897,7 +1919,6 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 				? 'Temporary files, removed when the reply ends'
 				: 'Your real project files; edits are kept',
 		])
-	if (ctx.sessionId) rows.push(['Conversation', shortId(ctx.sessionId)])
 	if (ctx.usage) {
 		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · latest reply`])
 		rows.push(['Spend', `${costAmount(ctx.usage.cost)} · latest reply`])
@@ -1905,7 +1926,7 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 			const context = ctx.usage.context
 			rows.push([
 				'Context',
-				`${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')}${context.measured && !context.windowAssumed ? '' : ' · estimated'}`,
+				`${humanTokens(context.tokens)} of ${humanTokens(context.windowTokens)}${context.measured && !context.windowAssumed ? '' : ' · estimated'}`,
 			])
 		}
 	}
