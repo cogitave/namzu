@@ -96,15 +96,6 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	return { content: [headline, ...tree].join('\n') }
 }
 
-/** `8s`, `1m 4s`, `1h 2m`: the spaced form the notification lines use. */
-export function spacedElapsed(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / 1000))
-	if (seconds < 60) return `${seconds}s`
-	const minutes = Math.floor(seconds / 60)
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
-}
-
 export interface AgentMessageRow {
 	/** `Message from @count-words`, the sender being the agent's name (else its type). */
 	readonly content: string
@@ -204,7 +195,7 @@ export function agentDoneRows(
 	now = Date.now(),
 ): { readonly header: string; readonly result: string } {
 	const uses = agent.toolCalls ?? 0
-	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	return {
 		header: `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
 		result: `Done (${[
@@ -243,7 +234,7 @@ export function agentNotice(
 	previousFailure?: string,
 ): AgentNotice {
 	const label = oneLine(agent.description || agent.agentId)
-	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
 		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }
 	if (agent.status === 'cancelled') {
