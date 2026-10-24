@@ -10,94 +10,128 @@
  * the agent's healthz (not the orchestrator 2xx).
  */
 
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { type Server, type Socket, createServer } from 'node:net'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import {
+	chmodSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { type Server, type Socket, createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createSandboxProvider } from '../../../index.js'
-import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
-import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
+import { createSandboxProvider } from "../../../index.js";
+import {
+	checkFileWalkOwnership,
+	fileWalkExec,
+} from "../../__tests__/fixtures/file-walk-exec.js";
+import { buildFirecrackerBackend, normalizeHandle } from "../index.js";
 import {
 	type FirecrackerTransportTiming,
 	VsockAgentTransport,
 	type WireSandboxAgentHandle,
 	__framing,
-} from '../transport.js'
-import { localIpcPath } from './fixtures/ipc-path.js'
+} from "../transport.js";
+import { localIpcPath } from "./fixtures/ipc-path.js";
 import {
 	CA_CRT,
 	CLIENT_CRT,
 	CLIENT_KEY,
 	type RelayHandle,
 	startMtlsRelay,
-} from './fixtures/mtls-pki.js'
+} from "./fixtures/mtls-pki.js";
 // The loopback agent under test is the guest-side agent for a Linux microVM:
 // it spawns `/bin/sh` to run commands, and that binary does not exist on
 // Windows. These cases assert behavior the platform cannot produce, so they
 // skip there rather than leaving the suite permanently red for Windows
 // contributors. The socket-address fixture IS platform-correct, so the
 // transport is still exercised wherever it can be.
-const IS_WINDOWS = process.platform === 'win32'
+const IS_WINDOWS = process.platform === "win32";
 
-const require_ = createRequire(import.meta.url)
+const require_ = createRequire(import.meta.url);
 
 interface AgentModule {
-	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
-	handleConnection(socket: Socket): void
+	FIRECRACKER_AGENT_PROTOCOL_VERSION: number;
+	handleConnection(socket: Socket): void;
 }
 
-let workDir: string
-let sockPath: string
-let server: Server | undefined
-let relay: RelayHandle | undefined
-let agent: AgentModule
-const realFetch = globalThis.fetch
-let realPath: string | undefined
+let workDir: string;
+let sockPath: string;
+let server: Server | undefined;
+let relay: RelayHandle | undefined;
+let agent: AgentModule;
+const realFetch = globalThis.fetch;
+let realPath: string | undefined;
 
 beforeEach(() => {
-	workDir = realpathSync(mkdtempSync(join(tmpdir(), 'fc-backend-test-')))
-	sockPath = localIpcPath(workDir)
-	realPath = process.env.PATH
-	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
-	process.env.NAMZU_AGENT_CANCEL_GRACE_MS = '50'
-	process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS = '1000'
-	delete require_.cache[require_.resolve('../../../../agent/agent.cjs')]
-	agent = require_('../../../../agent/agent.cjs') as AgentModule
-})
+	workDir = realpathSync(mkdtempSync(join(tmpdir(), "fc-backend-test-")));
+	sockPath = localIpcPath(workDir);
+	realPath = process.env.PATH;
+	process.env.NAMZU_SANDBOX_WORKSPACE = workDir;
+	process.env.NAMZU_AGENT_CANCEL_GRACE_MS = "50";
+	process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS = "1000";
+	delete require_.cache[require_.resolve("../../../../agent/agent.cjs")];
+	agent = require_("../../../../agent/agent.cjs") as AgentModule;
+});
 
 afterEach(async () => {
-	vi.restoreAllMocks()
-	globalThis.fetch = realFetch
-	process.env.PATH = realPath
+	const unexpectedGuestErrors = guestSocketErrors
+		.splice(0)
+		.filter((error) => error.code !== "ECONNRESET" && error.code !== "EPIPE");
+	vi.restoreAllMocks();
+	globalThis.fetch = realFetch;
+	process.env.PATH = realPath;
 	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
-	delete process.env.NAMZU_AGENT_CANCEL_GRACE_MS
+	delete process.env.NAMZU_AGENT_CANCEL_GRACE_MS;
 	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
-	delete process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS
+	delete process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS;
 	if (relay) {
-		await new Promise<void>((r) => relay?.server.close(() => r()))
-		relay = undefined
+		await new Promise<void>((r) => relay?.server.close(() => r()));
+		relay = undefined;
 	}
 	if (server) {
-		await new Promise<void>((r) => server?.close(() => r()))
-		server = undefined
+		await new Promise<void>((r) => server?.close(() => r()));
+		server = undefined;
 	}
-	rmSync(workDir, { recursive: true, force: true })
-})
+	rmSync(workDir, { recursive: true, force: true });
+	expect(unexpectedGuestErrors).toEqual([]);
+});
 
-function startAgentServer(connectionHandler: (socket: Socket) => void): Promise<Server> {
+/**
+ * Socket errors a fake guest sees because the code under test dropped the
+ * connection. Closing a socket whose reply it has not read resets the peer on
+ * Linux (`ECONNRESET`), and writing to it after that is `EPIPE`; whether the
+ * client or the fake guest is scheduled first decides which one a given run
+ * sees. A socket with no `error` listener turns either into an uncaught
+ * exception that fails an unrelated test, so every fake-guest connection owns
+ * its listener and the suite asserts nothing other than these two happened.
+ */
+const guestSocketErrors: NodeJS.ErrnoException[] = [];
+
+function startAgentServer(
+	connectionHandler: (socket: Socket) => void,
+): Promise<Server> {
 	return new Promise((resolve, reject) => {
-		const s = createServer(connectionHandler)
-		s.on('error', reject)
-		s.listen(sockPath, () => resolve(s))
-	})
+		const s = createServer((socket) => {
+			// The real agent owns its sockets' errors; do not mask a defect there.
+			if (connectionHandler !== agent.handleConnection) {
+				socket.on("error", (error: NodeJS.ErrnoException) =>
+					guestSocketErrors.push(error),
+				);
+			}
+			connectionHandler(socket);
+		});
+		s.on("error", reject);
+		s.listen(sockPath, () => resolve(s));
+	});
 }
 
 function startAgent(): Promise<Server> {
-	return startAgentServer(agent.handleConnection)
+	return startAgentServer(agent.handleConnection);
 }
 
 /**
@@ -109,133 +143,139 @@ function stubOrchestrator(
 	handle: WireSandboxAgentHandle,
 	deleteStatus = 204,
 ): {
-	calls: Array<{ url: string; method: string; body?: unknown }>
+	calls: Array<{ url: string; method: string; body?: unknown }>;
 } {
-	const calls: Array<{ url: string; method: string; body?: unknown }> = []
-	globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-		const url = String(input)
-		const method = init?.method ?? 'GET'
-		const body = init?.body ? JSON.parse(String(init.body)) : undefined
-		calls.push({ url, method, body })
-		if (method === 'POST' && url.endsWith('/sandboxes')) {
-			return new Response(
-				JSON.stringify({
-					sandboxId: '37ec9f88-ccad-4fb9-a32f-5923076d1201',
-					agent: handle,
-					rootDir: workDir,
-				}),
-				{ status: 200, headers: { 'content-type': 'application/json' } },
-			)
-		}
-		if (method === 'DELETE' && url.includes(':delete')) {
-			return new Response(null, { status: deleteStatus })
-		}
-		return new Response('unexpected', { status: 500 })
-	}) as typeof fetch
-	return { calls }
+	const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+	globalThis.fetch = vi.fn(
+		async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			const method = init?.method ?? "GET";
+			const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+			calls.push({ url, method, body });
+			if (method === "POST" && url.endsWith("/sandboxes")) {
+				return new Response(
+					JSON.stringify({
+						sandboxId: "37ec9f88-ccad-4fb9-a32f-5923076d1201",
+						agent: handle,
+						rootDir: workDir,
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
+			if (method === "DELETE" && url.includes(":delete")) {
+				return new Response(null, { status: deleteStatus });
+			}
+			return new Response("unexpected", { status: 500 });
+		},
+	) as typeof fetch;
+	return { calls };
 }
 
-describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
-	it('walks matching files through the real guest worker', async () => {
-		server = await startAgent()
-		stubOrchestrator({ kind: 'unix', path: sockPath })
+describe.skipIf(IS_WINDOWS)("buildFirecrackerBackend (loopback agent)", () => {
+	it("walks matching files through the real guest worker", async () => {
+		server = await startAgent();
+		stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 1000,
 			readyPollIntervalMs: 10,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		writeFileSync(join(workDir, 'first.ts'), 'abc')
-		writeFileSync(join(workDir, 'other.js'), 'skip')
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		writeFileSync(join(workDir, "first.ts"), "abc");
+		writeFileSync(join(workDir, "other.js"), "skip");
 		try {
-			const entries = []
+			const entries = [];
 			for await (const entry of sandbox.walkFiles!(workDir, {
 				maxEntries: 2,
 				maxDepth: 1,
-				pattern: '*.ts',
+				pattern: "*.ts",
 			}))
-				entries.push(entry)
-			expect(entries).toEqual([{ path: join(workDir, 'first.ts'), size: 3 }])
-			expect(sandbox.status).toBe('ready')
+				entries.push(entry);
+			expect(entries).toEqual([{ path: join(workDir, "first.ts"), size: 3 }]);
+			expect(sandbox.status).toBe("ready");
 		} finally {
-			await sandbox.destroy()
+			await sandbox.destroy();
 		}
-	})
+	});
 
-	it.each(['complete', 'return', 'caller', 'unknown'] as const)(
-		'owns a lazy file walk until worker termination after %s',
+	it.each(["complete", "return", "caller", "unknown"] as const)(
+		"owns a lazy file walk until worker termination after %s",
 		async (stop) => {
-			server = await startAgent()
-			const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+			server = await startAgent();
+			const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 			const backend = buildFirecrackerBackend({
-				orchestratorEndpoint: 'https://orchestrator.test/',
-				getToken: async () => 'tok',
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
 				readyTimeoutMs: 1000,
 				readyPollIntervalMs: 10,
-			})
-			const sandbox = await backend.create({ workingDirectory: workDir })
-			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 }
-			const worker = fileWalkExec(entry)
-			vi.spyOn(VsockAgentTransport.prototype, 'exec').mockImplementation(worker.exec)
+			});
+			const sandbox = await backend.create({ workingDirectory: workDir });
+			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 };
+			const worker = fileWalkExec(entry);
+			vi.spyOn(VsockAgentTransport.prototype, "exec").mockImplementation(
+				worker.exec,
+			);
 			try {
-				await checkFileWalkOwnership(sandbox, worker, entry, stop)
-				if (stop === 'unknown')
-					expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+				await checkFileWalkOwnership(sandbox, worker, entry, stop);
+				if (stop === "unknown")
+					expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(
+						1,
+					);
 			} finally {
-				await sandbox.destroy()
+				await sandbox.destroy();
 			}
 		},
-	)
+	);
 
-	it('creates a Sandbox handle and round-trips exec/write/read/listFiles/destroy', async () => {
-		server = await startAgent()
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+	it("creates a Sandbox handle and round-trips exec/write/read/listFiles/destroy", async () => {
+		server = await startAgent();
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'token-123',
-			template: 'golden-rev-7',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "token-123",
+			template: "golden-rev-7",
 			readyTimeoutMs: 5_000,
 			readyPollIntervalMs: 50,
-		})
+		});
 
 		const sandbox = await backend.create({
 			workingDirectory: workDir,
 			memoryLimitMb: 512,
 			maxProcesses: 64,
 			timeoutMs: 60_000,
-			egress: { kind: 'static', allowedHosts: ['api.example.com'] },
-		})
+			egress: { kind: "static", allowedHosts: ["api.example.com"] },
+		});
 
 		// Handle shape.
-		expect(sandbox.id).toBe('37ec9f88-ccad-4fb9-a32f-5923076d1201')
-		expect(sandbox.rootDir).toBe(workDir)
-		expect(sandbox.environment).toBe('linux-namespace')
-		expect(sandbox.status).toBe('ready')
+		expect(sandbox.id).toBe("37ec9f88-ccad-4fb9-a32f-5923076d1201");
+		expect(sandbox.rootDir).toBe(workDir);
+		expect(sandbox.environment).toBe("linux-namespace");
+		expect(sandbox.status).toBe("ready");
 
 		// Create body forwarded the resolved knobs + explicit network policy.
-		const createCall = calls.find((c) => c.method === 'POST')
+		const createCall = calls.find((c) => c.method === "POST");
 		expect(createCall?.body).toMatchObject({
-			template: 'golden-rev-7',
+			template: "golden-rev-7",
 			memoryLimitMb: 512,
 			maxProcesses: 64,
 			timeoutMs: 60_000,
 			networkPolicy: {
-				mode: 'allowlist',
-				allowedHosts: ['api.example.com'],
+				mode: "allowlist",
+				allowedHosts: ["api.example.com"],
 			},
-		})
+		});
 
 		// exec over the wire.
-		const r = await sandbox.exec('/bin/sh', ['-c', 'echo hello-fc'])
-		expect(r.stdout).toContain('hello-fc')
-		expect(r.exitCode).toBe(0)
+		const r = await sandbox.exec("/bin/sh", ["-c", "echo hello-fc"]);
+		expect(r.stdout).toContain("hello-fc");
+		expect(r.exitCode).toBe(0);
 
 		// writeFile + readFile round-trip.
-		await sandbox.writeFile('out/result.txt', 'persisted')
-		const read = await sandbox.readFile('out/result.txt')
-		expect(read.toString('utf8')).toBe('persisted')
+		await sandbox.writeFile("out/result.txt", "persisted");
+		const read = await sandbox.readFile("out/result.txt");
+		expect(read.toString("utf8")).toBe("persisted");
 
 		// listFiles uses the same `find -printf '%p\t%s\n'` wire as
 		// docker/aci. On a GNU-find host (the Ubuntu golden rootfs) it
@@ -244,41 +284,43 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		// contract maps that to an empty listing — exactly as docker/aci
 		// do. Assert the call path returns the SDK shape either way, and
 		// the file when GNU find is present.
-		const files = await sandbox.listFiles(workDir)
-		expect(Array.isArray(files)).toBe(true)
+		const files = await sandbox.listFiles(workDir);
+		expect(Array.isArray(files)).toBe(true);
 		if (files.length > 0) {
-			expect(files.some((f) => f.path.endsWith('out/result.txt'))).toBe(true)
-			expect(files.every((f) => Number.isFinite(f.size))).toBe(true)
+			expect(files.some((f) => f.path.endsWith("out/result.txt"))).toBe(true);
+			expect(files.every((f) => Number.isFinite(f.size))).toBe(true);
 		}
 
 		// destroy calls the orchestrator :delete and flips status.
-		await Promise.all([sandbox.destroy(), sandbox.destroy()])
-		expect(sandbox.status).toBe('destroyed')
-		expect(calls.filter((c) => c.method === 'DELETE' && c.url.includes(':delete'))).toHaveLength(1)
-	})
+		await Promise.all([sandbox.destroy(), sandbox.destroy()]);
+		expect(sandbox.status).toBe("destroyed");
+		expect(
+			calls.filter((c) => c.method === "DELETE" && c.url.includes(":delete")),
+		).toHaveLength(1);
+	});
 
-	it('carries open egress through the public provider front door', async () => {
-		server = await startAgent()
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+	it("carries open egress through the public provider front door", async () => {
+		server = await startAgent();
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const provider = createSandboxProvider({
 			backend: {
-				tier: 'microvm',
-				service: 'self-hosted',
-				orchestratorEndpoint: 'https://orchestrator.test/',
-				getToken: async () => 'tok',
+				tier: "microvm",
+				service: "self-hosted",
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
 				readyTimeoutMs: 3_000,
 				readyPollIntervalMs: 50,
 			},
-			defaultEgress: { kind: 'allow-all' },
-		})
+			defaultEgress: { kind: "allow-all" },
+		});
 
-		const sandbox = await provider.create({ workingDirectory: workDir })
-		const createCall = calls.find((call) => call.method === 'POST')
-		expect(createCall?.body).toEqual({ networkPolicy: { mode: 'open' } })
-		await sandbox.destroy()
-	})
+		const sandbox = await provider.create({ workingDirectory: workDir });
+		const createCall = calls.find((call) => call.method === "POST");
+		expect(createCall?.body).toEqual({ networkPolicy: { mode: "open" } });
+		await sandbox.destroy();
+	});
 
-	it('carries per-exec timing from the public provider config into the transport', async () => {
+	it("carries per-exec timing from the public provider config into the transport", async () => {
 		// The observable here is the hook firing, because that is the only
 		// thing `onExecTiming` does. It proves the field travelled the whole
 		// way out of `MicroVMBackendConfig`: through `pickBackend`'s spread
@@ -286,47 +328,49 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		// config, which is where a dropped field would silently stop) and into
 		// the `VsockAgentTransport` that reports. A field lost in that spread
 		// leaves this array empty and every other test in this file green.
-		server = await startAgent()
-		stubOrchestrator({ kind: 'unix', path: sockPath })
-		const timings: FirecrackerTransportTiming[] = []
+		server = await startAgent();
+		stubOrchestrator({ kind: "unix", path: sockPath });
+		const timings: FirecrackerTransportTiming[] = [];
 		const provider = createSandboxProvider({
 			backend: {
-				tier: 'microvm',
-				service: 'self-hosted',
-				orchestratorEndpoint: 'https://orchestrator.test/',
-				getToken: async () => 'tok',
+				tier: "microvm",
+				service: "self-hosted",
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
 				readyTimeoutMs: 3_000,
 				readyPollIntervalMs: 50,
 				onExecTiming: (timing) => timings.push(timing),
 			},
-		})
+		});
 
-		const sandbox = await provider.create({ workingDirectory: workDir })
+		const sandbox = await provider.create({ workingDirectory: workDir });
 		try {
-			await expect(sandbox.exec('/bin/sh', ['-c', 'printf timed'])).resolves.toMatchObject({
-				stdout: 'timed',
-			})
+			await expect(
+				sandbox.exec("/bin/sh", ["-c", "printf timed"]),
+			).resolves.toMatchObject({
+				stdout: "timed",
+			});
 		} finally {
-			await sandbox.destroy()
+			await sandbox.destroy();
 		}
 
-		expect(timings).toHaveLength(1)
-		const timing = timings[0] as FirecrackerTransportTiming
-		expect(timing.reserveMs).toBeGreaterThanOrEqual(0)
-		expect(timing.executeMs).toBeGreaterThanOrEqual(0)
+		expect(timings).toHaveLength(1);
+		const timing = timings[0] as FirecrackerTransportTiming;
+		expect(timing.reserveMs).toBeGreaterThanOrEqual(0);
+		expect(timing.executeMs).toBeGreaterThanOrEqual(0);
 		// The phases only this transport's own exec path can reach: proof the
 		// report came from a real round trip rather than from a default.
-		expect(timing.terminatorMs).toBeDefined()
-		expect(timing.peerCloseMs).toBeDefined()
-	})
+		expect(timing.terminatorMs).toBeDefined();
+		expect(timing.peerCloseMs).toBeDefined();
+	});
 
-	it('tears down the microVM when the readiness fence times out (no orphan)', async () => {
+	it("tears down the microVM when the readiness fence times out (no orphan)", async () => {
 		// No agent listening → healthz never succeeds → readiness fence
 		// times out → backend must DELETE to avoid orphaning the microVM.
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 300,
 			readyPollIntervalMs: 50,
 			transport: {
@@ -334,90 +378,98 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				connectTimeoutMs: 80,
 				connectRetryIntervalMs: 30,
 			},
-		})
+		});
 		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
 			/did not become ready/,
-		)
-		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
-	})
+		);
+		expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+	});
 
-	it('tears down an unversioned guest immediately instead of admitting a stale golden', async () => {
+	it("tears down an unversioned guest immediately instead of admitting a stale golden", async () => {
 		server = await startAgentServer((socket) => {
-			const reader = new __framing.FrameReader()
-			socket.on('data', (chunk: Buffer) => {
+			const reader = new __framing.FrameReader();
+			socket.on("data", (chunk: Buffer) => {
 				if (reader.push(chunk)[0] !== undefined) {
-					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					socket.end(__framing.frame(JSON.stringify({ ok: true })));
 				}
-			})
-		})
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+			});
+		});
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 100,
-		})
+		});
 
-		const startedAt = performance.now()
-		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(/protocol version/i)
-		expect(performance.now() - startedAt).toBeLessThan(500)
-		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
-	})
+		const startedAt = performance.now();
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
+			/protocol version/i,
+		);
+		expect(performance.now() - startedAt).toBeLessThan(500);
+		expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+	});
 
-	it('honours public exec cancellation and keeps a confirmed-quiescent microVM reusable', async () => {
-		server = await startAgent()
-		stubOrchestrator({ kind: 'unix', path: sockPath })
+	it("honours public exec cancellation and keeps a confirmed-quiescent microVM reusable", async () => {
+		server = await startAgent();
+		stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 1_000,
 			readyPollIntervalMs: 10,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		const caller = new AbortController()
-		let observedReady: (() => void) | undefined
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		const caller = new AbortController();
+		let observedReady: (() => void) | undefined;
 		const ready = new Promise<void>((resolve) => {
-			observedReady = resolve
-		})
+			observedReady = resolve;
+		});
 
 		const running = sandbox.exec(
-			'/bin/sh',
-			['-c', "trap '' TERM; (trap '' TERM; sleep 0.4; printf late > late.txt) & echo ready; wait"],
+			"/bin/sh",
+			[
+				"-c",
+				"trap '' TERM; (trap '' TERM; sleep 0.4; printf late > late.txt) & echo ready; wait",
+			],
 			{
 				signal: caller.signal,
 				onOutput: (chunk) => {
-					if (chunk.stream === 'stdout' && chunk.data.includes('ready')) observedReady?.()
+					if (chunk.stream === "stdout" && chunk.data.includes("ready"))
+						observedReady?.();
 				},
 			},
-		)
-		await ready
-		expect(sandbox.status).toBe('busy')
-		caller.abort(new Error('operator cancelled'))
+		);
+		await ready;
+		expect(sandbox.status).toBe("busy");
+		caller.abort(new Error("operator cancelled"));
 
 		await expect(running).resolves.toMatchObject({
-			signal: 'SIGKILL',
+			signal: "SIGKILL",
 			timedOut: false,
-		})
-		expect(sandbox.status).toBe('ready')
-		await new Promise((resolve) => setTimeout(resolve, 500))
-		await expect(sandbox.readFile('late.txt')).rejects.toThrow()
-		await expect(sandbox.exec('/bin/sh', ['-c', 'printf reused'])).resolves.toMatchObject({
-			stdout: 'reused',
+		});
+		expect(sandbox.status).toBe("ready");
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		await expect(sandbox.readFile("late.txt")).rejects.toThrow();
+		await expect(
+			sandbox.exec("/bin/sh", ["-c", "printf reused"]),
+		).resolves.toMatchObject({
+			stdout: "reused",
 			exitCode: 0,
-		})
-		await sandbox.destroy()
-	})
+		});
+		await sandbox.destroy();
+	});
 
-	it('fences and retires the whole microVM when the guest reports an unknown process outcome', async () => {
-		let agentConnections = 0
+	it("fences and retires the whole microVM when the guest reports an unknown process outcome", async () => {
+		let agentConnections = 0;
 		server = await startAgentServer((socket) => {
-			agentConnections += 1
-			const reader = new __framing.FrameReader()
-			socket.on('data', (chunk: Buffer) => {
-				const payload = reader.push(chunk)[0]
-				if (payload === undefined) return
-				const request = JSON.parse(payload) as { op?: string }
-				if (request.op === 'healthz') {
+			agentConnections += 1;
+			const reader = new __framing.FrameReader();
+			socket.on("data", (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0];
+				if (payload === undefined) return;
+				const request = JSON.parse(payload) as { op?: string };
+				if (request.op === "healthz") {
 					socket.end(
 						__framing.frame(
 							JSON.stringify({
@@ -425,49 +477,56 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
 							}),
 						),
-					)
-					return
+					);
+					return;
 				}
-				if (request.op === 'reserve-execution') {
-					socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'agent_retiring' })))
-					return
+				if (request.op === "reserve-execution") {
+					socket.end(
+						__framing.frame(
+							JSON.stringify({ ok: false, error: "agent_retiring" }),
+						),
+					);
+					return;
 				}
-				socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'unexpected' })))
-			})
-		})
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath }, 410)
+				socket.end(
+					__framing.frame(JSON.stringify({ ok: false, error: "unexpected" })),
+				);
+			});
+		});
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath }, 410);
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 1_000,
 			readyPollIntervalMs: 10,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
 
 		try {
-			await sandbox.exec('/bin/true')
-			expect.unreachable('a self-fenced guest must retire its microVM')
+			await sandbox.exec("/bin/true");
+			expect.unreachable("a self-fenced guest must retire its microVM");
 		} catch (error) {
-			expect(error).toMatchObject({ retirement: { accepted: true } })
-			expect((error as Error).message).toMatch(/must be retired/)
+			expect(error).toMatchObject({ retirement: { accepted: true } });
+			expect((error as Error).message).toMatch(/must be retired/);
 		}
-		expect(sandbox.status).toBe('destroyed')
-		expect(agentConnections).toBe(2)
-		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
-		await expect(sandbox.readFile('anything')).rejects.toThrow(/no new guest operation/)
-	})
+		expect(sandbox.status).toBe("destroyed");
+		expect(agentConnections).toBe(2);
+		expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+		await expect(sandbox.readFile("anything")).rejects.toThrow(
+			/no new guest operation/,
+		);
+	});
 
-	it('retires after an admitted data stream is lost and cancellation cannot be confirmed', async () => {
-		let executeCalls = 0
-		let cancelCalls = 0
-		const cancellationReplyErrors: NodeJS.ErrnoException[] = []
+	it("retires after an admitted data stream is lost and cancellation cannot be confirmed", async () => {
+		let executeCalls = 0;
+		let cancelCalls = 0;
 		server = await startAgentServer((socket) => {
-			const reader = new __framing.FrameReader()
-			socket.on('data', (chunk: Buffer) => {
-				const payload = reader.push(chunk)[0]
-				if (payload === undefined) return
-				const request = JSON.parse(payload) as { op?: string }
-				if (request.op === 'healthz') {
+			const reader = new __framing.FrameReader();
+			socket.on("data", (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0];
+				if (payload === undefined) return;
+				const request = JSON.parse(payload) as { op?: string };
+				if (request.op === "healthz") {
 					socket.end(
 						__framing.frame(
 							JSON.stringify({
@@ -475,102 +534,107 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
 							}),
 						),
-					)
-					return
+					);
+					return;
 				}
-				if (request.op === 'reserve-execution') {
+				if (request.op === "reserve-execution") {
 					socket.end(
 						__framing.frame(
 							JSON.stringify({
 								ok: true,
 								protocolVersion: 2,
-								executionId: 'exec_00000000-0000-4000-8000-000000000001',
+								executionId: "exec_00000000-0000-4000-8000-000000000001",
 								leaseExpiresAt: Date.now() + 30_000,
 							}),
 						),
-					)
-					return
+					);
+					return;
 				}
-				if (request.op === 'execute') {
-					executeCalls += 1
-					socket.destroy()
-					return
+				if (request.op === "execute") {
+					executeCalls += 1;
+					socket.destroy();
+					return;
 				}
-				if (request.op === 'cancel-execution') {
-					cancelCalls += 1
-					// The last attempt can exhaust its deadline while this fake
-					// guest is replying. Own that socket's expected broken-pipe
-					// error and assert it after every connection has closed.
-					socket.on('error', (error: NodeJS.ErrnoException) => cancellationReplyErrors.push(error))
+				if (request.op === "cancel-execution") {
+					cancelCalls += 1;
 					socket.end(
-						__framing.frame(JSON.stringify({ ok: false, error: 'cancellation_unconfirmed' })),
-					)
+						__framing.frame(
+							JSON.stringify({ ok: false, error: "cancellation_unconfirmed" }),
+						),
+					);
 				}
-			})
-		})
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+			});
+		});
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 1_000,
 			readyPollIntervalMs: 10,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
 
 		try {
-			await sandbox.exec('/bin/true')
-			expect.unreachable('an admitted command with unknown termination must retire the VM')
+			await sandbox.exec("/bin/true");
+			expect.unreachable(
+				"an admitted command with unknown termination must retire the VM",
+			);
 		} catch (error) {
-			expect(error).toMatchObject({ retirement: { accepted: true } })
-			expect((error as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
+			expect(error).toMatchObject({ retirement: { accepted: true } });
+			expect((error as Error).message).toMatch(
+				/outcome is unknown|could not be confirmed/i,
+			);
 		}
-		expect(executeCalls).toBe(1)
-		expect(cancelCalls).toBeGreaterThan(1)
-		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
-		expect(sandbox.status).toBe('destroyed')
-		await expect(sandbox.exec('/bin/true')).rejects.toThrow(/no new guest operation/)
+		expect(executeCalls).toBe(1);
+		expect(cancelCalls).toBeGreaterThan(1);
+		expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+		expect(sandbox.status).toBe("destroyed");
+		await expect(sandbox.exec("/bin/true")).rejects.toThrow(
+			/no new guest operation/,
+		);
 		await new Promise<void>((resolve, reject) => {
-			server?.close((error) => (error ? reject(error) : resolve()))
-		})
-		server = undefined
-		expect(
-			cancellationReplyErrors.filter(
-				(error) => error.code !== 'EPIPE' || error.syscall !== 'write',
-			),
-		).toEqual([])
-	}, 12_000)
+			server?.close((error) => (error ? reject(error) : resolve()));
+		});
+		server = undefined;
+	}, 12_000);
 
-	it('does not let a held failure DELETE keep create pending forever', async () => {
-		let deleteCalls = 0
-		let deleteSignal: AbortSignal | undefined
-		globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-			const url = String(input)
-			const method = init?.method ?? 'GET'
-			if (method === 'POST' && url.endsWith('/sandboxes')) {
-				return new Response(
-					JSON.stringify({
-						sandboxId: 'e58e6e5b-6a66-4e09-87bc-16d8f1d8b933',
-						agent: { kind: 'unix', path: sockPath },
-						rootDir: workDir,
-					}),
-					{ status: 200, headers: { 'content-type': 'application/json' } },
-				)
-			}
-			if (method === 'DELETE') {
-				deleteCalls += 1
-				deleteSignal = init?.signal ?? undefined
-				return await new Promise<Response>((_resolve, reject) => {
-					deleteSignal?.addEventListener('abort', () => reject(deleteSignal?.reason), {
-						once: true,
-					})
-				})
-			}
-			return new Response('unexpected', { status: 500 })
-		}) as typeof fetch
+	it("does not let a held failure DELETE keep create pending forever", async () => {
+		let deleteCalls = 0;
+		let deleteSignal: AbortSignal | undefined;
+		globalThis.fetch = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (method === "POST" && url.endsWith("/sandboxes")) {
+					return new Response(
+						JSON.stringify({
+							sandboxId: "e58e6e5b-6a66-4e09-87bc-16d8f1d8b933",
+							agent: { kind: "unix", path: sockPath },
+							rootDir: workDir,
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					);
+				}
+				if (method === "DELETE") {
+					deleteCalls += 1;
+					deleteSignal = init?.signal ?? undefined;
+					return await new Promise<Response>((_resolve, reject) => {
+						deleteSignal?.addEventListener(
+							"abort",
+							() => reject(deleteSignal?.reason),
+							{
+								once: true,
+							},
+						);
+					});
+				}
+				return new Response("unexpected", { status: 500 });
+			},
+		) as typeof fetch;
 
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 20,
 			readyPollIntervalMs: 5,
 			transport: {
@@ -578,210 +642,221 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				connectTimeoutMs: 5,
 				connectRetryIntervalMs: 2,
 			},
-		})
-		const startedAt = performance.now()
+		});
+		const startedAt = performance.now();
 
 		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
 			/did not become ready/,
-		)
-		expect(deleteCalls).toBe(1)
-		expect(deleteSignal?.aborted).toBe(true)
+		);
+		expect(deleteCalls).toBe(1);
+		expect(deleteSignal?.aborted).toBe(true);
 		// Health timeout + the package-owned one-second cleanup grace, with
 		// ample scheduler tolerance. The old code never settled at all.
-		expect(performance.now() - startedAt).toBeLessThan(1_750)
-	})
+		expect(performance.now() - startedAt).toBeLessThan(1_750);
+	});
 
-	it('interrupts a held create transport and reports the unidentified remote outcome', async () => {
-		let markStarted!: () => void
+	it("interrupts a held create transport and reports the unidentified remote outcome", async () => {
+		let markStarted!: () => void;
 		const started = new Promise<void>((resolve) => {
-			markStarted = resolve
-		})
-		let createSignal: AbortSignal | undefined
-		let deleteCalls = 0
-		globalThis.fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
-			if (init?.method === 'DELETE') {
-				deleteCalls += 1
-				return new Response(null, { status: 204 })
-			}
-			createSignal = init?.signal ?? undefined
-			markStarted()
-			return await new Promise<Response>((_resolve, reject) => {
-				const safety = setTimeout(() => reject(new Error('test safety release')), 100)
-				createSignal?.addEventListener(
-					'abort',
-					() => {
-						clearTimeout(safety)
-						reject(createSignal?.reason)
-					},
-					{ once: true },
-				)
-			})
-		}) as typeof fetch
+			markStarted = resolve;
+		});
+		let createSignal: AbortSignal | undefined;
+		let deleteCalls = 0;
+		globalThis.fetch = vi.fn(
+			async (_input: string | URL | Request, init?: RequestInit) => {
+				if (init?.method === "DELETE") {
+					deleteCalls += 1;
+					return new Response(null, { status: 204 });
+				}
+				createSignal = init?.signal ?? undefined;
+				markStarted();
+				return await new Promise<Response>((_resolve, reject) => {
+					const safety = setTimeout(
+						() => reject(new Error("test safety release")),
+						100,
+					);
+					createSignal?.addEventListener(
+						"abort",
+						() => {
+							clearTimeout(safety);
+							reject(createSignal?.reason);
+						},
+						{ once: true },
+					);
+				});
+			},
+		) as typeof fetch;
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-		})
-		const caller = new AbortController()
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
+		});
+		const caller = new AbortController();
 		const pending = backend.create({
 			workingDirectory: workDir,
 			signal: caller.signal,
-		})
+		});
 
-		await started
-		const reason = new Error('operator stopped allocation')
-		caller.abort(reason)
+		await started;
+		const reason = new Error("operator stopped allocation");
+		caller.abort(reason);
 
-		await expect(pending).rejects.toThrow(/allocation outcome is unresolved/)
-		expect(createSignal).toBe(caller.signal)
-		expect(createSignal?.reason).toBe(reason)
+		await expect(pending).rejects.toThrow(/allocation outcome is unresolved/);
+		expect(createSignal).toBe(caller.signal);
+		expect(createSignal?.reason).toBe(reason);
 		// No server-minted id arrived, so manufacturing a DELETE target would be
 		// a lie. The actionable error names the fleet reaper that owns this case.
-		expect(deleteCalls).toBe(0)
-	})
+		expect(deleteCalls).toBe(0);
+	});
 
-	it('validates readiness before requesting an orchestrator token', () => {
-		const getToken = vi.fn(async () => 'tok')
+	it("validates readiness before requesting an orchestrator token", () => {
+		const getToken = vi.fn(async () => "tok");
 		expect(() =>
 			buildFirecrackerBackend({
-				orchestratorEndpoint: 'https://orchestrator.test/',
+				orchestratorEndpoint: "https://orchestrator.test/",
 				getToken,
 				readyPollIntervalMs: Number.POSITIVE_INFINITY,
 			}),
-		).toThrow(/firecracker\.readyPollIntervalMs/)
-		expect(getToken).not.toHaveBeenCalled()
-	})
+		).toThrow(/firecracker\.readyPollIntervalMs/);
+		expect(getToken).not.toHaveBeenCalled();
+	});
 
-	it('parses listFiles output into {path,size} entries (GNU-find-shaped wire)', async () => {
+	it("parses listFiles output into {path,size} entries (GNU-find-shaped wire)", async () => {
 		// Make `find` deterministic across host platforms: shim a `find`
 		// on PATH that emits the GNU `-printf '%p\t%s\n'` wire the Ubuntu
 		// golden rootfs produces, so the backend's tab-split parser is
 		// proven without depending on the host having GNU findutils.
-		const binDir = mkdtempSync(join(tmpdir(), 'fc-bin-'))
-		const findShim = join(binDir, 'find')
+		const binDir = mkdtempSync(join(tmpdir(), "fc-bin-"));
+		const findShim = join(binDir, "find");
 		writeFileSync(
 			findShim,
 			[
-				'#!/bin/sh',
+				"#!/bin/sh",
 				`printf '%s\\t%s\\n' '${workDir}/out/result.txt' 9`,
 				`printf '%s\\t%s\\n' '${workDir}/out/other.bin' 42`,
-			].join('\n'),
+			].join("\n"),
 			{ mode: 0o755 },
-		)
-		chmodSync(findShim, 0o755)
-		process.env.PATH = `${binDir}:${process.env.PATH}`
+		);
+		chmodSync(findShim, 0o755);
+		process.env.PATH = `${binDir}:${process.env.PATH}`;
 
-		server = await startAgent()
-		stubOrchestrator({ kind: 'unix', path: sockPath })
+		server = await startAgent();
+		stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			readyTimeoutMs: 3_000,
 			readyPollIntervalMs: 50,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		const files = await sandbox.listFiles(workDir)
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		const files = await sandbox.listFiles(workDir);
 		expect(files).toEqual([
 			{ path: `${workDir}/out/result.txt`, size: 9 },
 			{ path: `${workDir}/out/other.bin`, size: 42 },
-		])
-		await sandbox.destroy()
-		rmSync(binDir, { recursive: true, force: true })
-	})
+		]);
+		await sandbox.destroy();
+		rmSync(binDir, { recursive: true, force: true });
+	});
 
-	it('fills the contract vsock port when the orchestrator omits it', async () => {
+	it("fills the contract vsock port when the orchestrator omits it", async () => {
 		// A vsock handle whose port is 0 should be normalized to the
 		// configured agentVsockPort. We can't bind a real AF_VSOCK here, so
 		// assert the normalization path via a unix handle is unaffected and
 		// that a portless vsock handle does not crash create's pre-dial.
 		// (Full vsock dial is the live increment.)
-		server = await startAgent()
-		stubOrchestrator({ kind: 'unix', path: sockPath })
+		server = await startAgent();
+		stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
 			agentVsockPort: 1024,
 			readyTimeoutMs: 3_000,
 			readyPollIntervalMs: 50,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		expect(sandbox.status).toBe('ready')
-		await sandbox.destroy()
-	})
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		expect(sandbox.status).toBe("ready");
+		await sandbox.destroy();
+	});
 
-	it('carries agentSnapshot in the create body when the backend config sets it', async () => {
+	it("carries agentSnapshot in the create body when the backend config sets it", async () => {
 		// OPEN-2 — the per-agent snapshot ref is a first-class, provider-agnostic
 		// field on the create contract (sibling to `template`). When set it must
 		// reach the orchestrator POST body verbatim.
-		server = await startAgent()
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		server = await startAgent();
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-			template: 'golden-rev-7',
-			agentSnapshot: { orgId: 'org1', agentId: 'agent9', version: '3' },
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
+			template: "golden-rev-7",
+			agentSnapshot: { orgId: "org1", agentId: "agent9", version: "3" },
 			readyTimeoutMs: 3_000,
 			readyPollIntervalMs: 50,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		const createCall = calls.find((c) => c.method === 'POST')
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		const createCall = calls.find((c) => c.method === "POST");
 		expect(createCall?.body).toMatchObject({
-			template: 'golden-rev-7',
-			agentSnapshot: { orgId: 'org1', agentId: 'agent9', version: '3' },
-		})
-		await sandbox.destroy()
-	})
+			template: "golden-rev-7",
+			agentSnapshot: { orgId: "org1", agentId: "agent9", version: "3" },
+		});
+		await sandbox.destroy();
+	});
 
-	it('OMITS agentSnapshot from the create body when absent (byte-identical generic path)', async () => {
+	it("OMITS agentSnapshot from the create body when absent (byte-identical generic path)", async () => {
 		// DORMANT contract: absent ⇒ the POST body must NOT carry an
 		// `agentSnapshot` key at all (a JSON `undefined` would not serialise, but
 		// the conditional spread must drop the key entirely so the body is
 		// byte-identical to the pre-field generic create).
-		server = await startAgent()
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		server = await startAgent();
+		const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
 		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-			template: 'golden-rev-7',
+			orchestratorEndpoint: "https://orchestrator.test/",
+			getToken: async () => "tok",
+			template: "golden-rev-7",
 			readyTimeoutMs: 3_000,
 			readyPollIntervalMs: 50,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		const createCall = calls.find((c) => c.method === 'POST')
-		expect(createCall?.body).toEqual({ template: 'golden-rev-7' })
-		expect(Object.prototype.hasOwnProperty.call(createCall?.body ?? {}, 'agentSnapshot')).toBe(
-			false,
-		)
-		await sandbox.destroy()
-	})
-})
+		});
+		const sandbox = await backend.create({ workingDirectory: workDir });
+		const createCall = calls.find((c) => c.method === "POST");
+		expect(createCall?.body).toEqual({ template: "golden-rev-7" });
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				createCall?.body ?? {},
+				"agentSnapshot",
+			),
+		).toBe(false);
+		await sandbox.destroy();
+	});
+});
 
-describe.skipIf(process.platform !== 'linux')('buildFirecrackerBackend terminal ownership', () => {
-	it('kills and awaits every guest terminal before deleting the microVM', async () => {
-		server = await startAgent()
-		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
-		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-			readyTimeoutMs: 3_000,
-			readyPollIntervalMs: 50,
-		})
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		expect(sandbox.openTerminal).toBeTypeOf('function')
-		const terminal = await sandbox.openTerminal?.({
-			command: '/bin/sh',
-			args: ['-lc', 'sleep 30'],
-			cwd: workDir,
-			size: { cols: 80, rows: 24 },
-		})
-		expect(terminal).toBeDefined()
+describe.skipIf(process.platform !== "linux")(
+	"buildFirecrackerBackend terminal ownership",
+	() => {
+		it("kills and awaits every guest terminal before deleting the microVM", async () => {
+			server = await startAgent();
+			const { calls } = stubOrchestrator({ kind: "unix", path: sockPath });
+			const backend = buildFirecrackerBackend({
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
+				readyTimeoutMs: 3_000,
+				readyPollIntervalMs: 50,
+			});
+			const sandbox = await backend.create({ workingDirectory: workDir });
+			expect(sandbox.openTerminal).toBeTypeOf("function");
+			const terminal = await sandbox.openTerminal?.({
+				command: "/bin/sh",
+				args: ["-lc", "sleep 30"],
+				cwd: workDir,
+				size: { cols: 80, rows: 24 },
+			});
+			expect(terminal).toBeDefined();
 
-		await sandbox.destroy()
-		await expect(terminal?.exited).resolves.toMatchObject({
-			exitCode: expect.any(Number),
-		})
-		expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
-	})
-})
+			await sandbox.destroy();
+			await expect(terminal?.exited).resolves.toMatchObject({
+				exitCode: expect.any(Number),
+			});
+			expect(calls.some((call) => call.method === "DELETE")).toBe(true);
+		});
+	},
+);
 
 // ---------------------------------------------------------------------------
 // Cert-injection seam — the orchestrator returns a WIRE
@@ -791,91 +866,93 @@ describe.skipIf(process.platform !== 'linux')('buildFirecrackerBackend terminal 
 // control plane.
 // ---------------------------------------------------------------------------
 
-describe('normalizeHandle (mtls cert injection)', () => {
+describe("normalizeHandle (mtls cert injection)", () => {
 	const WIRE_MTLS = {
-		kind: 'mtls',
-		host: '10.60.1.7',
+		kind: "mtls",
+		host: "10.60.1.7",
 		port: 8443,
-		sandboxId: 'sb-net',
-	} as const satisfies WireSandboxAgentHandle
+		sandboxId: "sb-net",
+	} as const satisfies WireSandboxAgentHandle;
 
-	it('merges the injected cert material onto a wire mtls handle', () => {
+	it("merges the injected cert material onto a wire mtls handle", () => {
 		const handle = normalizeHandle(WIRE_MTLS, 1024, {
 			ca: CA_CRT,
 			cert: CLIENT_CRT,
 			key: CLIENT_KEY,
-			servername: 'sandbox.fc.internal',
-		})
+			servername: "sandbox.fc.internal",
+		});
 		expect(handle).toEqual({
-			kind: 'mtls',
-			host: '10.60.1.7',
+			kind: "mtls",
+			host: "10.60.1.7",
 			port: 8443,
-			sandboxId: 'sb-net',
+			sandboxId: "sb-net",
 			tls: {
 				ca: CA_CRT,
 				cert: CLIENT_CRT,
 				key: CLIENT_KEY,
-				servername: 'sandbox.fc.internal',
+				servername: "sandbox.fc.internal",
 			},
-		})
-	})
+		});
+	});
 
-	it('throws when an mtls handle arrives with NO injected cert material', () => {
+	it("throws when an mtls handle arrives with NO injected cert material", () => {
 		// A network-mode backend that cannot present a client cert would be
 		// rejected by the relay — fail loud at handle-normalization instead.
 		expect(() => normalizeHandle(WIRE_MTLS, 1024, undefined)).toThrow(
 			/no client cert material was injected/,
-		)
-	})
+		);
+	});
 
-	it('names the config field that fixes it, and nothing a particular host defines', () => {
+	it("names the config field that fixes it, and nothing a particular host defines", () => {
 		// The message is read by every installer, so the remedy it gives has to
 		// be this package's own config field rather than one host's variables.
-		let message = ''
+		let message = "";
 		try {
-			normalizeHandle(WIRE_MTLS, 1024, undefined)
+			normalizeHandle(WIRE_MTLS, 1024, undefined);
 		} catch (error) {
-			message = (error as Error).message
+			message = (error as Error).message;
 		}
-		expect(message).toContain('pass `mtls: { ca, cert, key }`')
-		expect(message).not.toMatch(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/)
-	})
+		expect(message).toContain("pass `mtls: { ca, cert, key }`");
+		expect(message).not.toMatch(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/);
+	});
 
-	it('leaves vsock + unix handles untouched (cert material is ignored)', () => {
-		expect(normalizeHandle({ kind: 'unix', path: '/tmp/a.sock' }, 1024, undefined)).toEqual({
-			kind: 'unix',
-			path: '/tmp/a.sock',
-		})
+	it("leaves vsock + unix handles untouched (cert material is ignored)", () => {
+		expect(
+			normalizeHandle({ kind: "unix", path: "/tmp/a.sock" }, 1024, undefined),
+		).toEqual({
+			kind: "unix",
+			path: "/tmp/a.sock",
+		});
 		// A vsock handle with a 0 port still normalizes to the contract port.
 		expect(
-			normalizeHandle({ kind: 'vsock', udsPath: '/v.sock', port: 0 }, 1024, {
+			normalizeHandle({ kind: "vsock", udsPath: "/v.sock", port: 0 }, 1024, {
 				ca: CA_CRT,
 				cert: CLIENT_CRT,
 				key: CLIENT_KEY,
 			}),
-		).toEqual({ kind: 'vsock', udsPath: '/v.sock', port: 1024 })
-	})
-})
+		).toEqual({ kind: "vsock", udsPath: "/v.sock", port: 1024 });
+	});
+});
 
 describe.skipIf(IS_WINDOWS)(
-	'buildFirecrackerBackend (network mode over a loopback mTLS relay)',
+	"buildFirecrackerBackend (network mode over a loopback mTLS relay)",
 	() => {
-		it('injects the client cert + round-trips exec/file-IO through the relay', async () => {
+		it("injects the client cert + round-trips exec/file-IO through the relay", async () => {
 			// The agent on a unix socket; a loopback mTLS relay in front of it.
-			server = await startAgent()
-			relay = await startMtlsRelay(sockPath)
+			server = await startAgent();
+			relay = await startMtlsRelay(sockPath);
 			// The orchestrator returns a WIRE mtls handle (NO cert material) whose
 			// host:port point at the relay; the relay resolves the sandboxId.
 			const { calls } = stubOrchestrator({
-				kind: 'mtls',
-				host: '127.0.0.1',
+				kind: "mtls",
+				host: "127.0.0.1",
 				port: relay.port,
-				sandboxId: 'sb-net',
-			})
+				sandboxId: "sb-net",
+			});
 
 			const backend = buildFirecrackerBackend({
-				orchestratorEndpoint: 'https://orchestrator.test/',
-				getToken: async () => 'tok',
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
 				readyTimeoutMs: 5_000,
 				readyPollIntervalMs: 50,
 				// The CONSUMER-injected client material — never returned by the
@@ -884,45 +961,47 @@ describe.skipIf(IS_WINDOWS)(
 					ca: CA_CRT,
 					cert: CLIENT_CRT,
 					key: CLIENT_KEY,
-					servername: 'sandbox.fc.internal',
+					servername: "sandbox.fc.internal",
 				},
-			})
+			});
 
-			const sandbox = await backend.create({ workingDirectory: workDir })
-			expect(sandbox.status).toBe('ready')
+			const sandbox = await backend.create({ workingDirectory: workDir });
+			expect(sandbox.status).toBe("ready");
 
 			// The dialer wrote the `SANDBOX <id>` routing preamble (the relay's key).
-			expect(await relay.preamble()).toBe('sb-net')
+			expect(await relay.preamble()).toBe("sb-net");
 
 			// Full exec + file-IO round-trip over the mTLS tunnel.
-			const r = await sandbox.exec('/bin/sh', ['-c', 'echo hello-mtls'])
-			expect(r.stdout).toContain('hello-mtls')
-			await sandbox.writeFile('out/r.txt', 'via-relay')
-			expect((await sandbox.readFile('out/r.txt')).toString('utf8')).toBe('via-relay')
+			const r = await sandbox.exec("/bin/sh", ["-c", "echo hello-mtls"]);
+			expect(r.stdout).toContain("hello-mtls");
+			await sandbox.writeFile("out/r.txt", "via-relay");
+			expect((await sandbox.readFile("out/r.txt")).toString("utf8")).toBe(
+				"via-relay",
+			);
 
-			await sandbox.destroy()
-			expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
-		})
+			await sandbox.destroy();
+			expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+		});
 
-		it('rejects a create when the orchestrator returns mtls but no cert material is injected', async () => {
-			server = await startAgent()
-			relay = await startMtlsRelay(sockPath)
+		it("rejects a create when the orchestrator returns mtls but no cert material is injected", async () => {
+			server = await startAgent();
+			relay = await startMtlsRelay(sockPath);
 			stubOrchestrator({
-				kind: 'mtls',
-				host: '127.0.0.1',
+				kind: "mtls",
+				host: "127.0.0.1",
 				port: relay.port,
-				sandboxId: 'sb-net',
-			})
+				sandboxId: "sb-net",
+			});
 			const backend = buildFirecrackerBackend({
-				orchestratorEndpoint: 'https://orchestrator.test/',
-				getToken: async () => 'tok',
+				orchestratorEndpoint: "https://orchestrator.test/",
+				getToken: async () => "tok",
 				readyTimeoutMs: 2_000,
 				readyPollIntervalMs: 50,
 				// No `mtls` material → normalizeHandle must throw at create time.
-			})
-			await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
-				/no client cert material was injected/,
-			)
-		})
+			});
+			await expect(
+				backend.create({ workingDirectory: workDir }),
+			).rejects.toThrow(/no client cert material was injected/);
+		});
 	},
-)
+);
