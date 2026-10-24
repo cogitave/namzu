@@ -33,8 +33,7 @@ does not apply; the token rule does.
   call (`offset=N limit=N`, 0-indexed like this tool's `offset`). A file whose lines are too long to page
   gets a character excerpt and says it cannot be paged by line.
 - Any other read over 25,000 tokens (a window, or an `offset` past the start) is refused with the count.
-- `allow_large: true` lifts both caps for that one call to four times their size. The terminal lifts them to
-  "what still fits in the context left this turn"; this kernel does not track that room, so the factor is
+- `allow_large: true` lifts both caps for that one call to four times their size. The kernel does not track the room left in the context, so the factor is
   fixed. A read still over the lifted caps is refused and says so.
 - `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
 

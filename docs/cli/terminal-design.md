@@ -1045,7 +1045,7 @@ OSC 0, which sets the window title and the icon name, ended by BEL:
   conversation), and when a turn starts or ends.
 - **On exit** it is reset with an empty OSC 0 (`ESC ] 0 ; BEL`), including when
   the process exits abnormally, so the shell's own title comes back.
-- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1` . Nothing is written to a stream that is
+- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1`. Nothing is written to a stream that is
   not a terminal.
 
 ## Terminal boundaries

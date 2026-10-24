@@ -24,8 +24,8 @@ statusLine:
   refreshInterval: 30 # optional: also run every N seconds, at least 1
 ```
 
-`type: command` is accepted (it is the only kind) so a block copied from a
-Claude Code settings file loads. Any other key, or a command that is empty, refuses
+`type: command` is accepted (it is the only kind) so a block written for
+another tool's settings file loads. Any other key, or a command that is empty, refuses
 the config at load and names the setting.
 
 ## Where it may be set

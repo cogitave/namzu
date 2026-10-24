@@ -3357,7 +3357,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
     Interpreter — `gvisor.dev/docs/architecture_guide/security` is
     the reference).
   - Single-user developer machine → bubblewrap / Seatbelt
-   .
+    (via `@anthropic-ai/sandbox-runtime`).
   - Single-tenant or co-trusted → plain Docker + seccomp default
     profile.
 

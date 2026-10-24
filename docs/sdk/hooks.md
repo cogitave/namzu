@@ -104,7 +104,7 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
 | `decision: "approve"` | `allow` for a tool call or a permission request |
 | `systemMessage` | a warning for the operator |
 | `suppressOutput: true` | keep this hook's stdout out of the debug log |
-| `hookSpecificOutput` | `hookEventName` is required and must name this event, either as Namzu spells it (`pre_tool_use`) or in the Claude Code spelling (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PermissionRequest`, `Notification`, `PreCompact`, `SessionStart`) |
+| `hookSpecificOutput` | `hookEventName` is required and must name this event, either as Namzu spells it (`pre_tool_use`) or in the PascalCase spelling (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PermissionRequest`, `Notification`, `PreCompact`, `SessionStart`) |
 
 `hookSpecificOutput` carries, for `pre_tool_use`: `permissionDecision` (`allow`, `deny`, `ask`; `defer` decides nothing), `permissionDecisionReason`, `updatedInput` (an object that replaces the call's input) and `additionalContext`; for `permission_request`: `decision` as `{ "behavior": "allow" }` or `{ "behavior": "deny", "message": "...", "interrupt": true }`; and `additionalContext` for `user_prompt_submit` (context for the turn), `post_tool_use`, `post_tool_use_failure` (shown beside the result), `turn_end` and `subagent_stop` (feedback; the turn goes on), `session_start` and `notification` (accepted, not delivered).
 
@@ -118,9 +118,9 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
 
 Entries of one event run in parallel; see above for how their answers combine.
 
-### Where shell hooks differ from Claude Code's hooks
+### Where shell hooks differ from the common hook contract
 
-The JSON answer, the exit codes and the options above follow the Claude Code hook contract. These differences are deliberate:
+The JSON answer, the exit codes and the options above follow a fixed hook contract. These differences are deliberate:
 
 - **A hook's `allow` is narrower.** It never covers a sandbox escape, a path outside the roots, a call the tool always asks about, an explicit review rule's call or a destructive call, and it never reopens a deny. A hook `deny` always wins.
 - **A rewrite is checked twice.** `updatedInput` is validated like a model-supplied input and then authorized as the rewritten call, so a rewrite can neither slip past a rule nor reach a tool whose schema refuses it.

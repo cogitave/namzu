@@ -12,8 +12,6 @@ generated:
 
 # Compaction trigger, overflow recovery, circuit breaker and output limits
 
-These rules are the terminal's.
-
 ## The summary trigger
 
 `compactionConfig.triggerThreshold` is optional. Set, it is the fraction of the
@@ -81,7 +79,7 @@ error's message ends in ` · automatic compaction failed: <cause>` (at most 300
 characters of the cause). The conversation is kept; nothing here asks the
 person to start a new one.
 
-Differences: the summary is the extracted working
+The summary is the extracted working
 state, so there is no media-stripping retry (the verifier excerpt carries text
 and attachment captions only), and the token-gap-guided growth step becomes the
 halving of the excerpt. An oversized user message or attachment has no clearing
