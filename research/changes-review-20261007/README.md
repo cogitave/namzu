@@ -18,5 +18,4 @@ Checks the capture asserts (PASS/FAIL on stdout): a card file row opens Last rep
 (`aria-selected` on exactly one tree row), the binary header has no `+0 −0`, Open file on an uncommitted path adds its tab,
 `]` steps files, the filter narrows the tree, no horizontal scroll at 900 px.
 
-Compare against the captured screenshot `images/12.png`: scope pill plus totals at top left, toolbar at right, one diff left, filterable tree right.
 Rerun: start the dev server, then `node research/changes-review-20261007/capture.mjs` from the repo root.

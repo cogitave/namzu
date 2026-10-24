@@ -300,8 +300,7 @@ historical and is not the final tab reference. An actual GPT-5.6-Sol native Code
 reply was also retained after reload. These inference checks are separate from
 metadata discovery and contain no account or credential payloads.
 
-The supplied AppUI Composer Panel image and its implementation establish the
-selected-model-row Effort trigger. Namzu now uses that flow: the row's Low/Medium
+The composer panel uses a selected-model-row Effort trigger. Namzu now uses that flow: the row's Low/Medium
 control opens an Effort panel with a value pill, a discrete slider and the
 Faster/Smarter scale. Only the actual supported effort subset supplies its stops;
 levels are deduplicated and sorted by effort. The model's actual default stays

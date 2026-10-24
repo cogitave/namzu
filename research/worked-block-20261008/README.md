@@ -1,7 +1,7 @@
 # One "Worked for" block per reply (Desktop)
 
 Proof for [Action rows](../../docs/cli/desktop.md#action-rows). `ref-27` is the old transcript (a clock in
-every gap), `ref-28` and `ref-29` the upstream capture: one block, no clock inside it, the time only under the answer.
+every gap). The new transcript is one block with no clock inside it and the time only under the answer.
 
 Captured with Playwright Chromium on the dev preview: saved turns `/preview?activity=1`, a running turn
 `/preview?live=1` (the scripted turn now stamps its events with the clock), long list `/preview?stress=300`.

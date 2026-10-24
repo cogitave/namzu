@@ -8,11 +8,10 @@ the main checkout remains untouched. The desktop package is private. This
 change does not publish packages or add runtime dependencies.
 
 The pinned presentation source remains revision
-`c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21` of the primary reference clone.
+`c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21` of the primary source clone.
 The desktop uses its already installed Base UI primitives for the command
 palette, command-menu, dialog and command composition, with focus, grouping and
-action handling.
-Attribution for redistributed
+action handling. Attribution for redistributed
 third-party code and glyphs stays in `packages/desktop/THIRD-PARTY-NOTICES.txt`.
 
 The pixel accent ends at the sidebar's right edge, not at the window edge. The

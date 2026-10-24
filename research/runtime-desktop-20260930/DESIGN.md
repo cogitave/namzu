@@ -12,11 +12,11 @@ rendered in an isolated native window:
 | `zai-org/ZCode` | `29628c9acdb81b703bbd4080c207a0e7ce5e276e` | Apache-2.0 |
 
 The main-process/runtime implementation remains Namzu's existing host work.
-After the user's further review, the renderer composes whole
+After the user's further review, the renderer adapts whole source
 render branches, not just low-level controls: the three-row
 conversation cards, project-scope menu, titlebar, timeline rows, centred/docked
 composer body/footer/context strip, changed-files card and diff surface.
-The secondary reference supplies only the compatible error frame. Namzu owns
+The second source supplies only the compatible error frame. Namzu owns
 the data, handlers, runtime and credentials. Brand identifiers and integration-
 specific theme selectors do not appear in production source.
 Full source revisions, modifications and mandatory copyright/license text are

@@ -27,7 +27,7 @@ The private native desktop already uses source-derived sidebar/composer/diff con
 ## Source comparison for this slice
 
 - Original clones verified clean: `/tmp/namzu-workflow-peers-20260930.ckQyBT/t3code` at `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21`; sibling `zcode` at `29628c9acdb81b703bbd4080c207a0e7ce5e276e`.
-- Main reference `MessagesTimeline.tsx:1779` separates queued items by stable IDs, attributes their actual scheduling status and offers explicit per-item actions. Its `ChatView.tsx:7241` restores authored queue content without silently discarding overflowing material. Namzu uses its existing next-turn admission semantics and does not advertise mid-turn steer where the desktop host has no such method.
+- Upstream `MessagesTimeline.tsx:1779` separates queued items by stable IDs, attributes their actual scheduling status and offers explicit per-item actions. Its `ChatView.tsx:7241` restores authored queue content without silently discarding overflowing material. Namzu uses its existing next-turn admission semantics and does not advertise mid-turn steer where the desktop host has no such method.
 - Drafts bind to an explicit workspace/session owner and delayed persistence is guarded against scope changes. Namzu retains small text drafts in its owning main-process conversation; it does not import a renderer store or account/runtime implementation.
 - Shared popover, button, typography, colour and motion primitives remain source-derived; queued content has its own accessible pending-work surface. Closing that surface does not change the previously measured conversation geometry.
 
