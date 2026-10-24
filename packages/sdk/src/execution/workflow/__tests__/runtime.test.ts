@@ -220,7 +220,7 @@ describe('parallel and pipeline', () => {
 		const logs = events
 			.filter((e) => e.type === 'workflow_log')
 			.map((e) => (e as { message: string }).message)
-		expect(logs).toEqual(['parallel item 2 failed: boom', 'parallel item 3 failed: late'])
+		expect(logs).toEqual(['Step 2 stopped: boom', 'Step 3 stopped: late'])
 	})
 
 	it('pipeline drops an item whose stage throws to null and keeps the others', async () => {
@@ -234,7 +234,7 @@ describe('parallel and pipeline', () => {
 		const logs = events
 			.filter((e) => e.type === 'workflow_log')
 			.map((e) => (e as { message: string }).message)
-		expect(logs).toEqual(['pipeline item 1 stopped at stage 1: nope'])
+		expect(logs).toEqual(['Item 1 stopped at step 1: nope'])
 	})
 
 	it('refuses non-array input and non-function stages', async () => {

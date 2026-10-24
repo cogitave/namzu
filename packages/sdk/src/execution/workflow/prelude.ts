@@ -74,7 +74,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		}
 		return Promise.all(thunks.map(function (t, n) {
 			return Promise.resolve().then(t).catch(function (e) {
-				log('parallel item ' + (n + 1) + ' failed: ' + clean(e && e.message ? e.message : e, 300));
+				log('Step ' + (n + 1) + ' stopped: ' + clean(e && e.message ? e.message : e, 300));
 				return null;
 			});
 		}));
@@ -95,7 +95,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 				try {
 					value = await stages[i](value, index, item);
 				} catch (e) {
-					log('pipeline item ' + (index + 1) + ' stopped at stage ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
+					log('Item ' + (index + 1) + ' stopped at step ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
 					return null;
 				}
 				if (value === null || value === undefined) return null;
