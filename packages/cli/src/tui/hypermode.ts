@@ -40,7 +40,7 @@ function effortStays(effort: string | undefined): string {
 	return effort ? `Effort stays ${effort}.` : 'Effort stays at the model default.'
 }
 
-/** User messages between the sparse reminders (the reference's default of 10). */
+/** User messages between the sparse reminders (default 10). */
 export const HYPERMODE_REMINDER_EVERY = 10
 
 /** The one-turn keyword's text: for this message only, nothing is stored. */

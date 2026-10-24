@@ -29,8 +29,8 @@ by hand.
 The `workflow` tool is in the tool list on every turn of a terminal or `exec`
 run that can run one, and the model is gated by wording, not by the list: the
 tool's text and a stable note in the system prompt say it may be called only
-after an explicit opt-in (the reference terminal lists its workflow tool the
-same way). The opt-in is the operator asking for orchestration:
+after an explicit opt-in (the list does not change from message to
+message, which keeps the cached prompt prefix stable). The opt-in is the operator asking for orchestration:
 
 - hypermode is on (`/hypermode`), or
 - the message arms the `workflow` composer trigger: `workflow` or `workflows`

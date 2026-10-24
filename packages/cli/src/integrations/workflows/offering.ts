@@ -4,7 +4,7 @@
  *
  * A workflow is a lot of work started on one decision, so the model is told
  * when it may call the tool; the tool itself is listed on every turn of a host
- * that can run one (the reference lists it the same way and gates by wording).
+ * that can run one (the model is gated by wording, not by the list).
  * The opt-in is the operator's keyword (`hypermode`, shown as a tag and
  * dropped with Alt+W), hypermode being on, their own words, or the
  * `/workflow` command. Pure.
