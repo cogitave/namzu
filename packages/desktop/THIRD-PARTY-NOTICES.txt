@@ -48,7 +48,7 @@ Original files:
  packages/ui/src/ChatErrorBanner.tsx
  packages/ui/src/WorkspaceSidebar/WorkspacePurposeSection.tsx
 Local file: src/renderer/chat-error-banner.tsx. The earlier message/group frames
-were replaced by the main reference composition; their mandatory provenance
+were replaced by the main composition; their mandatory provenance
 and upstream notices remain recorded here.
 Changes: the error frame uses Namzu error/actions and retains full readable text. Original attribution follows:
 
@@ -70,7 +70,7 @@ Local file: src/renderer/icons.tsx.
 Changes: unchanged visible path data is rendered by one local React wrapper.
 Selected navigation variants use the original home-4-fill, folders-fill,
 time-fill and puzzle-fill SVGs alongside rounded Lucide outline components. This hybrid
-adaptation does not claim that the reference screenshot uses either family.
+adaptation does not claim that the design screenshot uses either family.
 Provider glyphs represent only their corresponding configured services. Generic
 cloud or server icons identify other remote or local routes. These assets do not
 represent Namzu's own identity.
