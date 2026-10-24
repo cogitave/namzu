@@ -4263,7 +4263,7 @@ describe('background agents outlive the turn', () => {
 		screen.press('\x03')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('1 background agent stopped'),
+			() => painted(screen).includes('All background agents stopped'),
 			'the stop was not announced',
 		)
 		expect(stoppedChildren).toEqual(['bg-1'])

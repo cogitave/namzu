@@ -12921,7 +12921,14 @@ export function App({
 				if (stoppable.length > 0) {
 					tellModelAgentsStopped(stoppable)
 					for (const agent of stoppable) session?.stopSubagent?.(agent.viewId)
-					pushMessage('system', stopAllStep(stoppable.length, true).notice)
+					pushMessage(
+						'system',
+						stopAllStep(stoppable.length, true).notice,
+						false,
+						systemRowStyle('error').glyph,
+						undefined,
+						systemRowStyle('error').color,
+					)
 					return
 				}
 				armExit('Ctrl-C')
