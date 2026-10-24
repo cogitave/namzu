@@ -82,9 +82,7 @@ export function fileWriteResult(
 						}),
 				bytes,
 				sha256: createHash('sha256').update(after, 'utf8').digest('hex'),
-				...(before === null
-					? {}
-					: { added: diff.added, removed: diff.removed, newlineChanged }),
+				...(before === null ? {} : { added: diff.added, removed: diff.removed, newlineChanged }),
 			},
 		},
 	}

@@ -101,7 +101,10 @@ describe('edit results use the real counts', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'edit-counts-'))
 		mkdirSync(dir, { recursive: true })
 		writeFileSync(join(dir, 'e.txt'), body)
-		return { dir, ctx: { workingDirectory: dir, env: {}, abortSignal: new AbortController().signal } }
+		return {
+			dir,
+			ctx: { workingDirectory: dir, env: {}, abortSignal: new AbortController().signal },
+		}
 	}
 
 	it('counts a replace_all by every place that changed', async () => {
@@ -163,6 +166,12 @@ describe('recorded facts', () => {
 			removed: 0,
 			hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, lines: ['no marker'] }],
 		})
-		expect(admitted).toEqual({ kind: 'write', path: '/p/a.ts', operation: 'updated', added: 1, removed: 0 })
+		expect(admitted).toEqual({
+			kind: 'write',
+			path: '/p/a.ts',
+			operation: 'updated',
+			added: 1,
+			removed: 0,
+		})
 	})
 })
