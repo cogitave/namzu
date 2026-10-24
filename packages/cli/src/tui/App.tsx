@@ -282,6 +282,7 @@ import {
 	childMessageRow,
 	failureReason,
 	settleLine,
+	workflowAgentCount,
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import {
@@ -3893,7 +3894,11 @@ export function App({
 			setHypermode(enabled)
 			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
 			const effort = reasoningEffortRef.current
-			pushMessage('system', enabled ? hypermodeOnMessage(effort) : hypermodeOffMessage(effort))
+			const hasLevels = (session.reasoningEffortLevels?.length ?? 0) > 0
+			pushMessage(
+				'system',
+				enabled ? hypermodeOnMessage(effort, hasLevels) : hypermodeOffMessage(effort, hasLevels),
+			)
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
@@ -13874,7 +13879,7 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const columns = [
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
-		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		...workflowAgentCount(counts),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]

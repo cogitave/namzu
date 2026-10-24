@@ -257,6 +257,24 @@ export function agentNotice(
 	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
 }
 
+/**
+ * The agent count of a workflow, said the same way in the transcript, the
+ * detail and the `/workflows` list: `3 agents` while every agent finished,
+ * otherwise `2/3 agents` with `1 failed` beside it.
+ */
+export function workflowAgentCount(counts: {
+	readonly done: number
+	readonly total: number
+	readonly failed: number
+}): string[] {
+	const noun = counts.total === 1 ? 'agent' : 'agents'
+	const whole = counts.done === counts.total && counts.failed === 0
+	return [
+		whole ? `${counts.total} ${noun}` : `${counts.done}/${counts.total} ${noun}`,
+		...(counts.failed > 0 ? [`${counts.failed} failed`] : []),
+	]
+}
+
 export interface WorkflowNotice {
 	readonly content: string
 	/** Completed reads quiet, failed is red, stopped is yellow. */
@@ -275,8 +293,7 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	const parts = [
 		`Workflow ${oneLine(workflow.name)} ${word}`,
 		elapsed,
-		`${workflow.total} agent${workflow.total === 1 ? '' : 's'}`,
-		...(workflow.failed > 0 ? [`${workflow.failed} failed`] : []),
+		...workflowAgentCount(workflow),
 		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
 	]
 	return {

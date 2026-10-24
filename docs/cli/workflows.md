@@ -141,10 +141,11 @@ one of three events of the run itself (never a timer), and answers on the first:
 - **The script asks for its first `agent()`.** The run is real work now; the call
   returns the launch receipt and the run goes on in the background, as below.
 - **The script fails before that.** The call is a **failed tool call** carrying the
-  located message. The conversation row is one plain sentence (`The script
-  stopped at line 3, column 20: <what went wrong>.`) with no `Error:` or
-  `failed:` prefix; the line's text, "No agent had started." and the hint about
-  a missing `args` stay behind ctrl+o, and the model gets all of them. There is
+  located message. The conversation row is one plain sentence (`The workflow
+  script stopped with an error.`) with no `Error:` or `failed:` prefix; the
+  position (`line 3, column 20`), the engine's own message, the line's text, "No
+  agent had started." and the hint about a missing `args` stay behind ctrl+o, and
+  the model gets all of them unchanged. There is
   no rail row, no launch line and no completion message afterwards. The hint
   appears when the call passed no `args` and the error mentions `args`, because
   `args` is exactly the object given in the call's `args` field and is
@@ -211,8 +212,11 @@ A skipped agent does not fail its phase, and a run in the footer counts as
 `1 workflow`, never as an agent (`← 2 agents · 1 workflow`). The header reads `denetim  <purpose>
 3/6 agents · 12s` and, once the run has ended, ends with `· completed`,
 `· failed` or `· stopped`. An agent that failed adds `· N failed` after the
-count, in the header, on the rail row (`3/7 · 1 failed · 2m 14s`) and in the
-closing line, so a run that finished with a failure never reads as clean. A step
+count, in the header, on the rail row (`3/7 · 1 failed · 2m 14s`), in the
+`/workflows` list and in the closing line, all in one form (`2/3 agents · 1
+failed`; a run with no failure and every agent done reads `3 agents`), so a run
+that finished with a failure never reads as clean. As the rail row narrows, the
+time and the spend go before the failure count does. A step
 that throws before it asks for an agent (inside `parallel()` or `pipeline()`) is
 not an agent: it shows as the progress line `Step 2 stopped: <why>` and is
 listed for the model among the failures.

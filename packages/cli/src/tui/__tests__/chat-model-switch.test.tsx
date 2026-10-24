@@ -688,7 +688,7 @@ it('accepts hypermode on a model that publishes no effort menu without saying an
 		'Hypermode did not turn on',
 	)
 	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
-	expect(text).toContain('Effort stays at the model default.')
+	expect(text).not.toContain('Effort stays')
 	expect(text).not.toContain('finish loading')
 	await submit(screen, 'continue')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')

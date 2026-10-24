@@ -53,6 +53,15 @@ function scan(messages: readonly Message[]): {
 	return { last: undefined, turns }
 }
 
+/**
+ * Whether the latest thing said about hypermode in this conversation was
+ * "on", so the exit text is still owed when the mode is off now. A host
+ * that does not otherwise feed reminders uses it to make a source anyway.
+ */
+export function hypermodeExitOwed(messages: readonly Message[]): boolean {
+	return scan(messages).last === 'hypermode-on'
+}
+
 /** The reminders to append before the next request; empty when there is nothing to say. */
 export function hypermodeReminders(input: HypermodeReminderInput): string[] {
 	const { last, turns } = scan(input.messages)

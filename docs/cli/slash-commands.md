@@ -173,7 +173,8 @@ level never turns hypermode off either. `/hypermode on`
 answers `Hypermode is on for this conversation: Namzu will use workflows for
 substantial tasks. Effort stays high.` and `/hypermode off` answers
 `Hypermode is off: workflows are offered only when you ask for one. Effort
-stays high.` (`Effort stays at the model default.` when none was chosen).
+stays high.` (`Effort stays at the model default.` when none was chosen; the
+sentence is left out for a model that publishes no effort levels).
 Choosing an effort level, in `/effort` or the picker, never touches the mode.
 
 What the model is told. The `workflow` tool is in the tool list on every turn of

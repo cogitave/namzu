@@ -494,9 +494,18 @@ export function workflowRowVariants(
 			barWidth: wide,
 			text: join([counted, elapsed, spent && `↓ ${spent} tokens`]),
 		},
+		// A failure is the last thing to go: the elapsed time and the spend are
+		// dropped before the failure count is, and the bar shrinks around it.
 		...(counted === count
 			? []
-			: [{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) }]),
+			: [
+					{ barWidth: wide, text: join([counted, elapsed, spent && `↓ ${spent}`]) },
+					{ barWidth: wide, text: join([counted, elapsed]) },
+					{ barWidth: wide, text: counted },
+					{ barWidth: mid, text: counted },
+					{ barWidth: narrow, text: counted },
+					{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+				]),
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },

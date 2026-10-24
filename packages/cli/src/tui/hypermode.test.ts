@@ -22,6 +22,12 @@ describe('what the operator reads', () => {
 			'Hypermode is on for this conversation: Namzu will use workflows for substantial tasks. Effort stays high.',
 		)
 		expect(hypermodeOnMessage(undefined)).toContain('Effort stays at the model default.')
+		expect(hypermodeOnMessage(undefined, false)).toBe(
+			'Hypermode is on for this conversation: Namzu will use workflows for substantial tasks.',
+		)
+		expect(hypermodeOffMessage(undefined, false)).toBe(
+			'Hypermode is off: workflows are offered only when you ask for one.',
+		)
 		expect(hypermodeOffMessage('low')).toBe(
 			'Hypermode is off: workflows are offered only when you ask for one. Effort stays low.',
 		)
