@@ -166,7 +166,15 @@ accent colour and the others lose their pointer. Up and Down move, Enter loads
 the chosen message into the input with its attachments and armed triggers,
 and Esc only leaves the choice. Typing anything else leaves it too. While
 messages can be edited the input's placeholder reads `Press up to edit queued
-messages`. Alt+Up still restores the newest one at once. A held queue says why
+messages`, the first three times it would appear (the count is kept in
+`~/.namzu/hint-counts.json` as `queuedCommandUpHintCount`, so it carries over
+between launches; each appearance counts once, and the words are decided
+before the frame is drawn, so the usual placeholder never flashes first), then
+the usual placeholder returns. Enter on an empty box loads the chosen queued
+message for editing; it never sends the queue. On the very first prompt of a
+conversation the placeholder is a rotating example, `Try "fix lint errors"`,
+and, in a git repository, ones that name a frequently modified source file
+(`Try "refactor src/app.ts"`). Alt+Up still restores the newest one at once. A held queue says why
 under its rows: after a failed reply `Paused after the failed reply · send a
 message to run them`; after Esc, a new Enter message runs before the queue.
 `ctrl+x ctrl+s` is a two-key chord (any key in between drops it) that does what
@@ -708,7 +716,7 @@ limits add an explicit incomplete-search notice. See
 The writing area is two plain horizontal rules, `─` in graphite, with the input
 between them: no side borders, no corners and no title, as in the reference.
 The input line starts with a dim `❯ ` (`…` while the composer is paused), and
-the placeholder, pasted-text and attachment rows, the effort, model and trigger
+the placeholder, the effort, model and trigger
 rows and the suggestion menus sit between the rules, left-aligned with the
 prompt. The only text ever written on a rule is the session mode, `hypermode`,
 at the upper rule's right end. The frame is a constant three rows plus the blank
@@ -1108,10 +1116,13 @@ Off by default. `tui.notifications` in a config file turns on notices written to
 
 The composer enables terminal bracketed paste while it owns input. A paste split
 across terminal input chunks is assembled before editing the draft; pasted
-newlines do not submit it. Windows CRLF and CR line endings become LF. Large or
-multiline text has a `Pasted text #N · N chars` chip; the count uses Unicode code
-points, including emoji as one code point. Short single-line pastes insert at
-the cursor. Terminals without bracketed-paste support retain chunk-based fallback
+newlines do not submit it. Windows CRLF and CR line endings become LF. A paste
+longer than 800 characters, or with more than `min(rows - 10, 2)` line breaks,
+becomes a chip inside the input text: `[Pasted text #N +M lines]` (`[Pasted text
+#N]` when it has no line break). A pasted image is `[Image #N]`; N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
+a chip removes it whole, and the chip is replaced by the text it stands for when
+the message is sent, so history recall and draft restore see the full text. Other
+pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback
 handling, which cannot reconstruct a paste boundary the terminal does not send.
 
 Separate provider message IDs create separate assistant transcript entries,

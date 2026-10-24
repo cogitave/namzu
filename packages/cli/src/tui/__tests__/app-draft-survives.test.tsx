@@ -320,7 +320,7 @@ describe('a draft while a permission prompt comes and goes', () => {
 		// The turn is running and the composer is free again, read off the screen.
 		await frameShows(harness.lastFrame, 'Working', 'the turn never started')
 		// A newline in one keypress is held as a paste chip.
-		harness.stdin.write('first line\nsecond line')
+		harness.stdin.write('first line\nsecond line\nthird\nfourth')
 		// The chip appearing is an event — the keystrokes landed as a chip rather
 		// than being dropped by a composer that was not free.
 		await frameShows(() => said(harness), 'Pasted text', 'the paste chip never appeared')

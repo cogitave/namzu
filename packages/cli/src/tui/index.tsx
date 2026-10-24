@@ -16,6 +16,7 @@ import {
 	type TuiResumeInvocation,
 	formatTuiExitSummary,
 } from './exit-summary.js'
+import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
@@ -67,6 +68,8 @@ export async function launchTui(
 				exitSummary = summary
 			},
 			terminationExit,
+			examplePrompts: true,
+			queuedHintCount: fileQueuedHintCount(),
 		}),
 		{
 			stdout: process.stdout,

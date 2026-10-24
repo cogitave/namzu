@@ -48,6 +48,11 @@ async function modelServer(): Promise<string> {
 	return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
+/** The composer is up: the plain placeholder, or the first prompt's suggested example. */
+function composerReady(text: string): boolean {
+	return text.includes('Type a message') || /❯ Try ".+"/.test(text)
+}
+
 async function launch(args: string[], preferences?: object) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-launch-flags-')))
 	roots.push(root)
@@ -136,7 +141,7 @@ describe.skipIf(!binding || process.platform === 'win32')(
 			])
 			const screen = await screenHas(
 				(text) =>
-					text.includes('Type a message') &&
+					composerReady(text) &&
 					text.includes('gpt-5') &&
 					text.includes('plan mode on') &&
 					text.includes('effort high'),
@@ -153,9 +158,7 @@ describe.skipIf(!binding || process.platform === 'win32')(
 				subagents: { active: [] },
 			}
 			const { screenHas, home } = await launch(['--model', 'gpt-launch-0'], saved)
-			const screen = await screenHas(
-				(text) => text.includes('Type a message') && text.includes('gpt-launch-0'),
-			)
+			const screen = await screenHas((text) => composerReady(text) && text.includes('gpt-launch-0'))
 			expect(screen).not.toContain('gpt-launch-1')
 			expect(JSON.parse(readFileSync(join(home, 'preferences.json'), 'utf8'))).toEqual(saved)
 		}, 60_000)
