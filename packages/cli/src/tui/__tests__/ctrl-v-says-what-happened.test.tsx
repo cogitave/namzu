@@ -180,6 +180,56 @@ describe('Ctrl+V with nothing to paste', () => {
 })
 
 describe('Ctrl+V with an image', () => {
+	it('still sends the second image after the first chip is deleted, and never reuses a label', async () => {
+		const first = { data: 'FIRST', mediaType: 'image/png' as const }
+		const second = { data: 'SECOND', mediaType: 'image/png' as const }
+		const third = { data: 'THIRD', mediaType: 'image/png' as const }
+		const harness = await ready()
+
+		clipboard = { kind: 'image', image: first }
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #1')
+		clipboard = { kind: 'image', image: second }
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #2')
+
+		// Put the cursor right after the first chip and delete it whole.
+		for (let i = 0; i < '[Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
+		await tick(30)
+		harness.stdin.write('\x7f')
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('Image #1'))
+		expect(harness.lastFrame()).toContain('Image #2')
+
+		// A new paste takes the next number, not the freed one.
+		clipboard = { kind: 'image', image: third }
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #3')
+
+		await submit(harness, ' look')
+		await sendsReach(1)
+		const message = sent[0]?.at(-1)
+		expect(
+			message?.role === 'user' ? message.attachments : undefined,
+			'the surviving image was dropped, or the deleted one was sent',
+		).toEqual([second, third])
+	})
+
+	it('drops an attachment whose chip was deleted by Ctrl+W', async () => {
+		const image = { data: 'ONLY', mediaType: 'image/png' as const }
+		clipboard = { kind: 'image', image }
+		const harness = await ready()
+
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #1')
+		harness.stdin.write('\x17') // Ctrl+W
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('Image #1'))
+
+		await submit(harness, 'plain words')
+		await sendsReach(1)
+		const message = sent[0]?.at(-1)
+		expect(message?.role === 'user' ? message.attachments : undefined).toBeUndefined()
+	})
+
 	it('attaches it and says nothing, because the chip is the report', async () => {
 		clipboard = { kind: 'image', image: { data: 'AAAA', mediaType: 'image/png' } }
 		const { stdin, lastFrame } = await ready()

@@ -159,7 +159,7 @@ the chosen message into the input with its attachments and armed triggers,
 and Esc only leaves the choice. Typing anything else leaves it too. While
 messages can be edited the input's placeholder reads `Press up to edit queued
 messages, Enter to send them now`, the first three times it would appear in a
-launch, then the usual placeholder returns. On the very first prompt of a
+launch (the count restarts every launch), then the usual placeholder returns. On the very first prompt of a
 conversation the placeholder is a rotating example, `Try "fix lint errors"`,
 and, in a git repository, ones that name a frequently modified source file
 (`Try "refactor src/app.ts"`). Alt+Up still restores the newest one at once. A held queue says why
@@ -1045,7 +1045,7 @@ across terminal input chunks is assembled before editing the draft; pasted
 newlines do not submit it. Windows CRLF and CR line endings become LF. A paste
 longer than 800 characters, or with more than `min(rows - 10, 2)` line breaks,
 becomes a chip inside the input text: `[Pasted text #N +M lines]` (`[Pasted text
-#N]` when it has no line break). A pasted image is `[Image #N]`. Backspace after
+#N]` when it has no line break). A pasted image is `[Image #N]`; N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
 a chip removes it whole, and the chip is replaced by the text it stands for when
 the message is sent, so history recall and draft restore see the full text. Other
 pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback

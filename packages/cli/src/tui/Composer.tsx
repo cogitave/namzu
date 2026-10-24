@@ -619,6 +619,20 @@ export function Composer({
 	// back in the exact SDK union on submit.
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
 	const attachmentsRef = useRef<readonly MessageAttachment[]>([])
+	// A chip's number is the attachment's own id, fixed when it joins: deleting
+	// an earlier chip never renumbers the ones that stay, and a new one never
+	// reuses a label still in the text.
+	const attachmentIdsRef = useRef<WeakMap<MessageAttachment, number>>(new WeakMap())
+	const nextAttachmentIdRef = useRef(1)
+	const idFor = useCallback((attachment: MessageAttachment): number => {
+		let id = attachmentIdsRef.current.get(attachment)
+		if (id === undefined) {
+			id = nextAttachmentIdRef.current
+			nextAttachmentIdRef.current += 1
+			attachmentIdsRef.current.set(attachment, id)
+		}
+		return id
+	}, [])
 	const replaceAttachments = useCallback(
 		(
 			next:
@@ -627,6 +641,8 @@ export function Composer({
 		) => {
 			const resolved = typeof next === 'function' ? next(attachmentsRef.current) : next
 			attachmentsRef.current = resolved
+			// With nothing left attached the numbering starts over.
+			if (resolved.length === 0) nextAttachmentIdRef.current = 1
 			setAttachments(resolved)
 		},
 		[],
@@ -640,6 +656,18 @@ export function Composer({
 			...(attachments.length ? { attachments } : {}),
 		})
 	}, [attachments, onDraftChange, value])
+
+	// An attachment whose chip left the text by any route (Backspace, Ctrl+W,
+	// Ctrl+U, a selection delete) is no longer part of the draft.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` is the trigger; the check reads the ref.
+	useEffect(() => {
+		// Read the ref, not the render's value: a restore sets both in one step.
+		const current = valueRef.current
+		const kept = attachmentsRef.current.filter((attachment) =>
+			current.includes(chipFor(attachment, idFor(attachment))),
+		)
+		if (kept.length !== attachmentsRef.current.length) replaceAttachments(kept)
+	}, [idFor, replaceAttachments, value])
 
 	useEffect(() => {
 		const hasDraft = value.trim().length > 0 || attachments.length > 0
@@ -809,8 +837,10 @@ export function Composer({
 			// A stored image has no chip in text that never showed it: add one.
 			let restoredText = draft.text
 			const restoredAttachments = draft.attachments ? [...draft.attachments] : []
-			restoredAttachments.forEach((attachment, index) => {
-				const chip = chipFor(attachment, index)
+			nextAttachmentIdRef.current = 1
+			attachmentIdsRef.current = new WeakMap()
+			restoredAttachments.forEach((attachment) => {
+				const chip = chipFor(attachment, idFor(attachment))
 				if (!restoredText.includes(chip))
 					restoredText = `${chip}${restoredText ? ' ' : ''}${restoredText}`
 			})
@@ -836,6 +866,7 @@ export function Composer({
 			setEditPreviousArmed(false)
 		},
 		[
+			idFor,
 			clearPastes,
 			replaceAttachments,
 			setBuffer,
@@ -1006,8 +1037,8 @@ export function Composer({
 				const toMessage = (draft: string) => expandChips(stripAttachmentChips(draft), pastes)
 				const message = toMessage(valueRef.current).trim()
 				// An image whose chip was deleted from the text is not sent.
-				const currentAttachments = attachmentsRef.current.filter((attachment, index) =>
-					valueRef.current.includes(chipFor(attachment, index)),
+				const currentAttachments = attachmentsRef.current.filter((attachment) =>
+					valueRef.current.includes(chipFor(attachment, idFor(attachment))),
 				)
 				if (message.length === 0 && currentAttachments.length === 0) return false
 				const submittedAttachments = currentAttachments.length > 0 ? currentAttachments : undefined
@@ -1139,7 +1170,7 @@ export function Composer({
 				const chip = chipBefore(valueRef.current, position)
 				if (chip) {
 					const gone = attachmentsRef.current.findIndex(
-						(attachment, index) => chipFor(attachment, index) === chip.chip,
+						(attachment) => chipFor(attachment, idFor(attachment)) === chip.chip,
 					)
 					if (gone >= 0) replaceAttachments((p) => p.filter((_, index) => index !== gone))
 					editBuffer(
@@ -1308,8 +1339,8 @@ export function Composer({
 					.then((edited) => {
 						// An image the editor text no longer names stays attached: its chip goes back.
 						let cleaned = edited.trimEnd()
-						attachmentsRef.current.forEach((attachment, index) => {
-							const chip = chipFor(attachment, index)
+						attachmentsRef.current.forEach((attachment) => {
+							const chip = chipFor(attachment, idFor(attachment))
 							if (!cleaned.includes(chip)) cleaned += `${cleaned ? ' ' : ''}${chip}`
 						})
 						clearPastes()
@@ -1346,7 +1377,7 @@ export function Composer({
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
 					const position = cursorRef.current
-					const chip = chipFor(read.image, attachmentsRef.current.length)
+					const chip = chipFor(read.image, idFor(read.image))
 					replaceAttachments((p) => [...p, read.image])
 					editBuffer(
 						valueRef.current.slice(0, position) + chip + valueRef.current.slice(position),
@@ -1625,9 +1656,9 @@ export function Composer({
 	)
 }
 
-/** The chip that stands for the `index`th attachment in the draft text. */
-function chipFor(attachment: MessageAttachment, index: number): string {
+/** The chip that stands for the attachment with this stable `id` in the draft text. */
+function chipFor(attachment: MessageAttachment, id: number): string {
 	const isDocument =
 		attachment.type === 'document' || (attachment.type === 'stored' && attachment.kind !== 'image')
-	return attachmentChip(isDocument ? 'Document' : 'Image', index + 1)
+	return attachmentChip(isDocument ? 'Document' : 'Image', id)
 }
