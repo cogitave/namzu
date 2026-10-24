@@ -63,13 +63,22 @@ entry point is one of those paths runs
 rather than leaving `tsx` to report a bare `ERR_MODULE_NOT_FOUND`.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs the steps below, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. `ci.yml` runs the gates below, split across jobs that run side by side, and the branch is not green until every one passes. Where each runs:
+
+- `check` (`Build & Test (22)` and `(24)`): everything not named below. Its `Test` step is `pnpm -r --no-sort` with `@namzu/sdk` and `@namzu/cli` filtered out, because those two have jobs of their own.
+- `sdk-coverage`: the three SDK coverage and test-presence gates and the process-level regression tests. The SDK unit suite runs once here on node 24, instrumented; `test-sdk` runs it on node 22.
+- `test-cli` (`Test CLI (<node>, <n>/3)`): the CLI suite in three vitest shards on each of node 22 and 24.
+- `publish-shape`: publish-metadata, signature types, publint. `publish-install`: the pre-publish consumer install check.
+- `docs`: the two docs gates below.
+
+Each of those jobs installs and builds on its own, and `Record the validated tree` lists every one in `needs`. A new job that runs a gate must join that list; `check-workflow-gate-parity.mjs` fails otherwise.
 
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
 | The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
+| Every workspace test script is scheduled | `node --test scripts/__tests__/check-test-coverage-union.test.mjs && node .github/scripts/check-test-coverage-union.mjs` |
 | Type check | `pnpm typecheck` |
 | Build | `pnpm -r build` |
 | Test | `pnpm -r test` |
@@ -89,7 +98,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Signature types are exported | `node .github/scripts/check-signature-types-exported.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Some carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run them all.
+Two carry `if: matrix.gates` (in `check`) and so run on one matrix leg only. Locally there is no leg, so run them all. `pnpm -r test` is the local spelling of the whole suite; CI runs it as the `check` Test step plus the SDK and CLI jobs, and `check-test-coverage-union.mjs` fails if a package with a `test` script is in none of them.
 
 A **direct push to `main` runs a different job**: `release.yml` validates inline before it publishes. `check-workflow-gate-parity.mjs` fails on any gate present in one path and not the other unless it is exempted by name with a reason.
 

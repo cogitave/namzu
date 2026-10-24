@@ -92,17 +92,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Eight steps below run on ONE leg rather than every leg — the
+        # Two steps below run on ONE leg rather than every leg — the
         # deterministic gates, which read the tree and would answer identically
-        # on each, plus the two that install. Which leg carries them is declared
+        # on each. Which leg carries them is declared
         # HERE, on the entry, instead of being spelled as `node-version == 24`
-        # eight times further down.
+        # each time further down.
         #
         # The literal spelling worked and could stop working silently. It named
         # a version that lives in this list, so replacing 24 with a newer
-        # runtime — an ordinary, unrelated edit — would leave eight `if`
+        # runtime — an ordinary, unrelated edit — would leave the `if`
         # conditions matching nothing. No step fails; they are simply skipped,
-        # and a skipped step is green. Eight gates would go quiet in a diff that
+        # and a skipped step is green. Those gates would go quiet in a diff that
         # never mentioned them.
         #
         # Attached to the entry, the flag cannot be separated from the version
@@ -149,14 +149,28 @@ jobs:
       - name: Project references match workspace dependencies
         run: node .github/scripts/check-project-references.mjs
 
+      # `check`'s Test step filters two packages out because other jobs run
+      # them. This is what proves the union is the whole workspace.
+      - name: Every workspace test script is scheduled
+        run: |
+          node --test scripts/__tests__/check-test-coverage-union.test.mjs
+          node .github/scripts/check-test-coverage-union.mjs
+
       - name: Type check
         run: pnpm typecheck
 
       - name: Build
         run: pnpm -r build
 
+      # Not topologically sorted: after the build nothing in the tests needs an
+      # order, and the sorted default made the sdk -> sandbox -> cli chain run
+      # one behind the other. `@namzu/sdk` and `@namzu/cli` run in their own
+      # jobs below (sdk-coverage / test-sdk, test-cli), so they are filtered
+      # out here; `check-test-coverage-union.mjs` fails if any package with a
+      # `test` script is left out of every job. `!{.}` drops the workspace root,
+      # whose own `test` script is `pnpm -r test` and would run it all again.
       - name: Test
-        run: pnpm -r test
+        run: pnpm -r --no-sort --filter '!@namzu/sdk' --filter '!@namzu/cli' --filter '!{.}' test
 
       # namzu takes its naming from nobody. A design explained by reference
       # to another product has borrowed its shape, and the borrowing
@@ -164,13 +178,6 @@ jobs:
       # model instead of asking what this one is trying to achieve. Wire
       # values are exempt by path — a driver has to name the service it
       # drives — and the script says exactly where that line falls.
-      # Spawns a real node process, so it cannot live in the unit suite: the
-      # spawn competes for CPU hard enough to flake the timing-sensitive tests
-      # beside it. It proves the one thing an in-process test cannot — that a
-      # run survives on its own event-loop footprint, with no test runner
-      # holding the loop open for it.
-      - name: Process-level regression tests
-        run: pnpm --filter @namzu/sdk test:proc
       - name: External-name audit
         run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
@@ -295,6 +302,47 @@ jobs:
       - name: Evals
         run: node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json
 
+  # ## Why the work below is split into jobs
+  #
+  # One job running every gate in sequence took 39 minutes on the leg that
+  # carried the `matrix.gates` steps, and the gates do not depend on one
+  # another: each needs only an install and a build. So the slow ones run as
+  # their own jobs, side by side, and the pull-request path is as long as the
+  # slowest of them rather than the sum. Nothing is dropped: every gate keeps
+  # its exact step name, runs with no condition, and its job is listed in
+  # `validated-tree`'s `needs`, which `check-workflow-gate-parity.mjs` holds.
+  #
+  # Each job installs and builds on its own (setup steps are unnamed or named
+  # `Build the packages`, which the parity check reads as setup, not as a gate).
+  # A new gate job copies that header and joins `validated-tree`'s `needs`.
+
+  # The SDK's own suite plus the three gates that read its coverage. The unit
+  # suite runs ONCE here, instrumented: `test:coverage` is the same runner
+  # (`scripts/run-sdk-tests.mjs unit`) on the same config as `test`, with
+  # `--coverage` added, and vitest exits non-zero when a test fails, so a
+  # failing test fails this step exactly as it would fail `pnpm test`. That is
+  # why the SDK suite does not also run in `check`: its node-22 run is
+  # `test-sdk` below, its node-24 run is the coverage step here. `check-test-coverage-union.mjs` holds the split.
+  sdk-coverage:
+    name: SDK coverage and process tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm -r build
+
       # SDK coverage gate (ses_006-test-coverage-sprint).
       # Runs on one node version only — coverage output is identical across
       # matrix entries, so gating on all four would waste CI time and
@@ -304,24 +352,162 @@ jobs:
       #      classified (required | baselineExempt | exempt).
       # Both are non-bypassable by design (no SKIP_* env var).
       - name: SDK coverage (produce summary)
-        if: matrix.gates
         run: pnpm --filter @namzu/sdk test:coverage
 
       - name: SDK coverage floor gate
-        if: matrix.gates
         run: node .github/scripts/check-sdk-module-coverage.mjs
 
       - name: SDK test-presence gate
-        if: matrix.gates
         run: node .github/scripts/check-sdk-test-presence.mjs
+
+      # Spawns a real node process, so it cannot live in the unit suite: the
+      # spawn competes for CPU hard enough to flake the timing-sensitive tests
+      # beside it. It proves the one thing an in-process test cannot — that a
+      # run survives on its own event-loop footprint, with no test runner
+      # holding the loop open for it.
+      - name: Process-level regression tests
+        run: pnpm --filter @namzu/sdk test:proc
+
+  # The SDK unit suite on node 22. Node 24 runs it as the coverage step above.
+  test-sdk:
+    name: Test SDK (22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm --filter @namzu/sdk test
+
+      - name: Process-level regression tests
+        run: pnpm --filter @namzu/sdk test:proc
+
+  # The CLI suite is the longest in the workspace (about 500s) and needs no
+  # order beyond the build, so it is cut into thirds that run side by side, on
+  # both node versions. `check-test-coverage-union.mjs` fails if the shard list
+  # and the `/3` ever disagree, because a shard that does not exist is a third
+  # of the suite that never runs.
+  test-cli:
+    name: Test CLI (${{ matrix.node-version }}, ${{ matrix.shard }}/3)
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm -r build
+
+      - name: Test
+        run: pnpm --filter @namzu/cli test --shard=${{ matrix.shard }}/3
+
+  # What ships: the package metadata, the public surface, and publint. All read
+  # built output and none depends on the others.
+  publish-shape:
+    name: Publish shape
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm -r build
 
       # The registry verifies a provenance attestation against
       # `repository.url` and rejects the tarball without it — at publish
       # time, after every sibling package has already gone out. Checking it
       # here costs a second; finding out at the registry costs a release.
       - name: Publish-metadata gate
-        if: matrix.gates
         run: node .github/scripts/check-publish-metadata.mjs
+
+      # Public-surface regression guard (ses_011-sdk-public-surface).
+      # Compares the runtime and declared exports of every publishable
+      # package's every entry point against a committed baseline. Catches
+      # silent drops that .d.ts diffs miss (runtime-only symbols, error
+      # classes, zod schemas). Intentional widenings update the baseline in
+      # the same commit. Reads the BUILT output, so the build step above is a
+      # prerequisite, not an ordering coincidence.
+      - name: Signature types are exported
+        run: node .github/scripts/check-signature-types-exported.mjs
+
+      # Derived from the workspace, never hand-listed. The list used to be
+      # eleven literal package names, and four publishable packages were not
+      # on it — `cli`, `files`, `lsp` and `evals`, one of which was added
+      # after the list was written. A new package joins the loop by existing,
+      # which is the only way a per-package gate stays honest.
+      # `private !== true` is the same signal `pnpm publish` reads.
+      - name: publint (package.json shape)
+        run: |
+          pnpm list -r --depth -1 --json \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s))if(r.name&&r.path&&r.private!==true&&r.name!=='namzu')console.log(require('path').relative(process.cwd(),r.path))})" \
+            | sort > /tmp/publint-targets.txt
+          test -s /tmp/publint-targets.txt || { echo "no publishable packages found — the enumeration broke, which would pass this step by checking nothing"; exit 1; }
+          echo "publint targets:"; cat /tmp/publint-targets.txt
+          while read -r pkg; do
+            echo "::group::publint $pkg"
+            npx -y publint@latest "$pkg"
+            echo "::endgroup::"
+          done < /tmp/publint-targets.txt
+
+  # Packs every publishable package and installs the result into a clean
+  # consumer. The slowest of the publish checks (about 6 minutes), so it has a
+  # job to itself and does not delay the three above.
+  publish-install:
+    name: Pre-publish install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the packages
+        run: pnpm -r build
 
       # Pre-publish package validation — runs on every PR + every push to main.
       # Catches cross-package peer-range drift and package.json export shape
@@ -337,40 +523,9 @@ jobs:
       # refusal that says what it refused, and a `cleanup` that deletes only
       # what the script created.
       - name: Pre-publish consumer install check
-        if: matrix.gates
         run: |
           node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts
           bash .github/scripts/verify-consumer-install.sh
-
-      # Public-surface regression guard (ses_011-sdk-public-surface).
-      # Compares the runtime and declared exports of every publishable
-      # package's every entry point against a committed baseline. Catches
-      # silent drops that .d.ts diffs miss (runtime-only symbols, error
-      # classes, zod schemas). Intentional widenings update the baseline in
-      # the same commit. Reads the BUILT output, so the Build step above is a
-      # prerequisite, not an ordering coincidence.
-      - name: Signature types are exported
-        run: node .github/scripts/check-signature-types-exported.mjs
-
-      # Derived from the workspace, never hand-listed. The list used to be
-      # eleven literal package names, and four publishable packages were not
-      # on it — `cli`, `files`, `lsp` and `evals`, one of which was added
-      # after the list was written. A new package joins the loop by existing,
-      # which is the only way a per-package gate stays honest.
-      # `private !== true` is the same signal `pnpm publish` reads.
-      - name: publint (package.json shape)
-        if: matrix.gates
-        run: |
-          pnpm list -r --depth -1 --json \
-            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s))if(r.name&&r.path&&r.private!==true&&r.name!=='namzu')console.log(require('path').relative(process.cwd(),r.path))})" \
-            | sort > /tmp/publint-targets.txt
-          test -s /tmp/publint-targets.txt || { echo "no publishable packages found — the enumeration broke, which would pass this step by checking nothing"; exit 1; }
-          echo "publint targets:"; cat /tmp/publint-targets.txt
-          while read -r pkg; do
-            echo "::group::publint $pkg"
-            npx -y publint@latest "$pkg"
-            echo "::endgroup::"
-          done < /tmp/publint-targets.txt
 
   # Documentation gate. Separate from Build & Test for one reason: its drift
   # check compares a document's last commit against its `resource:`'s last
@@ -446,7 +601,7 @@ jobs:
   # download; it also expires within minutes. It is never printed.
   validated-tree:
     name: Record the validated tree
-    needs: [check, docs]
+    needs: [check, docs, sdk-coverage, test-sdk, test-cli, publish-shape, publish-install]
     if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
     permissions:
