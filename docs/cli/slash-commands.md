@@ -16,6 +16,13 @@ over command files of the same name in `.namzu/commands/`. `/help`, slash
 completion and execution use the same command catalogue. Unavailable actions
 explain why they cannot run and are checked again when selected.
 
+A command that answers on the spot is shown as typed (`› /cost`) with its
+answer hung under it (`⎿`), so a readout in the scrollback says which command
+it answers. A command that composes a message for the model, such as
+`/workflow <task>`, also shows what you typed; only the model receives the
+rewritten sentence. The `/help` list shows each description up to its first
+clause, so no line ends mid-sentence.
+
 | Command | What it does |
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
@@ -28,22 +35,22 @@ explain why they cannot run and are checked again when selected.
 | `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
-| `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
+| `/fork` | Continue in a copy, leaving the original unchanged. |
 | `/worktree` | List or create [managed Git worktrees](worktrees.md), copy this settled conversation into a new checkout, or print how to open one. |
 | `/memory` | Show stored memory (the index and, in its own section, what turns recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
 | `/skills` | Choose a skill to activate for this conversation; `/skills <name>` activates one directly, `/skills list` shows every skill with its tier, what it shadows and why one cannot be used, `/skills new [what it should do]` starts the `skill-creator` interview, which ends on a screen where you choose to save the drafted `SKILL.md` to your user or project skills, or cancel, and `/skills save [name]` does the same for what this conversation just did, generalised and without secrets or tool output. After a multi-step task the TUI proposes `/skills save` in one dim line; `/skills save off` stops that in your user config and `/skills save on` restores it ([Learning from a task](skills.md#learning-from-a-task)). The model is offered skills on its own and loads one with the `skill` tool; see [Skills](skills.md). |
 | `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
-| `/resume` | Resume a past conversation in this project. In a conversation whose last turn is paused or was interrupted, continue that turn under the same turn id, under the current permission mode (plan mode stays read-only). A scheduled run parked on a decision (`Scheduled: <job> · <time>`) shows the parked call on the permission screen: your answer applies to exactly that batch, and the rest of the work stays under the job’s rules. |
+| `/resume` | Resume a past conversation in this project. The list counts the messages you and the model wrote (tool traffic is not counted) and labels the preview "Last prompt:". `namzu resume` with no id opens the same list at launch. In a conversation whose last turn is paused or was interrupted, continue that turn under the same turn id, under the current permission mode (plan mode stays read-only). A scheduled run parked on a decision (`Scheduled: <job> · <time>`) shows the parked call on the permission screen: your answer applies to exactly that batch, and the rest of the work stays under the job’s rules. |
 | `/abandon` | Close this conversation's paused or interrupted turn without resuming it, so the next prompt starts a new turn. The turn is recorded as failed with reason `abandoned`; nothing it already did is undone. |
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
-| `/cost` | Show usage and cost for the current or latest turn; `/cost details` adds pricing and scope information. |
+| `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information. |
 | `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this conversation runs, by event. |
-| `/context` | Show the latest context measurement and cleanup summary; `/context details` adds thresholds and cleanup counters. |
+| `/context` | Show how full the context is (`Context: 54k of 128k used (42%)`, "about" when it is an estimate) and whether older messages were summarised; `/context details` adds where the measurement comes from, thresholds and cleanup counters. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree. |
@@ -51,7 +58,7 @@ explain why they cannot run and are checked again when selected.
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
-| `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
+| `/status` | Show model, permissions, workspace and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to `xhigh` (or the highest level below it the model publishes), and independent work delegated to parallel agents by default. |
