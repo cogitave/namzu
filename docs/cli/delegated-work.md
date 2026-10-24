@@ -260,8 +260,9 @@ while the next launch is decided. That row names no key, since the dialog holds
 
 `ctrl+x ctrl+k` stops the running background agents from the composer or the
 rail. With none running it says `No background agents running`; the first
-press says `Press ctrl+x ctrl+k again to stop N background agents` and waits
-3 seconds; the second stops them and says `N background agents stopped`. Agents
+press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer for
+3 seconds (it is not a transcript row); the second stops them and leaves
+`All background agents stopped`. Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
 
 A failed agent's row says one plain sentence with a next step, for example

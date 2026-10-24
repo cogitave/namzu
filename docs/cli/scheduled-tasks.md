@@ -252,7 +252,7 @@ script — or from a model's own shell call — writes the job inert
 
 Asking in words in the TUI composer ("schedule this", "run it every day",
 "bunu her sabah çalıştır") only offers a [composer trigger](composer-triggers.md)
-— `✧ schedule? · alt+w: the agent proposes a job; you confirm it on screen` —
+— `Schedule? · alt+w: the agent proposes a job; you confirm it on screen` —
 because such words usually describe the code being written. Armed with Alt+W,
 it asks the model to propose a job with the `schedule` tool, which ends on the
 same confirmation; it never asks for a session loop.
