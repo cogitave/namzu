@@ -90,7 +90,7 @@ describe('a card with three questions', () => {
 			expect(frame()).toContain(label)
 		}
 		expect(frame()).toContain('Something else…')
-		expect(frame()).toContain('esc skip')
+		expect(frame()).toContain('esc cancel')
 	})
 
 	it('answers a batch: a single choice, a multi-select and an "other" text, then reviews', async () => {

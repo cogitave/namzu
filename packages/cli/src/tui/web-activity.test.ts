@@ -32,13 +32,13 @@ describe('web activity rows', () => {
 	})
 
 	it('settle to a count and a time', () => {
-		expect(webSettledLine({ kind: 'search' }, { durationMs: 9_000 })).toBe('Did 1 search in 9.0s')
+		expect(webSettledLine({ kind: 'search' }, { durationMs: 9_000 })).toBe('Did 1 search in 9s')
 		expect(webSettledLine({ kind: 'search', results: 5 }, { durationMs: 12_400 })).toBe(
 			'Found 5 results in 12s',
 		)
 		expect(webSettledLine({ kind: 'search', results: 1 }, {})).toBe('Found 1 result')
 		expect(webSettledLine({ kind: 'fetch' }, { durationMs: 1_200, bytes: 7_680 })).toBe(
-			'Received 7.5 KB in 1.2s',
+			'Received 7.5 KB in 1s',
 		)
 		expect(webSettledLine({ kind: 'fetch' }, {})).toBe('Fetched')
 	})

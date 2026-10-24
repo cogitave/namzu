@@ -49,7 +49,7 @@ describe('the prompt for a boundary crossing', () => {
 		for (const call of [escapeCall, outsideRead]) {
 			expect(permissionChoices([call], { mode: 'prompt', commandArguments: commands })).toEqual([
 				'Yes',
-				'No, and tell namzu what to do differently (esc)',
+				'No, and tell Namzu what to do differently (esc)',
 			])
 		}
 		// Not even beside a call that would otherwise carry one.

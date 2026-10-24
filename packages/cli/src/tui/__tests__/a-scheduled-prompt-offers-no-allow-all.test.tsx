@@ -26,7 +26,7 @@ describe('the answers a prompt offers', () => {
 	it('are Yes and No for a batch-only prompt, and each does what it says', () => {
 		expect(permissionAnswers(bash, { batchOnly: true })).toEqual([
 			{ label: 'Yes', kind: 'approve' },
-			{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
+			{ label: 'No, and tell Namzu what to do differently (esc)', kind: 'reject' },
 		])
 		expect(permissionAnswers(agent, { batchOnly: true }).map((a) => a.kind)).toEqual([
 			'approve',
@@ -42,7 +42,7 @@ describe('the answers a prompt offers', () => {
 
 describe('the scheduled-run screen', () => {
 	it.each([
-		[bash, 'Yes', 'No, and tell namzu'],
+		[bash, 'Yes', 'No, and tell Namzu'],
 		[agent, 'Start this agent', 'Do not start'],
 	])('shows two answers and no "allow all"', async (toolCalls, yes, no) => {
 		const review = buildPermissionReview(toolCalls)

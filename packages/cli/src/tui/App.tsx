@@ -445,11 +445,14 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import { EXIT_HINT_MS } from './exit-hint.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
+import { PauseClock } from './pause-clock.js'
 import {
 	buildPermissionReview,
 	buildPermissionSummary,
@@ -850,6 +853,8 @@ type StreamState = {
 	taskBlockKey?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
 	startedAt?: number
+	/** What the pause clock read when this turn began, so waiting for the person is left out of its time. */
+	pausedAtStart?: number
 	/**
 	 * Output tokens the provider has reported for this turn, and characters of
 	 * reply and reasoning streamed since that report. Together they are the
@@ -2119,7 +2124,7 @@ export function App({
 	}, [session, setJobSurface])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
-	const exitArmedRef = useRef<boolean>(false)
+	const exitArmedRef = useRef<'Ctrl-C' | 'Ctrl-D' | null>(null)
 	const abortRef = useRef<AbortController | null>(null)
 	/**
 	 * A prompt that holds the turn slot while it waits at the turn boundary,
@@ -2527,6 +2532,41 @@ export function App({
 		})
 		closeAndExit()
 	}, [closeAndExit, onExitSummary])
+	/**
+	 * The first Ctrl+C (with nothing to interrupt) or Ctrl+D (on an empty
+	 * composer) arms exit and says so in the footer for 800 ms; the same key
+	 * again inside that window exits. Nothing is written to the transcript, so
+	 * nothing is left behind in the scrollback after the exit.
+	 */
+	const [exitHint, setExitHint] = useState<'Ctrl-C' | 'Ctrl-D' | null>(null)
+	const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const armExit = useCallback(
+		(keyName: 'Ctrl-C' | 'Ctrl-D') => {
+			if (exitArmedRef.current === keyName) {
+				if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+				exitTimerRef.current = null
+				exitArmedRef.current = null
+				setExitHint(null)
+				exitWithSummary()
+				return
+			}
+			if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+			exitArmedRef.current = keyName
+			setExitHint(keyName)
+			exitTimerRef.current = setTimeout(() => {
+				exitTimerRef.current = null
+				exitArmedRef.current = null
+				setExitHint(null)
+			}, EXIT_HINT_MS)
+		},
+		[exitWithSummary],
+	)
+	useEffect(
+		() => () => {
+			if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+		},
+		[],
+	)
 	/** Durable active state is not permission to spend turns after a restart. */
 	const [goalActivation] = useState(() => new SessionGoalActivation())
 	const goalDriveInFlightRef = useRef(false)
@@ -4564,6 +4604,36 @@ export function App({
 		},
 		[ctx.tui, pushMessage, session, stdout.isTTY, writeStdout],
 	)
+
+	// The approval notice (terminal and hooks) is held back: it goes out only
+	// when a dialog has been open for 6 s with no keypress, and not at all if
+	// it was answered first. `ApprovalNotifier` owns the rule.
+	const pauseClockRef = useRef(new PauseClock())
+	const approvalSendRef = useRef(sendTerminalNotification)
+	approvalSendRef.current = sendTerminalNotification
+	const approvalNotifierRef = useRef<ApprovalNotifier | null>(null)
+	if (approvalNotifierRef.current === null) {
+		approvalNotifierRef.current = new ApprovalNotifier({
+			now: Date.now,
+			setTimer: (run, ms) => {
+				const handle = setTimeout(run, ms)
+				handle.unref?.()
+				return handle
+			},
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			lastInteractionAt: () => lastKeyAtRef.current,
+			isDialogOpen: () =>
+				permissionResolveRef.current !== null ||
+				questionDialogRef.current !== null ||
+				choicePickerRef.current !== null ||
+				planPromptRef.current !== null ||
+				scheduleReviewPromptRef.current !== null ||
+				saveSkillPromptRef.current !== null,
+			send: () => approvalSendRef.current({ kind: 'approval-required' }),
+		})
+	}
+	const announceApproval = useCallback(() => approvalNotifierRef.current?.dialogOpened(), [])
+	useEffect(() => () => approvalNotifierRef.current?.dispose(), [])
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
 		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
@@ -7178,10 +7248,10 @@ export function App({
 				setPermissionDetailsOpen(!summary.complete)
 				setPermission({ ...req, review: review.text, summary, siteNotes })
 				setState('awaiting-permission')
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			})
 		},
-		[sendTerminalNotification, setPermissionDetailsOpen, setPermissionReviewOffset],
+		[announceApproval, setPermissionDetailsOpen, setPermissionReviewOffset],
 	)
 
 	/**
@@ -7217,7 +7287,7 @@ export function App({
 					signal?.addEventListener('abort', onAbort, { once: true })
 					setJobSurface(null)
 					setQuestionDialog(entry)
-					sendTerminalNotification({ kind: 'approval-required' })
+					announceApproval()
 					return
 				}
 				const values = [
@@ -7257,11 +7327,11 @@ export function App({
 				setSelectedChoice(0)
 				setJobSurface(null)
 				setChoicePicker(picker)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
 		[
 			closeLiveReply,
-			sendTerminalNotification,
+			announceApproval,
 			setChoicePicker,
 			setQuestionDialog,
 			setSelectedChoice,
@@ -7311,9 +7381,9 @@ export function App({
 				const onAbort = () => finish({ kind: 'keep-planning' })
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setPlanPrompt(entry)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
-		[applyPermissionMode, closeLiveReply, pushMessage, sendTerminalNotification, setPlanPrompt],
+		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
 	)
 	/**
 	 * The card's answer. It answers from its own key handler, which Ink calls
@@ -7421,9 +7491,9 @@ export function App({
 				const onAbort = () => entry.resolve('cancel')
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setScheduleReviewPrompt(entry)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
-		[closeLiveReply, sendTerminalNotification, setScheduleReviewPrompt],
+		[closeLiveReply, announceApproval, setScheduleReviewPrompt],
 	)
 
 	/**
@@ -8175,7 +8245,12 @@ export function App({
 						// a stop or a cancellation has already said how it ended.
 						const closing =
 							delegated.length > 0 || st.completed
-								? settleLine(Date.now() - since, delegated)
+								? settleLine(
+										Date.now() -
+											since -
+											(pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)),
+										delegated,
+									)
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -8489,6 +8564,7 @@ export function App({
 			const st: StreamState = {
 				assistantId: null,
 				startedAt: Date.now(),
+				pausedAtStart: pauseClockRef.current.total(Date.now()),
 				text: '',
 				conversationMessages: undefined,
 				pending: '',
@@ -11060,6 +11136,29 @@ export function App({
 		idleNotifierRef.current?.backgroundChanged()
 	}, [backgroundJobs, subagents])
 	useEffect(() => () => idleNotifierRef.current?.dispose(), [])
+	// A permission or a question waiting on the person: the notice countdown
+	// ends when none is left, and the turn's "Worked for" leaves the wait out.
+	const awaitingPerson =
+		permission !== null ||
+		questionDialog !== null ||
+		planPrompt !== null ||
+		scheduleReviewPrompt !== null ||
+		(choicePicker !== null && choicePicker.kind === 'user-question')
+	useEffect(() => {
+		if (awaitingPerson) pauseClockRef.current.begin(Date.now())
+		else pauseClockRef.current.end(Date.now())
+	}, [awaitingPerson])
+	useEffect(() => {
+		if (
+			permission === null &&
+			questionDialog === null &&
+			choicePicker === null &&
+			planPrompt === null &&
+			scheduleReviewPrompt === null &&
+			saveSkillPrompt === null
+		)
+			approvalNotifierRef.current?.dialogClosed()
+	}, [permission, questionDialog, choicePicker, planPrompt, scheduleReviewPrompt, saveSkillPrompt])
 	// `--resume` without a title that names one conversation: the picker, opened
 	// once, as if `/resume` had been typed. The ref is spent before the call.
 	const launchResumePickerRef = useRef(initialCtx.openResumePicker)
@@ -11139,7 +11238,7 @@ export function App({
 		pushSystem('notice', 'Saving a skill from this reply.')
 		return true
 	}
-	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
+	saveSkillNotifyRef.current = () => announceApproval()
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
 		say: (text) => {
@@ -12760,20 +12859,27 @@ export function App({
 				} else setMessages(proposed)
 				return
 			}
+			// Ctrl+D on an empty composer arms the same exit Ctrl+C does; with
+			// anything typed it stays the composer's delete-forward key.
+			if (
+				key.ctrl &&
+				input === 'd' &&
+				phase === 'ready' &&
+				!composerHasDraft &&
+				permission === null &&
+				textPrompt === null &&
+				choicePickerRef.current === null &&
+				copyPicker === null
+			) {
+				armExit('Ctrl-D')
+				return
+			}
 			if (key.ctrl && input === 'c') {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
 				if (interruptWithRow(false)) return
-				if (exitArmedRef.current) {
-					exitWithSummary()
-					return
-				}
-				exitArmedRef.current = true
-				pushMessage('system', 'Press Ctrl+C again to exit.')
-				setTimeout(() => {
-					exitArmedRef.current = false
-				}, 2000)
+				armExit('Ctrl-C')
 			}
 		},
 		// Active on every phase. It was gated off during the picker, which is what
@@ -12884,8 +12990,9 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
-	const statusHint =
-		conversationMutation === 'fork'
+	const statusHint = exitHint
+		? `Press ${exitHint} again to exit`
+		: conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
 			: conversationMutation === 'edit'
 				? 'branching before prompt — input is paused'
@@ -13108,7 +13215,7 @@ export function App({
 								{...(compacting || summarising ? { activityLabel: COMPACTING_LABEL } : {})}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
-								interruptible={abortRef.current !== null}
+								compacting={compacting}
 								animate={
 									stdout.isTTY === true &&
 									permission === null &&
@@ -13417,6 +13524,8 @@ export function App({
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}
+						hintDim={exitHint !== null}
+						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}

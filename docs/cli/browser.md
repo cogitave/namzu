@@ -86,7 +86,7 @@ Browser: asks before using tr.wikipedia.org (profile work).
 
 Do you want to open this page?
 ❯ 1. Yes
-  2. No, and tell namzu what to do differently (esc)
+  2. No, and tell Namzu what to do differently (esc)
 ```
 
 The address shows its path the way a person writes it, and the address actually sent when the two differ; the host stays in its canonical punycode form. Typed text is shown whole, with hidden characters made visible. `d` shows the exact input. `/browser` shows the engine, profile and sites in force.

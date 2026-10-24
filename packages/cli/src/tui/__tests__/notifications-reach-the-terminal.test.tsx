@@ -35,6 +35,8 @@ type TurnScript = {
 	readonly hold?: 'before-terminal-event' | 'after-terminal-event'
 	readonly holdAfterTerminal?: boolean
 	readonly asksPermission?: boolean
+	/** Hold the turn on the decision, as a real one is, instead of finishing past it. */
+	readonly parkOnPermission?: boolean
 	readonly asksPermissionAfterHold?: boolean
 }
 
@@ -184,7 +186,18 @@ vi.mock('../agent.js', async (importOriginal) => {
 					// generator parked on the unresolved decision after that boundary.
 					void opts?.onPermission?.(request)
 				}
-				if (script.asksPermission) askPermission()
+				if (script.parkOnPermission) {
+					await opts?.onPermission?.({
+						toolCalls: [
+							{
+								id: 'call-1',
+								name: 'bash',
+								input: { command: 'write output' },
+								isDestructive: true,
+							},
+						],
+					})
+				} else if (script.asksPermission) askPermission()
 
 				if (script.asksPermissionAfterHold) askPermission()
 
@@ -304,17 +317,47 @@ it('stays silent when notifications are not configured', async () => {
 	expect(requests).toEqual([])
 })
 
-it('sends approval at the actual wait boundary with the configured method', async () => {
-	scripts.push({ outcome: 'completed', asksPermission: true })
-	const harness = await mountReady({
-		notifications: ['approval-required'],
-		notificationMethod: 'bel',
+describe('the approval notice', () => {
+	afterEach(() => {
+		vi.useRealTimers()
 	})
 
-	await submit(harness, 'use a tool')
-	await waitUntil(() => requests.length === 1)
+	it('goes out only after 6 s with no key press, with the configured method', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed', parkOnPermission: true })
+		const harness = await mountReady({
+			notifications: ['approval-required'],
+			notificationMethod: 'bel',
+		})
 
-	expect(requests).toEqual([{ notification: { kind: 'approval-required' }, method: 'bel' }])
+		await submit(harness, 'use a tool')
+		await waitUntil(() => harness.frames.join('\n').includes('Do you want'))
+		await vi.advanceTimersByTimeAsync(5_000)
+		expect(requests, 'someone at the screen is not pinged').toEqual([])
+		expect(hookNotices.filter((n) => n.type === 'approval_required')).toEqual([])
+		await vi.advanceTimersByTimeAsync(2_000)
+
+		expect(requests).toEqual([{ notification: { kind: 'approval-required' }, method: 'bel' }])
+		expect(hookNotices.filter((n) => n.type === 'approval_required')).toHaveLength(1)
+	})
+
+	it('is cancelled when the dialog is answered first', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		scripts.push({ outcome: 'completed', parkOnPermission: true })
+		const harness = await mountReady({
+			notifications: ['approval-required'],
+			notificationMethod: 'bel',
+		})
+
+		await submit(harness, 'use a tool')
+		await waitUntil(() => harness.frames.join('\n').includes('Do you want'))
+		await vi.advanceTimersByTimeAsync(2_000)
+		harness.stdin.write('y')
+		await vi.advanceTimersByTimeAsync(30_000)
+
+		expect(requests).toEqual([])
+		expect(hookNotices.filter((n) => n.type === 'approval_required')).toEqual([])
+	})
 })
 
 it.each([

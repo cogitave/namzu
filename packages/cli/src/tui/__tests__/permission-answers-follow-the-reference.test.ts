@@ -72,7 +72,7 @@ describe('the remembered-allow answer', () => {
 		expect(answers.map((a) => a.label)).toEqual([
 			'Yes',
 			"Yes, and don't ask again for npm test * commands in ~/work/app",
-			'No, and tell namzu what to do differently (esc)',
+			'No, and tell Namzu what to do differently (esc)',
 		])
 		expect(answers[1]?.allows).toEqual([{ kind: 'prefix', tool: 'bash', prefix: 'npm test' }])
 	})

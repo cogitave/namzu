@@ -255,8 +255,8 @@ describe('settle line', () => {
 	it('names the agents of a turn that delegated and the time alone of one that did not', () => {
 		const three = ['a', 'b', 'c'].map((viewId) => agent({ viewId }))
 		expect(settleLine(38_200, three)).toBe('Worked for 38s · 3 agents')
-		expect(settleLine(1_700, [agent({ viewId: 'solo' })])).toBe('Worked for 1.7s · 1 agent')
-		expect(settleLine(5_000, [])).toBe('Worked for 5.0s')
+		expect(settleLine(1_700, [agent({ viewId: 'solo' })])).toBe('Worked for 1s · 1 agent')
+		expect(settleLine(5_000, [])).toBe('Worked for 5s')
 		expect(settleLine(46_000, [])).toBe('Worked for 46s')
 		// An answer that arrived at once closes without an account of it.
 		expect(settleLine(2_999, [])).toBeUndefined()
@@ -270,7 +270,7 @@ describe('settle line', () => {
 		]
 		expect(settleLine(12_000, phased)).toBe('Worked for 12s · 3 agents · 27.1k tokens · 1 failed')
 		expect(settleLine(2_000, [agent({ viewId: 'x', phase: 'Only', phaseId: 'p' })])).toBe(
-			'Worked for 2.0s · 1 agent',
+			'Worked for 2s · 1 agent',
 		)
 	})
 })
@@ -378,7 +378,7 @@ describe('the cockpit of a phased workflow', () => {
 				{ cols: 120, rows: 24 },
 			)
 			const levelOne = mounted.viewport().join('\n')
-			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · finished/u)
+			expect(levelOne).toMatch(/3\/3 agents · 9s · finished/u)
 			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
 			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()
@@ -427,7 +427,6 @@ describe('the waiting line', () => {
 			<LiveActivity
 				activeTools={[wait('a', 'Birinci'), wait('b', 'İkinci')]}
 				working
-				interruptible
 				animate={false}
 			/>,
 			{ cols: 40, rows: 6 },

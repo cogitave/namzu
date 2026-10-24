@@ -1,6 +1,6 @@
 /**
  * Workflow rows on the agents rail: one row per `workflow` label, drawn after
- * the agent rows as `◯ name  ▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`. Which
+ * the agent rows as `◯ name  ▰▱ bar  3/7 · 2m 14s · ↓ 48.2k tokens`. Which
  * workflows are listed, how a row narrows, the bullet's colours, the 30 s
  * lifetime and the key line are checked here; Enter, `x` and Esc go through
  * the real terminal in the pty lab (see docs/cli/terminal-design.md).
@@ -215,9 +215,9 @@ describe('narrowing a row', () => {
 
 	it('lists the variants from the full block down to the bar alone', () => {
 		expect(workflowRowVariants(row, NOW)).toEqual([
-			{ barWidth: 20, text: '3/7 · 2m14s · ↓ 48.2k tokens' },
-			{ barWidth: 20, text: '2m14s · ↓ 48.2k tokens' },
-			{ barWidth: 20, text: '2m14s · ↓ 48.2k' },
+			{ barWidth: 20, text: '3/7 · 2m 14s · ↓ 48.2k tokens' },
+			{ barWidth: 20, text: '2m 14s · ↓ 48.2k tokens' },
+			{ barWidth: 20, text: '2m 14s · ↓ 48.2k' },
 			{ barWidth: 20, text: '↓ 48.2k' },
 			{ barWidth: 12, text: '↓ 48.2k' },
 			{ barWidth: 8, text: '↓ 48.2k' },
@@ -227,16 +227,17 @@ describe('narrowing a row', () => {
 
 	it('shows no token segment before any agent reported spend', () => {
 		const quiet = workflowOf([agent({ viewId: 'q' })])
-		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m14s')
+		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m 14s')
 	})
 
 	it.each([
-		[100, 20, '3/7 · 2m14s · ↓ 48.2k tokens'],
-		[66, 20, '3/7 · 2m14s · ↓ 48.2k tokens'],
-		[65, 20, '2m14s · ↓ 48.2k tokens'],
-		[60, 20, '2m14s · ↓ 48.2k tokens'],
-		[59, 20, '2m14s · ↓ 48.2k'],
-		[53, 20, '2m14s · ↓ 48.2k'],
+		[100, 20, '3/7 · 2m 14s · ↓ 48.2k tokens'],
+		[67, 20, '3/7 · 2m 14s · ↓ 48.2k tokens'],
+		[66, 20, '2m 14s · ↓ 48.2k tokens'],
+		[61, 20, '2m 14s · ↓ 48.2k tokens'],
+		[60, 20, '2m 14s · ↓ 48.2k'],
+		[54, 20, '2m 14s · ↓ 48.2k'],
+		[53, 20, '↓ 48.2k'],
 		[52, 20, '↓ 48.2k'],
 		[45, 20, '↓ 48.2k'],
 		[44, 12, '↓ 48.2k'],
@@ -280,7 +281,7 @@ describe('the rows on screen', () => {
 		expect(rows[0]).toMatch(/● main/u)
 		expect(rows[1]).toMatch(/solo/u)
 		expect(rows.at(-1)).toBe(
-			`  ◯ Release audit    ${'▰'.repeat(8)}${'▱'.repeat(12)}  3/7 · 2m14s · ↓ 48.2k tokens`,
+			`  ◯ Release audit    ${'▰'.repeat(8)}${'▱'.repeat(12)}  3/7 · 2m 14s · ↓ 48.2k tokens`,
 		)
 	})
 
@@ -382,12 +383,12 @@ describe('the closing line', () => {
 
 	it('is quiet for a completed workflow, red for a failed one, yellow for a stopped one', () => {
 		expect(workflowNotice(finished('completed', 'completed'))).toEqual({
-			content: 'Workflow Release audit finished · 2m13s · 2 agents · 112.0k tokens',
+			content: 'Workflow Release audit finished · 2m 13s · 2 agents · 112.0k tokens',
 			tone: 'ok',
 			glyph: '✓',
 		})
 		expect(workflowNotice(finished('completed', 'failed'))).toMatchObject({
-			content: 'Workflow Release audit failed · 2m13s · 2 agents · 1 failed · 112.0k tokens',
+			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 1 failed · 112.0k tokens',
 			tone: 'error',
 			glyph: '✗',
 		})

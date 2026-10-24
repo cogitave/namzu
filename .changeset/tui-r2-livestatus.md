@@ -1,0 +1,9 @@
+---
+'@namzu/cli': minor
+---
+
+Ctrl+D on an empty composer now arms exit like Ctrl+C: the first press shows a dim `Press Ctrl-D again to exit` in the footer for 800 ms and a second press within that window quits; with text in the composer Ctrl+D still deletes forward. The Ctrl+C reminder is now the same footer hint instead of a line left in the transcript.
+
+The Working row hides its `( … )` figures until there are tokens, thinking, a compaction, running agents or more than 16 s, and no longer repeats `esc to interrupt` (the footer keeps it, except under a dialog that owns Esc). Durations everywhere read `12s`, `1m 23s`, `2h 3m 4s` (whole seconds; sub-ten-second figures no longer show a decimal, so anything that matched `3.2s` must match `3s`). After 10 s without a token the label fades toward red. The approval-required terminal notice and notification hook now wait 6 s without a key press and are dropped if the dialog is answered first. `Worked for` no longer counts time spent waiting for a permission or question answer.
+
+The permission, question and plan dialogs now share one hint set: `enter confirm`, `esc cancel`, `ctrl+c stop` (was `esc decline`, `esc skip`, `esc keep planning`, `enter choose`, `ctrl+c stop the reply`); anything matching the old strings must match the new ones. A finished tool or web call under one second shows `420ms` instead of `0s`. After a long approval wait the Working label no longer starts out red.

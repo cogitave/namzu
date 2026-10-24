@@ -366,7 +366,7 @@ In `prompt`, `accept-edits` and `plan` the first screen capture of a session
 opens a box titled `Share your screen`: `namzu will see your screen and send
 it to <provider> for this session: screenshots, the titles of open windows
 and the controls of the windows it reads.` The answers are `Yes, share my
-screen for this session` and `No, and tell namzu what to do differently`;
+screen for this session` and `No, and tell Namzu what to do differently`;
 there is no "allow all tools" on it, and an "allow all" given on another
 prompt never settles it. The answer lasts until the session ends: a mode
 switch keeps it, `/new`, `/clear` or `/model` (a new session or provider)
