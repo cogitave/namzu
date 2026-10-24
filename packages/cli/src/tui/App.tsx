@@ -3749,7 +3749,7 @@ export function App({
 		(sessionId: SessionId, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			const sessions = sessionsRef.current
 			if (!sessions) {
-				pushMessage('system', 'Could not record feedback: this conversation is not being saved.')
+				pushSystem('error', 'Could not record feedback: this conversation is not being saved.')
 				return
 			}
 			// Feedback lives beside the conversation's log (`<session-id>/feedback/`)
@@ -3774,11 +3774,11 @@ export function App({
 					})
 					pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
 				} catch (error) {
-					pushMessage('system', explainFailure(error, 'Could not record feedback.'))
+					pushSystem('error', explainFailure(error, 'Could not record feedback.'))
 				}
 			})()
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	const activateSkill = useCallback(
@@ -3800,10 +3800,10 @@ export function App({
 				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not load skill "${name}".`))
+				pushSystem('error', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
-		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
+		[conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -3846,7 +3846,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not remove ${homePath(path)}.`))
+				pushSystem('error', explainFailure(error, `Could not remove ${homePath(path)}.`))
 				return
 			}
 			pushMessage(
@@ -3858,7 +3858,7 @@ export function App({
 				),
 			)
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	/** Publish one recoverable, read-only tombstone before leaving the TUI. */
@@ -4262,7 +4262,7 @@ export function App({
 							return
 						if (!mergeBase) {
 							setChoicePicker(null)
-							pushMessage('system', `Could not resolve a merge base for ${branch}.`)
+							pushSystem('error', `Could not resolve a merge base for ${branch}.`)
 							return
 						}
 						advanceQueueContinuation()
@@ -4500,7 +4500,7 @@ export function App({
 					)
 					break
 				case 'write-failed':
-					pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
+					pushSystem('error', `Could not send the terminal copy request: ${result.detail}`)
 					break
 				default: {
 					const exhaustive: never = result
@@ -4508,7 +4508,7 @@ export function App({
 				}
 			}
 		},
-		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout],
+		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout, pushSystem],
 	)
 
 	const sendTerminalNotification = useCallback(
@@ -5817,10 +5817,10 @@ export function App({
 				await session.abandonTurn(active.turnId as TurnId, reason)
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t stop the paused reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
-		[pushMessage, session, state],
+		[pushMessage, session, state, pushSystem],
 	)
 
 	/**
@@ -5945,7 +5945,7 @@ export function App({
 					advanceQueueContinuation()
 				}
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t continue this reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t continue this reply.'))
 			} finally {
 				if (abortRef.current === ac) abortRef.current = null
 				setState('idle')
@@ -5967,6 +5967,7 @@ export function App({
 			session,
 			setHandoffPark,
 			state,
+			pushSystem,
 		],
 	)
 
@@ -6032,7 +6033,7 @@ export function App({
 				setSelectedResume(0)
 				setPhase('resume')
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+				pushSystem('error', explainFailure(err, 'Could not list conversations.'))
 			}
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
@@ -6076,7 +6077,7 @@ export function App({
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list archived conversations.'))
+			pushSystem('error', explainFailure(err, 'Could not list archived conversations.'))
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
@@ -6337,7 +6338,7 @@ export function App({
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not resume that conversation.'))
+				pushSystem('error', explainFailure(err, 'Could not resume that conversation.'))
 				return
 			}
 			resumeCommittedRef.current = false
@@ -6428,6 +6429,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6598,8 +6600,8 @@ export function App({
 					)
 				}
 			} catch (err) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						err,
 						'Couldn’t start a new conversation. The current one and any running reply are unchanged.',
@@ -6624,6 +6626,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6780,10 +6783,10 @@ export function App({
 						: `Named "${title}".`,
 				)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save the name.'))
+				pushSystem('error', explainFailure(err, 'Could not save the name.'))
 			}
 		},
-		[materializeConversation, pushMessage, setTextPrompt],
+		[materializeConversation, pushMessage, setTextPrompt, pushSystem],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -6848,8 +6851,7 @@ export function App({
 					}
 					pushMessage('system', `Named "${value.trim()}".`)
 				},
-				(error: unknown) =>
-					pushMessage('system', explainFailure(error, 'Could not save the name.')),
+				(error: unknown) => pushSystem('error', explainFailure(error, 'Could not save the name.')),
 			)
 		},
 		[pushMessage, runConversationExport, setTextPrompt],
@@ -6938,7 +6940,7 @@ export function App({
 				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not fork.'))
+			pushSystem('error', explainFailure(err, 'Could not fork.'))
 		} finally {
 			conversationMutationRef.current = null
 			setConversationMutation(null)
@@ -6953,6 +6955,7 @@ export function App({
 		resetSubagentActivity,
 		session,
 		wakeGoalDriver,
+		pushSystem,
 	])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
@@ -7023,10 +7026,10 @@ export function App({
 				// this before its next turn.
 				operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not restore the files.'))
+				pushSystem('error', explainFailure(err, 'Could not restore the files.'))
 			}
 		},
-		[hasUnsettledTurn, pushMessage, session, state],
+		[hasUnsettledTurn, pushMessage, session, state, pushSystem],
 	)
 
 	/** Fork before the selected prompt, then reopen that prompt in the composer. */
@@ -7111,7 +7114,7 @@ export function App({
 				)
 			} catch (err) {
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not edit the selected prompt.'))
+				pushSystem('error', explainFailure(err, 'Could not edit the selected prompt.'))
 			} finally {
 				editCommittedRef.current = false
 				conversationMutationRef.current = null
@@ -7131,6 +7134,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -8276,8 +8280,8 @@ export function App({
 			try {
 				durableScope = await materializeConversation()
 			} catch (error) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						error,
 						'This conversation could not be saved. It will continue, but it cannot be resumed later.',
@@ -8305,7 +8309,7 @@ export function App({
 						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
 						wakeGoalDriver()
 					}
-					pushMessage('system', explainFailure(err, 'Your message was not sent.'))
+					pushSystem('error', explainFailure(err, 'Your message was not sent.'))
 					setState('idle')
 					return
 				}
@@ -8961,7 +8965,7 @@ export function App({
 					// the failure would be discarded along with the turn.
 					flushStream(st)
 					if (st.assistantId) finalizeMessage(st.assistantId)
-					pushMessage('system', explainFailure(err, 'That reply failed.'))
+					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
 				if (st.completed && stillHere()) {
@@ -9356,10 +9360,10 @@ export function App({
 				})
 				pushMessage('system', renderMemorySaveResult(saved, note))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save memory.'))
+				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session],
+		[ctx.cwd, pushMessage, session, pushSystem],
 	)
 
 	/**
@@ -9668,7 +9672,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer message failed.')),
+									pushSystem('error', explainFailure(error, 'Peer message failed.')),
 								)
 						} else if (!verb || verb === 'list') {
 							void peers
@@ -9680,7 +9684,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer discovery failed.')),
+									pushSystem('error', explainFailure(error, 'Peer discovery failed.')),
 								)
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
@@ -9735,7 +9739,7 @@ export function App({
 								})
 							})
 							.catch((error) =>
-								pushMessage('system', explainFailure(error, 'Could not read the workflows.')),
+								pushSystem('error', explainFailure(error, 'Could not read the workflows.')),
 							)
 						return
 					}
@@ -9990,7 +9994,7 @@ export function App({
 									choicePickerRef.current?.request === request
 								) {
 									setChoicePicker(null)
-									pushMessage('system', explainFailure(error, 'Could not load goal.'))
+									pushSystem('error', explainFailure(error, 'Could not load goal.'))
 								}
 							} finally {
 								wakeGoalDriver()
@@ -10216,7 +10220,7 @@ export function App({
 							})
 							pushMessage('system', renderMemorySaveResult(saved, slash.text))
 						} catch (err) {
-							pushMessage('system', explainFailure(err, 'Could not save memory.'))
+							pushSystem('error', explainFailure(err, 'Could not save memory.'))
 						}
 						return
 					case 'import-notes': {
@@ -10229,8 +10233,7 @@ export function App({
 						}
 						void session.importCuratedNotes().then(
 							(report) => pushMessage('system', report),
-							(err: unknown) =>
-								pushMessage('system', explainFailure(err, 'Notes were not copied.')),
+							(err: unknown) => pushSystem('error', explainFailure(err, 'Notes were not copied.')),
 						)
 						return
 					}
@@ -10256,8 +10259,8 @@ export function App({
 								)
 							},
 							(err: unknown) =>
-								pushMessage(
-									'system',
+								pushSystem(
+									'error',
 									explainFailure(err, `${curated}\n\nStored memories not loaded.`),
 								),
 						)
@@ -10618,7 +10621,7 @@ export function App({
 								)
 							} catch (error) {
 								if (conversationGenRef.current !== generation) return
-								pushMessage('system', explainFailure(error, `Could not run /${slash.name}.`))
+								pushSystem('error', explainFailure(error, `Could not run /${slash.name}.`))
 							} finally {
 								releaseGoalCommand()
 							}
@@ -10792,7 +10795,7 @@ export function App({
 									summaries: tally.summaries + 1,
 								}))
 							} catch (err) {
-								pushMessage('system', explainFailure(err, 'Couldn’t summarise the conversation.'))
+								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)
@@ -11508,9 +11511,9 @@ export function App({
 			.catch((error) => {
 				peersStartingRef.current = false
 				appLifetime.signal.removeEventListener('abort', onClose)
-				if (!disposed) pushMessage('system', explainFailure(error, 'Peer messaging unavailable.'))
+				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {

@@ -94,3 +94,16 @@ describe('small shared wording', () => {
 		expect(clipboardSentNotice(1, 'the latest answer')).toContain('Sent 1 char (the latest answer)')
 	})
 })
+
+describe('failure rows', () => {
+	it('every explainFailure row goes through the shared error level', async () => {
+		const { readFileSync } = await import('node:fs')
+		const source = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+		// The startup failures keep their own stop glyph, so they are the only
+		// ones allowed to stay on the bare call.
+		const bare = [...source.matchAll(/pushMessage\(\s*'system',\s*explainFailure\(/g)].filter(
+			(m) => !source.slice(m.index, m.index + 700).includes('STARTUP_STOP_GLYPH'),
+		)
+		expect(bare).toHaveLength(0)
+	})
+})

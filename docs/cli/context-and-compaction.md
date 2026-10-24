@@ -38,7 +38,9 @@ remains in the compaction result shown by the UI.
 What the transcript shows is deliberately short, in the reference's words. While
 a pass runs, the live area says `Compacting conversation…` with the spinner and
 the clock (for `/compact`, and for an in-turn pass that follows a tool-result
-clearing that was not enough). `/compact` then leaves `✻ Compacted (ctrl+o to see
+clearing that was not enough). An in-turn pass with no clearing in front of it shows
+no live row, because the SDK emits no compaction-started event; the finished row
+still appears. `/compact` then leaves `✻ Compacted (ctrl+o to see
 full summary)`; the summary, without the marker the model reads, opens with
 Ctrl+O instead of sitting under the row. An automatic pass leaves `✻ Conversation
 compacted (ctrl+o for history)`, and Ctrl+O shows what became what. A resumed
