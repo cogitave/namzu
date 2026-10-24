@@ -339,13 +339,13 @@ describe('the rows on screen', () => {
 		const running = await show([row], { selectedIndex: 0 })
 		// The key line is the footer's now (see StatusBar); the rail draws the row only.
 		expect(running.join('\n')).not.toContain('to view')
-		expect(railHint(row, 100)).toBe('Enter to view · x to stop')
+		expect(railHint(row, 100)).toBe('enter to view · x to stop')
 		await mounted?.unmount()
 		mounted = undefined
 		const done = workflowOf([agent({ viewId: 'a', status: 'completed', completedAt: NOW })])
 		const finished = await show([done], { selectedIndex: 0 })
 		expect(finished.at(-1)).toMatch(/^❯ ◯ Release audit/u)
-		expect(railHint(done, 100)).toBe('Enter to view · x to clear')
+		expect(railHint(done, 100)).toBe('enter to view · x to clear')
 	})
 
 	it('folds into the main row count while a review owns the screen', async () => {

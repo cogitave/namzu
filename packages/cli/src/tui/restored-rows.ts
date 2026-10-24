@@ -407,7 +407,11 @@ function agentRowFor(row: ToolRow, nextId: () => string): TranscriptMessage {
 }
 
 /** What an agent that ended leaves in the conversation, as the live run wrote it. */
-export function agentCompletionRows(agent: SubagentActivity): readonly ToolRow[] {
+export function agentCompletionRows(
+	agent: SubagentActivity,
+	/** The reason this agent's last failure notice gave: the same reason again reads `failed again`. */
+	previousFailure?: string,
+): readonly ToolRow[] {
 	// A workflow's agents are read in its detail view; the workflow closes with one line.
 	if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) return []
 	// An agent the parent waited on handed its result back inline: the line is
@@ -432,7 +436,7 @@ export function agentCompletionRows(agent: SubagentActivity): readonly ToolRow[]
 			activity: 'agent-result',
 		})
 	}
-	const notice = agentNotice(agent)
+	const notice = agentNotice(agent, Date.now(), previousFailure)
 	rows.push({
 		role: 'tool',
 		content: notice.content,

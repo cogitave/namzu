@@ -62,7 +62,7 @@ const PHASE_DETAIL_LINE_BUDGET = 3
  * replayed one must never acquire one.
  */
 export const REPLAYED_TRANSCRIPT_NOTICE =
-	'Replayed from saved evidence. This child cannot be continued.'
+	'Replayed from the saved record. This agent has finished and cannot be continued.'
 /**
  * Rows outside the cockpit's own box: the one-line brand header, printed once
  * above it, and the one-line composer footer, which now renders directly
@@ -503,10 +503,32 @@ export interface AgentTaskPanelProps {
 	readonly now?: number
 }
 
-/** What an agent row says in its description column: what it is doing now, else what it was asked to do. */
+/** What an agent row says in its description column: what it was asked to do. */
 export function railDescription(agent: SubagentActivity): string {
-	const live = !isTerminalStatus(agent.status) && agent.summary ? agent.summary : undefined
-	return live ?? (agent.description || agent.agentId)
+	return agent.description || agent.agentId
+}
+
+/** Widest the live label grows in a row's status block before it is cut with `…`. */
+const RAIL_LIVE_LABEL_WIDTH = 24
+
+/** What a running agent is doing right now (`Reading config loader`), shown beside its clock; undefined when finished or silent. */
+export function railLiveLabel(agent: SubagentActivity, narrow = false): string | undefined {
+	if (narrow || isTerminalStatus(agent.status) || !agent.summary) return undefined
+	const label = oneLine(agent.summary)
+	if (!label || label === oneLine(railDescription(agent))) return undefined
+	return truncateChoiceText(label, RAIL_LIVE_LABEL_WIDTH)
+}
+
+/** The row's right-hand block: the live label (when there is one), the clock and the spend. */
+function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean): string {
+	const label = railLiveLabel(agent, narrow)
+	const status = railStatusText(agent, now)
+	return label ? `${label} · ${status}` : status
+}
+
+/** Whether every listed agent is the same kind, so a type column would only repeat itself. */
+export function railSharesType(agents: readonly SubagentActivity[]): boolean {
+	return agents.length > 1 && agents.every((agent) => agent.agentId === agents[0]?.agentId)
 }
 
 /** Cells the `↓ N more` row and the pointer share with a row's first slot. */
@@ -562,6 +584,9 @@ export function AgentTaskPanel({
 	// One name column for agent and workflow rows alike: as wide as the longest
 	// name on screen (never past the cap), so the second column starts right
 	// after it instead of at a fixed tab.
+	// Every agent the same kind and no workflow row: the type would only repeat
+	// itself on each line, so the column goes and the description takes the room.
+	const hideType = workflows.length === 0 && railSharesType(agents)
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
@@ -576,7 +601,9 @@ export function AgentTaskPanel({
 		0,
 		...items.map((agent) => {
 			const queued = railQueuedText(agent)
-			return stringWidth(railStatusText(agent, now)) + (queued ? 3 + stringWidth(queued) : 0)
+			return (
+				stringWidth(railStatusBlock(agent, now, narrow)) + (queued ? 3 + stringWidth(queued) : 0)
+			)
 		}),
 	)
 	const mainRight = compact
@@ -636,7 +663,7 @@ export function AgentTaskPanel({
 						const selected = focused && selectedIndex === index
 						const viewed = viewingId === agent.viewId
 						const finished = isTerminalStatus(agent.status)
-						const status = railStatusText(agent, now)
+						const status = railStatusBlock(agent, now, narrow)
 						const bright = viewed || selected
 						return (
 							<Box key={agent.viewId}>
@@ -654,17 +681,19 @@ export function AgentTaskPanel({
 										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
-								<Box width={nameWidth} flexShrink={0}>
-									<Text
-										bold={bright}
-										dimColor={!bright}
-										color={theme.text.primary}
-										wrap="truncate-end"
-									>
-										{terminalDisplayText(oneLine(agent.agentId))}
-									</Text>
-								</Box>
-								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
+								{hideType ? null : (
+									<Box width={nameWidth} flexShrink={0}>
+										<Text
+											bold={bright}
+											dimColor={!bright}
+											color={theme.text.primary}
+											wrap="truncate-end"
+										>
+											{terminalDisplayText(oneLine(agent.agentId))}
+										</Text>
+									</Box>
+								)}
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={hideType ? 0 : 2}>
 									<Text
 										bold={bright}
 										dimColor={!bright}
@@ -768,10 +797,10 @@ const RAIL_HINT_CHORD_COLUMNS = 90
  * mode line while the rail has the keyboard (the rows stay where they are),
  * and says only what the row can do:
  *
- * - an agent or workflow row: `Enter to view · x to stop` (`x to clear` once
+ * - an agent or workflow row: `enter to view · x to stop` (`x to clear` once
  *   it has finished), plus `ctrl+x ctrl+k to stop all agents` when more than
  *   one agent runs and the line is at least 90 columns wide;
- * - `main`, or nothing selected: `↑/↓ to select · Enter to view`.
+ * - `main`, or nothing selected: `↑/↓ to select · enter to view`.
  *
  * Esc leaves the rail but is not advertised here.
  */
@@ -781,12 +810,12 @@ export function railHint(
 	runningAgents = 0,
 	viewedId?: string,
 ): string {
-	if (!selected) return '↑/↓ to select · Enter to view'
+	if (!selected) return '↑/↓ to select · enter to view'
 	// The row on screen already is the view: only moving off it is left to say.
 	if (viewedId !== undefined && !('focusId' in selected) && selected.viewId === viewedId)
 		return '↑/↓ to select'
 	const action = 'focusId' in selected ? railWorkflowActionFor(selected) : railActionFor(selected)
-	const items = ['Enter to view', `x to ${action}`]
+	const items = ['enter to view', `x to ${action}`]
 	if (runningAgents > 1 && columns >= RAIL_HINT_CHORD_COLUMNS)
 		items.push(`${RAIL_STOP_ALL_CHORD} to stop all agents`)
 	return items.join(' · ')
@@ -1697,7 +1726,7 @@ export function AgentTranscript({
 				escapeTo === 'back'
 					? { text: 'esc back', rank: 5 }
 					: { text: 'esc agents', short: 'esc list', rank: 5 },
-				{ text: 'q parent', rank: 5 },
+				{ text: 'q main', rank: 5 },
 			],
 			Math.max(1, terminalColumns - 4),
 		)
@@ -1758,8 +1787,8 @@ export function AgentTranscript({
 				{page.rows.length === 0 ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{agent.replayed
-							? 'Saved evidence recorded no output for this child.'
-							: 'Waiting for child output…'}
+							? 'The saved record has no output for this agent.'
+							: 'Waiting for agent output…'}
 					</Text>
 				) : (
 					page.rows.map((line) => (
@@ -2156,14 +2185,13 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 }
 
 /**
- * An accepted `send_message` renders as `← queued from parent: …` — the arrow is
+ * An accepted `send_message` renders as `← queued from main: …` — the arrow is
  * the row's own glyph (`rowGlyph`), so only the label goes here. Every other
  * row kind keeps its own text unchanged.
  */
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
-	if (row.kind === 'system' && row.direction === 'to-child')
-		return `queued from parent: ${row.text}`
+	if (row.kind === 'system' && row.direction === 'to-child') return `queued from main: ${row.text}`
 	// What you typed to the agent reads as your own row.
 	if (row.kind === 'system' && row.direction === 'operator-to-child') return row.text
 	return row.text

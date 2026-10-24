@@ -1955,7 +1955,7 @@ export async function createSubagentRuntime(
 		const owned = conversations.get(viewId)
 		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
 		if (!owned || !shown || shown.replayed)
-			throw new Error('This child is saved evidence or is no longer owned by this host.')
+			throw new Error('This agent is a saved record and is no longer running.')
 		// Stopped on purpose: not resumed by a message from either side.
 		if (shown.status === 'cancelled')
 			throw new Error(

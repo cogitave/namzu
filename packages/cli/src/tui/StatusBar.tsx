@@ -125,6 +125,8 @@ const QUIET_MODE_HINT = 'shift+tab to cycle'
 const CYCLE_SUFFIX = ' (shift+tab to cycle)'
 const INTERRUPT_HINT = 'esc to interrupt'
 const MANAGE_HINT = '↓ to manage'
+/** What the pointer shrinks to when the full hint does not fit. */
+const SHORT_MANAGE_HINT = '↓ agents'
 const VIEW_SHELLS_HINT = 'enter to view shells'
 
 const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
@@ -388,10 +390,11 @@ export interface StatusLineLayout {
  * a goal label is the durable work state, so both reserve their width before
  * the model identity does. The model is Namzu's own addition and shows only
  * while the whole row fits beside it. Past that the row loses items from its
- * right end, the way the reference's clipped row does: `↓ to manage`,
- * `← N agents`, `esc to interrupt`, then the cycle key (the reference hides
- * it first once a task is running), the context meter, the effort label, the shell pill, the
- * pull request item; after that the quiet reminder goes, then the mode
+ * right end, the way the reference's clipped row does: `↓ to manage` (which
+ * first shrinks to `↓ agents`, the only way to the agents rail, and goes after
+ * the cycle key), `← N agents`, `esc to interrupt`, then the cycle key (the
+ * reference hides it first once a task is running), the context meter, the
+ * effort label, the shell pill, the pull request item; after that the quiet reminder goes, then the mode
  * truncates, and last of all it goes. A line too wide for its room loses
  * whole items, never half of one, except the mode, which is the state itself.
  */
@@ -456,10 +459,15 @@ export function fitStatusLine(input: {
 		gapWidth = 0
 		leftBudget = columns
 	}
-	if (over()) manage = null
+	// The pointer to the agents is the one way to reach them: it shrinks before
+	// the other items go and outlasts them.
+	if (over() && manage === MANAGE_HINT) manage = SHORT_MANAGE_HINT
 	if (over()) agents = null
 	if (over()) interrupt = null
 	if (over()) cycleSuffix = null
+	// Only now does the pointer to the agents go: the mode's own cycle hint and the
+	// other hints leave first, the context, effort, shells and pull request after.
+	if (over()) manage = null
 	if (over()) context = null
 	if (over()) effort = null
 	if (over()) shells = null
