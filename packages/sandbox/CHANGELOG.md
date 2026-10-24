@@ -3327,7 +3327,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
   four-tier taxonomy that mirrors how production agent platforms
   actually deploy code-execution sandboxes:
 
-  - `process` — Claude Code-style host-process isolation
+  - `process` — host-process isolation
     (bubblewrap on Linux, Seatbelt on macOS, via Anthropic's
     `@anthropic-ai/sandbox-runtime`). For agents that run on the
     developer's own machine.
@@ -3357,7 +3357,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
     Interpreter — `gvisor.dev/docs/architecture_guide/security` is
     the reference).
   - Single-user developer machine → bubblewrap / Seatbelt
-    (Anthropic Claude Code — `anthropic-experimental/sandbox-runtime`).
+   .
   - Single-tenant or co-trusted → plain Docker + seccomp default
     profile.
 

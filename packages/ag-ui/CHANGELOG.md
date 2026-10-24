@@ -8,7 +8,7 @@
 
 ### Patch Changes
 
-- 5258c05: Three safety floors follow the reference terminal, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
+- 5258c05: Three safety floors now apply, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
 
   What changes for you:
 
