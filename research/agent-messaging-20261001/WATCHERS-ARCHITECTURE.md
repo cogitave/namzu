@@ -27,7 +27,7 @@ report does not claim a release or a recurring automatic watcher.
 - Namzu worktree: `namzu-wt-schedule-ownership`, branch `feat/runtime-desktop-foundation`, committed baseline `7f5f12845b8927d371f6137fe8ede99d4ce14f65`. Other agents are implementing child conversation changes in this worktree. The existing watcher-related files examined below are not part of those edits.
 - Reference repository: `https://github.com/NousResearch/hermes-agent`, local clone `/var/tmp/n-R2j6E1/mission-reference/hermes-agent`, clean at `12e4d3e2dd5281adf289f70e5d6c7f33427d6982`, commit time `2026-09-30T22:42:13Z`. This is a pinned source comparison, not a claim to have checked the latest remote HEAD. A remote `git ls-remote` produced no answer and was stopped; no reference checkout was changed.
 - The watermark helper was exercised directly with only the standard Python library and a private temporary state directory. No user's job, conversation, credentials, network endpoint or reference source file was changed. Results are recorded below.
-- Gateway and terminal behavior is a source inspection, not a live integration run of the reference application. The distinction matters for both feature claims and defect claims.
+- Gateway and terminal behavior comes from reading source, not from a live integration run. The distinction matters for both feature claims and defect claims.
 
 All reference links below are pinned to that revision. Repository names belong in this research attribution, not new runtime classes, user-facing labels or prompts.
 
