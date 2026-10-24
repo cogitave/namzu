@@ -423,32 +423,24 @@ export function agentCompletionRows(
 			{ role: 'tool', content: done.result, glyph: '⎿', glyphColor: theme.text.muted },
 		]
 	}
-	const rows: ToolRow[] = []
-	const said = agentMessageRow(agent)
-	if (said) {
-		rows.push({
-			role: 'tool',
-			content: said.content,
-			glyph: '›',
-			detail: said.detail,
-			glyphColor: theme.text.muted,
-			meta: said.hint,
-			activity: 'agent-result',
-		})
-	}
+	// One row per completion: the line that says it ended, carrying the agent's
+	// answer as its expandable detail (Ctrl+O) instead of a second row.
+	const said = agent.status === 'completed' ? agentMessageRow(agent) : undefined
 	const notice = agentNotice(agent, Date.now(), previousFailure)
-	rows.push({
-		role: 'tool',
-		content: notice.content,
-		glyph: '●',
-		glyphColor:
-			notice.tone === 'ok'
-				? theme.status.ok
-				: notice.tone === 'error'
-					? theme.status.error
-					: theme.status.warn,
-	})
-	return rows
+	return [
+		{
+			role: 'tool',
+			content: notice.content,
+			glyph: '●',
+			glyphColor:
+				notice.tone === 'ok'
+					? theme.status.ok
+					: notice.tone === 'error'
+						? theme.status.error
+						: theme.status.warn,
+			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
+		},
+	]
 }
 
 /** The launch receipt of one batch of agents. */

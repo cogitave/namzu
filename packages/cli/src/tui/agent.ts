@@ -342,6 +342,7 @@ import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
 import {
 	type DelegatedModel,
+	type SubagentCompletion,
 	type SubagentMessage,
 	type SubagentMessageReceipt,
 	type SubagentRuntime,
@@ -1345,6 +1346,8 @@ export interface AgentSession {
 	 * the message; a child has that tool only while somebody listens.
 	 */
 	readonly onSubagentMessage?: (listener: (message: SubagentMessage) => void) => () => void
+	/** A background agent that ended after the turn that launched it was over. */
+	readonly onSubagentCompletion?: (listener: (completion: SubagentCompletion) => void) => () => void
 	readonly messageSubagent?: (
 		viewId: string,
 		message: string,
@@ -3431,6 +3434,9 @@ export async function createAgentSession(
 		}
 		const sub = await createSubagentRuntime({
 			cwd,
+			// An operator is watching: agents run in the background by default and
+			// the turn ends without waiting for them.
+			...(options.askUser ? { backgroundByDefault: true } : {}),
 			worktreeStateRoot: paths.home,
 			model,
 			tokenBudget: options.limits?.tokenBudget,
@@ -4938,6 +4944,8 @@ export async function createAgentSession(
 					},
 					onSubagentMessage: (listener: (message: SubagentMessage) => void) =>
 						subagentRuntime?.onChildMessage(listener) ?? (() => {}),
+					onSubagentCompletion: (listener: (completion: SubagentCompletion) => void) =>
+						subagentRuntime?.onBackgroundCompletion(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {

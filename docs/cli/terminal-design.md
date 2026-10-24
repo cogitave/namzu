@@ -469,8 +469,7 @@ and never redrawn; the live state belongs to the rail.
 ● 2 background agents launched (↓ to manage)
   ├ Choose first colour
   └ Choose second colour
-› Message from @general-purpose (ctrl+o to expand)
-● Agent "Choose first colour" finished · 1m 4s
+● Agent "Choose first colour" finished · 1m 4s (ctrl+o to expand)
 ● Agent "Choose second colour" failed: Provider refused the request · 3s
 ✻ Worked for 38s · 3 agents · 27.0k tokens
 ```
@@ -480,7 +479,8 @@ live state belongs to the rail.
 
 - **A launch receipt** per batch: the agents one model response launched
   together, each by its description under one line (`N background agents
-  launched` when they all run in the background, else `Launched N agents`). A
+  launched` when they all run in the background, `Launched N agents` while a
+  batch the turn waits on runs, `N agents finished` once it has ended). A
   single agent is named inline. Agents the
   model gave a `workflow` label are one workflow and get one `● Workflow <name>`
   line instead (see the rail section), once per workflow. The receipt waits until
@@ -490,24 +490,26 @@ live state belongs to the rail.
   open: a reviewed batch's events reach the terminal only when the batch
   finishes, so the reply stays open for the whole of a foreground agent's run.
   An agent resumed by a later message gets no second receipt.
-- **Two rows per agent that reports on its own.** First what it said, collapsed:
-  `› Message from @<type> (ctrl+o to expand)` (the hint follows the sender in
-  parentheses, after a space; the sender is the agent
-  type, so two general agents both read `@general-purpose`). Ctrl+O opens the
-  answer in place while the row is still in the live region; once it has
-  settled into history, the press after the live bodies are open shows the
-  newest settled body in the output viewer, where ←/→ reach the others. The
-  answer is the child's text and is shown as text — terminal controls in it are
-  displayed, never obeyed. Then one line that says it is over:
-  `● Agent "<description>" finished · 1m 4s` (green), `failed: <reason> · 3s`
-  (red; `Unknown error` when nothing says why) or `was stopped by user · 1s`,
-  `was stopped by Namzu · 1s` (the conversation's own agent stopped it with
-  `cancel_agent`), or plain `was stopped · 1s` when nobody recorded who
-  (warning). The result is not repeated in that line and it carries no token
-  count; an agent resumed by a later message writes the pair again when it ends
-  again. Only an agent that runs on its own writes the pair: a background
-  launch, one whose wait was released (the operator wrote while the parent
-  waited) and one a later message resumed.
+- **One row per agent that reports on its own.** The line that says it is over:
+  `● Agent "<description>" finished · 1m 4s (ctrl+o to expand)` (green; the hint
+  follows the time in parentheses, after a space, and the answer behind Ctrl+O is
+  the child's text, shown as text: terminal controls in it are displayed, never
+  obeyed), `failed: <reason> · 3s` (red; `Unknown error` when nothing says why,
+  and no answer to open) or `was stopped by user · 1s`, `was stopped by Namzu ·
+  1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
+  `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the answer
+  in place while the row is still in the live region; once it has settled into
+  history, the press after the live bodies are open shows the newest settled body
+  in the output viewer, where ←/→ reach the others. The result is not repeated in
+  the line and it carries no token count; an agent resumed by a later message
+  writes the row again when it ends again. Only an agent that runs on its own
+  writes it: a background launch, one whose wait was released (the operator wrote
+  while the parent waited) and one a later message resumed.
+- **A live group while the turn waits on a batch.** `Running 3 agents…`, then per
+  agent `description · 4 tool uses · 12.1k tokens` over `⎿ <last tool>` (or
+  `Initializing…`, `Done`), above the composer. The batch's receipt, `3 agents
+  finished`, is written when the last member ends. An all-background batch has no
+  live group: its receipt is written at launch and the rail shows the agents.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
@@ -519,6 +521,10 @@ live state belongs to the rail.
   row, and the model gets the text, framed as the agent's own words, with its
   next turn (an idle conversation wakes for it). It does not interrupt a wait
   the running turn is in.
+- **A waiting line** when a turn ends over background agents that are still
+  running: `✻ Waiting for 2 background agents to finish` (`and 1 dynamic
+  workflow` when one is running), dim, above the composer, which is free. The
+  closing line below is written when the last one ends, with the wait counted.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
