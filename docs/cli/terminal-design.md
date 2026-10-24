@@ -723,6 +723,30 @@ plan's live row is always one line: the current step and the completion count,
 and on a narrow screen the step alone. These panels also reserve
 space before the transcript keeps any older messages in its redrawable tail.
 
+### A resumed conversation
+
+`namzu -c`, `namzu resume <id>` and the `/resume` picker show what the live run
+showed, not only the messages: the same tool rows (a read's `Read a.ts`, an
+edit's `Edited a.ts +2 −1` with its diff body, a write's `Created n.txt +2`, a
+command's cell with its output behind Ctrl+O, a failed call's one-line reason),
+the `Worked for 46s` line that closed a turn, `Interrupted.` for a turn the
+operator stopped (and the one-line reason for a turn a limit stopped), and the
+rows of the agents it launched, placed after the reply that launched them once
+the saved children are read. A call that never reported a result reads
+`○ Bash(sleep 99)` over `⎿ Interrupted`.
+
+Nothing is drawn twice: the rows come from the same builders the live path
+calls (`tool-end-rows.ts` for a finished call, the agent rows in
+`agent-transcript-rows.ts`), so a later change to how a row reads reaches both.
+`restored-rows.ts` replays the conversation's journal through the live
+translation (`toAgentEvent`), which keeps the kernel's typed facts and timings.
+A conversation without a journal (a `/fork`, an older log) is drawn from the
+saved messages: the file a read, edit or write named still shows, a write's
+counts are read from its receipt, and the elapsed time and the closing line are
+left out because the messages do not keep them. A delegation that succeeded
+leaves no tool row, as live: the agent rows own it; a failed launch keeps its
+row.
+
 ### Scrolling back through the conversation
 
 The conversation stays in the terminal's own scrollback, and the terminal keeps

@@ -57,6 +57,7 @@ import { loadIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { cliProjectRoot } from '../state/project.js'
 import { typedTextOf } from './display-title.js'
+import { rememberJournal } from './journal-trail.js'
 
 /**
  * The part of the kernel's `SessionStore` contract the CLI still reads: one
@@ -689,10 +690,9 @@ export async function loadConversationSnapshot(
 	sessionId: SessionId,
 ): Promise<{ messages: Message[]; records: readonly SessionRecord[] }> {
 	const facts = await requireConversationInScope(s, sessionId, 'load conversation history')
-	return {
-		messages: await foldConversation(s, sessionId, facts.records),
-		records: facts.records,
-	}
+	const messages = await foldConversation(s, sessionId, facts.records)
+	rememberJournal(messages, facts.records)
+	return { messages, records: facts.records }
 }
 
 /**
@@ -709,7 +709,9 @@ export async function loadResumableConversation(
 	const checked = asSessionId(sessionId)
 	const facts = await requireConversationInScope(s, checked, 'resume conversation')
 	assertWritableConversation(facts, checked, 'resume conversation')
-	return await foldConversation(s, checked, facts.records)
+	const messages = await foldConversation(s, checked, facts.records)
+	rememberJournal(messages, facts.records)
+	return messages
 }
 
 /** The open turn of a conversation, if it has one: `paused` when it is parked. */
