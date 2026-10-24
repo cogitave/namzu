@@ -1,8 +1,7 @@
 /**
  * A permission mode changed while a turn runs, decided call by call.
  *
- * The interactive terminal now lets the operator press Shift+Tab mid-turn, as
- * the reference terminal does. These pin what that means for the decisions
+ * The interactive terminal lets the operator press Shift+Tab mid-turn. These pin what that means for the decisions
  * themselves, against the kernel's real review handler rather than a stand-in:
  * a dialog already on screen is decided under the mode it was asked under,
  * plan mode entered mid-turn refuses the next change, leaving plan mode

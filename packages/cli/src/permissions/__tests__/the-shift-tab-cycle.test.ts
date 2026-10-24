@@ -1,7 +1,7 @@
 /**
  * Shift+Tab's cycle, as pure behaviour.
  *
- * The cycle is the reference's: default, accept edits, plan, then bypass and
+ * The cycle runs: default, accept edits, plan, then bypass and
  * auto when the session may use them, then default again. `strict` is never on
  * it, and leaving it goes to default.
  */

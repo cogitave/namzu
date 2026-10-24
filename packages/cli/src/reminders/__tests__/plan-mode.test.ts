@@ -10,7 +10,7 @@ import { frameReminder, reminderKindOf } from '../frame.js'
 import { PLAN_REMINDER_EVERY_N_TURNS, planModeReminders } from '../plan-mode.js'
 
 /**
- * The plan-mode reminder cadence, on the reference terminal's numbers: none
+ * The plan-mode reminder cadence: none
  * until 5 operator turns after the last one, the first of a stretch and every
  * 5th after it in full, the ones between a single line, and one note when plan
  * mode is left. The conversation is the only record, so each case builds one.

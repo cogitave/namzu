@@ -119,7 +119,7 @@ export interface ModeAvailability {
 export const FULL_AVAILABILITY: ModeAvailability = { bypass: true, auto: true }
 
 /**
- * The mode Shift+Tab moves to. The reference's cycle runs default, accept
+ * The mode Shift+Tab moves to. The cycle runs default, accept
  * edits, plan, then bypass and auto when the session may use them, then back
  * to default. `strict` is not on it, and neither is the kernel's unattended
  * `auto`: leaving either goes back to `prompt`.

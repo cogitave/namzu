@@ -469,7 +469,7 @@ export interface NamzuCliConfig {
 
 /** See `NamzuCliConfig.statusLine`. */
 export interface StatusLineConfig {
-	/** The only kind there is; accepted so a reference-terminal block pastes unchanged. */
+	/** The only kind there is; accepted so a block in the Claude Code format pastes unchanged. */
 	readonly type?: 'command'
 	/** Run by the host shell in the working directory. */
 	readonly command: string

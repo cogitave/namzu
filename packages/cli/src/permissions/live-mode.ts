@@ -7,8 +7,7 @@ import { type PermissionMode, permissionModeLabel } from './mode.js'
  *
  * The mode used to be fixed when a turn began, so the interactive terminal
  * refused to change it until the turn ended ("Permissions were not changed.
- * Finish or stop the current work first."). The reference terminal does the
- * opposite: Shift+Tab takes effect at once, mid-turn, and only its footer
+ * Finish or stop the current work first."). Shift+Tab takes effect at once, mid-turn, and only its footer
  * changes. This is the half of that which decides tool calls.
  *
  * The rules, and why each is the safe one:

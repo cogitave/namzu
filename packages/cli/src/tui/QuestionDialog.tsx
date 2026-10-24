@@ -2,7 +2,7 @@
  * The card for an `ask_user_question` call that carries several questions,
  * or one question that takes several answers.
  *
- * Laid out like the reference terminal's: a tab for each question with a mark
+ * A tab for each question, with a mark
  * on the ones answered, then a review tab that lists the answers and submits
  * them together. A single choice moves on to the next question as soon as it
  * is chosen; a multiple choice is toggled and moved on from by its last row.

@@ -1,8 +1,8 @@
 /**
  * What a "don't ask again" answer remembers.
  *
- * The reference turns an answer into a permission suggestion that "yes"
- * applies and writes it to the project's local settings file. This is the
+ * Each answer is offered as a permission suggestion that "yes"
+ * applies and that is written to the project's local settings file. This is the
  * Namzu side of that: an allow the operator gave at a prompt, written to the
  * project's `namzu.config.local.json` (see `local-settings.ts`), where the next
  * session reads it back as the local layer of the config cascade, and held in
@@ -12,7 +12,7 @@
  * kernel escalation (a sandbox escape, a path outside the roots, a protected
  * path, a catastrophic removal) is reviewed whatever any rule says.
  *
- * A command is remembered the way the reference suggests it: the first two
+ * A command is remembered as its first two
  * words and a star (`git commit *`) when the second word is a plain
  * subcommand and the first is not a shell or a wrapper; the exact command
  * otherwise. A compound line gets one rule per command in it.
@@ -55,7 +55,7 @@ export interface AllowableCall {
 
 export const WEB_FETCH_TOOL = 'web_fetch'
 const MAX_LABEL_COMMAND = 60
-/** Rules one answer may write; the reference stops at five for a compound line. */
+/** Rules one answer may write; a compound line stops at five. */
 export const MAX_RULES_PER_ANSWER = 5
 
 /** Tools whose command line is one argument; `bash` today. */
@@ -81,7 +81,7 @@ function alwaysAsked(call: AllowableCall): boolean {
 
 /**
  * Programs that run another command line: a prefix rule naming one would
- * cover whatever it is handed. The reference's list; matched on the
+ * cover whatever it is handed. This list is matched on the
  * program's basename.
  */
 const NO_PREFIX_PROGRAMS: ReadonlySet<string> = new Set([
@@ -137,15 +137,14 @@ function programName(word: string): string {
 }
 
 /**
- * The first two words of a command, when the reference would offer them as a
+ * The first two words of a command, when they would be offered as a
  * rule: at least two words, the first not a shell or a wrapper, the second a
  * plain subcommand. `git commit -m x` gives `git commit`; `git -C dir status`,
  * `bash -c x`, `sudo ls` and `ls -la` give nothing.
  *
- * A line that starts with a variable assignment gives nothing either. The
- * reference strips safe assignments and offers the prefix; a Namzu rule is
- * matched against the command as written, assignments included, so the prefix
- * would never match the line it was offered for.
+ * A line that starts with a variable assignment gives nothing either. Namzu does not strip safe assignments: a rule is matched against the
+ * command as written, assignments included, so the prefix would never match
+ * the line it was offered for.
  */
 export function twoWordPrefix(command: string): string | undefined {
 	const words = command.trim().split(/\s+/).filter(Boolean)
@@ -190,11 +189,11 @@ function plainCommands(line: string): readonly string[] | undefined {
  * The allows a "don't ask again" answer would remember for one call, or none.
  *
  * One plain command gives one rule. A compound line gives one rule per command
- * in it, as the reference does, up to five; the rules only help together, so a
+ * in it, up to five; the rules only help together, so a
  * line any of whose commands has no rule form (a glob, a substitution, a
  * redirection) gives none. A line that spans several lines, or carries a
- * here-document, gives none either: the reference offers the first line's
- * prefix there, which would cover whatever follows it, and a Namzu rule is
+ * here-document, gives none either: the first line's prefix would cover
+ * whatever follows it, and a Namzu rule is
  * matched command by command.
  */
 export function allowsFor(

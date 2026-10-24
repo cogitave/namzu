@@ -148,7 +148,7 @@ const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 /**
  * Resolve the interactive `--continue` / `--resume [value]`.
  *
- * The reference terminal's rule: no value opens the picker; a value shaped
+ * The rule: no value opens the picker; a value shaped
  * like a conversation id resumes that conversation or fails; any other value
  * resumes the one conversation whose title it matches exactly, and otherwise
  * opens the picker with the value as the search term. `--continue` takes the

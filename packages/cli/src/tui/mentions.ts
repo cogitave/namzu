@@ -15,7 +15,7 @@ import { resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 /**
- * What an unquoted `@path` may be made of: the reference terminal's class —
+ * What an unquoted `@path` may be made of: this class —
  * letters, digits and combining marks of any script, and `_ - . / \ ( ) [ ] ~ :`.
  * Trailing punctuation the class still captures is trimmed in `trimMention`.
  */
@@ -216,7 +216,7 @@ function rangeLabel(range: LineRange): string {
 
 /**
  * Split one matched token into a path and an optional `#L10-20` range, the
- * reference terminal's rule: `#L10` is one line, `#L10-20` an inclusive range,
+ * rule: `#L10` is one line, `#L10-20` an inclusive range,
  * and the range is the lines sent. A range written backwards, or starting at
  * line 0, is not a range and the path is read whole.
  */

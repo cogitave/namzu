@@ -212,7 +212,7 @@ export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
 /**
  * `↑ 1.2k tokens` while the agent has done nothing but read its task, `↓ 1.2k
  * tokens` once it has acted (its first tool call). Nothing until it has
- * reported some usage. REA fn p0e, chunk-2rs9vjmc.js: the arrow follows
+ * reported some usage. The arrow follows
  * `progress.lastActivity`.
  */
 function railTokens(agent: SubagentActivity): string | undefined {
@@ -1157,7 +1157,7 @@ function padStartCells(text: string, cells: number): string {
 /**
  * `↑ 1–8 of 14 ↓`: which rows of a longer list the box shows. An arrow is
  * drawn on the side that has more, a space on the side that does not. Set in
- * the box's bottom border, one per list (REA fns vt/Bo/Zt, chunk-t32eta2x.js).
+ * the box's bottom border, one per list.
  */
 export function windowTag(
 	window: { readonly start: number; readonly items: readonly unknown[] },

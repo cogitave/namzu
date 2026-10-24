@@ -1,6 +1,5 @@
 /**
- * A markdown table laid out for the terminal, as the reference terminal draws
- * one.
+ * A markdown table laid out for the terminal.
  *
  * ## Grid
  *

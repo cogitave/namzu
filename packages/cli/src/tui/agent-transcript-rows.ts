@@ -128,8 +128,7 @@ export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | unde
 /**
  * What a running agent said to the conversation with its own `send_message`,
  * as the same collapsed row a finished agent's answer is:
- * `› Message from @name (ctrl+o to expand)`, the text behind Ctrl+O
- * (REA fn en/Hg and helper Pre, the reference's peer-message row).
+ * `› Message from @name (ctrl+o to expand)`, the text behind Ctrl+O.
  */
 export function childMessageRow(message: {
 	readonly agentId: string
@@ -181,9 +180,9 @@ export interface AgentNotice {
  * (`Message from @name`, then `Agent "…" finished`). Only an agent that runs
  * on its own does: a background launch, one whose wait was released, or one a
  * later message resumed. One the parent waited on handed its result back
- * inline, and the reference draws that as the tool's own result line
+ * inline, and that is drawn as the tool's own result line
  * (`Done (3 tool uses · 12.1k tokens · 8s)`), not as a notification
- * (REA fn Qxt, chunk-8242685m.js: every caller is the background path).
+ * (every caller is the background path).
  */
 export function reportsAsNotification(agent: SubagentActivity): boolean {
 	return agent.background === true || agent.released === true || agent.resumed === true
@@ -228,10 +227,10 @@ export function failureReason(agent: SubagentActivity): string {
 }
 
 /**
- * The one line that closes an agent's run in the conversation, worded as the
- * reference's notification: `finished`, `failed: <reason>`, and for a stop
+ * The one line that closes an agent's run in the conversation, worded as a
+ * notification: `finished`, `failed: <reason>`, and for a stop
  * `was stopped by user`, `was stopped by Namzu` (the conversation's own agent
- * asked), or plain `was stopped` when nobody recorded who (REA fn Qxt).
+ * asked), or plain `was stopped` when nobody recorded who.
  */
 export function agentNotice(
 	agent: SubagentActivity,
@@ -295,10 +294,10 @@ export const SETTLE_LINE_MIN_MS = 3_000
 /**
  * `Worked for 38s · 3 agents · 27.0k tokens`, or `Worked for 46s`
  * for a turn that delegated nothing — a finished turn closes with how long it
- * took, as the reference terminal's do — or `undefined` for a turn that
+ * took — or `undefined` for a turn that
  * delegated nothing and finished within {@link SETTLE_LINE_MIN_MS}.
  *
- * Phases never appear here: the reference shows them only inside a
+ * Phases never appear here: they show only inside a
  * workflow's detail view. The tokens appear only when a child reported
  * spend, and `· 1 failed` only when one did.
  */

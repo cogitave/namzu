@@ -8,8 +8,8 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { type SubagentMessage, createSubagentRuntime } from '../runtime.js'
 
-// Reference (REA chunk-3dt2kg6m.js `deliver`, case `main`): a sub-agent can
-// address `main`; the text is queued for the main conversation's next turn.
+// A sub-agent can address `main`; the text is queued for the main
+// conversation's next turn.
 
 async function launch(options: { listen: boolean; calls: readonly Record<string, unknown>[] }) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-message-'))
@@ -88,7 +88,7 @@ it('lets a running child send the main conversation a message while somebody lis
 			text: 'Found the bug in a.txt',
 			taskId: run.taskId,
 		})
-		// The child is told what the reference tells it, and finishes normally.
+		// The child is told what it was sent, and finishes normally.
 		const answered = JSON.stringify(run.requests[1]?.messages)
 		expect(answered).toContain("Message queued for the main conversation's next turn.")
 		expect(run.waited.success).toBe(true)

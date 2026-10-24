@@ -256,7 +256,7 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
  * What an answer on the screen does. `approve-edits` switches the session to
  * accept-edits and `approve-rule` remembers the allows it carries, both for
  * the rest of the session; each also approves this batch. There is no
- * "allow every tool" answer: the reference has none.
+ * "allow every tool" answer: there is none.
  */
 export type PermissionAnswerKind = 'approve' | 'approve-edits' | 'approve-rule' | 'reject'
 

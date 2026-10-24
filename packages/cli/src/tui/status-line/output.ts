@@ -1,7 +1,7 @@
 /**
  * What a status line command printed, made ready for the footer.
  *
- * The reference trims the whole output, trims every line and drops the blank
+ * The whole output is trimmed, every line is trimmed and the blank
  * ones, so a script's stray blank line costs no row. Colours stay. Namzu
  * additionally drops every other escape sequence and control character: the
  * line is drawn inside a laid-out screen, and a cursor move or a clear from a
@@ -50,7 +50,7 @@ export function sanitiseStatusLineOutput(stdout: string): string | undefined {
 /**
  * One entry per line, each prefixed with the colour state the lines before it
  * left open, so a colour started on line one still applies on line two when
- * each line is drawn on its own row (the reference's `OKe`).
+ * each line is drawn on its own row.
  */
 export function carryStyleAcrossLines(text: string): string[] {
 	const lines = text.split('\n')

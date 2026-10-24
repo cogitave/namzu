@@ -48,7 +48,7 @@ describe('the footer on a narrow pane', () => {
 		expect(right).toBe('claude-haiku-4-5')
 	})
 
-	it('orders the items as the reference does: mode, PR, shells, then the hints', () => {
+	it('orders the items: mode, PR, shells, then the hints', () => {
 		const { text, right } = line(200)
 		expect(text.slice(0, -right.length).trimEnd()).toBe(
 			'⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592 · 2 shells · effort high · esc to interrupt · ← 1 agent · ↓ to manage',

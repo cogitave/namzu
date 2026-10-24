@@ -37,7 +37,7 @@
  * ## The addresses
  *
  * Re-verified by capturing the exact URL emitted by the installed owner client
- * (`claude auth login --claudeai`, 2.1.241) on 2026-08-23. Its live production
+ * (`claude auth login --claudeai`) on 2026-08-23. Its live production
  * contract uses the CAI authorize endpoint, the platform token endpoint and
  * the platform callback below. That client does not offer a loopback redirect
  * on this flow. A localhost callback may be valid OAuth in general, but it is
