@@ -440,15 +440,18 @@ export function createCodeAnalysisProvider(
 					const cursor = decodeCursor(request.cursor, generation, q)
 					if ('error' in cursor) return failed(cursor.error)
 					offset = cursor.offset
-					total = Number(
-						(o.store.get(`SELECT count(*) AS n FROM strings s ${where}`, ...params) as Row).n,
-					)
-					rows = o.store.all(
-						`SELECT s.id, s.file_id, s.fn_id, s.start, s."end", s.kind, s.value FROM strings s ${where} ORDER BY s.id LIMIT ? OFFSET ?`,
-						...params,
-						limit,
-						offset,
-					)
+					o.store.snapshot(() => {
+						total = Number(
+							(o.store.get(`SELECT count(*) AS n FROM strings s ${where}`, ...params) as Row).n,
+						)
+						rows = o.store.all(
+							`SELECT s.id, s.file_id, s.fn_id, s.start, s."end", s.kind, s.value FROM strings s ${where} ORDER BY s.id LIMIT ? OFFSET ?`,
+							...params,
+							limit,
+							offset,
+						)
+						files.preload(rows.map((r) => Number(r.file_id)))
+					})
 					fresh = await checkFreshness(
 						o.store,
 						files,
@@ -798,16 +801,19 @@ export function createCodeAnalysisProvider(
 					const cursor = decodeCursor(request.cursor, generation, q)
 					if ('error' in cursor) return failed(cursor.error)
 					offset = cursor.offset
-					total = Number(
-						(o.store.get(`SELECT count(*) AS n FROM calls c ${where}`, ...params) as Row).n,
-					)
-					rows = o.store.all(
-						`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs, ${tierSql} AS tier FROM calls c ${where} ORDER BY tier, c.rowid LIMIT ? OFFSET ?`,
-						...resolvedParams,
-						...params,
-						limit,
-						offset,
-					)
+					o.store.snapshot(() => {
+						total = Number(
+							(o.store.get(`SELECT count(*) AS n FROM calls c ${where}`, ...params) as Row).n,
+						)
+						rows = o.store.all(
+							`SELECT c.rowid AS rid, c.file_id, c.fn_id, c.start, c.callee, c.kind, c.nargs, ${tierSql} AS tier FROM calls c ${where} ORDER BY tier, c.rowid LIMIT ? OFFSET ?`,
+							...resolvedParams,
+							...params,
+							limit,
+							offset,
+						)
+						files.preload(rows.map((r) => Number(r.file_id)))
+					})
 					freshness = await checkFreshness(
 						o.store,
 						files,
