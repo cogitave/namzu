@@ -76,7 +76,7 @@ Each of those jobs installs and builds on its own, and `Record the validated tre
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
-| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
+| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs scripts/__tests__/prune-stale-tsc-outputs.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Every workspace test script is scheduled | `node --test scripts/__tests__/check-test-coverage-union.test.mjs && node .github/scripts/check-test-coverage-union.mjs` |
 | Type check | `pnpm typecheck` |

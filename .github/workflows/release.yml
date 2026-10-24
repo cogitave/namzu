@@ -167,7 +167,7 @@ jobs:
       - name: The two paths onto main run the same gates
         if: steps.revalidation.outputs.skip != 'true'
         run: |
-          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs
+          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs scripts/__tests__/prune-stale-tsc-outputs.test.mjs
           node .github/scripts/check-workflow-gate-parity.mjs
 
       - name: Project references match workspace dependencies
