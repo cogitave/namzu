@@ -13,7 +13,7 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 `statusLine` names a command. The interactive terminal runs it, hands it a
 JSON object describing the session on stdin, and draws what it prints, dimmed,
 on the rows directly above the footer line. The key, the field names and the
-rules for when it runs are fixed, so a script that reads these fields works
+rules for when it runs are documented here, so a script that reads these fields works
 here unchanged where the field exists.
 
 ```yaml

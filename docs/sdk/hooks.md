@@ -120,7 +120,7 @@ Entries of one event run in parallel; see above for how their answers combine.
 
 ### Where shell hooks differ from the common hook contract
 
-The JSON answer, the exit codes and the options above follow a fixed hook contract. These differences are deliberate:
+The JSON answer, the exit codes and the options above follow the JSON hook contract. These differences are deliberate:
 
 - **A hook's `allow` is narrower.** It never covers a sandbox escape, a path outside the roots, a call the tool always asks about, an explicit review rule's call or a destructive call, and it never reopens a deny. A hook `deny` always wins.
 - **A rewrite is checked twice.** `updatedInput` is validated like a model-supplied input and then authorized as the rewritten call, so a rewrite can neither slip past a rule nor reach a tool whose schema refuses it.

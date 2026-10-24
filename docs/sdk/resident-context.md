@@ -127,7 +127,7 @@ When the host mounts [resident recall tools](resident-recall.md), pass their
 source's scope as `history`. The factory rejects a different tenant, resident or
 pursuit, adds static retrieval guidance and captures the upper revision in the
 request-only snapshot. Changing that revision does not change the static prefix.
-The context survives compaction; historical text is fetched only when a tool
+The reference survives compaction; historical text is fetched only when a tool
 is called. Do not pass this option without mounting and authorizing the tools.
 
 After mounting the separately authorized [retained tool evidence tools](retained-tool-evidence.md),
