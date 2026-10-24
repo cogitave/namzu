@@ -287,5 +287,5 @@ it('uses Ctrl+C to cancel the editor without arming App exit', async () => {
 	screen.press('\x03')
 	await waitUntil(screen, () => painted(screen).includes('Type a message'))
 
-	expect(painted(screen)).not.toContain('Press Ctrl+C again to exit.')
+	expect(painted(screen)).not.toContain('Press Ctrl-C again to exit')
 })

@@ -4051,7 +4051,7 @@ describe('viewing an agent', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await waitUntil(
 			screen,
-			() => /◯ busy\s+Busy one\s+\S+ · 2 queued/u.test(screen.viewport().join('\n')),
+			() => /◯ busy\s+Busy one\s+\S+(?: \S+)* · 2 queued/u.test(screen.viewport().join('\n')),
 			'no queued count',
 		)
 	})

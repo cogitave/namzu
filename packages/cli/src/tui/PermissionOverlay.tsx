@@ -295,7 +295,7 @@ export function permissionAnswers(
 	if (options.screenConsent)
 		return [
 			{ label: 'Yes, share my screen for this conversation', kind: 'approve' },
-			{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
+			{ label: 'No, and tell Namzu what to do differently (esc)', kind: 'reject' },
 		]
 	const workflow = toolCalls.length === 1 && toolCalls[0]?.name === 'workflow'
 	const agents =
@@ -307,7 +307,7 @@ export function permissionAnswers(
 				? 'Start this agent'
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
-	const reject = agents ? 'Do not start' : 'No, and tell namzu what to do differently (esc)'
+	const reject = agents ? 'Do not start' : 'No, and tell Namzu what to do differently (esc)'
 	const extra = options.batchOnly ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
@@ -490,7 +490,7 @@ export function PermissionOverlay({
 					<Text color={theme.text.primary} bold>
 						{terminalDisplayText(
 							sharing
-								? 'Let namzu see your screen for the rest of this conversation?'
+								? 'Let Namzu see your screen for the rest of this conversation?'
 								: permissionQuestion(toolCalls),
 						)}
 					</Text>

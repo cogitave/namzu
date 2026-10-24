@@ -328,7 +328,7 @@ describe('the permission prompt', () => {
 
 		stdin.write('\x1b[B')
 		await tick(50)
-		expect(lastFrame()).toContain('❯ 2. No, and tell namzu what to do differently')
+		expect(lastFrame()).toContain('❯ 2. No, and tell Namzu what to do differently')
 
 		settle()
 		stdin.write('\r')
@@ -445,7 +445,7 @@ describe('the permission prompt', () => {
 		// assertions that could not fail, guarding the advertisement that four
 		// separate fixes tonight were about.
 		expect(frame).not.toContain('allow all tools')
-		expect(frame).toContain('tell namzu what to do differently')
+		expect(frame).toContain('tell Namzu what to do differently')
 		// The advertisement is the contract the handler is held to: Enter
 		// confirms the highlighted answer, and the box says so.
 		expect(frame.toLowerCase()).toContain('enter confirm')

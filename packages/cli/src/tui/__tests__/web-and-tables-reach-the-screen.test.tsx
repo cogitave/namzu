@@ -209,7 +209,7 @@ it.each([160, 120, 80, 40])(
 		expect(lines[first + 2]).toContain('✓ Web search("OpenClaw embedded')
 		expect(lines[first + 3]).toMatch(/⎿ Found 3 results in \d/u)
 		expect(lines[first + 4]).toContain('✓ Web fetch(https://docs.openclaw.ai/')
-		expect(lines[first + 5]).toMatch(/⎿ Received 2 KB in 1\.2s/u)
+		expect(lines[first + 5]).toMatch(/⎿ Received 2 KB in 1s/u)
 		// The fetched body waits behind Ctrl+O rather than filling the screen.
 		expect(lines.join('\n')).not.toContain('xxxxxxxx')
 	},

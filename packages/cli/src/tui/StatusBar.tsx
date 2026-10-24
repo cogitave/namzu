@@ -34,6 +34,15 @@ export interface StatusBarProps {
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
+	/** Draw the hint dim (a passing notice such as the exit reminder) rather than in the state's colour. */
+	readonly hintDim?: boolean
+	/**
+	 * A dialog or picker owns the keyboard and prints its own keys. One rule
+	 * for every such screen: the footer keeps the mode and its facts, and names
+	 * no key the screen does not answer to, neither the cycle key nor
+	 * `esc to interrupt` (Esc belongs to the dialog).
+	 */
+	readonly dialogOpen?: boolean
 	/** The mode governing undecided tool calls. Omitted or 'prompt' shows the quiet cycle reminder instead of a badge. */
 	readonly permissionMode?: PermissionMode
 	/** Whether Shift+Tab actually reaches `permissionMode` here, so the footer never advertises a dead key. */
@@ -142,6 +151,8 @@ export function StatusBar({
 	goal,
 	state,
 	hint,
+	hintDim = false,
+	dialogOpen = false,
 	permissionMode,
 	canCycleMode,
 	composerMounted = true,
@@ -183,16 +194,20 @@ export function StatusBar({
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
-			: composerMounted && restingHint && !working && nothingElse
+			: composerMounted && !dialogOpen && restingHint && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
 		// The reference drops the cycle key as soon as a background task is on
 		// the row: the pill is what the row is about then.
 		cycleSuffix:
-			activeMode && canCycleMode && composerMounted && shellCount + monitorCount === 0
+			activeMode &&
+			canCycleMode &&
+			composerMounted &&
+			!dialogOpen &&
+			shellCount + monitorCount === 0
 				? CYCLE_SUFFIX
 				: null,
-		interrupt: working && !hint ? INTERRUPT_HINT : null,
+		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
 		context: contextMeter?.text ?? null,
 		shells: backgroundPill(shellCount, monitorCount),
 		agents:
@@ -300,7 +315,15 @@ export function StatusBar({
 				)}
 				<Text>{layout.gap}</Text>
 				{layout.right.kind === 'text' ? (
-					<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
+					<Text
+						color={
+							layout.right.isGoal
+								? theme.accent.system
+								: hintDim
+									? theme.text.muted
+									: colorForState(state)
+						}
+					>
 						{layout.right.text}
 					</Text>
 				) : layout.right.model ? (

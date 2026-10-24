@@ -26,9 +26,7 @@ it('counts down once a second and names the attempt out of ten', async () => {
 		},
 		'openai',
 	)
-	const view = render(
-		<LiveActivity activeTools={[]} working interruptible animate={false} waitNotice={notice} />,
-	)
+	const view = render(<LiveActivity activeTools={[]} working animate={false} waitNotice={notice} />)
 	try {
 		const first = view.lastFrame() ?? ''
 		expect(first).toContain('The request failed.')
@@ -63,7 +61,6 @@ it("shows a hook's own status line without a retry clock", () => {
 		<LiveActivity
 			activeTools={[]}
 			working
-			interruptible
 			animate={false}
 			waitNotice={{ what: 'Checking the change' }}
 		/>,

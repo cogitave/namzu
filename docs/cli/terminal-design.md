@@ -79,7 +79,15 @@ items are joined by a dim ` · `, left to right:
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
   (Namzu's own item; the reference has none).
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
-  already carries a hint that names Esc).
+  already carries a hint that names Esc, and while a dialog or picker owns the
+  keyboard: Esc declines or goes back there, and the footer then keeps the mode
+  without its `(shift+tab to cycle)` key as well, one rule for every such
+  screen). The Working row does not repeat it; it lives here only.
+- **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
+  on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
+  in the right-hand slot for 800 ms; the same key again inside that window
+  exits. Nothing is written to the transcript, so nothing stays in scrollback.
+  Ctrl+D with anything typed remains delete-forward.
 - **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
   and N of them are running (agents plus workflow runs; capped at `99+`). It
   shows while a turn runs and while idle, and only with nothing typed, pasted
@@ -513,7 +521,9 @@ live state belongs to the rail.
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
-  `✻ Worked for 46s`, when it finished normally and took three seconds or more;
+  `✻ Worked for 46s`, when it finished normally and took three seconds or more
+  (time spent waiting for a permission or a question to be answered is left
+  out);
   a quicker answer, or a turn that was stopped or cancelled (which already says
   how it ended), adds no line.
 
@@ -699,7 +709,14 @@ accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
-tokens · esc to interrupt)`. The count is the provider's reported output
+tokens)`. The parenthesised figures stay hidden until the reply has produced
+tokens, the model is thinking, a compaction runs, agents are running, or the
+turn has lasted more than 16 s; elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
+(seconds floored, the same format on every duration in the transcript). A blank
+row separates the last transcript row from the Working row. With no token for
+more than 10 s the label blends toward `rgb(171,43,63)`, fully at 20 s, easing in
+and out; it never tints while a tool runs, the model is thinking, a compaction
+runs or a question waits for you, and it resets on the next token. The count is the provider's reported output
 tokens for the turn plus an estimate (characters over four) of the reply and
 reasoning streamed since that report, redrawn at most five times a second; it
 is absent until the model has written something. On a narrow terminal the
@@ -1030,7 +1047,7 @@ silently replace an installation identity.
 
 ## Terminal notifications
 
-Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; the reference's 60 000 ms rule). Nothing in a notice carries conversation text.
+Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; the reference's 60 000 ms rule). The `approval-required` notice (and the `approval_required` notification hook) goes out only when the dialog has been open for 6 s with no key pressed since it opened, retried until the person has been quiet that long, and not at all when it is answered first (`approval.ts`; the reference's 6000 ms rule), so someone at the screen is never pinged. Nothing in a notice carries conversation text.
 
 `tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL; the reference's terminator was not traced.
 
