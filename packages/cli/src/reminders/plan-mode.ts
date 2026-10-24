@@ -3,7 +3,7 @@ import type { Message } from '@namzu/sdk'
 import { type ReminderKind, frameReminder, isOperatorTurn, reminderKindOf } from './frame.js'
 
 /**
- * Plan-mode reminders, on the cadence the reference terminal uses: a reminder
+ * Plan-mode reminders: a reminder
  * is sent when plan mode is on and none has been sent in the last 5 operator
  * turns; the first of a stretch is the full text, and so is every 5th after it
  * (1st, 6th, 11th …); the ones between are one short line. Leaving plan mode

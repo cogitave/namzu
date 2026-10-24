@@ -1,8 +1,8 @@
 /**
  * The JSON a status line command reads on stdin.
  *
- * Field names are the reference terminal's, so a script written for it reads
- * the same object here. A field appears only when this terminal has the
+ * Field names match the established status-line input shape, so existing scripts keep
+ * working. A field appears only when this terminal has the
  * fact; a script must read every field except `session_id`, `cwd`, `model`,
  * `workspace` and `version` as possibly absent. What is never sent, because
  * Namzu has no data for it: `output_style`, `fast_mode`, `thinking`,
@@ -38,7 +38,7 @@ export interface StatusLinePayloadInput {
 	readonly context?: { readonly tokens: number; readonly windowTokens: number } | undefined
 }
 
-/** The review words the reference uses; `merged` has no counterpart there, so none is sent. */
+/** The review words sent; `merged` has no counterpart among them, so none is sent. */
 const REVIEW_STATE: Readonly<Record<string, string>> = {
 	approved: 'approved',
 	changes: 'changes_requested',

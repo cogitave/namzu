@@ -1,8 +1,8 @@
 /**
  * A "don't ask again" answer survives the session: it is written to the
  * project's `namzu.config.local.json`, which the next session reads back as
- * the local layer, and git ignores the file. The command is remembered as the
- * reference suggests it, a two-word prefix where that is safe and the exact
+ * the local layer, and git ignores the file. The command is remembered as a
+ * two-word prefix where that is safe and the exact
  * command otherwise.
  */
 

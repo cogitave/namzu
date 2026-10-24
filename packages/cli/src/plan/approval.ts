@@ -3,7 +3,7 @@ import type { PermissionMode } from '../permissions/mode.js'
 /**
  * The approval the person gives a plan.
  *
- * Rows and order follow the reference terminal's dialog when no "clear the
+ * Rows and order, when no "clear the
  * context" row is configured: the first row leaves plan mode for auto-accepting
  * edits (or, when the session may run without asking, for that), the second for
  * asking before each edit, and the last is a text row, "keep planning", whose

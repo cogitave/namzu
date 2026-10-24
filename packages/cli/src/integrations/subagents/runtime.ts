@@ -1924,8 +1924,7 @@ export async function createSubagentRuntime(
 	})
 
 	// The child's way to say something to the main conversation while it keeps
-	// working. The reference's `SendMessage` with `to: "main"` (REA, chunk
-	// 3dt2kg6m.js `deliver`, case `main`): the text is queued for the main
+	// working. Addressed with `to: "main"`: the text is queued for the main
 	// conversation's next turn, framed as coming from the agent; a name other
 	// than `main` is not addressable. Only the conversation, never another child.
 	const messageMainTool = defineTool({

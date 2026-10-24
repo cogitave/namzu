@@ -4,9 +4,8 @@
  * The label of a running agent (`activity-label.ts`) is one more provider
  * request the turn causes, and the turn's token ledger is the account of what a
  * turn spends. A request made outside it would be spend the person's limit
- * never sees. The reference counts these requests with the rest of the session
- * (its `agent_summary` calls go through the same cost tracker), so this does
- * too, with the ledger's own public API and no addition to it:
+ * never sees. These requests go through the same cost tracker as the rest of
+ * the session, so this does too, with the ledger's own public API and no addition to it:
  *
  * - a small allowance is reserved from the turn's root account for the one
  *   request, as a child account bound to its own turn id, so it can run beside

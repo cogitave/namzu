@@ -1,8 +1,8 @@
 /**
  * Where a "don't ask again" answer is written.
  *
- * The reference terminal writes an allow rule to the project's local settings
- * file, which git does not track, and keeps git
+ * An allow rule is written to the project's local settings
+ * file, which git does not track, and Namzu keeps git
  * from tracking it by adding `**` + the file's name to the person's GLOBAL
  * git ignore (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else
  * `~/.config/git/ignore`) the first time it writes one, when the folder is in
@@ -149,8 +149,8 @@ export type IgnoreOutcome =
 	| { readonly state: 'tracked' | 'not-read' | 'failed'; readonly reason: string }
 
 /**
- * Make git ignore the local config in every repository, as the reference does
- * for its own: one `**` + name line in the global ignore file, only when the
+ * Make git ignore the local config in every repository: one `**` + name line in the global ignore
+ * file, only when the
  * folder is in a git work tree and git does not ignore the file already.
  * Never throws; the answer was remembered either way.
  */

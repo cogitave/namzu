@@ -69,8 +69,8 @@ describe('the review cases, with the result they should have', () => {
 		expect(stateOf(text, id)).toBe(expected)
 	})
 
-	it('never arms on the other agent keyword', () => {
-		for (const text of ['ultracode fix the flaky test', 'fix it, ultracode', 'ultracode']) {
+	it('never arms on a word that is not a trigger', () => {
+		for (const text of ['megamode fix the flaky test', 'fix it, megamode', 'megamode']) {
 			expect(detectTriggers(text, REGISTRY, CONTEXT).hits).toEqual([])
 		}
 	})

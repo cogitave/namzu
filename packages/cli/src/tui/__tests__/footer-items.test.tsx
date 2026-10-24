@@ -31,14 +31,14 @@ async function row(props: Partial<StatusBarProps>, cols = 100): Promise<string> 
 }
 
 describe('the footer row', () => {
-	it('reads like the reference: mode, pull request, shells, joined by dots', async () => {
+	it('reads in this order: mode, pull request, shells, joined by dots', async () => {
 		const text = await row({
 			permissionMode: 'bypass',
 			canCycleMode: true,
 			pr: PR('approved'),
 			shellCount: 1,
 		})
-		// A running background task takes the cycle key off the row, as in the reference.
+		// A running background task takes the cycle key off the row.
 		expect(text).toContain('⏵⏵ bypass permissions on · PR #592 · 1 shell')
 		expect(text).not.toContain('/jobs')
 		expect(text.trimEnd()).toMatch(/gpt-5\.6-terra$/)
@@ -46,10 +46,9 @@ describe('the footer row', () => {
 		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
 	})
 
-	// Reference (REA fn bGe, chunk-2rs9vjmc.js, with Fye in chunk-fdh2jsht.js): the
-	// cycle key leaves the row only while a background task is counted, and the
-	// count (`Bwt`) leaves agents and workflows out when the agents panel is on —
-	// they are rows of their own. Shells are counted.
+	// The cycle key leaves the row only while a background task is counted, and the
+	// count leaves agents and workflows out when the agents panel is on — they are
+	// rows of their own. Shells are counted.
 	it('counts monitors apart from shells in the same pill', async () => {
 		expect(await row({ shellCount: 2, monitorCount: 1 })).toContain('2 shells · 1 monitor')
 		expect(await row({ monitorCount: 3 })).toContain('3 monitors')
@@ -72,7 +71,7 @@ describe('the footer row', () => {
 		expect(withShell).toContain('1 shell')
 	})
 
-	it('puts esc to interrupt, the agents hint and the manage hint last, in the reference order', async () => {
+	it('puts esc to interrupt, the agents hint and the manage hint last, in that order', async () => {
 		const text = await row(
 			{
 				permissionMode: 'bypass',

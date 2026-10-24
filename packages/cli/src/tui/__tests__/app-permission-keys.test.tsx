@@ -600,7 +600,7 @@ describe('the answers beyond yes and no', () => {
 
 describe('/permissions session mode', () => {
 	// It used to be refused ("Permissions were not changed. Finish or stop the
-	// current work first."). The reference terminal applies a mode change at
+	// current work first."). A mode change applies at
 	// once, mid-turn; the running turn reads the mode at each decision, so the
 	// change governs its next call, and the turn itself was still sent under
 	// the mode current when it began.

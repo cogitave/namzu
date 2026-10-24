@@ -3786,8 +3786,7 @@ describe('parent narration', () => {
 	})
 })
 
-// Reference (REA chunk-3dt2kg6m.js `deliver`, case `main`; chunk-qqxerxtw.js
-// helper Pre): a running sub-agent that sends to `main` leaves the collapsed
+// A running sub-agent that sends to `main` leaves the collapsed
 // row `› Message from @name (ctrl+o to expand)`, and the text is queued for the
 // main conversation's next turn, starting one when it is idle.
 describe('a running agent that messages the conversation', () => {
@@ -3994,9 +3993,9 @@ describe('viewing an agent', () => {
 		expect(send).toHaveBeenCalledWith('v2', 'please also count lines', expect.any(Object))
 	})
 
-	// Reference: a built-in command is never the agent's. `/model` is refused,
+	// A built-in command is never the agent's. `/model` is refused,
 	// the history commands ask first, the rest run against the conversation, and
-	// other `/` text is for the agent (REA fns p3e and Ece).
+	// other `/` text is for the agent.
 	describe('slash commands typed in the view', () => {
 		async function type(screen: Awaited<ReturnType<typeof viewSecond>>, line: string) {
 			screen.press(line)
@@ -4105,8 +4104,8 @@ describe('viewing an agent', () => {
 		expect(screen.viewport().join('\n')).toContain('hello again')
 	})
 
-	// Reference: Esc on a running agent stops it and does not leave the view;
-	// on one that has ended it leaves the view (REA fn Y_e, chunk-2rs9vjmc.js).
+	// Esc on a running agent stops it and does not leave the view;
+	// on one that has ended it leaves the view.
 	it('stops a running agent with Esc and stays in its view', async () => {
 		allowMessages()
 		stoppedChildren.length = 0
@@ -4134,7 +4133,7 @@ describe('viewing an agent', () => {
 		expect(stoppedChildren).toEqual([])
 	})
 
-	// Reference: Ctrl+C stops a running agent and always leaves the view (REA fn ese).
+	// Ctrl+C stops a running agent and always leaves the view.
 	it('stops a running agent with Ctrl+C and goes back to the conversation', async () => {
 		allowMessages()
 		stoppedChildren.length = 0

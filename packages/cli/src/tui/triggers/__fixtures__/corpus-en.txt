@@ -14,8 +14,8 @@ see https://example.com/hypermode for details
 open src/hypermode/save-it-as-a-skill.ts
 > hypermode fix the flaky test
 @hypermode please look at this
-ultracode fix the flaky test
-fix the flaky test, ultracode
+megamode fix the flaky test
+fix the flaky test, megamode
 use a workflow for this
 how do I fix this and save it as a skill?
 don't save it as a skill

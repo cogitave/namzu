@@ -10,8 +10,7 @@ import {
 } from '../activity-label.js'
 import { SubagentActivityMonitor } from '../activity.js'
 
-// Reference (REA fn Vd, chunk-nre510sa.js): the label is written in the
-// configured language, else the notes' predominant language. Namzu has no
+// The label is written in the notes' predominant language: Namzu has no
 // language setting, so the notes decide.
 describe('the language of a label', () => {
 	it('asks for the predominant language of the notes, not of the instructions or of stray words', () => {

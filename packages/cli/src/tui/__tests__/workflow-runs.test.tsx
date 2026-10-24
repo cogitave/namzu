@@ -192,7 +192,7 @@ describe('the rail', () => {
 		expect(railWorkflows(shown(), NOW, new Set([row?.focusId ?? '']), [ended])).toHaveLength(0)
 	})
 
-	it('draws the row as the reference does, after nothing else', async () => {
+	it('draws the row after nothing else', async () => {
 		const rows = railWorkflows(shown(), NOW, new Set(), [run()])
 		mounted = await renderToScreen(
 			<Box flexDirection="column" paddingX={1}>

@@ -3,7 +3,7 @@ import type { Message, Task } from '@namzu/sdk'
 import { frameReminder, reminderKindOf } from './frame.js'
 
 /**
- * The task-list nudge, on the reference terminal's numbers: after 10 model
+ * The task-list nudge: after 10 model
  * turns without a task tool, and no more than once per 10 model turns, the
  * model is reminded the list exists and shown its current contents.
  *

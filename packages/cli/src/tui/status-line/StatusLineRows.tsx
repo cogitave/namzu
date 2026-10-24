@@ -1,8 +1,7 @@
 /**
  * The status line's rows: each line of the command's output, dim, cut at the
  * terminal's edge, with the config's `padding` columns either side. Colours
- * from the script survive the dimming only until the script resets them, as
- * in the reference.
+ * from the script survive the dimming only until the script resets them.
  */
 
 import { Box, Text } from 'ink'

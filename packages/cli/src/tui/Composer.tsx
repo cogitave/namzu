@@ -513,7 +513,7 @@ function composerDisplayValue(
  * Terminal Ctrl+W / Unix word-rubout semantics.
  *
  * Punctuation is part of the word: `hello-world` disappears as one unit. The
- * boundary is whitespace, matching the reference composer and the shell habit
+ * boundary is whitespace, matching the shell habit
  * operators already bring to this key.
  */
 export function deletePreviousWord(source: string): string {

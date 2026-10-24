@@ -5,7 +5,7 @@
  * timeout, an abort) is no line. stderr is ignored, as it must not reach a
  * screen that is being drawn.
  *
- * The reference gives a status line the hook default deadline, ten minutes,
+ * A status line gets the hook default deadline, ten minutes,
  * and relies on the next run aborting a stuck one; so do we.
  */
 

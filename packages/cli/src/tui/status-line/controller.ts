@@ -1,7 +1,7 @@
 /**
  * When the status line command runs.
  *
- * The reference's rules, in order:
+ * The rules, in order:
  *
  * - once when the line first mounts, and at once when the command string
  *   changes;

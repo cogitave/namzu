@@ -2,7 +2,7 @@
  * The "waiting for you" notice: sent once when a finished turn has been left
  * alone for a minute.
  *
- * The condition is the reference terminal's, read from its code. Sixty seconds
+ * Sixty seconds
  * after a turn completes, and only if all of these hold at that moment:
  *
  * - the person has not touched the keyboard since the turn completed;
@@ -18,7 +18,7 @@
  * a test advances time itself instead of waiting for it.
  */
 
-/** The reference's default (`messageIdleNotifThresholdMs`). */
+/** The default wait (`messageIdleNotifThresholdMs`). */
 export const IDLE_NOTIFICATION_MS = 60_000
 
 export interface IdleNotifierDeps {

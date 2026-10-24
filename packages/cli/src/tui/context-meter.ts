@@ -2,7 +2,7 @@
  * The footer's context meter: how close the window is to the point where the
  * conversation gets summarised.
  *
- * The reference terminal shows nothing until the context is within 20,000
+ * The meter shows nothing until the context is within 20,000
  * tokens of its auto-compact threshold, then `N% until auto-compact` (dim),
  * or, with auto-compact off, `Context low (N% remaining) · Run /compact to
  * compact & continue` (red). The percentage counts down to the threshold the

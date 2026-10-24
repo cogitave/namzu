@@ -68,7 +68,7 @@ describe('composerTriggers shape', () => {
 		['composerTriggers:\n  enabeld: false\n', 'composerTriggers.enabeld'],
 		['composerTriggers:\n  enabled: "no"\n', 'composerTriggers.enabled'],
 		['composerTriggers:\n  languages: [en, de]\n', 'composerTriggers.languages[1]'],
-		['composerTriggers:\n  builtin:\n    ultracode: arm\n', 'composerTriggers.builtin.ultracode'],
+		['composerTriggers:\n  builtin:\n    megamode: arm\n', 'composerTriggers.builtin.megamode'],
 		[
 			'composerTriggers:\n  builtin:\n    hypermode: always\n',
 			'composerTriggers.builtin.hypermode',

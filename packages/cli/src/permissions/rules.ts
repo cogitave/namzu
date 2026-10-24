@@ -503,8 +503,7 @@ export function permissionLayersOf(config: {
  *
  * Each layer decides on its own, by the rules it always had: first match, the
  * most specific pattern first, a narrower allow beating a broader deny of the
- * same table. The layers are then combined the way the reference terminal
- * combines its sources: a layer that denies the call denies it, else a layer
+ * same table. The layers are then combined this way: a layer that denies the call denies it, else a layer
  * that asks asks, else a layer that allows allows, and no layer's word is lost
  * because a higher one wrote a table of its own. Which layer is higher does
  * not matter to the outcome, so a managed table adds to the rules below it
