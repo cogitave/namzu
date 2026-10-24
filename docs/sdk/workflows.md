@@ -85,13 +85,13 @@ substitution, so an operator can review it before anything runs.
 
 | Name | Meaning |
 | --- | --- |
-| `agent(prompt, opts?)` | Start a subagent. Options: `label`, `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
+| `agent(prompt, opts?)` | Start a subagent. Options: `label` (default: the first 60 characters of the prompt, whitespace squeezed), `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
 | `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It never rejects: a thunk that throws resolves to `null` in its place, and the reason goes through `log()` (`parallel item 2 failed: …`). Filter with `.filter(Boolean)`. |
-| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(value, index, item)`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on. |
+| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on. |
 | `phase(title)` | Move the global phase cursor. |
 | `log(message)` | A progress line (at most 2000 characters). |
 | `args` | The JSON you passed to `run()`. |
-| `budget` | `{ tokensUsed, tokenLimit? }`, a snapshot refreshed on each `agent()` result. |
+| `budget` | `{ total, spent(), remaining() }`. `total` is `limits.tokenBudget` or `null`; `spent()` is the tokens this run's agents have used, refreshed on each `agent()` result; `remaining()` is `max(0, total - spent())`, or `Infinity` with no target. It is a hard ceiling: once `spent()` reaches `total`, `agent()` throws a `WorkflowBudgetExceededError` (agents already running finish), `pipeline()` throws at its start, and inside `parallel()` / `pipeline()` the throw drops the slot to `null` with one summary line. `tokensUsed` and `tokenLimit` remain as deprecated aliases. Guard loops on `budget.total` and give them a hard iteration cap. |
 
 `return` supplies the result. There is no `require`, `process`, `fetch`, timer
 or `import()`. This version leaves out nested `workflow()`, worktree isolation, resume from a journal and
@@ -155,12 +155,12 @@ reason; running agents are aborted.
 
 | Limit | Default | Range |
 | --- | --- | --- |
-| `maxConcurrency` | `min(8, cpus - 2)`, at least 1 | 1-16 |
-| `maxAgents` | 200 | 1-1000 |
+| `maxConcurrency` | `min(16, cpus - 2)`, at least 2 | 1-16 |
+| `maxAgents` | 1000 | 1-1000 |
 | `maxSourceBytes` | 256 KiB | up to 4 MiB |
 | `memoryLimitBytes` | 64 MiB | 16-256 MiB |
 | `maxValueBytes` | 1 MiB | one value crossing the bridge, either way |
-| `tokenBudget` | none | when `tokensUsed` reaches it, no new agent is admitted; it resolves `null` with an `error` event |
+| `tokenBudget` | none | the script's `budget.total`; when `spent()` reaches it, `agent()` throws and no new agent is admitted |
 | `maxDurationMs` | 6 hours | wall clock for the whole run |
 | `cpuSliceMs` / `cpuTotalMs` | 2 s / 60 s | synchronous script time per stretch and in total |
 
