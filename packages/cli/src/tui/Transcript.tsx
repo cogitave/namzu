@@ -9,8 +9,9 @@
 import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
-import { type DiffInfo, diffViewBody } from './diff-view.js'
+import { type DiffInfo, diffViewBody, viewRowText } from './diff-view.js'
 import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
+import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
 import { Checklist, checklistLine } from './Checklist.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
@@ -148,6 +149,7 @@ export function Transcript({
 						<Box
 							key={row.kind === 'header' ? 'header' : row.message.id}
 							flexDirection="column"
+							width={columns}
 							paddingLeft={staticIndent}
 							paddingRight={staticIndent}
 						>
@@ -258,6 +260,8 @@ function MessageRow({
 			: message.content
 	const content = message.role === 'assistant' ? message.content : terminalDisplayText(shellHeader)
 	const width = useContentWidth()
+	// A long message is echoed by its two ends, with a note of what lies between.
+	const userCut = message.role === 'user' ? cutUserText(content) : content
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
@@ -299,6 +303,16 @@ function MessageRow({
 							color={contentColorForRole(message.role)}
 							hyperlinks={hyperlinks}
 						/>
+					) : message.role === 'user' && typeof userCut === 'object' ? (
+						<Box flexDirection="column">
+							<Text color={contentColorForRole(message.role)} wrap="wrap">
+								{terminalDisplayText(userCut.head)}
+							</Text>
+							<Text color={theme.text.muted}>{hiddenTextRule(hiddenTextNote(userCut), width)}</Text>
+							<Text color={contentColorForRole(message.role)} wrap="wrap">
+								{terminalDisplayText(userCut.tail)}
+							</Text>
+						</Box>
 					) : !web && content.length > 0 ? (
 						// Every other row wraps the way a reply does, each row in the
 						// same column (see `markdown-wrap.ts`); a web row is cut instead.
@@ -431,19 +445,12 @@ function DetailBlock({
 }) {
 	if (diff) return <DiffBlock info={diff} expanded={expanded} canExpand={detailRef !== undefined} />
 	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
-	// A dim left rule (`▏`) under the gutter frames the output as a block,
-	// so tool output is visibly not the assistant speaking.
-	const Rule = () => (
-		<Box width={2} flexShrink={0}>
-			<Text color={theme.text.muted}>▏</Text>
-		</Box>
-	)
+	// Hung in the column the result's own words start in, like a shell body.
 	return (
-		<Box flexDirection="column" paddingLeft={1}>
+		<Box flexDirection="column" paddingLeft={SHELL_RESULT_INDENT}>
 			{shown.map((line, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
 				<Box key={`d-${i}`} flexDirection="row">
-					<Rule />
 					<Box flexGrow={1}>
 						<Text color={detailLineColor(line)} wrap="wrap">
 							{line.length > 0 ? line : ' '}
@@ -469,11 +476,10 @@ function DiffBlock({
 	readonly expanded: boolean
 	readonly canExpand: boolean
 }) {
-	// One cell short of the row, so a filled row never touches the last column.
-	const width = Math.max(10, useContentWidth() - 1)
+	const width = diffWidthFor(useContentWidth())
 	const rows = diffViewBody(info, { width, expanded, canExpand })
 	return (
-		<Box flexDirection="column" paddingLeft={2}>
+		<Box flexDirection="column" paddingLeft={SHELL_RESULT_INDENT}>
 			{rows.map((row, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
 				<Text key={`f-${i}`} wrap="truncate-end">
@@ -494,6 +500,21 @@ function DiffBlock({
 			))}
 		</Box>
 	)
+}
+
+/**
+ * The width a diff body is drawn at, given the width the row's text column has
+ * (the terminal less the padding and the glyph column). The body hangs from the
+ * result's own column, and stays one cell short of the edge so a filled row
+ * never touches the last column.
+ */
+function diffWidthFor(contentWidth: number): number {
+	return Math.max(10, contentWidth - (SHELL_RESULT_INDENT - 2) - 1)
+}
+
+/** The width a diff body is drawn at in a terminal `columns` wide. */
+function diffBodyWidth(columns: number): number {
+	return diffWidthFor(Math.max(10, columns - 4))
 }
 
 /** Whether the preview hides text and App should mark the body as expandable. */
@@ -555,13 +576,16 @@ function clipLine(line: string): string {
  * path. A copy of the collapse rule kept elsewhere would drift the first time
  * this number changed.
  */
-export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
+export function renderedDetailLines(
+	message: TranscriptMessage,
+	columns?: number,
+): readonly string[] {
 	// Drawn under the two-column content gutter, one row per task before wrapping.
 	const checklist = (message.checklist ?? []).map((item) => `  ${checklistLine(item)}`)
-	return [...checklist, ...renderedBodyLines(message)]
+	return [...checklist, ...renderedBodyLines(message, columns)]
 }
 
-function renderedBodyLines(message: TranscriptMessage): readonly string[] {
+function renderedBodyLines(message: TranscriptMessage, columns?: number): readonly string[] {
 	if (message.shell) {
 		// Hung under the `⎿` prefix: three columns of it plus the two of indent.
 		return shellResultRows(message.shell, { expanded: message.detailExpanded === true }).map(
@@ -571,37 +595,50 @@ function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
 		return []
-	if (message.diff) return renderedDiffLines(lines, message)
+	if (message.diff) return renderedDiffLines(lines, message, columns)
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
 		message.detailRef,
 	)
-	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
-	// plus the two-column `▏` rule. Those columns are not available to the text,
+	// Indented by the columns this block actually renders inside: the result's
+	// own indent and its `⎿` column. Those columns are not available to the text,
 	// so measuring a body line against the full terminal width under-counts how
 	// many rows it wraps to — and under-counting is the direction that grows the
 	// redrawable region too far. The prefix is what the estimator measures, so the
 	// arithmetic is done by making the string the width it really is.
-	const gutter = '   '
+	const gutter = ' '.repeat(SHELL_RESULT_INDENT)
 	return shown.map((line) => gutter + line)
 }
 
 /**
- * The rows a change will occupy, for the height estimate: its plain rows up to
- * the fold, indented by the two columns it sits in, each with the two cells the
- * gutter and the reserve take from the code so a long row is not under-counted.
+ * The rows a change will occupy, for the height estimate. With the terminal
+ * width known these are the rows the renderer really draws (wrapped, folded
+ * and with its notice), one string per drawn row and indented by the columns
+ * the body hangs in, so a long line that wraps is never under-counted. Without
+ * a width, the plain rows up to the fold, each with the two cells the gutter
+ * and the reserve take from the code.
  */
 function renderedDiffLines(
 	lines: readonly string[],
 	message: TranscriptMessage,
+	columns?: number,
 ): readonly string[] {
+	const indent = ' '.repeat(SHELL_RESULT_INDENT)
+	if (message.diff && columns !== undefined) {
+		const drawn = diffViewBody(message.diff, {
+			width: diffBodyWidth(columns),
+			expanded: message.detailExpanded === true,
+			canExpand: message.detailRef !== undefined,
+		})
+		return drawn.map((row) => `${indent}${terminalDisplayText(viewRowText(row))}`)
+	}
 	const preview = message.diff?.preview
 	const limit = message.detailExpanded === true || preview === undefined ? lines.length : preview
-	const shown = lines.slice(0, limit).map((line) => `  ${terminalDisplayText(line)}..`)
+	const shown = lines.slice(0, limit).map((line) => `${indent}${terminalDisplayText(line)}..`)
 	if (lines.length > limit) {
 		shown.push(
-			`  ${hiddenLinesHint(lines.length - limit, { canExpand: message.detailRef !== undefined })}`,
+			`${indent}${hiddenLinesHint(lines.length - limit, { canExpand: message.detailRef !== undefined })}`,
 		)
 	}
 	return shown

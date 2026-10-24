@@ -7309,7 +7309,9 @@ export function App({
 					: null
 
 				resetTranscript()
-				setMessages(projectConversation(forked.messages, nextId, readablePrefix))
+				setMessages(
+					projectConversation(forked.messages, nextId, readablePrefix, { cwd: ctxRef.current.cwd }),
+				)
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
