@@ -55,7 +55,7 @@ describe('the workflow trigger', () => {
 		})
 		expect(row).toBe('✦ workflow · this turn, offers the workflow tool · alt+w drop')
 		expect(transcriptTagLine(['workflow'], { effort: undefined, steered: false })).toBe(
-			'workflow (this reply)',
+			'Workflow is on for this reply.',
 		)
 		expect(triggerContextTexts(['workflow'])).toHaveLength(1)
 		expect(triggerEffort(['workflow'], ['low', 'high'])).toBeUndefined()
