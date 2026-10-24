@@ -706,7 +706,7 @@
 
 - **Update** [Delegated work](cli/delegated-work.md) adds a direct child composer, host-attributed operator notices, bounded durable observation replay and fresh tasks in retained child conversations; unsuccessful parent turns preserve unacknowledged notices. [Delegation lifecycle](sdk/delegation-events.md) preserves conversation identity and original lineage while allocating current authority, budgets and immutable invocation summaries. `.changeset/direct-child-operator-composer.md`, **minor** for `@namzu/cli`; `.changeset/child-conversation-continuation.md`, **minor** for `@namzu/sdk`.
 
-- **Update** [Communication investigation](../research/agent-messaging-20261001/CLAUDE-CHILD-WORKFLOW.md): record live corrections during blocking child tools, direct operator input and same-child follow-up; distinguish the existing delivery foundation from missing child-composer and completed-child continuation operations, including parent visibility of changed assignments.
+- **Update** Communication investigation: distinguish the existing delivery foundation from missing child-composer and completed-child continuation operations, including parent visibility of changed assignments.
 
 - **Update** [Messages between live terminals](cli/peer-messaging.md): clarify the separate failure-hold and goal-driver policies; record the completed [communication audit](../research/agent-messaging-20261001/FINAL-AUDIT.md), original/native TUI evidence and all 48 local gates.
 
