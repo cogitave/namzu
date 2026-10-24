@@ -35,7 +35,7 @@ export type HarnessCatalogueModel = HarnessModel & {
 	readonly current?: true
 }
 
-/** The Codex app writes "GPT-5.6 Sol" where its server says "GPT-5.6-Sol". */
+/** A server name "GPT-5.6-Sol" is shown as "GPT-5.6 Sol". */
 export function codexModelLabel(name: string): string {
 	return name.replace(/^(.*\d)-([A-Za-z][A-Za-z0-9]*)$/, '$1 $2')
 }

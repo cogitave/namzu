@@ -3,7 +3,7 @@ import type { ModelGroup, ModelListing } from '../tui/agent.js'
 import { withKeyNote } from '../tui/model-choices.js'
 
 /**
- * A GPT display name written "GPT-5.6-Sol" reads "GPT-5.6 Sol", as the Codex app writes it.
+ * A GPT display name written "GPT-5.6-Sol" reads "GPT-5.6 Sol".
  * Only names that start with "GPT-" change: ids, "gpt-4o", "o3-mini", "qwen2.5-coder" and
  * "Opus 5.5" pass through, and so does a raw id used as its own label.
  */
