@@ -34,7 +34,7 @@ both are fixed and exercised through the real runtime.
 
 The final header-role check additionally found that the adapter itself had
 manually composed 12px breadcrumb labels. The original WorkspaceBreadcrumb and
-ChatHeader title branch are now used locally and in the independent reference:
+ChatHeader title branch are now used locally and in the independent source render:
 14px medium labels, source line height/gaps and supported text-box trimming.
 The final native receipt records these header and sidebar child font roles.
 

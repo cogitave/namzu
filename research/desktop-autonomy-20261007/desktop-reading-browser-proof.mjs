@@ -29,7 +29,7 @@ await mkdir(artifacts, { recursive: true })
 const receipt = { passed: false, realRenderer: true, browserOnly: true, modelRequests: 0,
  computerActions: 0, nativeActions: 0, checks: [], screenshots: [],
  referenceEvidence: 'Pinned upstream source notes in ../README.md',
- limitations: ['Isolated event fixtures with 60 distinct historical turns; no provider prompt or native computer action.', 'Reference live DOM unavailable; no pixel-parity claim.'] }
+ limitations: ['Isolated event fixtures with 60 distinct historical turns; no provider prompt or native computer action.'] }
 
 
 await page.addInitScript(() => {
