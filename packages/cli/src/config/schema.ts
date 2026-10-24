@@ -78,10 +78,17 @@ export interface TurnLimitsConfig {
 
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
-	/** Agents one workflow runs at once. Default `min(8, CPUs - 2)`, at least 1; at most 16. */
+	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
 	readonly maxConcurrency?: number
-	/** Agents one workflow run may start. Default 200; at most 1000. */
+	/** Agents one workflow run may start. Default 1000; at most 1000. */
 	readonly maxAgents?: number
+	/**
+	 * How big a workflow the model is advised to write: `small` (under 5 agents),
+	 * `medium` (under 10, the default), `large` (under 50) or `unrestricted`
+	 * (no advice). A guideline, not a limit. Also sets when the rail warns of a
+	 * large run.
+	 */
+	readonly sizeGuideline?: 'unrestricted' | 'small' | 'medium' | 'large'
 }
 
 /** See `NamzuCliConfig.compaction`. */

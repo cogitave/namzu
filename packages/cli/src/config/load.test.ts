@@ -195,7 +195,15 @@ describe('workflow config', () => {
 		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
 		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
 	})
+	it('reads the size guideline', () => {
+		const home = userConfig('workflow:\n  sizeGuideline: large\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
+			sizeGuideline: 'large',
+		})
+	})
 	it.each([
+		'workflow:\n  sizeGuideline: huge\n',
+		'workflow:\n  sizeGuideline: 5\n',
 		'workflow: 4\n',
 		'workflow:\n  maxConcurrency: 17\n',
 		'workflow:\n  maxConcurrency: 0\n',

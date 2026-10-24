@@ -12830,7 +12830,13 @@ export function App({
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId)
 	railRowsRef.current = liveSubagents
-	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
+		hypermode,
+		...(ctxRef.current.workflow?.sizeGuideline !== undefined
+			? { configuredGuideline: ctxRef.current.workflow.sizeGuideline }
+			: {}),
+		env: process.env,
+	})
 	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents

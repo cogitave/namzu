@@ -202,11 +202,31 @@ describe('parallel and pipeline', () => {
 	it('pipeline stops an item at the first stage that resolves null', async () => {
 		const host = makeHost()
 		const { result } = await runScript(
-			`${META}return await pipeline([1, 2], (x) => (x === 1 ? null : agent('keep')), (t, i, item) => agent('next-' + i + '-' + item))`,
+			`${META}return await pipeline([1, 2], (x) => (x === 1 ? null : agent('keep')), (t, item, i) => agent('next-' + i + '-' + item))`,
 			{ host },
 		)
 		expect(result.result).toEqual([null, 'ok:next-1-2'])
 		expect(host.started.map((s) => s.request.prompt)).toEqual(['keep', 'next-1-2'])
+	})
+
+	it('pipeline stages get (prevResult, originalItem, index); the first stage gets the item twice', async () => {
+		const { result } = await runScript(
+			`${META}return await pipeline(['a', 'b'], (v, item, i) => [v, item, i], (v, item, i) => [v, item, i])`,
+		)
+		expect(result.result).toEqual([
+			[['a', 'a', 0], 'a', 0],
+			[['b', 'b', 1], 'b', 1],
+		])
+	})
+
+	it('labels an unlabelled agent with the first 60 characters of its prompt, whitespace squeezed', async () => {
+		const long = `${'word  \n'.repeat(20)}`
+		const { events } = await runScript(
+			`${META}await agent(${JSON.stringify(long)}); await agent('short  one', {label: ' own   label '})`,
+		)
+		const labels = agentEvents(events).map((e) => e.label)
+		expect(labels).toContain('word word word word word word word word word')
+		expect(labels).toContain('own label')
 	})
 
 	it('parallel never rejects: a throwing thunk resolves to null and says why through log()', async () => {
@@ -384,30 +404,48 @@ describe('scheduling', () => {
 		expect(host.started.every((s) => s.signal.aborted)).toBe(true)
 	})
 
-	it('stops admitting agents once the token budget is spent', async () => {
+	it('throws from agent() once the token budget is spent, and reports the budget object', async () => {
 		const host = makeHost()
-		const { result, events } = await runScript(
+		const { result } = await runScript(
 			`${META}const out = []
-			for (let i = 0; i < 4; i++) out.push(await agent('a' + i))
-			return { out, budget: { used: budget.tokensUsed, limit: budget.tokenLimit } }`,
+			let thrown = null
+			for (let i = 0; i < 4; i++) {
+				try { out.push(await agent('a' + i)) } catch (e) { thrown = e.name; break }
+			}
+			return { out, thrown, total: budget.total, spent: budget.spent(), remaining: budget.remaining(), used: budget.tokensUsed, limit: budget.tokenLimit }`,
 			{ host, limits: { tokenBudget: 15 } },
 		)
 		expect(result.result).toEqual({
-			out: ['ok:a0', 'ok:a1', null, null],
-			budget: { used: 20, limit: 15 },
+			out: ['ok:a0', 'ok:a1'],
+			thrown: 'WorkflowBudgetExceededError',
+			total: 15,
+			spent: 20,
+			remaining: 0,
+			used: 20,
+			limit: 15,
 		})
 		expect(host.started).toHaveLength(2)
-		const refused = agentEvents(events).filter((e) => e.state === 'error')
-		expect(refused).toHaveLength(2)
-		expect(refused[0]?.error).toMatch(/token budget/)
 		expect(result.usage.tokens).toBe(20)
 	})
 
-	it('exposes an unlimited budget as undefined', async () => {
-		const { result } = await runScript(
-			`${META}return typeof budget.tokenLimit + ':' + budget.tokensUsed`,
+	it('drops pipeline slots quietly when the budget runs out mid-chain', async () => {
+		const host = makeHost()
+		const { result, events } = await runScript(
+			`${META}return await pipeline([1], (x) => agent('s1'), (t) => agent('s2'), (t) => agent('s3'))`,
+			{ host, limits: { tokenBudget: 15 } },
 		)
-		expect(result.result).toBe('undefined:0')
+		expect(result.result).toEqual([null])
+		const logs = events
+			.filter((e) => e.type === 'workflow_log')
+			.map((e) => (e as { message: string }).message)
+		expect(logs).toEqual(['pipeline: 1 item dropped because the token budget is spent.'])
+	})
+
+	it('exposes no target as total null, remaining Infinity, and tokenLimit undefined', async () => {
+		const { result } = await runScript(
+			`${META}return [budget.total, budget.remaining() === Infinity, typeof budget.tokenLimit, budget.spent()]`,
+		)
+		expect(result.result).toEqual([null, true, 'undefined', 0])
 	})
 
 	it('validates limits with a plain RangeError', async () => {
@@ -603,7 +641,7 @@ describe('journal', () => {
 			args: { k: 1 },
 			meta: { name: 'j' },
 			scriptBytes: Buffer.byteLength(script),
-			limits: { maxAgents: 200 },
+			limits: { maxAgents: 1000 },
 		})
 		expect(records[3]).toMatchObject({
 			type: 'agent_request',

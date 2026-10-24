@@ -225,6 +225,17 @@ describe('narrowing a row', () => {
 		])
 	})
 
+	it('puts the large-run warning first, then the short form, and drops it as the row narrows', () => {
+		const large: RailWorkflow = { ...row, large: true }
+		const texts = workflowRowVariants(large, NOW).map((variant) => variant.text)
+		expect(texts.slice(0, 3)).toEqual([
+			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow · /workflows to stop',
+			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow',
+			'2m 14s · ↓ 48.2k · Large workflow',
+		])
+		expect(texts.slice(3)).toEqual(workflowRowVariants(row, NOW).map((variant) => variant.text))
+	})
+
 	it('shows no token segment before any agent reported spend', () => {
 		const quiet = workflowOf([agent({ viewId: 'q' })])
 		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m 14s')

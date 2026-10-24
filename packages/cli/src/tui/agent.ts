@@ -357,6 +357,12 @@ import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowOffered, workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
+import {
+	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+	parseTokenTarget,
+	workflowSizeAdvice,
+	workflowTokenCeiling,
+} from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
@@ -2033,7 +2039,10 @@ let builtinPresenter: ToolPresenter | undefined
  */
 export function builtinToolPresenter(): ToolPresenter {
 	builtinPresenter ??= createCliToolPresenter(
-		new ToolManager({ toolsets: [toolset('builtin', builtinTools(true))], messages: () => [] }),
+		new ToolManager({
+			toolsets: [toolset('builtin', builtinTools(true))],
+			messages: () => [],
+		}),
 	)
 	return builtinPresenter
 }
@@ -3279,6 +3288,9 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<TurnId, SessionScope>()
 	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
+	// The token target ("+500k") the person typed for a turn: the ceiling a
+	// workflow started in it sees as `budget.total`.
+	const workflowTokenTargets = new Map<TurnId, number>()
 	// A resumed turn that runs on another model than the session's (a
 	// scheduled job's): its children inherit that model, not the session's.
 	const delegationModels = new Map<TurnId, DelegatedModel>()
@@ -3726,11 +3738,17 @@ export async function createAgentSession(
 					},
 				}
 			},
+			sizeAdvice: workflowSizeAdvice(
+				options.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+				options.workflow?.sizeGuideline !== undefined,
+			),
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
+				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
+				const { sizeGuideline: _advice, ...caps } = options.workflow ?? {}
 				return {
-					...(budget !== undefined && budget > 0 ? { tokenBudget: budget } : {}),
-					...options.workflow,
+					...(ceiling !== undefined ? { tokenBudget: ceiling } : {}),
+					...caps,
 				}
 			},
 			onEnd: (end) => {
@@ -5272,6 +5290,8 @@ export async function createAgentSession(
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
 						delegationLimits.set(turnId, turnLimits)
+						const typedTarget = parseTokenTarget(lastUserText(messages))
+						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)
 						delegatedWorkflowAuth.set(turnId, {
 							interactive: opts?.workflowReview?.onPermission !== undefined,
 							mode: () => modeControl.current(),
@@ -5745,6 +5765,7 @@ export async function createAgentSession(
 							delegatedInputWaiters.delete(turnId)
 							delegationScopes.delete(turnId)
 							delegationLimits.delete(turnId)
+							workflowTokenTargets.delete(turnId)
 							delegatedWorkflowAuth.delete(turnId)
 							await subagentRuntime?.releaseTurn(turnId)
 						}
