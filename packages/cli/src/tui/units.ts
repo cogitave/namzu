@@ -15,3 +15,11 @@ export function formatCompactCount(value: number): string {
 	if (value < 1_000_000) return `${(value / 1_000).toFixed(1)}k`
 	return `${(value / 1_000_000).toFixed(2)}M`
 }
+
+/**
+ * How long a settled step took, or nothing when it was quick: a row that says
+ * `0.0s` on every instant tool is noise, and a person only needs the slow ones.
+ */
+export function settledElapsed(ms: number | undefined): string | undefined {
+	return ms !== undefined && ms >= 1000 ? formatElapsed(ms) : undefined
+}

@@ -418,7 +418,8 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
-import { formatCompactCount } from './units.js'
+import { EXPAND_HINT } from './truncation.js'
+import { formatCompactCount, settledElapsed } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
 
@@ -2711,6 +2712,7 @@ export function App({
 			activity?: TranscriptMessage['activity'],
 			sourceDelivery?: true,
 			shell?: ShellOutput,
+			diff?: TranscriptMessage['diff'],
 		) => {
 			const id = nextId()
 			const candidate = { role, content, pending, glyph, detail, activity }
@@ -2732,6 +2734,7 @@ export function App({
 								meta,
 								activity,
 								...(shell ? { shell } : {}),
+								...(diff ? { diff } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -2743,7 +2746,7 @@ export function App({
 								//
 								// Derived from `prev` rather than a counter, so the number is a
 								// fact about the transcript rather than a second record of it.
-								...((activity && detail?.length) || messageCollapses({ detail, shell })
+								...((activity && detail?.length) || messageCollapses({ detail, shell, diff })
 									? {
 											detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
 										}
@@ -7562,10 +7565,10 @@ export function App({
 							'tool',
 							event.headline ?? done.label,
 							false,
-							'└',
+							'⎿',
 							output,
 							theme.text.muted,
-							output.length > 0 ? 'ctrl+o output' : undefined,
+							output.length > 0 ? EXPAND_HINT : undefined,
 							'exploration',
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7588,7 +7591,7 @@ export function App({
 							'tool',
 							webCallTitle(activity),
 							false,
-							event.isError ? '✗' : '✓',
+							'●',
 							undefined,
 							event.isError ? theme.status.error : theme.status.ok,
 							undefined,
@@ -7609,7 +7612,7 @@ export function App({
 							'⎿',
 							outputLines,
 							undefined,
-							outputLines && outputLines.length > 0 ? 'ctrl+o output' : undefined,
+							outputLines && outputLines.length > 0 ? EXPAND_HINT : undefined,
 							'web',
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7633,7 +7636,7 @@ export function App({
 							'tool',
 							done?.label ?? formatToolCall(event.toolName, event.summary, true),
 							false,
-							event.isError ? '✗' : '✓',
+							'●',
 							undefined,
 							event.isError ? theme.status.error : theme.status.ok,
 						)
@@ -7652,7 +7655,7 @@ export function App({
 							'tool',
 							done?.label ?? formatToolCall(event.toolName, event.summary),
 							false,
-							'○',
+							'●',
 							undefined,
 							theme.text.muted,
 						)
@@ -7666,10 +7669,10 @@ export function App({
 							'tool',
 							done?.label ?? formatToolCall(event.toolName, event.summary),
 							false,
-							'○',
+							'●',
 							undefined,
 							theme.text.muted,
-							event.durationMs !== undefined ? formatElapsed(event.durationMs) : undefined,
+							settledElapsed(event.durationMs),
 						)
 						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7704,10 +7707,10 @@ export function App({
 							'tool',
 							catalogue,
 							false,
-							'✓',
+							'●',
 							event.output?.split('\n'),
 							theme.status.ok,
-							'ctrl+o details',
+							EXPAND_HINT,
 							'catalogue',
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7722,10 +7725,10 @@ export function App({
 							'tool',
 							evidence.content,
 							false,
-							'✓',
+							'●',
 							evidence.detail,
 							theme.status.ok,
-							'ctrl+o details',
+							EXPAND_HINT,
 							'evidence',
 						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -7767,14 +7770,11 @@ export function App({
 						'tool',
 						done?.label ?? formatToolCall(event.toolName, event.summary),
 						false,
-						event.isError ? '✗' : '✓',
-						done?.detail,
+						'●',
+						// The change to a file is drawn once, under its result.
+						event.diff ? undefined : done?.detail,
 						event.isError ? theme.status.error : theme.status.ok,
-						event.durationMs !== undefined
-							? formatElapsed(event.durationMs)
-							: done
-								? formatElapsed(Date.now() - done.startedAt)
-								: undefined,
+						settledElapsed(event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)),
 					)
 					if (
 						event.isError ||
@@ -7786,6 +7786,12 @@ export function App({
 							false,
 							'⎿',
 							event.detail,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							event.diff,
 						)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -10472,16 +10478,21 @@ export function App({
 						// Fire-and-forget, like its neighbours: a git invocation is not
 						// something to block a keystroke on.
 						void (async () => {
-							const { summary, detail } = renderWorkspaceDiff(await workspaceDiff(ctx.cwd))
-							setMessages((prev) => [
-								...prev,
-								{
-									id: `diff-${Date.now()}`,
-									role: 'system',
-									content: summary,
-									...(detail.length > 0 ? { detail } : {}),
-								},
-							])
+							const { summary, detail, diff } = renderWorkspaceDiff(await workspaceDiff(ctx.cwd))
+							// Through the one row writer, so a long diff is numbered and Ctrl+O opens it.
+							pushMessage(
+								'system',
+								summary,
+								false,
+								undefined,
+								detail.length > 0 ? detail : undefined,
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								diff,
+							)
 						})()
 						return
 					}

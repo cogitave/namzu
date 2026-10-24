@@ -110,8 +110,8 @@ describe('renderWorkspaceDiff', () => {
 		const dir = repo()
 		writeFileSync(join(dir, 'kept.txt'), 'changed\n')
 		const { summary, detail } = renderWorkspaceDiff(await workspaceDiff(dir))
-		expect(detail.join('\n')).toContain('+changed')
-		expect(summary).not.toContain('+changed')
+		expect(detail.join('\n')).toContain('+ changed')
+		expect(summary).not.toContain('+ changed')
 	})
 
 	it('names untracked files in the summary, where they cannot be missed', async () => {
@@ -131,5 +131,48 @@ describe('renderWorkspaceDiff', () => {
 		}
 		const { detail } = renderWorkspaceDiff(diff)
 		expect(detail.join('\n')).toMatch(/truncated/)
+	})
+})
+
+describe('the patch as rows', () => {
+	it('groups the body per file under a plain header with its counts', async () => {
+		const dir = repo()
+		writeFileSync(join(dir, 'kept.txt'), 'changed\nmore\n')
+		const { detail, diff } = renderWorkspaceDiff(await workspaceDiff(dir))
+		expect(detail).toEqual(['kept.txt +2 −1', '1 - original', '1 + changed', '2 + more'])
+		expect(detail.join('\n')).not.toMatch(/diff --git|^@@|^---|^\+\+\+/mu)
+		expect(diff).toEqual({ preview: 40 })
+	})
+
+	it('keeps files apart with a blank row and puts a gap between hunks', () => {
+		const patch = [
+			'diff --git a/a.txt b/a.txt',
+			'index 1..2 100644',
+			'--- a/a.txt',
+			'+++ b/a.txt',
+			'@@ -1,2 +1,2 @@',
+			' keep',
+			'-old',
+			'+new',
+			'@@ -40,2 +40,2 @@',
+			' keep',
+			'-old2',
+			'+new2',
+			'diff --git a/b.png b/b.png',
+			'Binary files a/b.png and b/b.png differ',
+		].join('\n')
+		const { detail } = renderWorkspaceDiff({ stat: ' x', patch, truncated: false, untracked: [] })
+		expect(detail).toEqual([
+			'a.txt +2 −2',
+			' 1   keep',
+			' 2 - old',
+			' 2 + new',
+			'...',
+			'40   keep',
+			'41 - old2',
+			'41 + new2',
+			'',
+			'b.png · binary file',
+		])
 	})
 })

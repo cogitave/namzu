@@ -93,3 +93,19 @@ describe('longestWordWidth', () => {
 		expect(longestWordWidth([{ text: 'a bbb 漢字漢' }])).toBe(6)
 	})
 })
+
+describe('a path too long for a row', () => {
+	it('wraps after a separator rather than inside a name', () => {
+		const wrapped = rows("Couldn't find /tmp/some-long-folder/proj/missing-file.txt.", 30)
+		for (const row of wrapped) expect(row.length).toBeLessThanOrEqual(30)
+		expect(wrapped.join('')).toBe("Couldn't find /tmp/some-long-folder/proj/missing-file.txt.")
+		expect(wrapped.slice(0, -1).every((row) => row.endsWith('/'))).toBe(true)
+		expect(wrapped.at(-1)).toBe('missing-file.txt.')
+	})
+
+	it('still cuts a name that is longer than the row on its own', () => {
+		const wrapped = rows('x/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 20)
+		for (const row of wrapped) expect(row.length).toBeLessThanOrEqual(20)
+		expect(wrapped.join('')).toBe('x/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+	})
+})

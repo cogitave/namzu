@@ -1,6 +1,10 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import type { ToolDiffHunk } from '@namzu/sdk'
+
+import { EDIT_PREVIEW_ROWS, diffRows } from './diff-rows.js'
+
 const run = promisify(execFile)
 
 /** Long enough for a large repository, short enough not to hang a keystroke. */
@@ -74,6 +78,94 @@ export async function workspaceDiff(cwd: string): Promise<WorkspaceDiff | null> 
 	return { stat: stat.trimEnd(), patch, truncated, untracked }
 }
 
+interface FileDiff {
+	readonly path: string
+	readonly hunks: ToolDiffHunk[]
+	readonly binary: boolean
+	added: number
+	removed: number
+}
+
+/**
+ * A unified patch as one entry per file with its hunks, so the body can be
+ * drawn the way an edit is (a line-number gutter, context, a gap between
+ * hunks). A patch cut off mid-hunk ends in a shorter hunk, which is shown
+ * as far as it goes; counts are taken from the rows that are there.
+ */
+export function parsePatch(patch: string): FileDiff[] {
+	const files: FileDiff[] = []
+	let file: FileDiff | undefined
+	let hunk: { header: ToolDiffHunk; lines: string[] } | undefined
+	const close = () => {
+		if (file && hunk) {
+			file.hunks.push({ ...hunk.header, lines: hunk.lines })
+		}
+		hunk = undefined
+	}
+	for (const line of patch.split('\n')) {
+		const start = /^diff --git a\/(.*) b\/(.*)$/.exec(line)
+		if (start) {
+			close()
+			file = { path: start[2] ?? start[1] ?? '', hunks: [], binary: false, added: 0, removed: 0 }
+			files.push(file)
+			continue
+		}
+		if (!file) continue
+		const at = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line)
+		if (at) {
+			close()
+			hunk = {
+				header: {
+					oldStart: Number(at[1]),
+					oldLines: at[2] === undefined ? 1 : Number(at[2]),
+					newStart: Number(at[3]),
+					newLines: at[4] === undefined ? 1 : Number(at[4]),
+					lines: [],
+				},
+				lines: [],
+			}
+			continue
+		}
+		if (/^Binary files .* differ$/.test(line) || line.startsWith('GIT binary patch')) {
+			file = { ...file, binary: true }
+			files[files.length - 1] = file
+			continue
+		}
+		if (!hunk) continue
+		const marker = line[0]
+		if (marker === '+') file.added += 1
+		else if (marker === '-') file.removed += 1
+		else if (marker !== ' ') continue
+		hunk.lines.push(line)
+	}
+	close()
+	return files
+}
+
+/** `+2 −1`; a side with nothing is left out. */
+function counts(added: number, removed: number): string {
+	return [
+		added ? `+${added.toLocaleString('en-US')}` : '',
+		removed ? `−${removed.toLocaleString('en-US')}` : '',
+	]
+		.filter(Boolean)
+		.join(' ')
+}
+
+/** The patch as rows, grouped by file: a plain header with counts, then the hunks. */
+function patchRows(patch: string): string[] {
+	const rows: string[] = []
+	for (const file of parsePatch(patch)) {
+		if (rows.length > 0) rows.push('')
+		const stats = counts(file.added, file.removed)
+		rows.push(
+			file.binary ? `${file.path} · binary file` : stats ? `${file.path} ${stats}` : file.path,
+		)
+		rows.push(...diffRows(file.hunks))
+	}
+	return rows
+}
+
 /**
  * The diff as transcript lines: a short answer, with the patch underneath.
  *
@@ -84,6 +176,8 @@ export async function workspaceDiff(cwd: string): Promise<WorkspaceDiff | null> 
 export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 	summary: string
 	detail: readonly string[]
+	/** `detail` is diff rows (see `diff-rows.ts`), so a row is coloured by its marker. */
+	diff?: { readonly preview: number }
 } {
 	if (diff === null) {
 		return {
@@ -107,7 +201,7 @@ export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 
 	const detail: string[] = []
 	if (diff.patch.length > 0) {
-		detail.push(...diff.patch.split('\n'))
+		detail.push(...patchRows(diff.patch))
 		if (diff.truncated) {
 			detail.push('')
 			detail.push('… truncated. Run `git diff` for the rest.')
@@ -119,5 +213,9 @@ export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 	parts.push('')
 	parts.push('This is the whole working tree, not only what the agent changed.')
 
-	return { summary: parts.join('\n'), detail }
+	return {
+		summary: parts.join('\n'),
+		detail,
+		...(detail.length > 0 ? { diff: { preview: EDIT_PREVIEW_ROWS } } : {}),
+	}
 }

@@ -20,6 +20,7 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
+import { EXPAND_HINT } from './truncation.js'
 
 import {
 	DEFAULT_AGENT_PHASE,
@@ -120,7 +121,7 @@ export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | unde
 	return {
 		content: `Message from @${oneLine(agent.agentId)}`,
 		detail,
-		hint: '(ctrl+o to expand)',
+		hint: EXPAND_HINT,
 	}
 }
 
@@ -138,7 +139,7 @@ export function childMessageRow(message: {
 	return {
 		content: `Message from @${oneLine(message.agentId)}`,
 		detail,
-		hint: '(ctrl+o to expand)',
+		hint: EXPAND_HINT,
 	}
 }
 
