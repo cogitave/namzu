@@ -287,7 +287,7 @@ describe('the rail and the detail view of a run', () => {
 		await waitUntil(screen, () => text(screen).includes('Scan · 2 agents'))
 		// The first agent is done: nothing to skip. Down to the running one.
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => /❯● agent:2/.test(text(screen)))
+		await waitUntil(screen, () => /❯ ● agent:2/.test(text(screen)))
 		expect(text(screen)).toContain('x skip')
 		screen.press('x')
 		await waitUntil(screen, () => flows.calls.skip.length === 1)

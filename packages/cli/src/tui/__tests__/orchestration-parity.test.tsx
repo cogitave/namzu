@@ -356,7 +356,7 @@ describe('the cockpit of a phased workflow', () => {
 			const frame = mounted.viewport().join('\n')
 			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+/u)
 			expect(frame).toMatch(/┬ Phase 2 · 1 agent\s/u)
-			expect(frame).toMatch(/❯● Join the two colours/u)
+			expect(frame).toMatch(/❯ ● Join the two colours/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
