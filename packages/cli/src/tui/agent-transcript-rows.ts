@@ -20,8 +20,8 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
-import { EXPAND_HINT } from './truncation.js'
 import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
+import { EXPAND_HINT } from './truncation.js'
 
 import {
 	DEFAULT_AGENT_PHASE,

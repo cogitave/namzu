@@ -4731,7 +4731,9 @@ export function App({
 			}
 			const resumedTitle = named ?? firstTypedPrompt(restored)
 			setMessages([
-				...projectConversation(restored, nextId, [], { trail: trailFromRecords(journalOf(restored)) }),
+				...projectConversation(restored, nextId, [], {
+					trail: trailFromRecords(journalOf(restored)),
+				}),
 				...(resumedTitle
 					? [
 							{

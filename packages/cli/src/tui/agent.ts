@@ -7,8 +7,6 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
-import { diffBodyFromFacts } from './diff-rows.js'
-import { displayPath } from './display-path.js'
 import { describeProviderFallbackNotice, withDebugDetail } from './capability-notice.js'
 import {
 	COMPACTED_TEXT,
@@ -16,6 +14,8 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
+import { diffBodyFromFacts } from './diff-rows.js'
+import { displayPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
