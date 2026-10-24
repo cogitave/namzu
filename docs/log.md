@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-24
+
+- **Update** `@namzu/sdk` packaging: `files` in `packages/sdk/package.json` now lists shipped files by extension (`dist/**/!(*.test|...).js`, ...) instead of `dist`/`src` plus one `!` glob per kind of test file. pnpm's packer expands each `!` glob into one ignore rule per matching file and tests every entry against every rule, so 4244 compiled test files made `pnpm pack` take 83 s (`npm pack`: 3.6 s); it now takes 4 s with the same 4321 files. `check-publish-metadata.mjs` fails if such an allow-list would silently omit a non-test file. `.changeset/sdk-faster-pack.md` (`@namzu/sdk` patch).
+
 ## 2026-10-23
 
 - **Update** [File tools](sdk/file-tool-limits.md): a large `context-rewrite` compaction summary now spills beside the log (new `compactionSpillAboveBytes`, default 256 KiB) instead of sitting inline, so no single compaction record can bloat the session file; the fold reads it back transparently. `.changeset/compaction-spill-threshold.md` (`@namzu/sdk` patch).

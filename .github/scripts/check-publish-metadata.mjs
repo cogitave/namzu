@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const EXPECTED_REPO = 'https://github.com/cogitave/namzu'
@@ -98,6 +98,23 @@ function packageDirs() {
 	return found.sort()
 }
 
+/**
+ * Every file under `root` (relative to `dir`), as tarball-style paths.
+ */
+function filesUnder(dir, root) {
+	const out = []
+	const stack = [root]
+	while (stack.length > 0) {
+		const rel = stack.pop()
+		for (const entry of readdirSync(join(dir, rel))) {
+			const next = `${rel}/${entry}`
+			if (statSync(join(dir, next)).isDirectory()) stack.push(next)
+			else out.push(next)
+		}
+	}
+	return out
+}
+
 const problems = []
 let checked = 0
 
@@ -170,6 +187,32 @@ for (const dir of packageDirs()) {
 		problems.push(
 			`${manifest.name} (${dir}) would publish ${tests.length} test file(s), e.g. ${tests[0]}. Add \`!<root>/**/*.test.*\` and the sibling patterns to \`files\`.`,
 		)
+	}
+
+	// An allow-list `files` must not silently drop a file a consumer needs.
+	//
+	// `@namzu/sdk` lists its shipped files by extension with an extglob
+	// (`dist/**\/!(*.test|...).js`) instead of `dist` plus one `!` pattern per
+	// test kind, because pnpm's packer expands every `!` glob into one ignore
+	// rule per matching file and tests every entry against every rule: 4244
+	// test files made `pnpm pack` take 83 s where `npm pack` took 3.6 s. The
+	// price of an allow-list is that a new file type (a `.txt` prompt, a
+	// `.wasm`) falls outside it without a sound. So for a package that uses
+	// one, everything under its shipped roots that is not test material must be
+	// in the tarball.
+	const allowListEntries = (manifest.files ?? []).filter((f) => !f.startsWith('!') && f.includes('!('))
+	if (allowListEntries.length > 0) {
+		const roots = new Set(allowListEntries.map((f) => f.split('/')[0]))
+		const inTarball = new Set(packed)
+		const dropped = [...roots]
+			.filter((r) => existsSync(join(dir, r)))
+			.flatMap((r) => filesUnder(dir, r))
+			.filter((f) => !isTestPath(f) && !inTarball.has(f))
+		if (dropped.length > 0) {
+			problems.push(
+				`${manifest.name} (${dir}) lists its files by extension and would silently omit ${dropped.length} non-test file(s), e.g. ${dropped[0]}. Add the extension to the allow-list in \`files\`.`,
+			)
+		}
 	}
 
 	// An empty tarball also contains no tests. Assert the entry point survived,
