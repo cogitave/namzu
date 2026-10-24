@@ -168,6 +168,8 @@ function resultText(message: Message | undefined): string {
 		.join('\n')
 }
 
+const EDIT_RECEIPT = /^Edited .+?: (\d+) replacements?\(?s?\)? \(\+(\d+) -(\d+)\)/u
+
 const WRITE_RECEIPT =
 	/^(Created|Updated|Unchanged|Wrote) .+?(?: \(\+(\d+) -(\d+)\))?(?: · final newline changed)? · \d+ bytes$/u
 
@@ -201,6 +203,18 @@ function factsFromReceipt(
 			...(receipt[3] !== undefined ? { removed: Number(receipt[3]) } : {}),
 		}
 	}
+	if (name === 'edit' && typeof input.path === 'string') {
+		const receipt = EDIT_RECEIPT.exec(text.split('\n')[0] ?? '')
+		if (receipt) {
+			return {
+				kind: 'edit',
+				path: input.path,
+				replacements: Number(receipt[1]),
+				added: Number(receipt[2]),
+				removed: Number(receipt[3]),
+			}
+		}
+	}
 	// A command's output is read from its text; a call's facts hold no output.
 	if (view.kind === 'generic') return view.facts?.kind === 'command' ? undefined : view.facts
 	if (name === 'edit' && view.kind === 'diff' && view.path) return { kind: 'edit', path: view.path }
@@ -217,6 +231,7 @@ function startOf(event: Extract<AgentEvent, { kind: 'tool-start' }>): ToolEndSta
 			: formatToolCall(event.toolName, event.summary, event.standalone),
 		...(event.detail ? { detail: event.detail } : {}),
 		...(event.command ? { command: event.command } : {}),
+		...(event.proposed ? { proposed: event.proposed } : {}),
 		...(event.web ? { web: event.web } : {}),
 		...(event.activity ? { activity: event.activity } : {}),
 	}
@@ -237,6 +252,7 @@ export function restoredToolRows(
 	results: ReadonlyMap<string, Message>,
 	trail: RestoredTrail,
 	presenter: ToolPresenter,
+	cwd?: string,
 ): readonly ToolRow[] {
 	const toolName = call.function.name
 	const saved = trail.calls.get(callKey(turnId, call.id))
@@ -250,7 +266,7 @@ export function restoredToolRows(
 			toolName,
 			input: parseInput(call),
 		} satisfies Record_)) as unknown as SessionEvent
-	const started = toAgentEvent(startRecord, presenter)
+	const started = toAgentEvent(startRecord, presenter, undefined, cwd)
 	if (started?.kind !== 'tool-start') return []
 	const message = results.get(call.id)
 	const text = resultText(message)
@@ -270,7 +286,7 @@ export function restoredToolRows(
 			isError,
 			...(facts ? { facts } : {}),
 		} satisfies Record_)) as unknown as SessionEvent
-	const ended = toAgentEvent(endRecord, presenter)
+	const ended = toAgentEvent(endRecord, presenter, undefined, cwd)
 	if (ended?.kind !== 'tool-end') return []
 	const name = toolName.toLowerCase()
 	// Drawn by other surfaces in the live run: the rail and the agent rows own
@@ -280,6 +296,7 @@ export function restoredToolRows(
 	const built = toolEndRows(ended, start, {
 		...(ended.durationMs !== undefined ? { elapsedMs: ended.durationMs } : {}),
 		hasPlan: true,
+		...(cwd ? { cwd } : {}),
 	})
 	return built.kind === 'rows' ? built.rows : []
 }
@@ -288,6 +305,8 @@ export function restoredToolRows(
 export interface RestoreOptions {
 	readonly presenter: ToolPresenter
 	readonly trail?: RestoredTrail
+	/** The working folder, so paths read as they did live. */
+	readonly cwd?: string
 }
 
 /**
@@ -362,7 +381,14 @@ export function createRestoredTurnWriter(
 			let launched = false
 			for (const call of message.toolCalls) {
 				if (call.function.name.toLowerCase() === 'agent') launched = true
-				for (const row of restoredToolRows(turnId, call, results, trail, options.presenter)) {
+				for (const row of restoredToolRows(
+					turnId,
+					call,
+					results,
+					trail,
+					options.presenter,
+					options.cwd,
+				)) {
 					rows.push({ id: nextId(), ...row })
 				}
 			}
@@ -391,7 +417,7 @@ export function numberDetailRows(rows: readonly TranscriptMessage[]): readonly T
 			row.role !== 'user' &&
 			row.role !== 'assistant' &&
 			((row.activity && row.detail?.length) ||
-				messageCollapses({ detail: row.detail, shell: row.shell }))
+				messageCollapses({ detail: row.detail, shell: row.shell, diff: row.diff }))
 		if (!expandable) {
 			if (row.detailRef === undefined) return row
 			const { detailRef: _dropped, ...rest } = row

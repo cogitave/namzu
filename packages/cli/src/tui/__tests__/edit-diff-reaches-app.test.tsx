@@ -173,24 +173,23 @@ it('draws an edit as counted hunks and a created file as its first ten lines', a
 	screen.press('change')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted().includes('Created n.txt'), 1500)
+	await waitUntil(screen, () => painted().includes('Wrote 30 lines to n.txt'), 1500)
 	const transcript = painted()
 	// The counts are the whole file's: two lines changed far apart.
-	expect(transcript).toContain('Edited a.ts +2 −2')
+	expect(transcript).toContain('Added 2 lines, removed 2 lines')
 	// One shape for a settled row, and no duration for a step that took 12 ms.
-	expect(transcript).toContain('● Edit(a.ts)')
+	expect(transcript).toContain('● Update(a.ts)')
 	expect(transcript).toContain('● Write(n.txt)')
-	expect(transcript).not.toMatch(/Edit\(a\.ts\) · /u)
-	// Hunks: gutter, markers, context, and a gap between the two hunks.
-	expect(transcript).toMatch(/ 3 - line 3/u)
-	expect(transcript).toMatch(/ 3 \+ three/u)
-	expect(transcript).toMatch(/ 6 {3}line 6/u)
-	expect(transcript).toMatch(/^\s*▏ \.\.\.$/mu)
-	// The call row does not repeat the change above its result.
-	expect(transcript).not.toMatch(/▏ - line 3$/mu)
-	// A created file shows ten lines, then the one folding phrase.
-	expect(transcript).toContain('Created n.txt +30')
-	expect(transcript).toContain('10 + line 10')
-	expect(transcript).not.toContain('11 + line 11')
+	expect(transcript).not.toMatch(/Update\(a\.ts\) · /u)
+	// Hunks: gutter, the marker straight before the code, context, and a gap between the two hunks.
+	expect(transcript).toMatch(/ 3 -line 3/u)
+	expect(transcript).toMatch(/ 3 \+three/u)
+	expect(transcript).toMatch(/ 6 {2}line 6/u)
+	expect(transcript).toMatch(/^\s*\.\.\.$/mu)
+	// No rule beside the body, and the call row does not repeat the change above its result.
+	expect(transcript).not.toContain('▏')
+	// A created file shows ten lines as they are, then the one folding phrase.
+	expect(transcript).toMatch(/^\s*line 10$/mu)
+	expect(transcript).not.toMatch(/^\s*line 11$/mu)
 	expect(transcript).toContain('… +20 lines (ctrl+o to expand)')
 })

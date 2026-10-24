@@ -14,7 +14,8 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
-import { diffBodyFromFacts } from './diff-rows.js'
+import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
+import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
@@ -432,6 +433,8 @@ export type AgentEvent =
 			readonly web?: WebActivity
 			/** A shell call's full command line, kept with its line breaks for the cell header. */
 			readonly command?: string
+			/** What an edit or write asked for, kept to draw if the person refuses it. */
+			readonly proposed?: ProposedChange
 			/**
 			 * The tool declares this call read-only. Absent means it changes
 			 * something, or the tool did not say. Read by the TUI's skill
@@ -506,7 +509,7 @@ export type AgentEvent =
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
 			/** `detail` is the change to a file as diff rows; see `diff-rows.ts`. */
-			readonly diff?: { readonly preview: number }
+			readonly diff?: DiffInfo
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
@@ -7261,6 +7264,10 @@ export function toAgentEvent(
 					const web = webActivityFromInput(event.toolName, event.input)
 					return web ? { web } : {}
 				})(),
+				...(() => {
+					const proposed = proposedFromInput(event.toolName, event.input)
+					return proposed ? { proposed } : {}
+				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
 		case 'tool_input_completed':
@@ -7326,7 +7333,7 @@ export function toAgentEvent(
 					: undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
-			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts)
+			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
 			const detail =
 				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
@@ -7376,7 +7383,7 @@ export function toAgentEvent(
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
-				...(diffBody ? { diff: { preview: diffBody.preview } } : {}),
+				...(diffBody ? { diff: diffBody.diff } : {}),
 				...(() => {
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}

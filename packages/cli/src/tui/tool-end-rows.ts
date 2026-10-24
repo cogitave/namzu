@@ -2,6 +2,8 @@ import { isBackgroundLaunch } from '../integrations/workflows/notice.js'
 import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
 import type { AgentEvent } from './agent.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
+import { type ProposedChange, proposedBody } from './diff-rows.js'
+import { spansText } from './diff-view.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
@@ -30,6 +32,8 @@ export interface ToolEndStart {
 	readonly command?: string
 	readonly web?: WebActivity
 	readonly activity?: 'exploration'
+	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
+	readonly proposed?: ProposedChange
 }
 
 /** One row to add, in the order of `pushMessage`'s arguments that matter. */
@@ -54,17 +58,25 @@ export interface ToolEndContext {
 	readonly elapsedMs?: number
 	/** Whether the model's plan has items, so a task listing refreshes the block instead of a row. */
 	readonly hasPlan: boolean
+	/** The working folder, to find where a refused edit would have landed. */
+	readonly cwd?: string
 }
+
+/** Tools the reference terminal heads under another name: an edit is an `Update`. */
+const DISPLAY_NAMES: Readonly<Record<string, string>> = { edit: 'Update' }
 
 /**
  * A call's label: the tool name title-cased, then its most identifying
  * argument, as `Bash(ls -la)` or `Read(file.ts)`. A bare tool name in a
- * transcript of forty calls says nothing about which one this was.
+ * transcript of forty calls says nothing about which one this was. An edit
+ * reads `Update(file.ts)`.
  */
 export function formatToolCall(toolName: string, summary: string, standalone = false): string {
 	if (standalone) return summary
 	const words = toolName.replace(/[_-]+/g, ' ')
-	const display = words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words
+	const display =
+		DISPLAY_NAMES[toolName.toLowerCase()] ??
+		(words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words)
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
@@ -165,7 +177,9 @@ export function toolEndRows(
 	}
 	if (event.declined) {
 		// The person's own No: neither a failure nor a mystery. The model's
-		// refusal text is for the model and is not shown.
+		// refusal text is for the model and is not shown. A refused edit or
+		// write shows what it would have changed, dimmed.
+		const refused = proposedBody(start?.proposed, ctx.cwd)
 		return rows([
 			{
 				role: 'tool',
@@ -173,7 +187,12 @@ export function toolEndRows(
 				glyph: '●',
 				glyphColor: theme.text.muted,
 			},
-			{ role: 'tool', content: declinedLine(event.declined.note), glyph: '⎿' },
+			{
+				role: 'tool',
+				content: declinedLine(event.declined.note),
+				glyph: '⎿',
+				...(refused ? { detail: refused.rows, diff: refused.diff } : {}),
+			},
 		])
 	}
 	if (event.cancelled) {
@@ -287,7 +306,11 @@ export function toolEndRows(
 	) {
 		list.push({
 			role: 'tool',
-			content: event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
+			content: event.isError
+				? (event.plainFailure ?? `failed: ${event.summary}`)
+				: event.diff?.summary
+					? spansText(event.diff.summary)
+					: event.summary,
 			glyph: '⎿',
 			detail: event.detail,
 			...(event.diff ? { diff: event.diff } : {}),

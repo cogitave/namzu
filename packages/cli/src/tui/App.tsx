@@ -439,6 +439,7 @@ import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
@@ -935,6 +936,7 @@ export function projectConversation(
 	const writer = createRestoredTurnWriter(messages, nextId, {
 		presenter: restore?.presenter ?? builtinToolPresenter(),
 		...(restore?.trail ? { trail: restore.trail } : {}),
+		...(restore?.cwd ? { cwd: restore.cwd } : {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -1048,6 +1050,8 @@ type RunningTool = ActiveTool & {
 	readonly web?: WebActivity
 	/** A shell call's full command; its presence is what draws the call as a command cell. */
 	readonly command?: string
+	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
+	readonly proposed?: ProposedChange
 	/** The last few output lines the call has reported, oldest first. */
 	readonly tail?: readonly string[]
 }
@@ -4769,6 +4773,7 @@ export function App({
 			setMessages([
 				...projectConversation(restored, nextId, [], {
 					trail: trailFromRecords(journalOf(restored)),
+					cwd: ctxRef.current.cwd,
 				}),
 				...(resumedTitle
 					? [
@@ -6475,6 +6480,7 @@ export function App({
 			setPhase('ready')
 			const restored = projectConversation(msgs, nextId, [], {
 				trail: trailFromRecords(journalOf(msgs)),
+				cwd: ctxRef.current.cwd,
 			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
@@ -7766,6 +7772,7 @@ export function App({
 						startedAt: Date.now(),
 						detail: event.detail,
 						...(event.command ? { command: event.command } : {}),
+						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
@@ -7876,6 +7883,7 @@ export function App({
 					const built = toolEndRows(event, done, {
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
+						cwd: ctxRef.current.cwd,
 					})
 					if (built.kind === 'task-block') {
 						writeTaskBlock(st, null, tasksRef.current)

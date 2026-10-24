@@ -84,6 +84,15 @@ export interface ScreenOptions {
 	readonly alternateScreen?: boolean
 }
 
+/** What one cell of the screen looks like. */
+export interface CellStyle {
+	readonly char: string
+	readonly bg: string
+	readonly fg: string
+	readonly dim: boolean
+	readonly bold: boolean
+}
+
 /** Where the cursor is, in viewport coordinates. */
 export interface CursorPosition {
 	readonly col: number
@@ -99,6 +108,11 @@ export interface Screen {
 	 * the bottom row — the assertion a frame string cannot express.
 	 */
 	row(index: number): string
+	/**
+	 * The style of one visible cell: its character, background and foreground
+	 * as `rgb:R,G,B`, `palette:N` or `default`, and whether it is dim or bold.
+	 */
+	cell(row: number, col: number): CellStyle
 	/** Every row the emulator holds, scrollback first. */
 	scrollback(): string[]
 	cursor(): CursorPosition
@@ -325,6 +339,23 @@ export async function renderToScreen(
 			const top = term.buffer.active.baseY
 			const offset = index < 0 ? stdout.rows + index : index
 			return lineAt(top + offset)
+		},
+		cell: (rowIndex, col) => {
+			const top = term.buffer.active.baseY
+			const cell = term.buffer.active.getLine(top + rowIndex)?.getCell(col)
+			const color = (rgb: boolean, palette: boolean, value: number) =>
+				rgb
+					? `rgb:${(value >> 16) & 255},${(value >> 8) & 255},${value & 255}`
+					: palette
+						? `palette:${value}`
+						: 'default'
+			return {
+				char: cell?.getChars() ?? '',
+				bg: cell ? color(cell.isBgRGB(), cell.isBgPalette(), cell.getBgColor()) : 'default',
+				fg: cell ? color(cell.isFgRGB(), cell.isFgPalette(), cell.getFgColor()) : 'default',
+				dim: (cell?.isDim() ?? 0) !== 0,
+				bold: (cell?.isBold() ?? 0) !== 0,
+			}
 		},
 		scrollback: () => Array.from({ length: term.buffer.active.length }, (_, i) => lineAt(i)),
 		cursor: () => ({

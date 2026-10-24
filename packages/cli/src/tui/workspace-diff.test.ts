@@ -110,7 +110,7 @@ describe('renderWorkspaceDiff', () => {
 		const dir = repo()
 		writeFileSync(join(dir, 'kept.txt'), 'changed\n')
 		const { summary, detail } = renderWorkspaceDiff(await workspaceDiff(dir))
-		expect(detail.join('\n')).toContain('+ changed')
+		expect(detail.join('\n')).toContain('+changed')
 		expect(summary).not.toContain('+ changed')
 	})
 
@@ -139,9 +139,10 @@ describe('the patch as rows', () => {
 		const dir = repo()
 		writeFileSync(join(dir, 'kept.txt'), 'changed\nmore\n')
 		const { detail, diff } = renderWorkspaceDiff(await workspaceDiff(dir))
-		expect(detail).toEqual(['kept.txt +2 −1', '1 - original', '1 + changed', '2 + more'])
+		expect(detail).toEqual(['kept.txt +2 −1', ' 1 -original', ' 1 +changed', ' 2 +more'])
 		expect(detail.join('\n')).not.toMatch(/diff --git|^@@|^---|^\+\+\+/mu)
-		expect(diff).toEqual({ preview: 40 })
+		expect(diff).toMatchObject({ mode: 'hunks', preview: 40 })
+		expect(diff?.files?.map((file) => file.heading)).toEqual(['kept.txt +2 −1'])
 	})
 
 	it('keeps files apart with a blank row and puts a gap between hunks', () => {
@@ -164,13 +165,13 @@ describe('the patch as rows', () => {
 		const { detail } = renderWorkspaceDiff({ stat: ' x', patch, truncated: false, untracked: [] })
 		expect(detail).toEqual([
 			'a.txt +2 −2',
-			' 1   keep',
-			' 2 - old',
-			' 2 + new',
+			' 1  keep',
+			' 2 -old',
+			' 2 +new',
 			'...',
-			'40   keep',
-			'41 - old2',
-			'41 + new2',
+			' 40  keep',
+			' 41 -old2',
+			' 41 +new2',
 			'',
 			'b.png · binary file',
 		])

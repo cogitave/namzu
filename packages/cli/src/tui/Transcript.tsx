@@ -9,7 +9,7 @@
 import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
-import { diffRowMarker } from './diff-rows.js'
+import { type DiffInfo, diffViewBody } from './diff-view.js'
 import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 
 import { Checklist, checklistLine } from './Checklist.js'
@@ -304,7 +304,7 @@ function MessageRow({
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
 							<WrappedSpans
 								spans={[
-									{ text: content },
+									...(message.diff?.summary ?? [{ text: content }]),
 									...(message.meta
 										? [
 												{
@@ -422,11 +422,12 @@ function DetailBlock({
 	readonly lines: readonly string[]
 	readonly expanded: boolean
 	/** The body is a diff: coloured by its markers, folded after `preview` rows. */
-	readonly diff?: { readonly preview: number } | undefined
+	readonly diff?: DiffInfo | undefined
 	/** Stable reference that lets App offer expansion for this body. */
 	readonly detailRef: number | undefined
 }) {
-	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef, diff)
+	if (diff) return <DiffBlock info={diff} expanded={expanded} canExpand={detailRef !== undefined} />
+	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
 	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
@@ -441,7 +442,7 @@ function DetailBlock({
 				<Box key={`d-${i}`} flexDirection="row">
 					<Rule />
 					<Box flexGrow={1}>
-						<Text color={detailLineColor(line, diff !== undefined)} wrap="wrap">
+						<Text color={detailLineColor(line)} wrap="wrap">
 							{line.length > 0 ? line : ' '}
 						</Text>
 					</Box>
@@ -451,15 +452,55 @@ function DetailBlock({
 	)
 }
 
-/** Whether the preview hides text and App should mark the body as expandable. */
-export function willCollapse(
-	detail: readonly string[] | undefined,
-	diff?: { readonly preview: number },
-): boolean {
+/**
+ * A change to a file, drawn as the reference terminal draws it: under the
+ * result line, in the column the result's words start in, each added or
+ * removed row filled to the edge. No rule beside it.
+ */
+function DiffBlock({
+	info,
+	expanded,
+	canExpand,
+}: {
+	readonly info: DiffInfo
+	readonly expanded: boolean
+	readonly canExpand: boolean
+}) {
+	// One cell short of the row, so a filled row never touches the last column.
+	const width = Math.max(10, useContentWidth() - 1)
+	const rows = diffViewBody(info, { width, expanded, canExpand })
 	return (
-		detail !== undefined &&
-		(detail.length > (diff?.preview ?? COLLAPSE_LINES) ||
-			detail.some((line) => terminalDisplayText(line).length > PREVIEW_LINE_CHARS))
+		<Box flexDirection="column" paddingLeft={2}>
+			{rows.map((row, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
+				<Text key={`f-${i}`} wrap="truncate-end">
+					{row.length === 0
+						? ' '
+						: row.map((segment, j) => (
+								<Text
+									// biome-ignore lint/suspicious/noArrayIndexKey: segments are positional.
+									key={`g-${j}`}
+									{...(segment.bg ? { backgroundColor: segment.bg } : {})}
+									{...(segment.fg ? { color: segment.fg } : {})}
+									{...(segment.dim ? { dimColor: true } : {})}
+								>
+									{segment.text}
+								</Text>
+							))}
+				</Text>
+			))}
+		</Box>
+	)
+}
+
+/** Whether the preview hides text and App should mark the body as expandable. */
+export function willCollapse(detail: readonly string[] | undefined, diff?: DiffInfo): boolean {
+	if (detail === undefined) return false
+	// A change shows whole unless it names a fold: a created file's first rows.
+	if (diff) return diff.preview !== undefined && detail.length > diff.preview
+	return (
+		detail.length > COLLAPSE_LINES ||
+		detail.some((line) => terminalDisplayText(line).length > PREVIEW_LINE_CHARS)
 	)
 }
 
@@ -468,23 +509,9 @@ function splitDetail(
 	lines: readonly string[],
 	expanded: boolean,
 	detailRef?: number,
-	diff?: { readonly preview: number },
 ): readonly string[] {
 	if (expanded) return lines
 	const canExpand = detailRef !== undefined
-	if (diff) {
-		// A diff reads from the top: the first rows, then how many are folded.
-		const shown = lines.slice(0, diff.preview).map((line) => clipLine(line))
-		const folded = lines.slice(diff.preview)
-		if (folded.length === 0) return shown
-		return [
-			...shown,
-			hiddenLinesHint(folded.length, {
-				chars: folded.reduce((sum, line) => sum + line.length, 0),
-				canExpand,
-			}),
-		]
-	}
 	const fragmentLines = COLLAPSE_LINES / 2
 	const selected =
 		lines.length > COLLAPSE_LINES
@@ -541,11 +568,11 @@ function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
 		return []
+	if (message.diff) return renderedDiffLines(lines, message)
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
 		message.detailRef,
-		message.diff,
 	)
 	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
 	// plus the two-column `▏` rule. Those columns are not available to the text,
@@ -557,11 +584,27 @@ function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	return shown.map((line) => gutter + line)
 }
 
-function detailLineColor(line: string, diff = false): string {
-	if (diff) {
-		const marker = diffRowMarker(line)
-		return marker === '+' ? theme.status.ok : marker === '-' ? theme.status.error : theme.text.muted
+/**
+ * The rows a change will occupy, for the height estimate: its plain rows up to
+ * the fold, indented by the two columns it sits in, each with the two cells the
+ * gutter and the reserve take from the code so a long row is not under-counted.
+ */
+function renderedDiffLines(
+	lines: readonly string[],
+	message: TranscriptMessage,
+): readonly string[] {
+	const preview = message.diff?.preview
+	const limit = message.detailExpanded === true || preview === undefined ? lines.length : preview
+	const shown = lines.slice(0, limit).map((line) => `  ${terminalDisplayText(line)}..`)
+	if (lines.length > limit) {
+		shown.push(
+			`  ${hiddenLinesHint(lines.length - limit, { canExpand: message.detailRef !== undefined })}`,
+		)
 	}
+	return shown
+}
+
+function detailLineColor(line: string): string {
 	if (line.startsWith('+')) return theme.status.ok
 	if (line.startsWith('-')) return theme.status.error
 	return theme.text.muted
