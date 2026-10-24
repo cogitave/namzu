@@ -9,7 +9,7 @@ import { createRequire } from 'node:module'
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { Box } from 'ink'
+import { Box, Text } from 'ink'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import {
@@ -23,6 +23,7 @@ import {
 	railNextEviction,
 	railStatusText,
 } from '../AgentExplorer.js'
+import { BackgroundAgentRows } from '../BackgroundAgentRows.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const NOW = 100_000
@@ -408,19 +409,23 @@ describe('rail rows', () => {
 		expect(viewing[1]).toMatch(/^ {2}● general-purpose {2,}First/u)
 	})
 
-	it('hides the type column when every row is the same kind, and keeps it when they differ', async () => {
+	it('gives every row the same label rule: the type column, whatever the neighbours are', async () => {
 		const same = await show([
 			agent({ viewId: 'a', description: 'First' }),
 			agent({ viewId: 'b', description: 'Second' }),
 		])
-		expect(same[1]).toMatch(/^ {2}◯ First\s+12s$/u)
-		expect(same.join('\n')).not.toContain('general-purpose')
+		expect(same[1]).toMatch(/^ {2}◯ general-purpose {2,}First\s+12s$/u)
+		expect(same[2]).toMatch(/^ {2}◯ general-purpose {2,}Second\s+12s$/u)
+		await mounted?.unmount()
+		const alone = await show([agent({ viewId: 'a', description: 'First', status: 'failed' })])
+		expect(alone[1]).toMatch(/^ {2}◯ general-purpose {2,}First/u)
 		await mounted?.unmount()
 		const mixed = await show([
 			agent({ viewId: 'a', description: 'First' }),
 			agent({ viewId: 'b', agentId: 'explorer', description: 'Second' }),
 		])
 		expect(mixed[1]).toMatch(/^ {2}◯ general-purpose {2,}First/u)
+		expect(mixed[2]).toMatch(/^ {2}◯ explorer {2,}Second/u)
 	})
 
 	it('cuts a long live label instead of crowding the description out', () => {
@@ -535,5 +540,25 @@ describe('the key line', () => {
 		const focused = await show([agent({ viewId: 'a' })], { selectedIndex: 1 })
 		expect(focused.join('\n')).not.toContain('to stop')
 		expect(focused.join('\n')).toContain('❯')
+	})
+})
+
+describe('the waiting line', () => {
+	it('stands apart from the line above it with one blank row', async () => {
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<Text>Started the lookup.</Text>
+				<BackgroundAgentRows
+					groups={[]}
+					waitLine="Waiting for 1 background agent to finish"
+					glyph="✻"
+				/>
+			</Box>,
+			{ cols: 80, rows: 6 },
+		)
+		const rows = mounted.viewport().map((row) => row.trim())
+		const at = rows.indexOf('Started the lookup.')
+		expect(rows[at + 1]).toBe('')
+		expect(rows[at + 2]).toBe('✻ Waiting for 1 background agent to finish')
 	})
 })

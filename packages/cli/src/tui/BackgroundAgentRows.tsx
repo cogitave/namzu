@@ -42,9 +42,11 @@ export function BackgroundAgentRows(props: {
 				</Box>
 			))}
 			{waitLine !== undefined ? (
-				<Text color={theme.text.muted}>
-					{glyph} {waitLine}
-				</Text>
+				<Box marginTop={1}>
+					<Text color={theme.text.muted}>
+						{glyph} {waitLine}
+					</Text>
+				</Box>
 			) : null}
 		</Box>
 	)

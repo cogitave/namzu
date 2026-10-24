@@ -43,6 +43,11 @@ const UNOWNED_BUFFER_LIMIT = 32
  */
 const OWNED_WORK_DISPLAY_LIMIT = 16
 
+export interface CompletionInboxOptions {
+	/** See {@link CompletionInbox.holdsTurnOpen}. Default `true`. */
+	readonly holdsTurnOpen?: boolean
+}
+
 /**
  * Completions that finished with nobody left to hear them.
  *
@@ -74,11 +79,6 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
  * has, so a host gateway needs no change to take part — a host that was
  * firing completions into a listener set with no listeners now has one.
  */
-export interface CompletionInboxOptions {
-	/** See {@link CompletionInbox.holdsTurnOpen}. Default `true`. */
-	readonly holdsTurnOpen?: boolean
-}
-
 export class CompletionInbox {
 	private readonly unheard = new Map<TaskId, TaskHandle>()
 	private readonly claimed = new Set<TaskId>()
