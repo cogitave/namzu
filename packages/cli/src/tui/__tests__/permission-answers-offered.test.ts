@@ -1,7 +1,8 @@
 /**
  * The answers a prompt offers beyond Yes and No, and when.
  *
- * There is no "allow every tool" answer. A session-wide answer is a permission suggestion: switch edits to accept-edits, or
+ * There is no "allow every tool" answer. A session-wide answer is a permission suggestion: switch
+ * edits to accept-edits, or
  * remember an allow scoped to what was asked. Each is offered only when it
  * holds for every call in the batch.
  */
@@ -62,7 +63,7 @@ describe('the accept-edits answer', () => {
 })
 
 describe('the remembered-allow answer', () => {
-	it("is scoped to the project folder", () => {
+	it('is scoped to the project folder', () => {
 		const answers = permissionAnswers([bash('npm test')], {
 			mode: 'prompt',
 			commandArguments,

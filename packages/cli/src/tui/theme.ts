@@ -80,7 +80,8 @@ export const theme: SemanticColors = {
 }
 
 /**
- * The backgrounds a diff row is drawn on. Six tokens: a whole added or removed row, the same dimmed for a change that was
+ * The backgrounds a diff row is drawn on. Six tokens: a whole added or removed row, the same dimmed
+ * for a change that was
  * refused, and the words that differ inside a changed pair of rows.
  */
 export interface DiffColors {

@@ -6474,7 +6474,8 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // from `turnConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
 /**
- * Nudges allowed in a row after a reply is cut off at its output limit. The kernel's default is no cap, so the CLI asks.
+ * Nudges allowed in a row after a reply is cut off at its output limit. The kernel's default is no
+ * cap, so the CLI asks.
  */
 const MAX_OUTPUT_CONTINUATIONS = 3
 

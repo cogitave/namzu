@@ -1,8 +1,8 @@
 /**
  * The JSON a status line command reads on stdin.
  *
- * Field names match the Claude Code status-line input, so a script written for that reads
- * the same object here. A field appears only when this terminal has the
+ * Field names match the established status-line input shape, so existing scripts keep
+ * working. A field appears only when this terminal has the
  * fact; a script must read every field except `session_id`, `cwd`, `model`,
  * `workspace` and `version` as possibly absent. What is never sent, because
  * Namzu has no data for it: `output_style`, `fast_mode`, `thinking`,

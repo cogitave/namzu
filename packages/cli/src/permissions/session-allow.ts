@@ -142,7 +142,8 @@ function programName(word: string): string {
  * plain subcommand. `git commit -m x` gives `git commit`; `git -C dir status`,
  * `bash -c x`, `sudo ls` and `ls -la` give nothing.
  *
- * A line that starts with a variable assignment gives nothing either. Namzu does not strip safe assignments: a rule is matched against the
+ * A line that starts with a variable assignment gives nothing either. Namzu does not strip safe
+ * assignments: a rule is matched against the
  * command as written, assignments included, so the prefix would never match
  * the line it was offered for.
  */

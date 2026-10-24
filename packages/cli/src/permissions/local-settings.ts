@@ -149,7 +149,8 @@ export type IgnoreOutcome =
 	| { readonly state: 'tracked' | 'not-read' | 'failed'; readonly reason: string }
 
 /**
- * Make git ignore the local config in every repository: one `**` + name line in the global ignore file, only when the
+ * Make git ignore the local config in every repository: one `**` + name line in the global ignore
+ * file, only when the
  * folder is in a git work tree and git does not ignore the file already.
  * Never throws; the answer was remembered either way.
  */

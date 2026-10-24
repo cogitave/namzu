@@ -46,10 +46,9 @@ describe('the footer row', () => {
 		expect(noTask).toContain('⏵⏵ bypass permissions on (shift+tab to cycle) · PR #592')
 	})
 
-	// The
-// cycle key leaves the row only while a background task is counted, and the
-	// count (`Bwt`) leaves agents and workflows out when the agents panel is on —
-	// they are rows of their own. Shells are counted.
+	// The cycle key leaves the row only while a background task is counted, and the
+	// count leaves agents and workflows out when the agents panel is on — they are
+	// rows of their own. Shells are counted.
 	it('counts monitors apart from shells in the same pill', async () => {
 		expect(await row({ shellCount: 2, monitorCount: 1 })).toContain('2 shells · 1 monitor')
 		expect(await row({ monitorCount: 3 })).toContain('3 monitors')

@@ -3666,7 +3666,8 @@ export function App({
 	/**
 	 * Change the permission mode, now — including while a turn runs.
 	 *
-	 * It used to be refused until the current work settled. Shift+Tab applies at once, mid-turn, and so does this: the running
+	 * It used to be refused until the current work settled. Shift+Tab applies at once, mid-turn, and
+	 * so does this: the running
 	 * turn reads the mode at every decision (`SendOptions.currentPermissionMode`),
 	 * so the change governs its next tool call and every turn after. A dialog
 	 * already on screen is decided under the mode it was asked under; entering
@@ -3675,7 +3676,8 @@ export function App({
 	 * `approval_policy_changed`, which also tells the model once.
 	 *
 	 * `announce` is for a change asked for by name (`/permissions`), which gets
-	 * a reply. Shift+Tab is a reflex key: the footer is its reply, and five presses no longer leave five transcript lines.
+	 * a reply. Shift+Tab is a reflex key: the footer is its reply, and five presses no longer leave
+	 * five transcript lines.
 	 */
 	/** The two modes that stop asking, as Shift+Tab and the picker see them right now. */
 	const permissionAvailability = useCallback(
@@ -4207,7 +4209,8 @@ export function App({
 	}, [hasUnsettledTurn, pushMessage, state])
 
 	/**
-	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`. `auto` is a stop only when the session may use it
+	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`. `auto` is a stop only when
+	 * the session may use it
 	 * (launched in it, or `--allow-dangerously-skip-permissions`); otherwise
 	 * plan returns to `prompt`. `strict` is a deliberate choice made by name
 	 * in `/permissions` and the key returns it to `prompt`. The change goes through the same path `/permissions`

@@ -55,7 +55,8 @@ export interface StatusBarProps {
 	readonly composerMounted?: boolean
 	/**
 	 * Whether the quiet `shift+tab to cycle` reminder may fill an otherwise
-	 * empty row. Off while a custom status line is configured: the resting hint is suppressed then, and the operator's line owns the
+	 * empty row. Off while a custom status line is configured: the resting hint is suppressed then,
+	 * and the operator's line owns the
 	 * quiet moments.
 	 */
 	readonly restingHint?: boolean
