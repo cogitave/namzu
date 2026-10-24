@@ -1,7 +1,7 @@
 /**
  * The words the tag row says, at every width.
  *
- * Meaning is carried by words, never by a glyph (the reference marks a
+ * Meaning is carried by words, never by a glyph (a
  * detected keyword by highlighting it in the input and a plain notice, with no
  * symbol): an armed trigger says what it does, and any other state is a word
  * or a mark — `?` for a suggestion, `(off)` for one dropped with Alt+W,

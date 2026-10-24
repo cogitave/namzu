@@ -52,7 +52,7 @@ export function writeHintCount(name: string, count: number, home?: string): void
 	}
 }
 
-/** The queued-messages hint's count, stored under the reference's own key name. */
+/** The queued-messages hint's count, stored under its own key. */
 export function fileQueuedHintCount(home?: string): QueuedHintCount {
 	return {
 		read: () => readHintCount('queuedCommandUpHintCount', home),

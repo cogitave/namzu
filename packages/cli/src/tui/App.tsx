@@ -3001,8 +3001,7 @@ export function App({
 	)
 	/**
 	 * Stopping background agents is the operator's act, so the model is told once,
-	 * with its next turn and without waking it: one note for however many
-	 * (REFERENCE.md section 3).
+	 * with its next turn and without waking it: one note for however many.
 	 */
 	const tellModelAgentsStopped = useCallback((stopped: readonly SubagentActivity[]) => {
 		const note = stoppedByUserNote(stopped.map((agent) => agent.description || agent.agentId))
@@ -3045,7 +3044,7 @@ export function App({
 			return
 		}
 		// "Nothing running" and "press again" are footer feedback that times out
-		// (the reference's kill-agents-none 2 s / kill-agents-confirm 3 s), never a
+		// (2 s and 3 s), never a
 		// transcript row.
 		setStopAllNotice(step.notice)
 		const timer = setTimeout(() => {

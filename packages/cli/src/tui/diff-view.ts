@@ -1,6 +1,5 @@
 /**
- * A change to a file as terminal rows, drawn the way the reference terminal
- * draws it when its native highlighter is off.
+ * A change to a file as terminal rows, drawn without a native highlighter.
  *
  * Each row is a line-number gutter, a `+`, `-` or space marker that the code
  * follows immediately, and the code. An added or removed row has a background
@@ -40,7 +39,7 @@ export const WORKSPACE_PREVIEW_ROWS = 40
 const MAX_LINE_CHARS = 2000
 /** A pair of lines is drawn with word highlights only when this little of it differs. */
 const WORD_DIFF_RATIO = 0.4
-/** Tab stops, as the reference expands them. */
+/** Tab stops. */
 const TAB_STOP = 8
 
 /** The rows `diffViewRows` draws between two hunks. */
@@ -261,7 +260,7 @@ function entryRows(
 	const marker = MARKER[entry.kind]
 	const words = wordRuns(entry, dim)
 	// The code is as wide as the row less the gutter, the marker and, outside
-	// a word-compared pair, two cells the reference keeps in reserve.
+	// a word-compared pair, two cells kept in reserve.
 	const room = Math.max(1, width - m - 1 - (words ? marker.length : 2))
 	const pieces = wrapRuns(words ?? [{ text: entry.code, mark: false }], room)
 	const note = entry.cut > 0 ? truncationNote(entry.cut) : ''

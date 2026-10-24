@@ -1,8 +1,7 @@
 /**
  * How many times the queued-messages hint is offered, across launches, before
- * the plain placeholder takes over. The reference counts the same way: the hint
- * shows while its stored count is below three (Claude Code 2.1.310,
- * `queuedCommandUpHintCount < 3`).
+ * the plain placeholder takes over. The hint shows while the stored count is
+ * below three.
  */
 export const QUEUED_HINT_LIMIT = 3
 

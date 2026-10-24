@@ -62,7 +62,7 @@ export interface ToolEndContext {
 	readonly cwd?: string
 }
 
-/** Tools the reference terminal heads under another name: an edit is an `Update`. */
+/** Tools headed under another name: an edit is an `Update`. */
 const DISPLAY_NAMES: Readonly<Record<string, string>> = { edit: 'Update' }
 
 /**

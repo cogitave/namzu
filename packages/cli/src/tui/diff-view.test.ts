@@ -168,7 +168,7 @@ describe('a refused change', () => {
 })
 
 describe('the palette', () => {
-	it('is the reference values on a truecolor terminal and named ANSI colours elsewhere', () => {
+	it('is the dark-theme values on a truecolor terminal and named ANSI colours elsewhere', () => {
 		expect(colors).toEqual({
 			added: 'rgb(34,92,43)',
 			removed: 'rgb(122,41,54)',

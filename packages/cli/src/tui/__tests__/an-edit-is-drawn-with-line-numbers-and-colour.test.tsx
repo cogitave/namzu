@@ -2,7 +2,7 @@
  * What a person sees of a change to a file: the header, the result line and the
  * hunks under it, read back from an emulated terminal (text AND cell colours).
  *
- * The rules are the reference terminal's own: the numbers are bold, an added or
+ * The numbers are bold, an added or
  * removed row is filled to the edge with a background, the changed words in a
  * pair get a stronger one, hunks are joined by a dim `...`, and nothing but the
  * result line's own column sits to the left of the body.
@@ -133,7 +133,7 @@ describe('an accepted edit', () => {
 		expect(screen.cell(row, (screen.viewport()[row]?.indexOf('Added') ?? 0) + 1).bold).toBe(false)
 	})
 
-	it('fills added and removed rows to the edge with the reference backgrounds, words stronger', async () => {
+	it('fills added and removed rows to the edge with the diff backgrounds, words stronger', async () => {
 		process.env.COLORTERM = 'truecolor'
 		const screen = await show(editRows(), 60)
 		const view = screen.viewport()

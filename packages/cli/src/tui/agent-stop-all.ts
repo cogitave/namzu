@@ -19,13 +19,13 @@ export function stoppableBackgroundAgents(
 	return agents.filter((agent) => agent.background === true && railActionFor(agent) === 'stop')
 }
 
-/** How long the "nothing running" footer notice stays (REA `kill-agents-none`, `timeoutMs: 2000`). */
+/** How long the "nothing running" footer notice stays (2 s). */
 export const STOP_ALL_NONE_MS = 2000
 
 /**
  * What one press does. `none` and `arm` are footer notices that time out on
- * their own (REA `kill-agents-none` 2 s, `kill-agents-confirm` 3 s); only
- * `stop` leaves a transcript row, the reference's `agents_killed` line.
+ * their own (2 s and 3 s); only
+ * `stop` leaves a transcript row.
  */
 export type StopAllStep =
 	| {
@@ -36,7 +36,7 @@ export type StopAllStep =
 	| { readonly kind: 'arm'; readonly notice: string; readonly footerMs: number }
 	| { readonly kind: 'stop'; readonly notice: string }
 
-/** The transcript row after the second press (REA `agents_killed`: red dot, "All background agents stopped"). */
+/** The transcript row after the second press (a red dot, "All background agents stopped"). */
 export const STOP_ALL_DONE_TEXT = 'All background agents stopped'
 
 /** What one press of the chord does, given how many agents could be stopped and whether it is armed. */

@@ -25,7 +25,7 @@ export const CONTINUATION_GLYPH = '⎿'
 /**
  * The one gutter every tool result hangs from, shell output and one-line
  * results alike: two columns of indent, the `⎿`, then two spaces
- * (the reference's `  ⎿  `, chunk-1sr6vjz6.js `Ge`).
+ * (`  ⎿  `).
  */
 export const RESULT_GUTTER_INDENT = 2
 /** Width of the `⎿` plus the two spaces after it. */

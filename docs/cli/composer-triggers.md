@@ -102,7 +102,7 @@ are one word; the highlight still lands on the characters you typed.
 
 One row between the composer's rules, above the input, in the place of the
 `Effort:` and `Model:` previews. The row is sentence case and carries no glyph
-(the reference marks a detected keyword by highlighting it and a plain notice,
+(a detected keyword is marked by highlighting it and a plain notice,
 never a symbol); the state is always a word or a mark:
 
 ```text

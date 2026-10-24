@@ -20,7 +20,7 @@ import { type SubagentCompletion, createSubagentRuntime } from '../runtime.js'
  * With an operator watching (`backgroundByDefault`), `Agent` runs in the
  * background unless told otherwise, the turn ends when the model has answered,
  * the agent keeps running after the turn is released, and its end is reported
- * once through `onBackgroundCompletion` (REFERENCE.md sections 1, 3 and 6).
+ * once through `onBackgroundCompletion`.
  *
  * Nothing here measures time: the child is held on a promise the test resolves.
  */

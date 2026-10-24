@@ -1,6 +1,6 @@
 /**
  * The conversation while background agents outlive the turn that launched them,
- * as plain data (REFERENCE.md sections 2, 3, 5 and 8).
+ * as plain data.
  *
  * The turn ends when the model has answered. What is still running is named on
  * one dim line until it ends, then the turn's closing line is written with the
@@ -38,7 +38,7 @@ export function pendingBackgroundAgents(
 /**
  * `Waiting for 2 background agents to finish`, or with workflows
  * `Waiting for 1 background agent and 2 dynamic workflows to finish`; undefined
- * when nothing is pending (the reference's turn row, `Dg`).
+ * when nothing is pending.
  */
 export function backgroundWaitLine(agents: number, workflows: number): string | undefined {
 	if (agents <= 0 && workflows <= 0) return undefined
@@ -53,7 +53,7 @@ export function backgroundWaitLine(agents: number, workflows: number): string | 
 
 /**
  * The note the model reads when the operator stops background agents from an
- * idle composer: one note, however many (the reference's task notification).
+ * idle composer: one note, however many.
  */
 export function stoppedByUserNote(descriptions: readonly string[]): string | undefined {
 	const names = descriptions.map((value) => value.replace(/\s+/gu, ' ').trim()).filter(Boolean)
@@ -74,7 +74,7 @@ export interface RunningGroup {
 /**
  * The live group for a batch that includes an agent the turn waits on:
  * `Running 3 agents…`, then per agent `description · 4 tool uses · 12.1k tokens`
- * over `⎿ <last tool>` (REA fn Ym; `Initializing…` before the first tool).
+ * over `⎿ <last tool>` (`Initializing…` before the first tool).
  * Undefined when every member runs in the background or has ended: that batch is
  * the launch receipt, not a live group.
  */

@@ -456,7 +456,7 @@ function DetailBlock({
 }
 
 /**
- * A change to a file, drawn as the reference terminal draws it: under the
+ * A change to a file, drawn: under the
  * result line, in the column the result's words start in, each added or
  * removed row filled to the edge. No rule beside it.
  */

@@ -80,8 +80,7 @@ export const theme: SemanticColors = {
 }
 
 /**
- * The backgrounds a diff row is drawn on. Six tokens, as the reference names
- * them: a whole added or removed row, the same dimmed for a change that was
+ * The backgrounds a diff row is drawn on. Six tokens: a whole added or removed row, the same dimmed for a change that was
  * refused, and the words that differ inside a changed pair of rows.
  */
 export interface DiffColors {
@@ -93,7 +92,7 @@ export interface DiffColors {
 	readonly removedWord: string
 }
 
-/** For a terminal that reports 24-bit colour: the reference's dark-theme values. */
+/** For a terminal that reports 24-bit colour: the dark-theme values. */
 export const DIFF_COLORS_TRUECOLOR: DiffColors = {
 	added: 'rgb(34,92,43)',
 	removed: 'rgb(122,41,54)',
