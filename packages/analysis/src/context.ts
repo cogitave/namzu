@@ -182,6 +182,18 @@ export class Files {
 		return info
 	}
 
+	/**
+	 * Load the rows of these files now, replacing anything held for them. Called
+	 * inside `Store.snapshot` with the ids a query just read, so every id is
+	 * resolved against the view that produced it.
+	 */
+	preload(ids: Iterable<number>): void {
+		for (const id of new Set(ids)) {
+			this.byId.delete(id)
+			this.byIdOrThrow(id)
+		}
+	}
+
 	byPath(rel: string): FileInfo | undefined {
 		const row = this.store.get('SELECT * FROM files WHERE path = ?', rel)
 		if (!row) return undefined
