@@ -7,6 +7,7 @@ import {
 	isWorkflowSizeGuideline,
 	parseTokenTarget,
 	workflowSizeAdvice,
+	workflowTokenCeiling,
 } from '../size.js'
 
 describe('workflowSizeAdvice', () => {
@@ -48,18 +49,43 @@ describe('parseTokenTarget', () => {
 		['do it +500k please', 500_000],
 		['+1.5m', 1_500_000],
 		['go +2B', 2_000_000_000],
-		['spend +300000 tokens', 300_000],
 		['first +100k then +200k', 200_000],
 		['end of sentence +50k.', 50_000],
 	])('reads %s', (text, expected) => {
 		expect(parseTokenTarget(text)).toBe(expected)
 	})
-	it.each(['a+500k', 'c++', '+k', 'no target', '1+2', '+0k', 'x +500kb', '+5 k'])(
-		'ignores %s',
-		(text) => {
-			expect(parseTokenTarget(text)).toBeUndefined()
-		},
-	)
+	it.each([
+		'a+500k',
+		'c++',
+		'+k',
+		'no target',
+		'1+2',
+		'+0k',
+		'x +500kb',
+		'+5 k',
+		'+5000',
+		'spend +300000 tokens',
+	])('ignores %s', (text) => {
+		expect(parseTokenTarget(text)).toBeUndefined()
+	})
+})
+
+describe('workflowTokenCeiling', () => {
+	it.each([
+		[undefined, undefined, undefined],
+		[0, undefined, undefined],
+		[1_000_000, undefined, 1_000_000],
+		[undefined, 500_000, 500_000],
+		[1_000_000, 500_000, 500_000],
+		[300_000, 500_000, 300_000],
+		[0, 500_000, 500_000],
+	])('turn budget %s with typed target %s gives %s', (budget, target, expected) => {
+		expect(workflowTokenCeiling(budget, target)).toBe(expected)
+	})
+	it('carries a typed message through to the ceiling', () => {
+		expect(workflowTokenCeiling(undefined, parseTokenTarget('audit it +250k'))).toBe(250_000)
+		expect(workflowTokenCeiling(undefined, parseTokenTarget('line 5000 changed'))).toBeUndefined()
+	})
 })
 
 describe('isLargeRun', () => {

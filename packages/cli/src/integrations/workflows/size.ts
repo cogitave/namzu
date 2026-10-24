@@ -2,10 +2,9 @@
  * Workflow size: the advisory guideline the model reads, the "+500k" token
  * target the person can type, and the large-run warning on the rail. Pure.
  *
- * Rules follow the reference (see the round-3 REFERENCE.md): the guideline is
- * advice, never a limit; the target is a ceiling `budget.total` carries into
- * the script; the warning fires above 25 agents or 1.5M tokens unless the
- * standing hypermode is on.
+ * The guideline is advice, never a limit; the target is a ceiling that
+ * `budget.total` carries into the script; the warning fires above 25 agents
+ * or 1.5M tokens unless the standing hypermode is on.
  */
 
 export const WORKFLOW_SIZE_GUIDELINES = ['unrestricted', 'small', 'medium', 'large'] as const
@@ -45,20 +44,34 @@ const SUFFIX = { k: 1e3, m: 1e6, b: 1e9 } as const
 
 /**
  * The token target in a message the person typed: a standalone `+500k`,
- * `+1.5m` or `+2b` (case-insensitive; a bare `+300000` counts too, from 1000 up). The last
+ * `+1.5m` or `+2b` (case-insensitive; the k, m or b suffix is required, so a
+ * bare number such as `+5000` in prose or a diff is never a target). The last
  * one wins. Returns undefined when there is none. Call it only with the
  * person's own text, never with model output or tool results.
  */
 export function parseTokenTarget(text: string): number | undefined {
 	let found: number | undefined
-	for (const match of text.matchAll(/(?<![\w+.])\+(\d+(?:\.\d+)?)([kmb])?(?![\w])/gi)) {
-		const unit = match[2]?.toLowerCase() as keyof typeof SUFFIX | undefined
-		const value = Math.round(Number(match[1]) * (unit ? SUFFIX[unit] : 1))
-		// A bare number is a target only from 1000 up, so "+5" in prose is not one.
-		if (Number.isSafeInteger(value) && value > 0 && (unit !== undefined || value >= 1000))
-			found = value
+	for (const match of text.matchAll(/(?<![\w+.])\+(\d+(?:\.\d+)?)([kmb])(?![\w])/gi)) {
+		const unit = match[2]?.toLowerCase() as keyof typeof SUFFIX
+		const value = Math.round(Number(match[1]) * SUFFIX[unit])
+		if (Number.isSafeInteger(value) && value > 0) found = value
 	}
 	return found
+}
+
+/**
+ * The token ceiling a workflow runs under: the smaller of the turn's own
+ * budget (when positive) and the typed target, or undefined for neither.
+ */
+export function workflowTokenCeiling(
+	turnBudget: number | undefined,
+	typedTarget: number | undefined,
+): number | undefined {
+	const ceilings = [
+		turnBudget !== undefined && turnBudget > 0 ? turnBudget : undefined,
+		typedTarget,
+	].filter((value): value is number => value !== undefined)
+	return ceilings.length > 0 ? Math.min(...ceilings) : undefined
 }
 
 const WARNING_AGENTS = 25

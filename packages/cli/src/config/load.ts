@@ -318,10 +318,7 @@ function assertAutoModelHasDefault(config: NamzuCliConfig, provenance: ConfigPro
 	const valueSource: ConfigValueSource =
 		source?.kind === 'env'
 			? { kind: 'environment', variable: source.variable }
-			: {
-					kind: 'file',
-					path: source && 'path' in source ? source.path : '(config)',
-				}
+			: { kind: 'file', path: source && 'path' in source ? source.path : '(config)' }
 	throw new ConfigValueError(
 		valueSource,
 		'model',
@@ -2037,10 +2034,7 @@ function readRoutingConfig(v: unknown, context: ConfigReaderContext): RoutingCon
 				return invalidConfigValue(context, [...path, key], 'must be a non-empty string')
 			}
 		}
-		return {
-			provider: (entry.provider as string).trim(),
-			model: (entry.model as string).trim(),
-		}
+		return { provider: (entry.provider as string).trim(), model: (entry.model as string).trim() }
 	}
 	if (raw.default === undefined) {
 		return invalidConfigValue(context, ['default'], 'is required: the model auto falls back to')
@@ -2234,10 +2228,7 @@ export function mergeBrowserConfig(
 ): BrowserConfig {
 	if (layer.defaultProfile !== undefined && isProjectSource(source)) {
 		throw new ConfigValueError(
-			{
-				kind: 'file',
-				path: 'path' in source ? source.path : 'namzu.config.json',
-			},
+			{ kind: 'file', path: 'path' in source ? source.path : 'namzu.config.json' },
 			'browser.defaultProfile',
 			'cannot be set in a project file: a profile holds your sign-ins, so choose it in your user config or with /browser profile',
 		)

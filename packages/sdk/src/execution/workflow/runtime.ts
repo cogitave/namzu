@@ -83,9 +83,7 @@ export function resolveWorkflowLimits(limits: WorkflowLimits = {}): WorkflowReso
 			16 * 1024 * 1024,
 		),
 		...(limits.tokenBudget !== undefined
-			? {
-					tokenBudget: integer('tokenBudget', limits.tokenBudget, 1, Number.MAX_SAFE_INTEGER),
-				}
+			? { tokenBudget: integer('tokenBudget', limits.tokenBudget, 1, Number.MAX_SAFE_INTEGER) }
 			: {}),
 		maxDurationMs: integer(
 			'maxDurationMs',
@@ -337,13 +335,7 @@ export class WorkflowRuntime {
 					declared,
 					at,
 				})
-				journal({
-					type: 'phase',
-					at,
-					index: phase.index,
-					title: phase.title,
-					declared,
-				})
+				journal({ type: 'phase', at, index: phase.index, title: phase.title, declared })
 			}
 			return phase
 		}
@@ -419,12 +411,7 @@ export class WorkflowRuntime {
 
 		const settle = (
 			agent: AgentRecord,
-			outcome: {
-				state: 'done' | 'error'
-				skipped?: boolean
-				value?: unknown
-				error?: string
-			},
+			outcome: { state: 'done' | 'error'; skipped?: boolean; value?: unknown; error?: string },
 		): HostCallResult => {
 			const at = now()
 			agent.state = outcome.state
@@ -480,10 +467,7 @@ export class WorkflowRuntime {
 				})
 			}
 			if (outcome.state === 'error') {
-				return settle(agent, {
-					state: 'error',
-					error: outcome.error ?? 'The agent failed.',
-				})
+				return settle(agent, { state: 'error', error: outcome.error ?? 'The agent failed.' })
 			}
 			if (call.schema === undefined) {
 				return settle(agent, { state: 'done', value: outcome.text ?? '' })
@@ -692,10 +676,7 @@ export class WorkflowRuntime {
 			onOutput,
 			onHostCall: (request) => {
 				if (request.name !== WORKFLOW_HOST_CALL) {
-					return Promise.resolve({
-						ok: false,
-						error: `Unknown host call "${request.name}".`,
-					})
+					return Promise.resolve({ ok: false, error: `Unknown host call "${request.name}".` })
 				}
 				let call: AgentCall
 				try {

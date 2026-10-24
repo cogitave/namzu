@@ -360,6 +360,7 @@ import {
 	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
 	parseTokenTarget,
 	workflowSizeAdvice,
+	workflowTokenCeiling,
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
@@ -3740,13 +3741,10 @@ export async function createAgentSession(
 			),
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
-				const target = workflowTokenTargets.get(turnId)
+				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
 				const { sizeGuideline: _advice, ...caps } = options.workflow ?? {}
-				const ceilings = [budget !== undefined && budget > 0 ? budget : undefined, target].filter(
-					(value): value is number => value !== undefined,
-				)
 				return {
-					...(ceilings.length > 0 ? { tokenBudget: Math.min(...ceilings) } : {}),
+					...(ceiling !== undefined ? { tokenBudget: ceiling } : {}),
 					...caps,
 				}
 			},

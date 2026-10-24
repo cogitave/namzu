@@ -42,12 +42,7 @@ describe('agent()', () => {
 		})
 		expect(result.status).toBe('completed')
 		expect(result.result).toEqual({ a: 'ok:one', args: { n: 3 } })
-		expect(result.usage).toMatchObject({
-			agents: 1,
-			agentsDone: 1,
-			tokens: 10,
-			toolCalls: 1,
-		})
+		expect(result.usage).toMatchObject({ agents: 1, agentsDone: 1, tokens: 10, toolCalls: 1 })
 		expect(result.runId).toMatch(/^w[0-9a-z]{8}$/)
 	})
 
@@ -75,11 +70,7 @@ describe('agent()', () => {
 			['done', true, undefined],
 			['done', false, undefined],
 		])
-		expect(result.usage).toMatchObject({
-			agentsDone: 1,
-			agentsFailed: 1,
-			agentsSkipped: 1,
-		})
+		expect(result.usage).toMatchObject({ agentsDone: 1, agentsFailed: 1, agentsSkipped: 1 })
 	})
 
 	it('treats a throwing spawnAgent as a failed agent', async () => {
@@ -161,10 +152,7 @@ describe('schema', () => {
 
 	it('hands the schema to the host', async () => {
 		const host = makeHost()
-		await runScript(`${META}await agent('q', { schema: args.schema })`, {
-			host,
-			args: { schema },
-		})
+		await runScript(`${META}await agent('q', { schema: args.schema })`, { host, args: { schema } })
 		expect(host.started[0]?.request.schema).toEqual(schema)
 	})
 })
@@ -186,10 +174,7 @@ describe('parallel and pipeline', () => {
 		await host.reached(4)
 		host.started[3]?.finish()
 		const { result } = await run
-		expect(result.result).toEqual({
-			rs: ['ok:p1', 'ok:p2', 'ok:p3'],
-			after: 'ok:after',
-		})
+		expect(result.result).toEqual({ rs: ['ok:p1', 'ok:p2', 'ok:p3'], after: 'ok:after' })
 		expect(host.timeline.indexOf('start:4')).toBeGreaterThan(host.timeline.lastIndexOf('end:3'))
 		expect(host.timeline.indexOf('start:4')).toBeGreaterThan(host.timeline.indexOf('end:1'))
 		expect(host.timeline.indexOf('start:4')).toBeGreaterThan(host.timeline.indexOf('end:2'))
@@ -357,15 +342,7 @@ describe('phases', () => {
 		expect(phaseEvents(events)).toEqual([])
 		expect(agentEvents(events).every((e) => e.phaseIndex === undefined)).toBe(true)
 		expect(result.phases).toEqual([
-			{
-				index: 0,
-				title: 'Agents',
-				status: 'done',
-				agents: 2,
-				done: 2,
-				failed: 0,
-				tokens: 20,
-			},
+			{ index: 0, title: 'Agents', status: 'done', agents: 2, done: 2, failed: 0, tokens: 20 },
 		])
 	})
 
@@ -485,12 +462,7 @@ describe('cancellation and skipping', () => {
 		const queued = queuedAgents(3)
 		const run = runScript(
 			`${META}return await parallel([1, 2, 3].map((i) => () => agent('a' + i)))`,
-			{
-				host,
-				signal: controller.signal,
-				limits: { maxConcurrency: 1 },
-				onEvent: queued.onEvent,
-			},
+			{ host, signal: controller.signal, limits: { maxConcurrency: 1 }, onEvent: queued.onEvent },
 		)
 		await host.reached(1)
 		await queued.all
@@ -501,10 +473,7 @@ describe('cancellation and skipping', () => {
 		expect(host.started[0]?.signal.aborted).toBe(true)
 		const final = agentEvents(events).filter((e) => e.state === 'error')
 		expect(final.map((e) => e.index).sort()).toEqual([1, 2, 3])
-		expect(events.at(-1)).toMatchObject({
-			type: 'workflow_finished',
-			status: 'stopped',
-		})
+		expect(events.at(-1)).toMatchObject({ type: 'workflow_finished', status: 'stopped' })
 	})
 
 	it('reports stopped without starting anything when already aborted', async () => {
@@ -585,11 +554,7 @@ describe('events', () => {
 			lastToolName: 'grep',
 			lastToolSummary: 'src',
 		})
-		expect(done).toMatchObject({
-			tokens: 9,
-			toolCalls: 2,
-			resultPreview: 'fin',
-		})
+		expect(done).toMatchObject({ tokens: 9, toolCalls: 2, resultPreview: 'fin' })
 		expect(done?.finishedAt).toBeGreaterThan(done?.startedAt ?? 0)
 		expect(events.at(-1)).toMatchObject({
 			type: 'workflow_finished',
@@ -625,10 +590,7 @@ describe('events', () => {
 		expect(result.error).toMatch(
 			/^Error: script broke — line 2, column \d+: throw new Error\('script broke'\)/,
 		)
-		expect(events.at(-1)).toMatchObject({
-			type: 'workflow_finished',
-			status: 'failed',
-		})
+		expect(events.at(-1)).toMatchObject({ type: 'workflow_finished', status: 'failed' })
 	})
 
 	it('truncates very long log output and says so', async () => {
@@ -652,12 +614,7 @@ describe('journal', () => {
 				args: { k: 1 },
 				host: {
 					...makeHost(),
-					spawnAgent: async () => ({
-						state: 'done',
-						text: '"v"',
-						tokens: 2,
-						toolCalls: 1,
-					}),
+					spawnAgent: async () => ({ state: 'done', text: '"v"', tokens: 2, toolCalls: 1 }),
 				},
 				journal: {
 					writeScript: (source) => {
@@ -701,11 +658,7 @@ describe('journal', () => {
 			tokens: 2,
 			resultPreview: 'v',
 		})
-		expect(records[5]).toMatchObject({
-			type: 'run_finished',
-			status: 'completed',
-			result: 'v',
-		})
+		expect(records[5]).toMatchObject({ type: 'run_finished', status: 'completed', result: 'v' })
 	})
 
 	it('keeps running and reports it when the journal cannot be written', async () => {
@@ -748,10 +701,7 @@ describe('refusals before anything starts', () => {
 		const events: WorkflowEvent[] = []
 		const base = { onEvent: (e: WorkflowEvent) => events.push(e) }
 		await expect(
-			runScript(`${META}// ${'x'.repeat(2000)}`, {
-				...base,
-				limits: { maxSourceBytes: 1000 },
-			}),
+			runScript(`${META}// ${'x'.repeat(2000)}`, { ...base, limits: { maxSourceBytes: 1000 } }),
 		).rejects.toThrow('larger than 1000 bytes')
 		await expect(runScript('return 1', base)).rejects.toThrow('must start with')
 		const cyclic: Record<string, unknown> = {}

@@ -64,7 +64,7 @@ The screen shows, in order:
 │   Phases:                                                                    │
 │     1. Tarama                                                                │
 │     2. Duzeltme — yalnizca guvenli duzeltmeler                               │
-│   Agents: up to 16 at a time, 1000 in all, each with the same tools and        │
+│   Agents: up to 16 at a time, 1000 in all, each with the same tools and      │
 │   approval rules as an Agent call                                            │
 │   Runs in the background; you can stop it from the rail or /workflows        │
 │   Script · 14 lines                                                          │

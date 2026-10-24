@@ -129,12 +129,7 @@ function endedBeforeAgents(end: WorkflowRunEnd, noArgs: boolean) {
 		return {
 			success: true,
 			output: completionNotice(view),
-			data: {
-				run_id: view.runId,
-				name: view.name,
-				status: 'completed',
-				inline: true,
-			},
+			data: { run_id: view.runId, name: view.name, status: 'completed', inline: true },
 		}
 	}
 	const reason = plainScriptFailure(view.error ?? 'no reason was given')

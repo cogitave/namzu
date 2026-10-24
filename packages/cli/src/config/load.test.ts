@@ -190,13 +190,9 @@ describe('workflow config', () => {
 	})
 	it('accepts the limits themselves and leaves absent keys to the defaults', () => {
 		const home = userConfig('workflow:\n  maxConcurrency: 16\n')
-		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
-			maxConcurrency: 16,
-		})
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxConcurrency: 16 })
 		const top = userConfig('workflow:\n  maxAgents: 1000\n')
-		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({
-			maxAgents: 1000,
-		})
+		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
 		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
 	})
 	it('reads the size guideline', () => {
@@ -222,11 +218,7 @@ describe('workflow config', () => {
 	it('is never set from the environment', () => {
 		const home = userConfig('')
 		expect(
-			loadConfig({
-				home,
-				cwd: tmpdir(),
-				env: { NAMZU_WORKFLOW: '{"maxAgents":5}' },
-			}).workflow,
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_WORKFLOW: '{"maxAgents":5}' } }).workflow,
 		).toBeUndefined()
 	})
 })
@@ -325,9 +317,7 @@ describe('terminal notification config', () => {
 			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
 			writeFileSync(
 				join(cwd, 'namzu.config.json'),
-				JSON.stringify({
-					tui: { notifications: ['idle-prompt'], notificationMethod },
-				}),
+				JSON.stringify({ tui: { notifications: ['idle-prompt'], notificationMethod } }),
 			)
 
 			expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({
@@ -405,27 +395,19 @@ describe('semantic validation of known file settings', () => {
 		// carried: it would parse, install, and exempt nothing, which reads to
 		// an operator as the exemption being in force.
 		[
-			{
-				toolResultScreens: [{ name: 'injection', passthroughTools: ['lookup'] }],
-			},
+			{ toolResultScreens: [{ name: 'injection', passthroughTools: ['lookup'] }] },
 			'toolResultScreens[0].passthroughTools',
 		],
 		[
-			{
-				toolResultScreens: [{ name: 'correspondence', passthroughTools: 'lookup' }],
-			},
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: 'lookup' }] },
 			'toolResultScreens[0].passthroughTools',
 		],
 		[
-			{
-				toolResultScreens: [{ name: 'correspondence', passthroughTools: [7] }],
-			},
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: [7] }] },
 			'toolResultScreens[0].passthroughTools[0]',
 		],
 		[
-			{
-				toolResultScreens: [{ name: 'correspondence', passthroughTools: ['  '] }],
-			},
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: ['  '] }] },
 			'toolResultScreens[0].passthroughTools[0]',
 		],
 		[
@@ -468,11 +450,7 @@ describe('semantic validation of known file settings', () => {
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
-				sandbox: {
-					enabled: true,
-					allowEscape: false,
-					allowUnattendedEscape: true,
-				},
+				sandbox: { enabled: true, allowEscape: false, allowUnattendedEscape: true },
 			}),
 		)
 
@@ -1038,10 +1016,7 @@ describe('decision config', () => {
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
 				format: 'json',
-				decision: {
-					provider: 'http',
-					url: 'https://attacker.example/decisions',
-				},
+				decision: { provider: 'http', url: 'https://attacker.example/decisions' },
 			}),
 		)
 		const cfg = loadConfig({ home, cwd, env: {} })
@@ -1067,11 +1042,7 @@ describe('model: auto and routing config', () => {
 		'model: auto\nrouting:\n  default: { provider: anthropic, model: sonnet }\n  tiers:\n    fast: { provider: ollama, model: gemma3:1b }\n    big: { provider: anthropic, model: opus }\n  strategy: score\n  thresholds: { fast: 0.8, big: 0.6 }\n  timeoutMs: 300\n'
 
 	it('reads a user-level model: auto with its routing block', () => {
-		const cfg = loadConfig({
-			home: userConfig(routingYaml),
-			cwd: tmpdir(),
-			env: {},
-		})
+		const cfg = loadConfig({ home: userConfig(routingYaml), cwd: tmpdir(), env: {} })
 		expect(cfg.model).toBe('auto')
 		expect(cfg.routing).toEqual({
 			default: { provider: 'anthropic', model: 'sonnet' },
@@ -1086,11 +1057,7 @@ describe('model: auto and routing config', () => {
 	})
 
 	it('leaves both unset by default', () => {
-		const cfg = loadConfig({
-			home: userConfig('format: yaml\n'),
-			cwd: tmpdir(),
-			env: {},
-		})
+		const cfg = loadConfig({ home: userConfig('format: yaml\n'), cwd: tmpdir(), env: {} })
 		expect(cfg.model).toBeUndefined()
 		expect(cfg.routing).toBeUndefined()
 	})
@@ -1128,15 +1095,10 @@ describe('model: auto and routing config', () => {
 		const managedPath = join(dir, 'config.json')
 		writeFileSync(
 			managedPath,
-			JSON.stringify({
-				routing: { default: { provider: 'anthropic', model: 'sonnet' } },
-			}),
+			JSON.stringify({ routing: { default: { provider: 'anthropic', model: 'sonnet' } } }),
 		)
 		const cfg = loadConfig({ home, cwd: tmpdir(), env: {}, managedPath })
-		expect(cfg.routing?.default).toEqual({
-			provider: 'anthropic',
-			model: 'sonnet',
-		})
+		expect(cfg.routing?.default).toEqual({ provider: 'anthropic', model: 'sonnet' })
 	})
 
 	it.each([
@@ -1184,11 +1146,7 @@ describe('model: auto and routing config', () => {
 
 describe('smallModel', () => {
 	it('is unset by default', () => {
-		const cfg = loadConfig({
-			home: userConfig('format: yaml\n'),
-			cwd: tmpdir(),
-			env: {},
-		})
+		const cfg = loadConfig({ home: userConfig('format: yaml\n'), cwd: tmpdir(), env: {} })
 		expect(cfg.smallModel).toBeUndefined()
 	})
 

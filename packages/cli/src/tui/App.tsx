@@ -2864,14 +2864,7 @@ export function App({
 			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
 			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
-			const candidate = {
-				role,
-				content,
-				pending,
-				glyph: rowGlyph,
-				detail,
-				activity,
-			}
+			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.

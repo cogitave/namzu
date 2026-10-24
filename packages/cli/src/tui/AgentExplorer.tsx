@@ -524,10 +524,7 @@ export function layoutWorkflowRow(
 		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
 	for (const variant of variants) {
 		if (room - widthOf(variant) >= wanted) {
-			return {
-				variant,
-				nameWidth: Math.min(nameWidth, room - widthOf(variant)),
-			}
+			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
 		}
 	}
 	const last = variants[variants.length - 1] as WorkflowRowVariant
