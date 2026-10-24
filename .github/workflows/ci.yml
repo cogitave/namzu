@@ -143,7 +143,7 @@ jobs:
       # `pnpm -r test` never reaches them.
       - name: The two paths onto main run the same gates
         run: |
-          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs
+          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs
           node .github/scripts/check-workflow-gate-parity.mjs
 
       - name: Project references match workspace dependencies

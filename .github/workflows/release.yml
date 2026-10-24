@@ -39,6 +39,19 @@ name: Release
 # push with no pull request therefore keeps the full validation — unless its
 # tree is byte-identical to one CI already passed, which is the same content.
 #
+# ## A push that cannot publish
+#
+# `changesets/action` publishes only when the tree has no pending changeset;
+# with one it versions and opens or updates the "version packages" PR and
+# publishes nothing. A feature merge that adds its `.changeset/<slug>.md` is
+# such a push, so the same step first asks
+# `.github/scripts/pending-changesets.mjs` about the pushed tree (read with
+# `git ls-tree`, mirroring @changesets/read: top-level `.changeset/*.md` except
+# README.md; `pre.json`, a non-regular entry or any error answers no). A yes
+# sets the same `skip=true` with `path=no-publish`. The merge of the version PR
+# deletes the changesets, so it never takes this path and keeps the
+# validated-tree record or the full inline gates before it publishes.
+#
 # Every validation step carries `if: steps.revalidation.outputs.skip != 'true'`
 # and nothing else. Install and Build always run, because publishing needs
 # `dist`; the pre-publish consumer install check keeps its version-commit
@@ -96,15 +109,26 @@ jobs:
           tree=$(git rev-parse 'HEAD^{tree}')
           ci_blob=$(git rev-parse 'HEAD:.github/workflows/ci.yml' 2>/dev/null || true)
           echo "commit $GITHUB_SHA, tree $tree, ci.yml blob ${ci_blob:-none}"
-          node .github/scripts/find-validated-tree.mjs --repo "$GITHUB_REPOSITORY" --tree "$tree" --ci-blob "$ci_blob"
+          # A push whose tree carries pending changesets publishes nothing (the
+          # Changesets action only updates the version PR), so there is nothing
+          # to validate before it. Exit 0 only on a yes; anything else falls
+          # through to the validated-tree lookup and then to every gate.
+          if node .github/scripts/pending-changesets.mjs --tree "$tree"; then
+            echo "path: no publish possible from this tree"
+          else
+            node .github/scripts/find-validated-tree.mjs --repo "$GITHUB_REPOSITORY" --tree "$tree" --ci-blob "$ci_blob"
+          fi
 
       - name: Report the validation path
         env:
           SKIP: ${{ steps.revalidation.outputs.skip }}
           REASON: ${{ steps.revalidation.outputs.reason }}
           RUN_URL: ${{ steps.revalidation.outputs.run_url }}
+          PATH_TAKEN: ${{ steps.revalidation.outputs.path }}
         run: |
-          if [ "$SKIP" = "true" ]; then
+          if [ "$SKIP" = "true" ] && [ "$PATH_TAKEN" = "no-publish" ]; then
+            echo "::notice title=Validation skipped::this push cannot publish ($REASON)"
+          elif [ "$SKIP" = "true" ]; then
             echo "::notice title=Validation skipped::this tree already passed ci.yml ($REASON) — $RUN_URL"
           else
             echo "::notice title=Full validation::${REASON:-the lookup produced no answer}"
@@ -143,7 +167,7 @@ jobs:
       - name: The two paths onto main run the same gates
         if: steps.revalidation.outputs.skip != 'true'
         run: |
-          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs
+          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs scripts/__tests__/pending-changesets.test.mjs
           node .github/scripts/check-workflow-gate-parity.mjs
 
       - name: Project references match workspace dependencies
