@@ -20,7 +20,7 @@ worktree. The primary reference remains the MIT-licensed source clone
   puzzle glyphs use unchanged SVG paths from the same licensed original source;
   ellipsis and rounded navigation outlines use the existing stock icon package.
   `icon-source-map.json` identifies both sources.
-- The supplied images establish visible composition, not reference DOM, fonts,
+- The supplied images establish visible composition, not the target DOM, fonts,
   timing or unsupported product capabilities. No voice, branch or worktree
   action is presented without an implemented host operation.
 

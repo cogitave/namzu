@@ -14,14 +14,14 @@ The private native desktop already uses source-derived sidebar/composer/diff con
 - [x] **Safe queue editing.** `Edit latest`/Alt+Up no longer overwrites an unrelated non-empty draft. Explicit queued items have stable IDs, accessible inspect/edit/remove actions and accurate next-turn semantics.
 - [x] **Navigation ownership.** Explicit navigation generations and target checks prevent late history/provider requests selecting an older conversation and late job output entering another conversation's panel.
 - [x] **Native proof.** Real Electron/CLI tests cover reload/navigation, two draft owners, safe queue editing/removal, delayed navigation/output, offline reload, unsubmitted conversation reconnect/send/review and actual app shutdown after a signal. Dark/light, 600×540/reduced-motion and closed-queue source geometry are covered.
-- [x] **Delivery.** Package tests/typecheck/lint/build, native flows/reference DOM comparison, screenshots/receipt, documentation and a launch command. Parent integrates whole-workspace gates and commits; no remote write is included.
+- [x] **Delivery.** Package tests/typecheck/lint/build, native flows/DOM comparison against the target, screenshots/receipt, documentation and a launch command. Parent integrates whole-workspace gates and commits; no remote write is included.
 
 ## Contracts and limits
 
 - This is an application UI state correction. There is no new agent loop, conversation database, A2A transport or Pal deployment registry.
 - Drafts and queue remain main-process connection-local: window reload is recoverable, full application quit intentionally ends the owned host state. Do not advertise crash persistence or a native installer without implementing and testing it.
 - Editing/removing queued input affects only authored work that has not started. Running prompts are immutable in this surface. Failed/stopped turns do not silently replay queues.
-- Preserve the original reference composition, shared accessible primitives, brand tokens, motion/reduced-motion behavior and required license attribution. No reference product name belongs in runtime source or user-facing text.
+- Preserve the original composition, shared accessible primitives, brand tokens, motion/reduced-motion behavior and required license attribution. No upstream product name belongs in runtime source or user-facing text.
 - Project trust, provider errors and permission ownership stay governed by the existing CLI host. A renderer action cannot widen tool authorization.
 
 ## Source comparison for this slice

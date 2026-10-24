@@ -4,7 +4,7 @@
 
 Sources were cloned and read locally. The full peer applications were not
 installed or executed; selected source components and original CSS were later
-rendered in an isolated native reference window:
+rendered in an isolated native window:
 
 | Repository | Revision | License |
 | --- | --- | --- |
