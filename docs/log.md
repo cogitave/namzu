@@ -2,6 +2,8 @@
 
 ## 2026-10-24
 
+- **Update** [Delegated work](cli/delegated-work.md) and [Terminal design](cli/terminal-design.md): the stop-all chord (`ctrl+x ctrl+k`) works from the composer, arms for 3 seconds and reports how many background agents it stopped; agent failures read as one plain sentence with a next step (raw text only under `--debug`) and a repeat reads `failed again`; a reply is committed when the model finishes it, not when the turn settles; the manage hint appears only for all-background batches and shrinks to `↓ agents` under width pressure; rail rows drop a type column every row shares and show the live label beside the clock; the composer stays visible, dim, while the rail is focused and chord hints are lower-case; the agent explorer says `agent` and `saved record`. `.changeset/tui-r2-agents.md` (`@namzu/cli` patch).
+
 - **Update** `@namzu/sdk` packaging: `files` in `packages/sdk/package.json` now lists shipped files by extension (`dist/**/!(*.test|...).js`, ...) instead of `dist`/`src` plus one `!` glob per kind of test file. pnpm's packer expands each `!` glob into one ignore rule per matching file and tests every entry against every rule, so 4244 compiled test files made `pnpm pack` take 83 s (`npm pack`: 3.6 s); it now takes 4 s with the same 4321 files. `check-publish-metadata.mjs` fails if such an allow-list would silently omit a non-test file. `.changeset/sdk-faster-pack.md` (`@namzu/sdk` patch).
 
 ## 2026-10-23

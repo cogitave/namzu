@@ -4,6 +4,7 @@ import {
 	genericLabel,
 	isTerminalAgentTaskState,
 } from '@namzu/sdk'
+import { plainAgentFailure } from './failure-text.js'
 
 const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
@@ -410,15 +411,20 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	resume(viewId: string, input: BeginSubagentInput): SubagentActivityTracker {
 		const prior = this.records.get(viewId)
 		if (!prior || !prior.closed || this.options.replay)
-			throw new Error('This child conversation is not available for continuation.')
+			throw new Error('This agent has finished and cannot be continued.')
 		const opened = this.open(input, viewId)
 		opened.record.resumed = true
+		// The same agent carries on: it keeps its place in the rail and what it
+		// had already spent, instead of starting again from nothing.
+		opened.record.startedAt = prior.startedAt
+		if (prior.tokens !== undefined) opened.record.tokens = prior.tokens
+		if (prior.toolCalls !== undefined) opened.record.toolCalls = prior.toolCalls
 		opened.record.rows = [...prior.rows]
 		opened.record.sessionId = prior.sessionId
 		pushRow(opened.record, {
 			id: `${viewId}:invocation:${opened.record.order}`,
 			kind: 'system',
-			text: 'New task in this conversation; previous tasks remain finished.',
+			text: 'Continuing with a new task.',
 		})
 		this.notifyNow()
 		return opened.tracker
@@ -529,7 +535,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				pushRow(owned, {
 					id: `${owned.viewId}:failure`,
 					kind: 'system',
-					text: bounded(errorMessage(error), MAX_ROW_CODE_UNITS),
+					text: bounded(plainAgentFailure(errorMessage(error)), MAX_ROW_CODE_UNITS),
 				})
 				owned.closed = true
 				this.prune()
@@ -1101,7 +1107,7 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			pushRow(record, {
 				id: `${record.viewId}:agent-failed`,
 				kind: 'system',
-				text: bounded(event.error, MAX_ROW_CODE_UNITS),
+				text: bounded(plainAgentFailure(event.error), MAX_ROW_CODE_UNITS),
 			})
 			return
 		case 'agent_canceled':
@@ -1114,7 +1120,7 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			pushRow(record, {
 				id: `${record.viewId}:turn-failed`,
 				kind: 'system',
-				text: bounded(event.error, MAX_ROW_CODE_UNITS),
+				text: bounded(plainAgentFailure(event.error), MAX_ROW_CODE_UNITS),
 			})
 			return
 		default:

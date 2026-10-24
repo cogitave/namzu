@@ -273,12 +273,14 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
+import { STOP_ALL_CONFIRM_MS, stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
 	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
 	childMessageNotice,
 	childMessageRow,
+	failureReason,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -1757,6 +1759,8 @@ export function App({
 	const railJustFocusedRef = useRef(false)
 	/** ctrl+x was the last key on the rail: ctrl+k next stops every running agent. */
 	const railChordRef = useRef(false)
+	/** The first press of the stop-all chord is waiting for its second (3 s). */
+	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -2755,6 +2759,30 @@ export function App({
 		},
 		[nextId],
 	)
+	/**
+	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
+	 * running says so, the first press arms a 3 s confirm, the second stops every
+	 * background agent still going and says how many.
+	 */
+	const requestStopAllAgents = useCallback(() => {
+		const running = stoppableBackgroundAgents(railRowsRef.current)
+		const armed = stopAllArmedRef.current !== null
+		const step = stopAllStep(running.length, armed)
+		if (stopAllArmedRef.current !== null) {
+			clearTimeout(stopAllArmedRef.current)
+			stopAllArmedRef.current = null
+		}
+		if (step.kind === 'arm') {
+			const timer = setTimeout(() => {
+				stopAllArmedRef.current = null
+			}, STOP_ALL_CONFIRM_MS)
+			timer.unref?.()
+			stopAllArmedRef.current = timer
+		} else if (step.kind === 'stop') {
+			for (const agent of running) session?.stopSubagent?.(agent.viewId)
+		}
+		pushMessage('system', step.notice)
+	}, [pushMessage, session])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -3097,6 +3125,8 @@ export function App({
 	 * finished forces the receipt out, so it never trails its completion.
 	 */
 	const reportedAgentsRef = useRef(new Set<string>())
+	/** The reason each failed agent was last reported with, so a repeat of it reads as `failed again`. */
+	const reportedFailuresRef = useRef(new Map<string, string>())
 	const reportedBatchesRef = useRef(new Set<string>())
 	/** Workflows whose single group line is already in the conversation, by group id. */
 	const reportedWorkflowLinesRef = useRef(new Set<string>())
@@ -3105,6 +3135,7 @@ export function App({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
+		reportedFailuresRef.current.clear()
 		reportedBatchesRef.current.clear()
 		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
@@ -3224,7 +3255,10 @@ export function App({
 					'agent-result',
 				)
 			}
-			const notice = agentNotice(agent)
+			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
+			if (agent.status === 'failed')
+				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
+			const notice = agentNotice(agent, Date.now(), previousFailure)
 			pushMessage(
 				'tool',
 				notice.content,
@@ -7149,7 +7183,7 @@ export function App({
 			const ownerSession = session
 			const child = subagentsRef.current.find((candidate) => candidate.viewId === viewId)
 			if (!ownerSession?.messageSubagent || !child || child.replayed) {
-				throw new Error('This child is saved evidence and cannot receive messages here.')
+				throw new Error('This agent is a saved record and cannot receive messages.')
 			}
 			if (
 				compactingRef.current ||
@@ -7792,6 +7826,11 @@ export function App({
 					break
 				}
 				case 'usage':
+					// The model's response is over (the kernel reports its spend after the
+					// last delta): commit what it wrote now. Left open until the turn
+					// settles, the tail of a reply stays held back for as long as the turn
+					// waits on background agents, and their notices print above it.
+					closeAssistant()
 					st.lastUsage = event
 					setUsage({
 						totalTokens: event.totalTokens,
@@ -11927,10 +11966,8 @@ export function App({
 					railChordRef.current = true
 					return
 				} else if (key.ctrl && input === 'k' && chordPending) {
-					// Every agent still going; workflows are stopped one at a time with `x`.
-					for (const agent of rows) {
-						if (railActionFor(agent) === 'stop') session?.stopSubagent?.(agent.viewId)
-					}
+					// Background agents only; workflows are stopped one at a time with `x`.
+					requestStopAllAgents()
 					return
 				} else if (key.upArrow || key.downArrow) {
 					const index = at + (key.downArrow ? 1 : -1)
@@ -13113,6 +13150,8 @@ export function App({
 									onLeave: () => setQueueSelection(null),
 								}}
 								onSendNow={sendPendingNow}
+								onStopAllAgents={requestStopAllAgents}
+								railFocused={railFocus !== null}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
 									...command,

@@ -263,8 +263,10 @@ first tool call on, and nothing until it has reported usage); an agent
 still waiting for a slot reads `waiting` instead of a clock, and messages sent
 to it that it has not taken in yet read `N queued` in the warning colour. The
 name column is as wide as the longest type or workflow name on screen, up to 28
-cells, shared by agent and workflow rows. The description is the agent's
-**live label** while one exists, else the sentence it was launched with:
+cells, shared by agent and workflow rows; when every row is the same type and no
+workflow row is shown, the column is left out. The description is always the
+sentence the agent was launched with, and its **live label** (cut to 24 cells,
+left out below 64 columns) sits in the right-hand block before the clock:
 every 30 seconds, while a background agent runs and has done something new
 since the last time (and at least three messages' worth), it is asked once, on
 its own model with no tools, to say in three to five words what it is doing
@@ -293,16 +295,16 @@ Press ↓ in an empty composer to move into the rail (with no rows on screen it
 still opens the cockpit for saved agents). While the rail has the keys the
 footer's mode line is **replaced** by a key line for the selected row, and the
 rows stay where they are. An agent or workflow row reads
-`Enter to view · x to stop` (`x to clear` once it has finished), plus
+`enter to view · x to stop` (`x to clear` once it has finished), plus
 `ctrl+x ctrl+k to stop all agents` when more than one agent runs and the line
-is at least 90 columns wide; `main` reads `↑/↓ to select · Enter to view`, and
+is at least 90 columns wide; `main` reads `↑/↓ to select · enter to view`, and
 the row already on screen reads `↑/↓ to select`. Esc is not advertised but
 still hands the keyboard back to the composer, as does any other key. ↑/↓
 moves between `main`, the agents and the workflows (a `❯` marks the row), Enter
 on an agent views it (see below) and on `main` goes back to the conversation,
 `x` stops a running agent (the parent turn and the other agents keep going) or,
 on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
-running agent. `Ctrl+T` still opens the cockpit from anywhere. While an
+running background agent. The composer stays on screen, dim, while the rail has the keys. `Ctrl+T` still opens the cockpit from anywhere. While an
 approval dialog is open the rail shrinks to the `main` row with a count
 (`2 agents`) and names no key, since the dialog owns the keyboard.
 
@@ -361,7 +363,7 @@ agents' name column. As the line narrows it gives up, in order, the
 20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
 
 ↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
-the key line is `Enter to view · x to stop` (`x to clear` once it has
+the key line is `enter to view · x to stop` (`x to clear` once it has
 finished). Enter opens the workflow's detail view and
 `x` stops every agent of the workflow that is still going (each one as its own
 `x` would), or clears a finished row.

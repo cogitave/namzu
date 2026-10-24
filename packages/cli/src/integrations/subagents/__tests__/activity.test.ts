@@ -521,12 +521,12 @@ describe('the CLI sub-agent activity monitor', () => {
 			prompt: 'do it',
 		})
 
-		tracker.fail(new Error('spawn refused'))
+		tracker.fail(new Error('Spawn refused.'))
 		tracker.settle(handle())
 
 		const snapshot = monitor.getSnapshot()[0]
 		expect(snapshot?.status).toBe('failed')
-		expect(snapshot?.transcript[0]).toMatchObject({ text: 'spawn refused' })
+		expect(snapshot?.transcript[0]).toMatchObject({ text: 'Spawn refused.' })
 	})
 
 	it('recognizes only typed cancellation failures', () => {

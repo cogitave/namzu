@@ -78,8 +78,10 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 		: []
 	const where = labels.length > 0 ? ` · ${labels.join(' / ')}` : ''
 	if (members.length === 1 && first) {
+		// `↓ to manage` only for background work: a foreground agent is waited on.
+		const hint = first.background === true ? ` (${AGENT_MANAGE_HINT})` : ''
 		return {
-			content: `Launched ${launchLabel(first)}${where} (${AGENT_MANAGE_HINT})`,
+			content: `Launched ${launchLabel(first)}${where}${hint}`,
 		}
 	}
 	const tree = members.map(
@@ -88,7 +90,7 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// Agents started in the background say so; a batch the turn waits on does not.
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
-		: `Launched ${members.length} agents${where} (${AGENT_MANAGE_HINT})`
+		: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
 }
 
@@ -212,7 +214,7 @@ export function agentDoneRows(
 }
 
 /** Why an agent failed, from the row the monitor wrote for it. */
-function failureReason(agent: SubagentActivity): string {
+export function failureReason(agent: SubagentActivity): string {
 	const row = [...agent.transcript]
 		.reverse()
 		.find(
@@ -232,7 +234,12 @@ function failureReason(agent: SubagentActivity): string {
  * `was stopped by user`, `was stopped by Namzu` (the conversation's own agent
  * asked), or plain `was stopped` when nobody recorded who (REA fn Qxt).
  */
-export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNotice {
+export function agentNotice(
+	agent: SubagentActivity,
+	now = Date.now(),
+	/** The reason this agent's last failure notice gave: the same reason again is folded to `failed again`. */
+	previousFailure?: string,
+): AgentNotice {
 	const label = oneLine(agent.description || agent.agentId)
 	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
@@ -242,7 +249,10 @@ export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNot
 			agent.stoppedBy === 'user' ? ' by user' : agent.stoppedBy === 'parent' ? ' by Namzu' : ''
 		return { content: `Agent "${label}" was stopped${by} · ${took}`, tone: 'warn' }
 	}
-	return { content: `Agent "${label}" failed: ${failureReason(agent)} · ${took}`, tone: 'error' }
+	const reason = failureReason(agent)
+	if (previousFailure !== undefined && previousFailure === reason)
+		return { content: `Agent "${label}" failed again · ${took}`, tone: 'error' }
+	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
 }
 
 export interface WorkflowNotice {

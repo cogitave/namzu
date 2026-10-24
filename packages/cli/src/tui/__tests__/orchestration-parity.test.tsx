@@ -26,6 +26,7 @@ import {
 	agentNotice,
 	childMessageNotice,
 	childMessageRow,
+	failureReason,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -78,7 +79,7 @@ describe('launch receipt', () => {
 			agent({ viewId: 'a', description: 'Birinci rengi seç', startedAt: 1_000 }),
 		])
 		expect(receipt.content.split('\n')).toEqual([
-			'Launched 2 agents (↓ to manage)',
+			'Launched 2 agents',
 			'├ Birinci rengi seç',
 			'└ İkinci rengi seç',
 		])
@@ -98,7 +99,25 @@ describe('launch receipt', () => {
 	it('names one agent inline, and leaves the unlabelled defaults out', () => {
 		expect(
 			launchReceipt([agent({ viewId: 'solo', description: 'Join the colours' })]).content,
-		).toBe('Launched Join the colours (↓ to manage)')
+		).toBe('Launched Join the colours')
+	})
+
+	it('offers the manage key only when every agent of the batch runs in the background', () => {
+		expect(
+			launchReceipt([
+				agent({ viewId: 'a', description: 'One', background: true }),
+				agent({ viewId: 'b', description: 'Two', background: true }),
+			]).content.split('\n')[0],
+		).toBe('2 background agents launched (↓ to manage)')
+		expect(
+			launchReceipt([
+				agent({ viewId: 'a', description: 'One', background: true }),
+				agent({ viewId: 'b', description: 'Two' }),
+			]).content.split('\n')[0],
+		).toBe('Launched 2 agents')
+		expect(
+			launchReceipt([agent({ viewId: 'solo', description: 'Alone', background: true })]).content,
+		).toBe('Launched Alone (↓ to manage)')
 	})
 
 	it('never carries a line break or tab a model put in a label', () => {
@@ -632,5 +651,31 @@ describe('hypermode on the message box', () => {
 		)
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
 		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m hypermode /u)
+	})
+})
+
+describe('a repeated failure', () => {
+	it('reads as failed again when the reason is the one already reported', () => {
+		const base = {
+			viewId: 'a',
+			description: 'Audit the config',
+			startedAt: 0,
+			completedAt: 6_000,
+			status: 'failed' as const,
+			transcript: [
+				{
+					id: 'a:failure',
+					kind: 'system' as const,
+					text: 'The provider could not use this request. Start the task again, or choose another model.',
+				},
+			],
+		}
+		const first = agentNotice(agent(base))
+		expect(first.content).toBe(
+			'Agent "Audit the config" failed: The provider could not use this request. Start the task again, or choose another model. · 6s',
+		)
+		const again = agentNotice(agent(base), 10_000, failureReason(agent(base)))
+		expect(again.content).toBe('Agent "Audit the config" failed again · 6s')
+		expect(agentNotice(agent(base), 10_000, 'Something else.').content).toContain('failed: ')
 	})
 })
