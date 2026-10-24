@@ -53,7 +53,7 @@ clause, so no line ends mid-sentence.
 | `/context` | Show how full the context is (`Context: 54k of 128k used (42%)`, "about" when it is an estimate) and whether older messages were summarised; `/context details` adds where the measurement comes from, thresholds and cleanup counters. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
-| `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines (three lines of context, a gutter of line numbers). |
+| `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines, drawn like an edit's result (line-number gutter, full-width green and red rows, changed words highlighted, three lines of context). |
 | `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |

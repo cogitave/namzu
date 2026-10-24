@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 
 import type { ToolDiffHunk } from '@namzu/sdk'
 
-import { EDIT_PREVIEW_ROWS, diffRows } from './diff-rows.js'
+import { type DiffInfo, WORKSPACE_PREVIEW_ROWS, plainDiffRows } from './diff-view.js'
 
 const run = promisify(execFile)
 
@@ -152,18 +152,19 @@ function counts(added: number, removed: number): string {
 		.join(' ')
 }
 
-/** The patch as rows, grouped by file: a plain header with counts, then the hunks. */
-function patchRows(patch: string): string[] {
-	const rows: string[] = []
-	for (const file of parsePatch(patch)) {
-		if (rows.length > 0) rows.push('')
+/** One heading per file with its counts, and the file's hunks. */
+function patchFiles(patch: string): NonNullable<DiffInfo['files']> {
+	return parsePatch(patch).map((file) => {
 		const stats = counts(file.added, file.removed)
-		rows.push(
-			file.binary ? `${file.path} · binary file` : stats ? `${file.path} ${stats}` : file.path,
-		)
-		rows.push(...diffRows(file.hunks))
-	}
-	return rows
+		return {
+			heading: file.binary
+				? `${file.path} · binary file`
+				: stats
+					? `${file.path} ${stats}`
+					: file.path,
+			hunks: file.binary ? [] : file.hunks,
+		}
+	})
 }
 
 /**
@@ -176,8 +177,8 @@ function patchRows(patch: string): string[] {
 export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 	summary: string
 	detail: readonly string[]
-	/** `detail` is diff rows (see `diff-rows.ts`), so a row is coloured by its marker. */
-	diff?: { readonly preview: number }
+	/** `detail` is the patch, drawn as an edit is (see `diff-view.ts`). */
+	diff?: DiffInfo
 } {
 	if (diff === null) {
 		return {
@@ -199,14 +200,17 @@ export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 		for (const path of diff.untracked) parts.push(`  ${path}`)
 	}
 
-	const detail: string[] = []
+	let info: DiffInfo | undefined
 	if (diff.patch.length > 0) {
-		detail.push(...patchRows(diff.patch))
-		if (diff.truncated) {
-			detail.push('')
-			detail.push('… truncated. Run `git diff` for the rest.')
+		info = {
+			mode: 'hunks',
+			hunks: [],
+			preview: WORKSPACE_PREVIEW_ROWS,
+			files: patchFiles(diff.patch),
+			...(diff.truncated ? { footer: ['', '… truncated. Run `git diff` for the rest.'] } : {}),
 		}
 	}
+	const detail = info ? plainDiffRows(info) : []
 
 	// Stated on every non-empty answer, because the alternative is an operator
 	// reading their own uncommitted work as the agent's.
@@ -216,6 +220,6 @@ export function renderWorkspaceDiff(diff: WorkspaceDiff | null): {
 	return {
 		summary: parts.join('\n'),
 		detail,
-		...(detail.length > 0 ? { diff: { preview: EDIT_PREVIEW_ROWS } } : {}),
+		...(info && detail.length > 0 ? { diff: info } : {}),
 	}
 }

@@ -87,18 +87,31 @@ describe('renderedDetailLines', () => {
 			{ length: 14 },
 			(_, i) => `${String(i + 1).padStart(2)} + line ${i + 1}`,
 		)
-		const lines = renderedDetailLines(row({ detail: rows, diff: { preview: 10 }, detailRef: 1 }))
+		const lines = renderedDetailLines(
+			row({ detail: rows, diff: { mode: 'file', hunks: [], preview: 10 }, detailRef: 1 }),
+		)
 		expect(lines).toHaveLength(11)
-		expect(lines[0]).toBe('    1 + line 1')
-		expect(lines[9]).toBe('   10 + line 10')
-		expect(lines[10]).toBe('   … +4 lines (ctrl+o to expand)')
+		// The change sits two columns in; the two dots stand for the cells the gutter
+		// and the reserve take from a long row, so it is not counted short.
+		expect(lines[0]).toBe('   1 + line 1..')
+		expect(lines[9]).toBe('  10 + line 10..')
+		expect(lines[10]).toBe('  … +4 lines (ctrl+o to expand)')
 	})
 
 	it('shows a whole diff that fits its preview, with no hint', () => {
 		const rows = ['1   keep', '2 - old', '2 + new']
-		expect(renderedDetailLines(row({ detail: rows, diff: { preview: 40 }, detailRef: 1 }))).toEqual(
-			rows.map((line) => `   ${line}`),
-		)
+		expect(
+			renderedDetailLines(
+				row({ detail: rows, diff: { mode: 'hunks', hunks: [], preview: 40 }, detailRef: 1 }),
+			),
+		).toEqual(rows.map((line) => `  ${line}..`))
+	})
+
+	it('never folds an edit, which names no preview', () => {
+		const rows = Array.from({ length: 60 }, (_, i) => `${i + 1} + line`)
+		expect(
+			renderedDetailLines(row({ detail: rows, diff: { mode: 'hunks', hunks: [] }, detailRef: 1 })),
+		).toHaveLength(60)
 	})
 
 	it('sizes a fold of a thousand or more characters', () => {

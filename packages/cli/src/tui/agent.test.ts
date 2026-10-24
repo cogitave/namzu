@@ -843,8 +843,9 @@ describe('the rows under a tool call', () => {
 		expect(event).toMatchObject({
 			kind: 'tool-end',
 			headline: 'Edited a.ts +4 −4',
-			detail: ['2   keep', '3 - old', '3 + new', '4   keep'],
-			diff: { preview: 40 },
+			detail: [' 2  keep', ' 3 -old', ' 3 +new', ' 4  keep'],
+			// An edit shows whole: no fold. The result row is said by `diff.summary`.
+			diff: { mode: 'hunks', added: 4, removed: 4 },
 		})
 	})
 
@@ -872,12 +873,14 @@ describe('the rows under a tool call', () => {
 			)
 		expect(written('created')).toMatchObject({
 			headline: 'Created x.txt +1',
-			diff: { preview: 10 },
+			diff: { mode: 'file', preview: 10 },
 		})
-		expect(written('updated')).toMatchObject({
+		const updated = written('updated')
+		expect(updated).toMatchObject({
 			headline: 'Updated x.txt +1',
-			diff: { preview: 40 },
+			diff: { mode: 'hunks' },
 		})
+		expect(updated).not.toHaveProperty('diff.preview')
 	})
 
 	it('names a missing file as the model gave it, not as a raw absolute path', () => {
