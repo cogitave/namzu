@@ -52,7 +52,7 @@ The creative stage installs Blender 5.2.2 LTS, FreeCAD, GIMP, Inkscape, LibreOff
 OpenSCAD, Kdenlive, Godot 4.7.2, Solitaire, QGIS, KiCad and ParaView, alongside
 Terminal and Files. Its 15 home launchers and icons are generated from actual
 installed executables and Debian desktop entries; missing entries fail the image
-build. The image does not claim unavailable reference applications such as
+build. The image does not claim unavailable applications such as
 3D Slicer. OpenGL applications use the guest's Mesa software rendering rather
 than host GPU access. Kdenlive includes its Frei0r effects and uses SDL's dummy
 audio driver, keeping preview playback alive without exposing host audio devices.

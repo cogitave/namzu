@@ -11,8 +11,7 @@ generated: { by: process:claude-code, at: 2026-10-23T00:00:00Z }
 # File tools: reads, edits and searches
 
 These are the limits the built-in `read`, `edit`, `write` and `grep` tools apply, and the budget the
-runtime applies to the results of one assistant message. The numbers follow the reference terminal
-(read from its code); each section names where this kernel differs.
+runtime applies to the results of one assistant message. Each section names where this kernel differs.
 
 ## read
 
@@ -34,7 +33,7 @@ does not apply; the token rule does.
   call (`offset=N limit=N`, 0-indexed like this tool's `offset`). A file whose lines are too long to page
   gets a character excerpt and says it cannot be paged by line.
 - Any other read over 25,000 tokens (a window, or an `offset` past the start) is refused with the count.
-- `allow_large: true` lifts both caps for that one call to four times their size. The reference lifts them to
+- `allow_large: true` lifts both caps for that one call to four times their size. The terminal lifts them to
   "what still fits in the context left this turn"; this kernel does not track that room, so the factor is
   fixed. A read still over the lifted caps is refused and says so.
 - `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
@@ -48,8 +47,7 @@ bound. A host that sets `maxToolOutputChars` explicitly still bounds it.
 `edit` refuses a file the session has not read: `<path> has not been read yet. Read it first, then redo the
 edit. Nothing was written.` `write` already refused an existing file it had not read. Both consult the
 turn's `fileReadTracker`; a host that supplies none is not refused, because it has nothing to ask. A windowed
-read counts as a read here (the ledger records the whole body), where the reference refuses an edit after a
-partial view.
+read counts as a read here (the ledger records the whole body); an edit after a partial view is not refused.
 
 A file that changed since the read is compared by content fingerprint, not by modification time, so a touch
 that leaves the bytes alone is not drift. When the content did change, an `edit` whose every operation is a
@@ -59,14 +57,14 @@ insertion by line number is never recovered, because the line it named may be a 
 has no `old_string` and is always refused on drift.
 
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
-the text, only about one interchangeable detail — the same set the reference terminal recovers, in the same
+the text, only about one interchangeable detail — the set below, in this
 order: a straight quote against the file's curly one (`' ' " "`) or the reverse, and a `\uXXXX` escape where
 the file holds the character, or a character where the file holds the escape. The span it finds is a real
 substring of the file, so the uniqueness rule still applies to it, and the same change is carried onto
 `new_string` so the replacement matches the span it lands in. A whitespace or indentation difference is **not**
-recovered — the reference does not either — so the error still tells the model to match whitespace and
+recovered, so the error still tells the model to match whitespace and
 indentation exactly. This kernel additionally reconciles CRLF against LF when the file's line endings are
-consistent, which the reference does not. A deletion (`new_string` empty) takes the matched line's trailing
+consistent. A deletion (`new_string` empty) takes the matched line's trailing
 newline with it, so removing a whole line leaves no blank one behind.
 
 ## grep

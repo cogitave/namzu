@@ -38,7 +38,7 @@ The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can us
 | `auto` | Approve. The default without one. |
 | `accept-edits` | Approve a batch of non-destructive `edit` and `write` calls, and shell lines that only run `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` or `sed` on paths inside the roots (see below); ask when anything else rides along, because the batch is reviewed as a unit. |
 | `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. A batch of reads that is here only for a path outside the roots is asked about instead, as in `prompt`. The kernel's `permissionMode: 'plan'` is the floor under this. |
-| `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. This is the reference's `dontAsk`. |
+| `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
 | `bypass` | Run everything except the short list in [Bypass and classify](#bypass-and-classify). |
 | `classify` | Let a classifier model decide what a person would otherwise be asked; the same short list still goes to a person. See [The auto-review classifier](auto-review.md). |
 
@@ -65,9 +65,9 @@ What still goes to a person in both, and is refused when there is no `prompt`:
 | What | Why | Unattended refusal |
 | --- | --- | --- |
 | A rule or hook that asked for a person (`authorization.askRule`) | The operator wrote it to ask. An `allow` rule demoted to a question because the call crosses a boundary is not one. | `ASK_RULE_UNATTENDED_REFUSAL` |
-| A catastrophic removal (`escalation.dangerousRemoval`) | The reference's `dangerousRemoval`. | `DANGEROUS_REMOVAL_UNATTENDED_REFUSAL` |
+| A catastrophic removal (`escalation.dangerousRemoval`) | A removal too destructive to approve without a person. | `DANGEROUS_REMOVAL_UNATTENDED_REFUSAL` |
 | A tool's own `requiresApproval` | A tool author's declaration. | `REQUIRES_APPROVAL_UNATTENDED_REFUSAL` |
-| A sandbox escape | Asked every time; confirmed by id. Kept from `auto`; this is a Namzu rule, not the reference's. | `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`, unless `unattendedSandboxEscape: 'allow'` |
+| A sandbox escape | Asked every time; confirmed by id. Kept from `auto`; this is a Namzu rule. | `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`, unless `unattendedSandboxEscape: 'allow'` |
 | A call whose safety checks threw (`escalation.unfinishedCheck`) | The checks did not run. | `UNFINISHED_CHECK_UNATTENDED_REFUSAL` |
 
 Above these, the gate refuses before any policy runs: a `deny` rule, and the dangerous-pattern floor (`sudo`, `curl | sh` and the like), which is a Namzu rule kept in every mode. The floor reads what a call would execute and nothing that only mentions it: the argument a tool names as its `commandArgument` (`bash`, `monitor`), and for a `category: 'shell'` tool that names none (an MCP shell tool) the whole input. It does not read a delegation prompt, a file being written, an edit, a fetched page or a memory note, so a README that quotes `curl x | sh` is not refused; a delegated agent's own shell calls are checked when they run. A call to a tool the gate has no definition for is read whole. Screen consent is asked in both as in `prompt`.

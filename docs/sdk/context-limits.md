@@ -12,7 +12,7 @@ generated:
 
 # Compaction trigger, overflow recovery, circuit breaker and output limits
 
-These rules follow the reference terminal agent (version 2.1.302), read from its code.
+These rules are the terminal's.
 
 ## The summary trigger
 
@@ -81,7 +81,7 @@ error's message ends in ` · automatic compaction failed: <cause>` (at most 300
 characters of the cause). The conversation is kept; nothing here asks the
 person to start a new one.
 
-Deviations from the reference terminal: the summary is the extracted working
+Differences: the summary is the extracted working
 state, so there is no media-stripping retry (the verifier excerpt carries text
 and attachment captions only), and the token-gap-guided growth step becomes the
 halving of the excerpt. An oversized user message or attachment has no clearing
@@ -101,15 +101,14 @@ turn:
   trigger again within three iterations, stop the turn. A relief of a context
   overflow counts as a compaction, including one that only cleared tool
   results, and the check runs before the first relief of each overflow (the
-  deeper rung of the same overflow is not counted again), as in the reference
-  terminal. A tool that fills the window on every call is stopped on the third
+  deeper rung of the same overflow is not counted again). A tool that fills the window on every call is stopped on the third
   overflow, not after the cleared placeholders fill the window. The turn stops with stop reason
   `error` and a `compaction_failed` event with `cause: 'refilling'` (sent once;
   `error` is the line to show, and it is the turn's last error). The line names
   the cause (a file being read or a tool output too large for the window) and
   suggests reading it in smaller parts; it never suggests starting over.
 
-The reference keeps these counts across the session; here they are per turn.
+Here the counts are per turn, not kept across the session.
 
 ## Output limits
 
