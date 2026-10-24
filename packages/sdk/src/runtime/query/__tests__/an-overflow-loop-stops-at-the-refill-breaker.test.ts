@@ -15,7 +15,7 @@ import { drainQuery } from '../index.js'
 /**
  * A tool whose every result fills the window: the loop clears it, the model
  * calls the tool again, and so on. Each relief follows the last within the
- * refill window, so the reference's rapid-refill check (`rhr`) stops the turn
+ * refill window, so the rapid-refill check stops the turn
  * on the third. Without counting reactive reliefs, the only end was the
  * placeholders themselves filling the window, tens of paid calls later.
  */

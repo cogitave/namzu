@@ -164,7 +164,7 @@ describe('git is held to its table', () => {
 		expect(allowed(line)).toBe(false)
 	})
 
-	it('reads the same flags the reference vets, including numbers and valued switches', () => {
+	it('reads the flags the table vets, including numbers and valued switches', () => {
 		expect(allowed('git log --max-count=3 --author=me --since=2.weeks')).toBe(true)
 		expect(allowed('git diff -U3')).toBe(false)
 		expect(allowed('git diff --word-diff-regex=. --abbrev=8')).toBe(true)

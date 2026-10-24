@@ -104,7 +104,7 @@ describe('provider error taxonomy', () => {
 	})
 })
 
-describe('the reference terminal context-overflow wordings', () => {
+describe('context-overflow wordings', () => {
 	const wordings = [
 		['prompt is too long', 'prompt is too long: 213000 tokens > 200000 maximum'],
 		['input is too long for requested model', 'Input is too long for requested model.'],

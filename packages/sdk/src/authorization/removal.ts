@@ -7,8 +7,7 @@
  * `rm -rf ~`, `rm -rf $HOME`, `rm -rf "$BUILD/"` (empty variable, so `/`) and
  * `rm -rf ..` all went past it. The flags were never the point. A removal is
  * catastrophic because of WHAT it removes, so this reads the targets of `rm`
- * and `rmdir` whatever the flags, as the reference terminal's dangerous-removal
- * check does (version 2.1.302).
+ * and `rmdir` whatever the flags.
  *
  * A removal is flagged when a target is
  *
@@ -26,7 +25,7 @@
  *
  * The answer is a reason, which the kernel turns into an escalation: asked
  * every time, in every mode, and refused when nobody can be asked. It is not a
- * denial: the reference asks, because there are legitimate removals a person
+ * denial: it asks, because there are legitimate removals a person
  * can approve.
  */
 
@@ -250,7 +249,7 @@ function checkTarget(
 	const expanded = expandTilde(spelled, scope.home)
 	const relative = !isAbsolute(expanded)
 	if (expandsAtRuntime(word) && /[$`]/.test(expanded)) {
-		// A variable the check cannot read: the reference treats it as a relative
+		// A variable the check cannot read: it is treated as a relative
 		// name, which is also what the shell does when the variable is unset and
 		// the rest is a plain name. Nothing more to learn from it.
 		return undefined

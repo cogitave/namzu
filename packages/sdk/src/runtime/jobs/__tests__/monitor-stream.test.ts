@@ -319,7 +319,7 @@ describe('the words', () => {
 		expect(formatMonitorDuration(1000)).toBe('1s')
 	})
 
-	it('says what the reference says, in our own tool names', () => {
+	it('says the suppression notice in the tool names', () => {
 		expect(suppressionNotice(4)).toBe(
 			'[4 events suppressed — output rate too high. Consider stopping this monitor and starting it with a more selective command.]',
 		)

@@ -616,7 +616,7 @@ describe('protocolFor', () => {
 })
 
 describe('derive', () => {
-	test('uses reference-client Go routes only for the three documented mismatches', () => {
+	test('uses pinned Go routes only for the three documented mismatches', () => {
 		const rows = [
 			['DeepSeek V4 Flash', 'deepseek-v4-flash', '/chat/completions', CHAT],
 			['MiniMax M2.7', 'minimax-m2.7', '/messages', MESSAGES],

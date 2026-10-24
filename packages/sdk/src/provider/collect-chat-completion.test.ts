@@ -15,7 +15,7 @@
  * - Throws if any chunk surfaces a `chunk.error`.
  *
  * Phase 2 swaps every internal `provider.chat()` call site for
- * `collectChatCompletion(provider.chatStream())`; the response shape parity guarded
+ * `collectChatCompletion(provider.chatStream())`; the response shape guarded
  * here is what makes that swap safe.
  */
 

@@ -18,7 +18,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
- * The reference terminal recovers from a context overflow on its own, in
+ * A context overflow is recovered from on its own, in
  * more than one step: a first compaction, then a deeper one when the retry is
  * still too long. These tests use a provider that rejects every request above
  * a size until the history is small enough, and watch how far Namzu gets.

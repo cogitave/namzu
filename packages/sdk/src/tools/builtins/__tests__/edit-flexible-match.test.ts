@@ -10,7 +10,7 @@ function run(content: string, ...ops: NormalizedEditInput[]) {
 	return applyEdit(content, ops)
 }
 
-describe('edit flexible matching (reference parity)', () => {
+describe('edit flexible matching', () => {
 	it('still matches and replaces exactly, and still refuses a genuine miss', () => {
 		expect(run('const a = 1', replace('a = 1', 'a = 2'))).toMatchObject({
 			success: true,
@@ -55,7 +55,7 @@ describe('edit flexible matching (reference parity)', () => {
 		})
 	})
 
-	it('does not resolve across a whitespace/indentation difference (as the reference does not)', () => {
+	it('does not resolve across a whitespace/indentation difference', () => {
 		const content = '\tif (x) {\n\t\treturn 1\n\t}'
 		// old_string uses spaces where the file uses tabs: a real miss, both tools.
 		const out = run(content, replace('  if (x) {', '  if (y) {'))

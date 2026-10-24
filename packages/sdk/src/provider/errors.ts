@@ -260,8 +260,8 @@ const OVERFLOW_BODY_PATTERNS: readonly RegExp[] = [
 	// length" — so a pattern anchored on "exceeded" misses it entirely.
 	/exceeds?\s+(?:the\s+)?(?:model'?s?\s+)?context\s+(?:length|window|size)/i,
 	/context\s+(?:length|window|size)\s+exceed/i,
-	// The reference terminal's own list matches the bare phrase "context
-	// window". Here it must sit next to a verb that says the request did not
+	// The bare phrase "context
+	// window" is too broad on its own. Here it must sit next to a verb that says the request did not
 	// fit ("larger than the model context window of N tokens"), so a 400 that
 	// only names the window ("does not support this parameter with the 1M
 	// context window beta") stays an invalid request. The same pattern lives in

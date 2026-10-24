@@ -229,7 +229,7 @@ function header(refreshed) {
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
- * or the run stops. Three Go ids have narrow reference-client exceptions in
+ * or the run stops. Three Go ids have narrow pinned-route exceptions in
  * src/catalogue/derive.ts. Prices come from the per-1M-token table at the base
  * tier, and a model with no price row there must be named in the page's
  * free-model list and is then zero. Limits, tool support, modalities and effort

@@ -526,7 +526,7 @@ export class IterationOrchestrator {
 		await this.ctx.checkpointMgr.markLoopStart?.(recorder)
 
 		// Context-overflow relief is a two-rung ladder per *stuck point*, not per
-		// turn, as in the reference terminal (at most two reactive compactions per
+		// turn (at most two reactive compactions per
 		// overflow): the first relief, then one deeper pass if the retry still
 		// overflows.
 		//
@@ -2121,7 +2121,7 @@ export class IterationOrchestrator {
 						classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
 					) {
 						// The rapid-refill check comes first, before the first reactive relief
-						// of an overflow, as in the reference terminal. A relief that follows
+						// of an overflow. A relief that follows
 						// the previous compaction within the refill window counts toward the
 						// limit, so a tool that re-fills the window every time it is called
 						// stops the turn instead of being cleared and called again without end.
@@ -2155,7 +2155,7 @@ export class IterationOrchestrator {
 							continue
 						}
 						// Out of rungs. The conversation is kept; say why compaction could not
-						// make room when it errored, as the reference does.
+						// make room when it errored.
 						const cause = compactionErrorNote(this.ctx)
 						if (cause !== undefined && err instanceof Error) {
 							try {

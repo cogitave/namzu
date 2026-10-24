@@ -348,7 +348,7 @@ export class AgentManager {
 
 	/**
 	 * The refusal for a delegation past the depth limit. It tells the model what
-	 * to do instead (the reference terminal's rule): a bare limit leaves it
+	 * to do instead: a bare limit leaves it
 	 * retrying the same spawn, while an instruction to do the work itself ends the
 	 * attempt. The limit is `AgentManagerConfig.maxDepth`; there is no env override.
 	 */
