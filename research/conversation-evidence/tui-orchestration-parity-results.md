@@ -1,4 +1,4 @@
-# Orchestration TUI parity, verified in the real TUI
+# Orchestration TUI, verified in the real TUI
 
 Date: 2026-09-23
 
@@ -6,7 +6,7 @@ Scope: the two-phase, three-child colour prompt ("Delegate this to subagents in 
 
 - **Before**: `origin/main` at 92270560 (namzu 28.1.0).
 - **After**: `feat/orchestration-tui-parity`.
-- **Reference**: the Claude Code capture of the same prompt (auto mode, medium effort; its Phase 2 was interrupted by the capturing harness).
+- **Compared with**: a Claude Code capture of the same prompt (auto mode, medium effort; its Phase 2 was interrupted by the capturing harness).
 - **Real model**: one run of the branch with the owner's codex / gpt-5.6-luna configuration, orchestrate on, prompt mode.
 
 Frames were captured at 120x40, 100x30, 80x24 and 40x30; the excerpts below are 120x40 unless named, with the boot notices left out.

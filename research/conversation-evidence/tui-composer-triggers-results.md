@@ -35,7 +35,7 @@ gpt-5.6-luna publishes up to `max`, and hypermode pins the highest published lev
  ⏵⏵ Auto-approve tools (shift+tab to cycle) · effort max · hypermode · …/fixture  gpt-5.6-luna
 ```
 
-## `ultracode` arms nothing
+## The retired mode name arms nothing
 
 No tag row: the word is not a namzu trigger.
 

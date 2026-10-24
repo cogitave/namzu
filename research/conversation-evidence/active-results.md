@@ -24,7 +24,7 @@ was the separation of completed tool boundaries from replay decisions: that
 implementation records tool effects and continuable snapshots at settled tool
 boundaries. Namzu reuses its serialized event writer for a bounded evidence
 snapshot. This is an independently implemented storage/read mechanism, not a
-claim that the reference uses this hash chain or has worse retrieval performance.
+claim that the other system uses this hash chain or has worse retrieval performance.
 
 ## Real CLI experiment
 
