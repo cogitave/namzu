@@ -190,6 +190,9 @@ it.each(['\u000f', '/raw'])(
 		let restoredText: string
 		if (command === '\u000f') {
 			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
+			// The viewer has its own key line; the composer's mode footer is not left
+			// standing above its box.
+			expect(screen.viewport().join('\n')).not.toContain('shift+tab to cycle')
 			const pages = [screen.viewport().join('\n')]
 			for (let page = 0; page < 20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
 				const previous = screen.viewport().join('\n')

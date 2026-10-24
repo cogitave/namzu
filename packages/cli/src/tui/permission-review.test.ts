@@ -571,11 +571,12 @@ describe('buildPermissionSummary — a file change reads as a change', () => {
 		expect(summary.text).toContain('+ … 10 more lines')
 	})
 
-	it('shows the proposed replacement body without claiming creation', () => {
+	it('shows the proposed body without claiming creation when it cannot tell', () => {
 		const summary = review('write', { path: 'new.txt', content: 'a\nb\nc' })
 		expect(summary.complete).toBe(true)
-		expect(summary.text).toContain('new.txt · write 3 lines')
-		expect(summary.text).toContain('may overwrite an existing file')
+		expect(summary.text).toContain('Write · 3 lines')
+		expect(summary.text).not.toContain('may overwrite')
+		expect(summary.text).not.toContain('new.txt')
 		expect(summary.text).not.toContain('+ a')
 		expect(summary.text).toContain('a')
 	})
@@ -587,7 +588,7 @@ describe('buildPermissionSummary — a file change reads as a change', () => {
 			['a\n\n', 2],
 		] as const) {
 			const summary = review('write', { path: 'x', content })
-			expect(summary.text).toContain(`write ${count} line`)
+			expect(summary.text).toContain(`${count} line`)
 		}
 	})
 
@@ -602,5 +603,68 @@ describe('buildPermissionSummary — a file change reads as a change', () => {
 		})
 		expect(summary.complete).toBe(false)
 		expect(summary.text).toContain('input:')
+	})
+})
+
+describe('permissionReviewRows breaks between words', () => {
+	it('never cuts a word that fits a row, and loses no character', () => {
+		const source = 'each with the same tools and approval rules as an Agent call from the rail'
+		const rows = permissionReviewRows(source, 30)
+		expect(rows.map((row) => row.text).join('')).toBe(source)
+		for (const row of rows) {
+			// Every row ends at a space or at the end of the source.
+			expect(row.text.endsWith(' ') || row === rows.at(-1)).toBe(true)
+		}
+		expect(rows.length).toBeGreaterThan(1)
+	})
+
+	it('still cuts a single token wider than a row', () => {
+		const source = 'x'.repeat(100)
+		const rows = permissionReviewRows(source, 30)
+		expect(rows.map((row) => row.text).join('')).toBe(source)
+		expect(rows.length).toBeGreaterThan(3)
+	})
+})
+
+describe('a write review says what the write does to the file', () => {
+	const reviewOf = (input: unknown, context: Parameters<typeof buildPermissionSummary>[1] = {}) => {
+		const built = buildPermissionReview([{ id: 'c1', name: 'write', input, isDestructive: true }])
+		if (!built.ok) throw new Error('review must be representable')
+		return buildPermissionSummary(built.text, context)
+	}
+
+	it('calls a path that does not exist a new file', () => {
+		const summary = reviewOf({ path: 'yes.txt', content: 'a' }, { fileExists: () => false })
+		expect(summary.text).toContain('New file · 1 line')
+		expect(summary.text).not.toContain('overwrite')
+		expect(summary.text).not.toContain('yes.txt')
+	})
+
+	it('says it replaces a path that exists', () => {
+		const summary = reviewOf({ path: 'yes.txt', content: 'a' }, { fileExists: () => true })
+		expect(summary.text).toContain('Replaces the existing file · 1 line')
+	})
+
+	it('falls back to a plain line when existence cannot be checked', () => {
+		const summary = reviewOf(
+			{ path: 'yes.txt', content: 'a' },
+			{
+				fileExists: () => {
+					throw new Error('denied')
+				},
+			},
+		)
+		expect(summary.text).toContain('Write · 1 line')
+	})
+
+	it('names each file when several are written together', () => {
+		const built = buildPermissionReview([
+			{ id: 'c1', name: 'write', input: { path: 'a.txt', content: 'a' }, isDestructive: true },
+			{ id: 'c2', name: 'write', input: { path: 'b.txt', content: 'b' }, isDestructive: true },
+		])
+		if (!built.ok) throw new Error('review must be representable')
+		const summary = buildPermissionSummary(built.text, { fileExists: () => false })
+		expect(summary.text).toContain('a.txt · New file · 1 line')
+		expect(summary.text).toContain('b.txt · New file · 1 line')
 	})
 })

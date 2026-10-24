@@ -8,6 +8,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 import stringWidth from 'string-width'
 
+import { type FolderGrants, MAX_SHOWN_GRANT_RULES } from '../integrations/trust/folder-grants.js'
 import { boxedContentWidth } from './key-hints.js'
 import { displayPath } from './person-terms.js'
 import { wrapBalancedText } from './terminal-choice-text.js'
@@ -15,6 +16,8 @@ import { theme } from './theme.js'
 
 export interface TrustPromptProps {
 	readonly cwd: string
+	/** What the folder's own config pre-approves, shown before the choice. */
+	readonly grants?: FolderGrants
 }
 
 const PADDING_X = 2
@@ -43,6 +46,50 @@ export function trustSentenceLines(columns: number): readonly (readonly string[]
 	return SENTENCES.map((sentence) => wrapBalancedText(sentence, trustPathWidth(columns)))
 }
 
+const GRANTS_NOTICE = 'These will apply without asking. Only continue if you trust this config.'
+
+/** The plain count: `1 rule`, `3 rules`. */
+function countOf(count: number, one: string, many: string): string {
+	return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * What the folder's own config would let through without asking, before the
+ * choice: each allow rule (at most eight, the rest counted) and each added
+ * directory, then one line saying they apply unasked. Empty for a folder
+ * whose config grants nothing.
+ */
+export function trustGrantLines(
+	grants: FolderGrants | undefined,
+	columns: number,
+): readonly string[] {
+	if (!grants || (grants.allowRules.length === 0 && grants.directories.length === 0)) return []
+	const room = trustPathWidth(columns)
+	const lines: string[] = []
+	if (grants.allowRules.length > 0) {
+		lines.push(
+			`This folder allows ${countOf(grants.allowRules.length, 'action', 'actions')} without asking:`,
+		)
+		for (const rule of grants.allowRules.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			lines.push(`  ${rule.length + 2 > room ? `${rule.slice(0, Math.max(1, room - 3))}…` : rule}`)
+		}
+		const more = grants.allowRules.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
+	}
+	if (grants.directories.length > 0) {
+		lines.push(
+			`This folder adds ${countOf(grants.directories.length, 'folder', 'folders')} to the workspace:`,
+		)
+		for (const dir of grants.directories.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			lines.push(`  ${displayPath(dir, Math.max(1, room - 2))}`)
+		}
+		const more = grants.directories.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
+	}
+	lines.push(...wrapBalancedText(GRANTS_NOTICE, room))
+	return lines
+}
+
 /** The two choices on one row when they fit, else one row each. */
 export function trustChoiceRows(columns: number): readonly (readonly [string, string])[] {
 	const room = trustPathWidth(columns)
@@ -68,7 +115,7 @@ function choice(text: string) {
 	})
 }
 
-export function TrustPrompt({ cwd }: TrustPromptProps) {
+export function TrustPrompt({ cwd, grants }: TrustPromptProps) {
 	const terminal = useWindowSize()
 	const choices = trustChoiceRows(terminal.columns)
 	return (
@@ -98,6 +145,16 @@ export function TrustPrompt({ cwd }: TrustPromptProps) {
 					)),
 				)}
 			</Box>
+			{trustGrantLines(grants, terminal.columns).length > 0 ? (
+				<Box marginTop={1} flexDirection="column">
+					{trustGrantLines(grants, terminal.columns).map((line, at) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: the lines have no identity beyond their order.
+						<Text key={at} color={theme.status.warn}>
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : null}
 			<Box marginTop={1} flexDirection="column">
 				{choices.map(([yes, no]) => (
 					<Text key={`${yes}|${no}`} color={theme.text.muted}>

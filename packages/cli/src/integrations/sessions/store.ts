@@ -855,7 +855,13 @@ async function listConversations(
 				.slice(0, 240),
 			named: facts.named,
 			updatedAt: facts.updatedAt,
-			count: messages.length,
+			count: messages.filter(
+				(message) =>
+					(message.role === 'user' && message.source === undefined) ||
+					(message.role === 'assistant' &&
+						typeof message.content === 'string' &&
+						message.content.trim().length > 0),
+			).length,
 		})
 		if (out.length >= boundedLimit) break
 	}

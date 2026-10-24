@@ -202,7 +202,8 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 					? `Do you want to make this edit to ${basename(path)}?`
 					: 'Do you want to make this edit?'
 			case 'write':
-				return path ? `Do you want to write ${basename(path)}?` : 'Do you want to write this file?'
+				// The title names the file; the question does not repeat it.
+				return 'Do you want to write this file?'
 			case 'Agent':
 				return 'Do you want to start this agent?'
 			case 'workflow':
@@ -446,7 +447,9 @@ export function PermissionOverlay({
 				{destructive ? (
 					<Text color={theme.status.error}>
 						{toolCalls.every((call) => call.name === 'write')
-							? ' · may overwrite'
+							? summary.text.includes('New file')
+								? ' · new file'
+								: ' · may overwrite'
 							: ' · destructive'}
 					</Text>
 				) : null}
@@ -497,11 +500,20 @@ export function PermissionOverlay({
 				) : null}
 				{choices.map((label, index) => {
 					const selected = index === choice
+					const marker = `${selected ? '❯ ' : '  '}${index + 1}. `
+					// The marker and the label sit in two columns, so a label that wraps
+					// keeps its indent under its own first word.
 					return (
-						<Text key={label} color={selected ? theme.accent.user : theme.text.secondary}>
-							{selected ? '❯ ' : '  '}
-							{index + 1}. {label}
-						</Text>
+						<Box key={label} flexDirection="row">
+							<Box flexShrink={0} width={marker.length}>
+								<Text color={selected ? theme.accent.user : theme.text.secondary}>{marker}</Text>
+							</Box>
+							<Box flexGrow={1} flexShrink={1} minWidth={0}>
+								<Text color={selected ? theme.accent.user : theme.text.secondary} wrap="wrap">
+									{label}
+								</Text>
+							</Box>
+						</Box>
 					)
 				})}
 			</Box>
@@ -519,10 +531,16 @@ export function PermissionOverlay({
 							{
 								text: 'y / n answer',
 								short: 'y / n',
-								rank: 5,
+								// The script key outranks it on a workflow review: at a narrow
+								// width it is the only key that shows what will run.
+								rank: scriptView ? 4 : 5,
 							},
 							{ text: 'esc decline', short: 'esc no', rank: 5 },
-							{ text: 'ctrl+c stop the reply', short: 'ctrl+c stop', rank: 4 },
+							{
+								text: 'ctrl+c stop the reply',
+								short: 'ctrl+c stop',
+								rank: scriptView ? 3 : 4,
+							},
 							{
 								text: `d ${
 									scriptView
@@ -536,7 +554,7 @@ export function PermissionOverlay({
 												: 'exact input'
 								}`,
 								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
-								rank: 3,
+								rank: scriptView ? 5 : 3,
 							},
 						],
 						boxedHintWidth(columns),

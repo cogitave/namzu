@@ -765,7 +765,9 @@ describe('publishing a picker selection', () => {
 		await submit(harness, `/help ${name}`)
 		await frameShows(harness.lastFrame, 'Usage:')
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toMatch(new RegExp(`· /${name}\\b`))
+		// The typed command, then its answer under `⎿`.
+		expect(frame).toContain(`› /help ${name}`)
+		expect(frame).toMatch(new RegExp(`⎿ /${name}\\b`))
 		expect(frame).toContain(usage)
 		expect(frame).toContain('Type a message')
 		expect(frame).not.toContain('Choose a command')

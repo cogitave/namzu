@@ -90,7 +90,7 @@ describe('Windows public resume command', () => {
 		expect(invocation).toEqual(['namzu.cmd'])
 		expect(
 			formatTuiExitSummary({ conversationId: 'example' }, { command: invocation }, 'win32'),
-		).toBe("To resume this conversation, run in PowerShell:\n& 'namzu.cmd' 'resume' 'example'\n")
+		).toBe("\nTo resume this conversation, run in PowerShell:\n& 'namzu.cmd' 'resume' 'example'\n")
 	})
 
 	it('compares canonical entrypoints for npm-linked installations', () => {
@@ -221,6 +221,6 @@ describe.skipIf(process.platform === 'win32')('public resume command', () => {
 				{ conversationId: 'example' },
 				{ cwd: process.cwd(), command: ['namzu'] },
 			),
-		).toBe('To resume this conversation, run:\nnamzu resume example\n')
+		).toBe('\nTo resume this conversation, run:\nnamzu resume example\n')
 	})
 })
