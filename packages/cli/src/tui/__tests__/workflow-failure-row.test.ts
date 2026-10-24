@@ -29,15 +29,14 @@ describe('a workflow script that could not run', () => {
 	if (built.kind !== 'rows') throw new Error('expected rows')
 	const result = built.rows[1]
 
-	it('says one plain sentence, with no failure prefix or error name', () => {
-		expect(result?.content).toBe(
-			"The script stopped at line 3, column 20: cannot read property 'length' of undefined.",
-		)
-		expect(result?.content).not.toMatch(/Error:|failed:/)
+	it('says one plain sentence, with no position, engine message or error name', () => {
+		expect(result?.content).toBe('The workflow script stopped with an error.')
+		expect(result?.content).not.toMatch(/Error:|failed:|line 3|column|length|undefined/)
 	})
 
-	it('keeps the line, the phase and the hint for the model behind ctrl+o', () => {
+	it('keeps the position, the line, the phase and the hint for the model behind ctrl+o', () => {
 		expect(result?.detail).toEqual([
+			"The script stopped at line 3, column 20: cannot read property 'length' of undefined",
 			'That line reads: const x = args.nope.length',
 			'No agent had started. Last phase: "A".',
 			'This call passed no "args", so `args` was undefined in the script.',

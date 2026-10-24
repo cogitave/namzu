@@ -8,7 +8,7 @@ import { planModeReminders } from './plan-mode.js'
 import { taskNudge } from './task-nudge.js'
 
 export { frameReminder, reminderKindOf } from './frame.js'
-export { HYPERMODE_REMINDER_EVERY, hypermodeReminders } from './hypermode.js'
+export { HYPERMODE_REMINDER_EVERY, hypermodeExitOwed, hypermodeReminders } from './hypermode.js'
 export { planModeReminders } from './plan-mode.js'
 export { taskNudge } from './task-nudge.js'
 

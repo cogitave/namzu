@@ -393,7 +393,7 @@ import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
 import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
-import { createCliReminderSource } from '../reminders/index.js'
+import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -5588,7 +5588,10 @@ export async function createAgentSession(
 						// channel, so what was said is read back from the conversation.
 						// A host without the other reminders still gets this one while the
 						// mode is on.
-						const turnHypermode = opts?.hypermode === true && !residentContext
+						// A conversation that was told "on" is still owed the exit text
+						// when the mode is off now, whatever the host feeds otherwise.
+						const turnHypermode =
+							!residentContext && (opts?.hypermode === true || hypermodeExitOwed(messages))
 						const reminderSource =
 							options.reminders || turnHypermode
 								? createCliReminderSource({

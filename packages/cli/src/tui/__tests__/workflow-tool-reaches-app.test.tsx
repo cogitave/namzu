@@ -542,7 +542,7 @@ describe('/workflows', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Workflows'))
 		expect(text(screen)).toMatch(/1\. audit\s+running · .*1\/3 agents/)
-		expect(text(screen)).toMatch(/2\. nightly\s+finished · .*1\/1 agent · 900 tokens · 1h ago/)
+		expect(text(screen)).toMatch(/2\. nightly\s+finished · .*1 agent · 900 tokens · 1h ago/)
 		screen.press('\x1b[B')
 		await waitUntil(screen, () => /›2\. nightly/.test(text(screen)))
 		screen.press('\r')

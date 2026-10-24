@@ -211,6 +211,49 @@ describe('when the model is offered the workflow tool', () => {
 		expect(await call?.reminders?.({ messages: resumed } as never)).toEqual([])
 	})
 
+	it('says the exit text for a conversation that was told "on", on a host with no other reminders', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		// No `reminders` option: the shape of a headless run.
+		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
+		const heard = hypermodeReminders({
+			messages: [createUserMessage('earlier')],
+			on: true,
+			toolListed: true,
+		})
+		const history: Message[] = [
+			createUserMessage('earlier'),
+			...heard.map((text) => createRuntimeContextMessage(text, 'reminder')),
+			createAssistantMessage('ok'),
+			createUserMessage('now without the mode'),
+		]
+		try {
+			for await (const _event of session.send(history, { workflowReview: REVIEWER })) {
+				// drain
+			}
+		} finally {
+			await session.close()
+		}
+		const call = queryCalls[0] as { reminders?: ReminderSource } | undefined
+		const said = (await call?.reminders?.({ messages: history } as never)) ?? []
+		expect(said.join('\n')).toContain('Hypermode is off')
+	})
+
+	it('creates no reminder source for a headless conversation that never heard hypermode', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
+		try {
+			for await (const _event of session.send([createUserMessage('hello')], {
+				workflowReview: REVIEWER,
+			})) {
+				// drain
+			}
+		} finally {
+			await session.close()
+		}
+		const call = queryCalls[0] as { reminders?: ReminderSource } | undefined
+		expect(call?.reminders).toBeUndefined()
+	})
+
 	it('tells a host that cannot start a workflow to use parallel agents instead', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), {

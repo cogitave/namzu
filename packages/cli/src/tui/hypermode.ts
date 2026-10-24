@@ -25,18 +25,23 @@ export const ORCHESTRATE_ALIAS_NOTICE =
 /** What the effort item in the footer says while the mode is on: `effort high · Hypermode on`. */
 export const HYPERMODE_FOOTER_NOTE = 'Hypermode on'
 
-/** What `/hypermode on` and the picker say. `effort` is the level in force, said as it stays. */
-export function hypermodeOnMessage(effort: string | undefined): string {
-	return `Hypermode is on for this conversation: Namzu will use workflows for substantial tasks. ${effortStays(effort)}`
+/**
+ * What `/hypermode on` and the picker say. `effort` is the level in force, said
+ * as it stays; `hasLevels` is false for a model that publishes no effort
+ * levels, where there is nothing to keep and the sentence is left out.
+ */
+export function hypermodeOnMessage(effort: string | undefined, hasLevels = true): string {
+	return `Hypermode is on for this conversation: Namzu will use workflows for substantial tasks.${effortStays(effort, hasLevels)}`
 }
 
 /** What `/hypermode off` and the picker say. */
-export function hypermodeOffMessage(effort: string | undefined): string {
-	return `Hypermode is off: workflows are offered only when you ask for one. ${effortStays(effort)}`
+export function hypermodeOffMessage(effort: string | undefined, hasLevels = true): string {
+	return `Hypermode is off: workflows are offered only when you ask for one.${effortStays(effort, hasLevels)}`
 }
 
-function effortStays(effort: string | undefined): string {
-	return effort ? `Effort stays ${effort}.` : 'Effort stays at the model default.'
+function effortStays(effort: string | undefined, hasLevels: boolean): string {
+	if (effort) return ` Effort stays ${effort}.`
+	return hasLevels ? ' Effort stays at the model default.' : ''
 }
 
 /** The one-turn keyword's text: for this message only, nothing is stored. */
