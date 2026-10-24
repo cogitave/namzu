@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait), instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
+- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait) instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
 
   SDK: `ProviderRetryConfig` gains optional `jitter` (`'full'` or `'proportional'`), `retryAfter` (`'exact'` or `'floor'`) and `retryMidStream`, `ProviderRetryNotice` and the `provider_retry` event gain an optional `restart`, `ProviderRequestError` gains `shouldRetry` (only `false` is acted on), `providerHttpError` takes `shouldRetry`, and `providerVendorError` reads `x-should-retry`. No default changed: `maxRetries` is still 3, jitter still full, `Retry-After` still exact, a stream that failed after output is still not retried unless a host sets `retryMidStream` (a host that does must drop what the failed attempt showed when it sees `restart`; the turn drops its own copy). Hosts that want the terminal's numbers pass them in `query({ retry })`.
 
@@ -151,7 +151,7 @@
   The API transport separately recognizes `gpt-6-astra` and rejects none, minimal,
   and ultra before transport, where this formerly unknown name passed them through.
   Choose low, medium, high, xhigh or max, or omit effort to retain the backend default.
-  Subscription catalogue levels do not imply API support or introduce a mode name
+  Subscription catalogue levels do not imply API support or introduce a mode of their own
   alias.
 
 ### Minor Changes

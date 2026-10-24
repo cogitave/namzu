@@ -1024,7 +1024,7 @@ terminator`, reporting no `peerCloseMs` at all — the close in that case is the
   host set one, fails with `ENOSPC` or is OOM-killed, where writing it to disk used
   to succeed. Any workload that spills more than its memory budget into `/tmp`,
   `/var/tmp` or `/workspace` is in that group.
-  Everything the reference image does keeps working: `/tmp` stays executable
+  Everything the base image does keeps working: `/tmp` stays executable
   (docker's own `--tmpfs` default is `noexec`, which would have turned
   `gcc -o /tmp/a.out … && /tmp/a.out` into `Permission denied`), and `HOME` stays
   writable, which is what LibreOffice, matplotlib and npm need.
@@ -2722,7 +2722,7 @@ progress in <a local notes directory>/...` — a runtime error
     returns 404, to explain the doctor's protocol/runtime split. The split is now
     explained in the sentence itself.
   - `@namzu/sdk` source comments cited design documents by path. They cite the
-    session by name instead, which is what the reference was ever worth.
+    session by name instead, which is all such a citation was ever worth.
 
   No API, type, or behaviour change. The `@namzu/sandbox` message text is the
   only runtime string affected, and nothing asserts on it.
@@ -3222,7 +3222,7 @@ mkdir '/Users'` crash that hit sibling-container deployments.
     branched on the env, only logged it; size grew with the skill
     list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
 
-  The reference Dockerfile pre-creates **only the parent directories**
+  The image pre-creates **only the parent directories**
   `/mnt`, `/mnt/user-data`, `/mnt/skills` — root-owned, mode 0555.
   Leaf paths (`outputs/`, `uploads/`, `tool_results/`, `transcripts/`,
   `<skill-id>/`) are intentionally NOT pre-created. When a bind is
@@ -3354,10 +3354,9 @@ test:smoke`) runs an opt-in docker integration test exercising the
     "Sandboxing and Workload Isolation" post and the original
     Firecracker NSDI '20 paper are the canonical refs).
   - Trusted-tenant → gVisor (GKE Sandbox, Modal, OpenAI Code
-    Interpreter — `gvisor.dev/docs/architecture_guide/security` is
-    the reference).
+    Interpreter).
   - Single-user developer machine → bubblewrap / Seatbelt
-    (via `@anthropic-ai/sandbox-runtime`).
+    (`anthropic-experimental/sandbox-runtime`).
   - Single-tenant or co-trusted → plain Docker + seccomp default
     profile.
 

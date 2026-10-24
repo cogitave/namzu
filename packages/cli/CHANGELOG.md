@@ -10,7 +10,7 @@
 
 ### Minor Changes
 
-- 167f8c4: External tool servers no longer fill the model's context before the first message. When the connected servers' tool definitions (name, description and input schema) come to 10% of the turn model's context window or more, they are offered by name and the first sentence of their description, and the model loads a tool's full definition with `search_tools` before it calls it. The threshold is 10%, measured at 2.5 characters per token. A large server with 207 tools (about 792,000 characters) used to make every message fail on a 200,000-token model with "This conversation is too long for the model". That failure is gone.
+- 167f8c4: External tool servers no longer fill the model's context before the first message. When the connected servers' tool definitions (name, description and input schema) come to 10% of the turn model's context window or more, they are offered by name and the first sentence of their description, and the model loads a tool's full definition with `search_tools` before it calls it. The threshold is measured at 2.5 characters per token. A large server (207 tools, about 792,000 characters) used to make every message fail on a 200,000-token model with "This conversation is too long for the model". That failure is gone.
 
   What changes for you: below the threshold, nothing. Above it, the model makes one `search_tools` call the first time it uses a server's tool, and that tool stays loaded for the rest of the conversation. The decision is made per turn, so switching to a smaller model can defer tools a larger one carried. To keep a server's tools loaded up front, keep their definitions under the threshold, for example with the server's `allow` list.
 
@@ -110,7 +110,7 @@
 
   Breaking, in the order a hook author meets them:
 
-  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine so that a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
+  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine by one rule: a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
   - **The default hook deadline is ten minutes, not 30 s** (`DEFAULT_SHELL_HOOK_TIMEOUT_MS`, and `HOOK_TIMEOUT_MS` for the lifecycle manager's own per-hook limit, which was 5 s). To keep the old limit set `timeoutMs: 30000` on the hook (shell hooks), or `hookTimeoutMs` on the plugin manager or in the CLI's `plugins` config.
   - **Exit code `2` now acts** where it used to be logged and ignored: on `turn_end` and `subagent_stop` it keeps the model working, with stderr as its next message (the turn's iteration limit still ends a hook that never relents); on `pre_compact` it cancels a compaction the context threshold asked for (never one the provider forced); on `post_tool_use` the stderr is shown to the model beside that call's result. A hook that exits `2` on these events by habit and meant "ignore" should exit `1`, which is still logged and ignored.
   - **JSON on stdout is now read.** A hook that exits `0` and prints a JSON object starting with `{` is taken as an answer. A hook that printed such text on purpose and wants it left alone should not start its output with `{`.
@@ -138,7 +138,7 @@
 
   To keep the terminal title as it was, set `NAMZU_DISABLE_TERMINAL_TITLE=1`.
 
-- 5258c05: `web_fetch` now changes its input and its default output.
+- 5258c05: `web_fetch` changes its input and its default output.
 
   What breaks, and what to do:
 
@@ -154,9 +154,9 @@
 ### Minor Changes
 
 - 5258c05: When the model asks several questions in one call, the terminal shows them as one card instead of one card after another: a tab for each question with a mark on the answered ones, a review tab that submits them together, multiple choice with Space, `Something else…` typed in place, and an option's preview beside the list. Esc or Cancel skips the whole call and the model is told nothing was answered; a question you leave alone is reported to it as not answered. A lone single-choice question looks and works as before, and a multiple-choice question now gets the card too (it was shown as a single choice). A Pal's answer to a batch of questions is checked question by question.
-- 5258c05: Plan mode in the terminal now ends in an approval. While the mode is `plan` the model may write exactly one file, its plan (`plans/plan.md` in the session's directory under `~/.namzu`), and every other change is still refused. It presents the plan with a new `exit_plan_mode` tool, which opens a box showing the plan with three rows: "Yes, and auto-approve edits", "Yes, and ask before each edit" and a text row, "No, keep planning", whose typed words go back to the model (Esc keeps planning without words, Shift+Tab approves the first row with what is typed). A session launched in `auto`, or allowed to reach it, is offered "approve every tool without asking" in place of the first row. Approving switches the permission mode through the same change Shift+Tab makes, so the footer follows; the approved plan is written into the transcript and the file stays. Hidden reminders restate the rules on a fixed cadence: one when plan mode is on and none was sent in the last 5 operator turns, the full text on the first and every 5th, one line between, and one note when the mode is left. A model that used to end a plan-mode reply with its plan as text now calls `exit_plan_mode`; you can still leave plan mode with Shift+Tab or `/permissions` at any time. Desktop and `namzu exec` are unchanged.
+- 5258c05: Plan mode in the terminal now ends in an approval. While the mode is `plan` the model may write exactly one file, its plan (`plans/plan.md` in the session's directory under `~/.namzu`), and every other change is still refused. It presents the plan with a new `exit_plan_mode` tool, which opens a box showing the plan with three rows: "Yes, and auto-approve edits", "Yes, and ask before each edit" and a text row, "No, keep planning", whose typed words go back to the model (Esc keeps planning without words, Shift+Tab approves the first row with what is typed). A session launched in `auto`, or allowed to reach it, is offered "approve every tool without asking" in place of the first row. Approving switches the permission mode through the same change Shift+Tab makes, so the footer follows; the approved plan is written into the transcript and the file stays. Hidden reminders restate the rules: one when plan mode is on and none was sent in the last 5 operator turns, the full text on the first and every 5th, one line between, and one note when the mode is left. A model that used to end a plan-mode reply with its plan as text now calls `exit_plan_mode`; you can still leave plan mode with Shift+Tab or `/permissions` at any time. Desktop and `namzu exec` are unchanged.
 - 5258c05: The model is now reminded of its task list when it has let it go stale. After 10 model turns without `task_create` or `task_update`, and at most once per 10 model turns, it gets a hidden note that the task tools exist, with the list as it stands (`#<id>. [<status>] <subject>`), and is told to ignore it when the work does not call for a list. The counts are read from the conversation, so they survive a resume and start again after compaction. It appears in the interactive terminal only; `namzu exec` and Desktop are unchanged.
-- 5258c05: Context limits are reworked, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
+- 5258c05: Context limits are derived from the model's window, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
 
   SDK, all additive:
 
@@ -183,7 +183,7 @@
 
   `namzu.config.local.json` is added to the SDK's protected paths, so a model write to it is asked about in every mode.
 
-- 5258c05: Three safety floors now apply, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
+- 5258c05: Three safety floors now stop a turn in `auto` (`--yolo`) and ask, where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
 
   What changes for you:
 
@@ -194,13 +194,13 @@
   If you embed the SDK with your own resume handler, read `ToolCallSummary.escalation.protectedPaths` and `.dangerousRemoval` the way you read `outsidePaths`; `createReviewHandler` does it for you. If your turn runs `bash` with no one to ask and relies on `auto`, expect those calls to be refused with a reason the model can act on.
 
 - 5258c05: Terminal notifications gain an "idle" notice and two more channels. Add `"idle-prompt"` to `tui.notifications` to be told, once, when a finished turn has sat for a minute with nobody at the keyboard (no key pressed, no prompt or picker open, nothing queued or looping, background work done). `tui.notificationMethod` now also accepts `"kitty"` and `"ghostty"`. Nothing changes unless you opt in: `notifications: true` still means a settled reply and an approval prompt only, and `osc9` stays the default method.
-- 5258c05: `@` file mentions in the composer now work as follows. A path with spaces or other characters outside the bare set is written `@"my docs/a b.ts"` (completion offers such files and writes the quotes), names in any script work, and `@file.ts#L10-20` sends only lines 10 to 20 (`#L7` sends one line). A closing `)` or `]` after a mention is no longer read as part of the name. Existing mentions keep working; the file size cap (60,000 characters) now applies to the lines sent.
+- 5258c05: `@` file mentions in the composer now accept quoted paths. A path with spaces or other characters outside the bare set is written `@"my docs/a b.ts"` (completion offers such files and writes the quotes), names in any script work, and `@file.ts#L10-20` sends only lines 10 to 20 (`#L7` sends one line). A closing `)` or `]` after a mention is no longer read as part of the name. Existing mentions keep working; the file size cap (60,000 characters) now applies to the lines sent.
 - 5258c05: `namzu` now takes `-c` / `--continue` and `-r` / `--resume [value]` for the interactive session. `-c` opens the most recent conversation in this folder; `--resume` with no value opens the `/resume` picker; with a conversation id it resumes that conversation; with any other value it resumes the conversation of that exact title, or opens the picker searched by the value. Nothing changes for existing use: the flags are new, `namzu exec` keeps its own `--continue` / `--resume`, and `namzu resume <id>` is unchanged. Written before a subcommand or before `resume` they are refused (exit 64), like the other launch flags.
-- 5258c05: A new `statusLine` config key runs your command and draws its output, dimmed, above the interactive footer. Set `statusLine: { command, padding?, refreshInterval? }` in `~/.namzu/config.yaml` or a trusted project's `namzu.config.json`; the command receives the session as JSON on stdin (model, workspace, cost, context window, effort, pull request, and more, under these field names) and re-runs 300 ms after the session changes. A failed or empty run shows nothing. Nothing changes for anyone who does not set the key, except that the type `StatusLineConfig` is exported.
+- 5258c05: A new `statusLine` config key runs your command and draws its output, dimmed, above the interactive footer. Set `statusLine: { command, padding?, refreshInterval? }` in `~/.namzu/config.yaml` or a trusted project's `namzu.config.json`; the command receives the session as JSON on stdin (model, workspace, cost, context window, effort, pull request, and more) and re-runs 300 ms after the session changes. A failed or empty run shows nothing. Nothing changes for anyone who does not set the key, except that the type `StatusLineConfig` is exported.
 
 ### Patch Changes
 
-- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger from the window: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
+- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger as follows: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
 
   The type of `triggerThreshold` is now `number | undefined` (it was `number` after parsing), so code that reads it from a parsed `CompactionConfig` must handle `undefined`; `resolveTriggerThreshold(configured, windowTokens, maxOutputTokens?)` is exported and returns the fraction actually used.
 
@@ -242,7 +242,7 @@
 
 ### Minor Changes
 
-- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait), instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
+- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait) instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
 
   SDK: `ProviderRetryConfig` gains optional `jitter` (`'full'` or `'proportional'`), `retryAfter` (`'exact'` or `'floor'`) and `retryMidStream`, `ProviderRetryNotice` and the `provider_retry` event gain an optional `restart`, `ProviderRequestError` gains `shouldRetry` (only `false` is acted on), `providerHttpError` takes `shouldRetry`, and `providerVendorError` reads `x-should-retry`. No default changed: `maxRetries` is still 3, jitter still full, `Retry-After` still exact, a stream that failed after output is still not retried unless a host sets `retryMidStream` (a host that does must drop what the failed attempt showed when it sees `restart`; the turn drops its own copy). Hosts that want the terminal's numbers pass them in `query({ retry })`.
 
@@ -263,7 +263,7 @@
 
 ### Minor Changes
 
-- b620273: Shift+Tab and the permission prompt now work as follows. What changes for you:
+- b620273: Shift+Tab and the permission prompt have changed. What changes for you:
 
   - Shift+Tab goes `prompt`, `accept-edits`, `plan`, then `auto` ("bypass permissions on") when the session may use it, then back to `prompt`; from `auto` or `strict` it returns to `prompt`. Starting with `--yolo`, `--dangerously-skip-permissions` or `--permission-mode auto` allows the stop, so one press no longer loses bypass for good. The new `--allow-dangerously-skip-permissions` allows it without starting in `auto`, and choosing `auto` by name in `/permissions` allows it for the rest of the session. Without any of these the key behaves as before (`plan` returns to `prompt`).
   - "Yes, allow all tools for this conversation" is gone from the terminal's prompts, along with the `a` key and the "Start and allow all tools" answer for agents and workflows. It turned every later tool call into an approval while the mode still read `prompt`, then showed `bypass permissions on`. Prompts now offer Yes and No, and at most one more answer that holds for the whole prompt: for an edit, "Yes, and switch to accept edits for this session" (the same switch Shift+Tab makes); for a plain shell command, a fetch of one host or an MCP tool, "Yes, and don't ask again for <it> this session". The remembered answer covers exactly the command line, host or tool shown, is consulted after your `[permissions]` table, and is never offered for a sandbox escape, a path outside the working directory, a call a rule asks about, or a destructive command; it ends with the session. If you relied on the old answer to stop being asked, start with `--permission-mode accept-edits`, press Shift+Tab to the mode you want, or add `allow` rules to `[permissions]`. Agent and workflow starts keep asking, with Yes and No only. The Desktop app and ACP clients keep their own approve-all answer.
@@ -272,7 +272,7 @@
 
 ### Minor Changes
 
-- 8d6b262: The agents rail, the workflow detail and talking to a sub-agent now work as follows. What changes for you:
+- 8d6b262: The agents rail, the workflow detail and talking to a sub-agent have changed. What changes for you:
 
   - The rail has a blank row above it, its bullet sits under the footer line's first glyph, rows stop two cells short of the edge, and the pointer and bullets use no accent colour. While the rail has the keys its key line (`Enter to view · x to stop`, plus `ctrl+x ctrl+k to stop all agents` when several run) replaces the footer's mode line instead of being printed under the rows. A background agent that completes leaves the rail at once; a failed or stopped one stays 30 seconds. `ctrl+x ctrl+k` on the rail stops every running agent.
   - A running background agent's description column becomes a live three-to-five-word label, refreshed at most every 30 seconds by one tool-less request to the agent's own model; it adds model usage, and falls back to the launch description. A message waiting for an agent shows as `N queued`.
@@ -307,7 +307,7 @@
 - 692466e: A message typed in Namzu Desktop while a reply is running now reaches that reply at its next model request, as the terminal does. Before, the desktop host reported live input as unavailable for the whole of every turn, so each such message silently waited for the reply to finish. Nothing to change on your side.
 - 437dd6d: The composer footer is now one row of items in this order: the mode in plain words (`⏵⏵ bypass permissions on`, `⏵⏵ accept edits on`, `‖ plan mode on`), `PR #592` for the current branch's pull request (coloured by review state and linked where the terminal supports it), a `N shells` pill for running background shells (the separate "shells running" line is gone), then `esc to interrupt` while a turn runs, `← N agents` and `↓ to manage`. From an empty composer `←` opens the agents and `↓` focuses the shell pill first (Enter opens the `/jobs` screen) and then the agents rail; with anything typed both keys keep moving the cursor, and the hints leave the row. The agents rail's own `↓ to manage` on its `main` row is gone, since the footer says it. A running shell takes the `(shift+tab to cycle)` reminder off the row. The model name now yields first when the row is narrow. The pull request comes from the `gh` command line tool, read in the background, only on a real terminal; `NAMZU_PR_STATUS=off` turns it off. The working directory no longer appears on the footer row. The composer's frame is now two plain horizontal rules with a dim `❯ ` prompt between them: the boxed frame with corners, side borders and a `MESSAGE` caption is gone, and `hypermode` is named at the upper rule's right end.
 - 437dd6d: The startup header now shows the folder Namzu is working in on the row under the version, with the home folder written as `~` and a long path cut from the left to fit. The footer no longer carries it.
-- 437dd6d: Shell commands in the terminal now read as follows: a green or red dot in front of `Bash(command)` instead of a tick and a duration, the command's line breaks kept in the header, and the output hung under `⎿` as its first three lines followed by `… +N lines (ctrl+o to expand)`. A failed command now shows its error output and `Exit code N` instead of repeating the command, an empty result reads `(No output)`, and a command moved to a background job reads `Running in the background` instead of the instructions meant for the model. While a command runs it shows `Running…` with the elapsed time.
+- 437dd6d: Shell commands in the terminal now show a green or red dot in front of `Bash(command)` instead of a tick and a duration, the command's line breaks kept in the header, and the output hung under `⎿` as its first three lines followed by `… +N lines (ctrl+o to expand)`. A failed command now shows its error output and `Exit code N` instead of repeating the command, an empty result reads `(No output)`, and a command moved to a background job reads `Running in the background` instead of the instructions meant for the model. While a command runs it shows `Running…` with the elapsed time.
 - 28eaee1: On Windows the `bash` tool, background jobs started with `run_in_background`, and plugin shell hooks now run in Git for Windows' bash instead of cmd.exe whenever Git for Windows is installed, and `hostCommandShell()` and `BashTool.commandDialect()` answer `bash` there instead of `cmd`. Before, every command a model wrote was refused or needed a person to approve it each time, because the permission rules cannot read cmd.exe lines. Git Bash is looked up as `NAMZU_BASH_SHELL`, then `%ProgramFiles%\Git\bin\bash.exe`, then `%ProgramFiles(x86)%\Git\bin\bash.exe`, then `%LOCALAPPDATA%\Programs\Git\bin\bash.exe`, then the install holding the first `git` that `where.exe git` lists outside the working directory. Commands now need Unix syntax (`/dev/null`, forward slashes, `$VAR`); the model is told so, and `>nul` is rewritten to `/dev/null`. A host that depends on cmd.exe syntax in the `bash` tool, or on `hostCommandShell().dialect === 'cmd'` on a machine with Git for Windows, sets `NAMZU_BASH_SHELL=cmd` (a path to `cmd.exe`, such as `%ComSpec%`, works too) to keep the old behaviour. Without Git for Windows nothing changes except that `windowsShellNotice()` returns a sentence saying commands run in cmd.exe and each asks for approval; the CLI shows it once at session start. New exports: `findGitBash`, `isWindowsBash`, `windowsShellNotice`, `rewriteWindowsNullRedirect`, `WINDOWS_BASH_GUIDANCE`, `WINDOWS_CMD_FALLBACK_NOTICE`, and an optional `windows` flag on `CommandShell`. Stopping a command or job on Windows now also ends processes that Git Bash forked, which `taskkill /T` alone missed.
 - 437dd6d: Agents that the model gave one `workflow` label now also appear as a single row on the rail under the message box: `◯ name`, a progress bar, `3/7 · elapsed · ↓ tokens`. Press ↓ to reach it; Enter opens that workflow's phases and agents (Esc comes back to the row), `x` stops its running agents or clears the row once it has finished, and the row leaves 30 seconds after the last agent ends. When a workflow's turn ends, one line in the conversation says how it ended. The rail's key line now reads `enter to view · x to stop`.
 - 437dd6d: Workflows and subagents are now separate in the terminal. An agent started with a `workflow` label no longer shows up as an agent row on the rail: it appears only inside its workflow, which is one row after the agent rows, and the `main` row shows only when there is an agent row. Enter on the workflow opens its phases (numbered, turning ✔ or ✘, with done/total), then the agents of a phase, then an agent's transcript; ← or Esc goes back up and `x` stops the whole workflow or one agent. In the conversation a workflow's launch is one `Workflow <name>` line instead of a row per agent, and the turn summary no longer counts phases.
@@ -544,7 +544,7 @@
 
   Agent sessions expose optional image/document attachment support declarations from their exact primary provider route. ACP rejects new attachments before a model request when that route explicitly cannot receive them; undeclared support retains the existing runtime policy.
 
-- a5e0038: Codex model names in the Desktop model list now read like the Codex app ("GPT-5.6 Sol" instead of "GPT-5.6-Sol"), and each engine's model list marks that engine's own recommended default with an optional `default: true` flag on the row. Namzu provider lists no longer say "Namzu default" in a row's note; the flagged row replaces it. Model ids are unchanged, so saved selections keep working; clients that read the model list can ignore the new flag.
+- a5e0038: Codex model names in the Desktop model list now show as "GPT-5.6 Sol" instead of "GPT-5.6-Sol", and each engine's model list marks that engine's own recommended default with an optional `default: true` flag on the row. Namzu provider lists no longer say "Namzu default" in a row's note; the flagged row replaces it. Model ids are unchanged, so saved selections keep working; clients that read the model list can ignore the new flag.
 - e94e149: `namzu acp --desktop` gains four methods for the Desktop conversation header: `namzu/conversations/rename` (`{ sessionId, title }` returns `{ title }`; an empty title restores the title derived from the first message), `namzu/conversations/fork` (`{ sessionId }` returns `{ id, title }`; refused while a reply is running or when there is nothing to copy), `namzu/conversations/markdown` (`{ sessionId }` returns `{ markdown, truncated }`, cut at 4 MiB of UTF-8) and `namzu/project/git` (returns `{ branch, subject }`, or `null` when the folder is untrusted, not a repository, git is missing or git takes over 3 seconds). All are new; existing methods and clients are unaffected. Each conversation method needs a trusted folder and a conversation this project owns, the same as archive.
 - 9ef6506: Expose live tool progress and actual turn failure messages through optional fields on existing ACP update variants. Add explicit optional `namzu/*` ACP host extensions and advertise their method names. Gateway history loading now receives the requested workspace as an optional second argument; existing one-argument gateways remain compatible.
 
@@ -889,7 +889,7 @@
   unchanged. Update an existing guest bridge from the shipped asset while idle,
   then reconfigure normally to load its updated description.
 
-- b0b6afa: The Desktop model list writes a GPT display name such as "GPT-5.6-Sol" as "GPT-5.6 Sol", the way the Codex app does. Only names that start with "GPT-" and end in "-<Word>" change; model ids sent to providers, and every other family's labels, are unchanged. Nothing to do on upgrade.
+- b0b6afa: The Desktop model list writes a GPT display name such as "GPT-5.6-Sol" as "GPT-5.6 Sol". Only names that start with "GPT-" and end in "-<Word>" change; model ids sent to providers, and every other family's labels, are unchanged. Nothing to do on upgrade.
 - e03a000: On Windows, `namzu upgrade` now removes the `namzu.ps1` wrapper that npm writes
   next to `namzu.cmd` after each update (only when it belongs to `@namzu/cli`).
   PowerShell prefers that wrapper and the default execution policy refuses it, so
@@ -1188,7 +1188,7 @@
 
   The default anonymous Zen model changes from `muse-spark-1.3-contributor-free` to `space-bunny-free` in both the SDK and CLI. Callers that need the old choice must pass `model: 'muse-spark-1.3-contributor-free'` explicitly and try credentialed Zen access, subject to gateway admission. The gateway currently rejects direct keyless Namzu requests to Muse and six other documented free models with HTTP 403; only Space Bunny Free completed a live keyless text and tool-continuation test. Anonymous model discovery now admits only that verified model while retaining the other free models for credentialed use.
 
-  Zen and Zen Go now use their route overrides for DeepSeek V4 Flash and MiniMax, handle Muse Spark reasoning continuation without replaying gateway-bound ciphertext, and read the current Zen Go price table when refreshing the catalogue. These keyed routes have wire-fixture coverage but were not live-tested with an account. The CLI distinguishes model listing from verified inference and explains the gateway's specific HTTP 403 free-tier refusal.
+  Zen and Zen Go now use the route overrides for DeepSeek V4 Flash and MiniMax, handle Muse Spark reasoning continuation without replaying gateway-bound ciphertext, and read the current Zen Go price table when refreshing the catalogue. These keyed routes have wire-fixture coverage but were not live-tested with an account. The CLI distinguishes model listing from verified inference and explains the gateway's specific HTTP 403 free-tier refusal.
 
 ### Patch Changes
 
@@ -1750,7 +1750,7 @@
   - **The agent cockpit opens on the phase still working**, and on its first working agent, instead of on the first phase. Its header reads `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while work runs and `3/3 agents · 9.5s · 27.0k tokens · done` after, in place of `N active · N total`. Phase rows add the phase's time; the agent pane is titled by its phase (`Phase 2 · 1 agent`) instead of `Agents · 1/2`.
   - **The closing line** adds the phase count when two or more were named, the tokens spent, and failures: `✻ Worked for 11s · 3 agents in 2 phases · 27.0k tokens`.
 
-- 5fb75c2: Delegated work reads more clearly. Nothing is removed and no key changes meaning; transcripts and screenshots will look different.
+- 5fb75c2: Delegated work has a clearer layout. Nothing is removed and no key changes meaning; transcripts and screenshots will look different.
 
   - **Launch receipts.** Each batch of agents one response launched now writes one `● Launched 2 agents · <workflow> / <phase> (ctrl+t to manage)` row, with the agents named beneath it as a `├`/`└` tree.
   - **Completion rows** read `✓ <name> · 1.7s · 9.0k tokens` or `✗ <name> · failed after 2.9s · <reason>` instead of `<name> · Completed · ctrl+t · agent details`. A completed agent's final answer is attached collapsed; Ctrl+O opens it. The hint is `ctrl+o result · ctrl+t details`.
@@ -1761,7 +1761,7 @@
   - **The `/effort` picker is a left-to-right slider** on terminals at least 60 columns wide: `default`, the model's levels, then `┆ orchestrate` in violet with `<highest> + delegate by default` under it. ←/→ (and ↑/↓) move it, digits select, Enter applies, Esc goes back. Narrower terminals, and menus too long for one row, keep the vertical list.
   - **Orchestrate mode shows on the message box**: the top border carries `orchestrate` in violet on the right, with a still colour gradient where colour is allowed; the footer's `orchestrate` is violet. Below 40 columns the border stays plain.
 
-- 4375e72: The terminal draws research turns in one layout.
+- 4375e72: The terminal draws research turns with their own layout.
 
   - **Web searches and fetches** are one row naming the query or address, `✓ Web search("…")` / `✓ Web fetch(https://…)`, with a `⎿` line that reads `Searching: …` while the call runs and settles to `Found 3 results in 4.1s`, `Did 1 search in 9.0s` or `Received 7.5KB in 1.2s`. Consecutive calls sit together without blank lines, and a long query is cut at the terminal's width with an ellipsis. A fetched page or result list stays behind Ctrl+O. They used to read `✓ Web search · 9.0s` with no query and a blank line between every row.
   - **Markdown tables** are drawn as a box (`┌┬┐ ├┼┤ └┴┘`) sized to the terminal, with long cells wrapped inside their column and `**bold**`, `` `code` `` and links drawn rather than shown as source. Where the columns cannot fit, the table becomes `Header: value` records separated by a `─` rule. A table streaming in no longer flashes raw `| a | b |` rows. Tables used to be a header, one rule and cells cut mid-word at 32 characters.
@@ -2481,7 +2481,7 @@ saved evidence. This child cannot be continued.` banner is the first thing on
 
 - 449642e: Add `/orchestrate`, a session mode layered above reasoning effort rather than inside it.
 
-  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as any other unknown mode name does today. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
+  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as the mode's earlier name did. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
 
   `@namzu/sdk`: `codingAgentDoctrineContribution` gains an optional `orchestrate` field on `CodingAgentDoctrineOptions`, and a new exported `CODING_AGENT_ORCHESTRATE_DOCTRINE` constant. Passing `orchestrate: true` (and leaving `delegation` at its default) appends that text after the existing delegation doctrine. Leaving the new field unset — the only behavior any existing caller can observe — renders byte-identical output to before this field existed. No default changed and no export was renamed or removed, so this is additive for every current consumer.
 
@@ -7823,7 +7823,7 @@ progress in <a local notes directory>/...` — a runtime error
     returns 404, to explain the doctor's protocol/runtime split. The split is now
     explained in the sentence itself.
   - `@namzu/sdk` source comments cited design documents by path. They cite the
-    session by name instead, which is what the reference was ever worth.
+    session by name instead, which is all such a citation was ever worth.
 
   No API, type, or behaviour change. The `@namzu/sandbox` message text is the
   only runtime string affected, and nothing asserts on it.
@@ -8928,7 +8928,7 @@ progress in <a local notes directory>/...` — a runtime error
   That is the failure the rule exists for. A design explained by reference to
   somebody else's product has handed over its rationale: the next reader
   reaches for that product's model instead of asking what namzu is trying to
-  achieve, and when the reference changes the comment becomes a claim nobody
+  achieve, and when that product changes the comment becomes a claim nobody
   can check. Each one now states the same decision on its own terms — what it
   accomplishes, and what breaks without it.
 
@@ -9046,7 +9046,7 @@ progress in <a local notes directory>/...` — a runtime error
 
   Comments across the kernel explained namzu's design by naming another
   product: "mirrors X's container architecture", "reference: X's
-  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "another tool
   uses 2000 for the same reason". Behaviour was correct throughout — this is
   about what the code says it is. A kernel that explains itself by citation
   reads as a reimplementation of something else, and namzu is not one.
@@ -9383,12 +9383,12 @@ progress in <a local notes directory>/...` — a runtime error
 
   Type `@path/to/file` in a message and namzu inlines that file's contents for the model while your message keeps the readable `@path` token (files are resolved inside the working directory and size-capped). Press `Esc` to interrupt a running turn — `Ctrl+C` is now reserved for exiting (press twice).
 
-- 2837e6c: **Dark theme, trust-folder gate, bypass-permissions mode, Claude-Code-style tool rendering, and a big token-cost fix.**
+- 2837e6c: **Dark theme, trust-folder gate, bypass-permissions mode, tool rendering, and a big token-cost fix.**
 
   - **Fully dark theme.** The TUI now uses a curated dark hex palette on a black canvas (the root fills with the background and the screen is cleared on launch) for a cohesive, immersed look.
-  - **Trust folder gate.** On first launch in a directory, namzu shows the working directory and asks you to trust it before reading/running/editing files there (Claude-Code style). Trusted folders are remembered in `~/.namzu/trust.json`; trusting a repo root covers its subfolders. Declining exits.
+  - **Trust folder gate.** On first launch in a directory, namzu shows the working directory and asks you to trust it before reading/running/editing files there. Trusted folders are remembered in `~/.namzu/trust.json`; trusting a repo root covers its subfolders. Declining exits.
   - **Bypass permissions.** `namzu --dangerously-skip-permissions` (alias `--yolo`) runs tools without the approval prompt; a red banner warns while it's active.
-  - **Claude-Code-style tool rendering.** Tool calls render as `⏺ Bash(ls -la)` with a dim `⎿ result` line hugging the call, grouped with one blank line between call+result units.
+  - **Tool rendering.** Tool calls render as `⏺ Bash(ls -la)` with a dim `⎿ result` line hugging the call, grouped with one blank line between call+result units.
   - **Token-cost fix.** clawtool's ~70-tool catalog no longer inflates the prompt (it could push a single message past 200k tokens). It's registered as deferred tools the model loads on demand via `search_tools` — see the separate changeset.
 
 - 548689f: **Define sub-agents on the fly.** The `Agent` tool now takes an optional `role` — a system prompt describing a specialist persona (e.g. "You are a security auditor; flag vulnerabilities and rate severity"). namzu spins up a fresh sub-agent with that role at runtime, no pre-defined agent file needed; omit `role` for a general-purpose one. Call `Agent` several times in one turn (each with its own `role`) to fan out a parallel swarm of specialists. The persona is layered on top of namzu's anti-fabrication guardrails so a dynamic role can't opt out of "don't invent results".
@@ -9396,7 +9396,7 @@ progress in <a local notes directory>/...` — a runtime error
 
   Tool calls now feel alive: while a tool runs it shows in a live region with an animated spinner and a ticking elapsed timer, and on completion it settles into the transcript with a ✓ (green) / ✗ (red) status glyph and how long it took — e.g. `✓ Bash(npm test) · 1.2s` — above its `⎿` result. Before the first token of a reply the agent shows a `thinking…` line. The status bar gains a context-window fill gauge (`ctx ███░░░░░ 38%`, green→yellow→red as the window fills).
 
-- 8385ac7: **Claude-Code-style header: a bloom icon next to the name / model / cwd.**
+- 8385ac7: **Header: a bloom icon next to the name / model / cwd.**
 
   The startup header is now a compact icon + info block instead of a large wordmark: a teal→green diamond "bloom" mark (a terminal homage to the namzu.ai SVG) on the left, with `namzu vX.Y.Z`, the connected provider · model, and the working directory stacked to its right. Narrow terminals fall back to a one-line `❀ namzu`.
 
@@ -9406,7 +9406,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - eabdc0d: **Assistant replies now render as markdown.**
 
-  Responses were shown as flat text; they now render with their formatting:
+  Responses were shown as flat text; they now render with their structure kept:
 
   - **Code blocks** in a distinct color on a dim left rule, with the language label.
   - **Inline `code`** in a code color.
@@ -9476,11 +9476,11 @@ progress in <a local notes directory>/...` — a runtime error
 
   namzu now persists each conversation to the SDK's session store (`DiskSessionStore`) under the working directory's `.namzu` — the same hierarchy `query()` writes its runs to, so a conversation's `session.json` and `runs/` live together. Every turn (your message + the reply) is appended to the active session.
 
-  `/resume` opens a Claude-Code-style picker of this folder's recent conversations (title + relative time); ↑/↓ navigate, Enter restores the transcript and continues in that session, Esc cancels. Each `cwd` is one project (a stable id kept in `.namzu/cli.json`); conversations are sessions under a shared CLI thread. This reuses the SDK's existing persistence rather than a parallel store.
+  `/resume` opens a picker of this folder's recent conversations (title + relative time); ↑/↓ navigate, Enter restores the transcript and continues in that session, Esc cancels. Each `cwd` is one project (a stable id kept in `.namzu/cli.json`); conversations are sessions under a shared CLI thread. This reuses the SDK's existing persistence rather than a parallel store.
 
 - c8d6b66: **`namzu run` — headless one-shot mode for scripts and CI.**
 
-  `namzu run "your prompt"` runs a single prompt through the same agent the TUI uses and prints the reply to stdout (the equivalent of claude-code's `--print`). The prompt can also come from stdin (`echo "…" | namzu run`), and `--format json` emits `{"text": "…"}`. Status lines go to stderr (silenced by `--quiet`), so stdout is just the answer. It's non-interactive (tools auto-run, but the safety gate still hard-denies catastrophic commands) and uses an ephemeral session, so one-shots don't clutter `/resume`.
+  `namzu run "your prompt"` runs a single prompt through the same agent the TUI uses and prints the reply to stdout. The prompt can also come from stdin (`echo "…" | namzu run`), and `--format json` emits `{"text": "…"}`. Status lines go to stderr (silenced by `--quiet`), so stdout is just the answer. It's non-interactive (tools auto-run, but the safety gate still hard-denies catastrophic commands) and uses an ephemeral session, so one-shots don't clutter `/resume`.
 
 - 1587792: **The agent gets the SDK's structured memory (search / read / save).**
 
@@ -9497,7 +9497,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - f768cc8: **Slash-command autocomplete in the composer.**
 
-  Typing `/` now opens a dropdown of matching commands (name + description) below the input, the way claude-code and gemini-cli do. Navigate with ↑/↓, press Tab to complete the highlighted command (ready for arguments), or Enter to run it. The dropdown closes once you type a space (moving on to arguments) or anything that isn't a command name; ↑/↓ fall back to input history when it's closed.
+  Typing `/` now opens a dropdown of matching commands (name + description) below the input. Navigate with ↑/↓, press Tab to complete the highlighted command (ready for arguments), or Enter to run it. The dropdown closes once you type a space (moving on to arguments) or anything that isn't a command name; ↑/↓ fall back to input history when it's closed.
 
 - 6b74cd0: **Sub-agents do real work, and tool tracking is keyed on the SDK's tool-use id.**
 
@@ -9518,7 +9518,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - 31bc8ee: **The agent can track a plan with the SDK task system (todo-style).**
 
-  namzu now passes a `DiskTaskStore` to the agent loop, which auto-registers the SDK's `task_create` / `task_update` / `task_list` tools. The model can lay out and track a multi-step plan for the current request: new tasks appear as `☐ <subject>` and completed ones as `☑ <subject>` in the transcript. Tasks are scoped to the request.
+  namzu now passes a `DiskTaskStore` to the agent loop, which auto-registers the SDK's `task_create` / `task_update` / `task_list` tools. The model can lay out and track a multi-step plan for the current request (a todo list): new tasks appear as `☐ <subject>` and completed ones as `☑ <subject>` in the transcript. Tasks are scoped to the request.
 
 - 4d56ee4: **Tool calls now show their diff / output, collapsible with Ctrl+O.**
 
@@ -9581,7 +9581,7 @@ progress in <a local notes directory>/...` — a runtime error
   **Keyboard model:**
 
   - Enter submits, Esc clears the composer, Up/Down browses input history.
-  - Ctrl+C twice exits (first press arms + warns; pattern matches claude-code / hermes).
+  - Ctrl+C twice exits (first press arms + warns).
   - `exitOnCtrlC: false` so the TUI owns Ctrl+C semantics rather than Ink killing the process.
 
   **Provider coverage in this commit:** anthropic only. Other types (openai, openrouter, ollama, bedrock, http, lmstudio) gracefully error with a hint to add an anthropic profile or wait for a follow-up — each is one `register<Vendor>()` + type-case away.
@@ -9615,7 +9615,7 @@ progress in <a local notes directory>/...` — a runtime error
 
   The TUI's first-run picker now selects a primary LLM provider client (Anthropic / OpenAI / OpenRouter / Ollama / LM Studio / Bedrock) — what powers namzu's own chat. Clawtool peers (claude-code / codex / gemini-cli / opencode / aider / hermes) are a separate concern reserved for subagent dispatch and stay wired in the codebase as integration backbones, not as the picker target.
 
-  **Credential discovery (Hermes-style):**
+  **Credential discovery:**
 
   For each provider in the declarative `PROVIDER_REGISTRY`, scan three sources in order:
 
@@ -9672,7 +9672,7 @@ progress in <a local notes directory>/...` — a runtime error
 
   **Credentials side (`@namzu/cli`):**
 
-  - New: macOS Keychain reader. Reads the `Claude Code-credentials` generic-password entry from the login Keychain and extracts the `claudeAiOauth.accessToken` JSON field. Pattern ported from Nous Research's hermes-agent (`agent/anthropic_adapter.py:_read_claude_code_credentials_from_keychain`). Non-throwing — every failure path (non-Darwin, security command missing, entry absent, payload malformed) returns null so the discoverer treats it as "no source" rather than crashing.
+  - New: macOS Keychain reader. Reads the `Claude Code-credentials` generic-password entry from the login Keychain and extracts the `claudeAiOauth.accessToken` JSON field. Non-throwing — every failure path (non-Darwin, security command missing, entry absent, payload malformed) returns null so the discoverer treats it as "no source" rather than crashing.
   - Discoverer extended: after env vars and clawtool `secrets.toml`, anthropic also accepts the Keychain credential. Detection source is reported as `keychain · Claude Code-credentials` in the picker, so the user can see where their token came from.
   - Token-shape detector: `isAnthropicOAuthToken(value)` identifies OAuth tokens by prefix (`cc-`, `sk-ant-oat`, `eyJ`) vs console API keys (`sk-ant-api`). Drives the apiKey-vs-authToken decision when constructing the Anthropic provider.
 
@@ -9713,11 +9713,11 @@ progress in <a local notes directory>/...` — a runtime error
 
 - 142b695: **M0 hotfix** (`ses_002-clawtool-bridge`) — align CLI shape with the TUI-as-default product vision.
 
-  - **Removed:** `namzu chat` stub command. The `chat` subcommand was a misread of the product shape: namzu's primary user surface is a TUI (like claude-code, gemini-cli, opencode, and hermes-agent's TUI), and the TUI **is** the chat. Having a separate `chat` subcommand framed the CLI as "command-first" when it's actually "TUI-first with utility subcommands".
+  - **Removed:** `namzu chat` stub command. The `chat` subcommand was a misread of the product shape: namzu's primary user surface is a TUI, and the TUI **is** the chat. Having a separate `chat` subcommand framed the CLI as "command-first" when it's actually "TUI-first with utility subcommands".
   - **Added:** default behavior for `namzu` (no args) — prints a one-line placeholder (`namzu — TUI coming in M3. For utility subcommands run namzu --help.`) and exits 0. M3 will replace this with the actual Ink + React TUI launch.
   - `namzu --help` still lists the utility surface (`doctor`, `tools`, `providers`, `skills`, `serve`).
 
-  Reference TUIs vendored at `cogitave.com/vendor/{google-gemini/gemini-cli, sst/opencode, NousResearch/hermes-agent}` guide the M3 shape: minimalist scrolling transcript + bottom composer + dialog overlays, slash-command registry, permission-with-inline-diff for tool calls.
+  The M3 shape is a minimalist scrolling transcript + bottom composer + dialog overlays, slash-command registry, permission-with-inline-diff for tool calls.
 
   No library API changes; the doctor command and all M0 plumbing (Commander shell, output formatters, config cascade, sysexits mapping) remain identical.
 
@@ -9725,9 +9725,9 @@ progress in <a local notes directory>/...` — a runtime error
 - 2b08383: **Automatic context compression on long turns.** namzu now passes the SDK's structured compaction config to the agent loop, so very long, tool-heavy turns summarize old tool results/notes (keeping recent messages verbatim) instead of growing the context unbounded. Transparent for normal turns.
 - 5b1fe2f: Markdown links (`[text](url)`) in assistant replies now render with the link text in the accent color (underlined) followed by the URL dimmed, instead of raw `[text](url)` syntax.
 - c12cd19: The header now shows a little **namzu mascot** — a bloom flower over a friendly `•◡•` face, in the teal/green brand palette — beside the **Cogitave Namzu** name, version, provider · model, and working directory.
-- 38c4b62: Stop bridging clawtool's `Agent*` persona-file tools (`AgentNew`, `AgentList`, `AgentDetect`) into the agent. Those write Claude-Code-style definitions into `.claude/agents/` — a different, redundant mechanism that polluted Claude Code's directory and confused the model alongside namzu's own in-memory dynamic sub-agents. namzu owns sub-agent definition + dispatch natively, so these clawtool tools are excluded from the bridged catalog.
+- 38c4b62: Stop bridging clawtool's `Agent*` persona-file tools (`AgentNew`, `AgentList`, `AgentDetect`) into the agent. Those write definitions into `.claude/agents/` — a different, redundant mechanism that polluted that directory and confused the model alongside namzu's own in-memory dynamic sub-agents. namzu owns sub-agent definition + dispatch natively, so these clawtool tools are excluded from the bridged catalog.
 - 38c4b62: Harden namzu's anti-fabrication guardrails against relaying another agent's claims as fact. A reply from a tool that delegates to a separate agent (clawtool `agent.run`, an A2A `tasks/send`, a remote peer) is that agent's unverified narrative — it can hallucinate (e.g. claiming a Windows file write when the box is actually WSL2 Ubuntu). namzu is now instructed to treat such replies as claims, confirm them with a deterministic tool (a real shell, a file read) before reporting them as done, and never present another agent's prose as its own verified result.
-- d6b5bc1: **Remove the legacy `append` file tool.** `AppendFileTool` is gone — it was already excluded from `getBuiltinTools()`, and appending is canonical `edit` with `insertLine: "end"`. The export is removed from the public surface; hosts that relied on it should switch to `edit`. namzu's CLI no longer needs to filter `append` out of its tool set.
+- d6b5bc1: **Remove the legacy `append` file tool.** `AppendFileTool` is gone — it was already excluded from `getBuiltinTools()` (the default set has no `Append`), and appending is canonical `edit` with `insertLine: "end"`. The export is removed from the public surface; hosts that relied on it should switch to `edit`. namzu's CLI no longer needs to filter `append` out of its tool set.
 - 38c4b62: Match completed tool calls strictly by `toolUseId` in the TUI. The tool-end handler fell back to "the first active tool" when no id matched, which under parallel tool calls attributed a result to the wrong call. Now an unmatched completion renders on its own line and never closes the wrong spinner.
 - 5b62e04: **Tool output reads cleaner.** Bash results drop their `STDOUT:` / `STDERR:` section labels (the ✓/✗ glyph already signals success), and every collapsible tool block (output, diffs, sub-agent trees) is now framed by a dim left rule `▏`, which sets tool output apart from the conversation.
 - 88079b0: **Cleaner tool output in the transcript.**
@@ -9741,7 +9741,7 @@ progress in <a local notes directory>/...` — a runtime error
 
   The same change pins the header: because `<Static>` output is written above the live region, the banner (logo + provider + cwd) used to slide downward as messages accumulated. It is now the first static row, anchored to the top of the conversation.
 
-- 6bd4c6b: **TUI redesign — cleaner, modern layout (gemini-cli / claude-code grade).**
+- 6bd4c6b: **TUI redesign — cleaner, modern layout.**
 
   The interactive UI was visually heavy and cramped. It's been reworked to match the patterns of leading agent CLIs:
 
@@ -9753,7 +9753,7 @@ progress in <a local notes directory>/...` — a runtime error
 
 - a96b5c0: **Clean-screen takeover + a gradient NAMZU splash on launch.**
 
-  namzu now clears the terminal (screen + scrollback) when it starts, so it opens on a fresh canvas instead of below leftover shell output — the clean "takeover" feel of claude-code / gemini-cli. It stays in the normal screen buffer, so native scrollback still works as the conversation grows.
+  namzu now clears the terminal (screen + scrollback) when it starts, so it opens on a fresh canvas instead of below leftover shell output. It stays in the normal screen buffer, so native scrollback still works as the conversation grows.
 
   The startup banner is now an ASCII "NAMZU" wordmark rendered as a vertical teal→violet gradient, with a tagline, version, and connected provider beneath it. On narrow terminals (< 48 cols) it falls back to a compact `▲ namzu` mark.
 
