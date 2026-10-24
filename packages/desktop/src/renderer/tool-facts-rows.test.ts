@@ -253,6 +253,26 @@ describe('edits and writes', () => {
 		expect(JSON.stringify(edited)).not.toContain('/tmp/proj')
 	})
 
+	it('counts an edit by what the kernel reported, not by the strings of the call', () => {
+		const thread = call(
+			'edit',
+			editDiff,
+			{ kind: 'generic', label: 'Edited /tmp/proj/a.ts: 4 replacement(s)' },
+			{ kind: 'edit', path: '/tmp/proj/a.ts', replacements: 4, added: 4, removed: 4 },
+		)
+		expect(row(thread)).toMatchObject({ stats: { added: 4, removed: 4 } })
+	})
+
+	it("counts a write by the kernel's own figures even when the preview says otherwise", () => {
+		const thread = call(
+			'write',
+			{ kind: 'generic', label: 'w.txt' },
+			{ kind: 'diff', path: 'w.txt', before: 'a\nb\nc\n', after: 'x\ny\nz\n' },
+			{ kind: 'write', path: '/p/w.txt', operation: 'updated', added: 2, removed: 2 },
+		)
+		expect(row(thread)).toMatchObject({ stats: { added: 2, removed: 2 } })
+	})
+
 	it('turns the finished edit into a receipt the Changes card counts', () => {
 		let thread = call(
 			'edit',

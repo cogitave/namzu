@@ -93,3 +93,46 @@ describe('trust prompt on screen', () => {
 		})
 	}
 })
+
+describe('what the folder pre-approves is said before the choice', () => {
+	it('draws nothing for a folder that grants nothing', async () => {
+		const { trustGrantLines } = await import('../TrustPrompt.js')
+		expect(trustGrantLines(undefined, 80)).toEqual([])
+		expect(trustGrantLines({ allowRules: [], directories: [] }, 80)).toEqual([])
+	})
+
+	it('lists at most eight rules, counts the rest, and names the added folders', async () => {
+		const { trustGrantLines } = await import('../TrustPrompt.js')
+		const lines = trustGrantLines(
+			{
+				allowRules: Array.from({ length: 10 }, (_, i) => `rule${i}`),
+				directories: ['../shared'],
+			},
+			80,
+		)
+		expect(lines[0]).toBe('This folder allows 10 actions without asking:')
+		expect(lines.filter((line) => /^ {2}rule\d$/.test(line))).toHaveLength(8)
+		expect(lines).toContain('  and 2 more')
+		expect(lines).toContain('This folder adds 1 folder to the workspace:')
+		expect(lines).toContain('  ../shared')
+		expect(lines.join(' ')).toContain('These will apply without asking.')
+	})
+
+	it('is drawn above the choice', async () => {
+		const screen = await renderToScreen(
+			<TrustPrompt
+				cwd="/srv/app"
+				grants={{ allowRules: ['bash(git status *)'], directories: [] }}
+			/>,
+			{ cols: 100, rows: 30 },
+		)
+		try {
+			const text = screen.viewport().join('\n')
+			expect(text).toContain('This folder allows 1 action without asking:')
+			expect(text).toContain('bash(git status *)')
+			expect(text.indexOf('bash(git status *)')).toBeLessThan(text.indexOf('y trust this folder'))
+		} finally {
+			await screen.unmount()
+		}
+	})
+})

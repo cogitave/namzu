@@ -49,7 +49,7 @@ export interface TranscriptMessage {
 	 * a blank line between consecutive calls, and never wrap: they are cut at
 	 * the terminal's width with an ellipsis.
 	 */
-	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web'
+	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web' | 'summary'
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */
@@ -58,6 +58,11 @@ export interface TranscriptMessage {
 	readonly meta?: string
 	/** Collapsible body under the line (tool diff / output). */
 	readonly detail?: readonly string[]
+	/**
+	 * `detail` is a diff (see `diff-rows.ts`): rows are coloured by their
+	 * markers, and the body shows its first `preview` rows before the fold.
+	 */
+	readonly diff?: { readonly preview: number }
 	/**
 	 * Stable reference identifying an expandable body for Ctrl+O.
 	 *
@@ -78,6 +83,12 @@ export interface TranscriptMessage {
 	 * expanded. `detail` carries the same lines flat, for export and copy.
 	 */
 	readonly shell?: ShellOutput
+	/**
+	 * Set on a restored row after which the rows of the agents a saved
+	 * conversation launched in this turn belong. Never rendered; cleared once
+	 * those rows are placed.
+	 */
+	readonly agentTurnId?: string
 	/** The model's plan as it stood when this row was written, drawn by `Checklist`. */
 	readonly checklist?: readonly ChecklistItem[]
 	/**

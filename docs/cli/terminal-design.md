@@ -79,7 +79,15 @@ items are joined by a dim ` · `, left to right:
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
   (Namzu's own item; the reference has none).
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
-  already carries a hint that names Esc).
+  already carries a hint that names Esc, and while a dialog or picker owns the
+  keyboard: Esc declines or goes back there, and the footer then keeps the mode
+  without its `(shift+tab to cycle)` key as well, one rule for every such
+  screen). The Working row does not repeat it; it lives here only.
+- **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
+  on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
+  in the right-hand slot for 800 ms; the same key again inside that window
+  exits. Nothing is written to the transcript, so nothing stays in scrollback.
+  Ctrl+D with anything typed remains delete-forward.
 - **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
   and N of them are running (agents plus workflow runs; capped at `99+`). It
   shows while a turn runs and while idle, and only with nothing typed, pasted
@@ -165,7 +173,7 @@ message to run them`; after Esc, a new Enter message runs before the queue.
 Esc does with a pending steer, interrupting the reply so the steer starts the
 next one, and also releases a queue that Esc had held.
 
-A running background shell shows as the footer's shell pill (above). The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `<icon> <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" completed (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
+A running background shell shows as the footer's shell pill (above). The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `● <command>  running|finished|failed|stopped`, details are `Command details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.
@@ -263,8 +271,10 @@ first tool call on, and nothing until it has reported usage); an agent
 still waiting for a slot reads `waiting` instead of a clock, and messages sent
 to it that it has not taken in yet read `N queued` in the warning colour. The
 name column is as wide as the longest type or workflow name on screen, up to 28
-cells, shared by agent and workflow rows. The description is the agent's
-**live label** while one exists, else the sentence it was launched with:
+cells, shared by agent and workflow rows; when every row is the same type and no
+workflow row is shown, the column is left out. The description is always the
+sentence the agent was launched with, and its **live label** (cut to 24 cells,
+left out below 64 columns) sits in the right-hand block before the clock:
 every 30 seconds, while a background agent runs and has done something new
 since the last time (and at least three messages' worth), it is asked once, on
 its own model with no tools, to say in three to five words what it is doing
@@ -293,16 +303,16 @@ Press ↓ in an empty composer to move into the rail (with no rows on screen it
 still opens the cockpit for saved agents). While the rail has the keys the
 footer's mode line is **replaced** by a key line for the selected row, and the
 rows stay where they are. An agent or workflow row reads
-`Enter to view · x to stop` (`x to clear` once it has finished), plus
+`enter to view · x to stop` (`x to clear` once it has finished), plus
 `ctrl+x ctrl+k to stop all agents` when more than one agent runs and the line
-is at least 90 columns wide; `main` reads `↑/↓ to select · Enter to view`, and
+is at least 90 columns wide; `main` reads `↑/↓ to select · enter to view`, and
 the row already on screen reads `↑/↓ to select`. Esc is not advertised but
 still hands the keyboard back to the composer, as does any other key. ↑/↓
 moves between `main`, the agents and the workflows (a `❯` marks the row), Enter
 on an agent views it (see below) and on `main` goes back to the conversation,
 `x` stops a running agent (the parent turn and the other agents keep going) or,
 on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
-running agent. `Ctrl+T` still opens the cockpit from anywhere. While an
+running background agent. The composer stays on screen, dim, while the rail has the keys. `Ctrl+T` still opens the cockpit from anywhere. While an
 approval dialog is open the rail shrinks to the `main` row with a count
 (`2 agents`) and names no key, since the dialog owns the keyboard.
 
@@ -361,7 +371,7 @@ agents' name column. As the line narrows it gives up, in order, the
 20 to 12 to 8 cells; the name is squeezed last, never below eight cells.
 
 ↓ walks `main` (when drawn), the agents, then the workflows. On a workflow row
-the key line is `Enter to view · x to stop` (`x to clear` once it has
+the key line is `enter to view · x to stop` (`x to clear` once it has
 finished). Enter opens the workflow's detail view and
 `x` stops every agent of the workflow that is still going (each one as its own
 `x` would), or clears a finished row.
@@ -513,7 +523,9 @@ live state belongs to the rail.
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
-  `✻ Worked for 46s`, when it finished normally and took three seconds or more;
+  `✻ Worked for 46s`, when it finished normally and took three seconds or more
+  (time spent waiting for a permission or a question to be answered is left
+  out);
   a quicker answer, or a turn that was stopped or cancelled (which already says
   how it ended), adds no line.
 
@@ -538,7 +550,9 @@ used.
 
 Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
 
-A read, search, write or edit that the kernel described in fields (`ToolResult.facts`) is headlined from them, as the Desktop does: `Read a.ts`, `Searched for x · 2 matches in 2 files`, `Edited a.ts +2 −1`, `Created n.txt +2` (a file is named by its own name, never its full path; an edit's counts come from the lines its receipt replaced, leaving out lines both sides share). A conversation saved before facts existed has none and keeps the receipt's first line.
+A read, search, write or edit that the kernel described in fields (`ToolResult.facts`) is headlined from them, as the Desktop does: `Read a.ts`, `Searched for x · 2 matches in 2 files`, `Edited a.ts +2 −1`, `Created n.txt +2`, `Updated w.txt +2 −2` (a file is named by its own name, never its full path). The counts are the kernel's own (`facts.added` and `facts.removed`, one real line diff of the whole file, so a batch edit, an insertion and `replace_all` are counted by what changed and a final-newline-only change is `+1 −1`), never rebuilt from the call. Under the headline the `⎿` row opens to the change as hunks: a right-aligned line-number gutter, a `+`, `-` or space marker, three dim context lines, a dim `...` between hunks, additions green and removals red. An overwrite renders as a diff; a created file shows its first 10 lines. A body longer than its preview ends in `… +N lines (ctrl+o to expand)`. A conversation saved before facts existed has none and keeps the receipt's first line.
+
+A settled tool row is one shape: `●` (green when it worked, red when it failed, dim when the person declined or cancelled) and the call, then `⎿` for what came of it. The elapsed time shows only from 1 second up; an instant tool shows none. A tool error names the file as the model gave it or relative to the working folder, `~/x` under the home folder and the full path elsewhere, never `../../x` and never a raw scratch path, and a path too long for the row wraps after a `/` or `\` instead of in the middle of a name.
 
 A tool's result is a `⎿` row with the output's first line and, under it, the rest of the output as a collapsible body. A first line of up to 300 characters (`RESULT_SUMMARY_WHOLE_MAX`) is shown whole on the `⎿` row, wrapping if it must, and is not repeated in the body. A longer one is shortened to 120 characters on the row and kept whole as the body's first line, where `Ctrl+O` shows it. A browser action's note (`A navigation to … was blocked before it was sent: …`) used to be printed twice, once cut off and once in full.
 
@@ -557,12 +571,12 @@ A web search is one row naming what was searched for and one `⎿` line under
 it; a page fetch is the same shape with the address:
 
 ```text
-✓ Web search("OpenClaw agent runtime built on pi-agent-core framework")
+● Web search("OpenClaw agent runtime built on pi-agent-core framework")
 ⎿ Did 1 search in 9.0s
-✓ Web search("OpenClaw embedded runtime")
+● Web search("OpenClaw embedded runtime")
 ⎿ Found 3 results in 4.1s
-✓ Web fetch(https://docs.openclaw.ai/agent-runtime-architecture)
-⎿ Received 7.5KB in 1.2s · ctrl+o output
+● Web fetch(https://docs.openclaw.ai/agent-runtime-architecture)
+⎿ Received 7.5KB in 1.2s (ctrl+o to expand)
 ```
 
 While a call runs, its row under `Working` carries the same `⎿` line as a
@@ -671,8 +685,10 @@ Tool output retains every line admitted by the runtime, including long first
 lines and diagnostics beyond line 200. For more than six lines, the default
 preview shows the first three and last three, with an omission count between
 them. This keeps final diagnostics visible without joining nonadjacent lines
-silently. Each visible line is shortened to 240 characters, and Ctrl+O is
-advertised whenever text is hidden. Ctrl+O opens the retained body; `/raw` also
+silently. Each visible line is shortened to 240 characters (never through an emoji), and Ctrl+O is
+advertised whenever text is hidden, in one wording everywhere (tool output, the shell cell, an agent's
+answer): `… +N lines (ctrl+o to expand)`, with `(~N KB)` after it once at least 1,000 characters are
+hidden, and `line` for exactly one. Ctrl+O opens the retained body; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
@@ -699,7 +715,14 @@ accepted.
 
 The Working label itself has a repeating green fill and pale leading edge,
 alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
-tokens · esc to interrupt)`. The count is the provider's reported output
+tokens)`. The parenthesised figures stay hidden until the reply has produced
+tokens, the model is thinking, a compaction runs, agents are running, or the
+turn has lasted more than 16 s; elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
+(seconds floored, the same format on every duration in the transcript). A blank
+row separates the last transcript row from the Working row. With no token for
+more than 10 s the label blends toward `rgb(171,43,63)`, fully at 20 s, easing in
+and out; it never tints while a tool runs, the model is thinking, a compaction
+runs or a question waits for you, and it resets on the next token. The count is the provider's reported output
 tokens for the turn plus an estimate (characters over four) of the reply and
 reasoning streamed since that report, redrawn at most five times a second; it
 is absent until the model has written something. On a narrow terminal the
@@ -722,6 +745,30 @@ tool and total tool count, and the full list returns when space allows. The
 plan's live row is always one line: the current step and the completion count,
 and on a narrow screen the step alone. These panels also reserve
 space before the transcript keeps any older messages in its redrawable tail.
+
+### A resumed conversation
+
+`namzu -c`, `namzu resume <id>` and the `/resume` picker show what the live run
+showed, not only the messages: the same tool rows (a read's `Read a.ts`, an
+edit's `Edited a.ts +2 −1` with its diff body, a write's `Created n.txt +2`, a
+command's cell with its output behind Ctrl+O, a failed call's one-line reason),
+the `Worked for 46s` line that closed a turn, `Interrupted.` for a turn the
+operator stopped (and the one-line reason for a turn a limit stopped), and the
+rows of the agents it launched, placed after the reply that launched them once
+the saved children are read. A call that never reported a result reads
+`○ Bash(sleep 99)` over `⎿ Interrupted`.
+
+Nothing is drawn twice: the rows come from the same builders the live path
+calls (`tool-end-rows.ts` for a finished call, the agent rows in
+`agent-transcript-rows.ts`), so a later change to how a row reads reaches both.
+`restored-rows.ts` replays the conversation's journal through the live
+translation (`toAgentEvent`), which keeps the kernel's typed facts and timings.
+A conversation without a journal (a `/fork`, an older log) is drawn from the
+saved messages: the file a read, edit or write named still shows, a write's
+counts are read from its receipt, and the elapsed time and the closing line are
+left out because the messages do not keep them. A delegation that succeeded
+leaves no tool row, as live: the agent rows own it; a failed launch keeps its
+row.
 
 ### Scrolling back through the conversation
 
@@ -908,12 +955,16 @@ that wait so the parent can respond while children continue. Results arrive in
 the same turn as task notifications. Tab still queues a future turn; Esc still
 interrupts the current turn and its children.
 
+## System rows
+
+Every row Namzu writes about itself shares one marker, a coloured `●` (yellow for something to read, dim for a note, red for a failure), with a `⎿` line for what continues it; `system-rows.ts` holds the one level to glyph and colour mapping, and a system row written with no glyph of its own gets the dim notice dot, so no producer can bypass it. `✻` stays on exactly two rows: the line that closes a reply and `Conversation compacted`. An interruption is one dim line, `Interrupted · What should Namzu do instead?`, hung under the call that was running when there was one and standing alone otherwise; after a send-now steer it is a plain `Interrupted`. Agents, workflows and background jobs end with the same three words, `finished`, `failed` or `stopped`. A copy request reads `Sent 1,234 chars via OSC 52 · if paste fails, allow clipboard access in your terminal`. Peer messages read `Message from alice: …`, goal rounds `Goal, attempt 2 of 5` over the objective, a delivered scheduled run `Scheduled job "nightly-build" failed at 09:12`, and a provider switch names both products and a reason ("OpenAI was too busy, so Namzu used Anthropic for the rest of that reply."; the chain position, HTTP status and code follow only with `--debug`).
+
 ## Plain words for errors and status
 
 The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled runs and the ACP host keep the kernel's structured codes unchanged; this applies to what the interactive screen shows.
 
 - **A failed reply** is one sentence naming the provider by product name ("OpenAI did not accept your API key. Check it in /setup, or pick another provider with /model."), plus at most one `OpenAI said: ...` line when the provider's own message adds information. No bracketed catalog ids, no `Provider:` or `Reason:` rows, no raw JSON, status lines, request ids or config-key names. `plain-interruption.ts` builds it.
-- **A paused reply** reads "Paused: OpenAI is having problems on its side. Press Enter to try again, or type a new message." (offline and rate-limited have their own wording; a rate limit names the wait as `20s` or `1m 05s`). Enter on an empty composer continues the reply, as it does for a tool that needs a person; `/resume` and `/abandon` still work. Typing a new message does what the notice says: a reply that stopped on a provider failure (a rate limit, an outage, a rejected key) is closed by the message, which runs on the model chosen at that moment, so changing the model first needs no `/resume`; the stopped message stays in what the model is shown, and no error line appears. A pause that waits for a person (an approval or a handoff) still holds the conversation, and a message sent then is refused in one plain sentence ("The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message."). No checkpoint id or turn id is shown.
+- **A paused reply** has one wording: "Paused. OpenAI is having problems on its side. Press Enter to continue, or Esc to stop." (the same shape for a tool or the browser that needs you: "Paused. The browser needs you: …", with the facts the tool attached as labelled rows such as `Login url: …`; offline and rate-limited have their own wording; a rate limit names the wait as `20s` or `1m 05s`). Enter on an empty composer continues the reply, as it does for a tool that needs a person; `/resume` and `/abandon` still work. Typing a new message does what the notice says: a reply that stopped on a provider failure (a rate limit, an outage, a rejected key) is closed by the message, which runs on the model chosen at that moment, so changing the model first needs no `/resume`; the stopped message stays in what the model is shown, and no error line appears. A pause that waits for a person (an approval or a handoff) still holds the conversation, and a message sent then is refused in one plain sentence ("The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message."). No checkpoint id or turn id is shown in the terminal; headless output (`exec`, scheduled runs) still prints the checkpoint for scripts.
 - **A quiet stretch while the provider is retried** is one line under the Working row, as the reference draws it: a red bullet, what failed, and a dim `Retrying in 5s · attempt 2/10` that counts down once a second. The first two tries of a plain server fault say only "The request failed."; from the third try, or at once for no connection or a rate limit, it names the provider and the cause ("OpenAI is limiting requests."). The terminal retries ten times with a wait that starts at half a second and doubles to thirty-two, honours a named `Retry-After` as a minimum, and does not wait for more than a minute; Esc interrupts the wait. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. It goes away when the provider answers; when the tries run out the reply pauses as below. See [Provider retry](../sdk/provider-retry.md).
 - **Failures the app hit itself** (saving a name, forking, archiving) say what could not be done and, for known causes such as a permission or disk error, why; an unknown cause points at `--debug`. `plain-failure.ts` maps them; the raw message is appended only with `NAMZU_DEBUG=1` or `--debug`.
 - **A crash** prints "Namzu stopped because of an unexpected problem. Details were saved to ~/.namzu/logs/crash-<time>.log." The stack and the buffered diagnostics go to that file (the newest ten are kept); they print too only with `NAMZU_DEBUG=1` or `--debug`.
@@ -928,19 +979,25 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
        … +37 lines (ctrl+o to expand)
   ```
 
-  The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window still has its "… 80 lines not shown" gap counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
+  The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window shows its gap as "… +80 lines", counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
+- **The permission, question and plan dialogs share one verb set.** `enter confirm`, `esc cancel` (it declines the batch and the agent carries on; in the plan dialog it keeps planning), `ctrl+c stop` (it also ends the reply), `y / n answer`, `d input` / `d script` / `d instructions` for the details toggle, and `←→ questions`, `space toggle` in the question dialog. The earlier `esc decline`, `esc skip`, `esc keep planning`, `enter choose`, `enter ok` and `ctrl+c stop the reply` are gone, so one key reads the same on every dialog. A duration under a second that a row does show (the workflow, web and agent lines) reads `420ms` rather than `0s`; a tool row says nothing for a call under a second; live counters keep whole seconds.
 - **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and the footer stays quiet while a box is open; it keeps the mode, the folder and the model. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the tool-output viewer, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
 - **A list that does not fit says so.** When the provider list is cut to the terminal's height it draws a quiet `↓ 3 more` under the last row it shows and `↑ 2 more` above the first, counted in rows; the lines come out of the height budget, so the box is still no taller than the screen, and the row under the cursor stays in view as it moves.
 - **A startup that stopped on a file the person can fix** is the sentence alone, with no dot in front of it and no second block. "Startup stopped / Resolve the error above, then restart Namzu." appears only under an error that does not say what to do itself (a `ConfigLoadError` with `complete` set already ends with "Fix it, then start Namzu again."). The footer under a screen with no composer (this one, the pickers, the trust prompt) names the folder and any active mode but not `shift+tab to cycle`, which is the composer's key.
 - **No Node warnings on screen.** `warning-filter.ts` is the first import of `bin.ts`. It drops Node's `ExperimentalWarning: SQLite is an experimental feature and might change at any time` (printed on Node 22 when the session index opens `node:sqlite`) and nothing else: the type and the sentence must both match, so every other warning still prints. `exec`, the scheduler and the desktop host start from the same `bin.ts`.
 - **First run with no API key** says what the menu offers: "No API key found for OpenAI, your saved provider. Namzu looked for OPENAI_API_KEY and found none. Choose “Enter an API key” below, or pick another provider." A subscription sign-in row reads "uses a one-time code" or "opens your browser", not the protocol's name.
 - **Argument errors** (`namzu --effort turbo`) read as sentences in sentence case ("“turbo” is not a valid value for --effort. Choose one of none, minimal, …"), wrapped at word boundaries to the terminal's width (at most 100 columns), then "Run namzu --help to see what is available." The exit code stays 64. `usage-error.ts` rewrites commander's one-line complaint.
-- **After exit** the resume command is printed on a line of its own ("namzu resume <conversation id>"), so a narrow terminal soft-wraps one copyable line; `namzu resume` takes the whole id, not a prefix.
+- **After exit** the resume command is printed after a blank line, on a line of its own ("namzu resume <conversation id>"), so a narrow terminal soft-wraps one copyable line and the id never sits directly under the message box; `namzu resume` takes the whole id, not a prefix, and with no id opens the picker. A resume shows one closing row, "Resumed: <name or first prompt>", on every path: the picker, `/resume`, `namzu resume <id>` and `--continue`/`--resume`.
 - **A settings file that cannot be read** is one sentence that names the file a person must fix, how they would write it, and where the parser stopped: "namzu.config.json in this project isn't valid JSON (line 3, column 5). Fix it, then start Namzu again." The user-level file reads as `~/.namzu/config.yaml isn't valid YAML (line 1, column 9)`, and the managed file by its path. A file whose top level is a list or a value rather than named settings is named the same way ("namzu.config.json in this project must be a set of named settings, not a list. Fix it, then start Namzu again."). The parser's own wording appears only with `--debug`. A file saved with a leading byte-order mark (Windows editors do this) loads as if the mark were absent, in the CLI, the scheduled-task digest and the desktop app's folder checks.
 - **The provider list at narrow widths.** While the source column beside the name would be narrower than 24 columns (a terminal under 63 columns), each source is drawn on its own line under the name, indented to line up with it, and the name is not padded; at 63 columns and wider the source sits beside the name as before. The `← current` mark stays on the name's line when it fits and goes below the source when it does not. The row window counts exactly the lines drawn, in both layouts. The model list's count ("3/3") keeps a column between itself and the title, and a model row whose marks ("(current) (default)") would cut its name short draws them on the line under the name instead.
 - **A model list that could not be fetched** is one sentence naming the provider and the next step ("OpenAI rejected the saved API key. Press Esc, then k to enter a new key.", "OpenAI is limiting requests right now. Wait a moment, then open the list again.", "OpenAI is having problems on its side. Try again in a minute.", "Namzu could not reach OpenAI. Check your internet connection, then try again."; for a server on this computer or network, "Namzu could not reach Ollama at localhost:11434. Start it, then try again.", and a list that did not answer in time names the provider: "OpenAI did not answer in time."), then "Showing namzu’s pick for it." The driver's own text follows "Details:" only with `--debug`, with its request ID labelled "Request ID:". A model switch or an effort check that fails says "Could not switch the model." (or the effort sentence) the same way, with the error text behind `--debug`. `modelListingCause` in `agent.ts` sorts the failure (401, 403, 429, 5xx, network, other) and `plainListingFailure` in `model-choices.ts` words it. A failure Namzu hit on its own at startup (the working folder, saved data, plugins, computer use, the browser, building the provider) is one sentence with a next step ("Namzu could not open the folder ~/x. It does not exist. Check the path, then try again.") and the error text behind `--debug`, labelled "Details:". The setup screen words how a credential was found as "Signed in with Codex", "Key from your computer’s settings" or "Saved API key", never the source's identifier. A key the provider rejects on the key-entry screen reads "<Provider> rejected that API key. Check it and try again." the same way.
 - **Provider setup (`s`) never prints what a program printed.** The probe's output is read for a version number (`versionFromProbe` skips warnings) and the row says "Installed · version 0.46.0", "Not installed" or "Couldn’t check Codex. Details: --debug"; an install shows "Installing Codex… This can take a minute." and, if it fails, "Couldn’t install Codex. Details: --debug". The raw lines appear only with `--debug`. `setup-text.ts` holds the wording.
 - **Folders in a sentence** are written with `~` for home, and when the line is short of room `displayPath` cuts the middle and keeps the first segment and the last folder whole ("~/…/packages/cli"). Every such path, the footer's included, is spelled with the platform's separator (`homePath` and `displayPath` are the one helper: `~\Work\clients\leaf-folder` on Windows, `~/Work/clients/leaf-folder` elsewhere). The folder trust prompt fits its path to the box's real content width (the terminal minus the app's inset, the border and the padding, `boxedContentWidth`), so the path draws one row from 40 columns up, its title and two sentences break evenly with no stray word on a line of its own ("files", "exit" alone), and the two choices share a row only when both fit.
+- **The startup header and `/status` write the folder the same way**: from `~` or, when it does not fit, its last folders cut on a separator (`…/hygiene-live/run/proj`), never clipped from the left in the middle of a name. The bypass warning under the header and the bypass question printed before the screen opens wrap on words, with one constant indent on continuation rows, at the terminal's width.
+- **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted) and the extra directories the folder adds to the workspace, then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The `ctrl+o` viewer hides the stale mode footer while open; clipping of long descriptions below about 90 columns and the viewer opening over the previous readout are not addressed here.
+- **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
+- **The tool-output viewer (`ctrl+o`) replaces the composer's mode footer** rather than drawing under it, so no stale footer row sits above its box.
+- **The model picker says the same thing at every width**: "Applies to this conversation and future launches." and the `(namzu default)` mark are cut by the row on a narrow terminal, never reworded.
 - **A provider that cannot take something the conversation holds** is one sentence built from the event's fields, never from the kernel's text (`capability-notice.ts`): "Ollama can’t use tools, so Namzu will only chat while you use it. Switch to another provider to let Namzu work with files and commands.", "Ollama can’t see images, so it won’t see the picture you attached. Switch to a provider that reads images to include it.", the same for documents, and a "text note in place of a picture a tool returned" variant for tool results. The next step is always "Switch to another provider" (or "a provider that reads images/documents"), because the capability belongs to the provider driver, not the model. A history that was repaired before a reply says what happened in words, with no counts: when steps were left unfinished, "Your last reply was cut off before its steps finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again."; when only leftover duplicate or unmatched results were removed, "Namzu cleaned up some leftover steps from earlier in this conversation. Nothing you need to do." The counts show only under `--debug`. The provider is named by product name, never its id, and no tool count or label shows. The kernel's own wording follows only under `--debug`, and an exported transcript uses the same sentences (a provider switch reads "Anthropic was too busy, so Namzu used OpenAI for the rest of that reply.", with no ids or reason codes).
 - **Setup and picker wording** is plain: the setup intro says the other coding apps are optional and that Namzu can reuse their sign-ins, a missing sign-in reads "Not signed in for Namzu" followed by the login command, "Zen free models · experimental, and Zen may refuse them", "1 found · sign-ins, API keys and local servers". Zen’s free models are experimental and Zen may refuse them, so the Zen rows and notices say that and point at a Zen API key as the next step. Text that can wrap is broken by `wrapBalancedText`, not by the renderer (which starts a continuation with the space it broke at), so no wrapped line starts indented and none is one stray word. Each line wraps inside 40 to 80 columns (`plain-setup-wording-at-narrow-widths.test.tsx`, `plain-provider-list-wording-at-narrow-widths.test.tsx`).
 - **Typographic apostrophes**: person-facing text uses ’ ("couldn’t", "Namzu’s"), never inside code, flags, paths or JSON.
@@ -1030,7 +1087,7 @@ silently replace an installation identity.
 
 ## Terminal notifications
 
-Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; the reference's 60 000 ms rule). Nothing in a notice carries conversation text.
+Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; 60 000 ms). The `approval-required` notice (and the `approval_required` notification hook) goes out only when the dialog has been open for 6 s with no key pressed since it opened, retried until the person has been quiet that long, and not at all when it is answered first (`approval.ts`), so someone at the screen is never pinged. Nothing in a notice carries conversation text.
 
 `tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL; the reference's terminator was not traced.
 

@@ -43,7 +43,7 @@ export function peerMailMessage(mail: PeerMail): Message {
 }
 
 export function peerMailLabel(mail: PeerMail): string {
-	return `Message from ${mail.from.name} [${mail.from.ref}]: ${mail.text}`
+	return `Message from ${mail.from.name}: ${mail.text}`
 }
 
 export interface LivePeersOptions {

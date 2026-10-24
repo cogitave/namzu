@@ -183,9 +183,9 @@ type**.
 ### Persisted events
 
 The live event union (`SessionEvent`, `packages/sdk/src/types/session/events.ts`)
-has 63 type literals. Every one except the five high-volume ones —
-`text_delta`, `tool_input_delta`, `reasoning_delta`, `tool_progress` and
-`monitor_event` — is
+has 64 type literals. Every one except the six ephemeral ones —
+`text_delta`, `tool_input_delta`, `reasoning_delta`, `tool_progress`,
+`monitor_event` and `compaction_started` — is
 appended as a record of the same `type`. The record is the event with
 `sessionId` and `turnId` moved to the envelope and `lineage` dropped (it
 follows from `session_started.parent`). Its payload is the event's.
@@ -318,6 +318,8 @@ reader finds the spawning turn through `childSessionId` and the
 `batch-annotated` fixture has one child of each kind.
 
 The `compaction` record is what the fold reads. The live
+`compaction_started` (live only, never recorded: an automatic pass is about to run; always followed by
+`compaction_completed`, `compaction_failed` or `compaction_tool_results_cleared`),
 `compaction_completed`, `compaction_shed` and `compaction_tool_results_cleared`
 events are persisted beside it as history: `compaction_shed` keeps what a pass
 removed in the log for audit and undo.

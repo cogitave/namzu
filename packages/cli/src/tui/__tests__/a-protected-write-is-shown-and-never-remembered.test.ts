@@ -46,7 +46,7 @@ describe('the prompt for a protected write or a catastrophic removal', () => {
 					mode: 'prompt',
 					commandArguments: commands,
 				}),
-			).toEqual(['Yes', 'No, and tell namzu what to do differently (esc)'])
+			).toEqual(['Yes', 'No, and tell Namzu what to do differently (esc)'])
 		}
 	})
 })

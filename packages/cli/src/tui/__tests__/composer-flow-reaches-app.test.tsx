@@ -911,7 +911,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				() => screen.scrollback().join('\n').includes('Interrupted'),
 				'Esc did not interrupt the active turn',
 			)
 			expect(sent).toHaveLength(1)
@@ -971,7 +971,7 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('❯ second queued')),
 				'Esc did not leave the choice',
 			)
-			expect(screen.scrollback().join('\n')).not.toContain('Interrupted.')
+			expect(screen.scrollback().join('\n')).not.toContain('Interrupted')
 
 			screen.press('\x1b[A')
 			screen.press('\r')
@@ -1008,7 +1008,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x13')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				() => screen.scrollback().join('\n').includes('Interrupted'),
 				'the chord did not interrupt the active turn',
 			)
 			releaseFirstTurn()
@@ -1033,7 +1033,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'waiting steer', '\r')
 			screen.press('\x13')
 			await screen.waitForRender()
-			expect(screen.scrollback().join('\n')).not.toContain('Interrupted.')
+			expect(screen.scrollback().join('\n')).not.toContain('Interrupted')
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
@@ -1054,7 +1054,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				() => screen.scrollback().join('\n').includes('Interrupted'),
 				'Esc did not interrupt the active turn',
 			)
 			releaseFirstTurn()
@@ -1093,7 +1093,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				() => screen.scrollback().join('\n').includes('Interrupted'),
 				'Esc did not interrupt the active turn',
 			)
 			releaseFirstTurn()
@@ -1125,7 +1125,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted.'),
+				() => screen.scrollback().join('\n').includes('Interrupted'),
 				'Esc did not interrupt',
 			)
 			releaseFirstTurn()

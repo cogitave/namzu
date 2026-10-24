@@ -55,7 +55,7 @@ describe('the footer on a narrow pane', () => {
 		)
 	})
 
-	it('drops the model first, then the hints from the right, then the rest', () => {
+	it('drops the model first, then the hints from the right, the pointer to the agents after the other hints, then the rest', () => {
 		let previous = line(200).layout
 		const order: string[] = []
 		for (let columns = 199; columns >= 24; columns--) {
@@ -72,12 +72,13 @@ describe('the footer on a narrow pane', () => {
 			if (previous.pr && !layout.pr) order.push('pr')
 			previous = layout
 		}
+		// The pointer to the agents shrinks to `↓ agents` first and outlasts the other hints.
 		expect(order.slice(0, 8)).toEqual([
 			'model',
-			'manage',
 			'agents',
 			'interrupt',
 			'cycle',
+			'manage',
 			'effort',
 			'shells',
 			'pr',
@@ -100,5 +101,23 @@ describe('the footer on a narrow pane', () => {
 		const justShort = line(needed - 1).layout
 		expect(justShort.right).toEqual({ kind: 'model', model: null })
 		expect(justShort.manage).toBe('↓ to manage')
+	})
+})
+
+describe('the pointer to the agents', () => {
+	it('shrinks to a short pointer before it leaves, and is dropped after the other items', () => {
+		const base = {
+			provider: null,
+			model: null,
+			modeLabel: 'plan',
+			agents: '← 3 agents',
+			manage: '↓ to manage',
+		}
+		const wide = fitStatusLine({ ...base, columns: 60 })
+		expect(wide.manage).toBe('↓ to manage')
+		// Too narrow for the full hint and the count together: the count goes, the pointer stays.
+		const tight = fitStatusLine({ ...base, columns: 22 })
+		expect(tight.manage).toBe('↓ agents')
+		expect(tight.agents).toBeNull()
 	})
 })

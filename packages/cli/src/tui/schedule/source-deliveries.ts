@@ -8,6 +8,7 @@ import {
 import type { SchedulePaths } from '../../schedule/paths.js'
 import { visibleScheduleMessage } from '../../schedule/visible-source.js'
 import { explainFailure } from '../plain-failure.js'
+import type { SystemLevel } from '../system-rows.js'
 
 interface SourceSession {
 	readonly slug: string
@@ -49,13 +50,56 @@ function deliveryKey(entry: SourceDelivery): string {
 	return JSON.stringify([entry.jobId, entry.runId, entry.status, entry.at])
 }
 
-/** One bounded display row; this text never enters the SDK conversation log. */
+/** How a scheduled run ended, as the words that follow its name. */
+const RUN_ENDINGS: Readonly<Record<SourceDelivery['status'], string>> = {
+	completed: 'finished',
+	failed: 'failed',
+	'awaiting-approval': 'is waiting for your approval',
+	'approval-expired': 'stopped waiting for approval',
+	interrupted: 'was interrupted',
+	'timed-out': 'timed out',
+	'blocked-config': 'could not start because its settings need attention',
+	cancelled: 'was stopped',
+	'check-failed': 'failed its check',
+}
+
+/** How loudly a delivered run is drawn: a clean finish is quiet, a failure is red, the rest is yellow. */
+export function deliveryLevel(status: SourceDelivery['status']): SystemLevel {
+	switch (status) {
+		case 'completed':
+			return 'notice'
+		case 'failed':
+		case 'timed-out':
+		case 'blocked-config':
+		case 'check-failed':
+			return 'error'
+		default:
+			return 'warning'
+	}
+}
+
+/** The clock time of a run, in the reader's zone; empty when the stamp is unreadable. */
+function clockAt(at: string): string {
+	const date = new Date(at)
+	if (Number.isNaN(date.getTime())) return ''
+	const time = date.toLocaleTimeString('en-GB', {
+		hour: '2-digit',
+		minute: '2-digit',
+	})
+	return ` at ${time}`
+}
+
+/**
+ * One bounded display row; this text never enters the SDK conversation log.
+ * `Scheduled job "nightly-build" failed at 09:12`, with the result and the
+ * reason on the lines under it.
+ */
 export function sourceDeliveryLine(entry: SourceDelivery): string {
 	return visibleScheduleMessage(
 		[
-			`Scheduled: ${entry.jobName} · ${entry.status} · ${entry.at}`,
-			...(entry.summary ? [`Result: ${entry.summary}`] : []),
-			...(entry.reason ? [`Reason: ${entry.reason}`] : []),
+			`Scheduled job "${entry.jobName}" ${RUN_ENDINGS[entry.status] ?? 'ended'}${clockAt(entry.at)}`,
+			...(entry.summary ? [entry.summary] : []),
+			...(entry.reason ? [entry.reason] : []),
 		].join('\n'),
 	)
 }

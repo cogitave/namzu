@@ -124,13 +124,13 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 			? preview.runKind === 'script'
 				? [
 						preview.workspace === 'none'
-							? 'Script: host process as your user; private workspace is cwd, not a write boundary.'
-							: 'Script: host process as your user; folder is cwd, not a write boundary.',
+							? 'Script: runs on your computer as you; its private workspace is not a write boundary.'
+							: 'Script: runs on your computer as you; its folder is not a write boundary.',
 						'Checks: shell commands meet floor + deny rules; interpreter code needs your review.',
 						'Allow, ask and unmatched rules do not limit this script.',
 					]
 				: [
-						'Gate: host process as your user; folder is cwd, not a write boundary.',
+						'Gate: runs on your computer as you; its folder is not a write boundary.',
 						'Gate checks: shell commands meet floor + deny rules; interpreter code needs your review.',
 						'Agent phase: the permission set governs its tools.',
 					]

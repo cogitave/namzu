@@ -89,5 +89,5 @@ two tries of a plain server fault say only "The request failed."; from the third
 (or at once for no connection or a rate limit) the line names the provider and
 the cause in plain words. Esc during the wait interrupts the turn as it does at
 any other time. When the tries run out, or the provider asks for a wait longer
-than a minute, the reply pauses ("Paused: … Press Enter to try again, or type a
-new message."), and a new message closes the pause.
+than a minute, the reply pauses ("Paused. … Press Enter to continue, or Esc to
+stop."), and a new message closes the pause.

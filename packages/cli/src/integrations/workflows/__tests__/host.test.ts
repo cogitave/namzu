@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { plainScriptFailure } from '../host.js'
 import { completionNotice } from '../notice.js'
 import { TWO_PHASE_SCRIPT, workflowHarness } from './harness.js'
 
@@ -123,6 +124,14 @@ describe('the workflow tool, over the real subagent runtime', () => {
 		expect(h.host.registry.list()).toHaveLength(0)
 	})
 
+	it('tells every agent its step is the assigned job', async () => {
+		const h = await make()
+		await h.start({ script: TWO_PHASE_SCRIPT, args: { areas: ['a'] } })
+		await h.untilEnded()
+		expect(h.assigned.length).toBeGreaterThan(0)
+		expect(h.assigned.every(Boolean)).toBe(true)
+	})
+
 	it('fails the run, not the session, when the script throws', async () => {
 		const h = await make()
 		const result = await h.start({
@@ -133,6 +142,27 @@ describe('the workflow tool, over the real subagent runtime', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('no luck')
 		expect(h.host.registry.list()).toEqual([])
+	})
+})
+
+describe('plainScriptFailure', () => {
+	it('drops the error names and leads with the position', () => {
+		expect(
+			plainScriptFailure(
+				'TypeError: Error: boom — line 3, column 20: const r = x.length\nNo agent had started.',
+			),
+		).toBe(
+			'The script stopped at line 3, column 20: boom\nThat line reads: const r = x.length\nNo agent had started.',
+		)
+	})
+	it('copes with no position and with plain text', () => {
+		expect(
+			plainScriptFailure('SyntaxError: bad — the interpreter gave no line number for this error.'),
+		).toBe('The script stopped: bad')
+		expect(plainScriptFailure('Error: Error: boom')).toBe('boom')
+		expect(plainScriptFailure('The script is larger than 5 bytes.')).toBe(
+			'The script is larger than 5 bytes.',
+		)
 	})
 })
 
@@ -226,6 +256,17 @@ describe('the configured caps', () => {
 			// No completion notice is sent for it; nothing is left to wait for.
 			await h.host.registry.whenIdle()
 			expect(h.ended).toEqual([])
+		})
+
+		it('says a failure in one plain sentence, without the doubled error name or the unrelated args hint', async () => {
+			const h = await make()
+			const result = await h.start({
+				script: `${META}throw new Error('no luck')`,
+			})
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/^The script stopped at line \d+, column \d+: no luck\n/)
+			expect(result.error).not.toMatch(/Error:/)
+			expect(result.error).not.toContain('passed no "args"')
 		})
 
 		it('does not blame the missing args when the call passed them', async () => {

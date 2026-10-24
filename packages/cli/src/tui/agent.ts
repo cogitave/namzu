@@ -1,3 +1,4 @@
+import { debugRequested } from '../debug-requested.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
 import { createOpenUrlTool } from '../integrations/web/open-url.js'
@@ -6,6 +7,15 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
+import { describeProviderFallbackNotice, withDebugDetail } from './capability-notice.js'
+import {
+	COMPACTED_TEXT,
+	COMPACTING_LABEL,
+	compactionHistoryLines,
+	describeCompactionFailure,
+} from './compaction-rows.js'
+import { diffBodyFromFacts } from './diff-rows.js'
+import { displayPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -15,6 +25,7 @@ import {
 	tidyTerminalOutput,
 	unknownToolNotice,
 } from './tidy-tool-output.js'
+import { clipText } from './truncation.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -494,6 +505,8 @@ export type AgentEvent =
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
+			/** `detail` is the change to a file as diff rows; see `diff-rows.ts`. */
+			readonly diff?: { readonly preview: number }
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
@@ -609,6 +622,21 @@ export type AgentEvent =
 			readonly reclaimedTokens?: number
 			/** True when this pass replaced older history with a summary. */
 			readonly summarised?: boolean
+			/**
+			 * How the row is drawn. `compacted` is the calm "Conversation
+			 * compacted" line with the counts behind Ctrl+O, `hidden` is tallied
+			 * but never drawn (tool-result clearing), `warning` is a failure.
+			 * Absent is a plain notice.
+			 */
+			readonly row?: 'compacted' | 'hidden' | 'warning'
+			/** The lines behind Ctrl+O on a `compacted` row. */
+			readonly detail?: readonly string[]
+			/**
+			 * True when a summary is being written right now: the live area says
+			 * "Compacting conversation…" until the pass ends. Set on the clearing
+			 * pass that was not enough, because the summary follows it directly.
+			 */
+			readonly compacting?: true
 	  }
 	/**
 	 * A member of the provider chain could not serve; a later one is now.
@@ -627,7 +655,11 @@ export type AgentEvent =
 	 */
 	| { readonly kind: 'hook-status'; readonly text: string }
 	/** A hook stopped the turn or warned the operator; a permanent line in the transcript. */
-	| { readonly kind: 'hook-notice'; readonly text: string }
+	| {
+			readonly kind: 'hook-notice'
+			readonly text: string
+			readonly halted?: true
+	  }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -840,6 +872,12 @@ export interface SendOptions {
 	 * no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
+	/**
+	 * Offer the `workflow` tool for this turn because the operator's message
+	 * armed the `workflow` composer trigger. Default `false`; the bare word in
+	 * a message offers nothing by itself.
+	 */
+	readonly workflow?: boolean
 	/**
 	 * What the host tells the model about this turn in its own words — the
 	 * composer triggers the operator armed (`./triggers/context-text.ts`).
@@ -1296,7 +1334,10 @@ export interface AgentSession {
 	readonly resetTaskStore?: () => void
 	/** Children created in this process, available for the TUI's observational view. */
 	readonly onSubagentReport?: (
-		listener: (report: { readonly parentSessionId: string; readonly text: string }) => void,
+		listener: (report: {
+			readonly parentSessionId: string
+			readonly text: string
+		}) => void,
 	) => () => void
 	/**
 	 * Hear what a running sub-agent tells the main conversation with its own
@@ -1980,6 +2021,20 @@ function withCheckpointsWrap(builtin: Toolset, checkpoints: FileCheckpointStore)
 	})
 }
 
+let builtinPresenter: ToolPresenter | undefined
+
+/**
+ * A presenter over the built-in tools alone, for a host that has to draw a
+ * saved conversation before any session exists. A tool this does not know
+ * (one a plugin or a server supplied) is drawn from the generic view.
+ */
+export function builtinToolPresenter(): ToolPresenter {
+	builtinPresenter ??= createCliToolPresenter(
+		new ToolManager({ toolsets: [toolset('builtin', builtinTools(true))], messages: () => [] }),
+	)
+	return builtinPresenter
+}
+
 function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseToolsets {
 	const builtin = toolset('builtin', builtinTools(backgroundJobs))
 	// Stored memory: the agent gets search_memory / read_memory / save_memory
@@ -2282,7 +2337,9 @@ export async function createAgentSession(
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
 	// `cwd` is settled further down; the store reads it when an answer arrives.
-	const sessionAllows = createSessionAllows(commandArguments, { cwd: () => cwd })
+	const sessionAllows = createSessionAllows(commandArguments, {
+		cwd: () => cwd,
+	})
 	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
@@ -3166,7 +3223,10 @@ export async function createAgentSession(
 	 * The hosted search request for a turn Auto sent elsewhere: only where that provider can run
 	 * it (`web.search: cached` keeps the hosted backend under Auto), or the request is refused.
 	 */
-	const routedWebSearch = (routed: { readonly provider: LLMProvider; readonly model: string }) =>
+	const routedWebSearch = (routed: {
+		readonly provider: LLMProvider
+		readonly model: string
+	}) =>
 		nativeWebSearch &&
 		routed.provider.capabilities?.supportsHostedWebSearch === true &&
 		(routed.provider.supportsHostedWebSearchFor?.(routed.model, nativeWebSearch.mode) ?? true)
@@ -3328,7 +3388,10 @@ export async function createAgentSession(
 				]
 			: []
 	const directChildReports = new Set<
-		(report: { readonly parentSessionId: string; readonly text: string }) => void
+		(report: {
+			readonly parentSessionId: string
+			readonly text: string
+		}) => void
 	>()
 	/** A provider client for `providerId` on `selectedModel`, with this machine's credential for it. */
 	const providerForModel = async (
@@ -3607,8 +3670,11 @@ export async function createAgentSession(
 			},
 			refusal: (turnId) => {
 				const auth = delegatedWorkflowAuth.get(turnId)
-				if (!auth) return 'This turn cannot start a workflow.'
-				return workflowRefusal({ interactive: auth.interactive, mode: auth.mode() })
+				if (!auth) return 'This reply cannot start a workflow.'
+				return workflowRefusal({
+					interactive: auth.interactive,
+					mode: auth.mode(),
+				})
 			},
 			openRunTurn: (originTurnId, runId) => {
 				const runTurnId = generateTurnId()
@@ -4679,7 +4745,7 @@ export async function createAgentSession(
 				while (queue.length > 0) {
 					const next = queue.shift()
 					if (!next) break
-					const mapped = toAgentEvent(next, presenter, readsOnly)
+					const mapped = toAgentEvent(next, presenter, readsOnly, cwd)
 					if (mapped) yield mapped
 				}
 				if (settled) break
@@ -4860,7 +4926,10 @@ export async function createAgentSession(
 			? {
 					subagents: subagentRuntime.activity,
 					onSubagentReport: (
-						listener: (report: { readonly parentSessionId: string; readonly text: string }) => void,
+						listener: (report: {
+							readonly parentSessionId: string
+							readonly text: string
+						}) => void,
 					) => {
 						directChildReports.add(listener)
 						return () => {
@@ -4948,7 +5017,10 @@ export async function createAgentSession(
 													wrapUntrusted(
 														{
 															kind: 'agent-result',
-															attributes: { task: receipt.taskId, agent: finished.agentId },
+															attributes: {
+																task: receipt.taskId,
+																agent: finished.agentId,
+															},
 															provenance:
 																'This is child-authored output, not operator instructions or proof of permissions.',
 														},
@@ -4965,7 +5037,10 @@ export async function createAgentSession(
 													)
 												for (const listener of directChildReports) {
 													try {
-														listener({ parentSessionId: String(turnScope.sessionId), text })
+														listener({
+															parentSessionId: String(turnScope.sessionId),
+															text,
+														})
 													} catch (error) {
 														cliLogger().warn('Child follow-up report observer failed', {
 															'exception.message': describeError(error),
@@ -5379,6 +5454,7 @@ export async function createAgentSession(
 							!residentContext &&
 							workflowOffered({
 								hypermode: opts?.hypermode === true,
+								workflow: opts?.workflow === true,
 								userText: lastUserText(messages),
 							})
 						if (workflowOffer && workflowHost) {
@@ -6030,7 +6106,9 @@ export async function describeProviderReasoning(
 		const model = primary.model ?? entry.defaultModel
 		const det = findDetected(detected, primary.id)
 		if (requiresCredentialForModel(entry, model) && !hasApiCredential(entry, det?.apiKey)) {
-			return { notice: 'Set up the selected provider to choose its reasoning effort.' }
+			return {
+				notice: 'Set up the selected provider to choose its reasoning effort.',
+			}
 		}
 		await ensureRegistered(primary.id)
 		signal?.throwIfAborted()
@@ -6048,7 +6126,9 @@ export async function describeProviderReasoning(
 		)
 	} catch (error) {
 		if (signal?.aborted) throw signal.reason
-		return { notice: explainFailure(error, 'Reasoning effort could not be checked.') }
+		return {
+			notice: explainFailure(error, 'Reasoning effort could not be checked.'),
+		}
 	}
 }
 
@@ -6723,7 +6803,7 @@ async function* runTurn({
 					// receipts and reasoning before the next user turn.
 					continue
 				}
-				const mapped = toAgentEvent(event, presenter, readsOnly)
+				const mapped = toAgentEvent(event, presenter, readsOnly, workingDirectory)
 				if (!mapped) continue
 				yield mapped
 			}
@@ -6740,7 +6820,7 @@ async function* runTurn({
 			// a paused turn is resumed or abandoned, a running one is waited for.
 			yield {
 				kind: 'error',
-				message: `This conversation already has a ${err.state} turn. ${
+				message: `This conversation already has a ${err.state} reply. ${
 					err.state === 'running'
 						? 'Wait for it to finish.'
 						: 'Resume it with /resume, or close it with /abandon.'
@@ -6845,7 +6925,9 @@ function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 					classifier: extras.classifier,
 					...(extras.onClassifierLimit ? { onClassifierLimit: extras.onClassifierLimit } : {}),
 					...(extras.onClassifierTranscriptTooLong
-						? { onClassifierTranscriptTooLong: extras.onClassifierTranscriptTooLong }
+						? {
+								onClassifierTranscriptTooLong: extras.onClassifierTranscriptTooLong,
+							}
 						: {}),
 				}
 			: {}),
@@ -7075,6 +7157,8 @@ export function toAgentEvent(
 	presenter: ToolPresenter,
 	/** Whether a call only reads, from the tool's own declaration; see `tool-start.readOnly`. */
 	readsOnly?: (toolName: string, input: unknown) => boolean,
+	/** The working folder, so a path in a row or an error is shown relative to it. */
+	cwd?: string,
 ): AgentEvent | null {
 	switch (event.type) {
 		case 'hosted_tool': {
@@ -7124,7 +7208,8 @@ export function toAgentEvent(
 			if ((result.action === 'continue' || result.action === 'skip') && result.halt) {
 				return {
 					kind: 'hook-notice',
-					text: `A hook stopped this turn: ${result.halt.reason}`,
+					text: `A hook stopped this reply: ${result.halt.reason}`,
+					halted: true,
 				}
 			}
 			if ((result.action === 'continue' || result.action === 'skip') && result.notice) {
@@ -7154,9 +7239,8 @@ export function toAgentEvent(
 				toolName: event.toolName,
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
-					if (view.kind === 'diff') rememberCallDiff(event.toolUseId, view)
 					return {
-						summary: viewToSummary(view),
+						summary: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
 							const command =
 								view.kind === 'terminal'
@@ -7237,8 +7321,14 @@ export function toAgentEvent(
 			const declined = view.kind === 'generic' && view.declined !== undefined
 			// A refusal or failure the kernel classed says so in a sentence of its own.
 			const classed =
-				event.isError && event.facts?.kind === 'failure' ? failureFactsLine(event.facts) : undefined
-			const detail = unknownTool || declined || classed ? undefined : viewToLines(view)
+				event.isError && event.facts?.kind === 'failure'
+					? failureFactsLine(event.facts, cwd)
+					: undefined
+			// What changed in a file, drawn from the kernel's own line diff when it
+			// reported one; otherwise the body the view describes.
+			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts)
+			const detail =
+				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7257,9 +7347,7 @@ export function toAgentEvent(
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
-			const headline = event.isError
-				? undefined
-				: factsHeadline(event.facts, view.kind === 'diff' ? view : takeCallDiff(event.toolUseId))
+			const headline = event.isError ? undefined : factsHeadline(event.facts)
 			const withoutRepeatedSummary =
 				plainFailure === undefined &&
 				first !== undefined &&
@@ -7288,6 +7376,7 @@ export function toAgentEvent(
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
+				...(diffBody ? { diff: { preview: diffBody.preview } } : {}),
 				...(() => {
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}
@@ -7430,10 +7519,23 @@ export function toAgentEvent(
 				...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
 				...(event.signal ? { signal: event.signal } : {}),
 			}
+		case 'compaction_started':
+			// The pass has begun and the summary can take many seconds: the live
+			// area says so until the completed, failed or cleared event ends it.
+			// Never a transcript row of its own.
+			return {
+				kind: 'context',
+				text: COMPACTING_LABEL,
+				row: 'hidden',
+				shed: false,
+				compacting: true,
+			}
 		case 'compaction_completed':
 			return {
 				kind: 'context',
-				text: describeCompaction(event),
+				text: COMPACTED_TEXT,
+				row: 'compacted',
+				detail: compactionHistoryLines(event),
 				shed: true,
 				summarised: true,
 				reclaimedTokens: Math.max(0, event.tokensBefore - event.tokensAfter),
@@ -7443,9 +7545,13 @@ export function toAgentEvent(
 			// either way. `reliefWasEnough: false` additionally means a
 			// summarization followed, and the reader will see its own line —
 			// so this one says what IT cost rather than claiming the total.
+			// Never drawn: the transcript shows nothing for it, and the
+			// counts stay in `/context`. The text remains for headless output.
 			return {
 				kind: 'context',
 				text: `cleared ${event.clearedCount} tool result${event.clearedCount === 1 ? '' : 's'}${event.stubbedCount ? `, stubbed ${event.stubbedCount} narration${event.stubbedCount === 1 ? '' : 's'}` : ''} (~${event.reclaimedTokens.toLocaleString()} tokens)${event.reliefWasEnough ? '' : ' — not enough, compacting'}`,
+				row: 'hidden',
+				...(event.reliefWasEnough ? {} : { compacting: true as const }),
 				shed: true,
 				cleared: event.clearedCount,
 				stubbed: event.stubbedCount ?? 0,
@@ -7457,7 +7563,8 @@ export function toAgentEvent(
 			if (event.cause === 'breaker_open') return null
 			return {
 				kind: 'context',
-				text: describeCompactionFailure(event),
+				text: describeCompactionFailure(event, debugRequested()),
+				row: 'warning',
 				shed: false,
 			}
 		default:
@@ -7466,98 +7573,11 @@ export function toAgentEvent(
 }
 
 /**
- * What a completed compaction may honestly claim.
+ * The line a person reads when their reply changes hands.
  *
- * Only what is checkable: which counts became which. Compaction summarises, so
- * it cannot enumerate what was lost — the loss is fidelity, not a set of
- * removable items, and "removed the file contents from turns 3-8" is a claim
- * that cannot be substantiated and is worse than silence the first time it is
- * subtly wrong.
- *
- * `measuredBy` is carried for the same reason: an estimate quoted as a
- * measurement is that same lie in miniature, and the kernel already knows which
- * it had.
- */
-function describeCompaction(event: {
-	messagesBefore: number
-	messagesAfter: number
-	tokensBefore: number
-	tokensAfter: number
-	measuredBy: 'provider' | 'estimate'
-}): string {
-	const k = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
-	const qualifier = event.measuredBy === 'estimate' ? ' (estimated)' : ''
-	return `context compacted — ${event.messagesBefore} messages replaced by ${event.messagesAfter}, ~${k(event.tokensBefore)} → ~${k(event.tokensAfter)} tokens${qualifier}`
-}
-
-/**
- * What a declined compaction says, which is three different things.
- *
- * Collapsing them into "compaction failed" would put the reader back where the
- * silence did — the same reason a rule denial had to quote the rule rather than
- * name its type. One may work next pass, one will decline identically forever,
- * and one is a bug in the reducer with no user action at all.
- *
- * Every case states that the history is unchanged, because the kernel installs
- * a reduction whole or not at all. That is a fact worth giving the reader
- * rather than making them wonder what survived.
- */
-function describeCompactionFailure(event: {
-	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair' | 'breaker_open' | 'refilling'
-	messages: number
-	error?: string
-}): string {
-	const held = `${event.messages} messages unchanged`
-	switch (event.cause) {
-		case 'reducer_threw':
-			return `context not compacted — the reducer failed${event.error ? `: ${event.error}` : ''}. ${held}; a later pass may succeed`
-		case 'shed_nothing':
-			// Deliberately not phrased as an error. An irreducible history is a
-			// true statement about the conversation, and dressing it as a
-			// failure sends someone looking for a bug that is not there.
-			return `context could not be reduced further — nothing left to shed. ${held}; later passes will answer the same`
-		case 'split_tool_pair':
-			// No suggested action, because there is none for the user. Offering
-			// one would be worse than silence.
-			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
-		case 'breaker_open':
-			// Never shown (the mapper above returns no row for it); kept so the switch stays exhaustive.
-			return 'automatic compaction paused for this reply after repeated attempts that shed nothing'
-		case 'refilling':
-			return (
-				event.error ??
-				'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large for the context window. Try reading it in smaller parts.'
-			)
-	}
-}
-
-/**
- * Why a member could not serve, in the operator's words rather than the
- * kernel's.
- *
- * The classified code is a vocabulary for the runtime — `rate_limit` tells the
- * retry loop what to do and tells an operator nothing about what they should do.
- * The classification is not re-derived here; only the sentence for it is
- * chosen, and the code itself is still printed so a bug report carries the term
- * the logs use.
- */
-const FALLBACK_REASONS: Readonly<Record<string, string>> = {
-	rate_limit: 'it rate limited this reply and the retries did not clear it',
-	overloaded: 'it was overloaded and the retries did not clear it',
-	server_error: 'it kept failing and the retries did not clear it',
-	timeout: 'it did not answer in time',
-	network: 'it could not be reached',
-	auth: 'it rejected the credential',
-	not_found: 'it does not have that model',
-	unknown: 'it failed in a way namzu could not classify',
-}
-
-/**
- * The one line an operator reads when their turn changes hands.
- *
- * Both members are named with their chain position, because naming only the
- * replacement leaves an operator with four declared members unable to tell
- * which one went down — and that is the only part of this they can act on.
+ * The plain sentence names both providers by product name and says why in a
+ * few words. The chain position, the HTTP status and the classified code are
+ * for a bug report, so they follow only when debug detail was asked for.
  */
 function describeFallback(event: {
 	fromIndex: number
@@ -7573,12 +7593,19 @@ function describeFallback(event: {
 		const label = PROVIDER_REGISTRY[id as ProviderId]?.label ?? id
 		return `${chainPositionName(index)} — ${label}${model ? `, ${model}` : ''}`
 	}
-	const why = FALLBACK_REASONS[event.code] ?? `it failed (${event.code})`
-	const status = event.status !== undefined ? ` HTTP ${event.status},` : ''
-	return (
-		`Provider chain: ${name(event.fromIndex, event.fromProviderId, event.fromModel)} — could not serve:` +
-		`${status} ${why} (${event.code}). ` +
+	const status = event.status !== undefined ? `HTTP ${event.status}, ` : ''
+	const raw =
+		`Provider chain: ${name(event.fromIndex, event.fromProviderId, event.fromModel)} — could not serve: ` +
+		`${status}${event.code}. ` +
 		`${name(event.toIndex, event.toProviderId, event.toModel)} — is serving the rest of this reply.`
+	return withDebugDetail(
+		describeProviderFallbackNotice({
+			fromProviderId: event.fromProviderId,
+			toProviderId: event.toProviderId,
+			reason: event.code,
+		}),
+		raw,
+		debugRequested(),
 	)
 }
 
@@ -7618,29 +7645,6 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 	}
 }
 
-/**
- * The text an edit replaced and what replaced it, from the call's own view, kept
- * until the call finishes: the finished result carries no diff, and the headline
- * "Edited a.ts +2 −1" counts lines from this. A call that never finishes leaves
- * its entry behind, so the oldest are dropped past a small bound.
- */
-const callDiffs = new Map<string, { readonly before: string; readonly after: string }>()
-const CALL_DIFFS_KEPT = 64
-
-function rememberCallDiff(toolUseId: string, view: { before: string; after: string }): void {
-	callDiffs.set(toolUseId, { before: view.before, after: view.after })
-	if (callDiffs.size > CALL_DIFFS_KEPT) {
-		const oldest = callDiffs.keys().next().value
-		if (oldest !== undefined) callDiffs.delete(oldest)
-	}
-}
-
-function takeCallDiff(toolUseId: string): { before: string; after: string } | undefined {
-	const diff = callDiffs.get(toolUseId)
-	callDiffs.delete(toolUseId)
-	return diff
-}
-
 /** The tool call row: one line naming what the call is about. */
 export function viewToSummary(view: ToolCallView): string {
 	switch (view.kind) {
@@ -7672,8 +7676,20 @@ function summarySaysAll(line: string, summary: string): boolean {
 }
 
 function truncate(value: string, max: number): string {
-	const oneLine = value.replace(/\s+/g, ' ')
-	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+	return clipText(value.replace(/\s+/g, ' '), max)
+}
+
+/**
+ * The call row names the file as the person should read it. A summary that is
+ * exactly the `path` the call carried is shown relative to the working folder
+ * (`~/x` or the full path when it lies outside), never as `../../x`.
+ */
+function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
+	const path =
+		typeof input === 'object' && input !== null ? (input as { path?: unknown }).path : undefined
+	return typeof path === 'string' && path.length > 0 && summary === path
+		? displayPath(path, cwd)
+		: summary
 }
 
 function diffContentLines(value: string): string[] {
@@ -7863,7 +7879,10 @@ function emptySession(
 	})
 	return {
 		hasProvider: false,
-		autoMode: { available: false, reason: 'Choose a model before using auto mode.' },
+		autoMode: {
+			available: false,
+			reason: 'Choose a model before using auto mode.',
+		},
 		// A refused session ran nothing, so there is nothing confining anything.
 		// Reporting an enforced control here would be a claim about a sandbox
 		// this path never built.

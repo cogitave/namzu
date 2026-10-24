@@ -53,7 +53,7 @@ describe('schedule review overlay', () => {
 		expect(frame).toContain('proposed by the model')
 		expect(frame).toContain('every 5 minutes')
 		expect(frame).toContain('This run can reach the network.')
-		expect(frame).toContain('folder is cwd, not a write boundary')
+		expect(frame).toContain('its folder is not a write boundary')
 		expect(frame).toContain('Allow, ask and unmatched rules do not limit this script.')
 		expect(frame).toContain('Folder is outside this conversation')
 		expect(frame).toContain('Full proposal')
@@ -196,7 +196,7 @@ describe('schedule review overlay', () => {
 		const rendered = lines.join('\n')
 		expect(rendered).toContain('Private scheduler workspace (no project)')
 		expect(rendered).toContain('Source conversation session-123')
-		expect(rendered).toContain('host process as your user')
+		expect(rendered).toContain('runs on your computer as you')
 		expect(rendered).not.toContain(preview.folder)
 	})
 

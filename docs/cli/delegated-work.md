@@ -223,7 +223,7 @@ through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
 transcript, `● 2 background agents launched (↓ to manage)` (or `Launched 2
-agents` for a batch the turn waits on) with each agent's description beneath it,
+agents`, without the manage hint, for a batch that includes an agent the turn waits on) with each agent's description beneath it,
 always below the text of the response that launched them, and each observed
 agent completion adds two rows, whether or not the model calls `wait_for_task`:
 `› Message from @<type> (ctrl+o to expand)` with its answer collapsed (Ctrl+O
@@ -258,10 +258,28 @@ while the next launch is decided. That row names no key, since the dialog holds
 ↓ and Ctrl+T until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
 
+`ctrl+x ctrl+k` stops the running background agents from the composer or the
+rail. With none running it says `No background agents running`; the first
+press says `Press ctrl+x ctrl+k again to stop N background agents` and waits
+3 seconds; the second stops them and says `N background agents stopped`. Agents
+the parent is waiting on (foreground) are stopped one at a time with `x`.
+
+A failed agent's row says one plain sentence with a next step, for example
+`The provider was too busy for this agent. Wait a moment, then message the agent
+to try again.`, never the provider's name, status line or raw body (those follow
+only under `--debug`). An agent that fails again with the same reason after a
+message reads `failed again`. Messaging a finished agent keeps its row where it
+was, with the time and spend it had, and writes `Continuing with a new task.`
+in its own transcript.
+
+The model's reply is committed to the transcript when the model finishes it, not
+when the turn settles, so its last sentence is on screen while the turn waits on
+background agents and the agents' notices print after it.
+
 The rail lists running agents, plus a failed or stopped one for 30 seconds (a
 background agent that completed leaves at once), five at a time, one row each
-(type, description, time and spend). The description is the agent's live label
-while a background agent runs: every 30 seconds, when it has done something new
+(type, description, time and spend; the type column is left out when every row
+is the same type). A running background agent's live label sits beside its clock: every 30 seconds, when it has done something new
 and has at least three messages, it is asked once on its own model, with no
 tools, for a three-to-five-word present-tense label naming the file or function,
 in the predominant language of what the agent has been doing (there is no

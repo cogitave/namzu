@@ -54,7 +54,7 @@ it('asks once per session, and a mode switch does not ask again', async () => {
 it('offers yes or no, never "allow all tools", on the screen question', () => {
 	expect(permissionAnswers([screenshot], { screenConsent: true })).toEqual([
 		{ label: 'Yes, share my screen for this conversation', kind: 'approve' },
-		{ label: 'No, and tell namzu what to do differently (esc)', kind: 'reject' },
+		{ label: 'No, and tell Namzu what to do differently (esc)', kind: 'reject' },
 	])
 })
 
@@ -80,9 +80,9 @@ it('says who will see the screen', async () => {
 		expect(visible).toContain('namzu will see your screen and send it to OpenAI (Codex) for this')
 		expect(visible).toContain('Asked once per conversation.')
 		expect(visible).toContain('Take a screenshot')
-		expect(visible).toContain('Let namzu see your screen for the rest of this conversation?')
+		expect(visible).toContain('Let Namzu see your screen for the rest of this conversation?')
 		expect(visible).toContain('❯ 1. Yes, share my screen for this conversation')
-		expect(visible).toContain('2. No, and tell namzu what to do differently (esc)')
+		expect(visible).toContain('2. No, and tell Namzu what to do differently (esc)')
 		expect(visible).not.toContain('allow all tools')
 		expect(visible).toContain('y / n answer')
 	} finally {

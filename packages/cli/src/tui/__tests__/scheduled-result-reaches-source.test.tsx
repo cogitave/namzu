@@ -85,7 +85,7 @@ it('renders the saved result on resume and sends only authored messages on the n
 		const current = screen
 		const painted = () => current.scrollback().join('\n')
 		await until(current, () => painted().includes('Three new issues need attention.'))
-		expect(painted()).toContain('Scheduled: nightly · completed')
+		expect(painted()).toContain('Scheduled job "nightly" finished')
 		expect(await loadConversation(sessions, sessionId)).toEqual([])
 		await until(current, () => painted().includes('Type a message'))
 		current.press('what should I do next?')

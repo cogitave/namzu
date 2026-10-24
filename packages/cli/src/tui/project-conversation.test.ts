@@ -8,9 +8,10 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { projectConversation } from './App.js'
+import { theme } from './theme.js'
 
 describe('conversation projection', () => {
-	it('omits empty tool-only assistant rows without modifying their model history', () => {
+	it('omits empty tool-only assistant rows but keeps the call they made, without modifying model history', () => {
 		const call = createAssistantMessage(null, [
 			{ id: 'call', type: 'function', function: { name: 'read', arguments: '{}' } },
 		])
@@ -23,9 +24,13 @@ describe('conversation projection', () => {
 		]
 		const original = structuredClone(messages)
 		let id = 0
-		expect(projectConversation(messages, () => String(++id))).toEqual([
-			{ id: '1', role: 'user', content: 'inspect' },
-			{ id: '2', role: 'assistant', content: '  Done.\n' },
+		const rows = projectConversation(messages, () => String(++id))
+		// The empty assistant messages draw nothing; the call does, as it did live.
+		expect(rows.map((row) => [row.role, row.content])).toEqual([
+			['user', 'inspect'],
+			['tool', 'Read({})'],
+			['tool', 'exact tool result'],
+			['assistant', '  Done.\n'],
 		])
 		expect(messages).toEqual(original)
 	})
@@ -89,7 +94,8 @@ describe('conversation projection', () => {
 				id: 'row_1',
 				role: 'system',
 				content: 'Project instructions',
-				glyph: '◇',
+				glyph: '●',
+				glyphColor: theme.text.muted,
 				detail: [
 					'In force: AGENTS.md',
 					'In force: packages/a/AGENTS.md',
@@ -116,8 +122,9 @@ describe('conversation projection', () => {
 			{
 				id: 'row_1',
 				role: 'system',
-				content: 'Structured-output retry',
-				glyph: '↳',
+				content: 'Asked again for the required format',
+				glyph: '●',
+				glyphColor: theme.text.muted,
 				detail: ['retry with the required tool'],
 			},
 			{ id: 'row_2', role: 'user', content: 'human @file text' },

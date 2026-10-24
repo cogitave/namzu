@@ -248,6 +248,7 @@ const MAPPING: {
 	// Declined. This carries whole message bodies including tool output, and
 	// a peer models a task lifecycle — shipping a session's deleted history over
 	// an external wire by default is a disclosure nobody asked for.
+	compaction_started: null,
 	compaction_shed: null,
 	compaction_completed: null,
 	// Same reason as the two below: which of this runtime's context-relief

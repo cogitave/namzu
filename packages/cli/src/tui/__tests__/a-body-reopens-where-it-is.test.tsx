@@ -161,11 +161,11 @@ describe('the expand key, on a body that is still on screen', () => {
 		const screen = await aCollapsedBody()
 
 		const before = screen.viewport().join('\n')
-		expect(before, 'the body was not collapsed to begin with').toContain('… 6 lines not shown')
+		expect(before, 'the body was not collapsed to begin with').toContain('… +6 lines')
 		expect(before, 'the hidden lines were visible before the key was pressed').not.toContain(
 			'result-line-4',
 		)
-		const hintRow = rowOf(screen, '… 6 lines not shown')
+		const hintRow = rowOf(screen, '… +6 lines')
 		const anchorRow = rowOf(screen, 'result-line-1')
 		expect(hintRow, 'the hint is not on screen').toBeGreaterThan(-1)
 
@@ -186,7 +186,7 @@ describe('the expand key, on a body that is still on screen', () => {
 		).toContain('result-line-4')
 		// And the hint is gone rather than still sitting above a copy.
 		expect(screen.viewport().join('\n'), 'the collapsed row was left behind').not.toContain(
-			'… 6 lines not shown',
+			'… +6 lines',
 		)
 		// One copy of the body on screen, not two. An appended expansion leaves
 		// the collapsed rows above its copy and would satisfy every "the hidden
@@ -219,7 +219,7 @@ describe('the expand key, on a body that is still on screen', () => {
 	it('renders the measured tool duration carried by the turn event', async () => {
 		const screen = await aCollapsedBody()
 
-		expect(screen.viewport().join('\n')).toContain('✓ Bash(ls) · 3.0s')
+		expect(screen.viewport().join('\n')).toContain('● Bash(ls) · 3s')
 	}, 30_000)
 
 	it.each([
@@ -230,7 +230,7 @@ describe('the expand key, on a body that is still on screen', () => {
 		'keeps one transcript and the draft through resize to %ix%i and back',
 		async (cols, rows) => {
 			const screen = await aCollapsedBody()
-			const call = (line: string) => line.includes('✓ Bash(ls)')
+			const call = (line: string) => line.includes('● Bash(ls)')
 			screen.press('unsent draft')
 			await screen.waitForRender()
 
@@ -293,10 +293,10 @@ describe('the expand key, on a body that is still on screen', () => {
 		screen.press('\x0f')
 		await screenShows(screen, 'result-line-4')
 		screen.press('\x0f')
-		await screenShows(screen, '… 6 lines not shown')
+		await screenShows(screen, '… +6 lines')
 
 		const frame = screen.viewport().join('\n')
-		expect(frame, 'the key only ever opened').toContain('… 6 lines not shown')
+		expect(frame, 'the key only ever opened').toContain('… +6 lines')
 		expect(frame, 'the body stayed open').not.toContain('result-line-4')
 	}, 30_000)
 })

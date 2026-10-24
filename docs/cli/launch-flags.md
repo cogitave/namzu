@@ -16,6 +16,8 @@ namzu --model gpt-5                # re-model the saved primary for this launch
 namzu --permission-mode accept-edits resume <conversation-id>
 ```
 
+`namzu resume` takes the conversation id printed when Namzu last exited; with no id it opens the list of this folder's conversations, the same list `--resume` with no value opens.
+
 Four options choose how one interactive session starts. They are written **before** the command name (`namzu resume` is the one command that takes them) and they are **session-only**: nothing is written to `preferences.json`, so the next plain `namzu` starts on whatever you last picked in the app. Inside the session `/model`, `/effort` and `/permissions` work as they always do and replace the launch choice.
 
 | Flag | Chooses | Values |

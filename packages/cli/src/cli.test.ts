@@ -47,6 +47,12 @@ describe('runCli', () => {
 		expect(stderr).toContain('--output-schema applies to the interactive TUI')
 	})
 
+	it('opens the picker for `resume` with no id instead of refusing it', async () => {
+		expect(await invoke(['resume'])).toBe(0)
+		expect(flat(stderr)).not.toContain('Missing required argument')
+		expect(stdout).toContain('interactive TUI requires a terminal')
+	})
+
 	it('refuses the launch flags on a subcommand instead of ignoring them', async () => {
 		expect(await invoke(['--model', 'm', '--effort', 'high', 'providers-json'])).toBe(64)
 		expect(stderr).toContain('--model, --effort apply to the interactive TUI, not this subcommand')

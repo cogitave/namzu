@@ -16,24 +16,23 @@ afterEach(() => {
 it('says it waits for you instead of counting, and leaves the wait out of the time', () => {
 	vi.useFakeTimers({ toFake: ['Date'] })
 	vi.setSystemTime(new Date('2026-09-23T19:00:00Z'))
-	const view = render(<LiveActivity activeTools={[]} working interruptible animate={false} />)
+	const view = render(<LiveActivity activeTools={[]} working animate={false} />)
 	try {
 		vi.setSystemTime(new Date('2026-09-23T19:00:05Z'))
-		view.rerender(
-			<LiveActivity activeTools={[]} working interruptible animate={false} waitingForYou />,
-		)
+		view.rerender(<LiveActivity activeTools={[]} working animate={false} waitingForYou />)
 		const waiting = view.lastFrame() ?? ''
 		expect(waiting).toContain('Waiting for you')
 		expect(waiting).not.toContain('Working')
 		expect(waiting).not.toContain('esc to interrupt')
 		// A minute and a half at the question.
 		vi.setSystemTime(new Date('2026-09-23T19:01:35Z'))
-		view.rerender(<LiveActivity activeTools={[]} working interruptible animate={false} />)
-		vi.setSystemTime(new Date('2026-09-23T19:01:37Z'))
-		view.rerender(<LiveActivity activeTools={[]} working interruptible animate={false} />)
+		view.rerender(<LiveActivity activeTools={[]} working animate={false} />)
+		vi.setSystemTime(new Date('2026-09-23T19:01:57Z'))
+		view.rerender(<LiveActivity activeTools={[]} working animate={false} />)
 		const after = view.lastFrame() ?? ''
 		expect(after).toContain('Working')
-		expect(after).toContain('(7.0s')
+		// 117 s since the turn began, 90 of them at the question.
+		expect(after).toContain('(27s')
 	} finally {
 		view.unmount()
 	}

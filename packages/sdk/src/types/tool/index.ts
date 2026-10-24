@@ -1331,6 +1331,7 @@ export * from './repair.js'
 
 export type {
 	ToolCallView,
+	ToolDiffHunk,
 	ToolFacts,
 	ToolFailureReason,
 	ToolPresentation,

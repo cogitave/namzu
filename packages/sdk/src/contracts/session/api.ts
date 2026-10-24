@@ -67,6 +67,7 @@ export type SessionStreamEventType =
 	| 'memory.consolidated'
 	| 'background_job.exited'
 	| 'monitor.event'
+	| 'compaction.started'
 	| 'compaction.failed'
 	/** A guardrail refused or corrected the turn. */
 	| 'guardrail.triggered'

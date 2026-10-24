@@ -43,7 +43,7 @@ export function formatTuiExitSummary(
 	const command = formatResumeShellCommand(args, { platform, cwd })
 	if (platform === 'win32') {
 		// Name the shell rather than guessing it from inherited environment.
-		return `To resume this conversation, run in PowerShell:\n${command}\n`
+		return `\nTo resume this conversation, run in PowerShell:\n${command}\n`
 	}
-	return `To resume this conversation, run:\n${command}\n`
+	return `\nTo resume this conversation, run:\n${command}\n`
 }

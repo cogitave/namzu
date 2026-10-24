@@ -7,6 +7,7 @@ import type {
 import { schedulePaths } from '../../schedule/paths.js'
 import {
 	SourceDeliveryView,
+	deliveryLevel,
 	sourceConversationBinding,
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
@@ -131,8 +132,8 @@ describe('source delivery transcript projection', () => {
 
 	it('renders a visible host row without terminal control characters', () => {
 		const line = sourceDeliveryLine(entry({ summary: 'updated\u001b[2J' }))
-		expect(line).toContain('Scheduled: status-check · completed')
-		expect(line).toContain('Result: updated')
+		expect(line).toContain('Scheduled job "status-check" finished')
+		expect(line).toContain('updated')
 		expect(line).not.toContain('\u001b')
 	})
 
@@ -141,5 +142,26 @@ describe('source delivery transcript projection', () => {
 		expect(line).toContain('Scheduled results could not be read.')
 		expect(line).toContain('Unread results are kept for next time')
 		expect(line).not.toContain('\u001b')
+	})
+
+	it('words a failed run with the job name and a clock time, not a raw status', () => {
+		const line = sourceDeliveryLine(
+			entry({
+				status: 'failed',
+				jobName: 'nightly-build',
+				summary: 'exit 2',
+				reason: 'script failed',
+			}),
+		)
+		const [head, ...rest] = line.split('\n')
+		expect(head).toMatch(/^Scheduled job "nightly-build" failed at \d\d:\d\d$/)
+		expect(rest).toEqual(['exit 2', 'script failed'])
+		expect(line).not.toMatch(/T\d\d:\d\d:\d\d|Result:|Reason:/)
+	})
+
+	it('draws a clean finish quiet and a failure red', () => {
+		expect(deliveryLevel('completed')).toBe('notice')
+		expect(deliveryLevel('failed')).toBe('error')
+		expect(deliveryLevel('awaiting-approval')).toBe('warning')
 	})
 })

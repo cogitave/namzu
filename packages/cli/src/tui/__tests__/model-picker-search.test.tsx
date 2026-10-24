@@ -131,7 +131,7 @@ it('fits search, selection markers and controls into a 40-column terminal', asyn
 	expect(output).toContain('Search:')
 	// The marks do not fit beside the name, so they sit on the line under it.
 	expect(selected(screen)).toContain('Catalogue Model 0')
-	expect(output).toContain('(current) (default)')
+	expect(output).toContain('(current) (namzu default)')
 	expect(output).toContain('enter apply')
 	expect(output).toContain('1/500↓')
 

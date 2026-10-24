@@ -111,8 +111,8 @@ describe('namzu/turns/undo-*', () => {
 						turnId: f.turnId,
 						status: 'applied',
 						files: 1,
-						added: 0,
-						removed: 0,
+						created: 0,
+						deleted: 0,
 						uncoveredShell: false,
 						skipped: [],
 					},
@@ -120,8 +120,8 @@ describe('namzu/turns/undo-*', () => {
 						turnId: other,
 						status: 'none',
 						files: 0,
-						added: 0,
-						removed: 0,
+						created: 0,
+						deleted: 0,
 						uncoveredShell: false,
 						skipped: [],
 					},
@@ -338,7 +338,7 @@ describe('FileCheckpointStore.undoStatus', () => {
 		rmSync(gone)
 		await store.settle(gone, { ok: true, first: true, turnId })
 		expect(await store.undoStatus([turnId])).toMatchObject([
-			{ turnId, status: 'applied', files: 2, added: 1, removed: 1 },
+			{ turnId, status: 'applied', files: 2, created: 1, deleted: 1 },
 		])
 		await store.release()
 

@@ -137,7 +137,7 @@ it.each([40, 80])(
 		}
 		const projected = renderedDetailLines(message)
 		expect(projected).toHaveLength(7)
-		expect(projected[3]).toBe('   … 200 lines not shown · ctrl+o · shortened preview')
+		expect(projected[3]).toBe('   … +200 lines (ctrl+o to expand) (~2 KB)')
 		expect(projected.every((line) => line.length <= 243)).toBe(true)
 		expect(projected.join('\n')).not.toMatch(/\p{Surrogate}/u)
 		const screen = await renderToScreen(
@@ -182,7 +182,7 @@ it.each(['\u000f', '/raw'])(
 		screen.press('\r')
 		await until(screen, () => text().includes('ctrl+o'))
 		expect(text()).toContain('FINAL_DIAGNOSTIC')
-		expect(text()).toContain('235 lines not shown')
+		expect(text()).toContain('235 lines')
 		expect(text()).not.toContain('MIDDLE_DIAGNOSTIC')
 		screen.press(command)
 		await screen.waitForRender()
@@ -190,6 +190,9 @@ it.each(['\u000f', '/raw'])(
 		let restoredText: string
 		if (command === '\u000f') {
 			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
+			// The viewer has its own key line; the composer's mode footer is not left
+			// standing above its box.
+			expect(screen.viewport().join('\n')).not.toContain('shift+tab to cycle')
 			const pages = [screen.viewport().join('\n')]
 			for (let page = 0; page < 20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
 				const previous = screen.viewport().join('\n')

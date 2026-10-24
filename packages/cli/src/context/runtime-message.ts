@@ -4,36 +4,36 @@ import type { RuntimeContextMessageKind } from '@namzu/sdk'
 export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 	switch (kind) {
 		case 'step-context':
-			return 'Step context'
+			return 'Context for the next step'
 		case 'advisory':
-			return 'Advisor context'
+			return 'Second opinion'
 		case 'answer-review':
-			return 'Answer review feedback'
+			return 'Reviewed the answer'
 		case 'auto-continuation':
-			return 'Automatic continuation'
+			return 'Continued automatically'
 		case 'hook-feedback':
 			return 'Hook feedback'
 		case 'job-exit':
-			return 'Background job exit'
+			return 'Background command ended'
 		case 'limit-finalization':
-			return 'Limit finalization request'
+			return 'Wrapped up at a limit'
 		case 'peer-message':
-			return 'Message from another session'
+			return 'Message from another Namzu window'
 		case 'host-observation':
-			return 'Observed Pal activity'
+			return 'Pal activity'
 		case 'channel-message':
 			return 'Message from a connected channel'
 		case 'peer-notice':
-			return 'Notice from another session'
+			return 'Notice from another Namzu window'
 		case 'reminder':
 			return 'Reminder'
 		case 'repeat-call':
-			return 'Repeat-call advisory'
+			return 'Repeated call warning'
 		case 'steering':
-			return 'Runtime steering'
+			return 'Guidance from Namzu'
 		case 'structured-output':
-			return 'Structured-output retry'
+			return 'Asked again for the required format'
 		case 'task-completion':
-			return 'Task completion context'
+			return 'Task finished'
 	}
 }

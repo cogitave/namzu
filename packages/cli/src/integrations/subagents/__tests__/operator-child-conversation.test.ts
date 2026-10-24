@@ -245,7 +245,7 @@ it('refuses stale screens, blank messages and another parent without creating a 
 		runtime.activity.reset()
 		await expect(
 			runtime.messageChild(child.viewId, 'stale screen', f.nextTurn, f.context.abortSignal),
-		).rejects.toThrow('no longer owned')
+		).rejects.toThrow('saved record')
 	} finally {
 		await runtime.close()
 	}

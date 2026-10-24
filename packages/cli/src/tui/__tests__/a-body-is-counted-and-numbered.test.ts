@@ -31,7 +31,7 @@ describe('renderedDetailLines', () => {
 			'   line-1',
 			'   line-2',
 			'   line-3',
-			'   … 6 lines not shown',
+			'   … +6 lines',
 			'   line-10',
 			'   line-11',
 			'   line-12',
@@ -42,7 +42,7 @@ describe('renderedDetailLines', () => {
 		// The complete hint can wrap on a narrow terminal, so measurement must
 		// include both the omission count and the available action.
 		const lines = renderedDetailLines(row({ detail: body(12), detailRef: 3 }))
-		expect(lines[3]).toBe('   … 6 lines not shown · ctrl+o')
+		expect(lines[3]).toBe('   … +6 lines (ctrl+o to expand)')
 	})
 
 	it('measures a body against the width it has, not the width of the terminal', () => {
@@ -67,7 +67,7 @@ describe('renderedDetailLines', () => {
 			'   line-1',
 			'   line-2',
 			'   line-3',
-			'   … 1 line not shown · ctrl+o',
+			'   … +1 line (ctrl+o to expand)',
 			'   line-5',
 			'   line-6',
 			'   line-7',
@@ -75,11 +75,38 @@ describe('renderedDetailLines', () => {
 	})
 
 	it('counts the lines a gap line stands for among the hidden ones', () => {
-		// 80 first lines, "… 80 lines not shown", 40 last lines: folding the middle hides
+		// 80 first lines, "… +80 lines", 40 last lines: folding the middle hides
 		// 114 shown lines plus the gap's 80.
-		const detail = [...body(80), '… 80 lines not shown', ...body(40)]
+		const detail = [...body(80), '… +80 lines', ...body(40)]
 		const lines = renderedDetailLines(row({ detail, detailRef: 1 }))
-		expect(lines[3]).toBe('   … 194 lines not shown · ctrl+o')
+		expect(lines[3]).toBe('   … +194 lines (ctrl+o to expand)')
+	})
+
+	it('folds a diff after its preview, reading from the top, with the one wording', () => {
+		const rows = Array.from(
+			{ length: 14 },
+			(_, i) => `${String(i + 1).padStart(2)} + line ${i + 1}`,
+		)
+		const lines = renderedDetailLines(row({ detail: rows, diff: { preview: 10 }, detailRef: 1 }))
+		expect(lines).toHaveLength(11)
+		expect(lines[0]).toBe('    1 + line 1')
+		expect(lines[9]).toBe('   10 + line 10')
+		expect(lines[10]).toBe('   … +4 lines (ctrl+o to expand)')
+	})
+
+	it('shows a whole diff that fits its preview, with no hint', () => {
+		const rows = ['1   keep', '2 - old', '2 + new']
+		expect(renderedDetailLines(row({ detail: rows, diff: { preview: 40 }, detailRef: 1 }))).toEqual(
+			rows.map((line) => `   ${line}`),
+		)
+	})
+
+	it('sizes a fold of a thousand or more characters', () => {
+		const wide = Array.from({ length: 20 }, () => `1 + ${'x'.repeat(200)}`)
+		const lines = renderedDetailLines(row({ detail: wide, detailRef: 1 }))
+		expect(lines.find((line) => line.includes('… +'))).toMatch(
+			/… \+\d+ lines \(ctrl\+o to expand\) \(~\d+ KB\)$/,
+		)
 	})
 
 	it('counts the whole body of an expanded row', () => {

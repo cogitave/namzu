@@ -1046,11 +1046,14 @@ describe('Ctrl+T', () => {
 			)
 			await expect(allChildrenStarted).resolves.toBeUndefined()
 			releaseChildren()
+			// The reply is on screen as soon as the model finishes it; the turn
+			// itself settles later, when the closing line is written.
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('parent completed'),
+				() => /✻ Worked for \S+ · 4 agents/u.test(painted(screen)),
 				'real parent query did not settle',
 			)
+			expect(painted(screen)).toContain('parent completed')
 
 			expect(parent.requests).toHaveLength(2)
 			expect(childRequestStartedAt).toHaveLength(4)
@@ -1138,24 +1141,24 @@ describe('Ctrl+T', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		expect(screen.viewport().join('\n')).not.toContain('Enter to view')
+		expect(screen.viewport().join('\n')).not.toContain('enter to view')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ \S+ +Down-select child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ ◯ (?:\S+ +)?Down-select child/mu.test(screen.viewport().join('\n')),
 			'down did not focus the first agent',
 		)
 		// The same press must not also step to the second row.
-		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ◯ \S+ +Second child/mu)
+		expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ◯ (?:\S+ +)?Second child/mu)
 		// The key line takes the mode line's place; two agents run, so the stop-all chord is offered.
 		expect(screen.viewport().join('\n')).toContain(
-			'Enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
+			'enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('esc to go back')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'down did not move to the second agent',
 		)
 		screen.press('\x1b[A')
@@ -1168,7 +1171,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('Enter to view'),
+			() => !screen.viewport().join('\n').includes('enter to view'),
 			'escape did not hand the keyboard back',
 		)
 		expect(screen.viewport().join('\n')).toContain('Type a message')
@@ -1230,13 +1233,108 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('x')
 		await waitUntil(screen, () => stoppedChildren.length === 1, 'x did not stop the agent')
 		expect(stoppedChildren).toEqual(['agent-stop-2'])
 		expect(screen.viewport().join('\n')).toContain('x to stop')
+	})
+
+	it('stops background agents with ctrl+x ctrl+k from the composer: arm, then stop, then say how many', async () => {
+		stoppedChildren.length = 0
+		activity.set([
+			agent({ viewId: 'bg-1', description: 'First child', background: true }),
+			agent({ viewId: 'bg-2', description: 'Second child', background: true }),
+			agent({ viewId: 'fg-1', description: 'Waited child' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x18')
+		screen.press('\x0b')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Press ctrl+x ctrl+k again to stop 2 background agents'),
+			'the first press did not ask for a second',
+		)
+		expect(stoppedChildren).toEqual([])
+		screen.press('\x18')
+		screen.press('\x0b')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('2 background agents stopped'),
+			'the second press did not report the stop',
+		)
+		expect(stoppedChildren.sort()).toEqual(['bg-1', 'bg-2'])
+	})
+
+	it('says so when ctrl+x ctrl+k finds no background agent', async () => {
+		stoppedChildren.length = 0
+		activity.set([agent({ viewId: 'fg-only', description: 'Waited child' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x18')
+		screen.press('\x0b')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('No background agents running'),
+			'the empty case was not announced',
+		)
+		expect(stoppedChildren).toEqual([])
+	})
+
+	it('keeps the composer on screen, dim, while the rail has the keyboard', async () => {
+		activity.set([
+			agent({ viewId: 'agent-1', description: 'First child' }),
+			agent({ viewId: 'agent-2', description: 'Second child' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('x to stop'),
+			'rail not focused',
+		)
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('❯ Type a message')
+		expect(frame).not.toMatch(/^…/mu)
+	})
+
+	it('shows the end of a reply when the model finishes it, not when the turn settles', async () => {
+		let release: () => void = () => {}
+		const gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		// No sentence end: the tail is held back until something commits it.
+		sendOverride.current = async function* () {
+			yield { kind: 'delta', text: 'Status: two agents still running' }
+			yield {
+				kind: 'usage',
+				totalTokens: 10,
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+			}
+			await gate
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		try {
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await submit(screen, 'go')
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('two agents still running'),
+				'the reply was held back while the turn waited',
+			)
+		} finally {
+			release()
+			delete sendOverride.current
+		}
 	})
 
 	it('clears a finished agent with x instead of stopping it', async () => {
@@ -1297,7 +1395,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'second row not selected',
 		)
 		screen.press('\r')
@@ -1310,7 +1408,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => /^ *❯ ◯ \S+ +Second child/mu.test(screen.viewport().join('\n')),
+			() => /^ *❯ ◯ (?:\S+ +)?Second child/mu.test(screen.viewport().join('\n')),
 			'escape did not return to the rail row',
 		)
 	})
@@ -1361,7 +1459,7 @@ describe('Ctrl+T', () => {
 			// workflow is the only row, one down from the composer.
 			await focusWorkflow(screen, 1)
 			expect(screen.viewport().join('\n')).not.toMatch(/Step wf-|main/u)
-			expect(screen.viewport().join('\n')).toContain('Enter to view · x to stop')
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to stop')
 			screen.press('x')
 			await waitUntil(screen, () => stoppedChildren.length === 2, 'x did not stop the workflow')
 			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
@@ -1445,7 +1543,7 @@ describe('Ctrl+T', () => {
 			await running
 			const t0 = Date.now()
 			const closing = (): number =>
-				(painted(screen).match(/Workflow Release audit (completed|failed|stopped)/gu) ?? []).length
+				(painted(screen).match(/Workflow Release audit (finished|failed|stopped)/gu) ?? []).length
 			// Phase one settles.
 			activity.set([flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 })])
 			await screen.waitForRender()
@@ -1470,8 +1568,8 @@ describe('Ctrl+T', () => {
 			await screen.waitForRender()
 			await screen.waitForRender()
 			expect(closing()).toBe(1)
-			expect(painted(screen)).toContain('Workflow Release audit completed')
-			expect(painted(screen)).toMatch(/Workflow Release audit completed · .*2 agents/u)
+			expect(painted(screen)).toContain('Workflow Release audit finished')
+			expect(painted(screen)).toMatch(/Workflow Release audit finished · .*2 agents/u)
 		})
 
 		it('clears a finished workflow with x without stopping anything', async () => {
@@ -1487,7 +1585,7 @@ describe('Ctrl+T', () => {
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 			await focusWorkflow(screen, 1)
-			expect(screen.viewport().join('\n')).toContain('Enter to view · x to clear')
+			expect(screen.viewport().join('\n')).toContain('enter to view · x to clear')
 			screen.press('x')
 			await waitUntil(
 				screen,
@@ -1588,7 +1686,7 @@ describe('Ctrl+T', () => {
 			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
 			'enter did not open the live phase',
 		)
-		expect(screen.viewport().join('\n')).toMatch(/❯● Join the two colours/u)
+		expect(screen.viewport().join('\n')).toMatch(/❯ ● Join the two colours/u)
 	})
 
 	it('gives the inspector its own short viewport and restores the composer draft', async () => {
@@ -1680,7 +1778,7 @@ describe('Ctrl+T', () => {
 		const frame = rows.join('\n')
 		// The refusal to overclaim, on screen: where it came from, and that it
 		// is not a session anything can be sent into.
-		expect(frame).toContain('Replayed from saved evidence.')
+		expect(frame).toContain('Replayed from the saved record.')
 		expect(frame).toContain('cannot be continued')
 		// The marker on the child's OWN line, where the model and the counters
 		// would be. Asserted against that line and not the whole frame, which
@@ -2165,7 +2263,7 @@ describe('Ctrl+T', () => {
 		let frame = screen.viewport().join('\n')
 		expect(frame).toContain('Subagent')
 		expect(frame).toContain('Inspect project sources')
-		expect(frame).toContain('q parent')
+		expect(frame).toContain('q main')
 		expect(frame).not.toContain('PARENT_DRAFT_RESTORED')
 		expect(frame).not.toContain('MESSAGE')
 		expect(frame).not.toContain('child-screen-id')
@@ -2235,7 +2333,7 @@ describe('Ctrl+T', () => {
 		expect(screen.bufferType()).toBe('normal')
 		await screen.resize(40, 14)
 		expectChildFrame(40)
-		expect(screen.viewport().join('\n')).toContain('q parent')
+		expect(screen.viewport().join('\n')).toContain('q main')
 		await screen.resize(80, 24)
 		expectChildFrame(80)
 
@@ -2370,7 +2468,7 @@ describe('/agents batches', () => {
 		screen.press('\r')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Replayed from saved evidence.'),
+			() => screen.viewport().join('\n').includes('Replayed from the saved record.'),
 			'selecting the batch did not open the replayed banner',
 		)
 		const frame = screen.viewport().join('\n')
@@ -2834,7 +2932,7 @@ describe('agent explorer projection', () => {
 				expect(frame).toContain(`CHILD_${line}`)
 			}
 			expect(frame).toContain('Live')
-			expect(frame).toContain('q parent')
+			expect(frame).toContain('q main')
 			expect(frame).not.toContain('internal-view-id')
 			expect(frame).not.toContain('internal-task-id')
 			const top = viewport.findIndex((line) => line.startsWith('┌'))
@@ -3394,7 +3492,7 @@ describe('render order below the message frame', () => {
 		)
 		const viewport = screen.viewport()
 		const border = frameBottomBorder(screen)
-		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
+		expect(viewport[border + 1]).toContain('← 1 agent · 1 workflow · ↓ to manage')
 		// Under the footer, not the transcript/composer: one blank row, then the
 		// `main` row, then one row per agent.
 		expect((viewport[border + 2] ?? '').trim()).toBe('')
@@ -3811,7 +3909,7 @@ describe('viewing an agent', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enter to view'), 'no rail')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('enter to view'), 'no rail')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
@@ -4051,7 +4149,7 @@ describe('viewing an agent', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await waitUntil(
 			screen,
-			() => /◯ busy\s+Busy one\s+\S+ · 2 queued/u.test(screen.viewport().join('\n')),
+			() => /◯ busy\s+Busy one\s+\S+(?: \S+)* · 2 queued/u.test(screen.viewport().join('\n')),
 			'no queued count',
 		)
 	})

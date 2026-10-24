@@ -97,6 +97,8 @@ export function publicFacts(value: unknown): ToolFacts | undefined {
 				kind: 'edit',
 				path: text(value.path),
 				replacements: count(value.replacements),
+				added: count(value.added),
+				removed: count(value.removed),
 			})
 		case 'write': {
 			const path = text(value.path)

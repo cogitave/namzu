@@ -141,6 +141,17 @@ exports[`every SessionEvent has a decided place on the SSE wire > pins the wire 
     "wire": "compaction.failed",
   },
   "compaction_shed": null,
+  "compaction_started": {
+    "keys": [
+      "context_window_tokens",
+      "iteration",
+      "reason",
+      "session_id",
+      "tokens_before",
+      "turn_id",
+    ],
+    "wire": "compaction.started",
+  },
   "compaction_tool_results_cleared": {
     "keys": [
       "chars_reclaimed",

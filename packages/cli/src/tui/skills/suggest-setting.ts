@@ -41,8 +41,8 @@ export function setSkillSuggestions(
 		}
 	}
 	const saved = on
-		? `Skill suggestions are on: after a multi-step task you will be offered /skills save. Saved skills.suggest: ${value} to ${file}.`
-		: `Skill suggestions are off. Saved skills.suggest: ${value} to ${file}; /skills save on turns them back on. /skills save and /skills new still work.`
+		? 'Skill suggestions are on: after a multi-step task you will be offered /skills save.'
+		: 'Skill suggestions are off. /skills save on turns them back on. /skills save and /skills new still work.'
 	let resolved: ReturnType<typeof loadConfigWithProvenance>
 	try {
 		resolved = loadConfigWithProvenance(opts)
@@ -62,6 +62,6 @@ export function setSkillSuggestions(
 	return {
 		file,
 		effective,
-		message: `${saved} But ${winner} sets its own skills block, which replaces the user file’s, so from the next start skills.suggest will be ${effective ? 'true' : 'false'}. Add suggest: ${value} under skills there to make it stick; this conversation follows your choice.`,
+		message: `${saved} But ${winner} sets its own skills block, which replaces the user file’s, so from the next start suggestions will be ${effective ? 'on' : 'off'}. Add suggest: ${value} under skills there to make it stick; this conversation follows your choice.`,
 	}
 }

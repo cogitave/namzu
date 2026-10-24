@@ -218,7 +218,7 @@ describe('exporting a conversation from its session log', () => {
 			'## Project instructions\n\n- AGENTS.md\n\nRun the linter before you finish.',
 		)
 		expect(markdown).toContain(
-			'## Runtime context — Automatic continuation\n\nOutput limit reached; continue.',
+			'## Runtime context — Continued automatically\n\nOutput limit reached; continue.',
 		)
 		// None of the three is presented as something the operator typed.
 		expect(markdown).not.toContain('## User')

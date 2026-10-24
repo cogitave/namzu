@@ -24,6 +24,10 @@ export interface ChoicePickerProps {
 	readonly busy?: boolean
 	readonly title: string
 	readonly notice?: string
+	/** A quiet line under the title, e.g. `1 running, 2 finished`. */
+	readonly subtitle?: string
+	/** Replaces the standard key hints, e.g. a list whose Enter opens rather than applies. */
+	readonly hints?: readonly { readonly text: string; readonly rank: number }[]
 	/** Already filtered; each row retains the caller's original option identity. */
 	readonly options: readonly ChoicePickerOption[]
 	readonly selected: number
@@ -40,6 +44,8 @@ export function ChoicePicker({
 	busy = false,
 	title,
 	notice,
+	subtitle,
+	hints,
 	options,
 	selected,
 	windowSize,
@@ -61,7 +67,7 @@ export function ChoicePicker({
 		rows: terminal.rows,
 		columns,
 		searchable: query !== undefined,
-		notice: Boolean(notice),
+		notice: Boolean(notice) || Boolean(subtitle),
 		selectedDescription: hasDetail,
 		rule: hasRule,
 		windowSize,
@@ -94,22 +100,24 @@ export function ChoicePicker({
 	)
 	const footer = busy
 		? 'ctrl+c exit'
-		: fitHints(
-				[
-					...(query !== undefined ? [{ text: 'type to filter', rank: 3 }] : []),
-					{ text: '↑↓ select', rank: 5 },
-					...(columns >= 100 ? [{ text: 'PgUp/PgDn jump', rank: 1 }] : []),
-					...(columns >= 100 && query === undefined
-						? [
-								{ text: 'Home/End', rank: 1 },
-								{ text: '1–9 select', rank: 2 },
-							]
-						: []),
-					{ text: 'enter apply', rank: 5 },
-					{ text: 'esc back', rank: 4 },
-				],
-				contentWidth,
-			)
+		: hints
+			? fitHints([...hints], contentWidth)
+			: fitHints(
+					[
+						...(query !== undefined ? [{ text: 'type to filter', rank: 3 }] : []),
+						{ text: '↑↓ select', rank: 5 },
+						...(columns >= 100 ? [{ text: 'PgUp/PgDn jump', rank: 1 }] : []),
+						...(columns >= 100 && query === undefined
+							? [
+									{ text: 'Home/End', rank: 1 },
+									{ text: '1–9 select', rank: 2 },
+								]
+							: []),
+						{ text: 'enter apply', rank: 5 },
+						{ text: 'esc back', rank: 4 },
+					],
+					contentWidth,
+				)
 	return (
 		<Box
 			flexDirection="column"
@@ -123,6 +131,9 @@ export function ChoicePicker({
 				</Text>
 				<Text color={theme.text.muted}>{count}</Text>
 			</Box>
+			{subtitle ? (
+				<Text color={theme.text.muted}>{truncateChoiceText(subtitle, contentWidth)}</Text>
+			) : null}
 			{query !== undefined ? (
 				<Text color={query.length > 0 ? theme.text.primary : theme.text.muted}>
 					{truncateChoiceText(`Search: ${query || searchPlaceholder}`, contentWidth)}

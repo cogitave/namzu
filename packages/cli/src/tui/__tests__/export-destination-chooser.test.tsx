@@ -178,13 +178,14 @@ it('sends the same verified projection as one truthful OSC 52 clipboard request'
 	await openExportChooser(screen)
 
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Export copy request sent'))
+	await waitUntil(screen, () => painted(screen).includes('via OSC 52'))
 
 	const osc = `\x1b]52;c;${Buffer.from(MARKDOWN, 'utf8').toString('base64')}\x07`
 	const writes = screen.writes().join('')
 	expect(writes.split(osc)).toHaveLength(2)
-	expect(painted(screen)).toContain('Terminal, multiplexer or remote-session policy may ignore')
-	expect(painted(screen).replace(/\s+/g, ' ')).toContain('OSC 52; if the clipboard did not change')
+	expect(painted(screen).replace(/\s+/g, ' ')).toContain(
+		'via OSC 52 · if paste fails, allow clipboard access in your terminal',
+	)
 	expect(painted(screen)).not.toContain('Copied conversation')
 	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([])

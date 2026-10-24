@@ -19,6 +19,7 @@ import {
 	railActionFor,
 	railAgents,
 	railHint,
+	railLiveLabel,
 	railNextEviction,
 	railStatusText,
 } from '../AgentExplorer.js'
@@ -289,7 +290,8 @@ describe('rail rows', () => {
 				summary: 'Read(a.txt)',
 			}),
 		])
-		expect(live[1]).toMatch(/^ {2}◯ count-words {2,}Read\(a\.txt\)\s+12s$/u)
+		// The description stays; what it is doing now sits beside the clock.
+		expect(live[1]).toMatch(/^ {2}◯ count-words {2,}Count words\s+Read\(a\.txt\) · 12s$/u)
 		await mounted?.unmount()
 		const done = await show([
 			agent({
@@ -395,15 +397,37 @@ describe('rail rows', () => {
 	it('points at the selected row and moves the open circle to the agent being viewed', async () => {
 		const agents = [
 			agent({ viewId: 'a', description: 'First' }),
-			agent({ viewId: 'b', description: 'Second' }),
+			agent({ viewId: 'b', agentId: 'explorer', description: 'Second' }),
 		]
 		const selected = await show(agents, { selectedIndex: 2 })
 		expect(selected[0]).toMatch(/^ {2}● main\s*$/u)
-		expect(selected[2]).toMatch(/^❯ ◯ general-purpose {2,}Second/u)
+		expect(selected[2]).toMatch(/^❯ ◯ explorer {2,}Second/u)
 		await mounted?.unmount()
 		const viewing = await show(agents, { viewingId: 'a' })
 		expect(viewing[0]).toMatch(/^ {2}◯ main/u)
 		expect(viewing[1]).toMatch(/^ {2}● general-purpose {2,}First/u)
+	})
+
+	it('hides the type column when every row is the same kind, and keeps it when they differ', async () => {
+		const same = await show([
+			agent({ viewId: 'a', description: 'First' }),
+			agent({ viewId: 'b', description: 'Second' }),
+		])
+		expect(same[1]).toMatch(/^ {2}◯ First\s+12s$/u)
+		expect(same.join('\n')).not.toContain('general-purpose')
+		await mounted?.unmount()
+		const mixed = await show([
+			agent({ viewId: 'a', description: 'First' }),
+			agent({ viewId: 'b', agentId: 'explorer', description: 'Second' }),
+		])
+		expect(mixed[1]).toMatch(/^ {2}◯ general-purpose {2,}First/u)
+	})
+
+	it('cuts a long live label instead of crowding the description out', () => {
+		const long = agent({ viewId: 'a', summary: 'Reading the configuration loader and its callers' })
+		expect(railLiveLabel(long)?.length).toBeLessThanOrEqual(24)
+		expect(railLiveLabel(long, true)).toBeUndefined()
+		expect(railLiveLabel(agent({ viewId: 'a', summary: 'a', status: 'completed' }))).toBeUndefined()
 	})
 
 	it('colours the bullet only for a finished agent, green when it succeeded and red when it failed or was stopped', async () => {
@@ -491,20 +515,20 @@ describe('window and overflow', () => {
 
 describe('the key line', () => {
 	it('says stop for a running agent and clear for a finished one, and nothing about leaving', () => {
-		expect(railHint(agent({ viewId: 'a' }), 140)).toBe('Enter to view · x to stop')
+		expect(railHint(agent({ viewId: 'a' }), 140)).toBe('enter to view · x to stop')
 		expect(railHint(agent({ viewId: 'a', status: 'failed', completedAt: NOW }), 140)).toBe(
-			'Enter to view · x to clear',
+			'enter to view · x to clear',
 		)
-		expect(railHint(undefined, 140)).toBe('↑/↓ to select · Enter to view')
+		expect(railHint(undefined, 140)).toBe('↑/↓ to select · enter to view')
 		expect(railHint(agent({ viewId: 'a' }), 140)).not.toMatch(/esc/iu)
 	})
 
 	it('offers to stop all agents only when more than one runs and the line is wide enough', () => {
 		expect(railHint(agent({ viewId: 'a' }), 140, 2)).toBe(
-			'Enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
+			'enter to view · x to stop · ctrl+x ctrl+k to stop all agents',
 		)
-		expect(railHint(agent({ viewId: 'a' }), 140, 1)).toBe('Enter to view · x to stop')
-		expect(railHint(agent({ viewId: 'a' }), 89, 2)).toBe('Enter to view · x to stop')
+		expect(railHint(agent({ viewId: 'a' }), 140, 1)).toBe('enter to view · x to stop')
+		expect(railHint(agent({ viewId: 'a' }), 89, 2)).toBe('enter to view · x to stop')
 	})
 
 	it('is not drawn by the rail itself: it replaces the footer line', async () => {

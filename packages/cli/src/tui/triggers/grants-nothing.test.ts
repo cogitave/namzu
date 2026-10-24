@@ -53,6 +53,6 @@ describe('trigger effects grant nothing', () => {
 				}
 			}
 		}
-		expect(BUILTIN_TRIGGERS.map((trigger) => kinds(trigger.effect))).toHaveLength(4)
+		expect(BUILTIN_TRIGGERS.map((trigger) => kinds(trigger.effect))).toHaveLength(5)
 	})
 })

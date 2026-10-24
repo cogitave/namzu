@@ -3,6 +3,7 @@ import { Box, Text } from 'ink'
 import { formatSize } from './person-terms.js'
 
 import { permissionReviewRows } from './permission-review.js'
+import { END_WORDS, type EndOutcome, SYSTEM_ROW_GLYPH } from './system-rows.js'
 import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -45,22 +46,28 @@ function elapsed(job: BackgroundJob, now: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-/** The row words: running, done, error, stopped. */
-function jobMeta(job: BackgroundJob): 'running' | 'done' | 'error' | 'stopped' {
+/** The row words: running, then the shared finished, failed or stopped. */
+function jobMeta(job: BackgroundJob): 'running' | EndOutcome {
 	if (job.status === 'running') return 'running'
 	if (job.status === 'killed') return 'stopped'
-	return job.exitCode === 0 ? 'done' : 'error'
+	return job.exitCode === 0 ? 'finished' : 'failed'
 }
 
-const META_ICON = { running: '●', done: '✓', error: '✗', stopped: '■' } as const
+/** One dot for every state; the colour and the word say which. */
+const META_ICON = {
+	running: SYSTEM_ROW_GLYPH,
+	finished: SYSTEM_ROW_GLYPH,
+	failed: SYSTEM_ROW_GLYPH,
+	stopped: SYSTEM_ROW_GLYPH,
+} as const
 
 function metaColor(meta: ReturnType<typeof jobMeta>): string {
 	switch (meta) {
 		case 'running':
 			return theme.accent.system
-		case 'done':
+		case 'finished':
 			return theme.status.ok
-		case 'error':
+		case 'failed':
 			return theme.status.error
 		default:
 			return theme.status.warn
@@ -74,8 +81,8 @@ function statusText(job: BackgroundJob): string {
 		if (job.stopReason === 'too_much_output') return 'stopped: it printed too much'
 	}
 	if (job.status === 'killed') return 'stopped'
-	if (job.exitCode === undefined) return 'ended'
-	return `${job.exitCode === 0 ? 'completed' : 'failed'} (exit code ${job.exitCode})`
+	if (job.exitCode === undefined) return END_WORDS.finished
+	return `${job.exitCode === 0 ? END_WORDS.finished : END_WORDS.failed} (exit code ${job.exitCode})`
 }
 
 /** The exact physical lines the output pager uses; App uses the same count for keys. */
@@ -89,7 +96,7 @@ export function backgroundJobOutputRows(
 	const latest = bytes.subarray(omittedHere).toString('utf8').replace(/\n$/u, '')
 	const lines = [
 		...(output.droppedBytes > 0
-			? [`Earlier output discarded by the job buffer (${formatSize(output.droppedBytes)}).`]
+			? [`Earlier output was dropped (${formatSize(output.droppedBytes)}).`]
 			: []),
 		...(omittedHere > 0 ? [`Showing the latest ${formatSize(MAX_VISIBLE_OUTPUT_BYTES)}.`] : []),
 		latest.length > 0 ? latest : 'No output yet.',
@@ -273,7 +280,7 @@ export function BackgroundJobsPanel({
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
 			<Text bold color={theme.accent.system} wrap="truncate-end">
-				{detailed.kind === 'monitor' ? 'Monitor details' : 'Shell details'}
+				{detailed.kind === 'monitor' ? 'Monitor details' : 'Command details'}
 			</Text>
 			<Text wrap="truncate-end">
 				<Text bold>Status: </Text>
