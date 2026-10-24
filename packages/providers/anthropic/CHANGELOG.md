@@ -1194,7 +1194,7 @@
 
   Comments across the kernel explained namzu's design by naming another
   product: "mirrors X's container architecture", "reference: X's
-  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "another tool
   uses 2000 for the same reason". Behaviour was correct throughout — this is
   about what the code says it is. A kernel that explains itself by citation
   reads as a reimplementation of something else, and namzu is not one.
@@ -1363,7 +1363,7 @@
 
   **Credentials side (`@namzu/cli`):**
 
-  - New: macOS Keychain reader. Reads the `Claude Code-credentials` generic-password entry from the login Keychain and extracts the `claudeAiOauth.accessToken` JSON field. Pattern ported from Nous Research's hermes-agent (`agent/anthropic_adapter.py:_read_claude_code_credentials_from_keychain`). Non-throwing — every failure path (non-Darwin, security command missing, entry absent, payload malformed) returns null so the discoverer treats it as "no source" rather than crashing.
+  - New: macOS Keychain reader. Reads the `Claude Code-credentials` generic-password entry from the login Keychain and extracts the `claudeAiOauth.accessToken` JSON field. Non-throwing — every failure path (non-Darwin, security command missing, entry absent, payload malformed) returns null so the discoverer treats it as "no source" rather than crashing.
   - Discoverer extended: after env vars and clawtool `secrets.toml`, anthropic also accepts the Keychain credential. Detection source is reported as `keychain · Claude Code-credentials` in the picker, so the user can see where their token came from.
   - Token-shape detector: `isAnthropicOAuthToken(value)` identifies OAuth tokens by prefix (`cc-`, `sk-ant-oat`, `eyJ`) vs console API keys (`sk-ant-api`). Drives the apiKey-vs-authToken decision when constructing the Anthropic provider.
 
