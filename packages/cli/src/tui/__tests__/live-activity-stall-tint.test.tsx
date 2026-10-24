@@ -55,17 +55,31 @@ afterEach(() => {
 
 const tool: ActiveTool = { id: 't1', label: 'Run tests', startedAt: Date.now() }
 
+/** The label's animation tick: the shortest advance that is sure to render a frame. */
+const FRAME_MS = 240
+
+/**
+ * `ms` of silence. The tint is computed from the clock at each frame, so moving
+ * the clock and then rendering a frame or two lands on exactly the state that
+ * many seconds of frames would; stepping through every 120 ms frame instead
+ * makes the test's run time follow the machine's speed.
+ */
+async function quietFor(ms: number): Promise<void> {
+	vi.setSystemTime(Date.now() + ms - FRAME_MS)
+	await vi.advanceTimersByTimeAsync(FRAME_MS)
+}
+
 it('stays plain for the first ten silent seconds, then reddens, then resets on a token', async () => {
 	const view = render(<LiveActivity activeTools={[]} working tokens={5} />)
 	try {
-		await vi.advanceTimersByTimeAsync(8_000)
+		await quietFor(8_000)
 		expect(view.lastFrame() ?? '').not.toContain(RED)
 
-		await vi.advanceTimersByTimeAsync(22_000)
+		await quietFor(22_000)
 		expect(view.lastFrame() ?? '', 'no token for 30 s, the label should be red').toContain(RED)
 
 		view.rerender(<LiveActivity activeTools={[]} working tokens={6} />)
-		await vi.advanceTimersByTimeAsync(240)
+		await vi.advanceTimersByTimeAsync(FRAME_MS)
 		expect(view.lastFrame() ?? '', 'the next token clears the tint').not.toContain(RED)
 	} finally {
 		view.unmount()
@@ -81,7 +95,7 @@ it('never reddens while a tool runs, the model thinks, or a compaction runs', as
 	for (const element of cases) {
 		const view = render(element)
 		try {
-			await vi.advanceTimersByTimeAsync(40_000)
+			await quietFor(40_000)
 			expect(view.lastFrame() ?? '', `${element.key} should stay un-tinted`).not.toContain(RED)
 		} finally {
 			view.unmount()
@@ -92,11 +106,11 @@ it('never reddens while a tool runs, the model thinks, or a compaction runs', as
 it('does not count the time spent waiting for the person', async () => {
 	const view = render(<LiveActivity activeTools={[]} working tokens={5} />)
 	try {
-		await vi.advanceTimersByTimeAsync(8_000)
+		await quietFor(8_000)
 		view.rerender(<LiveActivity activeTools={[]} working tokens={5} waitingForYou />)
-		await vi.advanceTimersByTimeAsync(60_000)
+		await quietFor(60_000)
 		view.rerender(<LiveActivity activeTools={[]} working tokens={5} />)
-		await vi.advanceTimersByTimeAsync(240)
+		await vi.advanceTimersByTimeAsync(FRAME_MS)
 		expect(view.lastFrame() ?? '', 'a one-minute approval is not a stalled model').not.toContain(
 			RED,
 		)
