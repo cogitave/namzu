@@ -1470,8 +1470,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		help: {
 			usage: ['/hypermode [on|off]'],
 			details: [
-				'An independent on/off switch for this conversation, not a reasoning-effort level: it never changes effort. On, the model is told to use the workflow tool for substantial tasks and the tool is offered; off, it is not. With no argument, toggles the current state. Choosing an effort level never turns hypermode off.',
-				'For one message only, start or end that message with the word hypermode: that reply is allowed to use the workflow tool, then it goes back.',
+				'An independent on/off switch for this conversation, not a reasoning-effort level: it never changes effort. On, the model is told to use the workflow tool for substantial tasks. Off, the tool is still listed, but the model may call it only after you opt in: the word hypermode in a message, /workflow, or asking for one in your own words. With no argument, toggles the current state. Choosing an effort level never turns hypermode off.',
+				'For one message only, start or end that message with the word hypermode: the model is told to use the workflow tool for that reply only, then it goes back to the standing state.',
 			],
 		},
 		description: 'Toggle hypermode for this conversation: /hypermode [on|off].',

@@ -891,6 +891,9 @@ describe('/hypermode', () => {
 		expect(result.content).toContain('never changes effort')
 		expect(result.content).toContain('workflow tool')
 		expect(result.content).not.toMatch(/xhigh|pins|delegat/i)
+		// The tool is listed either way; only the model's permission changes.
+		expect(result.content).toContain('still listed')
+		expect(result.content).not.toMatch(/the tool is offered|off, it is not|allowed to use/i)
 	})
 
 	it('toggles with no argument', () => {

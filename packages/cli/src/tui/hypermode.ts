@@ -69,8 +69,9 @@ const EXIT = "Hypermode is off: the `workflow` tool's standard opt-in rule appli
  * - on, said, and {@link HYPERMODE_REMINDER_EVERY} messages have passed: the sparse text;
  * - off, and the last thing said was "on": the exit text, once.
  *
- * A fresh session (or a resumed one) has said nothing yet, so the mode being
- * on means the full text.
+ * Call it exactly once per sent message (`send()`), never per model turn
+ * inside it. A fresh session (or a resumed one) has said nothing yet, so the
+ * mode being on means the full text; a resumed session hears it in full once.
  */
 export class HypermodeReminders {
 	private said: 'on' | 'off' | 'nothing' = 'nothing'

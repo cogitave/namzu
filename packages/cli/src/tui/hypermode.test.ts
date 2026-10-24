@@ -49,6 +49,14 @@ describe('what the model is told about the standing mode', () => {
 		expect(spoken).toEqual([HYPERMODE_REMINDER_EVERY, HYPERMODE_REMINDER_EVERY * 2])
 	})
 
+	it('counts one step per call, so one call per sent message keeps the ten-message cadence', () => {
+		const reminders = new HypermodeReminders()
+		reminders.next(true, true)
+		for (let message = 1; message < HYPERMODE_REMINDER_EVERY; message++)
+			expect(reminders.next(true, true)).toBeUndefined()
+		expect(reminders.next(true, true)).toContain('still on')
+	})
+
 	it('says once that it ended, and nothing before it was ever on', () => {
 		const reminders = new HypermodeReminders()
 		expect(reminders.next(false, true)).toBeUndefined()
