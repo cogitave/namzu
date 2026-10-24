@@ -239,7 +239,7 @@ progress in <a local notes directory>/...` — a runtime error
     returns 404, to explain the doctor's protocol/runtime split. The split is now
     explained in the sentence itself.
   - `@namzu/sdk` source comments cited design documents by path. They cite the
-    session by name instead, which is what the reference was ever worth.
+    session by name instead, which is all such a citation was ever worth.
 
   No API, type, or behaviour change. The `@namzu/sandbox` message text is the
   only runtime string affected, and nothing asserts on it.
