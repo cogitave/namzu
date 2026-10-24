@@ -140,7 +140,7 @@ async function gateOnScreen(context: TuiContext = ctx) {
 }
 
 describe('the trust gate', () => {
-	it('does not grant trust on Enter, even once the gate has settled', async () => {
+	it('never grants trust on Enter (it exits), even once the gate has settled', async () => {
 		// The launch keystroke. Waiting out the window first is what gives this
 		// its teeth: pressed immediately, the settle guard would swallow Enter
 		// whether or not the branch still read `key.return`.
@@ -151,7 +151,8 @@ describe('the trust gate', () => {
 		await tick(400)
 
 		expect(trusted, 'Enter wrote durable trust').toEqual([])
-		expect(exited, 'Enter exited').toBe(false)
+		// Enter takes the focused choice, which is to exit; it never trusts.
+		expect(exited, 'Enter did not exit').toBe(true)
 	})
 
 	it('ignores y arriving before the gate can have been read', async () => {
@@ -263,7 +264,18 @@ describe('the trust gate', () => {
 		expect(frame).toContain('trust this folder')
 		expect(frame).toContain('esc')
 		expect(frame).toContain('exit')
-		// Enter grants nothing, so it must not be advertised as if it did.
-		expect(frame.toLowerCase()).not.toContain('enter')
+		// The focus rests on the exit choice, so Enter is advertised as exit.
+		expect(frame.toLowerCase()).toMatch(/enter, n or esc exit/)
+	})
+
+	it('exits on a deliberate Enter and never grants trust', async () => {
+		const { stdin } = await gateOnScreen()
+
+		settle()
+		stdin.write('\r')
+		await tick(300)
+
+		expect(exited).toBe(true)
+		expect(trusted).toEqual([])
 	})
 })

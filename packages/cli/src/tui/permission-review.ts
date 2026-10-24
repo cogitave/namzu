@@ -1172,18 +1172,13 @@ export function permissionReviewRows(
 			if (text.length > 0 && cells + pointCells > width) {
 				const space = text.lastIndexOf(' ')
 				if (point === ' ') {
-					// The space ends this row rather than opening the next one.
-					rows.push({
-						index: rows.length,
-						text: `${text.join('')} `,
-						continuation,
-					})
+					// A space that would be cell width + 1 opens the next row instead,
+					// so no row is ever wider than the width.
+					rows.push({ index: rows.length, text: text.join(''), continuation })
 					text = []
 					cells = 0
 					continuation = true
-					continue
-				}
-				if (space >= 0 && space < text.length - 1) {
+				} else if (space >= 0 && space < text.length - 1) {
 					const rest = text.slice(space + 1)
 					rows.push({
 						index: rows.length,

@@ -11727,6 +11727,10 @@ export function App({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// The focus rests on the exit choice, so a deliberate Enter exits. It
+				// can only leave: the in-flight Enter above is still ignored, and
+				// nothing here grants trust.
+				else if (key.return) exitWithSummary()
 				return
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.

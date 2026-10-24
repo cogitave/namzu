@@ -28,8 +28,8 @@ const SENTENCES = [
 	'Only continue if you trust its contents.',
 ] as const
 const YES = 'y trust this folder'
-const NO = 'n or esc exit'
-const KEYS = new Set(['n', 'esc'])
+const NO = 'enter, n or esc exit'
+const KEYS = new Set(['enter,', 'n', 'esc'])
 
 /** The box's real content width: the host's inset, the border and the padding. */
 export function trustPathWidth(columns: number): number {

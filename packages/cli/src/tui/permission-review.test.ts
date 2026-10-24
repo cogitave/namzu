@@ -485,6 +485,16 @@ describe('buildPermissionSummary — desktop actions', () => {
 })
 
 describe('permissionReviewRows', () => {
+	it('never emits a row wider than the width, even when a space lands on a full row', () => {
+		for (const columns of [14, 20, 25, 40]) {
+			const rows = permissionReviewRows('aaaa bbbb cccc dddd eeee ffff  gggg   hhhh', columns)
+			expect(rows.map((row) => row.text).join('')).toBe(
+				'aaaa bbbb cccc dddd eeee ffff  gggg   hhhh',
+			)
+			for (const row of rows) expect([...row.text].length).toBeLessThanOrEqual(columns - 10)
+		}
+	})
+
 	it('pages one long JSON string by physical terminal rows so its suffix stays reachable', () => {
 		const suffix = 'UNIQUE_DESTRUCTIVE_SUFFIX'
 		const result = buildPermissionReview([
