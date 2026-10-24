@@ -13,8 +13,8 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 `statusLine` names a command. The interactive terminal runs it, hands it a
 JSON object describing the session on stdin, and draws what it prints, dimmed,
 on the rows directly above the footer line. The key, the field names and the
-rules for when it runs are the reference terminal's, so a script written for
-that terminal works here unchanged where the field exists.
+rules for when it runs are fixed, so a script that reads these fields works
+here unchanged where the field exists.
 
 ```yaml
 # ~/.namzu/config.yaml
@@ -24,8 +24,8 @@ statusLine:
   refreshInterval: 30 # optional: also run every N seconds, at least 1
 ```
 
-`type: command` is accepted (it is the only kind) so a block copied from the
-reference terminal loads. Any other key, or a command that is empty, refuses
+`type: command` is accepted (it is the only kind) so a block written for
+another tool's settings file loads. Any other key, or a command that is empty, refuses
 the config at load and names the setting.
 
 ## Where it may be set
@@ -39,7 +39,7 @@ and wins over both.
 ## What the command receives
 
 One JSON object on stdin, the shell's working directory is the session's, and
-`COLUMNS` is the terminal width. Fields, by the reference's names:
+`COLUMNS` is the terminal width. Fields, by name:
 
 | Field | Value |
 |---|---|
@@ -57,7 +57,7 @@ One JSON object on stdin, the shell's working directory is the session's, and
 | `pr` | `{ number, url, review_state? }` for an open pull request; `review_state` is `approved`, `pending`, `changes_requested` or `draft`, and is absent once merged |
 
 A field appears only when the terminal has the fact; read every optional field
-as possibly missing. These reference fields are **not** sent, because Namzu
+as possibly missing. These fields are **not** sent, because Namzu
 has no data for them: `session_name` (not sent yet), `output_style`, `fast_mode`, `thinking`, `vim`,
 `rate_limits`, `prompt_cache`, `remote`, `worktree`, `transcript_path`,
 `cost.total_api_duration_ms`, the line counters under `cost`, and

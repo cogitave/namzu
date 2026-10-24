@@ -31,7 +31,7 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `pre_compact`, `post_compact` | around a compaction pass once the check decided to run one | `compaction`: `reason` (`threshold` or `overflow`), `tokensBefore`, `tokensAfter` after, `contextWindowTokens` | `error` fails the turn; on `pre_compact`, `skip` cancels a pass the threshold asked for (a pass the provider forced, `overflow`, runs regardless) |
 | `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `stopHookActive` | `error` fails the child turn's finalization; `skip` keeps the child working, as on `turn_end` |
 
-All the hooks registered for an event start together, each on the context the event carried, and the kernel reads their answers in priority order (then registration order). None waits for another and none short-circuits, so a hook that refuses does not keep its siblings from running. The answers combine as the reference terminal's do: a refusal (`skip`) outranks `ask`, which outranks `allow`; of several rewrites (`modify`, `replace`) the last in order wins and no hook sees another's rewrite; every `context` is kept; every `halt` is honoured. Before `@namzu/sdk` 52 the hooks ran one by one (`post_*` in reverse), each seeing the previous hook's `modify`, and a refusal stopped the chain.
+All the hooks registered for an event start together, each on the context the event carried, and the kernel reads their answers in priority order (then registration order). None waits for another and none short-circuits, so a hook that refuses does not keep its siblings from running. The answers combine so that a refusal (`skip`) outranks `ask`, which outranks `allow`; of several rewrites (`modify`, `replace`) the last in order wins and no hook sees another's rewrite; every `context` is kept; every `halt` is honoured. Before `@namzu/sdk` 52 the hooks ran one by one (`post_*` in reverse), each seeing the previous hook's `modify`, and a refusal stopped the chain.
 
 ### What `continue`, `skip` and `modify` can carry
 
@@ -104,7 +104,7 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
 | `decision: "approve"` | `allow` for a tool call or a permission request |
 | `systemMessage` | a warning for the operator |
 | `suppressOutput: true` | keep this hook's stdout out of the debug log |
-| `hookSpecificOutput` | `hookEventName` is required and must name this event, either as Namzu spells it (`pre_tool_use`) or as the reference does (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PermissionRequest`, `Notification`, `PreCompact`, `SessionStart`) |
+| `hookSpecificOutput` | `hookEventName` is required and must name this event, either as Namzu spells it (`pre_tool_use`) or in the PascalCase spelling (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PermissionRequest`, `Notification`, `PreCompact`, `SessionStart`) |
 
 `hookSpecificOutput` carries, for `pre_tool_use`: `permissionDecision` (`allow`, `deny`, `ask`; `defer` decides nothing), `permissionDecisionReason`, `updatedInput` (an object that replaces the call's input) and `additionalContext`; for `permission_request`: `decision` as `{ "behavior": "allow" }` or `{ "behavior": "deny", "message": "...", "interrupt": true }`; and `additionalContext` for `user_prompt_submit` (context for the turn), `post_tool_use`, `post_tool_use_failure` (shown beside the result), `turn_end` and `subagent_stop` (feedback; the turn goes on), `session_start` and `notification` (accepted, not delivered).
 
@@ -114,22 +114,22 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
 - `if` is a permission-rule filter on a tool event, checked before the process is spawned: `bash(git push *)`, `Bash`, `Edit`. The tool part is case-insensitive and takes the names skills write. A pattern applies to a shell tool's command, one command at a time, so `Bash(git push *)` still fires for `cd x && git push`; a line that cannot be read (`eval`) and a filter that means nothing for the tool run the hook, so a guard is never switched off by a typo.
 - `once: true` runs the hook one time per session.
 - `statusMessage` is shown on the terminal's status line while the hook runs.
-- `timeoutMs` is the deadline (ten minutes by default and at most, as in the reference; before `@namzu/sdk` 52 the default was 30 s, so set `timeoutMs: 30000` to keep it). The lifecycle manager's own per-hook limit (`hookTimeoutMs`) defaults to the same ten minutes.
+- `timeoutMs` is the deadline (ten minutes by default and at most; before `@namzu/sdk` 52 the default was 30 s, so set `timeoutMs: 30000` to keep it). The lifecycle manager's own per-hook limit (`hookTimeoutMs`) defaults to the same ten minutes.
 
 Entries of one event run in parallel; see above for how their answers combine.
 
-### Where shell hooks differ from the reference terminal's hooks
+### Where shell hooks differ from the common hook contract
 
-The JSON answer, the exit codes and the options above follow the reference terminal's hook contract, read from its code. These differences are deliberate:
+The JSON answer, the exit codes and the options above follow a fixed hook contract. These differences are deliberate:
 
 - **A hook's `allow` is narrower.** It never covers a sandbox escape, a path outside the roots, a call the tool always asks about, an explicit review rule's call or a destructive call, and it never reopens a deny. A hook `deny` always wins.
 - **A rewrite is checked twice.** `updatedInput` is validated like a model-supplied input and then authorized as the rewritten call, so a rewrite can neither slip past a rule nor reach a tool whose schema refuses it.
-- **`permission_request` fires for every call that would have gone to the review policy,** whatever the mode: in `auto` nobody is asked, and a `permission_request` hook still runs and its `skip` still refuses. The reference runs it only when a dialog is shown. `notification` is fired by the terminal application only, not by `namzu exec`.
+- **`permission_request` fires for every call that would have gone to the review policy,** whatever the mode: in `auto` nobody is asked, and a `permission_request` hook still runs and its `skip` still refuses. It fires whether or not a dialog is shown. `notification` is fired by the terminal application only, not by `namzu exec`.
 - **One compaction is out of reach.** `pre_compact` can cancel a pass the threshold asked for and not one the provider forced.
-- **The order of answers is deterministic.** The reference merges answers in the order the hooks finish; here they are read in priority and registration order, so which refusal is quoted and which rewrite wins never depends on timing.
-- **`post_tool_use_failure` is in addition to `post_tool_use`,** which keeps firing for a failed call as it always did; the reference fires one or the other.
-- **Not delivered:** a `pre_compact` hook's stdout as custom compaction instructions, `additionalContext` from `session_start`, `updatedInput` from a `permission_request` allow, `permissionDecision: "defer"` (it decides nothing), `updatedToolOutput`, `sessionTitle` and the other fields the reference reads that have no counterpart here. `prompt`, `agent`, `http` and `mcp_tool` hook types are not shell hooks and do not exist here; a hook is a command.
-- **`matcher` keeps its glob.** A name ending in `*` is a prefix, as it has been; the reference would read the same text as a regular expression.
+- **The order of answers is deterministic.** Answers are read in priority and registration order, so which refusal is quoted and which rewrite wins never depends on timing.
+- **`post_tool_use_failure` is in addition to `post_tool_use`,** which keeps firing for a failed call as it always did; a failed call fires both events.
+- **Not delivered:** a `pre_compact` hook's stdout as custom compaction instructions, `additionalContext` from `session_start`, `updatedInput` from a `permission_request` allow, `permissionDecision: "defer"` (it decides nothing), `updatedToolOutput`, `sessionTitle` and the other fields that have no counterpart here. `prompt`, `agent`, `http` and `mcp_tool` hook types are not shell hooks and do not exist here; a hook is a command.
+- **`matcher` keeps its glob.** A name ending in `*` is a prefix, as it has been; a regular expression would read the same text differently.
 
 ## In the CLI
 

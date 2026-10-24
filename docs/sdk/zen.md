@@ -164,7 +164,7 @@ pages: `mimo-v2.6-flash-free` was routed and priced for weeks before it had an
 entry. A model that the page routes on a stated wire and prices (or names as
 free), that the service serves, and for which models.dev has no entry is
 carried with conservative limits (65,536 context, 8,192 output, text input, tool
-use on because the reference client calls tools on every routed model, no effort
+use on because every routed model is called with tools, no effort
 levels) and `limitsVerified: false`. The field is absent on every other model,
 so no existing entry changes shape. When models.dev states the limits the entry
 uses them and the flag disappears. A model whose price cannot be read is never
@@ -321,7 +321,7 @@ all. The rules that read them live in `src/catalogue/derive.ts`, and the same
 code produces two things: the bundled snapshot in `src/models.ts`, and a
 catalogue derived at run time when a host asks for one.
 
-For Go, the reference-client route override still sends `minimax-m3` through Chat
+For Go, the client's route override still sends `minimax-m3` through Chat
 Completions even while its page row states Anthropic Messages. The current Page
 also omits route and price rows for `glm-5.1`, `qwen3.6-plus`, `qwen3.7-max`,
 `kimi-k2.6`, `minimax-m2.7` and `grok-4.6` although `/models` still serves them,

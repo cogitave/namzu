@@ -20,7 +20,7 @@ were inspected without installing or running their applications:
 
 OpenBot is interpreted as CopilotKit/OpenBot from the AG-UI context; the user
 had not supplied a repository URL. This is a bounded source audit, not a claim
-of exhaustive framework parity or measured model-quality superiority. Kernel
+of exhaustive framework coverage or measured model-quality superiority. Kernel
 contracts, optional capability packages, transport adapters and application UI
 are separate responsibilities.
 
@@ -265,7 +265,7 @@ The next storage improvement adds opt-in
 [structured-result spilling](structured-output-review.md#spilling-large-structured-results)
 for both the screened completion and accepted terminal JSON. Checked, bounded
 reads preserve exact values without replaying tools or their schema callbacks.
-This follows the large-payload reference approach described in current
+This follows the large-payload approach described in current
 [Pydantic AI Temporal documentation](https://pydantic.dev/docs/ai/capabilities/durable_execution/temporal/#large-payloads)
 and [Temporal's claim-check example](https://docs.temporal.io/ai/cookbook/claim-check-pattern-python),
 reviewed on 6 October 2026 against Pydantic AI release `v2.54.0`
@@ -278,5 +278,5 @@ review restoration.
 General typed tool-result artifacts, original-review
 dispatch recovery, full deferred capability bundles and external workflow-engine
 adapters remain follow-ups.
-These findings establish concrete contracts, not exhaustive parity or a claim
+These findings establish concrete contracts, not exhaustive coverage or a claim
 that either framework produces better model answers.

@@ -36,7 +36,7 @@ A selected level passes through unchanged in subscription Responses requests as
 When exact metadata is unavailable, an explicit effort retains the driver's
 existing pass-through behavior and the backend validates it; absence of metadata
 is not a claim of support. Omitting effort leaves the backend's default in force.
-The provider does not translate an `ultracode` name or option into `ultra`.
+The provider does not translate a mode name or option into `ultra`.
 
 The API-key provider has a separate transport and metadata source. Its public
 `/models` catalogue does not advertise subscription reasoning profiles, so its

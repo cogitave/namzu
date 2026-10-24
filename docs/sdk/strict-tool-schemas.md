@@ -74,8 +74,7 @@ claiming strict for a schema it never received.
 Zen sends `strict: false` for every tool on the **Responses** wire, which cannot
 represent the contract at all, and on the chat-class wires claims it only where
 `acceptsStrictSchema` says the schema would survive — `write` requires both of
-its fields and keeps the guarantee, `edit` does not. The reference client,
-OpenCode, sends `strict: false` on every tool to this same gateway.
+its fields and keeps the guarantee, `edit` does not. Another client, OpenCode, sends `strict: false` on every tool to this same gateway.
 
 In all of those cases the schema is retained unchanged and Namzu validates tool
 inputs at execution. `strict` is a capability-dependent hint about how the model

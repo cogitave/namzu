@@ -12,10 +12,7 @@ status: stable
 Some work happens beside a conversation and does not need the conversation's
 model: naming the conversation, and answering a question about a web page. Both
 are short requests, and on a large model they would cost more than the work is
-worth. Namzu runs them on a small model, as the reference terminal does with its
-small fast model. The reference's behaviour was read from its code
-(`generate_session_title`, `web_fetch_apply`, the small fast model it takes from
-`ANTHROPIC_SMALL_FAST_MODEL`).
+worth. Namzu runs them on a small model.
 
 ## Which model
 

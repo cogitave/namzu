@@ -2773,7 +2773,7 @@ reply for repeating them.
 The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
 record the installed Codex build's verified source labels and motion constants.
 Its live transcript DOM was unavailable without restarting that application,
-so these observations do not establish pixel parity with a running reference.
+so these observations do not establish pixel-level agreement with the running application.
 The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
 uses the actual Namzu renderer with synthetic runtime events, deterministic
 animation frames, keyboard disclosures, rapid reversals, reduced motion and
@@ -2875,7 +2875,7 @@ Design evidence comes from inspected WAI seeded UI and the public
 [Beautiful UI](https://www.beautifului.dev/) Thinking, Tool Chips and Sources
 examples, plus [AI Elements](https://elements.ai-sdk.dev/components/chain-of-thought)
 and [shadcn Item](https://ui.shadcn.com/docs/components/item). These are component
-and layout comparisons, not proof of execution or a claim of pixel parity.
+and layout comparisons, not proof of execution or a claim of pixel-level agreement.
 The [research and renderer checks](../../research/transcript-search-timing-20261007/README.md)
 record inspected states, actual source-derived fixtures and supported window sizes.
 
@@ -3626,7 +3626,7 @@ computer-idle or permission admission. Pal views and externally owned native
 engine processes do not receive a Namzu shell-registry indicator.
 
 The [background work reference observations](../../research/runtime-desktop-20260930/artifacts/background-work-reference-observations-20261006.json)
-record the installed reference's compact process section and the limit of its
+record the compact process section of the installed application and the limit of its
 source-only inspection. Namzu retains its own named-job controls and output
 history. The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
 checks overlapping reads, failed/retried stops, poll ordering, navigation,
