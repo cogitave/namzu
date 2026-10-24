@@ -39,8 +39,7 @@ A [custom status line](status-line.md), when `statusLine` is configured, is draw
 rows above this line, and the quiet `shift+tab to cycle` reminder then stays off.
 
 One line sits directly below the composer's lower rule, with no blank row between
-them. Its items are
-joined by a dim ` · `, left to right:
+them. Its items are joined by a dim ` · `, left to right:
 
 ```text
 ⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
@@ -128,8 +127,9 @@ composer's rules, above the input.
 
 Deliberate differences: the model identity (`Auto · fast ·
 model` while Auto routing is on) stays on the right while it fits; `← N agents`
-counts this session's running agents and workflows and `←` opens them, not other background sessions that wait for the person; `←`
-does not send the session itself to the background (no confirmation press);
+counts this session's running agents and workflows and `←` opens them, not other
+background sessions that wait for the person, and `←` never sends the session
+itself to the background;
 there is no resting `← for agents` hint; and `↓ to manage` is not offered
 with text typed, because `↓` is cursor movement then.
 
@@ -679,7 +679,7 @@ view; see [Task context](task-context.md).
 One renderer draws every checklist, the transcript block and `/tasks` alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
-hanging under its first letter. This shows
+hanging under its first letter. The block shows
 its plan inline in the conversation, once, rather than a second copy above the
 input. Above the composer, a single row names the current step and the count
 (`■ Write the parser · 1/3 done`) only while that block is out of view — pushed
@@ -1038,8 +1038,8 @@ OSC 0, which sets the window title and the icon name, ended by BEL:
   shown on one line (control characters and line breaks are removed) and cut at
   100 characters.
 - **The glyph** is `✳` while the interface waits for input and `◐` while a turn
-  runs. Namzu does not track terminal focus, so it shows the
-  one busy glyph and writes the title only when the text changes.
+  runs. Namzu does not track terminal focus, so it shows one
+  busy glyph and writes the title only when the text changes.
 - **When it is written:** when the interface opens, when the name or the
   generated title changes (`/rename`, the first message's title, `/resume`, a new
   conversation), and when a turn starts or ends.

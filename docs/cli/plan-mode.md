@@ -14,14 +14,14 @@ Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) le
 
 ## The plan file
 
-Plan mode keeps one plan file per session, named by a session slug, in a plans directory under its config home (a setting can move that directory inside the project). Namzu's sessions already have a directory of their own, so the mapping is:
+Plan mode keeps one plan file per session, inside the session's own directory:
 
-| | Reference | Namzu |
-|---|---|---|
-| Where | `<config home>/plans/<slug>.md` | `~/.namzu/projects/<slug>/<session-id>/plans/plan.md` (`SessionPaths.planFile`) |
-| Who may write it | the model, in plan mode, with the write and edit tools | the same |
-| A directory setting | `plansDirectory`, inside the project | none |
-| Sub-agents | `<slug>-agent-<id>.md` | none: delegated agents in plan mode only read |
+| | Namzu |
+|---|---|
+| Where | `~/.namzu/projects/<slug>/<session-id>/plans/plan.md` (`SessionPaths.planFile`) |
+| Who may write it | the model, in plan mode, with the write and edit tools |
+| A directory setting | none |
+| Sub-agents | none: delegated agents in plan mode only read |
 
 In `plan` every other change is still refused with the plan-mode feedback, a `deny` rule still wins, and a rule that asks to review a write to the plan file still has its question asked. The check is the call's resolved path, so only exactly that file passes: a sibling, a prefix or another tool does not. The file is not removed when the plan is approved; it is part of the session and `/resume` finds it with the conversation.
 
@@ -62,4 +62,5 @@ The full text: change nothing except the plan file, understand the request and l
 - **No cloud refinement row** and no `plansDirectory`.
 - **No `ultraplan`, no phased exploration prompt with a built-in plan agent**; the full reminder says to use read-only explore agents for wide questions.
 - **An empty plan.** The tool answers the model that there is nothing to approve.
+- **Esc with no words** keeps planning.
 - **Desktop and `namzu exec`** do not have the box, the tool or the reminders. Desktop would need: the `exit_plan_mode` tool mounted by the CLI host with a request/answer pair on the host protocol (the plan, its path, `bypassAvailable`; an answer of mode or words), a plan review view with the same three rows and a text field, the host forwarding `reminders`/`planApproval` to its sessions, the plan file reachable from the conversation, and the ACP bridge deciding what an ACP client sees (today only the native-engine adapter for a foreign agent reacts to that agent's own plan-exit request; see [Native engines](native-engines.md)).

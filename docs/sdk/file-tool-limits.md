@@ -56,7 +56,7 @@ insertion by line number is never recovered, because the line it named may be a 
 has no `old_string` and is always refused on drift.
 
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
-the text, only about one interchangeable detail — the set below, in this
+the text, only about one interchangeable detail — the cases below, tried in this
 order: a straight quote against the file's curly one (`' ' " "`) or the reverse, and a `\uXXXX` escape where
 the file holds the character, or a character where the file holds the escape. The span it finds is a real
 substring of the file, so the uniqueness rule still applies to it, and the same change is carried onto
