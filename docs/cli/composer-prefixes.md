@@ -39,7 +39,7 @@ Bounds: a command that has not ended after 60 seconds is stopped with its owned 
 - **Lines.** `@file.ts#L10-20` sends lines 10 to 20 inclusive and `#L7` sends line 7; the block says `lines="10-20"`. The 60,000-character cap applies to the lines sent, so a range deep in a large file is reachable. A range written backwards sends the whole file.
 - **Trailing punctuation.** A sentence's `,` `.` `;` `:` `!` `?`, and a `)` or `]` with no opener in the token, are not part of the name: `(see @a.ts)` mentions `a.ts`.
 
-Not carried over from the reference terminal: `@agent-<type>` to name a subagent (the list of agent types lives inside the delegation runtime and is not offered to the composer), a configurable file-suggestion command, and a setting to include ignored files.
+Not offered: `@agent-<type>` to name a subagent (the list of agent types lives inside the delegation runtime and is not offered to the composer), a configurable file-suggestion command, and a setting to include ignored files.
 
 ## Neither is read for composer triggers
 

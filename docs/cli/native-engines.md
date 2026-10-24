@@ -234,7 +234,7 @@ An integration fixture runs that adapter through the real SDK session and
 original journal, checking native review resolution, observed tool receipts
 and result-only message identity. The fixture performs no inference.
 Native Windows metadata was separately checked with the installed `claude`
-executable, version 2.1.278:
+executable:
 initialize and `list_models` returned five installed-engine rows and EOF closed
 the owned process with exit zero. That metadata probe sent no user prompt and
 does not prove successful inference or account authentication.

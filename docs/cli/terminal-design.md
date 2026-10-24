@@ -39,8 +39,8 @@ A [custom status line](status-line.md), when `statusLine` is configured, is draw
 rows above this line, and the quiet `shift+tab to cycle` reminder then stays off.
 
 One line sits directly below the composer's lower rule, with no blank row between
-them. It follows the reference terminal agent's item order and wording; its
-items are joined by a dim ` · `, left to right:
+them. Its items are
+joined by a dim ` · `, left to right:
 
 ```text
 ⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
@@ -48,7 +48,7 @@ items are joined by a dim ` · `, left to right:
 
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
   `(shift+tab to cycle)` when Shift+Tab actually cycles it here and no
-  background shell is running (as in the reference, a running task takes the
+  background shell is running (a running task takes the
   reminder off the row). `bypass` reads `⏵⏵ bypass permissions on` in the error
   color, `auto` reads `⏵⏵ auto mode on` in the warn color, `accept-edits` reads `⏵⏵ accept edits on` in the user accent, `plan`
   reads `‖ plan mode on` in teal, `strict` reads `‖ preapproved only on` in the
@@ -64,7 +64,7 @@ items are joined by a dim ` · `, left to right:
   failure, and a branch with no pull request, show nothing.
 - **The context meter**, dim `12% until auto-compact`, after the effort label
   and only once the context is within 20,000 tokens of the point where older
-  history is summarised (the reference's rule). The percentage counts down to
+  history is summarised. The percentage counts down to
   that point, not to the end of the window, and the point is the kernel's own
   trigger (`resolveTriggerThreshold`: the window less up to 20,000 tokens for
   the reply less 13,000, so 167,000 tokens of a 200,000-token window). With
@@ -77,7 +77,7 @@ items are joined by a dim ` · `, left to right:
   hides with the composer surface (a permission or child view owning the
   screen).
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
-  (Namzu's own item; the reference has none).
+  (Namzu's own item).
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
   already carries a hint that names Esc, and while a dialog or picker owns the
   keyboard: Esc declines or goes back there, and the footer then keeps the mode
@@ -118,7 +118,7 @@ The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
 reminder, the context meter, the effort label, the shell pill, the pull request item, the quiet
 reminder, and only then does the mode truncate. Whole items go, never half of
-one (the reference clips its row at the edge, which can show half a word).
+one.
 Where no composer is on screen (a picker, the trust prompt, a stopped start) the
 footer leaves out the cycle reminder, since Shift+Tab is the composer's key; the
 active mode stays. This single line replaces the permission-mode row that used
@@ -126,11 +126,10 @@ to appear inside the writing area, the separate status line below it, and the
 shells line under that. Pending input and transient notices stay inside the
 composer's rules, above the input.
 
-Deliberate differences from the reference: the model identity (`Auto · fast ·
+Deliberate differences: the model identity (`Auto · fast ·
 model` while Auto routing is on) stays on the right while it fits; `← N agents`
-counts this session's running agents and workflows and `←` opens them, where the
-reference counts other background sessions that wait for the person and `←`
-sends the session itself to the background (a confirmation press and all);
+counts this session's running agents and workflows and `←` opens them, not other background sessions that wait for the person; `←`
+does not send the session itself to the background (no confirmation press);
 there is no resting `← for agents` hint; and `↓ to manage` is not offered
 with text typed, because `↓` is cursor movement then.
 
@@ -217,12 +216,10 @@ message's text.
 
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on
-their own, `‖` (U+2016) for modes that hold. `⏸` (U+23F8), which the reference
-terminal uses for the second, is an emoji code point; Windows Terminal draws it
+their own, `‖` (U+2016) for modes that hold. `⏸` (U+23F8) is an emoji code point; Windows Terminal draws it
 as a blue two-cell tile, so this line does not use it.
 
-Shift+Tab changes the mode and the footer is its whole reply, as it is in the
-reference terminal: no transcript line is written, however many times it is
+Shift+Tab changes the mode and the footer is its whole reply: no transcript line is written, however many times it is
 pressed. `/permissions`, a change asked for by name, still answers in the
 transcript. The key works while a turn runs, and the change governs every
 approval decision from that moment: the running turn's later tool calls, the
@@ -331,7 +328,7 @@ for its next tool round (`N queued` on its row), a finished one is resumed from
 its transcript, and one you stopped is refused in a plain sentence; your words
 show at once in its transcript as `❯ text`. PgUp/PgDn/Home/End scroll it.
 
-Keys while an agent is viewed follow the reference. **Esc** on a running agent
+Keys while an agent is viewed: **Esc** on a running agent
 stops it and stays in the view (the row turns into a finished one; the footer
 says `esc to interrupt`); on an agent that has ended it goes back to the
 conversation, the draft stays in the composer, and the agent's row lingers 30
@@ -349,8 +346,7 @@ other built-in runs against the conversation as it does with no agent open.
 Other text that starts with `/` (a skill, a custom command, a typo) is sent to
 the agent as typed. An agent that cannot take messages (a saved child, a
 workflow run's agent) keeps the read-only boxed screen described under the
-cockpit; the reference does not view a workflow's agents in place either, only
-in the workflow's detail.
+cockpit.
 
 Agents and workflows are separate. An agent the model gave a `workflow` label
 is never an agent row: it exists only inside its workflow, which gets one row
@@ -554,7 +550,7 @@ The new marks are text characters one cell wide by Unicode's width data, none
 of them emoji: `●` U+25CF, `⎿` U+23BF, `✻` U+273B, `├ └ │`, and the slider's
 `▲` U+25B2 and `┆` U+2506. `●` is East-Asian *ambiguous*, so a terminal set to
 draw ambiguous characters wide draws it in two cells, as it already did on the
-old rail. `⏺`, `✔` and `✳`, which the reference terminal uses in some builds,
+old rail. `⏺`, `✔` and `✳`
 are emoji code points Windows Terminal can draw as two-cell tiles, and are not
 used.
 
@@ -683,7 +679,7 @@ view; see [Task context](task-context.md).
 One renderer draws every checklist, the transcript block and `/tasks` alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
-hanging under its first letter. This follows the reference terminal that shows
+hanging under its first letter. This shows
 its plan inline in the conversation, once, rather than a second copy above the
 input. Above the composer, a single row names the current step and the count
 (`■ Write the parser · 1/3 done`) only while that block is out of view — pushed
@@ -720,7 +716,7 @@ limits add an explicit incomplete-search notice. See
 [Bounded file discovery](../sdk/file-discovery.md).
 
 The writing area is two plain horizontal rules, `─` in graphite, with the input
-between them: no side borders, no corners and no title, as in the reference.
+between them: no side borders, no corners and no title.
 The input line starts with a dim `❯ ` (`…` while the composer is paused), and
 the placeholder, the effort, model and trigger
 rows and the suggestion menus sit between the rules, left-aligned with the
@@ -867,7 +863,7 @@ row can show additional detail without hiding its current marker.
 
 A call that asks several questions, or one question that takes several answers
 (a multiple choice), is a card of its own rather than the plain chooser, laid
-out like the reference's. A tab for each question shows its header and a mark
+out as tabs. A tab for each question shows its header and a mark
 (`☐`, `☒` once answered), and a last `✓ Submit` tab reviews the answers
 together. On a question, `↑↓` move and Enter chooses: a single choice moves on
 to the next question by itself, a multiple choice is toggled with Space or
@@ -987,7 +983,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 
 - **A failed reply** is one sentence naming the provider by product name ("OpenAI did not accept your API key. Check it in /setup, or pick another provider with /model."), plus at most one `OpenAI said: ...` line when the provider's own message adds information. No bracketed catalog ids, no `Provider:` or `Reason:` rows, no raw JSON, status lines, request ids or config-key names. `plain-interruption.ts` builds it.
 - **A paused reply** has one wording: "Paused. OpenAI is having problems on its side. Press Enter to continue, or Esc to stop." (the same shape for a tool or the browser that needs you: "Paused. The browser needs you: …", with the facts the tool attached as labelled rows such as `Login url: …`; offline and rate-limited have their own wording; a rate limit names the wait as `20s` or `1m 05s`). Enter on an empty composer continues the reply, as it does for a tool that needs a person; `/resume` and `/abandon` still work. Typing a new message does what the notice says: a reply that stopped on a provider failure (a rate limit, an outage, a rejected key) is closed by the message, which runs on the model chosen at that moment, so changing the model first needs no `/resume`; the stopped message stays in what the model is shown, and no error line appears. A pause that waits for a person (an approval or a handoff) still holds the conversation, and a message sent then is refused in one plain sentence ("The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message."). No checkpoint id or turn id is shown in the terminal; headless output (`exec`, scheduled runs) still prints the checkpoint for scripts.
-- **A quiet stretch while the provider is retried** is one line under the Working row, as the reference draws it: a red bullet, what failed, and a dim `Retrying in 5s · attempt 2/10` that counts down once a second. The first two tries of a plain server fault say only "The request failed."; from the third try, or at once for no connection or a rate limit, it names the provider and the cause ("OpenAI is limiting requests."). The terminal retries ten times with a wait that starts at half a second and doubles to thirty-two, honours a named `Retry-After` as a minimum, and does not wait for more than a minute; Esc interrupts the wait. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. It goes away when the provider answers; when the tries run out the reply pauses as below. See [Provider retry](../sdk/provider-retry.md).
+- **A quiet stretch while the provider is retried** is one line under the Working row: a red bullet, what failed, and a dim `Retrying in 5s · attempt 2/10` that counts down once a second. The first two tries of a plain server fault say only "The request failed."; from the third try, or at once for no connection or a rate limit, it names the provider and the cause ("OpenAI is limiting requests."). The terminal retries ten times with a wait that starts at half a second and doubles to thirty-two, honours a named `Retry-After` as a minimum, and does not wait for more than a minute; Esc interrupts the wait. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. It goes away when the provider answers; when the tries run out the reply pauses as below. See [Provider retry](../sdk/provider-retry.md).
 - **Failures the app hit itself** (saving a name, forking, archiving) say what could not be done and, for known causes such as a permission or disk error, why; an unknown cause points at `--debug`. `plain-failure.ts` maps them; the raw message is appended only with `NAMZU_DEBUG=1` or `--debug`.
 - **A crash** prints "Namzu stopped because of an unexpected problem. Details were saved to ~/.namzu/logs/crash-<time>.log." The stack and the buffered diagnostics go to that file (the newest ten are kept); they print too only with `NAMZU_DEBUG=1` or `--debug`.
 - **`/status`** shows the conversation by a short id, the folder with `~`, the sandbox in plain words, and "latest reply" where it used to say "current/latest turn". The version build hash, the executable path and the full conversation id are in `/status details`.
@@ -1033,8 +1029,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 
 ## The terminal title
 
-The terminal's own title (the tab or window name) says what the conversation is,
-as in the reference terminal, whose rule was read from its code. It is set with
+The terminal's own title (the tab or window name) says what the conversation is. It is set with
 OSC 0, which sets the window title and the icon name, ended by BEL:
 
 - **What it says:** a glyph, a space, then the name. The name is the one a person
@@ -1043,16 +1038,14 @@ OSC 0, which sets the window title and the icon name, ended by BEL:
   shown on one line (control characters and line breaks are removed) and cut at
   100 characters.
 - **The glyph** is `✳` while the interface waits for input and `◐` while a turn
-  runs. The reference alternates `◐` and `◑` every 960 ms while it is busy and
-  the terminal has focus; Namzu does not track terminal focus, so it shows the
+  runs. Namzu does not track terminal focus, so it shows the
   one busy glyph and writes the title only when the text changes.
 - **When it is written:** when the interface opens, when the name or the
   generated title changes (`/rename`, the first message's title, `/resume`, a new
   conversation), and when a turn starts or ends.
 - **On exit** it is reset with an empty OSC 0 (`ESC ] 0 ; BEL`), including when
   the process exits abnormally, so the shell's own title comes back.
-- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1` (the reference's
-  `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`). Nothing is written to a stream that is
+- **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1` . Nothing is written to a stream that is
   not a terminal.
 
 ## Terminal boundaries
@@ -1116,7 +1109,7 @@ silently replace an installation identity.
 
 Off by default. `tui.notifications` in a config file turns on notices written to the terminal itself (`packages/cli/src/integrations/notifications/terminal.ts`): `true` means `turn-settled` (a reply ended) and `approval-required`; a list names the events wanted, and `[]` switches all off. A third event, `idle-prompt`, is asked for by name and is not part of `true`: it says "waiting for your input" once, a minute after a turn ended, and only if nobody has pressed a key since, no permission prompt or picker is open, nothing queued or looping will start a turn by itself, and that turn's end was not announced already. Background agents, shells or workflows still running hold the notice until they finish, then it counts again (`idle.ts`; 60 000 ms). The `approval-required` notice (and the `approval_required` notification hook) goes out only when the dialog has been open for 6 s with no key pressed since it opened, retried until the person has been quiet that long, and not at all when it is answered first (`approval.ts`), so someone at the screen is never pinged. Nothing in a notice carries conversation text.
 
-`tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL; the reference's terminator was not traced.
+`tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL.
 
 ## Paste and response boundaries
 

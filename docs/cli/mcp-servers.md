@@ -149,11 +149,11 @@ Before it offers the legacy `initialize` handshake, `connect()` asks the server 
 
 ## Large servers and tool search
 
-Each turn, the CLI adds up the size of every connected server's tool definitions (name, description and input schema) and compares the total with the context window of that turn's model. When the definitions come to 10% of the window or more, they are not sent in full. The model sees each tool's name and the first sentence of its description, and loads a tool's full definition with `search_tools` before it calls it. Below 10% every tool stays loaded, as before. This is the reference client's automatic tool search, with the same threshold.
+Each turn, the CLI adds up the size of every connected server's tool definitions (name, description and input schema) and compares the total with the context window of that turn's model. When the definitions come to 10% of the window or more, they are not sent in full. The model sees each tool's name and the first sentence of its description, and loads a tool's full definition with `search_tools` before it calls it. Below 10% every tool stays loaded, as before.
 
 Size is measured in characters at 2.5 characters per token, so the cut-off is `window × 10% × 2.5` characters: 50,000 for a 200,000-token model and 32,000 for an unknown model, which is assumed to have 128,000 tokens. Servers are added up, not judged one by one: two servers that each fit can still be deferred together. The decision is made per turn because the window belongs to the model, so switching to a smaller model can defer tools that a larger one carried. Once the model has loaded a tool, it stays loaded for the rest of the conversation. A server's resource tools (`list_resources`, `read_resource`) are always deferred.
 
-The case this exists for is a server like REA, whose 207 tools come to about 792,000 characters. That is more than a 200,000-token window holds, so before tool search the first message failed with "This conversation is too long for the model", which no compaction could fix.
+The case this exists for is a server with 207 tools, which come to about 792,000 characters. That is more than a 200,000-token window holds, so before tool search the first message failed with "This conversation is too long for the model", which no compaction could fix.
 
 ## When a server does not work
 
