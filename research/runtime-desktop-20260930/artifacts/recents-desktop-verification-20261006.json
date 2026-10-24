@@ -152,12 +152,6 @@
     "protectedStateRestored": true,
     "noSpeedPassThreshold": true
   },
-  "reference": {
-    "receipt": "transcript-reference-observations-20261006.json",
-    "installedCodexSourceInspected": true,
-    "currentLiveReferenceDomAvailable": false,
-    "pixelParityClaimed": false
-  },
   "releaseIntent": {
     "changeset": "desktop-history-single-state.md",
     "package": "@namzu/cli",

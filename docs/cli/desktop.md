@@ -2770,10 +2770,6 @@ and the work that remains outside the transcript are in
 The preview's `/preview?stress=300` flag adds the long conversation and a timer-driven streamed
 reply for repeating them.
 
-The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
-record the installed Codex build's verified source labels and motion constants.
-Its live transcript DOM was unavailable without restarting that application,
-so these observations do not establish pixel-level agreement with the running application.
 The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
 uses the actual Namzu renderer with synthetic runtime events, deterministic
 animation frames, keyboard disclosures, rapid reversals, reduced motion and
@@ -3625,10 +3621,8 @@ their own polling loop. This display metadata never supplies stop, archive,
 computer-idle or permission admission. Pal views and externally owned native
 engine processes do not receive a Namzu shell-registry indicator.
 
-The [background work reference observations](../../research/runtime-desktop-20260930/artifacts/background-work-reference-observations-20261006.json)
-record the compact process section of the installed application and the limit of its
-source-only inspection. Namzu retains its own named-job controls and output
-history. The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
+Namzu keeps its own named-job controls and output history.
+The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
 checks overlapping reads, failed/retried stops, poll ordering, navigation,
 long commands, narrow and short layouts, light/dark themes and reduced motion
 without native, model or computer actions.

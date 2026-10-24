@@ -28,8 +28,7 @@ await context.route('**/*', route =>
 await mkdir(artifacts, { recursive: true })
 const receipt = { passed: false, realRenderer: true, browserOnly: true, modelRequests: 0,
  computerActions: 0, nativeActions: 0, checks: [], screenshots: [],
- referenceEvidence: 'transcript-reference-observations-20261006.json',
- limitations: ['Isolated event fixtures; no provider prompt or native computer action.', 'Reference live DOM unavailable; no pixel-parity claim.'] }
+ limitations: ['Isolated event fixtures; no provider prompt or native computer action.'] }
 
 
 await page.addInitScript(() => {
