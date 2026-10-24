@@ -942,6 +942,13 @@ export interface SendOptions {
 	 * kernel mints one, and the session learns it from the turn's first event.
 	 */
 	readonly turnId?: TurnId
+	/**
+	 * What the person typed to start this turn, when a keystroke did: the one
+	 * text a "+500k" token target may come from. Absent for a turn that
+	 * nothing was typed for (a wake-up after a job ended, a peer's mail, a goal
+	 * round), whose user-role message is written by the host, not by the person.
+	 */
+	readonly typedInput?: string
 	/** Why this turn exists (a prompt, a goal round, a resident step), recorded on `turn_started`. */
 	readonly origin?: Origin
 	/** Exact durable admission that makes goal tools visible for this one turn. */
@@ -2042,10 +2049,7 @@ let builtinPresenter: ToolPresenter | undefined
  */
 export function builtinToolPresenter(): ToolPresenter {
 	builtinPresenter ??= createCliToolPresenter(
-		new ToolManager({
-			toolsets: [toolset('builtin', builtinTools(true))],
-			messages: () => [],
-		}),
+		new ToolManager({ toolsets: [toolset('builtin', builtinTools(true))], messages: () => [] }),
 	)
 	return builtinPresenter
 }
@@ -5298,7 +5302,7 @@ export async function createAgentSession(
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
 						delegationLimits.set(turnId, turnLimits)
-						const typedTarget = parseTokenTarget(lastUserText(messages))
+						const typedTarget = parseTokenTarget(opts?.typedInput ?? '')
 						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)
 						delegatedWorkflowAuth.set(turnId, {
 							interactive: opts?.workflowReview?.onPermission !== undefined,

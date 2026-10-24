@@ -236,6 +236,13 @@ describe('narrowing a row', () => {
 		expect(texts.slice(3)).toEqual(workflowRowVariants(row, NOW).map((variant) => variant.text))
 	})
 
+	it('names a failed agent beside the counter, and keeps the plain counter as a narrower form', () => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		const texts = workflowRowVariants(withFailure, NOW).map((variant) => variant.text)
+		expect(texts[0]).toBe('3/7 · 1 failed · 2m 14s · ↓ 48.2k tokens')
+		expect(texts[1]).toBe('3/7 · 2m 14s · ↓ 48.2k tokens')
+	})
+
 	it('shows no token segment before any agent reported spend', () => {
 		const quiet = workflowOf([agent({ viewId: 'q' })])
 		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m 14s')
