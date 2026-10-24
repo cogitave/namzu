@@ -39,9 +39,11 @@ describe('plainAgentFailure', () => {
 	})
 
 	it('hides machine output behind --debug', () => {
-		expect(plainAgentFailure('ECONNRESET at foo.js:12', false)).toBe(
-			'This agent stopped because of an error. Run with --debug for details.',
+		const plain = plainAgentFailure('ECONNRESET at foo.js:12', false)
+		expect(plain).toBe(
+			'This agent stopped because something went wrong. Message the agent to try again, or start the task again.',
 		)
+		expect(plain).not.toMatch(/--debug|error|ECONNRESET/u)
 	})
 
 	it('adds the raw text on the next line only when detail was asked for', () => {

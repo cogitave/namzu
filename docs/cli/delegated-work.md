@@ -313,7 +313,7 @@ the parent is waiting on (foreground) are stopped one at a time with `x`.
 A failed agent's row says one plain sentence with a next step, for example
 `The provider was too busy for this agent. Wait a moment, then message the agent
 to try again.`, never the provider's name, status line or raw body (those follow
-only under `--debug`). An agent that fails again with the same reason after a
+only under `--debug`). When the cause is not one Namzu recognises the row reads `This agent stopped because something went wrong. Message the agent to try again, or start the task again.` An agent that fails again with the same reason after a
 message reads `failed again`. Messaging a finished agent keeps its row where it
 was, with the time and spend it had, and writes `Continuing with a new task.`
 in its own transcript.
@@ -360,7 +360,7 @@ a turn that ends or is interrupted does not cancel it. A foreground agent whose
 wait you released by typing is treated the same way: it keeps running, and its
 end is reported once, like a background agent. If a background agent needs
 approval after its turn has ended (to write a file, say), the question appears
-on screen under the mode you have now and your answer reaches that agent; only a
+on screen under the mode you have now and your answer reaches that agent, whether the conversation is idle or another turn is running (that turn's own questions are kept apart and wait for their own answer); once answered the composer is free again, so the agent's end still wakes the model; only a
 stopped turn, another conversation or a closing app refuses it. Foreground agents and
 headless hosts keep the original rule: releasing the parent turn cancels the
 children it still owns, and a normal parent query waits for them before final

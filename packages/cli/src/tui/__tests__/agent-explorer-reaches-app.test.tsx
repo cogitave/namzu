@@ -4349,6 +4349,167 @@ describe('background agents outlive the turn', () => {
 		expect(painted(screen)).not.toContain('Turn is no longer active')
 	})
 
+	it('hands the conversation back after a late approval so the finished agent still wakes it', async () => {
+		const seen: string[] = []
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(screen, () => childMessageBridge.onCompletion !== undefined, 'no listener')
+		let ask: ((request: never) => Promise<{ kind: string }>) | undefined
+		sendOverride.current = async function* (messages, opts) {
+			if (ask !== undefined) {
+				seen.push(JSON.stringify(messages))
+				yield { kind: 'delta', text: 'Noted the finished agent.\n\n' }
+				yield { kind: 'done', stopReason: 'end_turn' }
+				return
+			}
+			ask = opts?.onPermission as never
+			activity.set([
+				agent({
+					viewId: 'bg-1',
+					description: 'Slow writer',
+					background: true,
+					startedAt: Date.now() + 60_000,
+				}),
+			])
+			yield { kind: 'delta', text: 'Started the writer.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'write it')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the turn did not end over the agent',
+		)
+		const answer = ask?.({
+			toolCalls: [
+				{
+					id: 'c1',
+					name: 'write',
+					input: { path: 'notes.txt', content: 'hi' },
+					isDestructive: true,
+				},
+			],
+		} as never)
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Do you want to write this file?'),
+			'the question never reached the screen',
+		)
+		let decided = false
+		void answer?.then(() => {
+			decided = true
+		})
+		await waitUntil(
+			screen,
+			() => {
+				if (!decided) screen.press('y')
+				return decided
+			},
+			'the answer never reached the agent',
+		)
+		await screen.waitForRender()
+		await screen.waitForRender()
+		// Nobody is working: the conversation is not parked on a running turn.
+		expect(screen.viewport().join('\n')).not.toContain('esc to interrupt')
+		childMessageBridge.onCompletion?.({
+			parentSessionId: childMessageBridge.scope?.sessionId as string,
+			taskId: 'task-writer',
+			agentId: 'general-purpose',
+			description: 'Slow writer',
+			state: 'completed',
+			text: 'RESULT-WRITER',
+		})
+		await waitUntil(screen, () => seen.length > 0, 'the finished agent never woke the model')
+		expect(seen[0]).toContain('RESULT-WRITER')
+		await waitUntil(screen, () => painted(screen).includes('Noted the finished agent.'), 'no reply')
+	})
+
+	it('shows a late agent prompt during another turn without answering that turn’s own prompt', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		const asks: Array<(request: never) => Promise<{ kind: string }>> = []
+		let release: (() => void) | undefined
+		sendOverride.current = async function* (_messages, opts) {
+			asks.push(opts?.onPermission as never)
+			if (asks.length === 1) {
+				activity.set([
+					agent({
+						viewId: 'bg-1',
+						description: 'Slow writer',
+						background: true,
+						startedAt: Date.now() + 60_000,
+					}),
+				])
+				yield { kind: 'delta', text: 'First turn.\n\n' }
+				yield { kind: 'done', stopReason: 'end_turn' }
+				return
+			}
+			yield { kind: 'delta', text: 'Second turn working.\n\n' }
+			await new Promise<void>((resolve) => {
+				release = resolve
+			})
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'one')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the first turn did not end over the agent',
+		)
+		await submit(screen, 'two')
+		await waitUntil(screen, () => release !== undefined, 'the second turn did not start')
+		const request = (path: string) =>
+			({
+				toolCalls: [
+					{ id: path, name: 'write', input: { path, content: 'x' }, isDestructive: true },
+				],
+			}) as never
+		// The earlier turn's agent asks while the later turn runs, and so does the later turn.
+		const late = asks[0]?.(request('late.txt'))
+		const own = asks[1]?.(request('own.txt'))
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('late.txt'),
+			'the late prompt never reached the screen',
+		)
+		let lateDecision: string | undefined
+		let ownDecision: string | undefined
+		void late?.then((d) => {
+			lateDecision = d.kind
+		})
+		void own?.then((d) => {
+			ownDecision = d.kind
+		})
+		await waitUntil(
+			screen,
+			() => {
+				if (lateDecision === undefined) screen.press('y')
+				return lateDecision !== undefined
+			},
+			'the answer never reached the late agent',
+		)
+		expect(lateDecision).toBe('approve')
+		// The running turn's own prompt is still waiting for its own answer.
+		expect(ownDecision).toBeUndefined()
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('own.txt'),
+			'the running turn’s prompt never came up',
+		)
+		await waitUntil(
+			screen,
+			() => {
+				if (ownDecision === undefined) screen.press('n')
+				return ownDecision !== undefined
+			},
+			'the answer never reached the running turn',
+		)
+		expect(ownDecision).toBe('reject')
+		release?.()
+	})
+
 	it('leaves one row for an idle Ctrl+C stop: no per-agent rows and no closing line', async () => {
 		stoppedChildren.length = 0
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })

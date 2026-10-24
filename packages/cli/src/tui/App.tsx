@@ -8756,14 +8756,25 @@ export function App({
 			// through this same callback, so a turn that has merely ended (or been
 			// followed by another) still answers: only a stopped turn, another
 			// conversation or a closing app refuse.
-			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
+			const askPermission = async (req: PermissionRequest): Promise<PermissionDecision> => {
 				if (!stillHere() || ac.signal.aborted || appLifetime.signal.aborted) {
-					return Promise.resolve({
-						kind: 'reject',
-						feedback: 'Turn is no longer active.',
-					})
+					return { kind: 'reject', feedback: 'Turn is no longer active.' }
 				}
-				return onPermission(req)
+				const decision = await onPermission(req)
+				// An agent can ask after its turn has ended. Answering puts the screen
+				// in the working state for the resumed provider call, and no turn is
+				// left whose end would put the input back: with none running, hand the
+				// conversation back so the agent's finish can wake it.
+				if (
+					stillHere() &&
+					!appLifetime.signal.aborted &&
+					activeTurnTokenRef.current === null &&
+					!abortRef.current &&
+					!permissionResolveRef.current
+				) {
+					setState('idle')
+				}
+				return decision
 			}
 			// A goal round is a turn of a durable conversation: its round is recorded
 			// on the turn (`origin.kind: 'goal-round'`), and a conversation that is
