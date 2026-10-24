@@ -10,8 +10,8 @@ function uses(line: string) {
 describe('the paths a shell line names', () => {
 	it('reads the operands of the read commands', () => {
 		expect(uses('cat /etc/passwd')).toEqual(['read:cat:/etc/passwd'])
-		// Flags before the first operand are dropped, and the
-		// rest, so a flag's own value (`5`) is listed too; it is a relative name.
+		// Flags before the first operand are dropped and the rest are kept,
+		// so a flag's own value (`5`) is listed too; it is a relative name.
 		expect(uses('head -n 5 a.txt b.txt')).toEqual([
 			'read:head:5',
 			'read:head:a.txt',

@@ -255,7 +255,7 @@ async function buildVerifiedSummaryWithProvider(
 		return serialized
 	}
 
-	// The verifier's own request can overflow a small window. It is answered
+	// The verifier's own request can overflow a small window. That is answered
 	// with a ladder: send less, and when nothing is left to
 	// cut, work from everything it already has. Here "less" is the older half of
 	// the excerpt dropped behind a placeholder, at most three times, and

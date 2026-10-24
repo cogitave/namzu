@@ -279,7 +279,7 @@ interface FlagTable {
 	readonly valuedLong: ReadonlySet<string>
 }
 
-/** Operands of a command whose flags are known: an unknown flag stops flag parsing, . */
+/** Operands of a command whose flags are known: an unknown flag stops flag parsing. */
 function operandsByTable(table: FlagTable): (args: Args) => ShellWord[] {
 	const kind = (flag: string): 'boolean' | 'valued' | 'attached' | 'unknown' => {
 		if (flag.startsWith('--')) {
