@@ -186,7 +186,7 @@ describe('published model effort sets are exact and unknown stays unknown', () =
 			'xhigh',
 			'max',
 		])
-		expect(provider.reasoningEffortLevelsFor('gpt-6-astra-ultracode')).toBeUndefined()
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra-megamode')).toBeUndefined()
 		expect(provider.reasoningEffortLevelsFor('gpt-5.2')).toEqual([
 			'none',
 			'low',
