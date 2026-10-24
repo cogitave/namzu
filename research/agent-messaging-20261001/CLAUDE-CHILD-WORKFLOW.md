@@ -1,6 +1,6 @@
 # Live child workflow and direct operator messages
 
-Observed on 2026-10-01 in the actual installed interactive Claude Code 2.1.286,
+Observed on 2026-10-01 in an installed interactive Claude Code session,
 using Sonnet 5.5 through Claude Max. This is live provider evidence, not a
 scripted model. Safe mode disabled customizations; built-in tools remained
 available. Only a fresh owned scratch project and conversation were used.
@@ -66,7 +66,7 @@ This is a useful coordination gap to avoid copying into a host implementation.
 | --- | --- | --- |
 | Parent to an owned child | `send_message` resolves the turn's task gateway, calls `continueTask`, and records acceptance. The manager stamps `inboundMessages`; query-backed children drain it at provider-valid boundaries. | Same delivery boundary as the original; acceptance is not reading. Finished tasks are refused. |
 | Normal versus Hypermode delegation | Both call the existing `Agent` tool and `createSubagentRuntime`. Hypermode changes effort and model guidance. Workflow and phase labels are display annotations. | Shared child execution and message path; labels do not impose dependency barriers. |
-| Operator directly to a selected child | The current child transcript captures navigation keys and hides the ordinary composer. It has no direct child message action. | UI parity is absent. A model-mediated parent correction is not a direct operator composer. |
+| Operator directly to a selected child | The current child transcript captures navigation keys and hides the ordinary composer. It has no direct child message action. | A model-mediated parent correction is not a direct operator composer. |
 | Follow up after child completion | The current `send_message` refuses a terminal task. Saved child replay is read-only. | Same-identity idle follow-up needs a separate operation and lifecycle; it cannot be described as sending to a still-running task. |
 | Independent terminal to terminal | `send_session_message` uses live peer identity and authenticated local transport, with separate provenance and host admission. | Already implemented; it does not address child tasks. |
 
@@ -75,7 +75,7 @@ Code inspected: `packages/cli/src/integrations/subagents/runtime.ts`,
 `packages/cli/src/tui/agent.ts`, the child-surface input/render branches in
 `packages/cli/src/tui/App.tsx`, `packages/sdk/src/manager/agent/lifecycle.ts`,
 `packages/sdk/src/agents/QueryAgent.ts` and the query loop's `deliverInbound`.
-`ultracode` is not an active Namzu composer trigger or provider effort alias;
+The retired mode name is not an active Namzu composer trigger or provider effort alias;
 the session mode is Hypermode.
 
 ## Architecture consequences

@@ -6,9 +6,9 @@ The previous harness independently rendered primitive controls, but manually com
 
 ## Verified sources and comparable conditions
 
-The clean main reference is revision `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21`. Exact paths and licenses are in `DESIGN.md` and `packages/desktop/THIRD-PARTY-NOTICES.txt`. The independent window now copies original `ComposerSurface`, `ComposerControl`, `ComposerBanner`, `ComposerPendingApprovalPanel`, `WorkspacePageHeader`, `WorkspaceBreadcrumb`, Button, full CSS and the pure blueprint artwork function. It also executes the original `appearanceFonts.ts` default sync, with font-size constants extracted from the pinned contracts file. Verified render branches from SidebarChrome/Sidebar/MessagesTimeline/ChatComposer/ChatHeader provide the surrounding layout and compact/expanded states.
+The clean upstream copy is revision `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21`. Exact paths and licenses are in `DESIGN.md` and `packages/desktop/THIRD-PARTY-NOTICES.txt`. The independent window now uses the unmodified `ComposerSurface`, `ComposerControl`, `ComposerBanner`, `ComposerPendingApprovalPanel`, `WorkspacePageHeader`, `WorkspaceBreadcrumb`, Button, full CSS and the pure blueprint artwork function. It also executes the unmodified `appearanceFonts.ts` default sync, with font-size constants extracted from the pinned contracts file. Verified render branches from SidebarChrome/Sidebar/MessagesTimeline/ChatComposer/ChatHeader provide the surrounding layout and compact/expanded states.
 
-Both Electron windows use the same 1180×791 content viewport, theme, admitted message/tool order, content, draft and scroll offset. The reference receives safe displayed content, not local styles/components. Header artwork uses its original blue palette there and Namzu greens locally. The full peer runtime, account stores, sidebar resizing and tool expansion are not run. Original component appearance and selected composed branches are measured; this does not claim every peer workflow or platform is identical.
+Both Electron windows use the same 1180×791 content viewport, theme, admitted message/tool order, content, draft and scroll offset. The upstream window receives safe displayed content, not local styles/components. Header artwork uses its blue palette there and Namzu greens locally. The full peer runtime, account stores, sidebar resizing and tool expansion are not run. Original component appearance and selected composed branches are measured; this does not claim every peer workflow or platform is identical.
 
 ## Visible repairs
 
@@ -20,10 +20,10 @@ Both Electron windows use the same 1180×791 content viewport, theme, admitted m
 | Approval | Original attached warning surface, seam, grid/actions and compact command detail. Exact full inputs and destructive markers remain in disclosure; one-batch grant scope is visible. |
 | Timeline | User, narration, tools and final messages stay in event-admission order. Turn plus provider call ID owns each receipt, so reusing call_0 cannot overwrite a previous turn. Progress stays in place. |
 | Tool rows | Source collapsed-row geometry and icon treatment; corrected 8px shared radius. Actual status/progress and tool output remain available. |
-| Typography | Actual reference appearance defaults: root16px, prompt 14px, code 13px, grayscale smoothing. Previous CSS-only audit missed runtime code-size/smoothing defaults. |
+| Typography | Upstream appearance defaults: root16px, prompt 14px, code 13px, grayscale smoothing. Previous CSS-only audit missed runtime code-size/smoothing defaults. |
 | Header labels | Original WorkspaceBreadcrumb component and ChatHeader title branch; 14px medium labels, responsive 8/12px spacing and supported cap/alphabetic text-box trimming replace the former 12px manual breadcrumb. |
 
-Namzu intentionally allows drafting/queuing during approval; the reference disables its editor and hides its normal footer in that state. Namzu's extra exact-batch disclosure and writable editor are therefore recorded as behavior differences, not hidden by a pixel-parity claim. A one-pixel sidebar divider and the ASCII/action/header palette are recorded identity differences.
+Namzu intentionally allows drafting/queuing during approval; the upstream window disables its editor and hides its normal footer in that state. Namzu's extra exact-batch disclosure and writable editor are therefore recorded as behavior differences, not hidden by a pixel-level match claim. A one-pixel sidebar divider and the ASCII/action/header palette are recorded identity differences.
 
 ## Actual font proof
 

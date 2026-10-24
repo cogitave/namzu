@@ -160,7 +160,7 @@ wordmark was measured and captured without clipping or a duplicate text label.
 The final [native engine receipt](artifacts/native-harness-engines-20261004.json)
 records these checks separately from the earlier provider-only proof.
 
-Installed `claude` version 2.1.278 returned five models during initialize and
+An installed `claude` CLI returned five models during initialize and
 `list_models`; that metadata-only probe sent no prompt. The desktop subsequently
 attempted an actual native prompt and displayed the authentication notice while
 retaining the engine binding. Local credential inspection found empty
@@ -203,16 +203,15 @@ behavior. Native catalogue/TLS results belong in the separate receipt above.
 
 ## Project, permission and model selection follow-up
 
-The actual native reference client was inspected in Codex mode: project search,
+The actual native client was inspected in Codex mode: project search,
 New project, name/Source folders, Add folder on This computer, its native Windows
-folder dialog, approval menu, model submenu and reasoning-level control. The
-reference dialogs were cancelled without changing a user project or policy.
+folder dialog, approval menu, model submenu and reasoning-level control. Those dialogs were cancelled without changing a user project or policy.
 Its named multi-folder project and automatic approval reviewer exceed Namzu's
 current single-folder execution contexts; no placeholder control advertises them.
 The documented [project flow](https://learn.chatgpt.com/docs/projects),
 [permission modes](https://learn.chatgpt.com/docs/permission-modes) and
 [model selection](https://learn.chatgpt.com/docs/model-selection) were checked
-against the native observations. The reference default is workspace-write with
+against the native observations. The other client's default is workspace-write with
 on-request approval. Namzu retains its conservative native read-only/untrusted
 Ask first mapping and describes that difference explicitly.
 
@@ -283,8 +282,8 @@ Model search, actual catalogue rows, selected state and unavailable notices reta
 their existing ownership. Engine choices retain the actual installed-engine route.
 Short-window menus scroll within the available viewport, focus returns through
 the existing primitives, and reduced-motion styling removes the transitions.
-These are observed interaction and styling changes, not a claim of pixel parity
-with the reference application.
+These are observed interaction and styling changes, not a claim of pixel-level match
+with the other application.
 
 Ordinary tabs now use the pixel Namzu **N** for Namzu conversations, the respective
 native-engine mark for external conversations, and a spinner for running work.
@@ -298,7 +297,7 @@ short-window fitting, and light/dark and reduced-motion checks without fixture
 catalogues.
 
 The later authenticated native-engine check supersedes the earlier sign-in
-failure reports above: installed Claude Code **2.1.289** supplied **11 models**,
+failure reports above: installed Claude Code supplied **11 models**,
 completed the actual reply “Claude giriş kontrolü tamam.”, and retained it after
 renderer reload. No new login was needed. The
 [Claude reply image](artifacts/composer-polish-claude-reply-20261004.png) is evidence

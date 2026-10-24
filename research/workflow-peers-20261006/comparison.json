@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "reviewedOn": "2026-10-06",
-  "scope": "Source comparison and deterministic local contract checks; no inference-quality ranking or claim of complete framework parity.",
+  "scope": "Source comparison and deterministic local contract checks; no inference-quality ranking or claim that the frameworks are equivalent.",
   "namzuBaseline": "4f66c934295c14bbc85074a8d4e23b8161f5ef12",
   "execution": {
     "externalModelRequests": 0,
@@ -58,7 +58,7 @@
         "Pal communication and activity",
         "desktop context card and live VNC"
       ],
-      "caveat": "The reference artifact describes its older baseline; its original missing-feature rows are not the current Namzu backlog."
+      "caveat": "The compared artifact describes its older baseline; its original missing-feature rows are not the current Namzu backlog."
     },
     "monoCode": {
       "repository": "https://github.com/hardbeat920/monocode",

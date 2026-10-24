@@ -7,7 +7,7 @@ tags: [desktop, approvals, acp]
 
 # Edit approval card, 2026-10-07
 
-Reference: Codex's file-change approval (a diff box over a right-aligned wrap toggle, Edit, Reject in red, Accept in green).
+The file-change approval is a diff box over a right-aligned wrap toggle, with Edit, Reject (red) and Accept (green).
 
 ## What was proved
 

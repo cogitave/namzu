@@ -23,7 +23,7 @@ Authoritative expanded screenshots include [minimum dark](artifacts/minimum-dark
 
 [The initial fixed-slot run](artifacts/hover-fixed-layout-564aaf64-210a2171.json) is retained unchanged. Wide dark passed, then narrow light failed because the baseline user bubble was offscreen and Playwright's hover auto scrolled it by 110 px. Its clock dimensions and total content height were already constant. The runner now prepares a visible reader position through the app's scroll/follow event handlers before capturing the baseline; the strict geometry comparisons were preserved. This isolated preparation performs no direct storage writes.
 
-Earlier `motion-proof.json` and draft receipts document older dimensional hover behavior and are historical evidence, not the current contract. This proof makes no reference-app pixel-parity, native-update, model-performance or provider-execution claim. It sends no provider requests and performs no native actions. The separate persistence proof and native receipts remain unchanged.
+Earlier `motion-proof.json` and draft receipts document older dimensional hover behavior and are historical evidence, not the current contract. This proof makes no pixel-level match, native-update, model-performance or provider-execution claim. It sends no provider requests and performs no native actions. The separate persistence proof and native receipts remain unchanged.
 
 Reproduce from the repository root:
 

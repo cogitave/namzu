@@ -96,7 +96,7 @@ was read directly. It snapshots the request trajectory at cadence, runs at most
 one concurrent evaluation per judge, shares usage accounting and cancels work at
 run end. This motivates checking input fidelity and lifecycle before adding a
 new control loop. Namzu's existing advisory loop is different; this patch does
-not implement that concurrency design or claim parity with it.
+not implement that concurrency design or claim that it matches it.
 
 [RAGTruth](https://arxiv.org/abs/2401.00396) motivates distinguishing a retrieved
 passage from an answer supported by that passage. This local test does not run

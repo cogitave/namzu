@@ -7,7 +7,7 @@ Existing Pal friend chat, computer control and user state are separate contracts
 
 ## Primary sources
 
-These are source observations, not a claim of pixel parity or measured model
+These are source observations, not a claim of pixel-level match or measured model
 superiority. Upstream code was read without installing or executing another
 application. Similar project names were resolved before using their examples.
 

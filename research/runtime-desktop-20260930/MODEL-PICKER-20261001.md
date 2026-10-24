@@ -5,17 +5,17 @@
 The operator requested catalogue selection, filled selected navigation icons,
 small interaction animations and a subtle difference between the rail and
 sidebar. The supplied screenshot is an image reference; it does not establish
-the reference DOM, zoom, font face or motion.
+the target's DOM, zoom, font face or motion.
 
 The local appUI working copy at
 `/home/arda/workspaces/@cogitave/cogitave-labs/appUI` was inspected in
 `components/blocks/composer-panel/model-picker.tsx` and
 `styles/composer-panel.css`. Its model popup uses a 341px width, 282px height,
 20px corners, 48px provider column, 36px provider controls, 36px model rows and
-10px row corners. Its provider glyphs, Quick search and brief hover
-transitions informed the Namzu component. This concurrent working copy has no
+10px row corners. The Namzu component uses the same provider glyphs, Quick search and brief hover
+transitions. This concurrent working copy has no
 Git revision or license declaration; no pinned or licensed-copy claim is made.
-Namzu uses its installed accessible primitives and CSS, without the reference's
+Namzu uses its installed accessible primitives and CSS, without that copy's
 demo models or framework dependencies.
 
 Its icon family was verified against the official source at

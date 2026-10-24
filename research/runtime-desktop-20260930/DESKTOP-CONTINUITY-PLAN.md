@@ -14,21 +14,21 @@ The private native desktop already uses source-derived sidebar/composer/diff con
 - [x] **Safe queue editing.** `Edit latest`/Alt+Up no longer overwrites an unrelated non-empty draft. Explicit queued items have stable IDs, accessible inspect/edit/remove actions and accurate next-turn semantics.
 - [x] **Navigation ownership.** Explicit navigation generations and target checks prevent late history/provider requests selecting an older conversation and late job output entering another conversation's panel.
 - [x] **Native proof.** Real Electron/CLI tests cover reload/navigation, two draft owners, safe queue editing/removal, delayed navigation/output, offline reload, unsubmitted conversation reconnect/send/review and actual app shutdown after a signal. Dark/light, 600×540/reduced-motion and closed-queue source geometry are covered.
-- [x] **Delivery.** Package tests/typecheck/lint/build, native flows/reference DOM comparison, screenshots/receipt, documentation and a launch command. Parent integrates whole-workspace gates and commits; no remote write is included.
+- [x] **Delivery.** Package tests/typecheck/lint/build, native flows/DOM comparison against the target, screenshots/receipt, documentation and a launch command. Parent integrates whole-workspace gates and commits; no remote write is included.
 
 ## Contracts and limits
 
 - This is an application UI state correction. There is no new agent loop, conversation database, A2A transport or Pal deployment registry.
 - Drafts and queue remain main-process connection-local: window reload is recoverable, full application quit intentionally ends the owned host state. Do not advertise crash persistence or a native installer without implementing and testing it.
 - Editing/removing queued input affects only authored work that has not started. Running prompts are immutable in this surface. Failed/stopped turns do not silently replay queues.
-- Preserve the original reference composition, shared accessible primitives, brand tokens, motion/reduced-motion behavior and required license attribution. No reference product name belongs in runtime source or user-facing text.
+- Preserve the original composition, shared accessible primitives, brand tokens, motion/reduced-motion behavior and required license attribution. No upstream product name belongs in runtime source or user-facing text.
 - Project trust, provider errors and permission ownership stay governed by the existing CLI host. A renderer action cannot widen tool authorization.
 
 ## Source comparison for this slice
 
 - Original clones verified clean: `/tmp/namzu-workflow-peers-20260930.ckQyBT/t3code` at `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21`; sibling `zcode` at `29628c9acdb81b703bbd4080c207a0e7ce5e276e`.
 - Main reference `MessagesTimeline.tsx:1779` separates queued items by stable IDs, attributes their actual scheduling status and offers explicit per-item actions. Its `ChatView.tsx:7241` restores authored queue content without silently discarding overflowing material. Namzu uses its existing next-turn admission semantics and does not advertise mid-turn steer where the desktop host has no such method.
-- Secondary reference `ConversationComposer.tsx:748` binds drafts to an explicit workspace/session owner and guards delayed persistence against scope changes. Namzu retains small text drafts in its owning main-process conversation; it does not import the reference's renderer store or account/runtime implementation.
+- Drafts bind to an explicit workspace/session owner and delayed persistence is guarded against scope changes. Namzu retains small text drafts in its owning main-process conversation; it does not import a renderer store or account/runtime implementation.
 - Shared popover, button, typography, colour and motion primitives remain source-derived; queued content has its own accessible pending-work surface. Closing that surface does not change the previously measured conversation geometry.
 
 ## Root corrections found during verification

@@ -6,7 +6,7 @@ Scope: the same two-phase colour prompt as `tui-orchestration-parity-results.md`
 
 - **Before**: `feat/orchestration-tui-parity` at `0a394539`.
 - **After**: the same branch with read-only launches started without a review in `prompt` mode, phases on the rail and in the cockpit, and the closing line's phase count and spend.
-- **Reference**: the reference terminal's run of the same prompt with its script-driven workflow tool (auto mode; one workflow, three agents).
+- **Compared with**: the other terminal's run of the same prompt with its script-driven workflow tool (auto mode; one workflow, three agents).
 - **Real model**: one run of the after build with the owner's codex / gpt-5.6-luna configuration, orchestrate on, `prompt` mode, in a fresh scratch directory.
 
 Frames were captured at 120x40, 80x24 and 40x30; excerpts are 120x40 unless named, with the boot notices left out.
@@ -26,14 +26,14 @@ Frames were captured at 120x40, 80x24 and 40x30; excerpts are 120x40 unless name
 | Closing line | `✻ Worked for 12s · 3 agents` | `✻ Worked for 11s · 3 agents in 2 phases · 27.0k tokens` | `✻ Crunched for 20s · done 9:15 AM`, after `● Dynamic workflow "…" completed · 12s` |
 | Wide cockpit row | last cell on the frame's padding (`9.0k│`) | one blank cell before the border | — |
 
-Kept from namzu: the per-batch launch receipt and per-agent completion rows with their collapsed answers (the reference writes one workflow line and a completion line); `✓`/`✗` and the status word in the cockpit; the drill-in transcript with the prompt, every tool row and the answer in order.
+Kept from namzu: the per-batch launch receipt and per-agent completion rows with their collapsed answers (the other tool writes one workflow line and a completion line); `✓`/`✗` and the status word in the cockpit; the drill-in transcript with the prompt, every tool row and the answer in order.
 
 ## Not adopted, and why
 
-- **One rail line per workflow.** The reference can draw a whole workflow on one line because its script knows every agent up front. namzu's parent launches phase by phase, so the rail draws what exists: finished phases folded to one line, the live phase expanded.
+- **One rail line per workflow.** The other tool can draw a whole workflow on one line because its script knows every agent up front. namzu's parent launches phase by phase, so the rail draws what exists: finished phases folded to one line, the live phase expanded.
 - **`Prompt` / `Activity` / `Outcome` sections in the agent view.** namzu's drill-in already shows the prompt (`›`), each tool row and the final answer (`∴`) in that order; three labels would cost three rows on a 24-row screen and add nothing that is not already on it.
 - **Right/Left to drill in and out.** namzu's cockpit uses ←/→ to move between panes and Enter to open an agent; changing that would change what those keys do.
-- **Terminal tab title.** The reference sets a live title (`◐ <short label>`). namzu writes to the terminal outside its frame only when the operator opts in, and only content-free text (`tui.notifications`); a title carrying a model-written workflow label needs the same opt-in and sanitising, so it is left for a change of its own.
+- **Terminal tab title.** The other tool sets a live title (`◐ <short label>`). namzu writes to the terminal outside its frame only when the operator opts in, and only content-free text (`tui.notifications`); a title carrying a model-written workflow label needs the same opt-in and sanitising, so it is left for a change of its own.
 - **Wall-clock time in the closing line** (`done 9:15 AM`): namzu prints no clock times anywhere else.
 - **A `/workflows` list and "save".** D5: namzu has no workflow scripts; Ctrl+T and `/agents` are the workflow view.
 

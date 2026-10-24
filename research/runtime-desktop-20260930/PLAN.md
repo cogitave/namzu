@@ -127,7 +127,7 @@ development objective. Existing live jobs and unrelated worktrees are outside it
 The user rejected the styling again. Functional gates remain valid for their
 recorded commits; they do not establish visual acceptance.
 
-- [x] Directly adapt the reference's composed sidebar cards, titlebar, timeline
+- [x] Adapt the composed sidebar cards, titlebar, timeline
   rows, composer body/footer/context strip and diff surface. Remove independent
   CSS overrides. Keep only the operator wordmark and phosphor brand tokens.
 - [x] Render an isolated reference from the pinned source presentation components
