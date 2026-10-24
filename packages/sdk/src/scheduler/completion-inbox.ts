@@ -74,6 +74,11 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
  * has, so a host gateway needs no change to take part — a host that was
  * firing completions into a listener set with no listeners now has one.
  */
+export interface CompletionInboxOptions {
+	/** See {@link CompletionInbox.holdsTurnOpen}. Default `true`. */
+	readonly holdsTurnOpen?: boolean
+}
+
 export class CompletionInbox {
 	private readonly unheard = new Map<TaskId, TaskHandle>()
 	private readonly claimed = new Set<TaskId>()
@@ -151,7 +156,23 @@ export class CompletionInbox {
 	 * `log` is optional and unresolved until it is actually needed (the
 	 * eviction-warning path in `hold()`), same reason as `LocalTaskScheduler`.
 	 */
-	constructor(private readonly log?: Logger) {}
+	constructor(
+		private readonly log?: Logger,
+		options: CompletionInboxOptions = {},
+	) {
+		this.holdsTurnOpen = options.holdsTurnOpen !== false
+	}
+
+	/**
+	 * Whether a turn about to end waits here for the tasks still running.
+	 *
+	 * `true` (the default) is the original contract: the turn parks at its settle
+	 * point until the tasks it launched report back, so their results enter the
+	 * same turn. `false` lets the turn end with them still running; the host owns
+	 * their completion from then on (it keeps them alive and wakes the model when
+	 * they end). Completions that have already arrived are delivered either way.
+	 */
+	readonly holdsTurnOpen: boolean
 
 	/**
 	 * Start listening.
@@ -347,6 +368,15 @@ export class CompletionInbox {
 	/** Whether anything is either waiting to be told or still running. */
 	get hasPendingWork(): boolean {
 		return this.unheard.size > 0 || this.outstanding.size > 0
+	}
+
+	/**
+	 * Whether the turn has a reason to wait at its settle point: anything
+	 * pending when it {@link holdsTurnOpen}, else only a completion already in
+	 * hand (waiting for its persistence gate).
+	 */
+	get holdsTurn(): boolean {
+		return this.holdsTurnOpen ? this.hasPendingWork : this.unheard.size > 0
 	}
 
 	/**

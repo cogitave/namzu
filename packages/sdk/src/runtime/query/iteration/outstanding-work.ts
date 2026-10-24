@@ -163,7 +163,7 @@ export async function* holdForOutstandingWork(
 	hasToolCalls: boolean,
 	deliverInbound: () => number | Promise<number>,
 ): AsyncGenerator<SessionEvent, boolean> {
-	const inbox = ctx.completionInbox?.hasPendingWork ? ctx.completionInbox : undefined
+	const inbox = ctx.completionInbox?.holdsTurn ? ctx.completionInbox : undefined
 	const jobs = ctx.awaitedJobs?.hasPendingWork ? ctx.awaitedJobs : undefined
 	if (!inbox && !jobs) return false
 
@@ -370,7 +370,14 @@ export function settleOutstandingWork(ctx: IterationContext): void {
 /** Work this turn walked away from. See {@link settleOutstandingWork}. */
 export function recordAbandonedWork(ctx: IterationContext): void {
 	const abandoned = ctx.completionInbox?.outstandingTaskIds ?? []
-	if (abandoned.length > 0) {
+	if (abandoned.length > 0 && ctx.completionInbox?.holdsTurnOpen === false) {
+		// Handed over on purpose: the host keeps these running and tells the
+		// model when they end, so the turn did not walk away from them.
+		ctx.log.info('Turn ended with delegated work left running in the background', {
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
+			'namzu.runtime.tasks': abandoned,
+		})
+	} else if (abandoned.length > 0) {
 		ctx.log.warn('Turn ended with delegated work still running', {
 			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.tasks': abandoned,
