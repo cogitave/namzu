@@ -2,7 +2,7 @@
  * The "needs your approval" notice, held back until the person has had a
  * chance to answer on their own.
  *
- * The reference terminal's rule: a permission notice is sent only when the
+ * A permission notice is sent only when the
  * dialog has been open for 6000 ms with no keypress since it opened (or since
  * the last one), so someone sitting at the screen is never pinged about a
  * prompt they are already reading. The same delay applies to the notification
@@ -12,7 +12,7 @@
  * a test advances time itself instead of waiting for it.
  */
 
-/** The reference's delay (`Ran = 6000`). */
+/** How long an open permission dialog waits for a keypress before it notifies. */
 export const APPROVAL_NOTIFICATION_MS = 6_000
 
 export interface ApprovalNotifierDeps {

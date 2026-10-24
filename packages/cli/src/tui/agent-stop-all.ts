@@ -3,8 +3,7 @@
  *
  * The chord works from the composer and from the rail. Nothing running says
  * so; the first press arms a short confirm; the second press inside the
- * window stops every background agent still going and says how many.
- * The reference arms for 3 s (REA `uqe=3000`, chunk-mdxeekqd.js).
+ * window (3 s) stops every background agent still going and says how many.
  */
 
 import type { SubagentActivity } from '../integrations/subagents/activity.js'

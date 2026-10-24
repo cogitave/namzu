@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { formatElapsed, formatTook } from '../units.js'
 
 describe('formatTook', () => {
-	it('says a sub-second duration in milliseconds, as the reference does', () => {
+	it('says a sub-second duration in milliseconds', () => {
 		expect(formatTook(420)).toBe('420ms')
 		expect(formatTook(999.4)).toBe('999ms')
 	})

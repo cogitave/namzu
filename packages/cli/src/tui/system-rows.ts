@@ -3,8 +3,8 @@
  *
  * Every row the app writes about itself (a hook said something, the provider
  * changed, a reply was paused, a job ended) used to pick its own gutter glyph,
- * so the margin collected a dozen symbols that nothing explained. The
- * reference terminal has one: a coloured dot, with a `⎿` line for anything
+ * so the margin collected a dozen symbols that nothing explained. Now
+ * there is one: a coloured dot, with a `⎿` line for anything
  * that continues it. The level says how much the person should care; the
  * words say what happened.
  *
@@ -42,7 +42,7 @@ export function systemRowStyle(level: SystemLevel): SystemRowStyle {
 	}
 }
 
-/** The text of an interruption, in the reference's words with Namzu's name. */
+/** The text of an interruption. */
 export const INTERRUPTED_TEXT = 'Interrupted · What should Namzu do instead?'
 /** After a send-now steer the next instruction is already on its way, so no question. */
 export const INTERRUPTED_BY_STEER_TEXT = 'Interrupted'
@@ -128,7 +128,7 @@ export function goalRoundHeadline(round: number, max: number): string {
 
 /**
  * The notice after a copy request goes out. The terminal never confirms a
- * clipboard write, so this says what was sent, in the reference's short form,
+ * clipboard write, so this says what was sent, in a short form,
  * and what to do if the paste comes up empty.
  */
 export function clipboardSentNotice(chars: number, what?: string): string {

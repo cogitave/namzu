@@ -13,7 +13,7 @@ import { resolve } from 'node:path'
 
 const FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
 
-/** Rules shown before the rest are counted, as in the reference. */
+/** Rules shown before the rest are counted. */
 export const MAX_SHOWN_GRANT_RULES = 8
 
 export interface FolderGrants {

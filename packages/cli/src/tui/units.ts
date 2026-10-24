@@ -1,7 +1,7 @@
 /** Small unit formatters shared by the live region and the transcript. Pure; no Ink. */
 
 /**
- * The reference's duration format, seconds floored: `420ms` → `0s`,
+ * The duration format, seconds floored: `420ms` → `0s`,
  * `3210ms` → `3s`, `12000ms` → `12s`, `83000ms` → `1m 23s`,
  * `7384000ms` → `2h 3m 4s`, one space between units.
  */
@@ -18,7 +18,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * A finished call's duration. Like the reference's formatter, a value under a
+ * A finished call's duration. A value under a
  * second is said in milliseconds (`420ms`) instead of rounding down to `0s`;
  * a live counter keeps using {@link formatElapsed}, which never flickers
  * through milliseconds.

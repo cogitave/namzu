@@ -1,7 +1,7 @@
 import { structuredPatch } from 'diff'
 import type { ToolDiffHunk } from '../../types/tool/presentation.js'
 
-/** Lines of unchanged text kept around each change, as `git diff` and the reference do. */
+/** Lines of unchanged text kept around each change, as `git diff` does. */
 const CONTEXT_LINES = 3
 /** A diff that takes longer than this is abandoned for the coarse count below. */
 const DIFF_TIMEOUT_MS = 5000
@@ -74,7 +74,7 @@ function coarseDiff(before: string, after: string): LineDiff {
 }
 
 /**
- * The real line diff between two bodies, the way git and the reference count it.
+ * The real line diff between two bodies, the way git counts it.
  *
  * A line ends at its newline, so a body whose only difference is the final
  * newline changes one line on each side (`+1 -1`), never nothing. The counts

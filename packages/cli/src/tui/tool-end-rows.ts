@@ -102,7 +102,7 @@ export function toolEndRows(
 	if (web) {
 		// Two rows, the call and what it came to, drawn as `web` activity:
 		// consecutive ones sit together and the result list stays behind
-		// Ctrl+O, as the reference terminal draws them.
+		// Ctrl+O.
 		const activity: WebActivity = {
 			...web,
 			...((event.web?.target ?? start?.web?.target)

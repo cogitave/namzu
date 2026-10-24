@@ -391,10 +391,10 @@ export interface StatusLineLayout {
  * a goal label is the durable work state, so both reserve their width before
  * the model identity does. The model is Namzu's own addition and shows only
  * while the whole row fits beside it. Past that the row loses items from its
- * right end, the way the reference's clipped row does: `↓ to manage` (which
+ * right end: `↓ to manage` (which
  * first shrinks to `↓ agents`, the only way to the agents rail, and goes after
- * the cycle key), `← N agents`, `esc to interrupt`, then the cycle key (the
- * reference hides it first once a task is running), the context meter, the
+ * the cycle key), `← N agents`, `esc to interrupt`, then the cycle key (hidden
+ * first once a task is running), the context meter, the
  * effort label, the shell pill, the pull request item; after that the quiet reminder goes, then the mode
  * truncates, and last of all it goes. A line too wide for its room loses
  * whole items, never half of one, except the mode, which is the state itself.

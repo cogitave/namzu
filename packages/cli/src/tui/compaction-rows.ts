@@ -1,7 +1,7 @@
 /**
  * What the transcript says about compaction, in plain words.
  *
- * The reference terminal says three short things: while it works, "Compacting
+ * The transcript says three short things: while it works, "Compacting
  * conversation…"; afterwards, "Conversation compacted (ctrl+o for history)";
  * and when it cannot, "Compaction failed · conversation could not be reduced
  * below the context limit". Everything else (message counts, token estimates,

@@ -7545,7 +7545,7 @@ export function toAgentEvent(
 			// either way. `reliefWasEnough: false` additionally means a
 			// summarization followed, and the reader will see its own line —
 			// so this one says what IT cost rather than claiming the total.
-			// Never drawn: the reference terminal shows nothing for it, and the
+			// Never drawn: the transcript shows nothing for it, and the
 			// counts stay in `/context`. The text remains for headless output.
 			return {
 				kind: 'context',

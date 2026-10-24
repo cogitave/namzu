@@ -35,7 +35,7 @@ adds no assistant answer, checkpoint or turn, and is refused while a turn is
 active. Verifier usage, if any,
 remains in the compaction result shown by the UI.
 
-What the transcript shows is deliberately short, in the reference's words. While
+What the transcript shows is deliberately short. While
 a pass runs, the live area says `Compacting conversation…` with the spinner and
 the clock (for `/compact`, and for every in-turn automatic pass: the SDK emits a
 `compaction_started` event when the pass begins, and the row stays until the

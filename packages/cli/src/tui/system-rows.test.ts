@@ -87,7 +87,7 @@ describe('small shared wording', () => {
 		expect(goalRoundHeadline(2, 5)).toBe('Goal, attempt 2 of 5')
 	})
 
-	it('keeps the copy notice reference-short', () => {
+	it('keeps the copy notice short', () => {
 		expect(clipboardSentNotice(1234)).toBe(
 			'Sent 1,234 chars via OSC 52 · if paste fails, allow clipboard access in your terminal',
 		)

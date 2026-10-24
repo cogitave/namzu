@@ -12,7 +12,7 @@ import {
 } from './compaction-rows.js'
 
 describe('compaction wording', () => {
-	it('uses the reference words', () => {
+	it('uses the short compaction words', () => {
 		expect(COMPACTING_LABEL).toBe('Compacting conversation…')
 		expect(COMPACTED_TEXT).toBe('Conversation compacted')
 		expect(COMPACTED_HINT).toBe('(ctrl+o for history)')
