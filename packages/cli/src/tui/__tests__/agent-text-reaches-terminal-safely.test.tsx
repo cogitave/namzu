@@ -216,7 +216,7 @@ it('escapes permission, live-tool and transcript output while preserving the req
 
 	releaseLiveTool?.()
 	releaseLiveTool = null
-	await waitUntil(screen, () => painted(screen).includes(`✓ Bash(${VISIBLE})`))
+	await waitUntil(screen, () => painted(screen).includes(`● Bash(${VISIBLE})`))
 	expect(painted(screen)).toContain(VISIBLE)
 	expectNoAgentControls(screen)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)

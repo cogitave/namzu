@@ -161,7 +161,7 @@ it.each([40, 80])(
 		screen.press('find muse')
 		await screen.waitForRender()
 		screen.press('\r')
-		await waitUntil(screen, () => flattened().includes('ctrl+o details'))
+		await waitUntil(screen, () => flattened().includes('ctrl+o to expand'))
 		expect(painted()).toContain('Available models')
 		expect(painted()).toContain('Muse Spark 1.3 Contributor Free')
 		expect(painted()).toContain('Context 1M')

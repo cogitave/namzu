@@ -6,6 +6,8 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
+import { diffBodyFromFacts } from './diff-rows.js'
+import { displayPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -15,6 +17,7 @@ import {
 	tidyTerminalOutput,
 	unknownToolNotice,
 } from './tidy-tool-output.js'
+import { clipText } from './truncation.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -494,6 +497,8 @@ export type AgentEvent =
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
+			/** `detail` is the change to a file as diff rows; see `diff-rows.ts`. */
+			readonly diff?: { readonly preview: number }
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
@@ -4679,7 +4684,7 @@ export async function createAgentSession(
 				while (queue.length > 0) {
 					const next = queue.shift()
 					if (!next) break
-					const mapped = toAgentEvent(next, presenter, readsOnly)
+					const mapped = toAgentEvent(next, presenter, readsOnly, cwd)
 					if (mapped) yield mapped
 				}
 				if (settled) break
@@ -6723,7 +6728,7 @@ async function* runTurn({
 					// receipts and reasoning before the next user turn.
 					continue
 				}
-				const mapped = toAgentEvent(event, presenter, readsOnly)
+				const mapped = toAgentEvent(event, presenter, readsOnly, workingDirectory)
 				if (!mapped) continue
 				yield mapped
 			}
@@ -7075,6 +7080,8 @@ export function toAgentEvent(
 	presenter: ToolPresenter,
 	/** Whether a call only reads, from the tool's own declaration; see `tool-start.readOnly`. */
 	readsOnly?: (toolName: string, input: unknown) => boolean,
+	/** The working folder, so a path in a row or an error is shown relative to it. */
+	cwd?: string,
 ): AgentEvent | null {
 	switch (event.type) {
 		case 'hosted_tool': {
@@ -7154,9 +7161,8 @@ export function toAgentEvent(
 				toolName: event.toolName,
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
-					if (view.kind === 'diff') rememberCallDiff(event.toolUseId, view)
 					return {
-						summary: viewToSummary(view),
+						summary: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
 							const command =
 								view.kind === 'terminal'
@@ -7237,8 +7243,14 @@ export function toAgentEvent(
 			const declined = view.kind === 'generic' && view.declined !== undefined
 			// A refusal or failure the kernel classed says so in a sentence of its own.
 			const classed =
-				event.isError && event.facts?.kind === 'failure' ? failureFactsLine(event.facts) : undefined
-			const detail = unknownTool || declined || classed ? undefined : viewToLines(view)
+				event.isError && event.facts?.kind === 'failure'
+					? failureFactsLine(event.facts, cwd)
+					: undefined
+			// What changed in a file, drawn from the kernel's own line diff when it
+			// reported one; otherwise the body the view describes.
+			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts)
+			const detail =
+				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7257,9 +7269,7 @@ export function toAgentEvent(
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
-			const headline = event.isError
-				? undefined
-				: factsHeadline(event.facts, view.kind === 'diff' ? view : takeCallDiff(event.toolUseId))
+			const headline = event.isError ? undefined : factsHeadline(event.facts)
 			const withoutRepeatedSummary =
 				plainFailure === undefined &&
 				first !== undefined &&
@@ -7288,6 +7298,7 @@ export function toAgentEvent(
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
+				...(diffBody ? { diff: { preview: diffBody.preview } } : {}),
 				...(() => {
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}
@@ -7618,29 +7629,6 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 	}
 }
 
-/**
- * The text an edit replaced and what replaced it, from the call's own view, kept
- * until the call finishes: the finished result carries no diff, and the headline
- * "Edited a.ts +2 −1" counts lines from this. A call that never finishes leaves
- * its entry behind, so the oldest are dropped past a small bound.
- */
-const callDiffs = new Map<string, { readonly before: string; readonly after: string }>()
-const CALL_DIFFS_KEPT = 64
-
-function rememberCallDiff(toolUseId: string, view: { before: string; after: string }): void {
-	callDiffs.set(toolUseId, { before: view.before, after: view.after })
-	if (callDiffs.size > CALL_DIFFS_KEPT) {
-		const oldest = callDiffs.keys().next().value
-		if (oldest !== undefined) callDiffs.delete(oldest)
-	}
-}
-
-function takeCallDiff(toolUseId: string): { before: string; after: string } | undefined {
-	const diff = callDiffs.get(toolUseId)
-	callDiffs.delete(toolUseId)
-	return diff
-}
-
 /** The tool call row: one line naming what the call is about. */
 export function viewToSummary(view: ToolCallView): string {
 	switch (view.kind) {
@@ -7672,8 +7660,20 @@ function summarySaysAll(line: string, summary: string): boolean {
 }
 
 function truncate(value: string, max: number): string {
-	const oneLine = value.replace(/\s+/g, ' ')
-	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+	return clipText(value.replace(/\s+/g, ' '), max)
+}
+
+/**
+ * The call row names the file as the person should read it. A summary that is
+ * exactly the `path` the call carried is shown relative to the working folder
+ * (`~/x` or the full path when it lies outside), never as `../../x`.
+ */
+function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
+	const path =
+		typeof input === 'object' && input !== null ? (input as { path?: unknown }).path : undefined
+	return typeof path === 'string' && path.length > 0 && summary === path
+		? displayPath(path, cwd)
+		: summary
 }
 
 function diffContentLines(value: string): string[] {

@@ -46,7 +46,7 @@ explain why they cannot run and are checked again when selected.
 | `/context` | Show the latest context measurement and cleanup summary; `/context details` adds thresholds and cleanup counters. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
-| `/diff` | Show what is uncommitted in this working tree. |
+| `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines (three lines of context, a gutter of line numbers). |
 | `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |

@@ -212,7 +212,19 @@ describe('edit and write', () => {
 			kind: 'edit',
 			path: join(dir, 'a.ts'),
 			replacements: 1,
+			added: 1,
+			removed: 1,
+			hunks: [
+				{
+					oldStart: 1,
+					oldLines: 1,
+					newStart: 1,
+					newLines: 1,
+					lines: ['-export const a = 1', '+export const a = 2'],
+				},
+			],
 		})
+		expect(result.output).toContain('1 replacement(s) (+1 -1)')
 	})
 
 	it('write says created for a new file and updated for a replaced one', async () => {

@@ -178,8 +178,28 @@ export function wrapSpans(spans: readonly DisplaySpan[], width: number): Display
 			rowWidth += spaceWidth
 		} else endRow()
 
+		// Where the current word begins in this row, so a path too long for a row
+		// can be broken after one of its own separators instead of mid-name.
+		let wordStart = row.length
 		for (const g of word) {
-			if (rowWidth + g.width > room && row.length > 0) endRow()
+			if (rowWidth + g.width > room && row.length > 0) {
+				let split = -1
+				for (let n = row.length - 1; n >= wordStart; n -= 1) {
+					const text = (row[n] as Glyph).text
+					if (text === '/' || text === '\\') {
+						split = n + 1
+						break
+					}
+				}
+				if (split > 0 && split < row.length) {
+					const carried = row.slice(split)
+					row = row.slice(0, split)
+					endRow()
+					row = carried
+					rowWidth = carried.reduce((sum, c) => sum + c.width, 0)
+				} else endRow()
+				wordStart = 0
+			}
 			row.push(g)
 			rowWidth += g.width
 		}

@@ -104,6 +104,7 @@
 	"dependencies": {
 		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
 		"brace-expansion": "^2.1.4",
+		"diff": "9.0.0",
 		"fast-png": "^8.0.0",
 		"minimatch": "^9.0.9",
 		"pica": "^10.0.3",

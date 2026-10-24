@@ -82,6 +82,19 @@ export interface ToolTextWindow {
 	readonly totalBytes: number
 }
 
+/**
+ * One hunk of a line diff: the changed lines with up to three unchanged lines
+ * around them. Every row of `lines` is a space, `+` or `-` followed by the
+ * line's text, without its newline. Line numbers start at 1.
+ */
+export interface ToolDiffHunk {
+	readonly oldStart: number
+	readonly oldLines: number
+	readonly newStart: number
+	readonly newLines: number
+	readonly lines: readonly string[]
+}
+
 /** Why a call did not do what it was asked, as a kind a host can phrase for a person. */
 export type ToolFailureReason =
 	| 'not_found'
@@ -154,6 +167,13 @@ export type ToolFacts =
 			readonly kind: 'edit'
 			readonly path?: string
 			readonly replacements?: number
+			/** Lines added and removed, counted from a real line diff of the whole file. */
+			readonly added?: number
+			readonly removed?: number
+			/** The change as hunks with three lines of context. Capped; see `hunksTruncated`. */
+			readonly hunks?: readonly ToolDiffHunk[]
+			/** Some rows of the change are not in `hunks`; `added` and `removed` still cover all of it. */
+			readonly hunksTruncated?: true
 	  }
 	| {
 			readonly kind: 'write'
@@ -163,6 +183,9 @@ export type ToolFacts =
 			readonly bytes?: number
 			readonly added?: number
 			readonly removed?: number
+			/** The change as hunks; a created file is one hunk of added lines. Capped; see `hunksTruncated`. */
+			readonly hunks?: readonly ToolDiffHunk[]
+			readonly hunksTruncated?: true
 	  }
 	| {
 			readonly kind: 'failure'

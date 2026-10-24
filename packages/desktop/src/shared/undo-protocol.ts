@@ -40,12 +40,15 @@ export function readUndoStatus(value: unknown): DesktopTurnUndo[] | undefined {
 	for (const item of value.turns) {
 		if (!record(item)) return undefined
 		const skipped = readSkipped(item.skipped)
+		// An earlier CLI named these `added` and `removed`, which read as line counts.
+		const created = item.created ?? item.added
+		const deleted = item.deleted ?? item.removed
 		if (
 			!text(item.turnId, 200) ||
 			!STATES.includes(item.status as string) ||
 			!count(item.files) ||
-			!count(item.added) ||
-			!count(item.removed) ||
+			!count(created) ||
+			!count(deleted) ||
 			typeof item.uncoveredShell !== 'boolean' ||
 			!skipped
 		)
@@ -54,8 +57,8 @@ export function readUndoStatus(value: unknown): DesktopTurnUndo[] | undefined {
 			turnId: item.turnId,
 			status: item.status as DesktopTurnUndo['status'],
 			files: item.files,
-			added: item.added,
-			removed: item.removed,
+			created,
+			deleted,
 			uncoveredShell: item.uncoveredShell,
 			skipped,
 		})

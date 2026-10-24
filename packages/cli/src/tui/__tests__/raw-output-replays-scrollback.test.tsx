@@ -244,7 +244,7 @@ it('prints complete tool bodies without rich gutters or collapse hints', () => {
 	try {
 		const frame = harness.lastFrame() ?? ''
 		expect(frame.split('\n')).toEqual(expect.arrayContaining(detail))
-		expect(frame).not.toContain('… 6 lines not shown')
+		expect(frame).not.toContain('… +6 lines')
 		expect(frame).not.toContain('▏')
 		expect(frame).not.toContain('⏺')
 	} finally {

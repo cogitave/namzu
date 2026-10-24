@@ -7,8 +7,8 @@ const status = {
 	turnId: 'turn-1',
 	status: 'applied',
 	files: 2,
-	added: 1,
-	removed: 0,
+	created: 1,
+	deleted: 0,
 	uncoveredShell: true,
 	skipped: [{ path: '/w/big.bin', reason: 'too-large' }],
 }
@@ -40,6 +40,12 @@ describe('undo wire guards', () => {
 		expect(
 			readUndoResult({ turnId: 'turn-1', status: 'undone', files: { '/w/a.ts': 'restored' } }),
 		).toMatchObject({ status: 'undone' })
+	})
+	it('still reads the names an earlier CLI used for the file counts', () => {
+		const { created, deleted, ...rest } = status
+		expect(readUndoStatus({ turns: [{ ...rest, added: created, removed: deleted }] })).toEqual([
+			status,
+		])
 	})
 	it('refuses a status or plan that is out of range or the wrong shape', () => {
 		expect(readUndoStatus({ turns: [{ ...status, status: 'weird' }] })).toBeUndefined()

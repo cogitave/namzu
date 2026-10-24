@@ -109,7 +109,7 @@ it.each([40, 100])(
 		]
 		const s = await start(cols)
 		const painted = () => s.scrollback().join('\n')
-		await until(() => /ctrl\+o\s+details/.test(painted()))
+		await until(() => /ctrl\+o\s+to\s+expand/.test(painted()))
 		expect(painted()).toContain('Conversation read')
 		expect(painted()).toContain('Preview flagged')
 		expect(painted()).toContain('Original tool reported an error')

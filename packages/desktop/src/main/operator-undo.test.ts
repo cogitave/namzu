@@ -49,8 +49,8 @@ const row = (status: string) => ({
 	turnId: 'turn-1',
 	status,
 	files: 2,
-	added: 0,
-	removed: 0,
+	created: 0,
+	deleted: 0,
 	uncoveredShell: false,
 	skipped: [],
 })

@@ -675,6 +675,94 @@ describe('the rows under a tool call', () => {
 		})
 	})
 
+	it('draws an edit from the kernel hunks, with the kernel counts, not from the call', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'edit',
+				isError: false,
+				result: 'Edited /p/a.ts: 4 replacement(s) (+4 -4)',
+				facts: {
+					kind: 'edit',
+					path: '/p/a.ts',
+					replacements: 4,
+					added: 4,
+					removed: 4,
+					hunks: [
+						{
+							oldStart: 2,
+							oldLines: 3,
+							newStart: 2,
+							newLines: 3,
+							lines: [' keep', '-old', '+new', ' keep'],
+						},
+					],
+				},
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect(event).toMatchObject({
+			kind: 'tool-end',
+			headline: 'Edited a.ts +4 −4',
+			detail: ['2   keep', '3 - old', '3 + new', '4   keep'],
+			diff: { preview: 40 },
+		})
+	})
+
+	it('shows a created file as a short diff and an overwrite as a full one', () => {
+		const written = (operation: 'created' | 'updated') =>
+			toAgentEvent(
+				{
+					type: 'tool_completed',
+					sessionId,
+					turnId,
+					toolUseId,
+					toolName: 'write',
+					isError: false,
+					result: 'Wrote x',
+					facts: {
+						kind: 'write',
+						path: '/p/x.txt',
+						operation,
+						added: 1,
+						removed: 0,
+						hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, lines: ['+one'] }],
+					},
+				} as unknown as SessionEvent,
+				presenter,
+			)
+		expect(written('created')).toMatchObject({
+			headline: 'Created x.txt +1',
+			diff: { preview: 10 },
+		})
+		expect(written('updated')).toMatchObject({
+			headline: 'Updated x.txt +1',
+			diff: { preview: 40 },
+		})
+	})
+
+	it('names a missing file as the model gave it, not as a raw absolute path', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'read',
+				isError: true,
+				result: 'ENOENT',
+				facts: { kind: 'failure', reason: 'not_found', subject: '/work/proj/missing-file.txt' },
+			} as unknown as SessionEvent,
+			presenter,
+			undefined,
+			'/work/proj',
+		)
+		expect(event).toMatchObject({ plainFailure: 'Couldn’t find missing-file.txt.' })
+	})
+
 	it('renders creation diffs without a phantom final line', () => {
 		expect(
 			viewToLines({

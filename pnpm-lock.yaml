@@ -716,6 +716,9 @@ importers:
       brace-expansion:
         specifier: ^2.1.4
         version: 2.1.4
+      diff:
+        specifier: 9.0.0
+        version: 9.0.0
       fast-png:
         specifier: ^8.0.0
         version: 8.0.0

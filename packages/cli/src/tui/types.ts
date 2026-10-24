@@ -59,6 +59,11 @@ export interface TranscriptMessage {
 	/** Collapsible body under the line (tool diff / output). */
 	readonly detail?: readonly string[]
 	/**
+	 * `detail` is a diff (see `diff-rows.ts`): rows are coloured by their
+	 * markers, and the body shows its first `preview` rows before the fold.
+	 */
+	readonly diff?: { readonly preview: number }
+	/**
 	 * Stable reference identifying an expandable body for Ctrl+O.
 	 *
 	 * Assigned once, when the row is pushed, and monotone for the life of the
