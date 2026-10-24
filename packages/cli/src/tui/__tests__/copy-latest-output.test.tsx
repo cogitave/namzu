@@ -202,7 +202,7 @@ it('sends the exact raw Markdown and keeps it after /clear-screen', async () => 
 	await waitUntil(() => sendCalls === 1)
 	await tick(80)
 	await chooseWholeResponse(harness)
-	await frameShows(harness, 'Terminal, multiplexer or remote-session policy may ignore OSC 52')
+	await frameShows(harness, 'via OSC 52 · if paste fails, allow clipboard access in your terminal')
 	harness.stdin.write('\x0c')
 	await chooseWholeResponse(harness)
 
@@ -414,7 +414,7 @@ describe('clipboard adapter results reach the operator', () => {
 	it.each([
 		[
 			{ kind: 'unavailable', detail: 'stdout is not an interactive terminal' } as const,
-			'Cannot send a copy request here — stdout is not an interactive terminal',
+			'Couldn’t copy here: stdout is not an interactive terminal',
 		],
 		[{ kind: 'too-large', bytes: 100_001, limit: 100_000 } as const, 'Nothing was truncated'],
 		[

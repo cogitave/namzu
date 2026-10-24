@@ -390,8 +390,8 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await submit(harness, 'depends on first')
 	gates[0]?.release()
 
-	await frameShows(harness, 'Paused: OpenAI is limiting requests right now.')
-	await frameShows(harness, 'Wait about 3s, then press Enter to try again, or type a new message.')
+	await frameShows(harness, 'Paused. OpenAI is limiting requests right now.')
+	await frameShows(harness, 'Wait about 3s. Press Enter to continue, or Esc to stop.')
 	await frameShows(harness, 'OpenAI said: organization window exhausted')
 	expect(harness.lastFrame()).not.toContain('[provider.rate_limit]')
 	expect(harness.lastFrame()).not.toContain('7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')

@@ -19,9 +19,8 @@ import { explainFailure } from '../plain-failure.js'
 type CascadeOptions = Pick<LoadConfigOptions, 'cwd' | 'env' | 'home' | 'profile' | 'managedPath'>
 
 export function setComposerTriggers(on: boolean, opts: CascadeOptions = {}): string {
-	let file: string
 	try {
-		file = setUserConfigValue(['composerTriggers', 'enabled'], on, {
+		setUserConfigValue(['composerTriggers', 'enabled'], on, {
 			...(opts.home ? { home: opts.home } : {}),
 			...(opts.env ? { env: opts.env } : {}),
 		})
@@ -29,8 +28,8 @@ export function setComposerTriggers(on: boolean, opts: CascadeOptions = {}): str
 		return `${explainFailure(error, 'Could not save that setting.')} This conversation ${on ? 'reads' : 'ignores'} composer triggers until it ends.`
 	}
 	const saved = on
-		? `Composer triggers are on: hypermode and save-as-skill words in a message act for that message, shown before you send it (alt+w drops one). Saved composerTriggers.enabled: true to ${file}.`
-		: `Composer triggers are off: words in a message are only words. Saved composerTriggers.enabled: false to ${file}; /config triggers on turns them back on. /hypermode and /skills save still work.`
+		? 'Composer triggers are on: hypermode and save-as-skill words in a message act for that message, shown before you send it (alt+w drops one).'
+		: 'Composer triggers are off: words in a message are only words. /config triggers on turns them back on. /hypermode and /skills save still work.'
 	let resolved: ReturnType<typeof loadConfigWithProvenance>
 	try {
 		resolved = loadConfigWithProvenance(opts)

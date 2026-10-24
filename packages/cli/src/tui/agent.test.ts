@@ -112,13 +112,130 @@ describe('toAgentEvent', () => {
 			toAgentEvent(completed({ action: 'continue', halt: { reason: 'change freeze' } }), presenter),
 		).toEqual({
 			kind: 'hook-notice',
-			text: 'A hook stopped this turn: change freeze',
+			text: 'A hook stopped this reply: change freeze',
+			halted: true,
 		})
 		expect(toAgentEvent(completed({ action: 'continue', notice: 'careful' }), presenter)).toEqual({
 			kind: 'hook-notice',
 			text: 'A hook says: careful',
 		})
 		expect(toAgentEvent(completed({ action: 'continue' }), presenter)).toBeNull()
+	})
+
+	describe('compaction and provider-switch rows', () => {
+		const event = (value: object) => ({ ...env, iteration: 1, ...value }) as unknown as SessionEvent
+
+		it('maps a completed compaction to the calm row with its counts behind ctrl+o', () => {
+			expect(
+				toAgentEvent(
+					event({
+						type: 'compaction_completed',
+						messagesBefore: 24,
+						messagesAfter: 3,
+						tokensBefore: 180_000,
+						tokensAfter: 12_000,
+						measuredBy: 'estimate',
+					}),
+					presenter,
+				),
+			).toMatchObject({
+				kind: 'context',
+				text: 'Conversation compacted',
+				row: 'compacted',
+				detail: [
+					'24 messages became 3 messages.',
+					'Context went from about 180k to about 12k tokens.',
+				],
+				shed: true,
+				summarised: true,
+				reclaimedTokens: 168_000,
+			})
+		})
+
+		it('keeps tool-result clearing out of the transcript but in the tally', () => {
+			const cleared = toAgentEvent(
+				event({
+					type: 'compaction_tool_results_cleared',
+					clearedCount: 12,
+					stubbedCount: 3,
+					charsReclaimed: 100,
+					reclaimedTokens: 41_000,
+					reliefWasEnough: false,
+				}),
+				presenter,
+			)
+			expect(cleared).toMatchObject({
+				kind: 'context',
+				row: 'hidden',
+				cleared: 12,
+				stubbed: 3,
+				reclaimedTokens: 41_000,
+				compacting: true,
+			})
+			const enough = toAgentEvent(
+				event({
+					type: 'compaction_tool_results_cleared',
+					clearedCount: 1,
+					charsReclaimed: 10,
+					reclaimedTokens: 5,
+					reliefWasEnough: true,
+				}),
+				presenter,
+			)
+			expect(enough).toMatchObject({ row: 'hidden' })
+			expect(enough).not.toHaveProperty('compacting')
+		})
+
+		it('words a failed compaction without the reducer or the raw error', () => {
+			const failed = toAgentEvent(
+				event({
+					type: 'compaction_failed',
+					cause: 'reducer_threw',
+					messages: 31,
+					error: 'ECONNRESET',
+				}),
+				presenter,
+			)
+			expect(failed).toMatchObject({ kind: 'context', row: 'warning', shed: false })
+			const text = (failed as { text: string }).text
+			expect(text).toContain('Compaction failed')
+			expect(text).not.toMatch(/reducer|ECONNRESET|messages unchanged/i)
+			expect(
+				(
+					toAgentEvent(
+						event({ type: 'compaction_failed', cause: 'shed_nothing', messages: 5 }),
+						presenter,
+					) as { text: string }
+				).text,
+			).toContain('conversation could not be reduced below the context limit')
+		})
+
+		it('says nothing for an open circuit breaker', () => {
+			expect(
+				toAgentEvent(
+					event({ type: 'compaction_failed', cause: 'breaker_open', messages: 5 }),
+					presenter,
+				),
+			).toBeNull()
+		})
+
+		it('names both products in a provider switch and keeps the code to itself', () => {
+			const switched = toAgentEvent(
+				event({
+					type: 'provider_fallback',
+					fromIndex: 0,
+					fromProviderId: 'openai',
+					toIndex: 1,
+					toProviderId: 'anthropic',
+					code: 'rate_limit',
+					status: 429,
+				}),
+				presenter,
+			) as { kind: string; text: string }
+			expect(switched.kind).toBe('provider-fallback')
+			expect(switched.text).toContain('Namzu used')
+			expect(switched.text).not.toMatch(/HTTP 429|rate_limit|Provider chain|fallback #/i)
+		})
 	})
 
 	it('maps tool_executing to tool-start with a command summary', () => {

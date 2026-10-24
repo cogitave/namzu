@@ -315,7 +315,7 @@ it('puts the compacted summary in the next model request and the durable convers
 	await tick(80)
 	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
 	releaseReplacement()
-	await frameShows(harness, 'Summarised')
+	await frameShows(harness, 'Compacted')
 
 	expect(replacements, 'the durable conversation was not compacted').toHaveLength(1)
 	expect(replacements[0]?.some((message) => message.content === SUMMARY_TEXT)).toBe(true)
@@ -356,7 +356,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	await frameShows(harness, 'Resume a conversation')
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: A compacted conversation')
-	await frameShows(harness, 'Earlier replies are summarised below.')
+	await frameShows(harness, 'Conversation compacted')
 
 	await submit(harness, 'question after resume')
 	await frameShows(harness, 'answer-1')
@@ -393,12 +393,40 @@ it('publishes the summary only after durable compaction settles without footer t
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before durable compaction')
 	expect(fullScreen(screen)).toContain('answer-1')
-	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Compacted (ctrl+o to see full summary)')
 
 	releaseReplacement()
-	await waitForScreen(screen, () => fullScreen(screen).includes('Summarised 1 earlier message'))
-	expect(fullScreen(screen)).toContain('Verifier used 1,234 tokens.')
+	await waitForScreen(screen, () =>
+		fullScreen(screen).includes('Compacted (ctrl+o to see full summary)'),
+	)
+	expect(fullScreen(screen)).not.toContain('Verifier')
 	expect(visibleScreen(screen)).not.toContain('95%')
+})
+
+it('says Compacting conversation… while it runs, then keeps the summary behind ctrl+o', async () => {
+	holdReplacement = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
+
+	await submitToScreen(screen, 'a question to summarise')
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () => replaceEntered === 1)
+	expect(visibleScreen(screen)).toContain('Compacting conversation…')
+
+	releaseReplacement()
+	await waitForScreen(screen, () =>
+		fullScreen(screen).includes('Compacted (ctrl+o to see full summary)'),
+	)
+	expect(visibleScreen(screen)).not.toContain('Compacting conversation…')
+	// The summary is not dumped under the row.
+	expect(fullScreen(screen)).not.toContain(SUMMARY_TEXT)
+	// And the answer kept after the pass is never left without its question.
+	expect(fullScreen(screen)).toContain('a question to summarise')
+
+	screen.press('\x0f')
+	await waitForScreen(screen, () => fullScreen(screen).includes(SUMMARY_TEXT))
 })
 
 it('keeps footer telemetry quiet while a durable replacement is pending or rejected', async () => {
@@ -413,13 +441,13 @@ it('keeps footer telemetry quiet while a durable replacement is pending or rejec
 	await submitToScreen(screen, '/compact')
 	await waitForScreen(screen, () => replaceEntered === 1)
 	expect(visibleScreen(screen)).not.toContain('95%')
-	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Compacted (ctrl+o to see full summary)')
 
 	rejectReplacement(new Error('REPLACEMENT_DID_NOT_LAND'))
 	await waitForScreen(screen, () => fullScreen(screen).includes('summarise the conversation'))
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before rejected compaction')
-	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Compacted (ctrl+o to see full summary)')
 })
 
 it('keeps footer telemetry quiet when compaction has nothing to replace', async () => {
@@ -432,13 +460,11 @@ it('keeps footer telemetry quiet when compaction has nothing to replace', async 
 	await submitToScreen(screen, 'short conversation')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, '/compact')
-	await waitForScreen(screen, () =>
-		fullScreen(screen).includes('adding a summary would save no messages'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('Nothing to compact yet'))
 
 	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(replaceEntered).toBe(0)
-	expect(fullScreen(screen)).not.toContain('Summarised 1 earlier message')
+	expect(fullScreen(screen)).not.toContain('Compacted (ctrl+o to see full summary)')
 })
 
 it('shows automatic compaction before the next provider settles without footer telemetry', async () => {
@@ -455,7 +481,7 @@ it('shows automatic compaction before the next provider settles without footer t
 	await submitToScreen(screen, 'fill the context')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, 'continue after automatic compaction')
-	await waitForScreen(screen, () => fullScreen(screen).includes('context compacted'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('Conversation compacted'))
 
 	expect(fullScreen(screen)).not.toContain('NEXT_PROVIDER_FAILED')
 	expect(visibleScreen(screen)).not.toContain('95%')

@@ -28,7 +28,8 @@ describe('setSkillSuggestions', () => {
 		const { home, opts } = setup()
 		const result = setSkillSuggestions(false, opts)
 		expect(result.effective).toBe(false)
-		expect(result.message).toContain(`Saved skills.suggest: false to ${join(home, 'config.yaml')}`)
+		expect(result.message).toContain('Skill suggestions are off.')
+		expect(result.message).not.toContain('skills.suggest')
 		expect(result.message).not.toContain('replaces')
 		expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toContain('suggest: false')
 	})
@@ -40,7 +41,7 @@ describe('setSkillSuggestions', () => {
 		const result = setSkillSuggestions(false, opts)
 		expect(result.effective).toBe(true)
 		expect(result.message).toContain(`project-file ${project}`)
-		expect(result.message).toContain('from the next start skills.suggest will be true')
+		expect(result.message).toContain('from the next start suggestions will be on')
 		expect(result.message).toContain('Add suggest: false under skills there')
 		expect(result.message).toContain('this conversation follows your choice')
 	})
@@ -51,7 +52,7 @@ describe('setSkillSuggestions', () => {
 		const result = setSkillSuggestions(true, opts)
 		expect(result.effective).toBe(false)
 		expect(result.message).toContain(`managed ${managedPath}`)
-		expect(result.message).toContain('will be false')
+		expect(result.message).toContain('suggestions will be off')
 	})
 
 	it('stays quiet when the overriding block already agrees', () => {

@@ -193,7 +193,6 @@ it('proposes a multi-step task once per conversation, and /skills save off persi
 	await type('/skills save off')
 	await until(() => shown().includes('Skill suggestions are off'), '/skills save off said nothing')
 	const config = join(home, 'config.yaml')
-	expect(shown()).toContain(config)
 	expect(readFileSync(config, 'utf8')).toMatch(/skills:\s*\n\s+suggest: false/)
 
 	// A fresh conversation would propose again, but the switch is off.

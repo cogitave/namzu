@@ -2,7 +2,12 @@ export { debugRequested } from '../debug-requested.js'
 import { isImageInputRefusalMessage } from '@namzu/sdk'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
-import { type Interruption, describeTurnInterruption, retryAfterMs } from './turn-interruption.js'
+import {
+	type Interruption,
+	describeTurnInterruption,
+	detailLabel,
+	retryAfterMs,
+} from './turn-interruption.js'
 import { ZEN_FREE_REFUSED_WHAT, isZenFreeTierRefusal } from './zen-free-refusal.js'
 
 /**
@@ -217,6 +222,19 @@ function copyFor(
 	}
 }
 
+/** What every pause ends with: one way on, one way out. */
+export const PAUSE_ACTIONS = 'Press Enter to continue, or Esc to stop.'
+
+/**
+ * The one wording of a pause: `Paused. <what you need to do>. Press Enter to
+ * continue, or Esc to stop.` `what` may be a sentence or a clause; its closing
+ * punctuation is normalised.
+ */
+export function pauseSentence(what: string): string {
+	const body = what.trim().replace(/[.:;,\s]+$/u, '')
+	return body.length === 0 ? `Paused. ${PAUSE_ACTIONS}` : `Paused. ${body}. ${PAUSE_ACTIONS}`
+}
+
 const SAYS_IT_ALL: ReadonlySet<InterruptionKind> = new Set([
 	'auth',
 	'model_not_found',
@@ -250,7 +268,7 @@ export interface PlainInterruptionOptions {
  *
  * A failure is `<what happened> <next step>` plus, when the provider said
  * something that adds information, one `<Provider> said: ...` line. A pause reads
- * `Paused: <what happened> Press Enter to try again, or type a new message.`
+ * `Paused. <what happened>. Press Enter to continue, or Esc to stop.`
  */
 export function describePlainInterruption(
 	event: Interruption,
@@ -261,9 +279,9 @@ export function describePlainInterruption(
 			const flat = terminalDisplayText(text).replace(/\s+/g, ' ').trim()
 			return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
 		}
-		const rows = [`Paused, and needs you: ${one(event.handoff.reason, 480)}`]
+		const rows = [pauseSentence(one(event.handoff.reason, 480))]
 		for (const [key, value] of Object.entries(event.handoff.detail ?? {})) {
-			rows.push(`${one(key, 60)}: ${one(value, 240)}`)
+			rows.push(`${detailLabel(one(key, 60))}: ${one(value, 240)}`)
 		}
 		return rows.join('\n')
 	}
@@ -318,11 +336,11 @@ export function describePlainInterruption(
 	if (event.kind === 'paused') {
 		const what = kind === 'unknown' && vendor ? `${capitalise(stem(vendor))}.` : copy.what
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
-		const tail =
-			wait === undefined
-				? 'Press Enter to try again, or type a new message.'
-				: `Wait about ${formatSpan(wait)}, then press Enter to try again, or type a new message.`
-		rows.push(`Paused: ${what} ${tail}`)
+		rows.push(
+			pauseSentence(
+				wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
+			),
+		)
 	} else if (kind === 'unknown' && vendor) {
 		// The failure's own sentence. It already says what to do when it names an
 		// action (for example "Select 'x' instead"); otherwise add the generic step.

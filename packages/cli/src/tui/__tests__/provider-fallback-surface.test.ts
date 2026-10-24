@@ -47,35 +47,39 @@ function fallbackEvent(over: Partial<Record<string, unknown>> = {}): SessionEven
 }
 
 describe('the operator is told, every time', () => {
-	it('names the member that failed, why, and the member now serving', () => {
+	it('names both products and why, with no chain position, status or code', () => {
 		const mapped = toAgentEvent(fallbackEvent(), presenter)
 
 		expect(mapped?.kind).toBe('provider-fallback')
 		const text = (mapped as { text: string }).text
 
-		// The member that FAILED, by the same position name the preferences file
-		// and the doctor use. Naming only the replacement leaves an operator with
-		// four declared members unable to tell which one went down.
-		expect(text).toContain('primary provider')
-		expect(text).toContain('Anthropic (Claude)')
-		expect(text).toContain('claude-opus-4-7')
-
-		// Why.
-		expect(text).toContain('rate limited')
-		expect(text).toContain('429')
-
-		// And who is serving now.
-		expect(text).toContain('fallback #1')
-		expect(text).toContain('OpenAI')
-		expect(text).toContain('gpt-4o')
+		expect(text).toBe('Anthropic was too busy, so Namzu used OpenAI for the rest of that reply.')
+		expect(text).not.toMatch(/primary provider|fallback #|HTTP|429|rate_limit/)
 	})
 
 	it('still says something useful for a code it has no sentence for', () => {
 		const text = (
 			toAgentEvent(fallbackEvent({ code: 'some_new_code' }), presenter) as { text: string }
 		).text
-		expect(text).toContain('some_new_code')
-		expect(text).toContain('fallback #1')
+		expect(text).toBe(
+			'Anthropic could not answer, so Namzu used OpenAI for the rest of that reply.',
+		)
+		expect(text).not.toContain('some_new_code')
+	})
+
+	it('adds the chain position, models, status and code under --debug', () => {
+		vi.stubEnv('NAMZU_DEBUG', '1')
+		try {
+			const text = (toAgentEvent(fallbackEvent(), presenter) as { text: string }).text
+			expect(text).toContain('primary provider')
+			expect(text).toContain('Anthropic (Claude)')
+			expect(text).toContain('claude-opus-4-7')
+			expect(text).toContain('HTTP 429, rate_limit')
+			expect(text).toContain('fallback #1')
+			expect(text).toContain('gpt-4o')
+		} finally {
+			vi.unstubAllEnvs()
+		}
 	})
 
 	// A swap is not an error and must not close the assistant message or be

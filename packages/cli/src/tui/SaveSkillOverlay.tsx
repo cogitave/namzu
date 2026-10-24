@@ -83,7 +83,7 @@ export function SaveSkillOverlay({ request, cwd, columns, rows, onAnswer }: Save
 
 	const header = [
 		`Save skill "${request.draft.name}"? PROPOSED BY THE MODEL — a skill is read by every later conversation that loads it.`,
-		`Origin ${request.draft.origin}${request.sessionId ? ` · session ${request.sessionId}` : ''}`,
+		`Origin ${request.draft.origin}`,
 		...targetLines(request.targets.user, cwd, request.suggested === 'user'),
 		...targetLines(request.targets.project, cwd, request.suggested === 'project'),
 		...request.warnings.map((w) => `Warning  ${w}`),

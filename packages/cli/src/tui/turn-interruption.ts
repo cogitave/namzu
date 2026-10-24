@@ -28,39 +28,49 @@ export function describeTurnStop(
 			return undefined
 		case 'token_budget':
 			if ((budget?.unresolvedRequests ?? 0) > 0)
-				return 'Stopped: Namzu could not confirm how much the last model request used. /cost shows what was reported; the total is uncertain.'
+				return 'Namzu could not confirm how much the last model request used, so it stopped. /cost shows what was reported; the total is uncertain.'
 			if (budget?.poisoned)
-				return 'Stopped: usage could not be checked. /cost shows what was measured.'
-			return 'Stopped: the token limit for this reply was reached. /cost shows reported usage.'
+				return 'Namzu stopped because usage could not be checked. /cost shows what was measured.'
+			return 'The reply stopped at its token limit. /cost shows reported usage.'
 		case 'cost_limit':
-			return 'Stopped: the cost limit was reached. /cost shows reported usage.'
+			return 'The reply stopped at the cost limit. /cost shows reported usage.'
 		case 'cost_unmeasurable':
-			return 'Stopped: the cost limit could not be checked (no price on file). /cost shows reported usage.'
+			return 'The reply stopped because the cost limit could not be checked (no price on file). /cost shows reported usage.'
 		case 'timeout':
-			return 'Stopped: the time limit was reached.'
+			return 'The reply stopped at its time limit.'
 		case 'max_iterations':
-			return 'Stopped: the step limit was reached.'
+			return 'The reply stopped at its step limit.'
 		case 'plan_rejected':
-			return 'Stopped: the plan was declined.'
+			return 'The plan was declined, so the reply stopped.'
 		case 'stop_condition':
-			return 'Stopped: a stop condition you set was met.'
+			return 'The reply stopped because a stop condition you set was met.'
 		case 'step_refused':
-			return 'Stopped: the next model request was refused.'
+			return 'The model refused to continue.'
 		case 'structured_output_failed':
-			return 'Stopped: the reply did not match the required format.'
+			return 'The reply stopped because it did not match the required format.'
 		case 'output_limit':
-			return 'Stopped: the reply kept hitting the output limit. Ask for a smaller piece of the work.'
+			return 'The reply kept hitting the output limit and stopped. Ask for a smaller piece of the work.'
 		case 'answer_rejected':
-			return 'Stopped: the final answer was not accepted.'
+			return 'The final answer was not accepted, so the reply stopped.'
 		case 'input_guardrail':
-			return 'Stopped: an input check refused this message.'
+			return 'An input check refused this message.'
 		case 'output_guardrail':
-			return 'Stopped: an output check refused the result.'
+			return 'An output check refused the result.'
 		case 'paused':
 			return 'Paused.'
 		case 'error':
 			return 'Stopped after an error.'
 	}
+}
+
+/** A tool's attached fact key as a label: `login_url` reads `Login url`. */
+export function detailLabel(key: string): string {
+	const spaced = key
+		.replace(/([a-z0-9])([A-Z])/gu, '$1 $2')
+		.replace(/[_-]+/gu, ' ')
+		.trim()
+		.toLowerCase()
+	return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 /** One terminal-safe line, bounded so a provider response cannot own the screen. */
@@ -163,9 +173,9 @@ export function describeTurnInterruption(event: Interruption): string {
  */
 function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): string {
 	const handoff = event.handoff
-	const rows = [`Reply paused — needs you: ${line(handoff?.reason ?? event.reason)}`]
+	const rows = [`Paused. ${line(handoff?.reason ?? event.reason)}`]
 	for (const [key, value] of Object.entries(handoff?.detail ?? {})) {
-		rows.push(`${line(key, 60)}: ${line(value, 240)}`)
+		rows.push(`${detailLabel(line(key, 60))}: ${line(value, 240)}`)
 	}
 	rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
 	return rows.join('\n')

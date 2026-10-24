@@ -291,16 +291,16 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).toContain('1 active shell')
 	expect(screen.viewport().join('\n')).not.toContain('b00000001')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
-	expect(screen.viewport().join('\n')).not.toContain('Shell details')
+	expect(screen.viewport().join('\n')).not.toContain('Command details')
 
 	screen.press('\r')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('Shell details')
+	expect(screen.viewport().join('\n')).toContain('Command details')
 	expect(screen.viewport().join('\n')).toContain('server ready on port 3000')
 
 	await screen.resize(40, 14)
 	const narrow = screen.viewport()
-	expect(narrow.join('\n')).toContain('Shell details')
+	expect(narrow.join('\n')).toContain('Command details')
 	expect(narrow.join('\n')).toContain('server ready on port 3000')
 	for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 
@@ -360,7 +360,7 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	expect(
 		screen
 			.scrollback()
-			.filter((line) => line.includes('Background command "npm run dev" completed (exit code 0)')),
+			.filter((line) => line.includes('Background command "npm run dev" finished (exit code 0)')),
 	).toHaveLength(1)
 
 	await submit(screen, 'next turn')
@@ -403,7 +403,7 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 	await nextSessionReady
 	await screen.waitForRender()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('Shell details')
+	expect(screen.viewport().join('\n')).not.toContain('Command details')
 	expect(screen.viewport().join('\n')).not.toContain('OLD SESSION OUTPUT')
 
 	// An old panel's x key must never be able to target the new b00000001.

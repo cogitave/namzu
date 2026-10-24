@@ -212,6 +212,6 @@ describe('who may start one', () => {
 			turnId: call.turnId,
 			abortSignal: new AbortController().signal,
 		} as ToolContext)
-		expect(result?.error).toBe('This turn cannot start a workflow.')
+		expect(result?.error).toBe('This reply cannot start a workflow.')
 	})
 })

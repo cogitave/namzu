@@ -20,6 +20,7 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
+import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
 
 import {
 	DEFAULT_AGENT_PHASE,
@@ -240,9 +241,15 @@ export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNot
 	if (agent.status === 'cancelled') {
 		const by =
 			agent.stoppedBy === 'user' ? ' by user' : agent.stoppedBy === 'parent' ? ' by Namzu' : ''
-		return { content: `Agent "${label}" was stopped${by} · ${took}`, tone: 'warn' }
+		return {
+			content: `Agent "${label}" was stopped${by} · ${took}`,
+			tone: 'warn',
+		}
 	}
-	return { content: `Agent "${label}" failed: ${failureReason(agent)} · ${took}`, tone: 'error' }
+	return {
+		content: `Agent "${label}" failed: ${failureReason(agent)} · ${took}`,
+		tone: 'error',
+	}
 }
 
 export interface WorkflowNotice {
@@ -254,16 +261,11 @@ export interface WorkflowNotice {
 
 /**
  * The one line a workflow leaves in the conversation when its last agent
- * settles: `Workflow Release audit completed · 4m02s · 7 agents · 112k tokens`.
+ * settles: `Workflow Release audit finished · 4m02s · 7 agents · 112k tokens`.
  * Written once per settled workflow, below the last agent's own row.
  */
 export function workflowNotice(workflow: RailWorkflow, now = Date.now()): WorkflowNotice {
-	const word =
-		workflow.status === 'failed'
-			? 'failed'
-			: workflow.status === 'stopped'
-				? 'stopped'
-				: 'completed'
+	const word = endWord(workflow.status)
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const parts = [
 		`Workflow ${oneLine(workflow.name)} ${word}`,
@@ -275,7 +277,8 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	return {
 		content: parts.join(' · '),
 		tone: workflow.status === 'failed' ? 'error' : workflow.status === 'stopped' ? 'warn' : 'ok',
-		glyph: workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? '■' : '✓',
+		glyph:
+			workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? SYSTEM_ROW_GLYPH : '✓',
 	}
 }
 

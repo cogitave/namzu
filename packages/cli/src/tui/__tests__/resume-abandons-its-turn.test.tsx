@@ -701,7 +701,7 @@ describe('/fork after an interrupted turn', () => {
 		await untilFrame(harness, 'RUNNING0', 'the turn never reached its held tool')
 
 		harness.stdin.write('\x1B')
-		await untilFrame(harness, 'Interrupted.', 'Esc did not hand the screen back')
+		await untilFrame(harness, 'Interrupted', 'Esc did not hand the screen back')
 		await submit(harness, '/compact')
 		expect(compactCalls, 'compaction read history before the interrupted turn settled').toBe(0)
 		expect(said(harness), 'the compaction refusal did not explain the unsettled write').toContain(

@@ -224,7 +224,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	expect(sent[0]?.options?.effort).toBe('xhigh')
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
 	expect(sent[0]?.context.join('\n')).toContain(HYPERMODE_CONTEXT)
-	expect(shown()).toContain('hypermode (this reply, effort xhigh)')
+	expect(shown()).toContain('Hypermode is on for this reply (effort xhigh).')
 	// The session's mode never turned on: the footer does not name it.
 	expect(now()).not.toMatch(/· hypermode(?! \()/u)
 
@@ -292,7 +292,7 @@ it('saves the work as a skill after a turn that did it, ahead of a Tab-queued pr
 	await until(() => sent.length === 3, 'the follow-up and the queued prompt did not both run')
 	expect(sent[1]?.prompt).toContain(SKILL_PROMPT)
 	expect(sent[2]?.prompt).toBe('second task')
-	expect(shown()).toContain('save as skill · running /skills save for this reply')
+	expect(shown()).toContain('Saving a skill from this reply.')
 	// Asked for in words, it is not also proposed.
 	expect(shown()).not.toContain(PROPOSAL)
 })
@@ -302,7 +302,7 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	await typeKeys('QUESTION what does this do? then save it as a skill')
 	await enter()
 	await until(
-		() => shown().includes('save as skill · not run: the reply did no tool work'),
+		() => shown().includes('Namzu did not offer to save a skill: the reply did no tool work'),
 		'no row for a turn without tool work',
 	)
 
@@ -320,7 +320,7 @@ it('says why a save did not run: no tool work, or the turn was cancelled', async
 	await tick(50)
 	release()
 	await until(
-		() => shown().includes('save as skill · not run: the reply was cancelled'),
+		() => shown().includes('Namzu did not offer to save a skill: the reply was cancelled'),
 		'no row for a cancelled turn',
 	)
 	await tick(100)
@@ -341,7 +341,7 @@ it('checks again when the turn ends: a switch to plan mode meanwhile cancels the
 	await tick(50)
 	release()
 	await until(
-		() => shown().includes('save as skill · not run: unavailable in plan mode'),
+		() => shown().includes('Namzu did not offer to save a skill: unavailable in plan mode'),
 		`no row for a save the mode no longer allows: ${now()}`,
 	)
 	await tick(100)
@@ -359,7 +359,7 @@ it('runs /skills save for a message that is only the phrase, and needs a task fo
 	await typeKeys('hypermode')
 	await enter()
 	await until(
-		() => shown().includes('hypermode · not applied: the message has no task'),
+		() => shown().includes('Hypermode was not applied: the message has no task'),
 		'no row for a task-less hypermode',
 	)
 	await tick(100)

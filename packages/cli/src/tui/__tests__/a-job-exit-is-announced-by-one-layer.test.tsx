@@ -169,7 +169,7 @@ it('does not re-announce a job exit that landed while a turn was open', async ()
 	expect(
 		screen
 			.scrollback()
-			.filter((line) => line.includes('Background command "pnpm build" completed (exit code 0)')),
+			.filter((line) => line.includes('Background command "pnpm build" finished (exit code 0)')),
 	).toHaveLength(1)
 
 	// The control, and the reason the guard is not simply "never announce": an
@@ -241,7 +241,7 @@ it('does not requeue an exit acknowledged before the CLI exit listener runs', as
 	expect(
 		screen
 			.scrollback()
-			.filter((line) => line.includes('Background command "pnpm build" completed (exit code 0)')),
+			.filter((line) => line.includes('Background command "pnpm build" finished (exit code 0)')),
 	).toHaveLength(1)
 })
 

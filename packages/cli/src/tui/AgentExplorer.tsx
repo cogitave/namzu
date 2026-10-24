@@ -17,6 +17,7 @@ import {
 import { formatElapsed } from './LiveActivity.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
+import { END_WORDS, endWord } from './system-rows.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -431,7 +432,10 @@ export function workflowRowVariants(
 		parts.filter((part): part is string => part !== undefined).join(' · ')
 	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
 	const variants: WorkflowRowVariant[] = [
-		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+		{
+			barWidth: wide,
+			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
+		},
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -470,7 +474,10 @@ export function layoutWorkflowRow(
 		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
 	for (const variant of variants) {
 		if (room - widthOf(variant) >= wanted) {
-			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
+			return {
+				variant,
+				nameWidth: Math.min(nameWidth, room - widthOf(variant)),
+			}
 		}
 	}
 	const last = variants[variants.length - 1] as WorkflowRowVariant
@@ -1041,13 +1048,12 @@ interface WorkflowDetailProps {
 	readonly now: number
 }
 
-/** The word a finished workflow's stats carry: `3/3 agents · 1m05s · done`. */
+/** The word a finished workflow's stats carry: `3/3 agents · 1m05s · finished`. */
 function endedWord(workflow: AgentWorkflow): string {
-	if (workflow.runStatus !== undefined)
-		return workflow.runStatus === 'completed' ? 'done' : workflow.runStatus
-	if (workflow.agents.some((agent) => agent.status === 'failed')) return 'failed'
-	if (workflow.agents.some((agent) => agent.status === 'cancelled')) return 'stopped'
-	return 'done'
+	if (workflow.runStatus !== undefined) return endWord(workflow.runStatus)
+	if (workflow.agents.some((agent) => agent.status === 'failed')) return END_WORDS.failed
+	if (workflow.agents.some((agent) => agent.status === 'cancelled')) return END_WORDS.stopped
+	return END_WORDS.finished
 }
 
 function padEndCells(text: string, cells: number): string {
@@ -1515,7 +1521,13 @@ export function agentWorkflows(
 				status: members.length > 0 ? phaseStatus(members) : 'working',
 				phases: run ? runPhases(run, members) : agentPhases(members),
 				agents: members,
-				...(run ? { runId: run.runId, description: run.description, runStatus: run.status } : {}),
+				...(run
+					? {
+							runId: run.runId,
+							description: run.description,
+							runStatus: run.status,
+						}
+					: {}),
 			} satisfies AgentWorkflow
 		})
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))

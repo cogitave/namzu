@@ -74,6 +74,11 @@ export interface LiveActivityProps {
 	 * `Retrying in 5s · attempt 2/10` that counts down.
 	 */
 	readonly waitNotice?: ProviderWaitNotice | null
+	/**
+	 * What the row says in place of `Working`, for a stretch that is not a reply
+	 * (`Compacting conversation…`). The spinner and the clock stay.
+	 */
+	readonly activityLabel?: string
 }
 
 /** Redraws once a second while a retry is being waited out, so its countdown moves. */
@@ -99,6 +104,7 @@ export function LiveActivity({
 	tokens,
 	waitingForYou = false,
 	waitNotice = null,
+	activityLabel,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -112,7 +118,10 @@ export function LiveActivity({
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
 	// Time spent waiting on the operator, left out of the elapsed figure.
-	const pausedRef = useRef<{ total: number; since: number | null }>({ total: 0, since: null })
+	const pausedRef = useRef<{ total: number; since: number | null }>({
+		total: 0,
+		since: null,
+	})
 	if (active && startedAtRef.current === null) {
 		startedAtRef.current = Date.now()
 		pausedRef.current = { total: 0, since: null }
@@ -137,7 +146,7 @@ export function LiveActivity({
 			</Box>
 		)
 	}
-	const label = 'Working'
+	const label = activityLabel ?? 'Working'
 	const edge = tick % (label.length + 1)
 	const mark = (
 		<Text>
@@ -309,7 +318,8 @@ export function LiveActivity({
 			{thinking !== null && activeTools.length === 0 ? (
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						└ thinking{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
+						└ thinking
+						{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
 					</Text>
 				</Box>
 			) : null}

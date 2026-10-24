@@ -41,8 +41,22 @@ export function keepRecentRows(
 		const row = rows[i]
 		if (!row || (row.role !== 'user' && row.role !== 'assistant')) continue
 		seen += 1
-		if (seen === keptTurns) return rows.slice(i)
+		if (seen === keptTurns) return rows.slice(startOnPrompt(rows, i))
 	}
 	// Fewer turns exist than the pass kept: nothing to trim.
 	return rows
+}
+
+/**
+ * The row the kept range really starts on: the prompt of the turn the Nth row
+ * belongs to. A range that opened on an assistant row showed an answer with no
+ * question above it (`∴ Looked around.` under the summary). The nearest user
+ * row at or before the cut is that turn's prompt; with none before it, the cut
+ * stays where it was.
+ */
+function startOnPrompt(rows: readonly TranscriptMessage[], from: number): number {
+	for (let i = from; i >= 0; i -= 1) {
+		if (rows[i]?.role === 'user') return i
+	}
+	return from
 }

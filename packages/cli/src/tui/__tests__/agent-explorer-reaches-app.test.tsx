@@ -1445,7 +1445,7 @@ describe('Ctrl+T', () => {
 			await running
 			const t0 = Date.now()
 			const closing = (): number =>
-				(painted(screen).match(/Workflow Release audit (completed|failed|stopped)/gu) ?? []).length
+				(painted(screen).match(/Workflow Release audit (finished|failed|stopped)/gu) ?? []).length
 			// Phase one settles.
 			activity.set([flow('wf-a', { startedAt: t0, status: 'completed', completedAt: t0 + 1 })])
 			await screen.waitForRender()
@@ -1470,8 +1470,8 @@ describe('Ctrl+T', () => {
 			await screen.waitForRender()
 			await screen.waitForRender()
 			expect(closing()).toBe(1)
-			expect(painted(screen)).toContain('Workflow Release audit completed')
-			expect(painted(screen)).toMatch(/Workflow Release audit completed · .*2 agents/u)
+			expect(painted(screen)).toContain('Workflow Release audit finished')
+			expect(painted(screen)).toMatch(/Workflow Release audit finished · .*2 agents/u)
 		})
 
 		it('clears a finished workflow with x without stopping anything', async () => {
