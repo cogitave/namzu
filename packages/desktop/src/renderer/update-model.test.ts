@@ -16,7 +16,7 @@ import {
 const ready: UpdateState = { status: 'ready', version: '0.2.0' }
 
 describe('badge', () => {
-	it('shows only for an installable update, with the reference wording', () => {
+	it('shows only for an installable update, with the badge label', () => {
 		for (const status of ['disabled', 'idle', 'checking', 'error'] as const)
 			expect(updateBadge(status === 'error' ? { status, message: 'x' } : { status })).toEqual({
 				visible: false,
@@ -128,7 +128,7 @@ describe('rendered dialog', () => {
 		)
 	}
 
-	it('renders a labelled, announced progress bar and the reference copy while installing', () => {
+	it('renders a labelled, announced progress bar and the installing copy while installing', () => {
 		const markup = html({ status: 'installing', version: '0.2.0', phase: 'preparing' })
 		expect(markup).toContain('Installing update')
 		expect(markup).toContain('Namzu will restart when installation finishes.')

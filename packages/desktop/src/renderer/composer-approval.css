@@ -1,4 +1,4 @@
-/* The edit approval card: a diff box with a right-aligned action row, as in the reference. */
+/* The edit approval card: a diff box with a right-aligned action row. */
 .approval-card {
 	display: flex;
 	flex-direction: column;
