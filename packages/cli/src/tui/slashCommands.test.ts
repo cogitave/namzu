@@ -884,6 +884,18 @@ describe('/effort', () => {
 })
 
 describe('/hypermode', () => {
+	it('describes the independent workflow switch in /help, not a pinned effort', () => {
+		const result = runSlash('/help hypermode', context())
+		expect(result?.kind).toBe('message')
+		if (result?.kind !== 'message') return
+		expect(result.content).toContain('never changes effort')
+		expect(result.content).toContain('workflow tool')
+		expect(result.content).not.toMatch(/xhigh|pins|delegat/i)
+		// The tool is listed either way; only the model's permission changes.
+		expect(result.content).toContain('still listed')
+		expect(result.content).not.toMatch(/the tool is offered|off, it is not|allowed to use/i)
+	})
+
 	it('toggles with no argument', () => {
 		expect(runSlash('/hypermode', context())).toEqual({ kind: 'hypermode', enabled: 'toggle' })
 	})

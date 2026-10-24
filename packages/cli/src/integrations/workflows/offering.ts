@@ -1,11 +1,13 @@
 /**
- * When the `workflow` tool is in the model's tool list.
+ * The `workflow` tool: its name, the `/workflow` command's message, the text
+ * the model reads, and who may start a run.
  *
- * A workflow is a lot of work started on one decision, so the tool is only
- * offered when the operator asked for orchestration: hypermode is on, or the
- * message armed the `workflow` composer trigger (the word "workflow", shown as
- * a tag and dropped with Alt+W), or it is the
- * `/workflow` command. Everything else gets the `Agent` tool alone. Pure.
+ * A workflow is a lot of work started on one decision, so the model is told
+ * when it may call the tool; the tool itself is listed on every turn of a host
+ * that can run one (the model is gated by wording, not by the list).
+ * The opt-in is the operator's keyword (`hypermode`, shown as a tag and
+ * dropped with Alt+W), hypermode being on, their own words, or the
+ * `/workflow` command. Pure.
  */
 
 export const WORKFLOW_TOOL_NAME = 'workflow'
@@ -26,19 +28,6 @@ export function isWorkflowCommandPrompt(text: string): boolean {
 	return text.startsWith(COMMAND_PROMPT_PREFIX)
 }
 
-export interface WorkflowOffering {
-	/** The session's hypermode. */
-	readonly hypermode: boolean
-	/** The operator's `workflow` trigger is armed for this turn. */
-	readonly workflow: boolean
-	/** The text of the operator's latest message. */
-	readonly userText: string
-}
-
-export function workflowOffered(input: WorkflowOffering): boolean {
-	return input.hypermode || input.workflow || isWorkflowCommandPrompt(input.userText)
-}
-
 /**
  * The `/workflow <task>` command, as the message the model receives: the
  * operator's task, plus the words that make the request explicit.
@@ -52,7 +41,7 @@ export function workflowCommandPrompt(task: string): string {
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Use it only because the operator asked for orchestration; for a single subagent or a small fan-out, use the Agent tool.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. ONLY call it after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words or with /workflow, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',
@@ -68,6 +57,8 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'- return a small JSON value: it is what you get back, capped at about 8000 characters. Have agents write large results to files and return the paths.',
 	'',
 	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 16) and at most 1000 start per run (fewer if configured); a script that asks for more fails, so give any loop a hard iteration cap. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
+	'',
+	'Quality patterns, when hypermode is on or the task is large: adversarial verify (a second agent tries to disprove each finding), a judge panel (several agents score the same candidates, keep the consensus), loop until dry (repeat a sweep until a pass finds nothing new), and a completeness critic (a last agent lists what the others missed). Pick what fits; skip them for trivial or already verified work.',
 	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')

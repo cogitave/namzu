@@ -26,14 +26,17 @@ by hand.
 
 ## When the model can start one
 
-The `workflow` tool is not in the tool list on an ordinary turn. It is offered
-for a turn when the operator asked for orchestration:
+The `workflow` tool is in the tool list on every turn of a terminal or `exec`
+run that can run one, and the model is gated by wording, not by the list: the
+tool's text and a stable note in the system prompt say it may be called only
+after an explicit opt-in (the list does not change from message to
+message, which keeps the cached prompt prefix stable). The opt-in is the operator asking for orchestration:
 
 - hypermode is on (`/hypermode`), or
 - the message arms the `workflow` composer trigger: `workflow` or `workflows`
    as the first or last word of a clause, matched by
   the same rules as `hypermode`. The composer shows a tag
-  (`Workflow · this turn, offers the workflow tool · alt+w drop`) before you
+  (`Workflow · this turn, opts into the workflow tool · alt+w drop`) before you
   send, and Alt+W drops it. A question about workflows ("how does the build
   workflow cache work?") only suggests it, and `composerTriggers` can turn it
   off ([Composer triggers](composer-triggers.md)), or
@@ -45,11 +48,18 @@ Each agent a workflow starts is told in its prompt that its step is its
 assigned job, which the person approved with the script, so a note elsewhere
 that a message carries no user authority is not a reason to skip it.
 
-It is offered for that turn only; the next message gets the tool back only if
-it asks again (or hypermode is on). A scheduled or resident run never gets it.
-When the tool is offered, the model is also told to prefer it for multi-phase
-or many-agent work and to keep `Agent` calls with a `workflow` label for small
-fan-outs.
+The keyword, the `workflow` trigger and `/workflow` opt in one message only;
+the next message needs to ask again unless hypermode is on. Hypermode on is a
+standing opt-in: the model is told so in a hidden reminder kept in the conversation (full the
+first time, sparsely after ten of your messages, once when it ends; a resumed
+conversation reads what was already said from its history and does not hear the
+full text again), to use the tool for every
+substantial task and to work alone only on conversational or trivial turns. A
+scheduled run has no one to review a script and no `workflow` tool; with the
+`hypermode` config key on it is told to delegate to parallel agents instead, and
+a resident run is told nothing. The tool text carries the quality patterns
+(adversarial verify, judge panel, loop until dry, completeness critic) and
+keeps `Agent` calls with a `workflow` label for small fan-outs.
 
 ## The review
 

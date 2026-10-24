@@ -26,7 +26,6 @@ const TRIGGERS: ComposerTriggerSettings = {
 		scheduleTool: true,
 	},
 	highestEffort: 'max',
-	hypermodeEffort: 'xhigh',
 }
 
 // The test terminal is a colour TTY; the Vitest process itself usually is

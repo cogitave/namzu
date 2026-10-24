@@ -522,65 +522,115 @@ it('previews supported effort as requested and unsupported effort as unavailable
 	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
 })
 
-it('turning hypermode on pins the highest level not above xhigh on a menu without it', async () => {
+it('turning hypermode on leaves the effort alone and says so', async () => {
 	const screen = await open()
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), '/effort low')
 	await submit(screen, '/hypermode on')
 	await until(
 		screen,
 		() => screen.viewport().join('\n').includes('Hypermode is on'),
 		'Hypermode did not turn on',
 	)
-	expect(screen.viewport().join('\n')).toContain('high effort')
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).toContain('Namzu will use workflows for substantial tasks. Effort stays low.')
 	const viewport = screen.viewport()
 	const frameTop = viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row)) ?? ''
 	const frameBottom = lowerRuleRow(viewport)
 	expect(frameTop).toContain('hypermode')
 	expect(frameBottom).toBeGreaterThanOrEqual(0)
 	expect(viewport[frameBottom + 1]).not.toContain('hypermode')
+	// The footer's effort item names the mode beside the effort.
+	expect(viewport.join('\n')).toContain('effort low · Hypermode on')
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('low')
+	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+it('turning hypermode off leaves the effort alone and says workflows are on request', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/effort high')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'high')
+	await submit(screen, '/hypermode off')
+	await until(
+		screen,
+		() =>
+			screen
+				.viewport()
+				.join('\n')
+				.replace(/\s+/g, ' ')
+				.includes(
+					'Hypermode is off: workflows are offered only when you ask for one. Effort stays high.',
+				),
+		'off',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('high')
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+})
+
+it('says the effort stays at the model default when none was chosen', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(
+		screen,
+		() =>
+			screen
+				.viewport()
+				.join('\n')
+				.replace(/\s+/g, ' ')
+				.includes('Effort stays at the model default.'),
+		'default effort',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBeUndefined()
+	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+it('leaves the effort unset on a model that publishes levels, turning hypermode on and then off', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/hypermode off')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is off'), 'off')
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBeUndefined()
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+})
+
+it('keeps hypermode on when an effort level is chosen, and says nothing about turning it off', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/effort high')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'high')
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).not.toMatch(/hypermode (is )?off/i)
+	expect(text).toContain('effort high · Hypermode on')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('high')
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-it('puts the effort back when hypermode turns off, unless it was changed meanwhile', async () => {
+it('opts a keyword turn into workflows without touching the effort or the standing mode', async () => {
 	const screen = await open()
 	await submit(screen, '/effort low')
-	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), '/effort low')
-	await submit(screen, '/hypermode on')
-	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
-	await submit(screen, '/hypermode off')
-	await until(
-		screen,
-		() => screen.viewport().join('\n').includes('Hypermode is off. Effort is back to low.'),
-		'the effort did not come back',
-	)
-	await submit(screen, 'go')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), 'low')
+	// The keyword arms only when it is typed, one key at a time.
+	for (const ch of 'hypermode audit the repo') await press(screen, ch)
+	await press(screen, '\r')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('low')
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
-
-	// Chosen by hand while the mode was on: that choice stays. (From the
-	// provider default, so putting it back would send no effort at all.)
-	await submit(screen, '/effort default')
-	await until(screen, () => screen.viewport().join('\n').includes('provider default'), 'default')
-	await submit(screen, '/hypermode on')
-	await until(
-		screen,
-		() => screen.viewport().join('\n').split('Hypermode is on').length > 2,
-		'on again',
-	)
-	await submit(screen, '/effort low')
-	await until(
-		screen,
-		() => screen.viewport().join('\n').split('Reasoning: low').length > 2,
-		'low again',
-	)
-	await submit(screen, '/hypermode off')
-	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is off.'), 'off again')
-	await submit(screen, 'again')
-	await until(screen, () => sent.length === 2, 'Second turn was not sent')
-	expect(sent[1]?.options?.effort).toBe('low')
+	expect((sent[0]?.options?.hostContext?.() ?? []).join('\n')).toContain('use the `workflow` tool')
+	expect(screen.viewport().join('\n')).not.toContain('Hypermode is on for this conversation')
 })
 
 it('keeps /orchestrate working as a deprecated alias that says so', async () => {
@@ -602,22 +652,7 @@ it('keeps /orchestrate working as a deprecated alias that says so', async () => 
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-it('pins xhigh, not the top level, on a model whose menu goes up to max', async () => {
-	oldOverrides = { reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] }
-	const screen = await open()
-	await submit(screen, '/hypermode on')
-	await until(
-		screen,
-		() =>
-			screen.viewport().join('\n').includes('Hypermode is on for this conversation: xhigh effort'),
-		'Hypermode did not pin xhigh',
-	)
-	await submit(screen, 'go')
-	await until(screen, () => sent.length === 1, 'Turn was not sent')
-	expect(sent[0]?.options?.effort).toBe('xhigh')
-})
-
-it("hypermode survives a model switch and re-pins to the new model's xhigh", async () => {
+it('hypermode survives a model switch, which resets the effort to the new default', async () => {
 	activate = async (model) =>
 		fakeAgentSession({
 			...makeSession(model),
@@ -636,72 +671,14 @@ it("hypermode survives a model switch and re-pins to the new model's xhigh", asy
 		() => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`),
 		'Switch did not finish',
 	)
-	// The mode already re-pinned effort silently; the interactive picker that
-	// normally follows a standalone /model pick must not reopen on top of it.
-	expect(screen.viewport().join('\n')).not.toContain('Select Reasoning Level')
 	await submit(screen, 'continue')
 	await until(screen, () => sent.length === 1, 'Turn was not sent on the new model')
 	expect(sent[0]?.model).toBe(NEXT)
-	expect(sent[0]?.options?.effort).toBe('xhigh')
+	expect(sent[0]?.options?.effort).toBeUndefined()
 	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-/** A session whose effort menu arrives later, as with `deferEffortCatalogue`. */
-function deferredMenuSession(model: string, levels: AgentSession['reasoningEffortLevels']) {
-	const listing = deferred<{ readonly notice?: string }>()
-	const session = makeSession(model)
-	Object.assign(session, { reasoningEffortLevels: undefined, reasoningSettled: listing.promise })
-	return {
-		session,
-		arrive: () => {
-			Object.assign(session, { reasoningEffortLevels: levels })
-			listing.resolve({})
-		},
-	}
-}
-
-it("hypermode re-pins after a model switch once the new model's menu has loaded", async () => {
-	const next = deferredMenuSession(NEXT, ['low', 'medium', 'high', 'xhigh'])
-	activate = async () => next.session
-	const screen = await open()
-	await submit(screen, '/hypermode on')
-	await until(screen, () => screen.viewport().join('\n').includes('high effort'), 'on')
-	await submit(screen, `/model ${NEXT}`)
-	await until(
-		screen,
-		() => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`),
-		'Switch did not finish',
-	)
-	next.arrive()
-	await submit(screen, 'continue')
-	await until(screen, () => sent.length === 1, 'Turn was not sent on the new model')
-	expect(sent[0]?.model).toBe(NEXT)
-	expect(sent[0]?.options?.effort).toBe('xhigh')
-	expect(sent[0]?.options?.hypermode).toBe(true)
-})
-
-it('hypermode turned on before the menu loads says so and pins when it arrives', async () => {
-	const first = deferredMenuSession(OLD, ['low', 'medium', 'high', 'xhigh'])
-	firstSession = first.session
-	sendOld = async function* () {
-		yield { kind: 'done', stopReason: 'end_turn' }
-	}
-	const screen = await open()
-	await submit(screen, '/hypermode on')
-	await until(
-		screen,
-		() => screen.viewport().join('\n').includes('finish loading'),
-		'Loading message missing',
-	)
-	expect(screen.viewport().join('\n')).not.toContain('has no effort levels to choose from')
-	first.arrive()
-	await until(screen, () => screen.viewport().join('\n').includes('Effort set to xhigh'), 'pin')
-	await submit(screen, 'go')
-	await until(screen, () => sent.length === 1, 'Turn was not sent')
-	expect(sent[0]?.options?.effort).toBe('xhigh')
-})
-
-it('accepts hypermode without pinning when the model publishes no effort menu, and says so', async () => {
+it('accepts hypermode on a model that publishes no effort menu without saying anything about loading', async () => {
 	oldOverrides = { reasoningEffortLevels: undefined }
 	const screen = await open()
 	await submit(screen, '/hypermode on')
@@ -710,9 +687,9 @@ it('accepts hypermode without pinning when the model publishes no effort menu, a
 		() => screen.viewport().join('\n').includes('Hypermode is on'),
 		'Hypermode did not turn on',
 	)
-	expect(screen.viewport().join('\n').replace(/\s+/g, ' ')).toContain(
-		'has no effort levels to choose from',
-	)
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).toContain('Effort stays at the model default.')
+	expect(text).not.toContain('finish loading')
 	await submit(screen, 'continue')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBeUndefined()

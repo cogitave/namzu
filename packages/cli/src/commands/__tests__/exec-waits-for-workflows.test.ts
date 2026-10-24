@@ -279,3 +279,26 @@ describe('a headless run whose model starts a workflow', () => {
 		expect(infos).toContain('Tokens: 97000 own · 137000 including descendants')
 	})
 })
+
+describe('a headless run and the hypermode config key', () => {
+	it.each([
+		[{ hypermode: true }, true],
+		[{ hypermode: false }, undefined],
+		[{}, undefined],
+	])('with %j sends hypermode %s on the turn', async (config, expected) => {
+		const flow = fakeWorkflows()
+		const options: (SendOptions | undefined)[] = []
+		withWorkflows(flow.source)
+		sessionStub.close = (async () => {}) as AgentSession['close']
+		sessionStub.send = ((_messages: readonly Message[], opts?: SendOptions) => {
+			options.push(opts)
+			return turn([
+				{ kind: 'delta', text: 'ok' },
+				{ kind: 'done', stopReason: 'end_turn' },
+			])
+		}) as AgentSession['send']
+		const { code } = await run(['say ok'], config)
+		expect(code).toBe(0)
+		expect(options[0]?.hypermode).toBe(expected)
+	})
+})

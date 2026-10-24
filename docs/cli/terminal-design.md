@@ -188,7 +188,7 @@ is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the right end of the composer's upper rule in violet. The rule rests in
-plain graphite. Turning the mode on sends one short lavender glow from the visible
+plain graphite. While it is on the footer's effort item also reads `Hypermode on`. Turning the mode on sends one short lavender glow from the visible
 rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
@@ -200,7 +200,7 @@ complete mode name omits the label rather than clipping it.
 A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
 kaydet" — gets one row inside the composer's rules, above the input, where the
 `Effort:`/`Model:` previews go:
-`Hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop`.
+`Hypermode · this reply: offers workflows, effort unchanged · alt+w drop`.
 The armed words in the draft are bold and underlined in sky (ANSI 117), the
 trigger's own colour: violet belongs to the session mode, which lasts, and a
 trigger lasts one message. The highlight is cut from the draft before unsafe
@@ -209,8 +209,9 @@ row is sentence case and has no glyph; the state is a word or mark (`?`,
 `(off)`, `unavailable …`), so a terminal without colour loses nothing. The row is one row at every width and
 shortens by steps (full copy from 84 terminal columns, a short form from 64,
 label and key from 44, the label alone below). The border and the footer are
-unchanged by a trigger: a one-turn effort pin shows in the row and in the
-transcript line under the message (`Hypermode is on for this reply (effort xhigh).`),
+unchanged by a trigger: a one-turn max-effort pin shows in the row and in the
+transcript line under the message (a hypermode keyword says `Hypermode is on
+for this reply: Namzu may use workflows.` and pins nothing),
 and the footer keeps the session's own effort. The queued-message heading names
 armed triggers on taller terminals; a compact terminal prioritizes the next
 message's text.

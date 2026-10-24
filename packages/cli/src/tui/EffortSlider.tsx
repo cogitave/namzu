@@ -3,13 +3,13 @@
  *
  *                Faster                                      Smarter
  *                ──────────────▲───────────────────────┆────────────
- *                default   low   medium   high   xhigh   ┆ xhigh + hypermode (workflows)
- *                                                   Off · delegates to parallel agents by default
+ *                default   low   medium   high   xhigh   ┆ hypermode (workflows)
+ *                                                   Off · workflows on every substantial task
  *
  * Stops are `default`, then the model's published levels in the order the
  * provider publishes them (low to high), then hypermode after a `┆`: a
- * session mode, not one more level, drawn in its own colour, labelled with
- * the level it pins. Under it, the mode's one-line description. The `▲` caret
+ * session mode, not one more level, drawn in its own colour; it never moves the
+ * effort, and Tab flips it from any stop. Under it, the mode's one-line description. The `▲` caret
  * marks the stop Enter would apply; the current setting's label is the
  * accent colour.
  *
@@ -215,6 +215,7 @@ export function EffortSlider({
 							{ text: '←/→ adjust', rank: 5 },
 							{ text: '1–9 select', rank: 2 },
 							{ text: 'enter apply', rank: 5 },
+							{ text: 'tab hypermode on/off', rank: 4 },
 							{ text: 'esc back', rank: 5 },
 						],
 						Math.max(1, columns - 2),
