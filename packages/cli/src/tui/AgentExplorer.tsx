@@ -432,10 +432,7 @@ export function workflowRowVariants(
 		parts.filter((part): part is string => part !== undefined).join(' · ')
 	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
 	const variants: WorkflowRowVariant[] = [
-		{
-			barWidth: wide,
-			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
-		},
+		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -474,10 +471,7 @@ export function layoutWorkflowRow(
 		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
 	for (const variant of variants) {
 		if (room - widthOf(variant) >= wanted) {
-			return {
-				variant,
-				nameWidth: Math.min(nameWidth, room - widthOf(variant)),
-			}
+			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
 		}
 	}
 	const last = variants[variants.length - 1] as WorkflowRowVariant
@@ -1521,13 +1515,7 @@ export function agentWorkflows(
 				status: members.length > 0 ? phaseStatus(members) : 'working',
 				phases: run ? runPhases(run, members) : agentPhases(members),
 				agents: members,
-				...(run
-					? {
-							runId: run.runId,
-							description: run.description,
-							runStatus: run.status,
-						}
-					: {}),
+				...(run ? { runId: run.runId, description: run.description, runStatus: run.status } : {}),
 			} satisfies AgentWorkflow
 		})
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))

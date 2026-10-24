@@ -152,6 +152,25 @@ describe('toAgentEvent', () => {
 			})
 		})
 
+		it('starts a live compacting line without a transcript row or a tally entry', () => {
+			const started = toAgentEvent(
+				event({
+					type: 'compaction_started',
+					iteration: 1,
+					reason: 'threshold',
+					tokensBefore: 90_000,
+					contextWindowTokens: 100_000,
+				}),
+				presenter,
+			)
+			expect(started).toMatchObject({
+				kind: 'context',
+				row: 'hidden',
+				shed: false,
+				compacting: true,
+			})
+		})
+
 		it('keeps tool-result clearing out of the transcript but in the tally', () => {
 			const cleared = toAgentEvent(
 				event({

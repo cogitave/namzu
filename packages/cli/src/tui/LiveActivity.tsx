@@ -118,10 +118,7 @@ export function LiveActivity({
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
 	// Time spent waiting on the operator, left out of the elapsed figure.
-	const pausedRef = useRef<{ total: number; since: number | null }>({
-		total: 0,
-		since: null,
-	})
+	const pausedRef = useRef<{ total: number; since: number | null }>({ total: 0, since: null })
 	if (active && startedAtRef.current === null) {
 		startedAtRef.current = Date.now()
 		pausedRef.current = { total: 0, since: null }
@@ -318,8 +315,7 @@ export function LiveActivity({
 			{thinking !== null && activeTools.length === 0 ? (
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						└ thinking
-						{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
+						└ thinking{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
 					</Text>
 				</Box>
 			) : null}

@@ -10,6 +10,7 @@ import {
 import { describeProviderFallbackNotice, withDebugDetail } from './capability-notice.js'
 import {
 	COMPACTED_TEXT,
+	COMPACTING_LABEL,
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
@@ -7485,6 +7486,17 @@ export function toAgentEvent(
 				status: event.status,
 				...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
 				...(event.signal ? { signal: event.signal } : {}),
+			}
+		case 'compaction_started':
+			// The pass has begun and the summary can take many seconds: the live
+			// area says so until the completed, failed or cleared event ends it.
+			// Never a transcript row of its own.
+			return {
+				kind: 'context',
+				text: COMPACTING_LABEL,
+				row: 'hidden',
+				shed: false,
+				compacting: true,
 			}
 		case 'compaction_completed':
 			return {

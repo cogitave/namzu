@@ -2770,8 +2770,14 @@ export function App({
 			sourceDelivery?: true,
 			shell?: ShellOutput,
 		) => {
+			// One mapping for every system row: a caller that names no glyph gets
+			// the dim notice dot, so no producer can bypass `systemRowStyle`.
+			const noticeStyle =
+				role === 'system' && glyph === undefined && !pending ? systemRowStyle('notice') : undefined
+			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
+			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
-			const candidate = { role, content, pending, glyph, detail, activity }
+			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -2784,9 +2790,9 @@ export function App({
 								role,
 								content,
 								pending,
-								glyph,
+								glyph: rowGlyph,
 								detail,
-								glyphColor,
+								glyphColor: rowGlyphColor,
 								meta,
 								activity,
 								...(shell ? { shell } : {}),
