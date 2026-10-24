@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/analysis",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Native, paged semantic index of JavaScript and TypeScript for @namzu/sdk. Answers \"which function holds this string, what is its source, who calls it\" with cited, evidence-carrying results, built on oxc-parser and node:sqlite.",
 	"license": "FSL-1.1-MIT",
 	"engines": {
