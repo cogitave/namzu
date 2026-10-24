@@ -83,6 +83,12 @@ export interface TranscriptMessage {
 	 * expanded. `detail` carries the same lines flat, for export and copy.
 	 */
 	readonly shell?: ShellOutput
+	/**
+	 * Set on a restored row after which the rows of the agents a saved
+	 * conversation launched in this turn belong. Never rendered; cleared once
+	 * those rows are placed.
+	 */
+	readonly agentTurnId?: string
 	/** The model's plan as it stood when this row was written, drawn by `Checklist`. */
 	readonly checklist?: readonly ChecklistItem[]
 	/**

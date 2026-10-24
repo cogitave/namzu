@@ -2015,6 +2015,20 @@ function withCheckpointsWrap(builtin: Toolset, checkpoints: FileCheckpointStore)
 	})
 }
 
+let builtinPresenter: ToolPresenter | undefined
+
+/**
+ * A presenter over the built-in tools alone, for a host that has to draw a
+ * saved conversation before any session exists. A tool this does not know
+ * (one a plugin or a server supplied) is drawn from the generic view.
+ */
+export function builtinToolPresenter(): ToolPresenter {
+	builtinPresenter ??= createCliToolPresenter(
+		new ToolManager({ toolsets: [toolset('builtin', builtinTools(true))], messages: () => [] }),
+	)
+	return builtinPresenter
+}
+
 function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseToolsets {
 	const builtin = toolset('builtin', builtinTools(backgroundJobs))
 	// Stored memory: the agent gets search_memory / read_memory / save_memory

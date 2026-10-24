@@ -124,6 +124,7 @@ import {
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
+import { journalOf } from '../integrations/sessions/journal-trail.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -163,8 +164,7 @@ import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { completionNotice, isBackgroundLaunch } from '../integrations/workflows/notice.js'
-import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
+import { completionNotice } from '../integrations/workflows/notice.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -276,13 +276,8 @@ import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
-	agentDoneRows,
-	agentMessageRow,
-	agentNotice,
 	childMessageNotice,
 	childMessageRow,
-	launchReceipt,
-	reportsAsNotification,
 	settleLine,
 	workflowNotice,
 } from './agent-transcript-rows.js'
@@ -297,6 +292,7 @@ import {
 	type ScreenPermissionRequest,
 	type SessionScope,
 	type UserQuestion,
+	builtinToolPresenter,
 	createAgentSession,
 	describeProviderModels,
 	probeAgentSession,
@@ -323,7 +319,6 @@ import {
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { contextMeter } from './context-meter.js'
-import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
@@ -346,7 +341,6 @@ import {
 	describeLoginStart,
 	describeProviderLogout,
 } from './login-prompt.js'
-import { modelCatalogueView } from './model-catalogue-view.js'
 import {
 	AUTO_ALREADY_ON,
 	AUTO_MODEL_LABEL,
@@ -388,12 +382,7 @@ import {
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
-import {
-	SHELL_LIVE_LINES,
-	type ShellOutput,
-	shellCommandFull,
-	shellCommandHeader,
-} from './shell-cell.js'
+import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -422,14 +411,12 @@ import {
 import {
 	type TaskOperation,
 	applyTaskOperation,
-	isTaskTool,
 	removeTask,
 	taskOperationFor,
 	taskReportChecklist,
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
-import { declinedLine } from './tidy-tool-output.js'
 import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
 import { STEERED_NOT_APPLIED_REASON, notAppliedLine, transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
@@ -440,9 +427,8 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
-import { EXPAND_HINT } from './truncation.js'
-import { formatCompactCount, settledElapsed } from './units.js'
-import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
+import { formatCompactCount } from './units.js'
+import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
@@ -462,6 +448,16 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
+import {
+	type RestoreOptions,
+	agentCompletionRows,
+	agentLaunchRow,
+	createRestoredTurnWriter,
+	numberDetailRows,
+	trailFromRecords,
+	withSavedAgentRows,
+	workflowClosingRow,
+} from './restored-rows.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -496,6 +492,7 @@ import {
 	terminalTitleText,
 } from './terminal-title.js'
 import { theme } from './theme.js'
+import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
@@ -915,15 +912,42 @@ export function promptHistoryFromConversation(messages: readonly Message[]): rea
 	)
 }
 
-/** Build the transcript projection of exact model-visible history. */
+/**
+ * Build the transcript projection of exact model-visible history.
+ *
+ * Tool calls come back as the rows the live run drew for them, a turn closes
+ * with its "Worked for" line, and a turn the operator interrupted says so.
+ * `restore.trail` (the journal of the conversation, see `trailFromRecords`)
+ * supplies the typed facts, timings and turn boundaries; without it the rows
+ * are drawn from the saved messages alone.
+ */
 export function projectConversation(
 	messages: readonly Message[],
 	nextId: () => string,
 	readableUserTexts: readonly string[] = [],
+	restore?: Partial<RestoreOptions>,
 ): readonly TranscriptMessage[] {
 	let userOrdinal = 0
-	let detailOrdinal = 0
-	return messages.flatMap<TranscriptMessage>((message) => {
+	const writer = createRestoredTurnWriter(messages, nextId, {
+		presenter: restore?.presenter ?? builtinToolPresenter(),
+		...(restore?.trail ? { trail: restore.trail } : {}),
+	})
+	const out: TranscriptMessage[] = []
+	for (const message of messages) {
+		out.push(...writer.enter(message))
+		const rows = projectMessage(message)
+		out.push(...rows)
+		if (message.role === 'assistant') {
+			const tools = writer.toolRows(message)
+			out.push(...tools.rows)
+			const last = out.at(-1)
+			if (tools.launchedIn && last) out[out.length - 1] = { ...last, agentTurnId: tools.launchedIn }
+		}
+	}
+	out.push(...writer.finish())
+	return numberDetailRows(out)
+
+	function projectMessage(message: Message): readonly TranscriptMessage[] {
 		if (message.role === 'user') {
 			if (message.source?.type === 'project-instructions') {
 				return [
@@ -991,7 +1015,6 @@ export function projectConversation(
 			}))
 		}
 		if (message.role === 'system' && isCompactionMessage(message.content)) {
-			detailOrdinal += 1
 			return [
 				{
 					id: nextId(),
@@ -1002,12 +1025,11 @@ export function projectConversation(
 					meta: COMPACTED_HINT,
 					activity: 'summary',
 					detail: summaryDetail(message),
-					detailRef: detailOrdinal,
 				},
 			]
 		}
 		return []
-	})
+	}
 }
 
 /** A running tool tracked internally: the live row's fields plus what we need
@@ -1982,6 +2004,11 @@ export function App({
 		},
 		[setAgentSurface, withSavedSubagents],
 	)
+	const idRef = useRef<number>(0)
+	const nextId = useCallback(() => {
+		idRef.current += 1
+		return `m${idRef.current}`
+	}, [])
 	/**
 	 * Re-reads what this conversation's finished children left on disk.
 	 *
@@ -2008,8 +2035,10 @@ export function App({
 		}
 		if (token !== savedSubagentsTokenRef.current) return
 		savedSubagentsRef.current = saved
+		// The rows of the agents a resumed conversation launched, where it launched them.
+		setMessages((rows) => withSavedAgentRows(rows, saved, nextId))
 		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
-	}, [replaceSubagents, session])
+	}, [nextId, replaceSubagents, session])
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
@@ -2673,11 +2702,6 @@ export function App({
 	 * the picker over a switch that happens anyway.
 	 */
 	const resumeCommittedRef = useRef<boolean>(false)
-	const idRef = useRef<number>(0)
-	const nextId = useCallback(() => {
-		idRef.current += 1
-		return `m${idRef.current}`
-	}, [])
 	// Reset the transcript view: clear the terminal + remount <Static> so its
 	// already-printed lines don't linger above fresh content (/clear,
 	// /clear-screen, /resume).
@@ -2913,6 +2937,24 @@ export function App({
 				)
 			return id
 		},
+		[pushMessage],
+	)
+	/** Write a row a shared builder produced, as `pushMessage` writes a live one. */
+	const pushRow = useCallback(
+		(row: ToolRow) =>
+			pushMessage(
+				row.role,
+				row.content,
+				false,
+				row.glyph,
+				row.detail,
+				row.glyphColor,
+				row.meta,
+				row.activity,
+				undefined,
+				row.shell,
+				row.diff,
+			),
 		[pushMessage],
 	)
 	useEffect(
@@ -3320,14 +3362,7 @@ export function App({
 			}
 			reportedBatchesRef.current.add(key)
 			if (!claimReceipt(members)) continue
-			pushMessage(
-				'tool',
-				launchReceipt(members).content,
-				false,
-				'●',
-				undefined,
-				theme.accent.assistant,
-			)
+			pushRow(agentLaunchRow(members))
 		}
 		for (const agent of subagents) {
 			if (isWorkflowRunAgent(agent)) continue
@@ -3351,61 +3386,16 @@ export function App({
 			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					pushMessage(
-						'tool',
-						launchReceipt(batches.get(key) ?? [agent]).content,
-						false,
-						'●',
-						undefined,
-						theme.accent.assistant,
-					)
+					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
 				}
 			}
 			reportedAgentsRef.current.add(agent.viewId)
-			// A workflow's agents are read in its detail view; the workflow closes
-			// with one line of its own.
-			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
-			// An agent the parent waited on handed its result back inline: the line
-			// is the tool's own result, not a notification.
-			if (agent.status === 'completed' && !reportsAsNotification(agent)) {
-				const done = agentDoneRows(agent)
-				pushMessage('tool', done.header, false, '●', undefined, theme.accent.assistant)
-				pushMessage('tool', done.result, false, '⎿', undefined, theme.text.muted)
-				continue
-			}
-			// What the agent said (collapsed, ctrl+o opens it), then one line that
-			// says it is over. The answer is not repeated in that line.
-			const said = agentMessageRow(agent)
-			if (said) {
-				pushMessage(
-					'tool',
-					said.content,
-					false,
-					'›',
-					said.detail,
-					theme.text.muted,
-					said.hint,
-					'agent-result',
-				)
-			}
-			const notice = agentNotice(agent)
-			pushMessage(
-				'tool',
-				notice.content,
-				false,
-				'●',
-				undefined,
-				notice.tone === 'ok'
-					? theme.status.ok
-					: notice.tone === 'error'
-						? theme.status.error
-						: theme.status.warn,
-			)
+			for (const done of agentCompletionRows(agent)) pushRow(done)
 		}
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushMessage, session, receiptTick])
+	}, [subagents, activeTools, pushRow, session, receiptTick])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -3431,21 +3421,9 @@ export function App({
 				continue
 			}
 			reportedWorkflowsRef.current.add(workflow.id)
-			const notice = workflowNotice(workflow)
-			pushMessage(
-				'tool',
-				notice.content,
-				false,
-				notice.glyph,
-				undefined,
-				notice.tone === 'error'
-					? theme.status.error
-					: notice.tone === 'warn'
-						? theme.status.warn
-						: theme.text.muted,
-			)
+			pushRow(workflowClosingRow(workflow))
 		}
-	}, [pushMessage])
+	}, [pushRow])
 	// A member that settles after its turn ended (it was not waited for) closes the workflow then.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; the flush reads the ref it mirrors.
 	useEffect(() => {
@@ -4753,7 +4731,7 @@ export function App({
 			}
 			const resumedTitle = named ?? firstTypedPrompt(restored)
 			setMessages([
-				...projectConversation(restored, nextId),
+				...projectConversation(restored, nextId, [], { trail: trailFromRecords(journalOf(restored)) }),
 				...(resumedTitle
 					? [
 							{
@@ -6457,7 +6435,9 @@ export function App({
 			}
 			resumeCommittedRef.current = false
 			setPhase('ready')
-			const restored = projectConversation(msgs, nextId)
+			const restored = projectConversation(msgs, nextId, [], {
+				trail: trailFromRecords(journalOf(msgs)),
+			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
 			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
@@ -7855,249 +7835,14 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
-					if (!event.isError && done?.activity === 'exploration') {
-						// Preserve the result, including the summary removed from detail by the adapter.
-						const output =
-							event.output !== undefined
-								? event.output.split('\n')
-								: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
-						pushMessage(
-							'tool',
-							event.headline ?? done.label,
-							false,
-							'⎿',
-							output,
-							theme.text.muted,
-							output.length > 0 ? EXPAND_HINT : undefined,
-							'exploration',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const web = event.web ?? done?.web
-					if (web) {
-						// Two rows, the call and what it came to, drawn as `web` activity:
-						// consecutive ones sit together and the result list stays behind
-						// Ctrl+O, as the reference terminal draws them.
-						const activity: WebActivity = {
-							...web,
-							...((event.web?.target ?? done?.web?.target)
-								? { target: event.web?.target ?? done?.web?.target }
-								: {}),
-						}
-						const durationMs = event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
-						const output = web.hosted ? undefined : event.output
-						pushMessage(
-							'tool',
-							webCallTitle(activity),
-							false,
-							'●',
-							undefined,
-							event.isError ? theme.status.error : theme.status.ok,
-							undefined,
-							'web',
-						)
-						const outputLines = output !== undefined ? output.split('\n') : undefined
-						pushMessage(
-							'tool',
-							event.isError
-								? `failed: ${event.summary}`
-								: webSettledLine(activity, {
-										...(durationMs !== undefined ? { durationMs } : {}),
-										...(activity.kind === 'fetch' && output !== undefined
-											? { bytes: Buffer.byteLength(output, 'utf8') }
-											: {}),
-									}),
-							false,
-							'⎿',
-							outputLines,
-							undefined,
-							outputLines && outputLines.length > 0 ? EXPAND_HINT : undefined,
-							'web',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (isTaskTool(event.toolName)) {
-						// The task event already wrote the block. A listing refreshes it
-						// while there is a plan to show; with none it keeps its own row.
-						if (!event.isError && event.toolName !== 'task_list') {
-							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-							break
-						}
-						if (!event.isError && tasksRef.current.length > 0) {
-							writeTaskBlock(st, null, tasksRef.current)
-							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-							break
-						}
-						// Its own row, in words: the call's label, and the result's
-						// label rather than the model's receipt, which names ids.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary, true),
-							false,
-							'●',
-							undefined,
-							event.isError ? theme.status.error : theme.status.ok,
-						)
-						const said =
-							event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
-						if (said.length > 0) {
-							pushMessage('tool', event.isError ? `failed: ${said}` : said, false, '⎿')
-						}
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.declined) {
-						// The person's own No: neither a failure nor a mystery. The model's
-						// refusal text is for the model and is not shown.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'●',
-							undefined,
-							theme.text.muted,
-						)
-						pushMessage('tool', declinedLine(event.declined.note), false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.cancelled) {
-						// A No on the tool's own screen: the person's answer, not a failure.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'●',
-							undefined,
-							theme.text.muted,
-							settledElapsed(event.durationMs),
-						)
-						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (
-						!event.isError &&
-						event.toolName === WORKFLOW_TOOL_NAME &&
-						isBackgroundLaunch(event.output ?? '')
-					) {
-						// The call returned at once and the run goes on in the background.
-						// What the model was told (the run's id, how it will hear back) is
-						// for the model; the person gets the name and where to manage it.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'●',
-							undefined,
-							theme.accent.assistant,
-						)
-						pushMessage('tool', WORKFLOW_BACKGROUND_NOTE, false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const catalogue =
-						!event.isError && event.toolName === 'agent_models' && event.output !== undefined
-							? modelCatalogueView(event.output)
-							: undefined
-					if (catalogue !== undefined) {
-						pushMessage(
-							'tool',
-							catalogue,
-							false,
-							'●',
-							event.output?.split('\n'),
-							theme.status.ok,
-							EXPAND_HINT,
-							'catalogue',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const evidence =
-						!event.isError && event.output !== undefined
-							? conversationEvidenceView(event.toolName, event.output)
-							: undefined
-					if (evidence !== undefined) {
-						pushMessage(
-							'tool',
-							evidence.content,
-							false,
-							'●',
-							evidence.detail,
-							theme.status.ok,
-							EXPAND_HINT,
-							'evidence',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.shell && done?.command !== undefined) {
-						// One row: the header, and the `⎿` result hung under it. The dot says
-						// how it ended; the elapsed time is not repeated per command.
-						const failed = event.isError || event.shell.failed
-						const command = done?.command
-						const header = command
-							? formatToolCall(event.toolName, shellCommandHeader(command))
-							: (done?.label ?? formatToolCall(event.toolName, event.summary))
-						const full = command
-							? formatToolCall(event.toolName, shellCommandFull(command))
-							: undefined
-						// A tool that failed without an exit status (blocked, refused) has its
-						// words in stdout; they read as the error they are.
-						const settled: ShellOutput =
-							event.isError && event.shell.stderr.length === 0
-								? {
-										...event.shell,
-										stdout: [],
-										stderr: event.shell.stdout,
-										failed: true,
-									}
-								: { ...event.shell, failed }
-						pushMessage(
-							'tool',
-							header,
-							false,
-							'●',
-							[...settled.stdout, ...settled.stderr],
-							failed ? theme.status.error : theme.status.ok,
-							undefined,
-							undefined,
-							undefined,
-							full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					pushMessage(
-						'tool',
-						done?.label ?? formatToolCall(event.toolName, event.summary),
-						false,
-						'●',
-						// The change to a file is drawn once, under its result.
-						event.diff ? undefined : done?.detail,
-						event.isError ? theme.status.error : theme.status.ok,
-						settledElapsed(event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)),
-					)
-					if (
-						event.isError ||
-						(!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0))
-					) {
-						pushMessage(
-							'tool',
-							event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
-							false,
-							'⎿',
-							event.detail,
-							undefined,
-							undefined,
-							undefined,
-							undefined,
-							undefined,
-							event.diff,
-						)
+					const built = toolEndRows(event, done, {
+						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
+						hasPlan: tasksRef.current.length > 0,
+					})
+					if (built.kind === 'task-block') {
+						writeTaskBlock(st, null, tasksRef.current)
+					} else if (built.kind === 'rows') {
+						for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 					break
@@ -13755,16 +13500,6 @@ function describeJobExit(job: {
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	// Borderless, edge-to-edge — the message glyph gutter provides structure.
 	return <Box flexDirection="column">{children}</Box>
-}
-
-// Tool call label: the tool name title-cased, then its most identifying
-// argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
-// of forty calls says nothing about which one this was.
-function formatToolCall(toolName: string, summary: string, standalone = false): string {
-	if (standalone) return summary
-	const words = toolName.replace(/[_-]+/g, ' ')
-	const display = words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words
-	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
 /**
