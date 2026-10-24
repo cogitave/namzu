@@ -2,8 +2,8 @@
  * Composer triggers through the real App: what a typed trigger changes about
  * the turn it starts, and what it must never change.
  *
- * - `hypermode` pins `xhigh` (not the model's top level, `max` here) and adds namzu's request-only
- *   context for that turn alone; the session's hypermode stays off and the
+ * - `hypermode` pins no effort and adds namzu's request-only context for that turn
+ *   alone; the session's hypermode stays off and the
  *   next turn gets neither. Dropped with Alt+W, pasted, or talked about, it
  *   does nothing.
  * - Save as skill runs exactly `/skills save` after a turn that completed and
@@ -100,7 +100,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			compact: async () => null,
 			providerSummary: 'test-provider',
 			modelSummary: 'test-model',
-			// Up to max, so the tests show hypermode pins xhigh and not the top.
+			// Up to max, so the tests show hypermode leaves the effort alone.
 			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 			toolNames: () => [],
 			presenter: genericPresenter,
@@ -182,7 +182,7 @@ async function until(check: () => boolean, why: string): Promise<void> {
 	expect(check(), why).toBe(true)
 }
 
-const HYPERMODE_CONTEXT = 'The operator asked for hypermode for THIS turn only'
+const HYPERMODE_CONTEXT = 'The operator included the keyword "hypermode"'
 const SAVE_CONTEXT = 'The operator asked namzu to save this work as a skill after this turn'
 const SKILL_PROMPT = '"from this conversation" mode'
 const PROPOSAL = 'Save it as a reusable skill?'
@@ -212,19 +212,19 @@ async function mount() {
 	return { harness, typeKeys, enter, shown, now }
 }
 
-it('arms hypermode for one turn: xhigh and namzu’s context, then neither', async () => {
+it('arms hypermode for one turn: namzu’s context and no effort change, then neither', async () => {
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	expect(now()).toContain(
-		'Hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
+		'Hypermode · this reply: offers workflows, effort unchanged · alt+w drop',
 	)
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
 	expect(sent[0]?.prompt).toBe('hypermode fix the flaky test')
-	expect(sent[0]?.options?.effort).toBe('xhigh')
+	expect(sent[0]?.options?.effort).toBeUndefined()
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
 	expect(sent[0]?.context.join('\n')).toContain(HYPERMODE_CONTEXT)
-	expect(shown()).toContain('Hypermode is on for this reply (effort xhigh).')
+	expect(shown()).toContain('Hypermode is on for this reply: Namzu may use workflows.')
 	// The session's mode never turned on: the footer does not name it.
 	expect(now()).not.toMatch(/· hypermode(?! \()/u)
 

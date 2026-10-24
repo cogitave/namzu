@@ -234,7 +234,6 @@ import { type CapabilityProbe, probeCapabilities } from '../context/capabilities
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_HYPERMODE_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
@@ -356,7 +355,7 @@ import {
 import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
-import { workflowOffered, workflowRefusal } from '../integrations/workflows/offering.js'
+import { workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
 	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
@@ -399,6 +398,7 @@ import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
+import { HypermodeReminders } from './hypermode.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
@@ -875,17 +875,19 @@ export interface SendOptions {
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
-	 * Strengthen delegation guidance toward delegating by default for this
-	 * turn, for a session whose hypermode (`/hypermode`) is on.
-	 * Default `false`; appends `NAMZU_HYPERMODE_DOCTRINE` after the
-	 * delegation doctrine and never on its own. Display/prompt-only — creates
-	 * no roster and starts no delegation by itself.
+	 * The session's hypermode (`/hypermode`, or the `hypermode` config key) is
+	 * on for this turn. Default `false`. It tells the model, in request-only
+	 * context, to use the `workflow` tool for substantive work: in full the
+	 * first time, sparsely every few messages, and once when it ends
+	 * (`HypermodeReminders`). It changes no effort, no tool list and no
+	 * permission; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
 	/**
-	 * Offer the `workflow` tool for this turn because the operator's message
-	 * armed the `workflow` composer trigger. Default `false`; the bare word in
-	 * a message offers nothing by itself.
+	 * The operator's message armed the `workflow` composer trigger. Default
+	 * `false`. The `workflow` tool is listed on every turn that can run one;
+	 * this only records the opt-in, which the trigger's request-only text
+	 * (`hostContext`) says to the model.
 	 */
 	readonly workflow?: boolean
 	/**
@@ -3157,6 +3159,9 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
+	// What the model has been told about the standing hypermode, so it hears it
+	// in full once, sparsely now and then, and once when it ends.
+	const hypermodeReminders = new HypermodeReminders()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
@@ -5418,9 +5423,13 @@ export async function createAgentSession(
 						const childOperatorNotices = options.ephemeral
 							? []
 							: await readChildOperatorNotices(paths, turnScope.sessionId)
+						// The standing hypermode's reminder for this message, set once the
+						// tool list is known (below); request-only, like the trigger texts.
+						let hypermodeReminder: string | undefined
 						const hostContext = () => [
 							...new Set([
 								...(opts?.hostContext?.() ?? []),
+								...(hypermodeReminder ? [hypermodeReminder] : []),
 								...childOperatorNotices.map((notice) => notice.text),
 							]),
 						]
@@ -5477,17 +5486,15 @@ export async function createAgentSession(
 								render: () => invocationContext,
 							})
 						}
-						// The `workflow` tool is offered only when the operator asked for
-						// orchestration, so an ordinary turn never carries its schema.
+						// The `workflow` tool is listed on every turn of a host that can run
+						// one, and the model is gated by wording: its description and
+						// `WORKFLOW_DOCTRINE` say when it may be called (the operator's
+						// keyword, hypermode on, their own words, `/workflow`). A tool list
+						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
-							workflowHost !== undefined &&
-							opts?.workflowReview !== undefined &&
-							!residentContext &&
-							workflowOffered({
-								hypermode: opts?.hypermode === true,
-								workflow: opts?.workflow === true,
-								userText: lastUserText(messages),
-							})
+							workflowHost !== undefined && opts?.workflowReview !== undefined && !residentContext
+						if (!residentContext)
+							hypermodeReminder = hypermodeReminders.next(opts?.hypermode === true, workflowOffer)
 						if (workflowOffer && workflowHost) {
 							runToolsets = [...runToolsets, toolset('workflow', [workflowHost.tool])]
 							if (runManager !== manager) runManager.dispose()
@@ -5529,7 +5536,6 @@ export async function createAgentSession(
 								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
-								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
 								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,

@@ -584,6 +584,8 @@ async function execPrint(
 		// model is not offered the tool. Nobody is here to review a script, so
 		// only a session set to run without asking may start one.
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
+		// The `hypermode` config key reaches a headless turn too.
+		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
 		onConversationMessages: (messages: readonly Message[]) => {
 			history = messages
 		},

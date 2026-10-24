@@ -430,6 +430,16 @@ export interface NamzuCliConfig {
 	 */
 	readonly modelCatalogueRefresh?: boolean
 	/**
+	 * Start with hypermode on. Absent or `false` means off. The interactive
+	 * terminal starts every conversation with the mode on (`/hypermode off`
+	 * ends it for that conversation; the file is never rewritten), and `exec`,
+	 * `exec --json` and scheduled runs tell the model it is on, so a headless
+	 * turn gets the same standing instruction to use workflows or, where a run
+	 * cannot start one, parallel agents. Hypermode never changes the reasoning
+	 * effort. File only: no environment variable sets it.
+	 */
+	readonly hypermode?: boolean
+	/**
 	 * The scheduler (`namzu schedule`). Read from the user and managed files
 	 * only: a project file is repo content, and a repository must not be able
 	 * to raise how many unattended runs a machine starts or silence their

@@ -1,13 +1,21 @@
 /**
- * The `workflow` tool is in the model's tool list only when the operator asked
- * for orchestration, and a turn with nobody to review it cannot start one.
+ * The `workflow` tool is in the model's tool list on every turn of a host that
+ * can run one (the model is gated by the opt-in rule, not by the list), the
+ * standing hypermode reaches the model as request-only notes, and a turn with
+ * nobody to review a script cannot start one.
  * Driven through the real AgentSession, with the kernel's `query` recorded.
  */
 
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ToolContext, ToolDefinition, Toolset, TurnId } from '@namzu/sdk'
+import type {
+	PromptContributionRegistry,
+	ToolContext,
+	ToolDefinition,
+	Toolset,
+	TurnId,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -99,65 +107,27 @@ function offered(call: { toolsets: readonly Toolset[] }): ToolDefinition | undef
 	return undefined
 }
 
-describe('when the model is offered the workflow tool', () => {
-	it('does not offer it to an ordinary request', async () => {
-		const call = await sendWith('fix the failing test in cart.ts')
-		expect(offered(call)).toBeUndefined()
-		expect(call.systemPrompt ?? '').not.toContain(WORKFLOW_DOCTRINE)
-	})
+function contextOf(call: { promptContributions?: unknown } | undefined): string {
+	const registry = call?.promptContributions as PromptContributionRegistry | undefined
+	return (registry?.render('context', { iteration: 2 } as never) ?? []).join('\n')
+}
 
-	it.each([
-		['the workflow trigger is armed', 'use a workflow to audit the packages', { workflow: true }],
-		['the slash command was used', 'Use a workflow for this: audit it', {}],
-		['hypermode is on', 'audit the packages', { hypermode: true }],
-	])('offers it when %s, with the doctrine that goes with it', async (_why, text, extra) => {
-		const call = await sendWith(text, extra)
-		const tool = offered(call)
-		expect(tool?.name).toBe('workflow')
-		expect(tool?.description).toContain('export const meta')
+describe('when the model is offered the workflow tool', () => {
+	it('lists it on an ordinary request, with the opt-in rule in the system prompt', async () => {
+		const call = await sendWith('fix the failing test in cart.ts')
+		expect(offered(call)?.name).toBe('workflow')
+		expect(offered(call)?.description).toContain('ONLY call it after an explicit opt-in')
 		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
 	})
 
-	it('does not offer it for the word alone, without the armed trigger', async () => {
-		const call = await sendWith('use a workflow to audit the packages')
-		expect(offered(call)).toBeUndefined()
-	})
-
-	it.each([
-		['the message asks for one', 'use a workflow to audit', { workflow: true }],
-		['hypermode is on', 'audit the packages', { hypermode: true }],
-	])(
-		'does not offer it to a host that passes no workflow reviewer, even when %s',
-		async (_why, text, extra) => {
-			const { createAgentSession } = await import('../agent.js')
-			const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
-			try {
-				for await (const _event of session.send(
-					[{ role: 'user', content: text, timestamp: 0 }],
-					extra,
-				)) {
-					// drain
-				}
-			} finally {
-				await session.close()
-			}
-			const [call] = queryCalls as { toolsets: readonly Toolset[]; systemPrompt?: string }[]
-			expect(call && offered(call)).toBeUndefined()
-			expect(call?.systemPrompt ?? '').not.toContain(WORKFLOW_DOCTRINE)
-		},
-	)
-
-	it('offers it on the turn that asked, not on the next one', async () => {
+	it('keeps the system prompt identical whether hypermode is on or off', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
 		try {
-			for (const [text, workflow] of [
-				['use a workflow', true],
-				['thanks, now rename the file', false],
-			] as const) {
-				for await (const _event of session.send([{ role: 'user', content: text, timestamp: 0 }], {
+			for (const hypermode of [false, true, false]) {
+				for await (const _event of session.send([{ role: 'user', content: 'go', timestamp: 0 }], {
 					workflowReview: REVIEWER,
-					...(workflow ? { workflow: true } : {}),
+					...(hypermode ? { hypermode: true } : {}),
 				})) {
 					// drain
 				}
@@ -165,9 +135,99 @@ describe('when the model is offered the workflow tool', () => {
 		} finally {
 			await session.close()
 		}
-		const [first, second] = queryCalls as Array<{ toolsets: readonly Toolset[] }>
-		expect(first && offered(first)).toBeDefined()
-		expect(second && offered(second)).toBeUndefined()
+		const [off, on, offAgain] = queryCalls as Array<{
+			systemPrompt?: string
+			toolsets: readonly Toolset[]
+		}>
+		expect(on?.systemPrompt).toBe(off?.systemPrompt)
+		expect(offAgain?.systemPrompt).toBe(off?.systemPrompt)
+		for (const call of [off, on, offAgain]) expect(call && offered(call)).toBeDefined()
+	})
+
+	it('tells the model about the standing hypermode in full once, never in the system prompt, and once on exit', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(preferences, detectedAnthropic(), {
+			cwd,
+		})
+		try {
+			for (const hypermode of [true, true, false, false]) {
+				for await (const _event of session.send([{ role: 'user', content: 'go', timestamp: 0 }], {
+					workflowReview: REVIEWER,
+					...(hypermode ? { hypermode: true } : {}),
+				})) {
+					// drain
+				}
+			}
+		} finally {
+			await session.close()
+		}
+		const calls = queryCalls as Array<{
+			systemPrompt?: string
+			promptContributions?: unknown
+		}>
+		expect(contextOf(calls[0])).toContain('Hypermode is on: optimize for the most exhaustive')
+		expect(contextOf(calls[0])).toContain('Use the `workflow` tool on every substantive task')
+		expect(contextOf(calls[1])).not.toContain('Hypermode')
+		expect(contextOf(calls[2])).toContain('Hypermode is off')
+		expect(contextOf(calls[3])).not.toContain('Hypermode')
+		for (const call of calls) expect(call.systemPrompt ?? '').not.toContain('Hypermode is on')
+	})
+
+	it('tells a host that cannot start a workflow to use parallel agents instead', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(preferences, detectedAnthropic(), {
+			cwd,
+		})
+		try {
+			for await (const _event of session.send([{ role: 'user', content: 'go', timestamp: 0 }], {
+				hypermode: true,
+			})) {
+				// drain
+			}
+		} finally {
+			await session.close()
+		}
+		const [call] = queryCalls as Array<{
+			toolsets: readonly Toolset[]
+			promptContributions?: unknown
+		}>
+		expect(call && offered(call)).toBeUndefined()
+		expect(contextOf(call)).toContain('not available in this run')
+		expect(contextOf(call)).toContain('`Agent`')
+	})
+
+	it('lists it for the slash command and the armed trigger too', async () => {
+		for (const [text, extra] of [
+			['use a workflow to audit the packages', { workflow: true }],
+			['Use a workflow for this: audit it', {}],
+		] as const) {
+			queryCalls.length = 0
+			const call = await sendWith(text, extra)
+			expect(offered(call)?.description).toContain('export const meta')
+		}
+	})
+
+	it('does not list it to a host that passes no workflow reviewer', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(preferences, detectedAnthropic(), {
+			cwd,
+		})
+		try {
+			for await (const _event of session.send(
+				[{ role: 'user', content: 'use a workflow', timestamp: 0 }],
+				{ workflow: true, hypermode: true },
+			)) {
+				// drain
+			}
+		} finally {
+			await session.close()
+		}
+		const [call] = queryCalls as {
+			toolsets: readonly Toolset[]
+			systemPrompt?: string
+		}[]
+		expect(call && offered(call)).toBeUndefined()
+		expect(call?.systemPrompt ?? '').not.toContain(WORKFLOW_DOCTRINE)
 	})
 })
 

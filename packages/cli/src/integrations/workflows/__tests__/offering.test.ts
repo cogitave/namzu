@@ -1,45 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
+import { WORKFLOW_DOCTRINE } from '../doctrine.js'
 import {
 	WORKFLOW_TOOL_DESCRIPTION,
 	isWorkflowCommandPrompt,
 	workflowCommandPrompt,
-	workflowOffered,
 	workflowRefusal,
 } from '../offering.js'
 
-describe('when the workflow tool is offered', () => {
-	const none = { hypermode: false, workflow: false }
-
-	it('is not offered to an ordinary message', () => {
-		expect(workflowOffered({ ...none, userText: 'fix the failing test in cart.ts' })).toBe(false)
-		expect(workflowOffered({ ...none, userText: '' })).toBe(false)
-	})
-
-	it('is offered whenever hypermode is on, whatever the message says', () => {
-		expect(workflowOffered({ ...none, hypermode: true, userText: 'fix the failing test' })).toBe(
-			true,
-		)
-	})
-
-	it('is offered when the workflow trigger is armed for the turn', () => {
-		expect(workflowOffered({ ...none, workflow: true, userText: 'audit the packages' })).toBe(true)
-	})
-
-	it.each([
-		'use a workflow to audit the packages',
-		'how does the build workflow cache work?',
-		'bir iş akışı kur',
-	])('the word alone offers nothing; the composer trigger does that: %s', (text) => {
-		expect(workflowOffered({ ...none, userText: text })).toBe(false)
-	})
-
-	it('turns /workflow <task> into a message that offers one', () => {
+describe('the /workflow command', () => {
+	it('turns /workflow <task> into a message the tool may be used for', () => {
 		const prompt = workflowCommandPrompt('  audit the packages ')
 		expect(prompt).toBe('Use a workflow for this: audit the packages')
 		expect(isWorkflowCommandPrompt(prompt)).toBe(true)
 		expect(isWorkflowCommandPrompt(workflowCommandPrompt(''))).toBe(true)
-		expect(workflowOffered({ ...none, userText: prompt })).toBe(true)
+		expect(isWorkflowCommandPrompt('fix the failing test in cart.ts')).toBe(false)
 	})
 })
 
@@ -89,5 +64,26 @@ describe('what the tool description says about failures', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('never rejects: a thunk that throws becomes null')
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('a stage that throws drops its item to null')
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('filter the nulls')
+	})
+})
+
+describe('the opt-in rule the model reads', () => {
+	it('names the four opt-ins and refuses everything else, in the tool text and the doctrine', () => {
+		for (const text of [WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_DOCTRINE]) {
+			expect(text).toContain('"hypermode"')
+			expect(text).toContain('hypermode is on')
+			expect(text).toContain('/workflow')
+			expect(text).toContain('do not call')
+		}
+	})
+
+	it('points to the quality patterns', () => {
+		for (const pattern of [
+			'adversarial verify',
+			'judge panel',
+			'loop until dry',
+			'completeness critic',
+		])
+			expect(WORKFLOW_TOOL_DESCRIPTION).toContain(pattern)
 	})
 })

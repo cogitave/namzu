@@ -336,10 +336,11 @@ import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
 	HYPERMODE,
+	HYPERMODE_ROW_LABEL,
 	HYPERMODE_SUMMARY,
 	ORCHESTRATE_ALIAS_NOTICE,
-	hypermodeEffort,
-	hypermodeStopLabel,
+	hypermodeOffMessage,
+	hypermodeOnMessage,
 } from './hypermode.js'
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
@@ -1444,8 +1445,10 @@ export function App({
 	// A session setting layered above effort, not a level a provider publishes
 	// — see docs/cli/slash-commands.md's /effort section. In-memory and
 	// per-session like reasoningEffort above; no preferences file involved.
-	const [hypermode, setHypermodeState] = useState(false)
-	const hypermodeRef = useRef(false)
+	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
+	// for this conversation only.
+	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
+	const hypermodeRef = useRef(initialCtx.hypermode === true)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
@@ -3828,22 +3831,12 @@ export function App({
 	/**
 	 * Turn the session's hypermode on or off.
 	 *
-	 * On: pins effort to the model's highest published level (last entry of
-	 * `reasoningEffortLevels`, which every provider publishes low-to-high) and
-	 * strengthens delegation guidance for future turns via `SendOptions.hypermode`
-	 * — see `applyReasoningEffort` above for the mirrored guard shape. When the
-	 * model publishes no exact menu, effort is left alone and the notice says
-	 * so explicitly rather than silently doing nothing.
+	 * An independent switch: it never changes the reasoning effort, and the
+	 * message says so ("Effort stays X"). While it is on, `SendOptions.hypermode`
+	 * tells the model, in request-only context, to use the `workflow` tool for
+	 * substantial work (see `HypermodeReminders`). See `applyReasoningEffort`
+	 * above for the mirrored guard shape.
 	 */
-	/**
-	 * The effort in force before hypermode pinned the highest level, and the
-	 * level it pinned. Turning the mode off puts the effort back — unless the
-	 * operator chose another level meanwhile, which then stays.
-	 */
-	const hypermodePinRef = useRef<{
-		readonly before: ReasoningEffort | undefined
-		readonly pinned: ReasoningEffort
-	} | null>(null)
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -3878,71 +3871,10 @@ export function App({
 			const newlyEnabled = enabled && !hypermodeRef.current
 			setHypermode(enabled)
 			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
-			if (!enabled) {
-				const pin = hypermodePinRef.current
-				hypermodePinRef.current = null
-				if (pin && reasoningEffortRef.current === pin.pinned) {
-					setReasoningEffort(pin.before)
-					pushMessage(
-						'system',
-						`Hypermode is off. Effort is back to ${pin.before ?? 'the provider default'}.`,
-					)
-					return
-				}
-				pushMessage('system', 'Hypermode is off.')
-				return
-			}
-			const pinNow = (): boolean => {
-				const pinned = hypermodeEffort(session.reasoningEffortLevels)
-				if (pinned === undefined) return false
-				// Turning it on twice keeps the effort from before the first time.
-				if (!hypermodePinRef.current)
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
-				setReasoningEffort(pinned)
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: ${pinned} effort, and Namzu will split big tasks across agents.`,
-				)
-				return true
-			}
-			if (pinNow()) return
-			if (
-				session.reasoningSettled !== undefined &&
-				session.reasoningEffortLevels === undefined &&
-				// Only a listing that has not answered yet is "still loading"; one that
-				// answered with no levels has said so already, and /effort agrees.
-				reasoningListedRef.current !== session
-			) {
-				// The model's effort menu is still loading: say so, and pin when it lands
-				// unless the mode was switched off or the session replaced meanwhile.
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: Namzu will split big tasks across agents. Effort is set once ${session.modelSummary ?? 'the model'}'s settings finish loading.`,
-				)
-				void session.reasoningSettled.then(() => {
-					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
-					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
-					const pinned = hypermodeEffort(session.reasoningEffortLevels)
-					if (pinned === undefined) return
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-					setReasoningEffort(pinned)
-					pushMessage('system', `Effort set to ${pinned} for hypermode.`)
-				})
-				return
-			}
-			pushMessage(
-				'system',
-				`Hypermode is on for this conversation: Namzu will split big tasks across agents. ${session.modelSummary ?? 'This model'} has no effort levels to choose from, so effort stays as it is.`,
-			)
+			const effort = reasoningEffortRef.current
+			pushMessage('system', enabled ? hypermodeOnMessage(effort) : hypermodeOffMessage(effort))
 		},
-		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
+		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -5204,15 +5136,9 @@ export function App({
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
 			// above, so they leave the current session selection untouched. Hypermode
-			// mode survives the switch: re-pin to the new model's highest published
-			// level instead of clearing, exactly as it pinned when first turned on.
-			if (signal !== undefined) {
-				const repinned = hypermodeRef.current ? hypermodeEffort(s.reasoningEffortLevels) : undefined
-				// A new model starts at its own default; that is what turning
-				// hypermode off returns to now.
-				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
-				setReasoningEffort(repinned)
-			}
+			// does not depend on effort, so it survives the switch as it is, and the
+			// new model starts at its own default effort.
+			if (signal !== undefined) setReasoningEffort(undefined)
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -5234,28 +5160,9 @@ export function App({
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
 				}
-				// A model switch under hypermode cleared the pin above; with the levels
-				// final, pin the new model's highest level, unless the operator turned
-				// the mode off or chose an effort while the list was loading.
-				if (
-					signal !== undefined &&
-					hypermodeRef.current &&
-					hypermodePinRef.current === null &&
-					reasoningEffortRef.current === undefined
-				) {
-					const repin = hypermodeEffort(s.reasoningEffortLevels)
-					if (repin !== undefined) {
-						hypermodePinRef.current = { before: undefined, pinned: repin }
-						setReasoningEffort(repin)
-					}
-				}
-				// Hypermode already re-pinned effort above; reopening this picker
-				// would ask the operator to redo a choice the mode just made for them.
-				if (
-					!hypermodeRef.current &&
-					options.chooseReasoningEffort &&
-					s.reasoningEffortLevels?.length
-				) {
+				// Hypermode is independent of effort, so the picker a model change
+				// asks for opens whether or not it is on.
+				if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
 					setSelectedChoice(0)
@@ -12726,6 +12633,12 @@ export function App({
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
+				if (key.tab && picker.kind === 'reasoning-effort') {
+					// Tab flips hypermode at whatever effort is highlighted, like the
+					// hypermode row does on Enter; the effort itself is left alone.
+					applyChoiceSelection(picker.options.length - 1)
+					return
+				}
 				if (key.downArrow) {
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
@@ -13091,7 +13004,6 @@ export function App({
 		: undefined
 	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
-	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
 		? {
 				registry: composerTriggerRegistry,
@@ -13105,7 +13017,6 @@ export function App({
 					scheduleTool: true,
 				},
 				...(highestEffort ? { highestEffort } : {}),
-				...(hypermodeLevel ? { hypermodeEffort: hypermodeLevel } : {}),
 			}
 		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
@@ -13632,6 +13543,7 @@ export function App({
 								: (session?.modelSummary ?? null)
 						}
 						effort={reasoningEffort}
+						hypermode={hypermode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}
@@ -14108,7 +14020,7 @@ function reasoningEffortPicker(
 				// Below a rule, visually apart from the levels above: a session
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
-				label: hypermodeStopLabel(hypermodeEffort(levels)),
+				label: HYPERMODE_ROW_LABEL,
 				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,

@@ -18,7 +18,7 @@ is there before you press Enter.
 
 ```text
 ────────────────────────────────────────────────────────────────────────────────
-Hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
+Hypermode · this reply: offers workflows, effort unchanged · alt+w drop
 ❯ hypermode ile şu repodaki TODO'ları iki agent'a bölerek say▏
 ────────────────────────────────────────────────────────────────────────────────
 ```
@@ -44,8 +44,8 @@ Three rules hold for every trigger:
 
 | Trigger | You type | Default | What it does |
 | --- | --- | --- | --- |
-| `hypermode` | the word `hypermode` at the start or end of a clause | arms | For this turn only: effort pinned to `xhigh` (or the highest level below it the model publishes), and namzu tells the model to delegate independent work to parallel agents (the one-turn form of [`/hypermode`](slash-commands.md#hypermode)). |
-| `workflow` | the word `workflow` or `workflows` at the start or end of a clause | arms | For this turn only: the `workflow` tool is offered to the model, and namzu tells it a workflow was asked for. You still read and approve the script before anything starts ([Workflows](workflows.md)). `/workflow <task>` is unchanged. |
+| `hypermode` | the word `hypermode` at the start or end of a clause | arms | For this turn only: namzu tells the model the message opts this turn into the `workflow` tool, and the effort is left as it is (the one-turn form of [`/hypermode`](slash-commands.md#hypermode)); you still read and approve a script before anything starts. |
+| `workflow` | the word `workflow` or `workflows` at the start or end of a clause | arms | For this turn only: namzu tells the model a workflow was asked for, which opts the turn into the `workflow` tool. You still read and approve the script before anything starts ([Workflows](workflows.md)). `/workflow <task>` is unchanged. |
 | `save-skill` | "save this as a skill", "turn it into a skill", "bunu skill olarak kaydet", "bunu skill'e çevir", "bundan bir skill yap" … | arms | After the turn, if it completed and did tool work, runs exactly `/skills save` ([Learning from a task](skills.md#learning-from-a-task)). |
 | `schedule` | "schedule this", "run it every day", "bunu her sabah çalıştır" … | suggests | Armed with Alt+W: namzu asks the model to propose a job with the `schedule` tool, which you confirm on screen ([Scheduled tasks](scheduled-tasks.md)). |
 | `max-effort` | "think as hard as you can", "en yüksek eforla düşün" | off | Armed: effort pinned to the model's highest published level (`max` where there is one) for this turn. |
@@ -106,7 +106,7 @@ One row between the composer's rules, above the input, in the place of the
 never a symbol); the state is always a word or a mark:
 
 ```text
-Hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
+Hypermode · this reply: offers workflows, effort unchanged · alt+w drop
 Hypermode · enter steers without it · tab: new message with it · alt+w drop     (a turn is running)
 Save as skill · after this reply, if it did work; you confirm the file · alt+w drop
 Save as skill · enter: after the running reply · tab: after the next · alt+w drop
@@ -114,28 +114,27 @@ Save as skill · runs /skills save · alt+w drop                                
 Hypermode? · alt+w arms                                                       (a suggestion)
 Hypermode (off) · alt+w restores                                             (dropped)
 Save as skill · unavailable in plan mode
-Hypermode (effort xhigh) · save as skill · alt+w drop                       (several)
+Hypermode (workflows) · save as skill · alt+w drop                          (several)
 ```
 
 The full copy needs a terminal of 84 columns (the row has the terminal's width
 less the frame's four cells). Narrower terminals get shorter copy:
-`Hypermode · this turn, effort xhigh · alt+w` from 64 columns (an 80×24
-terminal shows this one), `Hypermode · effort xhigh · alt+w` from 44, and
+`Hypermode · this reply: workflows · alt+w` from 64 columns (an 80×24
+terminal shows this one), `Hypermode · workflows · alt+w` from 44, and
 `Hypermode` below that; several triggers are counted (`2 armed · alt+w`,
 `1 armed · 1 off`). It is always one row, and the state word stays at every
 width (`Hypermode?`, `Hypermode (off)`).
 
-The effort the row names is the level hypermode pins on the model in use:
-`xhigh`, also on a model that publishes `max`, and `high` on one whose menu
-stops there.
+Hypermode names no effort and pins none; only the max-effort trigger names a
+level (the highest the model publishes).
 
 The armed words are drawn bold and underlined in the trigger colour (sky,
 ANSI 117), a colour of their own: violet stays the session mode's. With colour
 off (`NO_COLOR`) the row still says everything. After you send, a line under
 your message in the transcript names what it carried —
-`Hypermode is on for this reply (effort xhigh).` — and the queue line names armed
+`Hypermode is on for this reply: Namzu may use workflows.` — and the queue line names armed
 triggers of queued messages (`⏎ 1 message queued — sending when ready · save as skill`). The footer keeps showing the session's own effort: a
-one-turn pin does not change it.
+one-turn max-effort pin does not change it.
 
 ## Keys
 

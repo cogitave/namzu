@@ -503,6 +503,8 @@ export async function execJson(
 		// This host can wait for a background run, so it says so. Nobody is here
 		// to review a script: only a session set to run without asking may start one.
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
+		// The `hypermode` config key reaches a headless turn too.
+		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
 		onConversationMessages: (settled: readonly Message[]) => {
 			history = settled
 		},

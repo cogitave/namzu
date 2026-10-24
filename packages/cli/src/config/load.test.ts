@@ -39,6 +39,15 @@ describe('loadConfig cascade', () => {
 		expect(cfg.quiet).toBe(true)
 	})
 
+	it('reads the hypermode switch from a file, off by default, and refuses a non-boolean', () => {
+		const empty = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		expect(loadConfig({ home: empty, cwd: tmpdir(), env: {} }).hypermode).toBeUndefined()
+		const on = userConfig('hypermode: true\n')
+		expect(loadConfig({ home: on, cwd: tmpdir(), env: {} }).hypermode).toBe(true)
+		const bad = userConfig('hypermode: sometimes\n')
+		expect(() => loadConfig({ home: bad, cwd: tmpdir(), env: {} })).toThrow(/hypermode/)
+	})
+
 	it('project config overrides user config', () => {
 		const home = userConfig('format: yaml\n')
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
