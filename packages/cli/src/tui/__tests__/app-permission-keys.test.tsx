@@ -709,6 +709,9 @@ describe('the closing "Worked for" line', () => {
 		holdAfterPermissionDecision = true
 		finishTurnAfterDecision = true
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		// The frame shows the prompt a beat before the effect that starts the
+		// wait clock has run; let it run before the stubbed clock moves.
+		await tick(20)
 
 		// The person takes a minute to answer. The agent was not working then.
 		nowMs += 60_000
