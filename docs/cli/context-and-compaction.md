@@ -35,6 +35,21 @@ adds no assistant answer, checkpoint or turn, and is refused while a turn is
 active. Verifier usage, if any,
 remains in the compaction result shown by the UI.
 
+What the transcript shows is deliberately short, in the reference's words. While
+a pass runs, the live area says `Compacting conversation…` with the spinner and
+the clock (for `/compact`, and for an in-turn pass that follows a tool-result
+clearing that was not enough). `/compact` then leaves `✻ Compacted (ctrl+o to see
+full summary)`; the summary, without the marker the model reads, opens with
+Ctrl+O instead of sitting under the row. An automatic pass leaves `✻ Conversation
+compacted (ctrl+o for history)`, and Ctrl+O shows what became what. A resumed
+conversation shows the same row at the top. The rows kept after `/compact` start
+on a prompt, never on an answer without its question. When there is nothing to
+compact it says `Nothing to compact yet. The conversation is still short enough.`
+A pass that cannot run says `Compaction failed · conversation could not be
+reduced below the context limit` (or one plain sentence for the other causes);
+the runtime's own error text follows only with `NAMZU_DEBUG=1` or `--debug`.
+Tool-result clearing draws no row at all; its counts stay in `/context`.
+
 If retention fails or is cancelled, the replacement is not published. The TUI
 shows the error and continues to use the original history. Large serialized
 messages use the SDK's retained compaction storage instead of exceeding the
@@ -182,7 +197,7 @@ The footer also shows `N% until auto-compact` once the context is within
 cleared, messages shortened and summaries written. `salience` starts reducing
 less useful content at its soft target and summarises older history at its
 trigger; `structured` clears older tool results at its trigger and summarises
-when needed. Every completed pass also leaves a `⌫` row in the transcript.
+when needed. Every completed pass also leaves a `✻ Conversation compacted` row in the transcript, and a manual `/compact` counts as a pass here too.
 These cleanup counters cover the session, while the context size is the latest
 reported measurement and can fall after cleanup.
 

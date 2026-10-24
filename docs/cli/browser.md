@@ -80,7 +80,7 @@ A reviewed browser call says what it does in words (`Open a web page`, `Click on
 
 ```text
 Open a web page
-site rule: https://tr.wikipedia.org (any other site) → ask · profile work · windows-cdp
+Browser: asks before using tr.wikipedia.org (profile work).
   Open: https://tr.wikipedia.org/wiki/İstanbul
   sent as: https://tr.wikipedia.org/wiki/%C4%B0stanbul
 
