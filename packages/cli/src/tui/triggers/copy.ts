@@ -1,19 +1,21 @@
 /**
  * The words the tag row says, at every width.
  *
- * Meaning is carried by words, never by colour or glyph alone: `✦` marks an
- * armed trigger and `✧` anything else, but the state is also always a word
+ * Meaning is carried by words, never by a glyph (the reference marks a
+ * detected keyword by highlighting it in the input and a plain notice, with no
+ * symbol): an armed trigger says what it does, and any other state is a word
  * or a mark — `?` for a suggestion, `(off)` for one dropped with Alt+W,
- * `unavailable …` for one that cannot apply. Both glyphs are one cell wide
- * and neither is an emoji. One row at every width; the text shortens by
- * steps before it is cut.
+ * `unavailable …` for one that cannot apply. The row is sentence case. One row
+ * at every width; the text shortens by steps before it is cut.
  */
 
 import type { Detection, TriggerHit } from './detect.js'
 import type { TriggerId } from './registry.js'
 
-export const ARMED_MARK = '✦'
-export const OTHER_MARK = '✧'
+/** A trigger's name starting a row: `save as skill` reads `Save as skill`. */
+function cap(label: string): string {
+	return label.charAt(0).toUpperCase() + label.slice(1)
+}
 
 export interface TagCopyContext {
 	/** Columns the row may use. */
@@ -37,7 +39,7 @@ const TURN_SCOPED: ReadonlySet<TriggerId> = new Set([
 ])
 
 export function tagRow(detection: Detection, context: TagCopyContext): string | null {
-	if (detection.paused) return fit(`${OTHER_MARK} triggers paused: draft too long`, context.columns)
+	if (detection.paused) return fit('Triggers paused: draft too long', context.columns)
 	const hits = detection.hits
 	if (hits.length === 0) return null
 	const [only] = hits
@@ -50,15 +52,13 @@ function single(hit: TriggerHit, detection: Detection, context: TagCopyContext):
 	switch (hit.state) {
 		case 'suggested':
 			if (hit.id === 'schedule' && columns >= 80)
-				return `${OTHER_MARK} schedule? · alt+w: the agent proposes a job; you confirm it on screen`
-			return columns >= 40
-				? `${OTHER_MARK} ${hit.label}? · alt+w arms`
-				: `${OTHER_MARK} ${hit.label}?`
+				return 'Schedule? · alt+w: the agent proposes a job; you confirm it on screen'
+			return columns >= 40 ? `${cap(hit.label)}? · alt+w arms` : `${cap(hit.label)}?`
 		case 'dropped':
-			if (columns >= 60) return `${OTHER_MARK} ${hit.label} (off) · alt+w restores`
-			return `${OTHER_MARK} ${hit.label} (off)`
+			if (columns >= 60) return `${cap(hit.label)} (off) · alt+w restores`
+			return `${cap(hit.label)} (off)`
 		case 'unavailable':
-			return `${OTHER_MARK} ${hit.label} · ${hit.reason ?? 'unavailable'}`
+			return `${cap(hit.label)} · ${hit.reason ?? 'unavailable'}`
 		case 'armed':
 			return armed(hit, detection, context)
 	}
@@ -66,7 +66,7 @@ function single(hit: TriggerHit, detection: Detection, context: TagCopyContext):
 
 function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): string {
 	const { columns, turnActive } = context
-	const label = `${ARMED_MARK} ${hit.label}`
+	const label = `${cap(hit.label)}`
 	if (columns < 40) return label
 	const pinned = hit.id === 'hypermode' ? context.hypermodeEffort : context.highestEffort
 	const effort = pinned ? `effort ${pinned}` : undefined
@@ -148,22 +148,22 @@ function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
 		]
 			.filter(Boolean)
 			.join(' · ')
-		const mark = armedCount > 0 ? ARMED_MARK : OTHER_MARK
-		return columns >= 40 ? `${mark} ${counts} · alt+w` : `${mark} ${counts}`
+		return columns >= 40 ? `${cap(counts)} · alt+w` : cap(counts)
 	}
-	const parts = hits.map((hit) => {
+	const parts = hits.map((hit, index) => {
+		const name = index === 0 ? cap(hit.label) : hit.label
 		switch (hit.state) {
 			case 'armed':
 				// The effort pin is said wherever hypermode is armed.
 				return hit.id === 'hypermode' && hypermodeEffort
-					? `${ARMED_MARK} hypermode (effort ${hypermodeEffort})`
-					: `${ARMED_MARK} ${hit.label}`
+					? `${name} (effort ${hypermodeEffort})`
+					: name
 			case 'suggested':
-				return `${OTHER_MARK} ${hit.label}?`
+				return `${name}?`
 			case 'dropped':
-				return `${OTHER_MARK} ${hit.label} (off)`
+				return `${name} (off)`
 			case 'unavailable':
-				return `${OTHER_MARK} ${hit.label} (unavailable)`
+				return `${name} (unavailable)`
 		}
 	})
 	return `${parts.join(' · ')} · ${columns >= 80 ? key : 'alt+w'}`

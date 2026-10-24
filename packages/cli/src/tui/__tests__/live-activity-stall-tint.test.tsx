@@ -53,19 +53,37 @@ afterEach(() => {
 	vi.unstubAllEnvs()
 })
 
-const tool: ActiveTool = { id: 't1', label: 'Run tests', startedAt: Date.now() }
+/**
+ * Move the fake clock `ms` forward one second at a time, letting React commit
+ * (a real, unfaked macrotask) after each step. The tint eases toward its target
+ * once per render, so how many renders happen inside a window must not depend
+ * on how busy the machine is: a loaded runner batching several ticks into one
+ * render would reach the threshold later and fail without anything being broken.
+ */
+async function advance(ms: number): Promise<void> {
+	for (let left = ms; left > 0; left -= 1_000) {
+		await vi.advanceTimersByTimeAsync(Math.min(1_000, left))
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+}
+
+const tool: ActiveTool = {
+	id: 't1',
+	label: 'Run tests',
+	startedAt: Date.now(),
+}
 
 it('stays plain for the first ten silent seconds, then reddens, then resets on a token', async () => {
 	const view = render(<LiveActivity activeTools={[]} working tokens={5} />)
 	try {
-		await vi.advanceTimersByTimeAsync(8_000)
+		await advance(8_000)
 		expect(view.lastFrame() ?? '').not.toContain(RED)
 
-		await vi.advanceTimersByTimeAsync(22_000)
+		await advance(22_000)
 		expect(view.lastFrame() ?? '', 'no token for 30 s, the label should be red').toContain(RED)
 
 		view.rerender(<LiveActivity activeTools={[]} working tokens={6} />)
-		await vi.advanceTimersByTimeAsync(240)
+		await advance(240)
 		expect(view.lastFrame() ?? '', 'the next token clears the tint').not.toContain(RED)
 	} finally {
 		view.unmount()
@@ -81,7 +99,7 @@ it('never reddens while a tool runs, the model thinks, or a compaction runs', as
 	for (const element of cases) {
 		const view = render(element)
 		try {
-			await vi.advanceTimersByTimeAsync(40_000)
+			await advance(40_000)
 			expect(view.lastFrame() ?? '', `${element.key} should stay un-tinted`).not.toContain(RED)
 		} finally {
 			view.unmount()
@@ -92,11 +110,11 @@ it('never reddens while a tool runs, the model thinks, or a compaction runs', as
 it('does not count the time spent waiting for the person', async () => {
 	const view = render(<LiveActivity activeTools={[]} working tokens={5} />)
 	try {
-		await vi.advanceTimersByTimeAsync(8_000)
+		await advance(8_000)
 		view.rerender(<LiveActivity activeTools={[]} working tokens={5} waitingForYou />)
-		await vi.advanceTimersByTimeAsync(60_000)
+		await advance(60_000)
 		view.rerender(<LiveActivity activeTools={[]} working tokens={5} />)
-		await vi.advanceTimersByTimeAsync(240)
+		await advance(240)
 		expect(view.lastFrame() ?? '', 'a one-minute approval is not a stalled model').not.toContain(
 			RED,
 		)

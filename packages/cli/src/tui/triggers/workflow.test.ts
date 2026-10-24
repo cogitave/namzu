@@ -53,7 +53,7 @@ describe('the workflow trigger', () => {
 			hypermodeEffort: undefined,
 			standaloneAllowed: true,
 		})
-		expect(row).toBe('✦ workflow · this turn, offers the workflow tool · alt+w drop')
+		expect(row).toBe('Workflow · this turn, offers the workflow tool · alt+w drop')
 		expect(transcriptTagLine(['workflow'], { effort: undefined, steered: false })).toBe(
 			'Workflow is on for this reply.',
 		)

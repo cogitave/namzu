@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { formatChildOperatorAdmission } from './operator-journal.js'
+import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
 
 import {
 	type ActorRef,
@@ -131,9 +132,7 @@ export const NARRATION_TOOL_NAME = 'narrate_work'
  */
 const MAX_NARRATION_INPUT_CODE_UNITS = MAX_NARRATION_CODE_UNITS * 2
 
-/** Opens every workflow agent's prompt: the step is the job, so a note about authority cannot read as a reason to skip it. */
-export const WORKFLOW_STEP_ASSIGNMENT =
-	'This step is your assigned job. The person who started this workflow approved the script that gives it to you, so carry it out and report what you found or did; do not decline it or skip it.'
+export { WORKFLOW_STEP_ASSIGNMENT }
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 /**

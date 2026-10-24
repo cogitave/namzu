@@ -1256,7 +1256,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x0b')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('Press ctrl+x ctrl+k again to stop 2 background agents'),
+			() => painted(screen).includes('Press ctrl+x ctrl+k again to stop background agents'),
 			'the first press did not ask for a second',
 		)
 		expect(stoppedChildren).toEqual([])
@@ -1264,7 +1264,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x0b')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('2 background agents stopped'),
+			() => painted(screen).includes('All background agents stopped'),
 			'the second press did not report the stop',
 		)
 		expect(stoppedChildren.sort()).toEqual(['bg-1', 'bg-2'])
@@ -1333,6 +1333,35 @@ describe('Ctrl+T', () => {
 			)
 		} finally {
 			release()
+			delete sendOverride.current
+		}
+	})
+
+	it('writes the launch receipt before the reply that follows the launch, not after it', async () => {
+		activity.set([
+			agent({ viewId: 'bg-a', description: 'Index the docs', background: true }),
+			agent({ viewId: 'bg-b', description: 'Audit the config', background: true }),
+		])
+		// The reply arrives at once, well inside the receipt's settle window.
+		sendOverride.current = async function* () {
+			yield { kind: 'delta', text: 'Two agents are working.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		try {
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 40 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await submit(screen, 'go')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Two agents are working.'),
+				'the reply did not arrive',
+			)
+			const all = screen.scrollback().join('\n')
+			const receipt = all.indexOf('2 background agents launched')
+			expect(receipt).toBeGreaterThanOrEqual(0)
+			expect(receipt).toBeLessThan(all.indexOf('Two agents are working.'))
+		} finally {
 			delete sendOverride.current
 		}
 	})

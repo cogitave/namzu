@@ -1010,7 +1010,11 @@ export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
 }
 
 /** The phase list's `done/total`: settled agents over every agent seen in it. */
-export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
+export function phaseCount(
+	phase: Pick<AgentPhase, 'agents'>,
+	/** The run the phase belongs to was stopped: a phase where nothing finished says so. */
+	runStopped = false,
+): string {
 	if (phase.agents.length === 0) return ''
 	// In a workflow run only an agent that completed counts; one that was skipped,
 	// failed or stopped has not done its work.
@@ -1019,6 +1023,8 @@ export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
 			? agent.status === 'completed'
 			: isTerminalStatus(agent.status),
 	).length
+	if (runStopped && counted === 0 && phase.agents.every((agent) => isTerminalStatus(agent.status)))
+		return 'stopped'
 	return `${counted}/${phase.agents.length}`
 }
 
@@ -1253,7 +1259,10 @@ export function WorkflowDetail({
 		22,
 		Math.max(6, ...phases.map((item) => stringWidth(oneLine(phaseTitle(item))))),
 	)
-	const countCells = Math.max(3, ...phases.map((item) => phaseCount(item).length))
+	const countCells = Math.max(
+		3,
+		...phases.map((item) => phaseCount(item, workflow.runStatus === 'stopped').length),
+	)
 	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
 	const rightInner = boxWidth - 3 - leftInner
 	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
@@ -1353,7 +1362,9 @@ export function WorkflowDetail({
 												</Text>
 											</Box>
 											<Box flexShrink={0} marginLeft={1}>
-												<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+												<Text color={theme.text.muted}>
+													{phaseCount(item, workflow.runStatus === 'stopped')}
+												</Text>
 											</Box>
 										</Box>
 										{active
@@ -1477,7 +1488,7 @@ export function WorkflowDetail({
 										{padEndCells(oneLine(phaseTitle(item)), leftTitleCells)}
 									</Text>{' '}
 									<Text color={theme.text.muted}>
-										{padStartCells(phaseCount(item), countCells)}
+										{padStartCells(phaseCount(item, workflow.runStatus === 'stopped'), countCells)}
 									</Text>
 								</Text>
 							) : null}

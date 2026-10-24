@@ -16,6 +16,7 @@ import { Checklist, checklistLine } from './Checklist.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
+import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -285,8 +286,8 @@ function MessageRow({
 					Explored
 				</Text>
 			) : null}
-			<Box flexDirection="row">
-				<Box width={2} flexShrink={0}>
+			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
+				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0}>
 					<Text color={glyphColor} bold>
 						{glyph}
 					</Text>
@@ -314,7 +315,9 @@ function MessageRow({
 											]
 										: []),
 								]}
-								width={width}
+								width={
+									glyph === '⎿' ? width - RESULT_GUTTER_INDENT - (RESULT_GUTTER_WIDTH - 2) : width
+								}
 								color={contentColorForRole(message.role)}
 							/>
 						</Text>
@@ -362,7 +365,7 @@ function MessageRow({
 }
 
 /** Columns the `⎿` prefix and its indent take from a result row. */
-export const SHELL_RESULT_INDENT = 5
+export const SHELL_RESULT_INDENT = RESULT_GUTTER_INDENT + RESULT_GUTTER_WIDTH
 
 /**
  * The `⎿` result of a shell call: output rows hung under one dim `⎿`, the
@@ -384,11 +387,11 @@ export function ShellBlock({
 		canExpand,
 	})
 	return (
-		<Box flexDirection="column" paddingLeft={2}>
+		<Box flexDirection="column" paddingLeft={RESULT_GUTTER_INDENT}>
 			{rows.map((row, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
 				<Box key={`s-${i}`} flexDirection="row">
-					<Box width={3} flexShrink={0}>
+					<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
 						<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
 					</Box>
 					<Box flexGrow={1}>

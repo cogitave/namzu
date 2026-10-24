@@ -27,21 +27,26 @@ describe('stop-all chord', () => {
 		expect(STOP_ALL_CONFIRM_MS).toBe(3000)
 	})
 
-	it('says so when nothing is running', () => {
+	it('says so in the footer for 2 seconds when nothing is running', () => {
 		expect(stopAllStep(0, false)).toEqual({
 			kind: 'none',
 			notice: 'No background agents running',
+			footerMs: 2000,
 		})
 		expect(stopAllStep(0, true).kind).toBe('none')
 	})
 
-	it('arms on the first press and stops on the second, saying how many', () => {
+	it('arms with a 3 second footer hint and stops on the second press with one row', () => {
 		expect(stopAllStep(2, false)).toEqual({
 			kind: 'arm',
-			notice: 'Press ctrl+x ctrl+k again to stop 2 background agents',
+			notice: 'Press ctrl+x ctrl+k again to stop background agents',
+			footerMs: STOP_ALL_CONFIRM_MS,
 		})
-		expect(stopAllStep(2, true)).toEqual({ kind: 'stop', notice: '2 background agents stopped' })
-		expect(stopAllStep(1, true).notice).toBe('1 background agent stopped')
+		expect(stopAllStep(2, true)).toEqual({
+			kind: 'stop',
+			notice: 'All background agents stopped',
+		})
+		expect(stopAllStep(1, true).notice).toBe('All background agents stopped')
 	})
 
 	it('stops only background agents that are still going', () => {

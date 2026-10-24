@@ -22,6 +22,15 @@ export type SystemLevel = 'notice' | 'warning' | 'error'
 export const SYSTEM_ROW_GLYPH = '●'
 /** The gutter glyph of a line that continues the row above it. */
 export const CONTINUATION_GLYPH = '⎿'
+/**
+ * The one gutter every tool result hangs from, shell output and one-line
+ * results alike: two columns of indent, the `⎿`, then two spaces
+ * (the reference's `  ⎿  `, chunk-1sr6vjz6.js `Ge`).
+ */
+export const RESULT_GUTTER_INDENT = 2
+/** Width of the `⎿` plus the two spaces after it. */
+export const RESULT_GUTTER_WIDTH = 3
+
 /** The gutter glyph of the reply-closing line and of the compaction line. */
 export const CLOSING_GLYPH = '✻'
 

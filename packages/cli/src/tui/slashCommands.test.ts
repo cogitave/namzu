@@ -1307,6 +1307,38 @@ describe('/context', () => {
 		expect(r.content).toContain('Messages shortened: 2')
 		expect(r.content).toContain('freeing about 2.4k tokens')
 	})
+
+	it('leaves the "freeing about" clause out when no reclaimed size is known', () => {
+		const r = runSlash(
+			'/context',
+			context({
+				usage: {
+					totalTokens: 50_000,
+					cost: cost(0),
+					context: {
+						tokens: 7_000,
+						windowTokens: 14_000,
+						measured: true,
+						windowAssumed: false,
+					},
+				},
+				compaction: {
+					strategy: 'salience',
+					softTarget: 0.5,
+					triggerThreshold: 0.7,
+					passes: 1,
+					clearedResults: 0,
+					stubbedNarrations: 0,
+					summaries: 1,
+					reclaimedTokens: 0,
+				},
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('Summarised 1 time.')
+		expect(r.content).not.toContain('freeing')
+	})
 })
 
 describe('/jobs', () => {

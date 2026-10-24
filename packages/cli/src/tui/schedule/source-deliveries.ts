@@ -8,7 +8,7 @@ import {
 import type { SchedulePaths } from '../../schedule/paths.js'
 import { visibleScheduleMessage } from '../../schedule/visible-source.js'
 import { explainFailure } from '../plain-failure.js'
-import type { SystemLevel } from '../system-rows.js'
+import { END_WORDS, type EndOutcome, type SystemLevel, endLevel } from '../system-rows.js'
 
 interface SourceSession {
 	readonly slug: string
@@ -50,32 +50,35 @@ function deliveryKey(entry: SourceDelivery): string {
 	return JSON.stringify([entry.jobId, entry.runId, entry.status, entry.at])
 }
 
-/** How a scheduled run ended, as the words that follow its name. */
-const RUN_ENDINGS: Readonly<Record<SourceDelivery['status'], string>> = {
+/** Which of the three outcomes a delivered run is; the word and the level both follow from it. */
+const DELIVERY_OUTCOME: Readonly<Record<SourceDelivery['status'], EndOutcome>> = {
 	completed: 'finished',
 	failed: 'failed',
+	'timed-out': 'failed',
+	'blocked-config': 'failed',
+	'check-failed': 'failed',
+	'awaiting-approval': 'stopped',
+	'approval-expired': 'stopped',
+	interrupted: 'stopped',
+	cancelled: 'stopped',
+}
+
+/** How a scheduled run ended, as the words that follow its name. */
+const RUN_ENDINGS: Readonly<Record<SourceDelivery['status'], string>> = {
+	completed: END_WORDS.finished,
+	failed: END_WORDS.failed,
 	'awaiting-approval': 'is waiting for your approval',
 	'approval-expired': 'stopped waiting for approval',
 	interrupted: 'was interrupted',
 	'timed-out': 'timed out',
 	'blocked-config': 'could not start because its settings need attention',
-	cancelled: 'was stopped',
+	cancelled: `was ${END_WORDS.stopped}`,
 	'check-failed': 'failed its check',
 }
 
 /** How loudly a delivered run is drawn: a clean finish is quiet, a failure is red, the rest is yellow. */
 export function deliveryLevel(status: SourceDelivery['status']): SystemLevel {
-	switch (status) {
-		case 'completed':
-			return 'notice'
-		case 'failed':
-		case 'timed-out':
-		case 'blocked-config':
-		case 'check-failed':
-			return 'error'
-		default:
-			return 'warning'
-	}
+	return endLevel(DELIVERY_OUTCOME[status] ?? 'stopped')
 }
 
 /** The clock time of a run, in the reader's zone; empty when the stamp is unreadable. */

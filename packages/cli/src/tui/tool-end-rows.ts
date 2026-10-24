@@ -69,6 +69,11 @@ export function formatToolCall(toolName: string, summary: string, standalone = f
 }
 
 /** The words a call is headed with when its start was never seen. */
+/** A failure line without the interpreter's error name (`Error: `, `TypeError: `) in front of the sentence. */
+export function withoutErrorName(text: string): string {
+	return text.replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+}
+
 function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
 }
@@ -287,7 +292,9 @@ export function toolEndRows(
 	) {
 		list.push({
 			role: 'tool',
-			content: event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
+			content: event.isError
+				? (event.plainFailure ?? `failed: ${withoutErrorName(event.summary)}`)
+				: event.summary,
 			glyph: '⎿',
 			detail: event.detail,
 			...(event.diff ? { diff: event.diff } : {}),

@@ -216,7 +216,7 @@ it('arms hypermode for one turn: xhigh and namzu’s context, then neither', asy
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	expect(now()).toContain(
-		'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
+		'Hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
 	)
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
@@ -239,17 +239,17 @@ it('does nothing for a hypermode dropped with Alt+W, pasted, talked about, or th
 	const { harness, typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	harness.stdin.write('\u001bw')
-	await until(() => now().includes('✧ hypermode (off) · alt+w restores'), 'Alt+W did not drop it')
+	await until(() => now().includes('Hypermode (off) · alt+w restores'), 'Alt+W did not drop it')
 	await enter()
 	await until(() => sent.length === 1, 'the dropped message was not sent')
 
 	harness.stdin.write('\u001b[200~hypermode fix the flaky test\u001b[201~')
-	await until(() => now().includes('✧ hypermode? · alt+w arms'), 'the paste did not suggest')
+	await until(() => now().includes('Hypermode? · alt+w arms'), 'the paste did not suggest')
 	await enter()
 	await until(() => sent.length === 2, 'the pasted message was not sent')
 
 	await typeKeys('what is hypermode?')
-	expect(now()).toContain('✧ hypermode? · alt+w arms')
+	expect(now()).toContain('Hypermode? · alt+w arms')
 	await enter()
 	await until(() => sent.length === 3, 'the question was not sent')
 
@@ -351,7 +351,7 @@ it('checks again when the turn ends: a switch to plan mode meanwhile cancels the
 it('runs /skills save for a message that is only the phrase, and needs a task for hypermode', async () => {
 	const { typeKeys, enter, shown } = await mount()
 	await typeKeys('bunu skill olarak kaydet')
-	expect(shown()).toContain('✦ save as skill · runs /skills save · alt+w drop')
+	expect(shown()).toContain('Save as skill · runs /skills save · alt+w drop')
 	await enter()
 	await until(() => sent.length === 1, '/skills save never ran')
 	expect(sent[0]?.prompt).toContain(SKILL_PROMPT)

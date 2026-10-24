@@ -5,6 +5,7 @@ import {
 	isTerminalAgentTaskState,
 } from '@namzu/sdk'
 import { plainAgentFailure } from './failure-text.js'
+import { stepTaskOnly } from './workflow-assignment.js'
 
 const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
@@ -466,7 +467,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			...(input.background ? { background: true } : {}),
-			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
+			prompt: bounded(stepTaskOnly(input.prompt), MAX_PROMPT_CODE_UNITS),
 			batchId,
 			...(input.toolUseId
 				? { toolUseId: bounded(input.toolUseId, MAX_IDENTITY_LABEL_CODE_UNITS) }
@@ -530,6 +531,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				if (!owned) return
 				const cancelled = cancellationLike(error)
 				owned.status = cancelled ? 'cancelled' : 'failed'
+				// A stop nobody recorded is the operator's (Esc or Ctrl+C aborting the
+				// parent's wait), so every stop reads "stopped by user".
+				if (cancelled && !owned.stoppedBy) owned.stoppedBy = 'user'
 				owned.completedAt = Date.now()
 				owned.latestActivity = terminalLabel(owned.status)
 				pushRow(owned, {
@@ -1112,6 +1116,9 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			return
 		case 'agent_canceled':
 			record.status = 'cancelled'
+			// A stop nobody recorded is the operator's (Esc or Ctrl+C), so every
+			// stop reads "stopped by user".
+			if (!record.stoppedBy) record.stoppedBy = 'user'
 			record.completedAt = Date.now()
 			record.latestActivity = 'Cancelled'
 			return

@@ -550,7 +550,7 @@ export function PermissionOverlay({
 											? 'readable'
 											: compact
 												? 'instructions'
-												: 'input'
+												: 'view input'
 								}`,
 								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
 								rank: scriptView ? 5 : 3,
