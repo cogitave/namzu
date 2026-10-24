@@ -88,7 +88,7 @@ describe('at 140 columns', () => {
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \d+(?:[dhm] \d+)*[dhms]?\s*$/u)
 		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents ─+╮/u)
 		expect(text).toMatch(
-			/│ ❯ ✔ Read\s+2\/2 │ ✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u,
+			/│ ❯ ✔ Read\s+2\/2 │ {2}✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u,
 		)
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
@@ -100,7 +100,7 @@ describe('at 140 columns', () => {
 	it('moves the pointer into the agents and changes the footer', async () => {
 		const screen = await open('agents', 140, 45)
 		const text = screen.join('\n')
-		expect(text).toMatch(/│\s+✔ Read\s+2\/2 │❯✔ label a1/u)
+		expect(text).toMatch(/│\s+✔ Read\s+2\/2 │❯ ✔ label a1/u)
 		expect(text).toContain('↑↓ select · enter view · esc back')
 		const running = (await open('agents', 140, 45, 'a3')).join('\n')
 		expect(running).toContain('↑↓ select · enter view · x stop · esc back')

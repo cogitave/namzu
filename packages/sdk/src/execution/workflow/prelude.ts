@@ -72,7 +72,12 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 				throw new TypeError('parallel(thunks): item ' + (p + 1) + ' must be a function (wrap the work as () => agent(...)), got ' + kind(thunks[p]));
 			}
 		}
-		return Promise.all(thunks.map(function (t) { return t(); }));
+		return Promise.all(thunks.map(function (t, n) {
+			return Promise.resolve().then(t).catch(function (e) {
+				log('parallel item ' + (n + 1) + ' failed: ' + clean(e && e.message ? e.message : e, 300));
+				return null;
+			});
+		}));
 	}
 	async function pipeline(items) {
 		if (!Array.isArray(items)) {
@@ -87,7 +92,12 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		return Promise.all(items.map(async function (item, index) {
 			var value = item;
 			for (var i = 0; i < stages.length; i++) {
-				value = await stages[i](value, index, item);
+				try {
+					value = await stages[i](value, index, item);
+				} catch (e) {
+					log('pipeline item ' + (index + 1) + ' stopped at stage ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
+					return null;
+				}
 				if (value === null || value === undefined) return null;
 			}
 			return value;

@@ -17,6 +17,8 @@ import { triggerDefinition } from './registry.js'
 const TEXTS: Readonly<Record<ContextTextId, string>> = {
 	hypermode:
 		'The operator asked for hypermode for THIS turn only: their message named it, and it is not on for the session. For this turn, treat delegation through `Agent` as the default for substantive work, not the exception: split the work into independent pieces — lookups, drafts, checks — and delegate them. Agents in the same phase are launched in the same response, each with `run_in_background: true` when you mean to wait for them together; a phase is never started one agent at a time. This changes only how you structure this turn; every tool call is reviewed exactly as usual.',
+	workflow:
+		'The operator asked for a workflow for THIS turn only: their message named it, and it is not on for the session. The `workflow` tool is offered for this turn. When the work is large enough to split into phases of agents, write one workflow script for it; the operator reads the script and approves it before anything starts. For a small piece of work, answer or use the Agent tool as usual.',
 	'save-skill':
 		"The operator asked namzu to save this work as a skill after this turn. namzu runs /skills save itself once the turn ends, and that ends on the operator's own confirmation screen. Finish the task; do not call save_skill in this turn.",
 	schedule:

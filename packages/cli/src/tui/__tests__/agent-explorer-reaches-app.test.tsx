@@ -1686,7 +1686,7 @@ describe('Ctrl+T', () => {
 			() => screen.viewport().join('\n').includes('Phase 2 · 1 agent'),
 			'enter did not open the live phase',
 		)
-		expect(screen.viewport().join('\n')).toMatch(/❯● Join the two colours/u)
+		expect(screen.viewport().join('\n')).toMatch(/❯ ● Join the two colours/u)
 	})
 
 	it('gives the inspector its own short viewport and restores the composer draft', async () => {
@@ -3492,7 +3492,7 @@ describe('render order below the message frame', () => {
 		)
 		const viewport = screen.viewport()
 		const border = frameBottomBorder(screen)
-		expect(viewport[border + 1]).toContain('← 2 agents · ↓ to manage')
+		expect(viewport[border + 1]).toContain('← 1 agent · 1 workflow · ↓ to manage')
 		// Under the footer, not the transcript/composer: one blank row, then the
 		// `main` row, then one row per agent.
 		expect((viewport[border + 2] ?? '').trim()).toBe('')

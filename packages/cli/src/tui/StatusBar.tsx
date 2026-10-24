@@ -75,6 +75,8 @@ export interface StatusBarProps {
 	 * whenever `←` would not open them: input typed, a panel open, the rail focused.
 	 */
 	readonly agentCount?: number
+	/** Workflow runs that are running now, offered after the agents as `1 workflow`; a run is never counted as an agent. */
+	readonly workflowCount?: number
 	/** Whether `↓` from the empty composer reaches the shells or the agents rail; adds `↓ to manage`. */
 	readonly canManage?: boolean
 	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
@@ -164,6 +166,7 @@ export function StatusBar({
 	pr,
 	hyperlinks = false,
 	agentCount = 0,
+	workflowCount = 0,
 	canManage = false,
 	shellsSelected = false,
 	railHint,
@@ -180,6 +183,7 @@ export function StatusBar({
 		shellCount + monitorCount === 0 &&
 		!hasPr &&
 		agentCount === 0 &&
+		workflowCount === 0 &&
 		!canManage &&
 		!shellsSelected
 	const layout = fitStatusLine({
@@ -212,10 +216,7 @@ export function StatusBar({
 		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
 		context: contextMeter?.text ?? null,
 		shells: backgroundPill(shellCount, monitorCount),
-		agents:
-			agentCount > 0
-				? `← ${agentCount > 99 ? '99+' : agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`
-				: null,
+		agents: runningText(agentCount, workflowCount),
 		manage:
 			shellsSelected && shellCount + monitorCount > 0
 				? VIEW_SHELLS_HINT
@@ -514,4 +515,16 @@ function shortenRightToFit(value: string, max: number): string {
 	const available = max - 1
 	const head = Math.ceil(available * 0.45)
 	return `${value.slice(0, head)}…${value.slice(-(available - head))}`
+}
+
+/** `← 2 agents`, `← 1 workflow`, or `← 2 agents · 1 workflow`; null when nothing runs. */
+function runningText(agentCount: number, workflowCount: number): string | null {
+	const count = (n: number) => (n > 99 ? '99+' : String(n))
+	const parts = [
+		agentCount > 0 ? `${count(agentCount)} ${agentCount === 1 ? 'agent' : 'agents'}` : null,
+		workflowCount > 0
+			? `${count(workflowCount)} ${workflowCount === 1 ? 'workflow' : 'workflows'}`
+			: null,
+	].filter((part): part is string => part !== null)
+	return parts.length > 0 ? `← ${parts.join(' · ')}` : null
 }

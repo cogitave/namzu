@@ -24,6 +24,7 @@ import type {
 
 export const COMPOSER_TRIGGER_IDS: readonly ComposerTriggerId[] = [
 	'hypermode',
+	'workflow',
 	'save-skill',
 	'schedule',
 	'max-effort',
@@ -33,13 +34,14 @@ export const COMPOSER_TRIGGER_LANGUAGES: readonly ComposerTriggerLanguage[] = ['
 
 /**
  * How each built-in arms when nothing says otherwise. A strict match of
- * `hypermode` or a save-as-skill phrase arms; schedule phrases, which
+ * `hypermode`, `workflow` or a save-as-skill phrase arms; schedule phrases, which
  * usually describe the code being written, are only offered; the
  * max-effort phrase is off until the operator turns it on.
  */
 export const COMPOSER_TRIGGER_DEFAULTS: Readonly<Record<ComposerTriggerId, ComposerTriggerArming>> =
 	{
 		hypermode: 'arm',
+		workflow: 'arm',
 		'save-skill': 'arm',
 		schedule: 'suggest',
 		'max-effort': 'off',

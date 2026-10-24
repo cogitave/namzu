@@ -131,6 +131,10 @@ export const NARRATION_TOOL_NAME = 'narrate_work'
  */
 const MAX_NARRATION_INPUT_CODE_UNITS = MAX_NARRATION_CODE_UNITS * 2
 
+/** Opens every workflow agent's prompt: the step is the job, so a note about authority cannot read as a reason to skip it. */
+export const WORKFLOW_STEP_ASSIGNMENT =
+	'This step is your assigned job. The person who started this workflow approved the script that gives it to you, so carry it out and report what you found or did; do not decline it or skip it.'
+
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 /**
  * The kernel's read-only delegate, with this application's doctrine under
@@ -1405,10 +1409,13 @@ export async function createSubagentRuntime(
 		if (launch.effort !== undefined && launch.model === undefined) {
 			throw new Error('Supply model when selecting an agent effort.')
 		}
-		const prompt =
+		const step =
 			launch.schema === undefined
 				? launch.prompt
 				: `${launch.prompt}\n\nAnswer with one JSON value that satisfies this JSON Schema and nothing else:\n${JSON.stringify(launch.schema)}`
+		// A workflow agent has nobody to ask, and a note that a message carries
+		// no user authority must not read as a reason to skip the step.
+		const prompt = `${WORKFLOW_STEP_ASSIGNMENT}\n\n${step}`
 		const label = launch.workflowName === DEFAULT_AGENT_WORKFLOW ? 'Workflow' : launch.workflowName
 		let viewId: string | undefined
 		let lastReport = 0

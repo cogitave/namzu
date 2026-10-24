@@ -96,6 +96,9 @@ describe('the footer row', () => {
 		expect(await row({ agentCount: 2 })).toContain('← 2 agents')
 		expect(await row({ agentCount: 120 })).toContain('← 99+ agents')
 		expect(await row({ agentCount: 0 })).not.toContain('←')
+		expect(await row({ workflowCount: 1 })).toContain('← 1 workflow')
+		expect(await row({ workflowCount: 1 })).not.toContain('agent')
+		expect(await row({ agentCount: 2, workflowCount: 1 })).toContain('← 2 agents · 1 workflow')
 	})
 
 	it('offers ↓ to manage only when told ↓ reaches something, and swaps it for enter while the pill is selected', async () => {

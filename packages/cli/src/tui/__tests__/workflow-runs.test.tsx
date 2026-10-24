@@ -268,6 +268,25 @@ describe('the phases of a run', () => {
 		expect(flow?.phases[0] && phaseOutcome(flow.phases[0])).toBe('done')
 	})
 
+	it('shows a phase whose agents were all skipped as skipped, never done', () => {
+		const skipped = run({
+			agents: [
+				agentView(1, 'skipped', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW,
+				}),
+				agentView(2, 'skipped', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW,
+				}),
+			],
+		})
+		const [flow] = agentWorkflows(withWorkflowRuns([], [skipped]), [skipped])
+		expect(flow?.phases[0] && phaseOutcome(flow.phases[0])).toBe('skipped')
+	})
+
 	it('groups agents with no phase under one Agents group, last', () => {
 		const loose = run({
 			phases: [],
@@ -313,6 +332,37 @@ describe('the detail view of a run', () => {
 		expect(text).toMatch(/2\s+Fix\s+0\/1/)
 		expect(text).toMatch(/3\s+Report\s+│/)
 		expect(text).toContain('x stop workflow')
+	})
+
+	it('shows the last log() lines under the header, the two before them dim, and drops older ones', async () => {
+		const text = await detail(
+			'phases',
+			1,
+			'agent-1',
+			run({ logs: ['first', 'second', 'third', 'fourth'] }),
+		)
+		expect(text).toContain('second')
+		expect(text).toContain('third')
+		expect(text).toContain('fourth')
+		expect(text).not.toContain('first')
+		const rows = text.split('\n')
+		expect(rows.findIndex((r) => r.includes('third'))).toBeLessThan(
+			rows.findIndex((r) => r.includes('fourth')),
+		)
+		expect(rows.findIndex((r) => r.includes('Scan, then fix'))).toBeLessThan(
+			rows.findIndex((r) => r.includes('second')),
+		)
+	})
+
+	it('puts a phase detail under its title, before its agents, and leaves a space after the pointer', async () => {
+		const text = await detail('phases', 2, 'wfq:wrun00001:3')
+		const rows = text.split('\n')
+		const detailRow = rows.findIndex((r) => r.includes('safe fixes only'))
+		const agentRow = rows.findIndex((r) => r.includes('agent:3'))
+		expect(detailRow).toBeGreaterThan(0)
+		expect(detailRow).toBeLessThan(agentRow)
+		const agents = await detail('agents', 2, 'wfq:wrun00001:3')
+		expect(agents).toMatch(/│❯ [◌●✔✘] /u)
 	})
 
 	it('level 2: the agents of a phase, a queued one included, and x skips', async () => {

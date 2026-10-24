@@ -107,8 +107,7 @@ describe('when the model is offered the workflow tool', () => {
 	})
 
 	it.each([
-		['the message says workflow', 'use a workflow to audit the packages', {}],
-		['the message says iş akışı', 'bir iş akışı kur', {}],
+		['the workflow trigger is armed', 'use a workflow to audit the packages', { workflow: true }],
 		['the slash command was used', 'Use a workflow for this: audit it', {}],
 		['hypermode is on', 'audit the packages', { hypermode: true }],
 	])('offers it when %s, with the doctrine that goes with it', async (_why, text, extra) => {
@@ -119,8 +118,13 @@ describe('when the model is offered the workflow tool', () => {
 		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
 	})
 
+	it('does not offer it for the word alone, without the armed trigger', async () => {
+		const call = await sendWith('use a workflow to audit the packages')
+		expect(offered(call)).toBeUndefined()
+	})
+
 	it.each([
-		['the message asks for one', 'use a workflow to audit', {}],
+		['the message asks for one', 'use a workflow to audit', { workflow: true }],
 		['hypermode is on', 'audit the packages', { hypermode: true }],
 	])(
 		'does not offer it to a host that passes no workflow reviewer, even when %s',
@@ -147,9 +151,13 @@ describe('when the model is offered the workflow tool', () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
 		try {
-			for (const text of ['use a workflow', 'thanks, now rename the file']) {
+			for (const [text, workflow] of [
+				['use a workflow', true],
+				['thanks, now rename the file', false],
+			] as const) {
 				for await (const _event of session.send([{ role: 'user', content: text, timestamp: 0 }], {
 					workflowReview: REVIEWER,
+					...(workflow ? { workflow: true } : {}),
 				})) {
 					// drain
 				}
@@ -176,7 +184,7 @@ describe('who may start one', () => {
 				abortSignal: new AbortController().signal,
 			} as ToolContext)
 		}
-		await sendWith('use a workflow', options)
+		await sendWith('use a workflow', { workflow: true, ...options })
 		return result
 	}
 
@@ -207,7 +215,10 @@ describe('who may start one', () => {
 	})
 
 	it('has no authority once the turn is over', async () => {
-		const call = await sendWith('use a workflow', { permissionMode: 'auto' })
+		const call = await sendWith('use a workflow', {
+			permissionMode: 'auto',
+			workflow: true,
+		})
 		const result = await offered(call)?.execute({ script }, {
 			turnId: call.turnId,
 			abortSignal: new AbortController().signal,

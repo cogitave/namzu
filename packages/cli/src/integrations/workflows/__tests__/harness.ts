@@ -13,7 +13,7 @@ import {
 } from '@namzu/sdk'
 
 import { subagentParentFixture } from '../../subagents/__fixtures__/parent.js'
-import { createSubagentRuntime } from '../../subagents/runtime.js'
+import { WORKFLOW_STEP_ASSIGNMENT, createSubagentRuntime } from '../../subagents/runtime.js'
 import { createWorkflowHost } from '../host.js'
 import type { WorkflowRunEnd } from '../registry.js'
 
@@ -72,6 +72,7 @@ export async function workflowHarness(
 		for (const watcher of [...gateWatchers]) watcher()
 	}
 	const prompts: string[] = []
+	const assigned: boolean[] = []
 	const runtime = await createSubagentRuntime({
 		resolveParent: (turnId) =>
 			parent.resolveParent(known.has(turnId) ? parent.scope.turnId : turnId),
@@ -82,7 +83,13 @@ export async function workflowHarness(
 		buildProvider: () => {
 			const script = new MockLLMProvider({
 				nextTurn: (params) => {
-					const prompt = lastUserText(params)
+					// Every workflow step opens with the assignment sentence; the tests
+					// below are about the script's own prompt.
+					const raw = lastUserText(params)
+					const prompt = raw.startsWith(`${WORKFLOW_STEP_ASSIGNMENT}\n\n`)
+						? raw.slice(WORKFLOW_STEP_ASSIGNMENT.length + 2)
+						: raw
+					assigned.push(raw !== prompt)
 					prompts.push(prompt)
 					return { text: `ok:${prompt}` }
 				},
@@ -151,6 +158,8 @@ export async function workflowHarness(
 		host,
 		gate,
 		prompts,
+		/** One entry per child turn: whether its prompt opened with the assignment sentence. */
+		assigned,
 		ended,
 		released,
 		context,
