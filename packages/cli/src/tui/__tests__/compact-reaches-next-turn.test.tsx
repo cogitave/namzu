@@ -356,6 +356,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	await frameShows(harness, 'Resume a conversation')
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: A compacted conversation')
+	expect(harness.frames.join('\n')).toContain('● Resumed: A compacted conversation')
 	await frameShows(harness, 'Conversation compacted')
 
 	await submit(harness, 'question after resume')

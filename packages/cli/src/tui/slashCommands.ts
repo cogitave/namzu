@@ -1683,7 +1683,9 @@ export function renderContext(
 		lines.push(
 			compaction.passes === 0
 				? 'Nothing summarised yet.'
-				: `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`,
+				: compaction.reclaimedTokens > 0
+					? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
+					: `Summarised ${plural(compaction.passes, 'time')}.`,
 		)
 		if (details) {
 			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`

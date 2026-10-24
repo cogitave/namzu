@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
 import { shellRunningRows, shellToneColor } from './shell-cell.js'
 import { blendTowardStall, easeStall, stallTarget } from './stall-colour.js'
+import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatCompactCount, formatElapsed } from './units.js'
@@ -318,11 +319,11 @@ export function LiveActivity({
 									{terminalDisplayText(t.label)}
 								</Text>
 							</Box>
-							<Box flexDirection="column" paddingLeft={2}>
+							<Box flexDirection="column" paddingLeft={RESULT_GUTTER_INDENT}>
 								{rows.map((row, i) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: these rows hold no state of their own.
 									<Box key={`r-${i}`} flexDirection="row">
-										<Box width={3} flexShrink={0}>
+										<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
 											<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
 										</Box>
 										<Text color={shellToneColor(row.tone)} wrap="truncate-end">

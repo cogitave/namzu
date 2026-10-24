@@ -245,6 +245,15 @@ describe('the phases of a run', () => {
 		expect(report && phaseOutcome(report)).toBe('not-started')
 		expect(report && phaseCount(report)).toBe('')
 		expect(fix && phaseCount(fix)).toBe('0/1')
+		// In a stopped run a phase where nothing finished says so, instead of 0/1.
+		expect(
+			fix &&
+				phaseCount(
+					{ agents: fix.agents.map((a) => ({ ...a, status: 'cancelled' as const })) },
+					true,
+				),
+		).toBe('stopped')
+		expect(scan && phaseCount(scan, true)).toBe(phaseCount(scan))
 	})
 
 	it('has a workflow for a run that has no agents yet, opening on its phases', () => {

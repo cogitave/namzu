@@ -111,7 +111,7 @@ describe('failure rows', () => {
 		const { readFileSync } = await import('node:fs')
 		const source = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 		const start = source.indexOf('const pushMessage = useCallback(')
-		const body = source.slice(start, start + 1500)
+		const body = source.slice(start, start + 2200)
 		expect(body).toContain("role === 'system' && glyph === undefined")
 		expect(body).toContain("systemRowStyle('notice')")
 	})

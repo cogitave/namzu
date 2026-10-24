@@ -15,6 +15,7 @@ import {
 	type SubagentActivity,
 	SubagentActivityMonitor,
 } from '../activity.js'
+import { WORKFLOW_STEP_ASSIGNMENT } from '../workflow-assignment.js'
 
 const sessionId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as SessionId
 const turnId = '01999999-5ba2-7a25-bf5a-8cc927907e9a' as TurnId
@@ -560,6 +561,38 @@ describe('the CLI sub-agent activity monitor', () => {
 			['b', 'cancelled'],
 			['c', 'failed'],
 		])
+		// A stop nobody recorded is the operator's (Esc or Ctrl+C), so a stopped
+		// agent reads the same whichever key stopped it; a real failure records no one.
+		expect(monitor.getSnapshot().map((activity) => activity.stoppedBy)).toEqual([
+			'user',
+			'user',
+			undefined,
+		])
+	})
+
+	it('keeps a stop the parent recorded as the parent\u2019s, not the operator\u2019s', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'a', description: 'a', prompt: 'a' })
+		tracker.settle(handle('running'))
+		monitor.markStopped(tracker.viewId, 'parent')
+		tracker.fail(new TurnCancelled('parent'))
+		expect(monitor.getSnapshot()[0]?.stoppedBy).toBe('parent')
+	})
+
+	it('shows a workflow step\u2019s task, not the sentence the model is given before it', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({
+			agentId: 'a',
+			description: 'scan',
+			prompt: `${WORKFLOW_STEP_ASSIGNMENT}\n\nScan the config for typos.`,
+		})
+		expect(monitor.getSnapshot().find((entry) => entry.viewId === tracker.viewId)?.prompt).toBe(
+			'Scan the config for typos.',
+		)
+		const plain = monitor.begin({ agentId: 'b', description: 'b', prompt: 'Just this.' })
+		expect(monitor.getSnapshot().find((entry) => entry.viewId === plain.viewId)?.prompt).toBe(
+			'Just this.',
+		)
 	})
 
 	it('drops late events after the parent conversation changes', () => {

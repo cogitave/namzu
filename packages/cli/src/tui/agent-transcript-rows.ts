@@ -277,8 +277,7 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	return {
 		content: parts.join(' · '),
 		tone: workflow.status === 'failed' ? 'error' : workflow.status === 'stopped' ? 'warn' : 'ok',
-		glyph:
-			workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? SYSTEM_ROW_GLYPH : '✓',
+		glyph: SYSTEM_ROW_GLYPH,
 	}
 }
 

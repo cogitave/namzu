@@ -204,12 +204,12 @@ it.each([160, 120, 80, 40])(
 		// The query is cut at the terminal's width with an ellipsis, never wrapped.
 		if (cols < 100) expect(lines[first]).toMatch(/…$/u)
 		else expect(lines[first]).toContain(`Web search("${QUERY}")`)
-		expect(lines[first + 1]).toMatch(/⎿ Did 1 search/u)
+		expect(lines[first + 1]).toMatch(/⎿ {2}Did 1 search/u)
 		// The next search follows at once: no blank line between consecutive calls.
 		expect(lines[first + 2]).toContain('● Web search("OpenClaw embedded')
-		expect(lines[first + 3]).toMatch(/⎿ Found 3 results/u)
+		expect(lines[first + 3]).toMatch(/⎿ {2}Found 3 results/u)
 		expect(lines[first + 4]).toContain('● Web fetch(https://docs.openclaw.ai/')
-		expect(lines[first + 5]).toMatch(/⎿ Received 2 KB in 1s/u)
+		expect(lines[first + 5]).toMatch(/⎿ {2}Received 2 KB in 1s/u)
 		// The fetched body waits behind Ctrl+O rather than filling the screen.
 		expect(lines.join('\n')).not.toContain('xxxxxxxx')
 	},

@@ -385,12 +385,12 @@ describe('the closing line', () => {
 		expect(workflowNotice(finished('completed', 'completed'))).toEqual({
 			content: 'Workflow Release audit finished · 2m 13s · 2 agents · 112.0k tokens',
 			tone: 'ok',
-			glyph: '✓',
+			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'failed'))).toMatchObject({
 			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 1 failed · 112.0k tokens',
 			tone: 'error',
-			glyph: '✗',
+			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'cancelled'))).toMatchObject({
 			content: expect.stringContaining('stopped'),

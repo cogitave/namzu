@@ -275,7 +275,7 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
-import { STOP_ALL_CONFIRM_MS, stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
+import { stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
 	childMessageNotice,
 	childMessageRow,
@@ -406,6 +406,7 @@ import {
 	SYSTEM_ROW_GLYPH,
 	type SystemLevel,
 	clipboardSentNotice,
+	endWord,
 	goalRoundHeadline,
 	interruptionRow,
 	systemRowStyle,
@@ -1860,6 +1861,8 @@ export function App({
 	const railChordRef = useRef(false)
 	/** The first press of the stop-all chord is waiting for its second (3 s). */
 	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const stopAllNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const [stopAllNotice, setStopAllNotice] = useState<string | null>(null)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -2847,6 +2850,7 @@ export function App({
 		[],
 	)
 
+	const flushLaunchReceiptsRef = useRef<() => void>(() => {})
 	const pushMessage = useCallback(
 		(
 			role: TranscriptMessage['role'],
@@ -2861,6 +2865,10 @@ export function App({
 			shell?: ShellOutput,
 			diff?: TranscriptMessage['diff'],
 		) => {
+			// A reply's text belongs after the receipt of the agents its turn
+			// launched, so a receipt still waiting out its settle window is
+			// written before the first word of a reply.
+			if (role === 'assistant') flushLaunchReceiptsRef.current()
 			// One mapping for every system row: a caller that names no glyph gets
 			// the dim notice dot, so no producer can bypass `systemRowStyle`.
 			const noticeStyle =
@@ -2980,16 +2988,35 @@ export function App({
 			clearTimeout(stopAllArmedRef.current)
 			stopAllArmedRef.current = null
 		}
-		if (step.kind === 'arm') {
-			const timer = setTimeout(() => {
-				stopAllArmedRef.current = null
-			}, STOP_ALL_CONFIRM_MS)
-			timer.unref?.()
-			stopAllArmedRef.current = timer
-		} else if (step.kind === 'stop') {
-			for (const agent of running) session?.stopSubagent?.(agent.viewId)
+		if (stopAllNoticeTimerRef.current !== null) {
+			clearTimeout(stopAllNoticeTimerRef.current)
+			stopAllNoticeTimerRef.current = null
 		}
-		pushMessage('system', step.notice)
+		if (step.kind === 'stop') {
+			setStopAllNotice(null)
+			for (const agent of running) session?.stopSubagent?.(agent.viewId)
+			pushMessage(
+				'system',
+				step.notice,
+				false,
+				systemRowStyle('error').glyph,
+				undefined,
+				systemRowStyle('error').color,
+			)
+			return
+		}
+		// "Nothing running" and "press again" are footer feedback that times out
+		// (the reference's kill-agents-none 2 s / kill-agents-confirm 3 s), never a
+		// transcript row.
+		setStopAllNotice(step.notice)
+		const timer = setTimeout(() => {
+			if (step.kind === 'arm') stopAllArmedRef.current = null
+			stopAllNoticeTimerRef.current = null
+			setStopAllNotice(null)
+		}, step.footerMs)
+		timer.unref?.()
+		if (step.kind === 'arm') stopAllArmedRef.current = timer
+		else stopAllNoticeTimerRef.current = timer
 	}, [pushMessage, session])
 	useEffect(
 		() =>
@@ -3352,10 +3379,77 @@ export function App({
 		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
 	}, [session])
+	// A labelled workflow gets one group line however many batches it spans.
+	const claimReceipt = useCallback((members: readonly SubagentActivity[]): boolean => {
+		const first = members[0]
+		if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
+		if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
+		reportedWorkflowLinesRef.current.add(first.workflowGroupId)
+		return true
+	}, [])
+	/**
+	 * Writes the receipt of every batch that is whole. `force` skips the settle
+	 * window (a reply is about to print under it); a batch whose `Agent` call is
+	 * still starting is never written. Returns the delay after which to look
+	 * again, when a batch is still settling.
+	 */
+	const writeLaunchReceipts = useCallback(
+		(
+			agents: readonly SubagentActivity[],
+			tools: readonly RunningTool[],
+			force: boolean,
+		): number | undefined => {
+			const current = session?.subagents?.getSnapshot() ?? []
+			const now = Date.now()
+			const batches = new Map<string, SubagentActivity[]>()
+			for (const agent of agents) {
+				if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
+				if (!current.some((item) => item.viewId === agent.viewId)) continue
+				const key = JSON.stringify([agent.workflowId, agent.batchId])
+				const members = batches.get(key) ?? []
+				members.push(agent)
+				batches.set(key, members)
+			}
+			const launching = tools.some(
+				(tool) =>
+					tool.toolName.toLowerCase() === 'agent' &&
+					!agents.some(
+						(agent) =>
+							agent.toolUseId === tool.id &&
+							(tool.turnId === undefined || agent.workflowId === tool.turnId),
+					),
+			)
+			let retryIn: number | undefined
+			for (const [key, members] of batches) {
+				if (reportedBatchesRef.current.has(key)) continue
+				// Re-stamped when the batch grows: the settle window runs from its newest member.
+				const previous = batchSeenAtRef.current.get(key)
+				const stamp =
+					previous !== undefined && previous.count === members.length ? previous.at : now
+				if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
+				const settledMember = members.some((agent) =>
+					['completed', 'failed', 'cancelled'].includes(agent.status),
+				)
+				const waited = now - stamp
+				if (!settledMember && (launching || (!force && waited < RECEIPT_SETTLE_MS))) {
+					retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
+					continue
+				}
+				reportedBatchesRef.current.add(key)
+				if (!claimReceipt(members)) continue
+				pushRow(agentLaunchRow(members))
+			}
+			return retryIn
+		},
+		[claimReceipt, pushRow, session],
+	)
+	flushLaunchReceiptsRef.current = () => {
+		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
+	}
 	useEffect(() => {
 		void receiptTick
 		const current = session?.subagents?.getSnapshot() ?? []
-		const now = Date.now()
+		const retryIn = writeLaunchReceipts(subagents, activeTools, false)
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
 			if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
@@ -3364,42 +3458,6 @@ export function App({
 			const members = batches.get(key) ?? []
 			members.push(agent)
 			batches.set(key, members)
-		}
-		const launching = activeTools.some(
-			(tool) =>
-				tool.toolName.toLowerCase() === 'agent' &&
-				!subagents.some(
-					(agent) =>
-						agent.toolUseId === tool.id &&
-						(tool.turnId === undefined || agent.workflowId === tool.turnId),
-				),
-		)
-		let retryIn: number | undefined
-		// A labelled workflow gets one group line however many batches it spans.
-		const claimReceipt = (members: readonly SubagentActivity[]): boolean => {
-			const first = members[0]
-			if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
-			if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
-			reportedWorkflowLinesRef.current.add(first.workflowGroupId)
-			return true
-		}
-		for (const [key, members] of batches) {
-			if (reportedBatchesRef.current.has(key)) continue
-			// Re-stamped when the batch grows: the settle window runs from its newest member.
-			const previous = batchSeenAtRef.current.get(key)
-			const stamp = previous !== undefined && previous.count === members.length ? previous.at : now
-			if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
-			const settledMember = members.some((agent) =>
-				['completed', 'failed', 'cancelled'].includes(agent.status),
-			)
-			const waited = now - stamp
-			if (!settledMember && (launching || waited < RECEIPT_SETTLE_MS)) {
-				retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
-				continue
-			}
-			reportedBatchesRef.current.add(key)
-			if (!claimReceipt(members)) continue
-			pushRow(agentLaunchRow(members))
 		}
 		for (const agent of subagents) {
 			if (isWorkflowRunAgent(agent)) continue
@@ -3435,7 +3493,7 @@ export function App({
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushRow, session, receiptTick])
+	}, [subagents, activeTools, pushRow, session, receiptTick, writeLaunchReceipts, claimReceipt])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -4781,6 +4839,8 @@ export function App({
 								id: nextId(),
 								role: 'system' as const,
 								content: `Resumed: ${displayConversationTitle(resumedTitle)}`,
+								glyph: systemRowStyle('notice').glyph,
+								glyphColor: systemRowStyle('notice').color,
 							},
 						]
 					: []),
@@ -9465,7 +9525,7 @@ export function App({
 					return
 				}
 				pushMessage('user', value)
-				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
+				const rowId = pushMessage('tool', `Running ${escaped}`, true, SYSTEM_ROW_GLYPH)
 				void runShellEscape(escaped, { cwd: ctx.cwd }).then((result) => {
 					operatorShellRef.current.push(describeShellEscapeForModel(escaped, result))
 					const ok = result.exitCode === 0 && !result.timedOut
@@ -9478,8 +9538,8 @@ export function App({
 										...m,
 										content: describeShellEscape(escaped, result),
 										pending: false,
-										glyph: ok ? '✓' : '✗',
-										...(ok ? {} : { glyphColor: theme.status.error }),
+										glyph: SYSTEM_ROW_GLYPH,
+										glyphColor: ok ? theme.status.ok : theme.status.error,
 										...(detail ? { detail } : {}),
 									}
 								: m,
@@ -10651,6 +10711,9 @@ export function App({
 						return
 					}
 					case 'compact': {
+						// The command as typed first, so the result below it says what it answers
+						// and both stay where /compact ran.
+						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
 						if (!session) {
 							pushMessage('system', 'Nothing to summarise yet.')
 							return
@@ -10698,10 +10761,10 @@ export function App({
 									(m) => m.role === 'user' || m.role === 'assistant',
 								).length
 
-								// The summary belongs before the surviving turns. `<Static>` only
-								// emits items beyond the index it has already printed, so prepending
-								// into the mounted transcript makes the summary invisible. Remount
-								// the projection just as `/resume` does when it replaces the log.
+								// The turns that survive stay in order, then the command and its
+								// result where /compact ran. Rows dropped from the front are already
+								// printed by `<Static>`, so remount the projection just as `/resume`
+								// does when it replaces the log.
 								resetTranscript()
 								setMessages((prev) => {
 									const kept = keepRecentRows(prev, keptTurns)
@@ -10719,7 +10782,7 @@ export function App({
 										// Numbered after the rows that stay, so Ctrl+O can name it.
 										detailRef: Math.max(0, ...kept.map((m) => m.detailRef ?? 0)) + 1,
 									}
-									return [summaryRow, ...kept]
+									return [...kept, summaryRow]
 								})
 								// /context counts a manual pass like an automatic one.
 								setCompactionTally((tally) => ({
@@ -12846,23 +12909,25 @@ export function App({
 		phase === 'picker'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
-		: conversationMutation === 'fork'
-			? 'forking conversation — input is paused'
-			: conversationMutation === 'edit'
-				? 'branching before prompt — input is paused'
-				: conversationMutation === 'archive'
-					? 'archiving conversation — input is paused'
-					: conversationMutation === 'new'
-						? 'starting a fresh conversation — input is paused'
-						: compacting
-							? 'compacting conversation — input is paused'
-							: boxOwnsKeys
-								? undefined
-								: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
-									? 'enter continue · esc stop'
-									: goalStatus && phase === 'ready' && state === 'idle'
-										? undefined
-										: hintForPhase(phase, state, composerHasDraft)
+		: stopAllNotice
+			? stopAllNotice
+			: conversationMutation === 'fork'
+				? 'forking conversation — input is paused'
+				: conversationMutation === 'edit'
+					? 'branching before prompt — input is paused'
+					: conversationMutation === 'archive'
+						? 'archiving conversation — input is paused'
+						: conversationMutation === 'new'
+							? 'starting a fresh conversation — input is paused'
+							: compacting
+								? 'compacting conversation — input is paused'
+								: boxOwnsKeys
+									? undefined
+									: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
+										? 'enter continue · esc stop'
+										: goalStatus && phase === 'ready' && state === 'idle'
+											? undefined
+											: hintForPhase(phase, state, composerHasDraft)
 	const permissionSource = reviewSource(permission, scopeRef.current?.sessionId)
 	const permissionOwner = permissionSource
 		? subagents.find((agent) => agent.sessionId === permissionSource)
@@ -13386,7 +13451,8 @@ export function App({
 				)}
 				{/* The tool-output viewer carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
-				{phase === 'trust' || outputViewer !== null ? null : (
+				{/* The workflow detail (the cockpit) carries its own key line as well. */}
+				{phase === 'trust' || outputViewer !== null || agentSurface?.kind === 'cockpit' ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
@@ -13667,12 +13733,14 @@ function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
 function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const counts = countAgents(run)
 	const tokens = runTokens(run)
+	// The word a finished run wears in the transcript, and the duration straight
+	// after it, so a narrow row drops the tail rather than a number.
 	const columns = [
-		run.status,
+		run.status === 'running' ? 'running' : endWord(run.status),
+		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
-		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 	]
 	return { label: run.name, description: columns.join(' · ') }
 }

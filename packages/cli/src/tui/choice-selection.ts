@@ -51,6 +51,8 @@ export interface ChoicePickerGeometry {
 	/** At least one option draws a rule above it — one more line than options alone would need. */
 	readonly rule?: boolean
 	readonly windowSize?: number
+	/** Lines one option takes; defaults to 2 below 70 columns (label, one description line) and 1 above. */
+	readonly rowHeight?: number
 }
 
 /** Reserve room for App's header/footer and the chooser's own non-list rows. */
@@ -62,10 +64,11 @@ export function choicePickerWindowSize({
 	selectedDescription = false,
 	rule = false,
 	windowSize = SELECTION_WINDOW_SIZE,
+	rowHeight: givenRowHeight,
 }: ChoicePickerGeometry): number {
 	const availableRows = Math.max(6, rows - 4)
 	const furnitureRows =
 		4 + Number(searchable) + Number(notice) + Number(selectedDescription) + Number(rule)
-	const rowHeight = columns < 70 ? 2 : 1
+	const rowHeight = givenRowHeight ?? (columns < 70 ? 2 : 1)
 	return Math.max(1, Math.min(windowSize, Math.floor((availableRows - furnitureRows) / rowHeight)))
 }

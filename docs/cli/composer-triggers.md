@@ -18,7 +18,7 @@ is there before you press Enter.
 
 ```text
 ────────────────────────────────────────────────────────────────────────────────
-✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
+Hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
 ❯ hypermode ile şu repodaki TODO'ları iki agent'a bölerek say▏
 ────────────────────────────────────────────────────────────────────────────────
 ```
@@ -96,33 +96,34 @@ are one word; the highlight still lands on the characters you typed.
 - A loose match — every content word in one clause, in any order
   (`kaydet bunu skill olarak`, `bunu skille çevir`) — only suggests.
 - A draft longer than 65,536 characters is not read; the row says
-  `✧ triggers paused: draft too long`.
+  `Triggers paused: draft too long`.
 
 ## The tag row
 
 One row between the composer's rules, above the input, in the place of the
-`Effort:` and `Model:` previews. `✦` marks an armed trigger and `✧` anything
-else, and the state is always also a word or a mark, never only the glyph:
+`Effort:` and `Model:` previews. The row is sentence case and carries no glyph
+(the reference marks a detected keyword by highlighting it and a plain notice,
+never a symbol); the state is always a word or a mark:
 
 ```text
-✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
-✦ hypermode · enter steers without it · tab: new message with it · alt+w drop     (a turn is running)
-✦ save as skill · after this reply, if it did work; you confirm the file · alt+w drop
-✦ save as skill · enter: after the running reply · tab: after the next · alt+w drop
-✦ save as skill · runs /skills save · alt+w drop                                (the whole message)
-✧ hypermode? · alt+w arms                                                       (a suggestion)
-✧ hypermode (off) · alt+w restores                                             (dropped)
-✧ save as skill · unavailable in plan mode
-✦ hypermode (effort xhigh) · ✦ save as skill · alt+w drop                       (several)
+Hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop
+Hypermode · enter steers without it · tab: new message with it · alt+w drop     (a turn is running)
+Save as skill · after this reply, if it did work; you confirm the file · alt+w drop
+Save as skill · enter: after the running reply · tab: after the next · alt+w drop
+Save as skill · runs /skills save · alt+w drop                                (the whole message)
+Hypermode? · alt+w arms                                                       (a suggestion)
+Hypermode (off) · alt+w restores                                             (dropped)
+Save as skill · unavailable in plan mode
+Hypermode (effort xhigh) · save as skill · alt+w drop                       (several)
 ```
 
 The full copy needs a terminal of 84 columns (the row has the terminal's width
 less the frame's four cells). Narrower terminals get shorter copy:
-`✦ hypermode · this turn, effort xhigh · alt+w` from 64 columns (an 80×24
-terminal shows this one), `✦ hypermode · effort xhigh · alt+w` from 44, and
-`✦ hypermode` below that; several triggers are counted (`✦ 2 armed · alt+w`,
-`✦ 1 armed · 1 off`). It is always one row, and the state word stays at every
-width (`✧ hypermode?`, `✧ hypermode (off)`).
+`Hypermode · this turn, effort xhigh · alt+w` from 64 columns (an 80×24
+terminal shows this one), `Hypermode · effort xhigh · alt+w` from 44, and
+`Hypermode` below that; several triggers are counted (`2 armed · alt+w`,
+`1 armed · 1 off`). It is always one row, and the state word stays at every
+width (`Hypermode?`, `Hypermode (off)`).
 
 The effort the row names is the level hypermode pins on the model in use:
 `xhigh`, also on a model that publishes `max`, and `high` on one whose menu
@@ -132,9 +133,8 @@ The armed words are drawn bold and underlined in the trigger colour (sky,
 ANSI 117), a colour of their own: violet stays the session mode's. With colour
 off (`NO_COLOR`) the row still says everything. After you send, a line under
 your message in the transcript names what it carried —
-`✦ hypermode (this turn, effort xhigh)` — and the queue line names armed
-triggers of queued messages (`⏎ 1 message queued — sending when ready · ✦
-save as skill`). The footer keeps showing the session's own effort: a
+`Hypermode is on for this reply (effort xhigh).` — and the queue line names armed
+triggers of queued messages (`⏎ 1 message queued — sending when ready · save as skill`). The footer keeps showing the session's own effort: a
 one-turn pin does not change it.
 
 ## Keys
