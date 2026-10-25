@@ -145,7 +145,7 @@ export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
  */
 export const EXPLORE_SUBAGENT = EXPLORE_AGENT_ID
 
-const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('\n')
+export const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('\n')
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
@@ -173,7 +173,7 @@ function fileAgentTools(
 	}
 }
 
-const SUBAGENT_PROMPT = [
+export const SUBAGENT_PROMPT = [
 	'You are a focused sub-agent dispatched by namzu to complete one self-contained task and report back.',
 	'You cannot see the parent conversation — work only from the prompt you were given.',
 	'Use your tools to actually do the work, then end with a concise summary of what you did and any results the parent needs.',

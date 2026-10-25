@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-26
+
+- **Update** [Where tools run](cli/tool-boundary.md): the identity block names its tools from the tools' own names (the shell tool is `bash`, never `bash.run`), drops the closed six-tool list, and says one consistent thing about parallel and delegated work; a lint test over the assembled prompts checks tool names, product names and start-over wording. `.changeset/prompt-text-defects.md` (`@namzu/cli` patch).
+
 ## 2026-10-25
 
 - **Update** [Slash commands](cli/slash-commands.md), [Workflows](cli/workflows.md), [Composer triggers](cli/composer-triggers.md): the `/workflow <task>` command is removed; a workflow is asked for with the word `workflow` in a message or with hypermode on, and `/workflows` is unchanged. `.changeset/remove-workflow-command.md` (`@namzu/cli` major).
