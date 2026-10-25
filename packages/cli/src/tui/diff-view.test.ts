@@ -1,5 +1,5 @@
 import type { ToolDiffHunk } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	type DiffInfo,
 	HUNK_GAP,
@@ -303,8 +303,14 @@ describe('a working tree', () => {
 			'',
 			'… truncated. Run `git diff` for the rest.',
 		])
-		const rows = diffViewBody(info, { width: 30, expanded: false, canExpand: true })
-		expect(viewRowText(rows[1] ?? []).trimEnd()).toBe(' 1 -x')
-		expect(rows[1]?.[0]?.bg).toBe(DIFF_COLORS_TRUECOLOR.removed)
+		// The palette follows the terminal; pin it so the row colour does not depend on the host.
+		vi.stubEnv('COLORTERM', 'truecolor')
+		try {
+			const rows = diffViewBody(info, { width: 30, expanded: false, canExpand: true })
+			expect(viewRowText(rows[1] ?? []).trimEnd()).toBe(' 1 -x')
+			expect(rows[1]?.[0]?.bg).toBe(DIFF_COLORS_TRUECOLOR.removed)
+		} finally {
+			vi.unstubAllEnvs()
+		}
 	})
 })
