@@ -696,6 +696,13 @@ export function Composer({
 	}, [])
 	/** The first Esc on a typed draft waits this long for the second, which clears it. */
 	const clearArmRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	/** End the clear window and take its notice down; does nothing when it is not open. */
+	const disarmClear = useCallback(() => {
+		if (clearArmRef.current === null) return
+		clearTimeout(clearArmRef.current)
+		clearArmRef.current = null
+		onFooterNoticeRemove?.(ESC_CLEAR_KEY)
+	}, [onFooterNoticeRemove])
 	useEffect(
 		() => () => {
 			if (editPreviousTimerRef.current) clearTimeout(editPreviousTimerRef.current)
@@ -1091,7 +1098,12 @@ export function Composer({
 				onStepReasoningEffort('raise')
 				return
 			}
-			if (!key.escape && editPreviousTimerRef.current) setEditPreviousArmed(false)
+			// Any other key ends both Esc windows: a second Esc after typing, deleting or
+			// moving the cursor is a first press again, never the end of the earlier one.
+			if (!key.escape) {
+				if (editPreviousTimerRef.current) setEditPreviousArmed(false)
+				disarmClear()
+			}
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const pastes = pasteStoreRef.current
 				// Chips become the words they stand for; image chips go, the image travels beside.
