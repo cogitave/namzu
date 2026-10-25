@@ -898,6 +898,29 @@ describe('compaction', () => {
 		}
 	})
 
+	it('reads the idle-compaction keys and refuses what they cannot hold', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-idle-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			'compaction:\n  idleCompaction: true\n  idleCompactionMinTokens: 250000\n  promptCacheTtl: 1h\n',
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
+			idleCompaction: true,
+			idleCompactionMinTokens: 250000,
+			promptCacheTtl: '1h',
+		})
+		for (const [bad, path] of [
+			['compaction:\n  idleCompaction: sometimes\n', 'compaction.idleCompaction'],
+			['compaction:\n  idleCompactionMinTokens: 0\n', 'compaction.idleCompactionMinTokens'],
+			['compaction:\n  idleCompactionMinTokens: 1.5\n', 'compaction.idleCompactionMinTokens'],
+			['compaction:\n  promptCacheTtl: 2h\n', 'compaction.promptCacheTtl'],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
 	it('is not settable from the environment', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
 		expect(

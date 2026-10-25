@@ -121,6 +121,25 @@ export interface CompactionCliConfig {
 	 * memory store. This selects the writer; `memory.recall` controls retrieval.
 	 */
 	readonly consolidate?: boolean
+	/**
+	 * Compact a large conversation nobody is using just before its one-hour
+	 * prompt cache expires, so coming back does not re-write the whole context.
+	 * Default `false`. Acts only with `promptCacheTtl: '1h'` on a provider that
+	 * reports the cache lifetime (Anthropic); never on one that does not.
+	 */
+	readonly idleCompaction?: boolean
+	/**
+	 * The smallest context, in tokens, worth compacting while idle. Default
+	 * 200,000; values under 100,000 are raised to 100,000. The environment
+	 * variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it.
+	 */
+	readonly idleCompactionMinTokens?: number
+	/**
+	 * How long the provider keeps the prompt cache: `'5m'` (default, the
+	 * provider's own) or `'1h'`. Passed to providers that can be asked
+	 * (Anthropic). A one-hour cache costs more per write.
+	 */
+	readonly promptCacheTtl?: '5m' | '1h'
 }
 
 /** See `NamzuCliConfig.browser`. */
