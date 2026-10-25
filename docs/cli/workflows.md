@@ -199,7 +199,7 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    `meta.phases`) sits right under its title in the right-hand pane. The last
    `log()` line the script wrote shows under the header, the two before it dim;
    the rail row never shows them.
-2. **`<phase> · N agents`**: each agent as `✔` done, `✘` failed or skipped, `●`
+2. **`<phase> · N agents · D done`**: each agent as `✔` done, `✘` failed or skipped, `●`
    running or `◌` queued, with its label, type, model, tokens and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:
    a queued one never starts, a running one is cancelled, and its `agent()`
@@ -216,8 +216,10 @@ and a failure is never folded into the count (only an agent that completed is do
 `done/total` (`3/7 · 2m 14s`, `2/3 agents`), the `/workflows` list reads
 `done/total agents` whether or not the run is whole, and the closing line reads
 the total only (`3 agents`). A failed run shows in the rail row's red bullet, in
-the status word, and in the phase's agent list, where `· N failed` follows the
-agent count in the error colour (`Scan · 3 agents · 1 failed`).
+the status word, in the phase list, where `· N failed` follows a phase's
+`done/total` in the error colour (`2/3 · 1 failed`), and in the phase's agent
+list, where it follows the `· D done` count the same way
+(`Scan · 3 agents · 2 done · 1 failed`).
 A step
 that throws before it asks for an agent (inside `parallel()` or `pipeline()`) is
 not an agent: it shows as the progress line `Step 2 stopped: <why>` and is

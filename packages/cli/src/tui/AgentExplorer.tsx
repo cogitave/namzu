@@ -1071,6 +1071,12 @@ export function phaseCount(
 	return `${counted}/${phase.agents.length}`
 }
 
+/** The red tail after a phase's counter: ` · 2 failed`, empty when none failed. */
+export function phaseFailedTail(phase: Pick<AgentPhase, 'agents'>): string {
+	const failed = phase.agents.filter((agent) => agent.status === 'failed').length
+	return failed > 0 ? ` · ${failed} failed` : ''
+}
+
 /**
  * Whether opening a workflow starts at its list of phases. A workflow the
  * model labelled always does (its agents are only reachable through it); the
@@ -1267,7 +1273,7 @@ export function WorkflowDetail({
 	)
 	const agents = phase?.agents ?? []
 	const agentsTitle = phase
-		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`
+		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'} · ${agents.filter((agent) => agent.status === 'completed').length} done`
 		: ''
 	// The phase's failures follow its count, in the error colour.
 	const agentsFailed = agents.filter((agent) => agent.status === 'failed').length
@@ -1313,7 +1319,10 @@ export function WorkflowDetail({
 	)
 	const countCells = Math.max(
 		3,
-		...phases.map((item) => phaseCount(item, workflow.runStatus === 'stopped').length),
+		...phases.map(
+			(item) =>
+				phaseCount(item, workflow.runStatus === 'stopped').length + phaseFailedTail(item).length,
+		),
 	)
 	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
 	const rightInner = boxWidth - 3 - leftInner
@@ -1416,6 +1425,7 @@ export function WorkflowDetail({
 											<Box flexShrink={0} marginLeft={1}>
 												<Text color={theme.text.muted}>
 													{phaseCount(item, workflow.runStatus === 'stopped')}
+													<Text color={theme.status.error}>{phaseFailedTail(item)}</Text>
 												</Text>
 											</Box>
 										</Box>
@@ -1541,7 +1551,11 @@ export function WorkflowDetail({
 										{padEndCells(oneLine(phaseTitle(item)), leftTitleCells)}
 									</Text>{' '}
 									<Text color={theme.text.muted}>
-										{padStartCells(phaseCount(item, workflow.runStatus === 'stopped'), countCells)}
+										{padStartCells(
+											phaseCount(item, workflow.runStatus === 'stopped'),
+											countCells - phaseFailedTail(item).length,
+										)}
+										<Text color={theme.status.error}>{phaseFailedTail(item)}</Text>
 									</Text>
 								</Text>
 							) : null}

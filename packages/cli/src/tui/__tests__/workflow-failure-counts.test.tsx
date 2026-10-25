@@ -100,10 +100,21 @@ describe.each([100, 60])('the detail of a run with a failed agent at %i columns'
 		expect(header).not.toMatch(/\d+ failed/)
 	})
 
+	it('colours a phase row failed count after its done over total', async () => {
+		const screen = await detail(cols, 'phases')
+		const rows = screen.viewport()
+		const at = rows.findIndex((row) => /2\/3 · 1 failed/u.test(row))
+		expect(at).toBeGreaterThanOrEqual(0)
+		const row = rows[at] as string
+		const col = row.indexOf('1 failed')
+		expect(screen.cell(at, col).fg).not.toBe('default')
+		expect(screen.cell(at, row.indexOf('2/3')).fg).not.toBe(screen.cell(at, col).fg)
+	})
+
 	it('names the failures after the phase agent count, in the error colour', async () => {
 		const screen = await detail(cols, 'agents')
 		const rows = screen.viewport()
-		const at = rows.findIndex((row) => row.includes('Scan · 3 agents · 1 failed'))
+		const at = rows.findIndex((row) => row.includes('Scan · 3 agents · 2 done · 1 failed'))
 		expect(at).toBeGreaterThanOrEqual(0)
 		const row = rows[at] as string
 		const col = row.indexOf('1 failed')
