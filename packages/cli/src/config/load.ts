@@ -49,6 +49,7 @@ import {
 	splitPermissionsTable,
 } from '../permissions/settings.js'
 import { homePath } from '../tui/person-terms.js'
+import { THEME_NAMES, parseThemeSetting } from '../tui/theme-palettes.js'
 import {
 	COMPOSER_TRIGGER_IDS,
 	COMPOSER_TRIGGER_LANGUAGES,
@@ -69,6 +70,7 @@ import type {
 	RoutingTarget,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
+	TuiConfig,
 	TurnLimitsConfig,
 	WorkflowCliConfig,
 } from './schema.js'
@@ -1624,7 +1626,12 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 	tui: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
+		const raw = v as {
+			notifications?: unknown
+			notificationMethod?: unknown
+			theme?: unknown
+			reducedMotion?: unknown
+		}
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -1660,9 +1667,23 @@ const CONFIG_READERS: ConfigReaders = {
 			)
 		}
 
+		const themeSetting = raw.theme === undefined ? undefined : parseThemeSetting(raw.theme)
+		if (raw.theme !== undefined && themeSetting === undefined) {
+			return invalidConfigValue(
+				context,
+				['theme'],
+				`must be "auto" or one of ${THEME_NAMES.map((name) => `"${name}"`).join(', ')}`,
+			)
+		}
+		if (raw.reducedMotion !== undefined && typeof raw.reducedMotion !== 'boolean') {
+			return invalidConfigValue(context, ['reducedMotion'], 'must be true or false')
+		}
+
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
+			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
+			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 		}
 	},
 }
@@ -1988,6 +2009,12 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'tui' && layer.config.tui) {
+				// Merged per key; the look of the terminal is the operator's, so a project layer cannot set it.
+				out.tui = mergeTuiConfig(out.tui, layer.config.tui, isProjectSource(layer.sourceFor(key)))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			// Same widened-view assignment as `sanitize`: a cast on the target,
 			// not the value, is what lets a generic key write onto a
 			// heterogeneous mapped type without silently dropping a field this
@@ -2200,6 +2227,19 @@ export function mergeCodeAnalysisConfig(
 	const enabled =
 		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
 	return enabled !== undefined ? { enabled } : {}
+}
+
+/**
+ * `tui` from one more layer: later keys win. `theme` and `reducedMotion` are the
+ * operator's own taste, so a project layer's values for them are dropped.
+ */
+export function mergeTuiConfig(
+	below: TuiConfig | undefined,
+	layer: TuiConfig,
+	fromProject: boolean,
+): TuiConfig {
+	const { theme: _theme, reducedMotion: _motion, ...rest } = layer
+	return { ...below, ...(fromProject ? rest : layer) }
 }
 
 function isProjectSource(source: ConfigSource): boolean {

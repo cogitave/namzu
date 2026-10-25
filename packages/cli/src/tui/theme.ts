@@ -1,117 +1,61 @@
 /**
- * Theme tokens for the TUI — phosphor green, neutral text and quiet graphite. We inherit the
- * terminal's own background rather than painting one, and only theme the
- * foreground. Explicit ANSI indices avoid Chalk's RGB cube approximation,
- * which can turn an intended palette color into a different hue.
- * `background` is kept for reference / a future light theme but is not
- * forced onto the canvas. A theme registry/picker is a follow-up.
+ * Theme tokens for the TUI. The default is `dark`: phosphor green, neutral
+ * text and quiet graphite. We inherit the terminal's own background rather
+ * than painting one, and only theme the foreground. Explicit ANSI indices
+ * avoid Chalk's RGB cube approximation, which can turn an intended palette
+ * color into a different hue.
+ *
+ * `theme` is read at render time (`theme.text.muted`), never copied into a
+ * module-level constant: the active theme can change while the TUI runs (see
+ * `theme-store.ts`), and a constant would keep the old colours. The palettes
+ * themselves live in `theme-palettes.ts`.
  */
 
-export interface SemanticColors {
-	/** Canvas background — the whole UI sits on this. */
-	readonly background: string
-	readonly text: {
-		readonly primary: string
-		readonly secondary: string
-		readonly muted: string
-	}
-	readonly accent: {
-		readonly user: string
-		readonly assistant: string
-		readonly system: string
-		readonly tool: string
-		/**
-		 * The hypermode session mode's own colour (violet), used wherever the
-		 * mode is named: the effort slider's last stop and the composer tag.
-		 * Never a status colour.
-		 */
-		readonly hypermode: string
-		/**
-		 * An armed composer trigger (sky): its words in the draft and its tag
-		 * row. Kept apart from the session mode's violet, which names what lasts
-		 * for the session; a trigger lasts one message.
-		 */
-		readonly trigger: string
-		/** Plan mode in the footer's mode item (teal). */
-		readonly plan: string
-		/** Background shells in the footer pill (cyan). */
-		readonly shells: string
-	}
-	readonly status: {
-		readonly ok: string
-		readonly warn: string
-		readonly error: string
-		/** A merged pull request (purple). */
-		readonly merged: string
-	}
-	readonly border: {
-		readonly default: string
-		readonly focus: string
-	}
-}
+import { type DiffColors, PALETTES, type SemanticColors, type ThemeName } from './theme-palettes.js'
 
+export type { DiffColors, SemanticColors, ThemeName }
+
+const initial = PALETTES.dark
+
+/** The active palette. Mutated in place by `applyPalette`; read, never written, elsewhere. */
 export const theme: SemanticColors = {
-	background: '#0b0f0c',
-	text: {
-		primary: 'ansi256(252)',
-		secondary: 'ansi256(248)',
-		muted: 'ansi256(245)',
-	},
-	accent: {
-		user: 'ansi256(83)',
-		assistant: 'ansi256(83)',
-		system: 'ansi256(109)',
-		tool: 'ansi256(248)',
-		hypermode: 'ansi256(141)',
-		trigger: 'ansi256(117)',
-		plan: 'ansi256(73)',
-		shells: 'ansi256(37)',
-	},
-	status: {
-		ok: 'ansi256(77)',
-		warn: 'ansi256(221)',
-		error: 'ansi256(203)',
-		merged: 'ansi256(135)',
-	},
-	border: {
-		default: 'ansi256(239)',
-		focus: 'ansi256(83)',
-	},
+	background: initial.background,
+	text: { ...initial.text },
+	accent: { ...initial.accent },
+	status: { ...initial.status },
+	border: { ...initial.border },
+	live: { ...initial.live },
+	glow: [...initial.glow],
+	diff: { truecolor: initial.diff.truecolor, basic: initial.diff.basic },
 }
 
-/**
- * The backgrounds a diff row is drawn on. Six tokens: a whole added or removed row, the same dimmed
- * for a change that was
- * refused, and the words that differ inside a changed pair of rows.
- */
-export interface DiffColors {
-	readonly added: string
-	readonly removed: string
-	readonly addedDimmed: string
-	readonly removedDimmed: string
-	readonly addedWord: string
-	readonly removedWord: string
+let activeName: ThemeName = 'dark'
+
+/** Make `name` the active palette. The store calls this and then tells the screen to redraw. */
+export function applyPalette(name: ThemeName): void {
+	const palette = PALETTES[name]
+	const target = theme as { -readonly [K in keyof SemanticColors]: SemanticColors[K] }
+	target.background = palette.background
+	target.text = { ...palette.text }
+	target.accent = { ...palette.accent }
+	target.status = { ...palette.status }
+	target.border = { ...palette.border }
+	target.live = { ...palette.live }
+	target.glow = [...palette.glow]
+	target.diff = { truecolor: palette.diff.truecolor, basic: palette.diff.basic }
+	activeName = name
 }
 
-/** For a terminal that reports 24-bit colour: the dark-theme values. */
-export const DIFF_COLORS_TRUECOLOR: DiffColors = {
-	added: 'rgb(34,92,43)',
-	removed: 'rgb(122,41,54)',
-	addedDimmed: 'rgb(71,88,74)',
-	removedDimmed: 'rgb(105,72,77)',
-	addedWord: 'rgb(56,166,96)',
-	removedWord: 'rgb(179,89,107)',
+/** The name of the palette currently applied. */
+export function activeThemeName(): ThemeName {
+	return activeName
 }
 
-/** For every other terminal: the named ANSI colours, words in the bright variant. */
-export const DIFF_COLORS_ANSI: DiffColors = {
-	added: 'green',
-	removed: 'red',
-	addedDimmed: 'green',
-	removedDimmed: 'red',
-	addedWord: 'greenBright',
-	removedWord: 'redBright',
-}
+/** The dark theme's diff colours for a terminal that reports 24-bit colour. */
+export const DIFF_COLORS_TRUECOLOR: DiffColors = PALETTES.dark.diff.truecolor
+
+/** The dark theme's diff colours for every other terminal: named ANSI colours, words in the bright variant. */
+export const DIFF_COLORS_ANSI: DiffColors = PALETTES.dark.diff.basic
 
 const TRUECOLOR_PROGRAMS = new Set(['iTerm.app', 'vscode', 'WezTerm', 'ghostty', 'Hyper'])
 
@@ -124,7 +68,7 @@ export function reportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean 
 	return /direct|truecolor|24bit/i.test(env.TERM ?? '')
 }
 
-/** The diff colours this terminal can draw. */
+/** The diff colours the active theme draws on this terminal. */
 export function diffColors(env: NodeJS.ProcessEnv = process.env): DiffColors {
-	return reportsTruecolor(env) ? DIFF_COLORS_TRUECOLOR : DIFF_COLORS_ANSI
+	return reportsTruecolor(env) ? theme.diff.truecolor : theme.diff.basic
 }

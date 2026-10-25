@@ -272,6 +272,7 @@ import {
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
+import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
@@ -369,6 +370,7 @@ import {
 	type ModelSwitchRequest,
 	resolveModelSwitch,
 } from './model-switch.js'
+import { reducedMotion } from './motion.js'
 import { isRepeatedNotice } from './notices.js'
 import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
@@ -430,6 +432,15 @@ import {
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
+import { describeReducedMotion, saveReducedMotion, saveTheme } from './theme-command.js'
+import { THEME_CHOICES, type ThemeSetting } from './theme-palettes.js'
+import {
+	ThemeEpochContext,
+	savedThemeSetting,
+	setThemePreview,
+	shownTheme,
+	useThemeSubscription,
+} from './theme-store.js'
 import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
 import { STEERED_NOT_APPLIED_REASON, notAppliedLine, transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
@@ -771,6 +782,15 @@ type ChoicePickerState = {
 			readonly line: string
 			readonly values: readonly ('cancel' | 'run')[]
 			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** `/theme`: `values` are the settings, in the order of the rows. */
+			readonly kind: 'theme'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ThemeSetting[]
+			readonly options: readonly ChoicePickerOption[]
+			readonly windowSize: number
 	  }
 	| {
 			readonly kind: 'feedback-rating'
@@ -1238,7 +1258,20 @@ type JobSurface = {
 const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal }) =>
 	editDraftInExternalEditor(seed, { cwd, signal })
 
-export function App({
+/**
+ * The App, drawn inside the theme epoch: a theme change redraws this component,
+ * and the epoch it hands down is what makes a memoised row repaint.
+ */
+export function App(props: AppProps) {
+	const epoch = useThemeSubscription()
+	return (
+		<ThemeEpochContext.Provider value={epoch}>
+			<AppBody {...props} />
+		</ThemeEpochContext.Provider>
+	)
+}
+
+function AppBody({
 	ctx: initialCtx,
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
@@ -3285,6 +3318,27 @@ export function App({
 		[composerTriggerSettings],
 	)
 	const composerTriggersOn = composerTriggersOverride ?? composerTriggerSettings.enabled
+
+	// The theme the printed transcript was drawn in. Rows already in scrollback keep the colours they
+	// were printed with, so a theme that is saved reprints the transcript, the way a resize does.
+	const printedThemeRef = useRef(shownTheme())
+	// biome-ignore lint/correctness/useExhaustiveDependencies: resetKey is the signal that <Static> printed again.
+	useEffect(() => {
+		printedThemeRef.current = shownTheme()
+	}, [resetKey])
+	const applyThemeChoice = useCallback(
+		(setting: ThemeSetting) => {
+			pushMessage('system', saveTheme(setting))
+			if (shownTheme() !== printedThemeRef.current) resetTranscript({ preserveOutputViewer: true })
+		},
+		[pushMessage, resetTranscript],
+	)
+	// The picker's highlighted row is shown while it is open; closing it for any reason drops the preview.
+	useEffect(() => {
+		setThemePreview(
+			choicePicker?.kind === 'theme' ? choicePicker.values[selectedChoice] : undefined,
+		)
+	}, [choicePicker, selectedChoice])
 	/**
 	 * Whether the model can run `skill-creator` here, which save-as-skill
 	 * needs. Read once for the tag row; read again when a turn starts and when
@@ -4632,6 +4686,10 @@ export function App({
 				setComposerDraft({ token: composerDraftTokenRef.current, text: '' })
 				mainCommandConfirmedRef.current = picker.line
 				commandPickerSubmitRef.current(picker.line)
+				return
+			}
+			if (picker.kind === 'theme') {
+				applyThemeChoice(value as ThemeSetting)
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
@@ -9950,6 +10008,18 @@ export function App({
 									: 'Off · words in a message are only words. Select to turn on.',
 							},
 							{
+								name: 'theme',
+								label: 'Theme',
+								description: `${THEME_CHOICES.find((choice) => choice.value === savedThemeSetting())?.label ?? 'Dark mode'} · pick the colors, with a preview.`,
+							},
+							{
+								name: `config motion ${reducedMotion() ? 'off' : 'on'}`,
+								label: 'Reduce motion',
+								description: reducedMotion()
+									? 'On · the working line and the composer stay still. Select to turn off.'
+									: 'Off · the working line and the composer move. Select to turn on.',
+							},
+							{
 								name: 'config sources',
 								label: 'Setting sources',
 								description: 'Show which configuration files and overrides are in use.',
@@ -10926,6 +10996,40 @@ export function App({
 								? 'Raw output mode on — transcript source is shown without Markdown styling or collapsed bodies; terminal controls remain visible escapes.'
 								: 'Raw output mode off — rich transcript rendering restored.',
 						)
+						return
+					}
+					case 'theme-picker': {
+						const saved = savedThemeSetting()
+						setSelectedChoice(
+							Math.max(
+								0,
+								THEME_CHOICES.findIndex((choice) => choice.value === saved),
+							),
+						)
+						setChoicePicker({
+							kind: 'theme',
+							title: 'Theme',
+							notice: 'Choose the text style that looks best with your terminal.',
+							values: THEME_CHOICES.map((choice) => choice.value),
+							options: THEME_CHOICES.map((choice) => ({
+								label: choice.label,
+								description: choice.description,
+								current: choice.value === saved,
+							})),
+							windowSize: THEME_CHOICES.length,
+						})
+						return
+					}
+					case 'theme': {
+						applyThemeChoice(slash.setting)
+						return
+					}
+					case 'reduced-motion': {
+						if (slash.setting === 'list') {
+							pushMessage('system', describeReducedMotion())
+							return
+						}
+						pushMessage('system', saveReducedMotion(slash.setting === 'on'))
 						return
 					}
 					case 'composer-triggers': {
@@ -13447,7 +13551,14 @@ export function App({
 								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
 								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 								selected={selectedChoice}
-								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
+								windowSize={
+									choicePicker.kind === 'command' || choicePicker.kind === 'theme'
+										? choicePicker.windowSize
+										: undefined
+								}
+								{...(choicePicker.kind === 'theme' && terminal.rows >= 26
+									? { extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} /> }
+									: {})}
 							/>
 						) : permission === null &&
 							scheduleReviewPrompt === null &&

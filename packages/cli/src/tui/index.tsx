@@ -20,6 +20,7 @@ import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
+import { applyLaunchTheme } from './theme-launch.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(
@@ -59,6 +60,13 @@ export async function launchTui(
 	// Ink redraws only on the stream's `resize`; on a Windows pseudo-console that event can fail
 	// to come, so the size is asked for on a timer there (see `output-size-watch.ts`).
 	const stopSizeWatch = watchOutputSize(process.stdout)
+	// The colours and motion the config asks for. `auto` asks the terminal for its background first,
+	// which needs the real stdin; a Windows console input device is not asked.
+	const themeReady = applyLaunchTheme(
+		ctx.tui,
+		consoleInput === undefined ? { input: process.stdin, output: process.stdout } : undefined,
+	)
+	if (themeReady) await themeReady
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(

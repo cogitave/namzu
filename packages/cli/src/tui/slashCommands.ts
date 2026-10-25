@@ -56,6 +56,8 @@ import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
+import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
+import type { ThemeSetting } from './theme-palettes.js'
 
 /** One row in the interactive `/help` command palette. */
 export interface CommandPickerEntry {
@@ -123,6 +125,12 @@ export type SlashAction =
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
+	/** Open the theme chooser. */
+	| { kind: 'theme-picker' }
+	/** Apply and save a theme by name. */
+	| { kind: 'theme'; setting: ThemeSetting }
+	/** `/config motion on|off|list`: reduced motion, written to the user config. */
+	| { kind: 'reduced-motion'; setting: 'on' | 'off' | 'list' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -717,6 +725,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
 				'/config triggers [on|off|list]',
+				'/config motion [on|off]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
@@ -725,6 +734,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'settings-picker' }
 			if (args[0] === 'limits') return turnLimitsAction(args.slice(1))
+			if (args[0] === 'motion') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'reduced-motion', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config motion [on|off]' }
+			}
 			if (args[0] === 'triggers') {
 				const setting = (args[1] ?? 'list').toLowerCase()
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
@@ -741,7 +756,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers]',
+						: 'Usage: /config [sources|limits|triggers|motion]',
 			}
 		},
 	},
@@ -1396,6 +1411,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					'Usage: /permissions opens the permission menu. Choose a preset there, or use /permissions details to view rules.',
 			}
+		},
+	},
+	{
+		name: 'theme',
+		help: {
+			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],
+			details: [
+				'Run /theme to pick the colours with a live preview. Auto follows the terminal’s light or dark background. The colorblind-friendly themes use blue and red in place of green and red; the ANSI themes use only the terminal’s own sixteen colors.',
+			],
+		},
+		description: 'Change the colors: /theme [name].',
+		action: (_ctx, args) => {
+			if (args.length === 0) return { kind: 'theme-picker' }
+			const setting = parseThemeArgument(args)
+			if (setting !== undefined) return { kind: 'theme', setting }
+			return { kind: 'message', role: 'system', content: THEME_USAGE }
 		},
 	},
 	{
