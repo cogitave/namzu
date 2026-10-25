@@ -555,7 +555,7 @@ export function PermissionOverlay({
 								// width it is the only key that shows what will run.
 								rank: scriptView ? 4 : 5,
 							},
-							{ text: 'esc cancel', rank: 5 },
+							{ text: 'esc cancel', short: 'esc', rank: 5 },
 							{
 								text: 'ctrl+c stop',
 								rank: scriptView ? 3 : 4,
@@ -573,7 +573,9 @@ export function PermissionOverlay({
 												: 'view input'
 								}`,
 								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
-								rank: scriptView ? 5 : 3,
+								// The only way to the exact input: it outranks the stop hint,
+								// whose key works without being shown.
+								rank: 5,
 							},
 						],
 						boxedHintWidth(columns),
