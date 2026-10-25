@@ -6348,16 +6348,13 @@ export function App({
 			const shown = permissionShownRef.current
 			permissionShownRef.current = null
 			// The screen may show a bounded view, but a yes only binds the input
-			// that was shown: the object the SDK will run must be the one on
-			// screen and must still hash to what the person saw.
+			// that was shown: the hash is the binding. It is taken again over the
+			// request the SDK holds and will run, and must equal what the person
+			// saw.
 			let decision = requested
 			if (requested.kind === 'approve' && shown) {
 				const again = buildPermissionReview(shown.source.toolCalls)
-				if (
-					shown.toolCalls !== shown.source.toolCalls ||
-					!again.ok ||
-					again.envelopeHash !== shown.envelopeHash
-				)
+				if (!again.ok || again.envelopeHash !== shown.envelopeHash)
 					decision = {
 						kind: 'reject',
 						feedback: 'Refused: the tool input changed after it was shown for approval.',
