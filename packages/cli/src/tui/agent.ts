@@ -1,6 +1,8 @@
 import { debugRequested } from '../debug-requested.js'
+import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
+import { promptCacheTtl, setPromptCacheTtl } from '../integrations/providers/prompt-cache-ttl.js'
 import { createOpenUrlTool } from '../integrations/web/open-url.js'
 import {
 	createWebSearchTool,
@@ -566,6 +568,11 @@ export type AgentEvent =
 			readonly totalTokens: number
 			/** The output share of `totalTokens`: what the model has written this turn. */
 			readonly outputTokens?: number
+			/**
+			 * The prompt cache after this model call, when the driver reports how
+			 * long it lives. Absent means unknown; nothing may assume a lifetime.
+			 */
+			readonly cache?: { readonly ttlMs: number; readonly touched: boolean }
 			/**
 			 * The kernel's cost record, carried whole.
 			 *
@@ -1278,7 +1285,15 @@ export interface AgentSession {
 		messages: readonly Message[],
 		/** What the person asked the summary to keep, from `/compact <text>`. */
 		instructions?: string,
+		/** Who asked. `idle` marks a compaction nobody requested; the log records it as such. */
+		trigger?: 'manual' | 'idle',
 	) => Promise<CompactionResult | null>
+	/**
+	 * Present only when the person turned idle compaction on: the smallest
+	 * context, in tokens, worth compacting while nobody is using the
+	 * conversation.
+	 */
+	readonly idleCompaction?: { readonly minTokens: number }
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -2357,6 +2372,8 @@ export async function createAgentSession(
 	// "Don't ask again" answers given at a prompt this session, consulted as
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
+	// Before any provider is built: how long the cache is asked to live.
+	setPromptCacheTtl(options.compaction?.promptCacheTtl)
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
@@ -4828,7 +4845,17 @@ export async function createAgentSession(
 			return reasoningEffortDefault
 		},
 		...(reasoningSettled ? { reasoningSettled } : {}),
-		compact: (messages, instructions) =>
+		...(options.compaction?.idleCompaction === true
+			? {
+					idleCompaction: {
+						minTokens: resolveIdleCompactionMinTokens(
+							process.env.NAMZU_IDLE_COMPACT_MIN_TOKENS,
+							options.compaction.idleCompactionMinTokens,
+						),
+					},
+				}
+			: {}),
+		compact: (messages, instructions, trigger) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
@@ -4851,6 +4878,7 @@ export async function createAgentSession(
 					return await compactSession({
 						...common,
 						sessionId,
+						...(trigger === 'idle' ? { trigger } : {}),
 						locator: {
 							log: DiskSessionLog.at(paths, { sessionId }),
 							index: sessions.index,
@@ -5929,6 +5957,7 @@ export function constructProvider(
 				...(isOAuth ? { authToken: token } : { apiKey: token }),
 				baseURL: det?.baseUrl,
 				model,
+				...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 			})
 			return provider
 		}
@@ -7460,6 +7489,7 @@ export function toAgentEvent(
 				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
 				outputTokens: event.usage.completionTokens,
+				...(event.cache ? { cache: event.cache } : {}),
 				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
