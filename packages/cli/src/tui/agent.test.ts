@@ -272,6 +272,8 @@ describe('toAgentEvent', () => {
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
 			command: 'ls -la /tmp',
+			// A listing only looks, so it folds into the counted line.
+			fold: { kind: 'list', hint: '$ ls -la /tmp' },
 		})
 	})
 
