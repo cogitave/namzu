@@ -212,7 +212,7 @@ A skipped agent does not fail its phase, and a run in the footer counts as
 `1 workflow`, never as an agent (`← 2 agents · 1 workflow`). The header reads `denetim  <purpose>
 3/6 agents · 12s` and, once the run has ended, ends with `· completed`,
 `· failed` or `· stopped`. Each place counts the agents the way it needs to,
-and a failure is never folded into the count: the rail row and the header read
+and a failure is never folded into the count (only an agent that completed is done; a failed or stopped one is not): the rail row and the header read
 `done/total` (`3/7 · 2m 14s`, `2/3 agents`), the `/workflows` list reads
 `done/total agents` whether or not the run is whole, and the closing line reads
 the total only (`3 agents`). A failed run shows in the rail row's red bullet, in

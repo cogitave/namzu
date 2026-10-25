@@ -400,7 +400,7 @@ function groupWorkflows(
 			name: members[0]?.workflow ?? DEFAULT_AGENT_WORKFLOW,
 			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
 			...(endedAt !== undefined ? { endedAt } : {}),
-			done: settled.length,
+			done: members.filter((agent) => agent.status === 'completed').length,
 			total: members.length,
 			...(spent !== undefined ? { tokens: spent } : {}),
 			failed,
@@ -1063,13 +1063,9 @@ export function phaseCount(
 	runStopped = false,
 ): string {
 	if (phase.agents.length === 0) return ''
-	// In a workflow run only an agent that completed counts; one that was skipped,
-	// failed or stopped has not done its work.
-	const counted = phase.agents.filter((agent) =>
-		agent.workflowRunId !== undefined
-			? agent.status === 'completed'
-			: isTerminalStatus(agent.status),
-	).length
+	// Only an agent that completed counts; one that was skipped, failed or
+	// stopped has not done its work.
+	const counted = phase.agents.filter((agent) => agent.status === 'completed').length
 	if (runStopped && counted === 0 && phase.agents.every((agent) => isTerminalStatus(agent.status)))
 		return 'stopped'
 	return `${counted}/${phase.agents.length}`
@@ -1227,9 +1223,8 @@ export function WorkflowDetail({
 	const pageSize = workflowDetailPageSize(terminalRows)
 	const phase = phases[selectedPhaseIndex]
 	const isRun = workflow.runId !== undefined
-	const settled = workflow.agents.filter((agent) =>
-		isRun ? agent.status === 'completed' : isTerminalStatus(agent.status),
-	).length
+	// Only an agent that completed counts as done; a failed or stopped one does not.
+	const settled = workflow.agents.filter((agent) => agent.status === 'completed').length
 	const running = isRun
 		? workflow.runStatus === 'running'
 		: workflow.agents.some((agent) => !isTerminalStatus(agent.status))

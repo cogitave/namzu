@@ -9,6 +9,7 @@ import { createRequire } from 'node:module'
 import { Box } from 'ink'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { initialRunView } from '../../integrations/workflows/view.js'
 import type { WorkflowAgentView, WorkflowRunView } from '../../integrations/workflows/view.js'
 import { AgentCockpit, railWorkflows, runRailWorkflow } from '../AgentExplorer.js'
@@ -117,5 +118,50 @@ describe('the rail and the closing line of a run with a failed agent', () => {
 		expect(row).toMatchObject({ done: 2, total: 3, failed: 1 })
 		const notice = workflowNotice(runRailWorkflow(failedRun(), []), NOW)
 		expect(notice.content).toMatch(/^Workflow audit failed · .* · 3 agents · 30 tokens$/u)
+	})
+})
+
+describe('a labelled group that is not a run, with one failed agent', () => {
+	function group(): SubagentActivity[] {
+		return (['completed', 'failed', 'completed'] as const).map((status, i) => ({
+			agentId: 'general-purpose',
+			description: `a${i}`,
+			prompt: 'p',
+			batchId: 'batch-1',
+			workflowId: 'turn-1',
+			workflowGroupId: 'group-audit',
+			phaseId: 'phase-1',
+			workflow: 'Release audit',
+			phase: 'Work',
+			phaseSequence: 0,
+			status,
+			startedAt: NOW - 15_000,
+			completedAt: NOW - 5_000,
+			viewId: `g${i}`,
+			transcript: [],
+		}))
+	}
+
+	it('counts a failed agent as not done on the rail', () => {
+		const [row] = railWorkflows(group(), NOW)
+		expect(row).toMatchObject({ done: 2, total: 3, failed: 1, status: 'failed' })
+	})
+
+	it('reads 2/3 in the detail header', async () => {
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<AgentCockpit
+					agents={group()}
+					runs={[]}
+					selectedPhaseId="phase-1"
+					selectedId="g0"
+					focus="phases"
+					terminalRows={30}
+					terminalColumns={100}
+				/>
+			</Box>,
+			{ cols: 100, rows: 30 },
+		)
+		expect(mounted.viewport().some((row) => row.includes('2/3 agents'))).toBe(true)
 	})
 })
