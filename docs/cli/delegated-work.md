@@ -191,8 +191,12 @@ was not resumed. Treat its work as cancelled; only start a new agent for it if
 the user explicitly asks." A resumed child runs under the current turn's limits
 and review channel. Messages are bounded to 16,000 characters. An id that no
 agent of this conversation has, including one of another conversation, gets the
-same answer: "No task with ID … in this conversation.", followed by the running
-agents and a pointer to `agent_task_list`; nothing is sent and no row is added.
+same answer: "No task with ID … in this conversation.", followed by "Running
+agents: …" when any are running and, only when the id is a saved agent's session
+UUID, a pointer to `agent_task_list` with `history: true`; a value that is not a
+UUID gets the same answer, and nothing is sent and no row is added. While a
+resume is being admitted the three tools answer about the new run, and an agent
+that is still unwinding after a stop answers that it is stopping.
 
 A running child has a `send_message` of its own with `to: "main"` and a
 `message`, offered only while the host can show the message (the interactive
