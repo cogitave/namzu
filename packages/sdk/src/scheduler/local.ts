@@ -1,7 +1,11 @@
 import { GENAI } from '../constants/telemetry/index.js'
 import { taskFailed } from '../tools/coordinator/outcome.js'
 import type { AgentInput } from '../types/agent/base.js'
-import type { AgentManagerContract } from '../types/agent/manager.js'
+import type {
+	AgentManagerContract,
+	RestoreChildOptions,
+	RestoreChildResult,
+} from '../types/agent/manager.js'
 import type {
 	CreateTaskOptions,
 	SiblingFailurePolicy,
@@ -113,6 +117,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 			{
 				agentId: options.agentId,
 				...(options.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
+				...(options.continuationProfile ? { continuationProfile: options.continuationProfile } : {}),
 				beforeStart: options.beforeStart,
 				...(options.workspace ? { workspace: options.workspace } : {}),
 				...(options.planId ? { planId: options.planId } : {}),
@@ -361,6 +366,12 @@ export class LocalTaskScheduler implements TaskScheduler {
 
 	async continueTask(taskId: TaskId, message: string): Promise<void> {
 		await this.agentManager.continueTask(taskId, message)
+	}
+
+	async restoreChild(options: RestoreChildOptions): Promise<RestoreChildResult> {
+		if (!this.agentManager.restoreChildConversation)
+			return { status: 'refused', reason: 'no-layout' }
+		return this.agentManager.restoreChildConversation(options, this.taskContext)
 	}
 
 	cancelTask(taskId: TaskId, cause?: CancelCause): void {

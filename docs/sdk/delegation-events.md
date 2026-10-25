@@ -204,6 +204,38 @@ invocation summaries live in `turn-summaries/<turn-id>.json` beside the
 unchanged legacy `summary.json`. `recover(sessionId, tenantId, turnId)` can
 replay the status transition of the specified sealed invocation.
 
+### Continuing a child after the process ended
+
+A child that finished in an earlier process can be continued from its saved
+files. At launch the host passes `continuationProfile` to `createTask`: at most
+16 string entries (keys up to 64 characters, values up to 256) naming what it
+needs to rebuild the child, such as which agent and which model. The manager
+writes it, with the child's filesystem policy, to the `continuation` field of
+`<child-id>.meta.json`. Never put a secret in it; it lands on disk. A child
+launched without a profile, or one that ran in an isolated workspace, cannot be
+continued from disk.
+
+In a later process, `LocalTaskScheduler.restoreChild({ childSessionId,
+workingDirectory, agentFor })` reads the meta document and the child's log under
+the invoking parent, calls `agentFor(profile)` for the registered agent to
+continue as, and re-creates the session, delegation edge and retained
+conversation that `resumeSessionId` needs. It runs nothing and grants nothing
+beyond that: the host then calls `createTask({ resumeSessionId })` with the
+invoking turn's own `beforeStart`, limits and review handler, exactly as for a
+child that finished in this process. A store that survived the process (the disk
+store) keeps its child session and edge, and those are reused.
+
+The result is `{ status: 'restored', agentId, profile, description }` or
+`{ status: 'refused', reason }`, where the reason is one of `no-layout` (no
+project layout, so nothing is saved), `not-saved`, `foreign` (another parent
+session, project or topic), `not-resumable` (no profile, an isolated workspace,
+or `agentFor` returned nothing registered), `unsettled` (the log never recorded
+the end of a turn, so the child died mid-turn), `stopped` (the child was
+cancelled), `running` or `full`. The child's log wins over its meta document on
+any disagreement. `restoreChild` is optional on `TaskScheduler`, and
+`restoreChildConversation` is optional on `AgentManagerContract`; only managers
+that read saved children offer them.
+
 ## What the logs keep
 
 The durable record of a delegation is in the [session logs](session-log.md),

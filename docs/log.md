@@ -2,6 +2,7 @@
 
 ## 2026-10-25
 
+- **Update** [Delegation events](sdk/delegation-events.md): `continuationProfile` on `createTask` records what a later process needs to rebuild a child; `restoreChild` makes a child saved by an earlier process continuable again from its log and meta document, then `createTask({ resumeSessionId })` continues it. `.changeset/subagent-continue-from-disk.md` (`@namzu/sdk` minor).
 - **Update** [Delegated work](cli/delegated-work.md), [Peer messaging](cli/peer-messaging.md): `wait_for_task`, `send_message`, `cancel_agent` and `agent_task_list` reach an agent of the conversation from any later turn, running or finished; an unknown or foreign id answers "No task with ID … in this conversation." with the running agents. `.changeset/subagent-cross-turn.md` (`@namzu/cli` minor).
 - **Update** [Slash commands](cli/slash-commands.md), [Workflows](cli/workflows.md), [Composer triggers](cli/composer-triggers.md): the `/workflow <task>` command is removed; a workflow is asked for with the word `workflow` in a message or with hypermode on, and `/workflows` is unchanged. `.changeset/remove-workflow-command.md` (`@namzu/cli` major).
 - **Update** [Delegated work](cli/delegated-work.md): a failed `Agent` call's error text is wrapped at word boundaries and its 10-line cap and `+N lines` count are the text's own lines. `.changeset/tui-r6-errors.md` (`@namzu/cli` patch).
