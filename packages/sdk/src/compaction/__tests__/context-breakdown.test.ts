@@ -92,7 +92,7 @@ describe('analyzeContextUsage', () => {
 			contextTokens: 1_000,
 		})
 		expect(b.bufferTokens).toBe(21_000)
-		expect(sum(b) + b.categories.at(-1)!.tokens).toBe(200_000)
+		expect(sum(b) + (b.categories.at(-1)?.tokens ?? 0)).toBe(200_000)
 	})
 
 	it('draws a 3,000 token compact buffer as an ordinary line when auto-compact is off', () => {
