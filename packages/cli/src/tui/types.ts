@@ -43,9 +43,11 @@ export interface TranscriptMessage {
 	readonly content: string
 	/**
 	 * `recap`: the away recap, a display-only row (`※ recap: …`). Never sent to
-	 * the model and never counted as something the person typed.
+	 * the model and never counted as something the person typed. `shell`: the
+	 * echo of a `!command` the person ran themselves; a user row, but not a
+	 * prompt (no reply follows it and no rewind point stands at it).
 	 */
-	readonly kind?: 'recap'
+	readonly kind?: 'recap' | 'shell'
 	/** Host-only schedule result from the active conversation's sidecar inbox. */
 	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */

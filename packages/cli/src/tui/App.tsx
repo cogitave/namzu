@@ -9997,7 +9997,10 @@ function AppBody({
 					)
 					return
 				}
-				pushMessage('user', value)
+				const echoId = pushMessage('user', value)
+				setMessages((previous) =>
+					previous.map((row) => (row.id === echoId ? { ...row, kind: 'shell' as const } : row)),
+				)
 				const rowId = pushMessage('tool', `Running ${escaped}`, true, SYSTEM_ROW_GLYPH)
 				void runShellEscape(escaped, { cwd: ctx.cwd }).then((result) => {
 					operatorShellRef.current.push(describeShellEscapeForModel(escaped, result))
@@ -11461,6 +11464,15 @@ function AppBody({
 						return
 					}
 					case 'spinner-tips': {
+						if (slash.on === 'list') {
+							pushMessage(
+								'system',
+								spinnerTipsOn
+									? 'Tips are on: one short tip shows under the working row. /config tips off turns them off.'
+									: 'Tips are off. /config tips on turns them back on. The next task still shows under the working row.',
+							)
+							return
+						}
 						const profile = ctx.configDebug?.selectedProfile?.name
 						setSpinnerTipsOverride(slash.on)
 						pushMessage(

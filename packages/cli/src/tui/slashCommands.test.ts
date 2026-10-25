@@ -1446,11 +1446,20 @@ describe('/config tips', () => {
 	it('switches the spinner tips on or off and refuses anything else', () => {
 		expect(runSlash('/config tips off', context())).toEqual({ kind: 'spinner-tips', on: false })
 		expect(runSlash('/config tips ON', context())).toEqual({ kind: 'spinner-tips', on: true })
-		expect(runSlash('/config tips', context())).toMatchObject({
+		expect(runSlash('/config tips', context())).toEqual({ kind: 'spinner-tips', on: 'list' })
+		expect(runSlash('/config tips list', context())).toEqual({ kind: 'spinner-tips', on: 'list' })
+		expect(runSlash('/config tips maybe', context())).toMatchObject({
 			kind: 'message',
-			content: 'Usage: /config tips [on|off]',
+			content: 'Usage: /config tips [on|off|list]',
 		})
-		expect(runSlash('/config tips maybe', context())).toMatchObject({ kind: 'message' })
+	})
+})
+
+describe('/config theme', () => {
+	it('opens the picker, sets a name, and refuses anything else with the same usage as /theme', () => {
+		expect(runSlash('/config theme', context())).toEqual({ kind: 'theme-picker' })
+		expect(runSlash('/config theme light', context())).toEqual({ kind: 'theme', setting: 'light' })
+		expect(runSlash('/config theme nope', context())).toEqual(runSlash('/theme nope', context()))
 	})
 })
 
@@ -1461,7 +1470,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits|triggers|motion|recap|tips]'),
+			content: expect.stringContaining('/config [sources|limits|triggers|theme|motion|recap|tips]'),
 		})
 	})
 

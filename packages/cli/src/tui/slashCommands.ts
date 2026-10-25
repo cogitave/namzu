@@ -135,8 +135,8 @@ export type SlashAction =
 	| { kind: 'recap-setting'; setting: 'on' | 'off' | 'list' }
 	/** `/recap`: write a recap of the conversation now. */
 	| { kind: 'recap-now' }
-	/** `/config tips on|off`: the spinner tips' switch, written to the user config. */
-	| { kind: 'spinner-tips'; on: boolean }
+	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
+	| { kind: 'spinner-tips'; on: boolean | 'list' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -740,13 +740,16 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
 				'/config triggers [on|off|list]',
-				'/config motion [on|off]',
+				'/config theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]',
+				'/config motion [on|off|list]',
 				'/config recap [on|off|list]',
-				'/config tips [on|off]',
+				'/config tips [on|off|list]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
 				'/config recap off stops the one-line recap shown when you come back after a few minutes away, in your user config; /config recap on turns it back on.',
+				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
+				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
 				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
 			],
 		},
@@ -757,13 +760,20 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				const setting = (args[1] ?? 'list').toLowerCase()
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
 					return { kind: 'reduced-motion', setting }
-				return { kind: 'message', role: 'system', content: 'Usage: /config motion [on|off]' }
+				return { kind: 'message', role: 'system', content: 'Usage: /config motion [on|off|list]' }
 			}
 			if (args[0] === 'tips') {
-				const setting = (args[1] ?? '').toLowerCase()
-				if (args.length === 2 && (setting === 'on' || setting === 'off'))
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off'))
 					return { kind: 'spinner-tips', on: setting === 'on' }
-				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off]' }
+				if (args.length <= 2 && setting === 'list') return { kind: 'spinner-tips', on: 'list' }
+				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off|list]' }
+			}
+			if (args[0] === 'theme') {
+				if (args.length === 1) return { kind: 'theme-picker' }
+				const setting = parseThemeArgument(args.slice(1))
+				if (setting !== undefined) return { kind: 'theme', setting }
+				return { kind: 'message', role: 'system', content: THEME_USAGE }
 			}
 			if (args[0] === 'triggers') {
 				const setting = (args[1] ?? 'list').toLowerCase()
@@ -787,7 +797,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers|motion|recap|tips]',
+						: 'Usage: /config [sources|limits|triggers|theme|motion|recap|tips]',
 			}
 		},
 	},

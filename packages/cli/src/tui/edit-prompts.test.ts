@@ -29,6 +29,22 @@ describe('editable prompt projection', () => {
 		expect(prompt?.message.attachments).toEqual(durable.attachments)
 	})
 
+	it('lists the prompts the person sent, and never a recap, a notice, a group, an agent row or a shell echo', () => {
+		const first = createUserMessage('first expanded')
+		const second = createUserMessage('second expanded')
+		const transcript: TranscriptMessage[] = [
+			row('u1', 'first @a'),
+			{ id: 'g', role: 'tool', content: 'Read 2 files', glyph: ' ', activity: 'exploration' },
+			{ id: 'a1', role: 'tool', content: 'Agent "x" finished', glyph: '●', activity: 'agent-result' },
+			{ id: 'n', role: 'system', content: 'Conversation compacted' },
+			{ id: 'r', role: 'system', content: 'where things stand', kind: 'recap' },
+			{ ...row('sh', '!ls'), kind: 'shell' },
+			row('u2', 'second @b'),
+		]
+		const prompts = editablePrompts([first, createAssistantMessage('ok'), second], transcript)
+		expect(prompts.map((prompt) => prompt.displayText)).toEqual(['first @a', 'second @b'])
+	})
+
 	it('pairs from the newest end after clear-screen removes visible history', () => {
 		const old = createUserMessage('old expanded prompt')
 		const recent = createUserMessage('recent expanded prompt')

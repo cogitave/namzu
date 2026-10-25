@@ -36,7 +36,9 @@ export function editablePrompts(
 		durableUserOrdinal += 1
 		return message.source ? [] : [{ message, userOrdinal }]
 	})
-	const visible = transcript.filter((message) => message.role === 'user')
+	// Only prompts the person sent to the model: a recap, a notice or the echo of a
+	// `!command` is no rewind point, and counting it would shift every row before it.
+	const visible = transcript.filter((message) => message.role === 'user' && message.kind === undefined)
 	const paired = Math.min(users.length, visible.length)
 	const durableStart = users.length - paired
 	const visibleStart = visible.length - paired
