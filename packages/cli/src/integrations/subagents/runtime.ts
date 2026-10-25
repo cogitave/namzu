@@ -1897,7 +1897,6 @@ export async function createSubagentRuntime(
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			let gateway = await gatewayForTurn(context.turnId)
-			let taskId: TaskId
 			const asked = (input as { task_id: string }).task_id
 			if (typeof asked === 'string' && /^w[0-9a-z]{8}$/.test(asked.trim())) {
 				// A workflow run is not a task. Its end arrives as one message of its
@@ -1909,14 +1908,13 @@ export async function createSubagentRuntime(
 					data: { run_id: asked.trim(), waited: false },
 				}
 			}
-			const parsed = parseTaskId(asked)
-			if (!parsed)
+			const taskId = parseTaskId(asked)
+			if (!taskId)
 				return {
 					success: false,
 					output: '',
 					error: await unknownTaskMessage(String(asked), context.turnId),
 				}
-			taskId = parsed
 			const found = await resolveTask(taskId, context.turnId)
 			if (!found)
 				return {
