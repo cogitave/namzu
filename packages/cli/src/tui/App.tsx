@@ -2905,7 +2905,9 @@ export function App({
 			// written before the first word of a reply.
 			if (role === 'assistant') flushLaunchReceiptsRef.current()
 			// Anything written after a run of reads and searches ends the run.
-			readSearchGroup.close()
+			// Empty text from the model folds into the open line rather than ending it.
+			if (!(role === 'assistant' && !pending && content.trim().length === 0))
+				readSearchGroup.close()
 			// One mapping for every system row: a caller that names no glyph gets
 			// the dim notice dot, so no producer can bypass `systemRowStyle`.
 			const noticeStyle =

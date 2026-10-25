@@ -136,6 +136,9 @@ describe('which shell commands only look', () => {
 		['grep -rn "a|b" src', 'search'],
 		['find . -name "*.ts" | sort | uniq', 'search'],
 		['echo start && cat a.ts', 'read'],
+		['rg foo 2>&1 | head', 'search'],
+		['find . -name x 2>/dev/null', 'search'],
+		['grep -r foo . &>/dev/null', 'search'],
 	])('%s is a %s', (command, kind) => {
 		expect(classifyShell(command)).toBe(kind)
 	})
@@ -146,6 +149,9 @@ describe('which shell commands only look', () => {
 		'npm test',
 		'cat a.ts > out.txt',
 		'cat a.ts >> out.txt',
+		'cat a.ts 2>err.txt',
+		'cat a.ts >/dev/nullx',
+		'cat a.ts >&2 > out',
 		'cat $(which node)',
 		'cat `which node`',
 		'ls & rm -rf x',
@@ -207,6 +213,17 @@ describe('which calls fold', () => {
 			kind: 'mcp',
 			label: 'docs',
 			hint: '"auth"',
+		})
+	})
+
+	it('names a connector call with no known server MCP', () => {
+		expect(groupText(foldOp(EMPTY_GROUP, { kind: 'mcp' }, 0), false)).toBe('Called MCP')
+	})
+
+	it('uses the server name as it is configured', () => {
+		expect(classifyCall({ toolName: 'mcp__my server__go', input: {} })).toEqual({
+			kind: 'mcp',
+			label: 'my server',
 		})
 	})
 

@@ -1,9 +1,11 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
+import { useEffect, useState } from 'react'
 
-import { groupSegments, visibleHint } from './read-search-group.js'
+import { HINT_INTERVAL_MS, groupSegments, visibleHint } from './read-search-group.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 
 /**
@@ -33,6 +35,17 @@ export function ReadSearchGroup({
 		process.env.FORCE_COLOR !== '0' &&
 		process.env.TERM !== 'dumb'
 	const { frame } = useAnimation({ isActive: motion, interval: 300 })
+	const [, setTick] = useState(0)
+	const queued = live && state?.hintQueued !== undefined ? state.hintShownAt : undefined
+	// Wake once when a held hint comes due, whether or not anything animates.
+	useEffect(() => {
+		if (queued === undefined) return
+		const timer = setTimeout(
+			() => setTick((n) => n + 1),
+			Math.max(0, queued + HINT_INTERVAL_MS - now()),
+		)
+		return () => clearTimeout(timer)
+	}, [queued, now])
 	if (!state) return null
 	const segments = groupSegments(state, live)
 	const hint = live ? visibleHint(state, now()) : undefined
@@ -53,7 +66,9 @@ export function ReadSearchGroup({
 								{segment.text}
 							</Text>
 						))}
-						{!live && message.meta ? <Text color={theme.text.muted}> {message.meta}</Text> : null}
+						{live || message.meta ? (
+							<Text color={theme.text.muted}> {live ? EXPAND_HINT : message.meta}</Text>
+						) : null}
 					</Text>
 				</Box>
 			</Box>

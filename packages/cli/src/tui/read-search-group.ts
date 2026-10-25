@@ -165,7 +165,7 @@ export function groupParts(state: GroupState, live: boolean): readonly GroupPart
 	}
 	if (state.mcpCalls > 0) {
 		const w = WORDS.mcp
-		const names = state.mcpLabels.join(', ')
+		const names = state.mcpLabels.length > 0 ? state.mcpLabels.join(', ') : 'MCP'
 		parts.push({
 			verb: live ? w.live : w.done,
 			...(names.length > 0 ? { names } : {}),
@@ -241,11 +241,13 @@ const READ_COMMANDS = new Set([
 const LIST_COMMANDS = new Set(['ls', 'tree', 'du'])
 const NEUTRAL_COMMANDS = new Set(['echo', 'printf', 'true', 'false', ':'])
 
+const SAFE_REDIRECT = /^(?:>&\d|&?>>?\s*\/dev\/null)(?=\s|$|[;|&])/
+
 type ShellClass = 'search' | 'list' | 'read'
 
 /**
  * Cut a command line at its unquoted `|`, `||`, `&&`, `;`, and refuse
- * anything that could write or run something else: a redirect, a
+ * anything that could write or run something else: a redirect (except to /dev/null or between descriptors), a
  * substitution, a background `&`, a subshell, a here-document. Undefined
  * means the line is not one this fold may hide.
  */
@@ -276,6 +278,15 @@ function shellSegments(command: string): readonly string[] | undefined {
 			quote = ch
 			current += ch
 			continue
+		}
+		// Harmless redirects: fd to fd (`2>&1`) and anything to /dev/null.
+		if (ch === '>' || ch === '&') {
+			const safe = SAFE_REDIRECT.exec(command.slice(i))
+			if (safe) {
+				current += safe[0]
+				i += safe[0].length - 1
+				continue
+			}
 		}
 		if (ch === '>' || ch === '<' || ch === '(' || ch === ')' || ch === '{' || ch === '}')
 			return undefined
@@ -357,7 +368,7 @@ function text(value: unknown): string | undefined {
 function mcpServer(toolName: string): string | undefined {
 	if (!toolName.startsWith('mcp__')) return undefined
 	const server = toolName.slice('mcp__'.length).split('__')[0]
-	return server ? server.replace(/^claude\.ai /, '') : undefined
+	return server || undefined
 }
 
 /** What a call is to the fold, or undefined when it stays a row of its own. */
