@@ -21,8 +21,8 @@ import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
-import { applyLaunchTheme } from './theme-launch.js'
 import { terminalFocus } from './terminal-focus.js'
+import { applyLaunchTheme } from './theme-launch.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(
