@@ -26,7 +26,7 @@ clause, so no line ends mid-sentence.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config motion on\|off` switches [reduced motion](themes.md). |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -59,6 +59,7 @@ clause, so no line ends mid-sentence.
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, workspace and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
+| `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
