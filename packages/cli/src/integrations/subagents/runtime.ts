@@ -691,6 +691,8 @@ export async function createSubagentRuntime(
 		task: TaskHandle
 		turnId: TurnId
 		busy: boolean
+		/** Settles when a resume being admitted has been admitted or refused. */
+		admitting?: Promise<void>
 	}
 	const conversations = new Map<string, OwnedConversation>()
 	// Every task id a visible agent has run under, to that agent's view id: a
@@ -1139,11 +1141,16 @@ export async function createSubagentRuntime(
 				readonly viewId: string
 				readonly task: TaskHandle
 		  }
+		// Nothing holds it any more, yet it has not reported an end: it is unwinding.
+		| { readonly kind: 'ending'; readonly task: TaskHandle }
 	const resolveTask = async (taskId: TaskId, turnId: TurnId): Promise<ResolvedTask | undefined> => {
 		const parentKey = sessionKey(await resolveParent(turnId))
 		const viewId = taskViews.get(String(taskId))
 		const owned = viewId === undefined || closed ? undefined : conversations.get(viewId)
 		if (owned && owned.parentKey !== parentKey) return undefined
+		// A resume is being admitted: the old run is over but a new one is about to
+		// start, and answering from the old one would be wrong either way.
+		if (owned?.admitting) await owned.admitting
 		// A resumed agent answers to every id it has run under, with its latest run.
 		const current = owned ? owned.task.taskId : taskId
 		const gateway = await gatewayHolding(current, turnId)
@@ -1153,7 +1160,7 @@ export async function createSubagentRuntime(
 		const settled = owned.gateway.getTask(current) ?? owned.task
 		return isTerminalAgentTaskState(settled.state)
 			? { kind: 'settled', owned, viewId, task: settled }
-			: undefined
+			: { kind: 'ending', task: settled }
 	}
 	/** A task id as the model wrote it; anything that is not a task UUID names no task. */
 	const parseTaskId = (raw: unknown): TaskId | undefined => {
@@ -1877,6 +1884,12 @@ export async function createSubagentRuntime(
 				}
 			// An agent that ended in an earlier turn has nothing left to wait for.
 			if (found.kind === 'settled') return completedAgentResult(found.task)
+			if (found.kind === 'ending')
+				return {
+					success: false,
+					output: '',
+					error: `Task ${taskId} is stopping and has not reported its end yet. Ask again in a moment.`,
+				}
 			gateway = found.gateway
 			const task = found.task
 			const outcome = await runBlockingAgentTask({
@@ -1954,6 +1967,12 @@ export async function createSubagentRuntime(
 				}
 			}
 			const task = found.task
+			if (found.kind === 'ending')
+				return {
+					success: false,
+					output: '',
+					error: `Task ${taskId} is stopping, so it cannot take a message. Ask again once it has ended.`,
+				}
 			if (found.kind === 'settled') {
 				// A finished agent is resumed from its own transcript with the message,
 				// on this turn's gateway, limits and review channel; one the user
@@ -2046,6 +2065,11 @@ export async function createSubagentRuntime(
 					error: await unknownTaskMessage(String(asked), context.turnId),
 				}
 			const task = found.task
+			if (found.kind === 'ending')
+				return {
+					success: true,
+					output: `Task ${taskId} is already stopping. No further cancellation sent.`,
+				}
 			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
 				return {
 					success: true,
@@ -2056,9 +2080,10 @@ export async function createSubagentRuntime(
 			// The cause stays `user`: it is what closes the request in flight on an
 			// estimate rather than as unknown spend. Who asked is the display's.
 			for (const [shownId, owned] of conversations) {
-				if (owned.task.taskId === taskId) activity.markStopped(shownId, 'parent')
+				if (owned.task.taskId === task.taskId) activity.markStopped(shownId, 'parent')
 			}
-			gateway.cancelTask(taskId, 'user')
+			// The latest run of the agent, which may not be the one first named.
+			gateway.cancelTask(task.taskId, 'user')
 			return {
 				success: true,
 				output: `Cancellation requested for task ${taskId}. Other tasks continue. Use agent_task_list or wait_for_task to confirm its terminal outcome.`,
@@ -2255,6 +2280,10 @@ export async function createSubagentRuntime(
 			)
 		if (owned.busy) throw new Error('A message to this child is already being admitted.')
 		owned.busy = true
+		let settleAdmission: () => void = () => {}
+		owned.admitting = new Promise<void>((resolve) => {
+			settleAdmission = resolve
+		})
 		const id = randomUUID()
 		let journal: string | undefined
 		let admitted = false
@@ -2375,6 +2404,8 @@ export async function createSubagentRuntime(
 			throw error
 		} finally {
 			owned.busy = false
+			owned.admitting = undefined
+			settleAdmission()
 		}
 	}
 

@@ -14,7 +14,7 @@ import {
 	mcpJsonSchemaToZod,
 	toolset,
 } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { type SubagentRuntimeOptions, createSubagentRuntime } from '../runtime.js'
@@ -42,7 +42,10 @@ const MADE_UP = '596ec65e-b063-401c-b1f7-a2b6cc4ce35a'
 async function conversation(
 	options: {
 		holdFirstChild?: boolean
+		/** The child's second request (a resumed run) waits for `hold.resolve()`. */
+		holdResume?: boolean
 		durable?: boolean
+		keepRunningAfterTurn?: boolean
 		savedAgents?: SubagentRuntimeOptions['savedAgents']
 	} = {},
 ) {
@@ -53,6 +56,8 @@ async function conversation(
 	const started = deferred<void>()
 	const unwound = deferred<void>()
 	const requests: ChatCompletionParams[] = []
+	// Set once a request is parked on `hold`, which is what `finish` must wait out.
+	let holding = false
 	const handlerTurns: TurnId[] = []
 	const limitTurns: TurnId[] = []
 	const runtime = await createSubagentRuntime({
@@ -64,7 +69,7 @@ async function conversation(
 			: {}),
 		cwd,
 		model: 'mock',
-		backgroundByDefault: true,
+		backgroundByDefault: options.keepRunningAfterTurn !== false,
 		resolveLimits: (turnId) => {
 			limitTurns.push(turnId)
 			return undefined
@@ -108,6 +113,7 @@ async function conversation(
 						// The first request of a held child ignores cancellation until it is
 						// released, so the runtime must fence what it says afterwards.
 						if (requests.length === 1) {
+							holding = true
 							started.resolve()
 							try {
 								await hold.promise
@@ -116,10 +122,20 @@ async function conversation(
 							}
 						}
 						yield* script.chatStream(params)
-					} else
+					} else {
+						if (options.holdResume && requests.length === 2) {
+							holding = true
+							started.resolve()
+							try {
+								await hold.promise
+							} finally {
+								unwound.resolve()
+							}
+						}
 						yield* new MockLLMProvider({
 							turns: [{ text: `RESULT_${requests.length}` }],
 						}).chatStream(params)
+					}
 				},
 			}
 		},
@@ -145,7 +161,7 @@ async function conversation(
 		async finish() {
 			hold.resolve()
 			await runtime.close()
-			if (options.holdFirstChild && requests.length > 0) await unwound.promise
+			if (holding) await unwound.promise
 		},
 		started,
 		unwound,
@@ -314,6 +330,71 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			expect(ended.output).toContain('status: canceled')
 			// Nothing ran after the cancellation.
 			expect(world.requests).toHaveLength(1)
+		} finally {
+			await world.finish()
+		}
+	})
+
+	it('answers about the new run, not the old one, while a resume is being admitted', async () => {
+		const world = await conversation({ holdResume: true, durable: true })
+		try {
+			const taskId = await launch(world, false)
+			await world.endTurn(world.turn1)
+			const gateway = await world.runtime.gatewayForTurn(world.turn2)
+			const admit = deferred<void>()
+			const entered = deferred<void>()
+			const original = gateway.createTask.bind(gateway)
+			vi.spyOn(gateway, 'createTask').mockImplementation(async (options) => {
+				entered.resolve()
+				await admit.promise
+				return original(options)
+			})
+
+			const sending = world.runtime.sendMessageTool.execute(
+				{ task_id: taskId, message: 'AGAIN' },
+				world.context2,
+			)
+			await entered.promise
+			const waiting = world.runtime.waitForTaskTool.execute({ task_id: taskId }, world.context2)
+			const cancelling = world.runtime.cancelAgentTool.execute({ task_id: taskId }, world.context2)
+			admit.resolve()
+
+			expect((await sending).data).toMatchObject({ status: 'resumed' })
+			const cancelled = await cancelling
+			expect(cancelled.output).not.toContain('already ended')
+			expect(cancelled.data).toMatchObject({ status: 'cancellation_requested' })
+			world.hold.resolve()
+			const ended = await waiting
+			expect(ended.output).toContain('status: canceled')
+			expect(ended.output).not.toContain('RESULT_1')
+		} finally {
+			await world.finish()
+		}
+	})
+
+	it('says an agent nothing holds any more is stopping instead of calling it unknown', async () => {
+		const world = await conversation({ holdFirstChild: true })
+		try {
+			const taskId = await launch(world, true)
+			await world.started.promise
+			const retired = await world.runtime.gatewayForTurn(world.turn1)
+			await world.endTurn(world.turn1)
+			vi.spyOn(retired, 'getTask').mockReturnValue(undefined)
+
+			const cancelled = await world.runtime.cancelAgentTool.execute(
+				{ task_id: taskId },
+				world.context2,
+			)
+			expect(cancelled.success).toBe(true)
+			expect(cancelled.output).toBe(
+				`Task ${taskId} is already stopping. No further cancellation sent.`,
+			)
+			for (const tool of [world.runtime.waitForTaskTool, world.runtime.sendMessageTool]) {
+				const result = await tool.execute({ task_id: taskId, message: 'X' }, world.context2)
+				expect(result.success).toBe(false)
+				expect(result.error).toContain('is stopping')
+				expect(result.error).not.toContain('No task with ID')
+			}
 		} finally {
 			await world.finish()
 		}
