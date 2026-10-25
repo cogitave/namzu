@@ -1323,7 +1323,8 @@ live region (never the alternate screen) as tall as the terminal less a footer.
   waits, and a `/context` read afterwards sizes the conversation from its messages when a compaction
   has made the last reported size stale.
 - The model's thinking is kept on the row that followed it and drawn only here, dim italic under the
-  mark `∵` (the assistant mark stays `∴`).
+  mark `∵` (the assistant mark stays `∴`). It is not saved with the conversation, so a resumed or
+  forked conversation shows none.
 - Only the last 30 rows show. When older ones exist the first row reads `ctrl+e to show N previous
   messages` (N bold); Ctrl+E shows all of them and the row reads `ctrl+e to hide N previous
   messages`.

@@ -112,7 +112,7 @@ started in Desktop is not named by the model yet.
 When the terminal window loses focus and a finished reply has been left alone for three minutes,
 the small model writes a recap of under 40 words that is shown as a row when you come back (see
 [Focus and the away recap](terminal-design.md#focus-and-the-away-recap) for when it runs and how it
-looks). It sends a bounded digest, never the whole conversation: at most the last 12 typed prompts
+looks). It needs at least three typed prompts in the conversation and two since the last recap. It sends a bounded digest, never the whole conversation: at most the last 12 typed prompts
 and final replies, each cut to 600 characters, 6,000 in all, with tool output left out. The newest
 prompt is always in it, so a correction you made last is what the recap reflects. The digest is
 wrapped as data, the request has no tools, a failure shows nothing, and a result that arrives after
