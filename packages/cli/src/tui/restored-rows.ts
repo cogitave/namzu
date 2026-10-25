@@ -234,6 +234,7 @@ function startOf(event: Extract<AgentEvent, { kind: 'tool-start' }>): ToolEndSta
 		...(event.proposed ? { proposed: event.proposed } : {}),
 		...(event.web ? { web: event.web } : {}),
 		...(event.activity ? { activity: event.activity } : {}),
+		...(event.fold ? { fold: event.fold } : {}),
 	}
 }
 
