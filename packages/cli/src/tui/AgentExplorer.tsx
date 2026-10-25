@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useState } from 'react'
 import stringWidth from 'string-width'
 
 import {
@@ -427,7 +427,7 @@ export function railWorkflowActionFor(workflow: RailWorkflow): 'stop' | 'clear' 
  * failed or was stopped — and already red while it runs once a member has
  * failed. A running workflow with nothing wrong keeps the dim default.
  */
-function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
+export function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
 	if (workflow.status === 'completed') return theme.status.ok
 	if (workflow.status === 'failed' || workflow.status === 'stopped') return theme.status.error
 	return workflow.failed > 0 ? theme.status.error : undefined
@@ -459,9 +459,8 @@ export function workflowRowVariants(
 	now: number,
 ): readonly WorkflowRowVariant[] {
 	const count = `${workflow.done}/${workflow.total}`
-	// A failed agent shows beside the counter, so a run that finished with a
-	// failure never reads as a clean one.
-	const counted = workflow.failed > 0 ? `${count} · ${workflow.failed} failed` : count
+	// The counter is the agents that finished over every agent; a failure turns
+	// the row's dot red and is counted in the detail, not beside the counter.
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
 	const join = (parts: readonly (string | undefined)[]): string =>
@@ -471,16 +470,11 @@ export function workflowRowVariants(
 		? [
 				{
 					barWidth: wide,
-					text: join([counted, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
 				},
 				{
 					barWidth: wide,
-					text: join([
-						counted,
-						elapsed,
-						spent && `↓ ${spent} tokens`,
-						LARGE_WORKFLOW_WARNING_SHORT,
-					]),
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
 				},
 				{
 					barWidth: wide,
@@ -492,20 +486,8 @@ export function workflowRowVariants(
 		...warned,
 		{
 			barWidth: wide,
-			text: join([counted, elapsed, spent && `↓ ${spent} tokens`]),
+			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
 		},
-		// A failure is the last thing to go: the elapsed time and the spend are
-		// dropped before the failure count is, and the bar shrinks around it.
-		...(counted === count
-			? []
-			: [
-					{ barWidth: wide, text: join([counted, elapsed, spent && `↓ ${spent}`]) },
-					{ barWidth: wide, text: join([counted, elapsed]) },
-					{ barWidth: wide, text: counted },
-					{ barWidth: mid, text: counted },
-					{ barWidth: narrow, text: counted },
-					{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
-				]),
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -1264,10 +1246,7 @@ export function WorkflowDetail({
 	const title = named
 		? oneLine(workflow.name)
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
-	const failedAgents = workflow.agents.filter((agent) => agent.status === 'failed').length
-	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${
-		failedAgents > 0 ? ` · ${failedAgents} failed` : ''
-	}${ended && total > 0 ? ` · ${endedWord(workflow)}` : ''}`
+	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${ended && total > 0 ? ` · ${endedWord(workflow)}` : ''}`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
 		level === 1
@@ -1295,6 +1274,18 @@ export function WorkflowDetail({
 	const agentsTitle = phase
 		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`
 		: ''
+	// The phase's failures follow its count, in the error colour.
+	const agentsFailed = agents.filter((agent) => agent.status === 'failed').length
+	const failedTail = agentsFailed > 0 ? ` · ${agentsFailed} failed` : ''
+	const titleWithFailed = (text: string): ReactNode => {
+		if (failedTail === '' || !text.endsWith(failedTail)) return text
+		return (
+			<>
+				{text.slice(0, text.length - failedTail.length)}
+				<Text color={theme.status.error}>{failedTail}</Text>
+			</>
+		)
+	}
 	const phaseWindow = selectionWindow(phases, selectedPhaseIndex, pageSize)
 	const agentWindow = selectionWindow(agents, selectedAgentIndex, pageSize)
 	const emptyNote =
@@ -1399,7 +1390,7 @@ export function WorkflowDetail({
 				{header}
 				<Box paddingX={1}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{level === 1 || !phase ? 'Phases' : agentsTitle}
+						{level === 1 || !phase ? 'Phases' : titleWithFailed(`${agentsTitle}${failedTail}`)}
 					</Text>
 				</Box>
 				<Box flexDirection="column" height={pageSize} flexShrink={0} paddingX={1}>
@@ -1502,7 +1493,7 @@ export function WorkflowDetail({
 	const detailRows = showDetail ? detailLines.length + 1 : 0
 	const border = theme.border.default
 	const leftTitle = ' Phases '
-	const rightTitle = ` ${truncateChoiceText(agentsTitle, Math.max(1, rightInner - 4))} `
+	const rightTitle = ` ${truncateChoiceText(`${agentsTitle}${failedTail}`, Math.max(1, rightInner - 4))} `
 	const rows = Array.from({ length: pageSize }, (_, row) => row)
 	return (
 		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
@@ -1515,7 +1506,8 @@ export function WorkflowDetail({
 					</Text>
 					<Text color={border}>{'─'.repeat(Math.max(0, leftInner - stringWidth(leftTitle)))}┬</Text>
 					<Text color={theme.text.primary} bold>
-						{rightTitle}
+						{' '}
+						{titleWithFailed(rightTitle.slice(1, rightTitle.length - 1))}{' '}
 					</Text>
 					<Text color={border}>
 						{'─'.repeat(Math.max(0, rightInner - stringWidth(rightTitle)))}╮

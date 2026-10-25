@@ -556,6 +556,32 @@ describe('/workflows', () => {
 	})
 })
 
+describe('a finished run with a failed agent in the list', () => {
+	it('counts the agents that finished over all of them and leaves the failure to the status word', async () => {
+		const flaky = run({
+			runId: 'wflaky001',
+			name: 'flaky',
+			status: 'failed',
+			startedAt: NOW - 3_600_000,
+			endedAt: NOW - 3_500_000,
+			agents: [
+				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
+				agentView(2, 'failed', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW - 3_500_000 }),
+				agentView(3, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
+			],
+		})
+		flows.set([])
+		flows.setHistory([flaky])
+		const screen = await start()
+		screen.press('/workflows')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('Workflows'))
+		expect(text(screen)).toMatch(/1\. flaky\s+failed · .*2\/3 agents/)
+		expect(text(screen)).not.toContain('1 failed')
+	})
+})
+
 describe('a slash command is shown as typed', () => {
 	it('echoes the command, with its answer hung under it', async () => {
 		const screen = await start()
