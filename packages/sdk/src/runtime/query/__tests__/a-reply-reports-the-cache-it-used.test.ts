@@ -49,7 +49,7 @@ describe('token_usage_updated.cache', () => {
 		const [event] = await usageEvents({ cachedTokens: 40, cacheTtlMs: 3_600_000 })
 		expect(event).toMatchObject({ cache: { ttlMs: 3_600_000, touched: true } })
 		// The turn total never carries a per-call lifetime.
-		expect(event && 'usage' in event ? event.usage.cacheTtlMs : 'missing').toBeUndefined()
+		expect(event && 'usage' in event ? event.usage?.cacheTtlMs : 'missing').toBeUndefined()
 	})
 
 	it('says a call that read and wrote nothing did not touch it', async () => {

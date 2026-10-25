@@ -125,7 +125,7 @@ export interface CompactionCliConfig {
 	 * Compact a large conversation nobody is using just before its one-hour
 	 * prompt cache expires, so coming back does not re-write the whole context.
 	 * Default `false`. Acts only with `promptCacheTtl: '1h'` on a provider that
-	 * reports the cache lifetime (Anthropic); never on one that does not.
+	 * reports the cache lifetime; never on one that does not.
 	 */
 	readonly idleCompaction?: boolean
 	/**
@@ -137,7 +137,7 @@ export interface CompactionCliConfig {
 	/**
 	 * How long the provider keeps the prompt cache: `'5m'` (default, the
 	 * provider's own) or `'1h'`. Passed to providers that can be asked
-	 * (Anthropic). A one-hour cache costs more per write.
+	 * (not every provider can be asked). A one-hour cache costs more per write.
 	 */
 	readonly promptCacheTtl?: '5m' | '1h'
 }

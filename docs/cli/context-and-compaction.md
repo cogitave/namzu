@@ -92,7 +92,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 | `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
 | `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
-| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (Anthropic; Bedrock on Claude 4.5 and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
+| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
