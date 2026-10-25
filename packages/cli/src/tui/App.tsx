@@ -68,7 +68,7 @@ import {
 	maxBackgroundJobTailOffset,
 } from './BackgroundJobsPanel.js'
 import { ProviderSetup } from './ProviderSetup.js'
-import { ToolOutputViewer } from './ToolOutputViewer.js'
+import { TranscriptScreen } from './TranscriptScreen.js'
 
 import {
 	pinTrustedProjectPath,
@@ -1286,7 +1286,8 @@ export function App({
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
 	/** Plain, copy-friendly rendering of the same retained transcript rows. */
 	const [rawOutput, setRawOutput] = useState(false)
-	const [outputViewer, setOutputViewer] = useState<TranscriptMessage | null>(null)
+	/** The detailed transcript screen (Ctrl+O) is up in place of the composer. */
+	const [transcriptScreen, setTranscriptScreen] = useState(false)
 	/** The scrollable transcript, opened by paging up from the composer. */
 	const [scrollOpen, setScrollOpen] = useState(false)
 	/**
@@ -2754,9 +2755,9 @@ export function App({
 	// can no longer see anywhere, which is the failure this surface is being
 	// cleaned of, one layer up.
 	const resetTranscript = useCallback(
-		(options: { preserveOutputViewer?: boolean } = {}) => {
+		(options: { preserveTranscriptScreen?: boolean } = {}) => {
 			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
-			if (!options.preserveOutputViewer) setOutputViewer(null)
+			if (!options.preserveTranscriptScreen) setTranscriptScreen(false)
 			// The scrollback floor goes with the log it counted. <Static> is remounted
 			// by the key below and has emitted nothing again; a floor that survived
 			// would keep the next conversation's rows out of the live window.
@@ -2778,9 +2779,10 @@ export function App({
 	const scrollWasOpenRef = useRef(false)
 	useEffect(() => {
 		const wasOpen = scrollWasOpenRef.current
-		scrollWasOpenRef.current = scrollOpen
-		if (wasOpen !== scrollOpen) resetTranscript({ preserveOutputViewer: true })
-	}, [scrollOpen, resetTranscript])
+		const open = scrollOpen || transcriptScreen
+		scrollWasOpenRef.current = open
+		if (wasOpen !== open) resetTranscript({ preserveTranscriptScreen: true })
+	}, [scrollOpen, transcriptScreen, resetTranscript])
 
 	const previousTerminalRef = useRef(terminal)
 	useEffect(() => {
@@ -2790,7 +2792,7 @@ export function App({
 			externalEditorRequestRef.current === null &&
 			(terminal.columns !== previous.columns ||
 				terminal.rows < previous.rows ||
-				(scrollOpen && terminal.rows !== previous.rows))
+				((scrollOpen || transcriptScreen) && terminal.rows !== previous.rows))
 		) {
 			// A contraction can move live rows into native scrollback before Ink
 			// receives resize; expansion leaves already-printed Static rows wrapped
@@ -2800,9 +2802,9 @@ export function App({
 			// height change in that mode. Rebuild the normal-buffer transcript at
 			// the new width, retaining messages, draft and selected child. Regular
 			// frames remain incremental.
-			resetTranscript({ preserveOutputViewer: true })
+			resetTranscript({ preserveTranscriptScreen: true })
 		}
-	}, [terminal, resetTranscript, scrollOpen])
+	}, [terminal, resetTranscript, scrollOpen, transcriptScreen])
 
 	const requestExternalEditor = useCallback(
 		(seed: string): Promise<string> => {
@@ -2880,6 +2882,12 @@ export function App({
 	)
 
 	const flushLaunchReceiptsRef = useRef<() => void>(() => {})
+	/**
+	 * What the model has reasoned since the last row was written. The next
+	 * assistant or tool row takes it, so the detailed transcript screen can
+	 * draw it above that row; no other view shows it.
+	 */
+	const thinkingForNextRowRef = useRef('')
 	const pushMessage = useCallback(
 		(
 			role: TranscriptMessage['role'],
@@ -2905,6 +2913,14 @@ export function App({
 			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
 			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
+			let thinkingText: string | undefined
+			if (
+				(role === 'assistant' || role === 'tool') &&
+				thinkingForNextRowRef.current.trim() !== ''
+			) {
+				thinkingText = thinkingForNextRowRef.current
+				thinkingForNextRowRef.current = ''
+			}
 			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
@@ -2923,6 +2939,7 @@ export function App({
 								glyphColor: rowGlyphColor,
 								meta,
 								activity,
+								...(thinkingText !== undefined ? { thinking: thinkingText } : {}),
 								...(shell ? { shell } : {}),
 								...(diff ? { diff } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
@@ -5842,7 +5859,7 @@ export function App({
 	const pendingInputVisible =
 		phase === 'ready' &&
 		agentSurface === null &&
-		outputViewer === null &&
+		!transcriptScreen &&
 		!scrollOpen &&
 		jobSurface === null &&
 		permission === null &&
@@ -5895,9 +5912,6 @@ export function App({
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
 	//
-	useEffect(() => {
-		if (permission !== null) setOutputViewer(null)
-	}, [permission])
 	// The scroll view hides itself under a permission request or a review screen, but
 	// it also swallows the main input handler's keys while it is open, so it has to
 	// close: otherwise the request on screen could not be answered.
@@ -5929,7 +5943,7 @@ export function App({
 	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
 	if (
 		agentSurface === null &&
-		outputViewer === null &&
+		!transcriptScreen &&
 		!scrollOpen &&
 		jobSurface === null &&
 		scheduleReviewPrompt === null
@@ -5937,7 +5951,7 @@ export function App({
 		settledRef.current = nextSettled
 	const renderedSettled =
 		agentSurface === null &&
-		outputViewer === null &&
+		!transcriptScreen &&
 		!scrollOpen &&
 		jobSurface === null &&
 		scheduleReviewPrompt === null
@@ -6088,6 +6102,7 @@ export function App({
 			const ac = new AbortController()
 			abortRef.current = ac
 			setState('thinking')
+			thinkingForNextRowRef.current = ''
 			const st: StreamState = {
 				assistantId: null,
 				text: '',
@@ -8021,6 +8036,7 @@ export function App({
 					break
 				case 'reasoning': {
 					if (event.done) break
+					thinkingForNextRowRef.current += event.text
 					setState('thinking')
 					// The last line only, bounded: a screen-wide row that changes as
 					// the model writes is a spinner with words, not a transcript.
@@ -8508,6 +8524,7 @@ export function App({
 			turnTokensTimer.current = undefined
 			setTurnTokens(0)
 			turnTokensShownAt.current = 0
+			thinkingForNextRowRef.current = ''
 			const st: StreamState = {
 				assistantId: null,
 				startedAt: Date.now(),
@@ -11885,7 +11902,7 @@ export function App({
 	useInput(
 		(input, key) => {
 			lastKeyAtRef.current = Date.now()
-			if (outputViewer !== null || (scrollOpen && permission === null)) return
+			if (transcriptScreen || (scrollOpen && permission === null)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.
@@ -12802,55 +12819,10 @@ export function App({
 				interruptWithRow(true, { always: true })
 				return
 			}
-			// Small expansions stay in place. Older or oversized bodies open a viewer.
-			//
-			// A settled row cannot be repainted, so its hint keeps saying Ctrl+O
-			// for as long as it is on screen; this press must keep reaching it. The
-			// first press expands the live bodies in place; the next one, while a
-			// settled body sits above them, opens the viewer on the newest settled
-			// body (←/→ reach the rest) and folds the live ones back behind it, so
-			// the press after that expands them again. Only with nothing settled to
-			// open does a second press simply collapse.
+			// Ctrl+O opens the detailed transcript: every row whole, thinking
+			// included. It replaces the composer until a key closes it.
 			if (key.ctrl && input === 'o') {
-				const shown = messages.filter((m) => !m.pending)
-				const live = shown.slice(settledRef.current)
-				const collapsible = live.filter(
-					(m) => (m.activity && (m.detail?.length ?? 0) > 0) || messageCollapses(m),
-				)
-				const hasBody = (m: TranscriptMessage) =>
-					m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
-				const blocks = messages.filter(hasBody)
-				const olderBlock = shown.slice(0, settledRef.current).filter(hasBody).at(-1)
-				const block = collapsible.at(-1) ?? blocks.at(-1)
-				if (!block) {
-					pushMessage(
-						'system',
-						'Nothing to expand yet. Ctrl+O opens retained tool output when available.',
-					)
-					return
-				}
-				const expanding = collapsible.some((m) => m.detailExpanded !== true)
-				const ids = new Set(collapsible.map((m) => m.id))
-				const proposed = messages.map((m) =>
-					ids.has(m.id) ? { ...m, detailExpanded: expanding } : m,
-				)
-				if (!expanding && olderBlock) {
-					setMessages(proposed)
-					setOutputViewer(olderBlock)
-					return
-				}
-				const projected = liveWindow({
-					messages: proposed.filter((m) => !m.pending),
-					rows: terminal.rows,
-					columns: terminal.columns,
-					furnitureRows:
-						LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
-					settled: settledRef.current,
-					raw: rawOutput,
-				})
-				if (collapsible.length === 0 || (expanding && projected.settled > settledRef.current)) {
-					setOutputViewer(block)
-				} else setMessages(proposed)
+				setTranscriptScreen(true)
 				return
 			}
 			// Ctrl+D on an empty composer arms the same exit Ctrl+C does; with
@@ -12933,10 +12905,6 @@ export function App({
 				? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
 				: representedUnscopedSubagentToolUseIds.has(tool.id)),
 	)
-	const outputBlocks = outputViewer
-		? messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)
-		: []
-	const outputIndex = outputBlocks.findIndex((m) => m.id === outputViewer?.id)
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
@@ -12954,7 +12922,7 @@ export function App({
 	const viewingAgent = childComposerAvailable ? selectedSubagent : undefined
 	viewingAgentRef.current = viewingAgent?.viewId ?? null
 	const lifecycleOwnsViewport =
-		outputViewer !== null ||
+		transcriptScreen ||
 		scrollOpen ||
 		jobSurface !== null ||
 		scheduleReviewPrompt !== null ||
@@ -13086,9 +13054,7 @@ export function App({
 		phase !== 'edit' &&
 		phase !== 'picker'
 	const childSurfaceOpen =
-		(agentSurface !== null && viewingAgent === undefined) ||
-		outputViewer !== null ||
-		jobSurface !== null
+		(agentSurface !== null && viewingAgent === undefined) || transcriptScreen || jobSurface !== null
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
@@ -13249,7 +13215,7 @@ export function App({
 							/>
 						) : null}
 						{agentSurface === null &&
-						outputViewer === null &&
+						!transcriptScreen &&
 						!scrollOpen &&
 						jobSurface === null &&
 						scheduleReviewPrompt === null ? (
@@ -13283,7 +13249,7 @@ export function App({
 							/>
 						) : null}
 						{agentSurface === null &&
-						outputViewer === null &&
+						!transcriptScreen &&
 						!scrollOpen &&
 						jobSurface === null &&
 						permission === null &&
@@ -13298,7 +13264,7 @@ export function App({
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
 						{agentSurface === null &&
-						outputViewer === null &&
+						!transcriptScreen &&
 						!scrollOpen &&
 						jobSurface === null &&
 						permission === null &&
@@ -13312,7 +13278,7 @@ export function App({
 						    trigger. The composer now stays mounted and draws
 						    nothing while the prompt is up, so its state survives a
 						    decision it had nothing to do with. */}
-						{permission ? (
+						{permission && !transcriptScreen ? (
 							<PermissionOverlay
 								toolCalls={permission.toolCalls}
 								review={permission.review}
@@ -13342,7 +13308,10 @@ export function App({
 									: {})}
 							/>
 						) : null}
-						{saveSkillPrompt && permission === null && scheduleReviewPrompt === null ? (
+						{saveSkillPrompt &&
+						permission === null &&
+						scheduleReviewPrompt === null &&
+						!transcriptScreen ? (
 							<SaveSkillOverlay
 								key={saveSkillPrompt.request.markdown}
 								request={saveSkillPrompt.request}
@@ -13352,7 +13321,10 @@ export function App({
 								onAnswer={saveSkillPrompt.resolve}
 							/>
 						) : null}
-						{planPrompt && permission === null && scheduleReviewPrompt === null ? (
+						{planPrompt &&
+						permission === null &&
+						scheduleReviewPrompt === null &&
+						!transcriptScreen ? (
 							<PlanApprovalOverlay
 								key={planPrompt.request.plan}
 								request={planPrompt.request}
@@ -13362,7 +13334,10 @@ export function App({
 								onInterrupt={interruptTurn}
 							/>
 						) : null}
-						{questionDialog && permission === null && scheduleReviewPrompt === null ? (
+						{questionDialog &&
+						permission === null &&
+						scheduleReviewPrompt === null &&
+						!transcriptScreen ? (
 							<QuestionDialog
 								key={questionDialog.token}
 								question={questionDialog.question}
@@ -13370,7 +13345,7 @@ export function App({
 								onAnswer={finishQuestionDialog}
 							/>
 						) : null}
-						{scheduleReviewPrompt && permission === null ? (
+						{scheduleReviewPrompt && permission === null && !transcriptScreen ? (
 							<ScheduleReviewOverlay
 								key={scheduleReviewPrompt.token}
 								request={scheduleReviewPrompt.request}
@@ -13501,7 +13476,7 @@ export function App({
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={
-									outputViewer !== null ||
+									transcriptScreen ||
 									scrollOpen ||
 									jobSurface !== null ||
 									phase !== 'ready' ||
@@ -13580,7 +13555,7 @@ export function App({
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
 				{phase === 'trust' ||
-				outputViewer !== null ||
+				transcriptScreen ||
 				!showComposerSurface ||
 				statusLineText === undefined ? null : (
 					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
@@ -13589,7 +13564,7 @@ export function App({
 				    its box was a stale row from the composer it replaced. */}
 				{/* The workflow detail (the cockpit) carries its own key line as well. */}
 				{phase === 'trust' ||
-				outputViewer !== null ||
+				transcriptScreen ||
 				agentSurface?.kind === 'cockpit' ||
 				(dialogShowing && !exitHint && !stopAllNotice) ? null : (
 					<StatusBar
@@ -13643,7 +13618,7 @@ export function App({
 				{showComposerSurface &&
 				permission === null &&
 				agentSurface === null &&
-				outputViewer === null &&
+				!transcriptScreen &&
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null ? (
@@ -13651,7 +13626,7 @@ export function App({
 				) : null}
 				{showComposerSurface &&
 				(agentSurface === null || viewingAgent !== undefined) &&
-				outputViewer === null &&
+				!transcriptScreen &&
 				!scrollOpen &&
 				jobSurface === null &&
 				scheduleReviewPrompt === null &&
@@ -13709,21 +13684,22 @@ export function App({
 						escapeTo={agentSurface.fromRail ? 'back' : 'agents'}
 					/>
 				) : null}
-				{outputViewer && permission === null && scheduleReviewPrompt === null ? (
-					<ToolOutputViewer
-						key={outputViewer.id}
-						onPrevious={() => {
-							if (outputIndex > 0) setOutputViewer(outputBlocks[outputIndex - 1]!)
-						}}
-						onNext={() => {
-							if (outputIndex >= 0 && outputIndex + 1 < outputBlocks.length)
-								setOutputViewer(outputBlocks[outputIndex + 1]!)
-						}}
-						title={outputViewer.content}
-						lines={outputViewer.detail ?? []}
+				{transcriptScreen ? (
+					<TranscriptScreen
+						messages={finalized}
+						pending={messages.find((m) => m.pending) ?? null}
+						pendingAt={pendingAt}
 						rows={terminal.rows}
 						columns={terminal.columns}
-						onClose={() => setOutputViewer(null)}
+						hyperlinks={hyperlinks}
+						dialogWaiting={
+							permission !== null ||
+							saveSkillPrompt !== null ||
+							planPrompt !== null ||
+							questionDialog !== null ||
+							scheduleReviewPrompt !== null
+						}
+						onClose={() => setTranscriptScreen(false)}
 					/>
 				) : null}
 				{jobSurface && permission === null && scheduleReviewPrompt === null ? (

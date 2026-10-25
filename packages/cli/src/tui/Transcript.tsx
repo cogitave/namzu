@@ -240,10 +240,13 @@ function MessageRow({
 	message,
 	prev,
 	hyperlinks,
+	screen = false,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
+	/** Drawn on the detailed transcript screen: the model's thinking shows above the row. */
+	readonly screen?: boolean
 }) {
 	if (message.statusRows) {
 		return (
@@ -290,6 +293,7 @@ function MessageRow({
 					Explored
 				</Text>
 			) : null}
+			{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
 			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
 				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0}>
 					<Text color={glyphColor} bold>
@@ -376,6 +380,53 @@ function MessageRow({
 			) : null}
 		</Box>
 	)
+}
+
+/** The mark in front of the model's thinking on the detailed transcript screen. */
+export const THINKING_GLYPH = '∵'
+
+/** The model's thinking: a dim italic block under its own mark, drawn only on the screen. */
+function ThinkingBlock({ text }: { readonly text: string }) {
+	return (
+		<Box flexDirection="row">
+			<Box width={2} flexShrink={0}>
+				<Text color={theme.text.muted} dimColor italic>
+					{THINKING_GLYPH}
+				</Text>
+			</Box>
+			<Box flexGrow={1}>
+				<Text color={theme.text.muted} dimColor italic wrap="wrap">
+					{terminalDisplayText(text.trim())}
+				</Text>
+			</Box>
+		</Box>
+	)
+}
+
+/** A `(ctrl+o …)` hint carried as a row's trailing text. */
+const HINT_META = /^\(ctrl\+o[^)]*\)$/
+
+/**
+ * A row as the detailed transcript screen draws it: the whole retained body
+ * and no hint that points at the screen it is already on.
+ */
+export function screenMessage(message: TranscriptMessage): TranscriptMessage {
+	const { meta, ...rest } = message
+	const keepMeta = meta !== undefined && !HINT_META.test(meta)
+	return { ...rest, ...(keepMeta ? { meta } : {}), detailExpanded: true }
+}
+
+/** One row of the detailed transcript screen. */
+export function ScreenMessageRow({
+	message,
+	prev,
+	hyperlinks = false,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+	readonly hyperlinks?: boolean
+}) {
+	return <MessageRow message={screenMessage(message)} prev={prev} hyperlinks={hyperlinks} screen />
 }
 
 /** Columns the `⎿` prefix and its indent take from a result row. */
