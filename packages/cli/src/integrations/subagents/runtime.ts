@@ -1992,7 +1992,8 @@ export async function createSubagentRuntime(
 				return {
 					error: `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
 				}
-			if (saved.status === 'unresolved') return { error: cannotResume(key) }
+			// The parent's log may never have recorded an end for a child that did
+			// finish; the child's own log decides, in the SDK.
 			const gateway = await gatewayForTurn(context.turnId)
 			let chosen:
 				| { agentId: string; dynamic: boolean; profile: Readonly<Record<string, string>> }
@@ -2023,6 +2024,7 @@ export async function createSubagentRuntime(
 					return base
 				},
 			})
+			require('node:fs').appendFileSync('/tmp/restore-reason.txt', `${JSON.stringify(restored)}\n`)
 			const kept = chosen as typeof chosen
 			if (!restored || restored.status !== 'restored' || !kept) {
 				if (kept?.dynamic) registry.unregister(kept.agentId)
@@ -2045,7 +2047,7 @@ export async function createSubagentRuntime(
 			const handle: TaskHandle = {
 				taskId: generateTaskId(),
 				agentId: kept.agentId,
-				state: saved.status === 'completed' ? 'completed' : 'failed',
+				state: saved.status === 'failed' ? 'failed' : 'completed',
 				createdAt: Date.parse(saved.spawnedAt) || Date.now(),
 				completedAt: Date.now(),
 				childSessionId: saved.sessionId,

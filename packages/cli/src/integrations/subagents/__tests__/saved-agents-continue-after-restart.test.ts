@@ -142,41 +142,47 @@ describe('an agent saved by an earlier run of the program', () => {
 		}
 	})
 
-	it('says it cannot be resumed when it recorded no end, or nothing to rebuild it from', async () => {
-		const withRole = await finishedBeforeRestart({ role: 'a careful auditor' })
-		const afterRole = await runProgram(
-			withRole.cwd,
-			withRole.parent,
-			(id) => (id === withRole.childId ? withRole.record() : undefined),
-			'AFTER',
-		)
-		const unresolved = await finishedBeforeRestart()
-		const afterUnresolved = await runProgram(
-			unresolved.cwd,
-			unresolved.parent,
-			(id) => (id === unresolved.childId ? unresolved.record('unresolved') : undefined),
+	it('says it cannot be resumed when nothing was kept to rebuild it from', async () => {
+		const world = await finishedBeforeRestart({ role: 'a careful auditor' })
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
 			'AFTER',
 		)
 		try {
-			for (const [world, program] of [
-				[withRole, afterRole],
-				[unresolved, afterUnresolved],
-			] as const) {
-				const turn = world.parent.addTurn()
-				const sent = await program.runtime.sendMessageTool.execute(
-					{ task_id: world.childId, message: 'NOPE' },
-					program.contextFor(turn),
-				)
-				expect(sent.success).toBe(false)
-				expect(sent.error).toContain(`Agent ${world.childId} was saved by an earlier run`)
-				expect(sent.error).toContain('cannot be resumed')
-				expect(sent.error).toContain('Start a new agent')
-				expect(program.requests).toEqual([])
-				expect(program.runtime.activity.getSnapshot()).toEqual([])
-			}
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'NOPE' },
+				after.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.success).toBe(false)
+			expect(sent.error).toContain(`Agent ${world.childId} was saved by an earlier run`)
+			expect(sent.error).toContain('cannot be resumed')
+			expect(sent.error).toContain('Start a new agent')
+			expect(after.requests).toEqual([])
+			expect(after.runtime.activity.getSnapshot()).toEqual([])
 		} finally {
-			await afterRole.runtime.close()
-			await afterUnresolved.runtime.close()
+			await after.runtime.close()
+		}
+	})
+
+	it('is resumed when the parent log never recorded its end but its own log did', async () => {
+		const world = await finishedBeforeRestart()
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record('unresolved') : undefined),
+			'AFTER',
+		)
+		try {
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AFTER_RESTART' },
+				after.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.error).toBeUndefined()
+			expect(sent.success).toBe(true)
+		} finally {
+			await after.runtime.close()
 		}
 	})
 
