@@ -19,6 +19,7 @@ import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { useThemeEpoch } from './theme-store.js'
 import { theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
@@ -245,6 +246,8 @@ function MessageRow({
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
 }) {
+	// The row is memoised on its props; the epoch makes a new theme repaint it.
+	useThemeEpoch()
 	if (message.statusRows) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>

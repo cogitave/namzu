@@ -1441,7 +1441,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits|triggers]'),
+			content: expect.stringContaining('/config [sources|limits|triggers|motion]'),
 		})
 	})
 
@@ -1545,5 +1545,37 @@ describe('readouts say one plain thing per line', () => {
 				command.name,
 			).toBeLessThanOrEqual(64)
 		}
+	})
+})
+
+describe('/theme and /config motion', () => {
+	it('opens the picker with no argument', () => {
+		expect(runSlash('/theme', context())).toEqual({ kind: 'theme-picker' })
+	})
+
+	it('applies a named theme directly', () => {
+		expect(runSlash('/theme light-ansi', context())).toEqual({
+			kind: 'theme',
+			setting: 'light-ansi',
+		})
+		expect(runSlash('/theme auto', context())).toEqual({ kind: 'theme', setting: 'auto' })
+	})
+
+	it('names the choices when the name is not a theme', () => {
+		const result = runSlash('/theme neon', context())
+		expect(result).toMatchObject({ kind: 'message', role: 'system' })
+		expect(JSON.stringify(result)).toContain('dark-daltonized')
+	})
+
+	it('switches reduced motion with /config motion', () => {
+		expect(runSlash('/config motion on', context())).toEqual({
+			kind: 'reduced-motion',
+			setting: 'on',
+		})
+		expect(runSlash('/config motion', context())).toEqual({
+			kind: 'reduced-motion',
+			setting: 'list',
+		})
+		expect(runSlash('/config motion maybe', context())).toMatchObject({ kind: 'message' })
 	})
 })

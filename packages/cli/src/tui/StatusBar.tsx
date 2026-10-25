@@ -134,12 +134,20 @@ const MANAGE_HINT = '↓ to manage'
 const SHORT_MANAGE_HINT = '↓ agents'
 const VIEW_SHELLS_HINT = 'enter to view shells'
 
-const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
-	approved: theme.status.ok,
-	changes: theme.status.error,
-	pending: theme.status.warn,
-	merged: theme.status.merged,
-	draft: null,
+/** Read when drawn: the theme can change while Namzu runs. */
+function prColor(review: PrReview): string | null {
+	switch (review) {
+		case 'approved':
+			return theme.status.ok
+		case 'changes':
+			return theme.status.error
+		case 'pending':
+			return theme.status.warn
+		case 'merged':
+			return theme.status.merged
+		default:
+			return null
+	}
 }
 
 /** `2 shells`, `1 monitor`, or both: the two kinds counted apart in one pill. */
@@ -355,7 +363,7 @@ function PrLabel({
 }) {
 	const linked = hyperlinks ? terminalWebHyperlink(label, pr.url) : null
 	return (
-		<Text underline color={PR_COLOR[pr.review] ?? theme.text.muted}>
+		<Text underline color={prColor(pr.review) ?? theme.text.muted}>
 			{linked ?? label}
 		</Text>
 	)

@@ -1197,3 +1197,38 @@ describe('smallModel', () => {
 		expect(ENV_VARIABLE_NAMES.smallModel).toBeUndefined()
 	})
 })
+
+describe('theme and motion config', () => {
+	it('reads the theme and reducedMotion from the user file', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: dark-ansi\n  reducedMotion: true\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			theme: 'dark-ansi',
+			reducedMotion: true,
+		})
+	})
+
+	it('ignores both in a project file but keeps its other terminal settings', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: light\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ tui: { theme: 'dark-ansi', reducedMotion: true, notifications: true } }),
+		)
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			theme: 'light',
+			notifications: true,
+		})
+	})
+
+	it.each([{ theme: 'neon' }, { theme: 3 }, { reducedMotion: 'yes' }])('refuses %j', (tui) => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), `tui: ${JSON.stringify(tui)}\n`)
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(
+			/tui\.(theme|reducedMotion)/,
+		)
+	})
+})

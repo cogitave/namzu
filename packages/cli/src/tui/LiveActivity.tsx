@@ -8,6 +8,7 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 
+import { motionAllowed, useReducedMotion } from './motion.js'
 import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
 import { shellRunningRows, shellToneColor } from './shell-cell.js'
 import { blendTowardStall, easeStall, stallTarget } from './stall-colour.js'
@@ -98,14 +99,6 @@ const MAX_VISIBLE_TOOLS = 3
 /** The figures in parentheses stay hidden until there is something to say, or the wait gets long. */
 const FIGURES_AFTER_MS = 16_000
 
-/** Approximate RGB of the label's three states, the starting points of the stall blend. */
-const LABEL_RGB = {
-	done: [85, 255, 85],
-	edge: [255, 255, 255],
-	ahead: [138, 138, 138],
-	plain: [188, 188, 188],
-} as const
-
 export function LiveActivity({
 	compact = false,
 	activeTools,
@@ -121,13 +114,8 @@ export function LiveActivity({
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
-	const motion =
-		animate &&
-		stdout.isTTY === true &&
-		!screenReader &&
-		process.env.NO_COLOR === undefined &&
-		process.env.FORCE_COLOR !== '0' &&
-		process.env.TERM !== 'dumb'
+	useReducedMotion()
+	const motion = animate && stdout.isTTY === true && !screenReader && motionAllowed()
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
 	// Time spent waiting on the operator, left out of the elapsed figure.
@@ -185,8 +173,9 @@ export function LiveActivity({
 	)
 	progress.eased = now
 	const tint = motion && progress.stall > 0 ? progress.stall : 0
-	const labelColor = (rgb: readonly [number, number, number], plain: string): string =>
-		tint > 0 ? blendTowardStall(rgb, tint) : plain
+	// A palette limited to named colours has no rgb to blend from, so it never tints.
+	const labelColor = (rgb: readonly [number, number, number] | undefined, plain: string): string =>
+		tint > 0 && rgb ? blendTowardStall(rgb, tint) : plain
 	const label = activityLabel ?? 'Working'
 	const edge = tick % (label.length + 1)
 	const mark = (
@@ -199,10 +188,10 @@ export function LiveActivity({
 						!motion
 							? theme.text.secondary
 							: column < edge
-								? labelColor(LABEL_RGB.done, 'greenBright')
+								? labelColor(theme.live.rgb?.done, theme.live.done)
 								: column === edge
-									? labelColor(LABEL_RGB.edge, 'whiteBright')
-									: labelColor(LABEL_RGB.ahead, theme.text.muted)
+									? labelColor(theme.live.rgb?.edge, theme.live.edge)
+									: labelColor(theme.live.rgb?.ahead, theme.live.ahead)
 					}
 				>
 					{char}

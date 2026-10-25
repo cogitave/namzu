@@ -14,6 +14,7 @@ import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import type { ThemeSetting } from '../tui/theme-palettes.js'
 import type { ToolResultScreenConfig } from './tool-result-screens.js'
 
 /**
@@ -46,6 +47,19 @@ export interface TuiConfig {
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
+	/**
+	 * The colours the terminal UI is drawn in: `auto` (follow the terminal's
+	 * light or dark background), `dark`, `light`, `dark-daltonized`,
+	 * `light-daltonized`, `dark-ansi` or `light-ansi`. Absent means `dark`.
+	 * Taken from your own config files only: a project file cannot restyle
+	 * your terminal, so it is ignored there. `/theme` sets it.
+	 */
+	readonly theme?: ThemeSetting
+	/**
+	 * Turn off the working line's moving highlight and the composer's pulse.
+	 * Absent or `false` means motion is on. Your own config files only.
+	 */
+	readonly reducedMotion?: boolean
 }
 
 /** Where the CLI may discover executable plugin bundles. */
