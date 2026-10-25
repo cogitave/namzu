@@ -1563,6 +1563,22 @@ export {
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
 export { resolveTriggerThreshold } from './compaction/context-window.js'
+// What the context window is made of, for a host that draws the answer to
+// "where did my context go".
+export {
+	analyzeContextUsage,
+	describeToolCatalogTokens,
+	CONTEXT_CATEGORY_ORDER,
+} from './compaction/context-breakdown.js'
+export type {
+	ContextBreakdown,
+	ContextCategory,
+	ContextCategoryId,
+	ContextCategoryKind,
+	ContextMessageBreakdown,
+	ContextUsageInput,
+} from './compaction/context-breakdown.js'
+export { estimateTextTokens } from './compaction/token-estimate.js'
 export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,

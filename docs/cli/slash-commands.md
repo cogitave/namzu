@@ -49,7 +49,7 @@ clause, so no line ends mid-sentence.
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this conversation runs, by event. |
-| `/context` | Show how full the context is (`Context: 54k of 128k used (42%)`, "about" when it is an estimate) and whether older messages were summarised; `/context details` adds where the measurement comes from, thresholds and cleanup counters. |
+| `/context` | Show where the context goes: a grid that stands for the window, a legend of categories (system prompt, system tools, MCP tools and instructions, custom agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when something is large. `/context details` adds how older messages were summarised; `/context all` is accepted and shows the same. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines, drawn like an edit's result (line-number gutter, full-width green and red rows, changed words highlighted, three lines of context). |

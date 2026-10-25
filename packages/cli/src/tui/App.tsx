@@ -332,6 +332,7 @@ import {
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { contextMeter } from './context-meter.js'
+import { buildContextRow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
@@ -8127,6 +8128,7 @@ function AppBody({
 										measured: event.contextMeasuredBy === 'provider',
 										windowAssumed:
 											event.windowSource !== 'provider' && event.windowSource !== 'config',
+										...(event.windowSource ? { windowSource: event.windowSource } : {}),
 									},
 								}
 							: {}),
@@ -10896,6 +10898,32 @@ function AppBody({
 								},
 							],
 						})
+						return
+					}
+					case 'context': {
+						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
+						void (async () => {
+							const view = await buildContextRow({
+								usage,
+								compaction: slashCtx.compaction,
+								details: slash.details,
+								session,
+								messages: modelHistoryRef.current,
+								cwd: ctx.cwd,
+								columns: terminal.columns,
+								model: slashCtx.modelSummary ?? undefined,
+								mcp: slashCtx.mcp(),
+								skillsConfig: ctx.skills,
+							})
+							if (typeof view === 'string') {
+								pushMessage('system', view, false, '⎿')
+								return
+							}
+							setMessages((previous) => [
+								...previous,
+								{ id: nextId(), role: 'system', content: view.text, contextView: view },
+							])
+						})()
 						return
 					}
 					case 'diff': {

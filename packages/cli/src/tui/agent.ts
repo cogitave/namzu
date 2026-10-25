@@ -169,6 +169,7 @@ import {
 	createReviewHandler,
 	createSkillTool,
 	deferred,
+	describeToolCatalogTokens,
 	ensureProject,
 	filtered,
 	generateSessionId,
@@ -1231,6 +1232,21 @@ export interface AgentSession {
 	 * moment, and a line about what just happened should say what was true then.
 	 */
 	readonly toolNames: () => readonly string[]
+	/**
+	 * What the host itself puts in front of the model, sized for `/context`:
+	 * the system prompt as the latest turn assembled it, and every tool
+	 * definition with its share of the request. Read at call time, like
+	 * `toolNames`. Absent on a session with no registry.
+	 */
+	readonly contextInventory?: () => {
+		readonly systemPrompt: string | undefined
+		readonly tools: readonly {
+			readonly name: string
+			readonly tokens: number
+			/** The connected tool server it came from; absent for a built-in tool. */
+			readonly server?: string
+		}[]
+	}
 	/**
 	 * This session's real tool-call/result presenter (`createToolPresenter`
 	 * over the session's own `ToolManager`), for a host that renders tool
@@ -4221,6 +4237,8 @@ export async function createAgentSession(
 				.tokens,
 			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
 		})
+	// The latest system prompt a turn assembled, kept for `/context`.
+	let lastSystemPromptText: string | undefined
 	let sessionStarted = false
 	const announceSessionStart = async (): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
@@ -4511,6 +4529,7 @@ export async function createAgentSession(
 				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
+			lastSystemPromptText = systemPrompt
 
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
@@ -4870,6 +4889,24 @@ export async function createAgentSession(
 			liveManager()
 				.listNames()
 				.filter((name) => !goalToolNames.has(name)),
+		contextInventory: () => {
+			const live = liveManager()
+			const sized = describeToolCatalogTokens(live.toLLMTools())
+			return {
+				systemPrompt: lastSystemPromptText,
+				tools: sized
+					.filter((tool) => !goalToolNames.has(tool.name))
+					.map((tool) => {
+						let server: string | undefined
+						try {
+							server = live.sourceOf(tool.name).server
+						} catch {
+							// A tool that left the registry between the two reads is a built-in's size.
+						}
+						return server === undefined ? tool : { ...tool, server }
+					}),
+			}
+		},
 		presenter: sessionPresenter,
 		...(pluginRuntime
 			? {
@@ -5563,6 +5600,7 @@ export async function createAgentSession(
 							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
+						lastSystemPromptText = systemPrompt
 						await announceSessionStart()
 						checkpoints.beginTurn(lastUserText(messages), turnId)
 						if (opts?.goalRound) {
