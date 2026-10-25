@@ -2,6 +2,7 @@
 
 ## 2026-10-25
 
+- **Update** [Session log](sdk/session-log.md): a tool call's input too large for one record (a batch of large writes, one multi-megabyte write) is spilled to `tool-results/` and the record keeps a stand-in, so the approval prompt is no longer lost to the record limit; a resumed turn reads the input back. `.changeset/tui-r8-permission-review-spill.md` (`@namzu/sdk` minor).
 - **Update** [Permission modes](cli/permission-modes.md) and [Workflows in the CLI](cli/workflows.md): a large write, edit or command is no longer refused by the terminal prompt. It opens the prompt with the input paged; a value over 200 thousand characters (or past 1 MiB for a batch) shows a notice and offers only a one-time Yes. `.changeset/tui-r8-permission-review-size.md` (`@namzu/cli` minor).
 - **Update** [Slash commands](cli/slash-commands.md), [Workflows](cli/workflows.md), [Composer triggers](cli/composer-triggers.md): the `/workflow <task>` command is removed; a workflow is asked for with the word `workflow` in a message or with hypermode on, and `/workflows` is unchanged. `.changeset/remove-workflow-command.md` (`@namzu/cli` major).
 - **Update** [Delegated work](cli/delegated-work.md): a failed `Agent` call's error text is wrapped at word boundaries and its 10-line cap and `+N lines` count are the text's own lines. `.changeset/tui-r6-errors.md` (`@namzu/cli` patch).
