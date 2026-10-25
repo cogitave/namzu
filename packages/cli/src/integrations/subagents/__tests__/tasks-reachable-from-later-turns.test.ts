@@ -17,7 +17,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { createSubagentRuntime } from '../runtime.js'
+import { type SubagentRuntimeOptions, createSubagentRuntime } from '../runtime.js'
 
 const directories: string[] = []
 afterEach(() => {
@@ -39,7 +39,13 @@ const MADE_UP = '596ec65e-b063-401c-b1f7-a2b6cc4ce35a'
  * `RESULT_<n>` for its n-th request; with `holdFirstChild` its first request
  * waits for `hold.resolve()`, which is how a test keeps one running.
  */
-async function conversation(options: { holdFirstChild?: boolean; durable?: boolean } = {}) {
+async function conversation(
+	options: {
+		holdFirstChild?: boolean
+		durable?: boolean
+		savedAgents?: SubagentRuntimeOptions['savedAgents']
+	} = {},
+) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-cross-turn-'))
 	directories.push(cwd)
 	const parent = await subagentParentFixture(cwd)
@@ -51,6 +57,7 @@ async function conversation(options: { holdFirstChild?: boolean; durable?: boole
 	const limitTurns: TurnId[] = []
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,
+		...(options.savedAgents ? { savedAgents: options.savedAgents } : {}),
 		// A finished child is resumed only over a durable session log.
 		...(options.durable
 			? { paths: new SessionPaths({ home: join(cwd, 'state'), slug: 'cross-turn' }) }
@@ -359,7 +366,13 @@ describe('an agent is reachable from every later turn of its conversation', () =
 				expect(madeUp.success).toBe(false)
 				expect(madeUp.error).toContain(`No task with ID ${MADE_UP} in this conversation.`)
 				expect(madeUp.error).toContain(`Running agents: ${taskId}.`)
-				expect(madeUp.error).toContain('agent_task_list')
+				// Nothing saved is called by that id, so no history hint is made.
+				expect(madeUp.error).not.toContain('history')
+
+				const garbled = await tool.execute({ task_id: 'task 1', message: 'X' }, world.context2)
+				expect(garbled.success).toBe(false)
+				expect(garbled.error).toContain('No task with ID task 1 in this conversation.')
+				expect(garbled.error).toContain(`Running agents: ${taskId}.`)
 			}
 			expect(JSON.stringify(world.runtime.activity.getSnapshot())).not.toMatch(/FOREIGN|MADE_UP/)
 			// The stranger's conversation sees none of it.
@@ -400,6 +413,34 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			expect(JSON.stringify(world.requests)).not.toContain('FOREIGN')
 		} finally {
 			await world.finish()
+		}
+	})
+
+	it('points at the saved history only for an id that names a saved agent', async () => {
+		const savedId = 'f4b5c1a2-3d4e-4f60-8a71-92b3c4d5e6f7'
+		const world = await conversation({
+			savedAgents: () => ({
+				list: async () => ({ agents: [], omitted: 0 }),
+				read: async (id) => {
+					if (id !== savedId) throw new Error('not saved')
+					return {} as never
+				},
+			}),
+		})
+		try {
+			const saved = await world.runtime.cancelAgentTool.execute(
+				{ task_id: savedId },
+				world.context2,
+			)
+			expect(saved.error).toContain('agent_task_list')
+			expect(saved.error).toContain('history: true')
+			const other = await world.runtime.cancelAgentTool.execute(
+				{ task_id: MADE_UP },
+				world.context2,
+			)
+			expect(other.error).toBe(`No task with ID ${MADE_UP} in this conversation.`)
+		} finally {
+			await world.runtime.close()
 		}
 	})
 

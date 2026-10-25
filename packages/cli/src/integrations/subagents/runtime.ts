@@ -1155,8 +1155,18 @@ export async function createSubagentRuntime(
 			? { kind: 'settled', owned, viewId, task: settled }
 			: undefined
 	}
+	/** A task id as the model wrote it; anything that is not a task UUID names no task. */
+	const parseTaskId = (raw: unknown): TaskId | undefined => {
+		if (typeof raw !== 'string') return undefined
+		try {
+			return asTaskId(raw.trim())
+		} catch {
+			return undefined
+		}
+	}
 	/** Why no task answered to an id: what is running, and where a saved record might be. */
-	const unknownTaskMessage = async (taskId: TaskId, turnId: TurnId): Promise<string> => {
+	const unknownTaskMessage = async (asked: string, turnId: TurnId): Promise<string> => {
+		const taskId = asked.trim().slice(0, 80)
 		const parentKey = sessionKey(await resolveParent(turnId))
 		const running: string[] = []
 		const seen = new Set<string>()
@@ -1186,7 +1196,7 @@ export async function createSubagentRuntime(
 			running.length > 0 ? `Running agents: ${running.join(', ')}.` : '',
 			saved
 				? 'That ID is a saved agent from an earlier run; see agent_task_list with history: true.'
-				: 'Agents of earlier turns are listed by agent_task_list; ones saved from earlier runs, with history: true.',
+				: '',
 		]
 			.filter(Boolean)
 			.join(' ')
@@ -1850,15 +1860,14 @@ export async function createSubagentRuntime(
 					data: { run_id: asked.trim(), waited: false },
 				}
 			}
-			try {
-				taskId = asTaskId(asked)
-			} catch {
+			const parsed = parseTaskId(asked)
+			if (!parsed)
 				return {
 					success: false,
 					output: '',
-					error: 'task_id must be a task UUID returned by Agent or a task notification.',
+					error: await unknownTaskMessage(String(asked), context.turnId),
 				}
-			}
+			taskId = parsed
 			const found = await resolveTask(taskId, context.turnId)
 			if (!found)
 				return {
@@ -1935,13 +1944,13 @@ export async function createSubagentRuntime(
 					output: '',
 					error: 'Message must not be blank.',
 				}
-			const taskId = asTaskId(task_id)
-			const found = await resolveTask(taskId, context.turnId)
-			if (!found) {
+			const taskId = parseTaskId(task_id)
+			const found = taskId ? await resolveTask(taskId, context.turnId) : undefined
+			if (!taskId || !found) {
 				return {
 					success: false,
 					output: '',
-					error: await unknownTaskMessage(taskId, context.turnId),
+					error: await unknownTaskMessage(String(task_id), context.turnId),
 				}
 			}
 			const task = found.task
@@ -2027,13 +2036,14 @@ export async function createSubagentRuntime(
 		concurrencySafe: false,
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
-			const taskId = asTaskId((input as { task_id: string }).task_id)
-			const found = await resolveTask(taskId, context.turnId)
-			if (!found)
+			const asked = (input as { task_id: string }).task_id
+			const taskId = parseTaskId(asked)
+			const found = taskId ? await resolveTask(taskId, context.turnId) : undefined
+			if (!taskId || !found)
 				return {
 					success: false,
 					output: '',
-					error: await unknownTaskMessage(taskId, context.turnId),
+					error: await unknownTaskMessage(String(asked), context.turnId),
 				}
 			const task = found.task
 			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
