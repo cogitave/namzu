@@ -30,6 +30,7 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
 import type { DiffInfo } from './diff-view.js'
+import type { GroupState } from './read-search-group.js'
 import type { ShellOutput } from './shell-cell.js'
 import type { TaskOperation } from './task-activity.js'
 
@@ -51,6 +52,13 @@ export interface TranscriptMessage {
 	 * the terminal's width with an ellipsis.
 	 */
 	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web' | 'summary'
+	/**
+	 * Reads, searches, listings and connector calls folded into one counted line.
+	 * `content` is the line as plain text, `detail` holds every call it covers
+	 * (each call's headline, then its output) for expansion, and `pending` means
+	 * more calls may still join it.
+	 */
+	readonly group?: GroupState
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */

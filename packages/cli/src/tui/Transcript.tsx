@@ -15,6 +15,7 @@ import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js
 
 import { Checklist, checklistLine } from './Checklist.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
+import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
@@ -269,27 +270,28 @@ function MessageRow({
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.
-	const exploration = message.activity === 'exploration'
-	const startsExploration = exploration && prev?.activity !== 'exploration'
-	// Consecutive web searches and fetches read as one burst of work, the way
-	// consecutive exploration steps do: no blank line between one call's `⎿`
-	// line and the next call.
+	// Consecutive web searches and fetches read as one burst of work: no blank
+	// line between one call's `⎿` line and the next call.
 	const web = message.activity === 'web'
 	const continuesWeb = web && prev?.activity === 'web'
-	const gap =
-		!prev ||
-		(message.glyph === '⎿' && !startsExploration) ||
-		(exploration && !startsExploration) ||
-		continuesWeb
-			? 0
-			: 1
+	const gap = !prev || message.glyph === '⎿' || continuesWeb ? 0 : 1
+	if (message.group) {
+		return (
+			<Box flexDirection="column" marginTop={gap}>
+				<ReadSearchGroup message={message} />
+				{message.detail && message.detail.length > 0 && message.detailExpanded ? (
+					<DetailBlock
+						lines={message.detail}
+						expanded
+						detailRef={message.detailRef}
+						diff={message.diff}
+					/>
+				) : null}
+			</Box>
+		)
+	}
 	return (
 		<Box flexDirection="column" marginTop={gap}>
-			{startsExploration ? (
-				<Text bold color={theme.text.secondary}>
-					Explored
-				</Text>
-			) : null}
 			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
 				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0}>
 					<Text color={glyphColor} bold>

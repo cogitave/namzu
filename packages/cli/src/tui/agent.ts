@@ -400,6 +400,7 @@ import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
+import { type FoldOp, classifyCall } from './read-search-group.js'
 import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
 
 export type AgentEvent =
@@ -423,6 +424,8 @@ export type AgentEvent =
 	| {
 			readonly kind: 'tool-start'
 			readonly activity?: 'exploration'
+			/** The call only looks (a read, a search, a listing, a connector call): it folds into a counted line. */
+			readonly fold?: FoldOp
 			/** Exact task identity for host-owned wait presentation. */
 			readonly taskId?: string
 			/** Turn-scopes provider tool ids, which are not globally unique. */
@@ -7318,6 +7321,18 @@ export function toAgentEvent(
 				...(() => {
 					const proposed = proposedFromInput(event.toolName, event.input)
 					return proposed ? { proposed } : {}
+				})(),
+				...(() => {
+					const view = presenter.presentCall(event.toolName, event.input)
+					const fold = classifyCall({
+						toolName: event.toolName,
+						input: event.input,
+						...(cwd ? { cwd } : {}),
+						...(view.kind === 'generic'
+							? { exploration: view.activity === 'exploration', label: view.label }
+							: {}),
+					})
+					return fold ? { fold } : {}
 				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}

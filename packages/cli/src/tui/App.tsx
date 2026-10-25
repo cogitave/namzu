@@ -454,6 +454,7 @@ import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './bro
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
+import { mergeGroupRows } from './group-rows.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import { PauseClock } from './pause-clock.js'
@@ -465,6 +466,7 @@ import {
 	permissionReviewRows,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
+import type { FoldOp } from './read-search-group.js'
 import {
 	type RestoreOptions,
 	agentCompletionRows,
@@ -518,6 +520,7 @@ import {
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
+import { useReadSearchGroup } from './useReadSearchGroup.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -973,7 +976,7 @@ export function projectConversation(
 		}
 	}
 	out.push(...writer.finish())
-	return numberDetailRows(out)
+	return numberDetailRows(mergeGroupRows(out))
 
 	function projectMessage(message: Message): readonly TranscriptMessage[] {
 		if (message.role === 'user') {
@@ -1064,6 +1067,8 @@ export function projectConversation(
  *  to commit it on completion (the tool name for matching, the call-time diff). */
 type RunningTool = ActiveTool & {
 	readonly activity?: 'exploration'
+	/** A call that only looks: drawn in the counted line, not in the live tool list. */
+	readonly fold?: FoldOp
 	readonly taskId?: string
 	readonly turnId?: string
 	readonly toolName: string
@@ -2051,6 +2056,7 @@ export function App({
 		idRef.current += 1
 		return `m${idRef.current}`
 	}, [])
+	const readSearchGroup = useReadSearchGroup(setMessages, nextId)
 	/**
 	 * Re-reads what this conversation's finished children left on disk.
 	 *
@@ -2898,6 +2904,8 @@ export function App({
 			// launched, so a receipt still waiting out its settle window is
 			// written before the first word of a reply.
 			if (role === 'assistant') flushLaunchReceiptsRef.current()
+			// Anything written after a run of reads and searches ends the run.
+			readSearchGroup.close()
 			// One mapping for every system row: a caller that names no glyph gets
 			// the dim notice dot, so no producer can bypass `systemRowStyle`.
 			const noticeStyle =
@@ -2946,7 +2954,7 @@ export function App({
 			)
 			return id
 		},
-		[nextId],
+		[nextId, readSearchGroup],
 	)
 	/**
 	 * Every system row except the two `✻` lines goes through here: the level
@@ -7845,6 +7853,10 @@ export function App({
 				}
 				case 'tool-start': {
 					closeAssistant()
+					// A call that only looks joins the open counted line; any other call ends it.
+					if (event.fold)
+						readSearchGroup.start(`${event.turnId ?? ''}:${event.toolUseId}`, event.fold)
+					else readSearchGroup.close()
 					setThinking(null)
 					setState('tool')
 					const waitingAgent =
@@ -7866,6 +7878,7 @@ export function App({
 						...(event.turnId ? { turnId: event.turnId } : {}),
 						toolName: event.toolName,
 						activity: event.activity,
+						...(event.fold ? { fold: event.fold } : {}),
 						label: waitingAgent
 							? `Waiting · ${waitingAgent.description}`
 							: event.web
@@ -7990,7 +8003,14 @@ export function App({
 					if (built.kind === 'task-block') {
 						writeTaskBlock(st, null, tasksRef.current)
 					} else if (built.kind === 'rows') {
-						for (const row of built.rows) pushRow(row)
+						const only = built.rows.length === 1 ? built.rows[0] : undefined
+						// A look that succeeded is kept in the open counted line; anything
+						// else (a failure, a refusal, a call whose line is already settled)
+						// is a row of its own, which also ends the line.
+						const kept =
+							only?.group !== undefined &&
+							readSearchGroup.finish(`${event.turnId ?? ''}:${event.toolUseId}`, only.detail ?? [])
+						if (!kept) for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 					break
@@ -9023,6 +9043,8 @@ export function App({
 					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
+				// The turn is over: a run of reads and searches in progress settles.
+				readSearchGroup.close()
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
 					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
@@ -12928,10 +12950,11 @@ export function App({
 	// next tick; filtering only live children made that raw row flash back.
 	const visibleActiveTools = activeTools.filter(
 		(tool) =>
-			tool.toolName.toLowerCase() !== 'agent' ||
-			!(tool.turnId
-				? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
-				: representedUnscopedSubagentToolUseIds.has(tool.id)),
+			tool.fold === undefined &&
+			(tool.toolName.toLowerCase() !== 'agent' ||
+				!(tool.turnId
+					? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
+					: representedUnscopedSubagentToolUseIds.has(tool.id))),
 	)
 	const outputBlocks = outputViewer
 		? messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)

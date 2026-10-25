@@ -66,6 +66,7 @@ function liveRows(events: readonly SessionEvent[]): readonly ToolRow[] {
 				...(start.proposed ? { proposed: start.proposed } : {}),
 				...(start.web ? { web: start.web } : {}),
 				...(start.activity ? { activity: start.activity } : {}),
+				...(start.fold ? { fold: start.fold } : {}),
 			},
 			{ hasPlan: true },
 		)
@@ -144,8 +145,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
 			['user', 'tidy up'],
-			['⎿', 'Read a.ts'],
-			['⎿', 'Searched for foo'],
+			[' ', 'Searched for 1 pattern, read 1 file'],
 			['●', 'Update(a.ts)'],
 			['⎿', 'Edited a.ts'],
 			['●', 'Write(n.txt)'],
@@ -162,7 +162,33 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 			'+ w',
 		])
 		expect(rows.find((row) => row.content === 'Bash(echo hi)')?.shell?.stdout).toEqual(['hi'])
-		expect(rows.find((row) => row.content === 'Read a.ts')?.detailRef).toBe(1)
+		const folded = rows.find((row) => row.group)
+		expect(folded?.detailRef).toBe(1)
+		expect(folded?.detail?.slice(0, 3)).toEqual(['Read a.ts', '     1\tconst a = 1', ''])
+	})
+
+	it('folds looks across assistant messages into one line, and text between them splits it', () => {
+		const messages = [
+			createUserMessage('look'),
+			createAssistantMessage(null, [call('r1', 'read', { path: 'a.ts' })]),
+			createToolMessage('     1\tx\n', 'r1'),
+			createAssistantMessage(null, [
+				call('r2', 'read', { path: 'a.ts' }),
+				call('l', 'bash', { command: 'ls src' }),
+			]),
+			createToolMessage('     1\tx\n', 'r2'),
+			createToolMessage('b.ts\n', 'l'),
+			createAssistantMessage('Found it.'),
+			createAssistantMessage(null, [call('g', 'grep', { pattern: 'foo' })]),
+			createToolMessage('a.ts:1:foo\n', 'g'),
+		]
+		const rows = projectConversation(messages, ids())
+		expect(rows.map((row) => row.content)).toEqual([
+			'look',
+			'Read 1 file, listed 1 directory',
+			'Found it.',
+			'Searched for 1 pattern',
+		])
 	})
 
 	it('draws a journaled call exactly as the live events drew it, typed facts and all', () => {
@@ -197,7 +223,8 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const tools = rows.filter((row) => row.role === 'tool')
 		expect(plain(tools)).toEqual([...liveRows(events.r), ...liveRows(events.e)].map((row) => row))
 		// And the typed fact shows: the read names its file, as live.
-		expect(tools[0]?.content).toBe('Read a.ts')
+		expect(tools[0]?.content).toBe('Read 1 file')
+		expect(tools[0]?.detail?.[0]).toBe('Read a.ts')
 		expect(tools.map((row) => row.content)).toContain('Edited a.ts')
 	})
 

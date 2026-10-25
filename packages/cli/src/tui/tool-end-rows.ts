@@ -5,6 +5,7 @@ import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { type ProposedChange, proposedBody } from './diff-rows.js'
 import { spansText } from './diff-view.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
+import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
 import { theme } from './theme.js'
@@ -33,6 +34,8 @@ export interface ToolEndStart {
 	readonly command?: string
 	readonly web?: WebActivity
 	readonly activity?: 'exploration'
+	/** The call only looks; it folds into a counted line with its neighbours. */
+	readonly fold?: FoldOp
 	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
 	readonly proposed?: ProposedChange
 }
@@ -42,7 +45,7 @@ export type ToolRow = Pick<TranscriptMessage, 'role' | 'content'> &
 	Partial<
 		Pick<
 			TranscriptMessage,
-			'glyph' | 'glyphColor' | 'meta' | 'detail' | 'activity' | 'shell' | 'diff'
+			'glyph' | 'glyphColor' | 'meta' | 'detail' | 'activity' | 'shell' | 'diff' | 'group'
 		>
 	>
 
@@ -91,6 +94,12 @@ function failureBody(lines: readonly string[], folded?: readonly string[]): Shel
 	return { stdout: [], stderr: lines, failed: true, byLine: true, ...(folded ? { folded } : {}) }
 }
 
+/** What a start says the call is to the fold; a view that only says it explores counts as a read. */
+function foldOf(start: ToolEndStart | undefined): FoldOp | undefined {
+	if (start?.fold) return start.fold
+	return start?.activity === 'exploration' ? { kind: 'read', key: start.label } : undefined
+}
+
 /** The words a call is headed with when its start was never seen. */
 function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
@@ -103,21 +112,25 @@ export function toolEndRows(
 	ctx: ToolEndContext,
 ): ToolEndRows {
 	const rows = (list: readonly ToolRow[]): ToolEndRows => ({ kind: 'rows', rows: list })
-	if (!event.isError && start?.activity === 'exploration') {
+	const fold = foldOf(start)
+	if (!event.isError && !event.declined && fold) {
 		// Preserve the result, including the summary removed from detail by the adapter.
 		const output =
 			event.output !== undefined
 				? event.output.split('\n')
 				: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		const headline = event.headline ?? start?.label ?? headOf(event, start)
 		return rows([
 			{
 				role: 'tool',
-				content: event.headline ?? start.label,
-				glyph: '⎿',
-				detail: output,
+				content: groupText(state, false),
+				detail: [headline, ...output],
+				glyph: ' ',
 				glyphColor: theme.text.muted,
-				...(output.length > 0 ? { meta: EXPAND_HINT } : {}),
+				meta: EXPAND_HINT,
 				activity: 'exploration',
+				group: state,
 			},
 		])
 	}

@@ -152,9 +152,12 @@ it('groups observations, preserves expandable evidence and distinguishes backgro
 	screen.press('\r')
 	await waitUntil(screen, () => painted().includes('failed: missing file'))
 	const transcript = painted()
-	expect(transcript.match(/Explored/g)).toHaveLength(1)
-	expect(transcript).toContain('Read one.ts')
-	expect(transcript).toContain('Search needle in src')
+	// A read and a search fold into one counted line; the background-output
+	// call is a call of its own and ends it, so the read that failed after it
+	// opens a second line of its own, and no per-call heading remains.
+	expect(transcript).not.toContain('Explored')
+	expect(transcript.match(/Searched for 1 pattern, read 1 file/g)).toHaveLength(1)
+	expect(transcript).not.toContain('Read one.ts')
 	expect(transcript).toContain('Read background output · job-one')
 	expect(transcript).toContain('● Read missing.ts')
 	expect(transcript).not.toContain('FIRST evidence')

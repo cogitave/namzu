@@ -121,7 +121,6 @@ function messageLines(
 			: `${cut.head}\n${hiddenTextRule(hiddenTextNote(cut), 20)}\n${cut.tail}`
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
-		...(message.activity === 'exploration' ? ['Explored'] : []),
 		`  ${shown}${meta ? ` · ${meta}` : ''}`,
 		...renderedDetailLines(message, columns),
 	]
