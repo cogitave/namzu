@@ -381,6 +381,11 @@ function MessageRow({
 /** Columns the `⎿` prefix and its indent take from a result row. */
 export const SHELL_RESULT_INDENT = RESULT_GUTTER_INDENT + RESULT_GUTTER_WIDTH
 
+/** Cells a result row's text really has, inside a content area `contentWidth` wide. */
+function shellBodyWidth(contentWidth: number): number {
+	return Math.max(10, contentWidth - SHELL_RESULT_INDENT)
+}
+
 /**
  * The `⎿` result of a shell call: output rows hung under one dim `⎿`, the
  * first rows of each stream, then a dim count of what is folded away.
@@ -397,7 +402,10 @@ export function ShellBlock({
 	const width = useContentWidth()
 	const rows = shellResultRows(shell, {
 		expanded,
-		width: Math.max(10, width - (SHELL_RESULT_INDENT - 2)),
+		width:
+			shell.byLine === true
+				? shellBodyWidth(width)
+				: Math.max(10, width - (SHELL_RESULT_INDENT - 2)),
 		canExpand,
 	})
 	return (
@@ -588,9 +596,12 @@ export function renderedDetailLines(
 function renderedBodyLines(message: TranscriptMessage, columns?: number): readonly string[] {
 	if (message.shell) {
 		// Hung under the `⎿` prefix: three columns of it plus the two of indent.
-		return shellResultRows(message.shell, { expanded: message.detailExpanded === true }).map(
-			(row) => ' '.repeat(SHELL_RESULT_INDENT) + terminalDisplayText(row.text),
-		)
+		return shellResultRows(message.shell, {
+			expanded: message.detailExpanded === true,
+			...(message.shell.byLine === true && columns !== undefined
+				? { width: shellBodyWidth(Math.max(10, columns - 4)) }
+				: {}),
+		}).map((row) => ' '.repeat(SHELL_RESULT_INDENT) + terminalDisplayText(row.text))
 	}
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))

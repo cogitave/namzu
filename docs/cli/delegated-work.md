@@ -316,7 +316,8 @@ it under the call as `Error: <text>` (a text that already starts with `Error: `
 or `Cancelled: ` is shown as it is, an input-validation error is shortened to
 `Invalid tool parameters` until expanded, and a call with no text says `Tool
 execution failed`): the first 10 lines, then a dim `… +N lines (ctrl+o to
-expand)`, and every line when expanded. In the agent's own view the error is a
+expand)` (counted in the text's own lines; each line is wrapped to the width at
+word boundaries), and every line when expanded. In the agent's own view the error is a
 section of its own: a blank line, a bold `Error` heading and the whole message,
 wrapped. In a workflow's agent list the agent's row ends with ` — <error>` on
 one line. An agent that fails again with the same reason after a
