@@ -23,6 +23,7 @@ import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
 import { looksBinary, windowText } from '../text-window.js'
+import { judgeExit } from './exit-semantics.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
@@ -669,11 +670,14 @@ const BashToolBase = defineTool({
 				.filter(Boolean)
 				.join('\n\n')
 
+			const judged = result.timedOut ? undefined : judgeExit(input.command, result.exitCode)
+			const answered = judged !== undefined && !judged.isError
 			return {
-				success: !result.timedOut && result.exitCode === 0,
+				success: answered,
 				output: output || '(no output)',
 				data: {
 					exitCode: result.exitCode,
+					...(judged?.note ? { exitNote: judged.note } : {}),
 					sandboxed: true,
 					timedOut: result.timedOut,
 					stdoutTruncated: result.stdoutTruncated ?? false,
@@ -681,12 +685,13 @@ const BashToolBase = defineTool({
 				},
 				error: result.timedOut
 					? `Command timed out after ${input.timeout}ms. Any captured output before the deadline is above.`
-					: result.exitCode !== 0
+					: !answered
 						? `Command exited with code ${result.exitCode}`
 						: undefined,
 				facts: commandFacts({
 					command: input.command,
 					exitCode: result.exitCode,
+					...(judged?.note ? { exitNote: judged.note } : {}),
 					timedOut: result.timedOut,
 					stdout: result.stdout,
 					stderr: result.stderr,
@@ -801,35 +806,44 @@ const BashToolBase = defineTool({
 			// and appending this to every result would make the common case noisy
 			// to buy nothing. A failing one is exactly where "authentication
 			// failed" has to be distinguishable from "the variable was withheld".
+			// A status the command uses to answer (no match, files differ) is a
+			// result, not a failure; the model sees it as an ordinary call.
+			const judged =
+				!timedOut && exitCode !== undefined ? judgeExit(input.command, exitCode) : undefined
+			const answered = judged !== undefined && !judged.isError
 			const output = [
 				formatShellOutput(failure.stdout, failure.stderr),
 				clipped.length > 0
 					? `[${clipped.join(' and ')} ${clipped.length === 1 ? 'was' : 'were'} truncated by the host output cap. The omitted output is unavailable in this result.]`
 					: '',
-				describeWithheldEnv(inherited.dropped),
+				answered ? '' : describeWithheldEnv(inherited.dropped),
 			]
 				.filter(Boolean)
 				.join('\n\n')
 
 			return {
-				success: false,
+				success: answered,
 				output: output || '(no output)',
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
+					...(judged?.note ? { exitNote: judged.note } : {}),
 					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
 					timedOut,
 					stdoutTruncated: failure.stdoutTruncated ?? false,
 					stderrTruncated: failure.stderrTruncated ?? false,
 					...(failure.signal ? { signal: failure.signal } : {}),
 				},
-				error: timedOut
-					? `Command timed out after ${input.timeout}ms. Any output it produced before the deadline is above.`
-					: exitCode !== undefined
-						? `Command exited with code ${exitCode}`
-						: `Command failed: ${failure.message}`,
+				error: answered
+					? undefined
+					: timedOut
+						? `Command timed out after ${input.timeout}ms. Any output it produced before the deadline is above.`
+						: exitCode !== undefined
+							? `Command exited with code ${exitCode}`
+							: `Command failed: ${failure.message}`,
 				facts: commandFacts({
 					command: input.command,
 					...(exitCode !== undefined ? { exitCode } : {}),
+					...(judged?.note ? { exitNote: judged.note } : {}),
 					timedOut,
 					...(failure.signal ? { signal: failure.signal } : {}),
 					stdout: failure.stdout ?? '',
@@ -851,6 +865,7 @@ const BashToolBase = defineTool({
 function commandFacts(input: {
 	command: string
 	exitCode?: number
+	exitNote?: string
 	timedOut?: boolean
 	signal?: string
 	stdout: string
@@ -867,6 +882,7 @@ function commandFacts(input: {
 		kind: 'command',
 		command: input.command,
 		...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+		...(input.exitNote ? { exitNote: input.exitNote } : {}),
 		...(input.timedOut ? { timedOut: true } : {}),
 		...(input.signal ? { signal: input.signal } : {}),
 		...(input.stdout && !outBinary ? { stdout: windowText(input.stdout, outBytes) } : {}),

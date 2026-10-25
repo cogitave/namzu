@@ -109,6 +109,7 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 					typeof value.exitCode === 'number' && Number.isSafeInteger(value.exitCode)
 						? value.exitCode
 						: undefined,
+				exitNote: text(value.exitNote),
 				timedOut: flag(value.timedOut),
 				signal: text(value.signal),
 				binary:
