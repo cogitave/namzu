@@ -72,3 +72,32 @@ export function reportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean 
 export function diffColors(env: NodeJS.ProcessEnv = process.env): DiffColors {
 	return reportsTruecolor(env) ? theme.diff.truecolor : theme.diff.basic
 }
+
+/** The colour groups a row may name by token. */
+type RowTokenGroup = 'text' | 'accent' | 'status' | 'border'
+
+/** A theme colour a row is allowed to carry, as `group.name` (`status.error`). */
+export type ThemeToken = {
+	[G in RowTokenGroup]: `${G}.${keyof SemanticColors[G] & string}`
+}[RowTokenGroup]
+
+const TOKEN_MARK = 'theme:'
+
+/**
+ * A colour for a row that is stored and drawn later. It is the token's name,
+ * not its value, so a row already on screen is drawn in the colours of the theme
+ * that is active when it is drawn, not the one it was written under.
+ */
+export function tokenColor(token: ThemeToken): string {
+	return `${TOKEN_MARK}${token}`
+}
+
+/** The colour to draw: a stored token is looked up in the active theme, any other colour is kept. */
+export function paint(color: string): string
+export function paint(color: string | undefined): string | undefined
+export function paint(color: string | undefined): string | undefined {
+	if (color === undefined || !color.startsWith(TOKEN_MARK)) return color
+	const [group, name] = color.slice(TOKEN_MARK.length).split('.') as [RowTokenGroup, string]
+	const value = (theme[group] as Record<string, string> | undefined)?.[name]
+	return value ?? theme.text.muted
+}

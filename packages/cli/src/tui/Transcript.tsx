@@ -27,7 +27,7 @@ import {
 } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { useThemeEpoch } from './theme-store.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -313,10 +313,10 @@ function MessageRow({
 	// A long message is echoed by its two ends, with a note of what lies between.
 	const userCut = message.role === 'user' ? cutUserText(content) : content
 	const glyph = message.glyph ?? glyphForRole(message.role)
-	const textColor = message.contentColor ?? contentColorForRole(message.role)
+	const textColor = paint(message.contentColor) ?? contentColorForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
-		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+		paint(message.glyphColor) ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.

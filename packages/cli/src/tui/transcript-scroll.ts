@@ -16,7 +16,7 @@ import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { choiceDisplayWidth, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
 
 /** One physical row of the scroll view. */
@@ -52,8 +52,8 @@ export function transcriptScrollRows(
 		const prev = index > 0 ? ordered[index - 1] : undefined
 		const glyph = message.glyph ?? glyphForRole(message.role)
 		const glyphColor =
-			message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
-		const color = message.contentColor ?? contentColorForRole(message.role)
+			paint(message.glyphColor) ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+		const color = paint(message.contentColor) ?? contentColorForRole(message.role)
 		const joined = message.statusRows
 			? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
 			: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${

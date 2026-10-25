@@ -25,7 +25,7 @@ import {
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import { type AgentEvent, toAgentEvent } from './agent.js'
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 import { type ToolEndStart, type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import { describeTurnStop } from './turn-interruption.js'
 import type { TranscriptMessage } from './types.js'
@@ -241,7 +241,7 @@ function startOf(event: Extract<AgentEvent, { kind: 'tool-start' }>): ToolEndSta
 /** Rows a call that never reported a result leaves: named, and said to be interrupted. */
 function interruptedRows(label: string): ToolRow[] {
 	return [
-		{ role: 'tool', content: label, glyph: '○', glyphColor: theme.text.muted },
+		{ role: 'tool', content: label, glyph: '○', glyphColor: tokenColor('text.muted') },
 		{ role: 'tool', content: 'Interrupted', glyph: '⎿' },
 	]
 }
@@ -369,7 +369,7 @@ export function createRestoredTurnWriter(
 					role: 'system',
 					content: line,
 					glyph: '✻',
-					glyphColor: theme.text.muted,
+					glyphColor: tokenColor('text.muted'),
 				})
 		}
 		return rows
@@ -446,8 +446,8 @@ export function agentCompletionRows(
 	if (agent.status === 'completed' && !reportsAsNotification(agent)) {
 		const done = agentDoneRows(agent)
 		return [
-			{ role: 'tool', content: done.header, glyph: '●', glyphColor: theme.accent.assistant },
-			{ role: 'tool', content: done.result, glyph: '⎿', glyphColor: theme.text.muted },
+			{ role: 'tool', content: done.header, glyph: '●', glyphColor: tokenColor('accent.assistant') },
+			{ role: 'tool', content: done.result, glyph: '⎿', glyphColor: tokenColor('text.muted') },
 		]
 	}
 	// One row per completion: the line that says it ended, carrying the agent's
@@ -461,12 +461,12 @@ export function agentCompletionRows(
 			glyph: '●',
 			glyphColor:
 				notice.tone === 'ok'
-					? theme.status.ok
+					? tokenColor('status.ok')
 					: notice.tone === 'error'
-						? theme.status.error
-						: theme.status.warn,
+						? tokenColor('status.error')
+						: tokenColor('status.warn'),
 			// Only the glyph carries the outcome; the sentence is the primary text.
-			contentColor: theme.text.primary,
+			contentColor: tokenColor('text.primary'),
 			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
 		},
 	]
@@ -478,7 +478,7 @@ export function agentLaunchRow(members: readonly SubagentActivity[]): ToolRow {
 		role: 'tool',
 		content: launchReceipt(members).content,
 		glyph: '●',
-		glyphColor: theme.accent.assistant,
+		glyphColor: tokenColor('accent.assistant'),
 	}
 }
 
@@ -491,10 +491,10 @@ export function workflowClosingRow(workflow: Parameters<typeof workflowNotice>[0
 		glyph: notice.glyph,
 		glyphColor:
 			notice.tone === 'error'
-				? theme.status.error
+				? tokenColor('status.error')
 				: notice.tone === 'warn'
-					? theme.status.warn
-					: theme.text.muted,
+					? tokenColor('status.warn')
+					: tokenColor('text.muted'),
 	}
 }
 

@@ -550,7 +550,7 @@ import {
 	titleAnimates,
 	underMultiplexer,
 } from './terminal-title.js'
-import { theme } from './theme.js'
+import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
 import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import {
@@ -1065,7 +1065,7 @@ export function projectConversation(
 						role: 'system',
 						content: message.source.objective,
 						glyph: CONTINUATION_GLYPH,
-						glyphColor: theme.text.muted,
+						glyphColor: tokenColor('text.muted'),
 					},
 				]
 			}
@@ -1109,7 +1109,7 @@ export function projectConversation(
 					role: 'system',
 					content: 'Conversation compacted',
 					glyph: CLOSING_GLYPH,
-					glyphColor: theme.text.muted,
+					glyphColor: tokenColor('text.muted'),
 					meta: COMPACTED_HINT,
 					activity: 'summary',
 					detail: summaryDetail(message),
@@ -1693,10 +1693,10 @@ function AppBody({
 				notice.glyph,
 				undefined,
 				notice.tone === 'error'
-					? theme.status.error
+					? tokenColor('status.error')
 					: notice.tone === 'warn'
-						? theme.status.warn
-						: theme.status.ok,
+						? tokenColor('status.warn')
+						: tokenColor('status.ok'),
 			)
 			workflowNoticesRef.current.set(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
@@ -3106,7 +3106,7 @@ function AppBody({
 					false,
 					CONTINUATION_GLYPH,
 					undefined,
-					theme.text.muted,
+					tokenColor('text.muted'),
 				)
 			return id
 		},
@@ -3243,7 +3243,7 @@ function AppBody({
 				false,
 				'›',
 				row.detail,
-				theme.text.muted,
+				tokenColor('text.muted'),
 				row.hint,
 				'agent-result',
 			)
@@ -3307,7 +3307,7 @@ function AppBody({
 		setClosingWaitVersion((version) => version + 1)
 		if (wait.silent === true) return
 		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
-		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, theme.text.muted)
+		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
@@ -3531,7 +3531,7 @@ function AppBody({
 				false,
 				'✻',
 				undefined,
-				theme.text.muted,
+				tokenColor('text.muted'),
 			)
 		},
 		[conversationLearning, pushMessage],
@@ -8031,7 +8031,7 @@ function AppBody({
 						operation,
 						checklist,
 						settled: settledRef.current,
-						glyphColor: theme.status.ok,
+						glyphColor: tokenColor('status.ok'),
 					}) as TranscriptMessage[],
 			)
 		},
@@ -8467,7 +8467,7 @@ function AppBody({
 							false,
 							CLOSING_GLYPH,
 							event.detail,
-							theme.text.muted,
+							tokenColor('text.muted'),
 							COMPACTED_HINT,
 							'summary',
 						)
@@ -8582,7 +8582,7 @@ function AppBody({
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
 						if (closing)
-							pushMessage('system', closing, false, CLOSING_GLYPH, undefined, theme.text.muted)
+							pushMessage('system', closing, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
 					}
 					// A save the operator asked for in words takes the place of
 					// the proposal to save it.
@@ -10001,7 +10001,7 @@ function AppBody({
 										content: describeShellEscape(escaped, result),
 										pending: false,
 										glyph: SYSTEM_ROW_GLYPH,
-										glyphColor: ok ? theme.status.ok : theme.status.error,
+										glyphColor: ok ? tokenColor('status.ok') : tokenColor('status.error'),
 										...(detail ? { detail } : {}),
 									}
 								: m,
@@ -10068,7 +10068,7 @@ function AppBody({
 						// The command as typed, then its answer hung under `⎿`, so a readout
 						// in the scrollback says which command it answers. A system row, not
 						// a user one: it is not a prompt and must not be offered for editing.
-						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
+						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						if (slash.statusRows) {
 							setMessages((previous) => [
 								...previous,
@@ -11184,7 +11184,7 @@ function AppBody({
 						return
 					}
 					case 'context': {
-						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
+						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						void (async () => {
 							const view = await buildContextRow({
 								usage,
@@ -11234,7 +11234,7 @@ function AppBody({
 					case 'compact': {
 						// The command as typed first, so the result below it says what it answers
 						// and both stay where /compact ran.
-						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
+						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						if (!session) {
 							pushMessage('system', 'Nothing to summarise yet.')
 							return
@@ -11296,7 +11296,7 @@ function AppBody({
 											? COMPACT_RESULT_TEXT
 											: `${COMPACT_RESULT_TEXT}. ${COMPACT_NOT_SAVED_TEXT}`,
 										glyph: CLOSING_GLYPH,
-										glyphColor: theme.text.muted,
+										glyphColor: tokenColor('text.muted'),
 										meta: COMPACT_RESULT_HINT,
 										activity: 'summary',
 										detail: summaryDetail(result.summary),

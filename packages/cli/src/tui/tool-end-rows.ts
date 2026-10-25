@@ -8,7 +8,7 @@ import { modelCatalogueView } from './model-catalogue-view.js'
 import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 import { declinedLine } from './tidy-tool-output.js'
 import { firstLineOf, toolFailureText } from './tool-failure-text.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -122,7 +122,7 @@ function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): r
 		role: 'tool',
 		content: headOf(event, start),
 		glyph: '●',
-		glyphColor: theme.status.error,
+		glyphColor: tokenColor('status.error'),
 	}
 	// A result that carried no text says what the summary said.
 	const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
@@ -134,7 +134,7 @@ function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): r
 				role: 'tool',
 				content: event.plainFailure,
 				glyph: '⎿',
-				contentColor: event.plainFailureTone === 'muted' ? theme.text.muted : theme.status.error,
+				contentColor: event.plainFailureTone === 'muted' ? tokenColor('text.muted') : tokenColor('status.error'),
 				...(said !== undefined && said.trim().length > 0
 					? { detail: full, meta: EXPAND_HINT, activity: 'agent-result' as const }
 					: {}),
@@ -179,7 +179,7 @@ export function toolEndRows(
 				content: groupText(state, false),
 				detail: [headline, ...output],
 				glyph: ' ',
-				glyphColor: theme.text.muted,
+				glyphColor: tokenColor('text.muted'),
 				meta: EXPAND_HINT,
 				activity: 'exploration',
 				group: state,
@@ -205,7 +205,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: webCallTitle(activity),
 				glyph: '●',
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				activity: 'web',
 			},
 			{
@@ -236,7 +236,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: start?.label ?? formatToolCall(event.toolName, event.summary, true),
 				glyph: '●',
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 			},
 			...(said.length > 0
 				? [
@@ -259,7 +259,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.text.muted,
+				glyphColor: tokenColor('text.muted'),
 			},
 			{
 				role: 'tool',
@@ -276,7 +276,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.text.muted,
+				glyphColor: tokenColor('text.muted'),
 				...(settledElapsed(event.durationMs) !== undefined
 					? { meta: settledElapsed(event.durationMs) }
 					: {}),
@@ -297,7 +297,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.accent.assistant,
+				glyphColor: tokenColor('accent.assistant'),
 			},
 			{ role: 'tool', content: WORKFLOW_BACKGROUND_NOTE, glyph: '⎿' },
 		])
@@ -311,7 +311,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.status.error,
+				glyphColor: tokenColor('status.error'),
 				detail: said,
 				shell: failureBody(said),
 			},
@@ -328,7 +328,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.status.error,
+				glyphColor: tokenColor('status.error'),
 				detail: full,
 				shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
 			},
@@ -345,7 +345,7 @@ export function toolEndRows(
 				content: catalogue,
 				glyph: '●',
 				detail: event.output?.split('\n'),
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				meta: EXPAND_HINT,
 				activity: 'catalogue',
 			},
@@ -362,7 +362,7 @@ export function toolEndRows(
 				content: evidence.content,
 				glyph: '●',
 				detail: evidence.detail,
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				meta: EXPAND_HINT,
 				activity: 'evidence',
 			},
@@ -389,7 +389,7 @@ export function toolEndRows(
 				content: header,
 				glyph: '●',
 				detail: [...settled.stdout, ...settled.stderr],
-				glyphColor: failed ? theme.status.error : theme.status.ok,
+				glyphColor: failed ? tokenColor('status.error') : tokenColor('status.ok'),
 				shell: full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
 			},
 		])
@@ -403,7 +403,7 @@ export function toolEndRows(
 			glyph: '●',
 			// The change to a file is drawn once, under its result.
 			detail: event.diff ? undefined : start?.detail,
-			glyphColor: theme.status.ok,
+			glyphColor: tokenColor('status.ok'),
 			...(elapsed !== undefined ? { meta: elapsed } : {}),
 		},
 	]
