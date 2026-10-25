@@ -86,8 +86,8 @@ substitution, so an operator can review it before anything runs.
 | Name | Meaning |
 | --- | --- |
 | `agent(prompt, opts?)` | Start a subagent. Options: `label`, `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
-| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). |
-| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(value, index, item)`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. |
+| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It never rejects: a thunk that throws resolves to `null` in its place, and the reason goes through `log()` (`parallel item 2 failed: …`). Filter with `.filter(Boolean)`. |
+| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(value, index, item)`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on. |
 | `phase(title)` | Move the global phase cursor. |
 | `log(message)` | A progress line (at most 2000 characters). |
 | `args` | The JSON you passed to `run()`. |

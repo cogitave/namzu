@@ -1673,7 +1673,7 @@ function modelRowNote(
 		columns < 70
 			? [
 					c.id === currentModel ? '(current)' : '',
-					c.note?.includes('namzu default') ? '(default)' : '',
+					c.note?.includes('namzu default') ? '(namzu default)' : '',
 					c.note?.includes('image input') ? '(image)' : '',
 					// Rebuilt from a fixed vocabulary, so a word
 					// missing from it is DROPPED rather than
@@ -1771,13 +1771,10 @@ function ModelStepView({
 						Choose a model · {providerLabel}
 					</Text>
 					<Text color={theme.text.secondary} wrap="truncate-end">
-						{columns < 70
-							? sessionOnly
-								? 'Applies to this conversation only.'
-								: 'Now and for future launches.'
-							: sessionOnly
-								? 'Applies to this conversation only (temporary credential).'
-								: 'Applies to this conversation and future launches.'}
+						{/* The same sentence at every width: a narrow row cuts it, it does not reword it. */}
+						{sessionOnly
+							? 'Applies to this conversation only (temporary credential).'
+							: 'Applies to this conversation and future launches.'}
 					</Text>
 				</Box>
 				{step ? (

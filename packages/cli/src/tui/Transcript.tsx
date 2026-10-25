@@ -9,6 +9,8 @@
 import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
+import { diffRowMarker } from './diff-rows.js'
+import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 
 import { Checklist, checklistLine } from './Checklist.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
@@ -270,7 +272,12 @@ function MessageRow({
 	const web = message.activity === 'web'
 	const continuesWeb = web && prev?.activity === 'web'
 	const gap =
-		!prev || message.glyph === '⎿' || (exploration && !startsExploration) || continuesWeb ? 0 : 1
+		!prev ||
+		(message.glyph === '⎿' && !startsExploration) ||
+		(exploration && !startsExploration) ||
+		continuesWeb
+			? 0
+			: 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
 			{startsExploration ? (
@@ -347,6 +354,7 @@ function MessageRow({
 					lines={message.detail}
 					expanded={message.detailExpanded === true}
 					detailRef={message.detailRef}
+					diff={message.diff}
 				/>
 			) : null}
 		</Box>
@@ -395,8 +403,10 @@ export function ShellBlock({
 }
 
 /** Whether a row hides something Ctrl+O would show (a folded body or a cut command). */
-export function messageCollapses(message: Pick<TranscriptMessage, 'detail' | 'shell'>): boolean {
-	return message.shell ? shellCollapses(message.shell) : willCollapse(message.detail)
+export function messageCollapses(
+	message: Pick<TranscriptMessage, 'detail' | 'shell' | 'diff'>,
+): boolean {
+	return message.shell ? shellCollapses(message.shell) : willCollapse(message.detail, message.diff)
 }
 
 /**
@@ -407,13 +417,16 @@ function DetailBlock({
 	lines,
 	expanded,
 	detailRef,
+	diff,
 }: {
 	readonly lines: readonly string[]
 	readonly expanded: boolean
+	/** The body is a diff: coloured by its markers, folded after `preview` rows. */
+	readonly diff?: { readonly preview: number } | undefined
 	/** Stable reference that lets App offer expansion for this body. */
 	readonly detailRef: number | undefined
 }) {
-	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
+	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef, diff)
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
 	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
@@ -428,7 +441,7 @@ function DetailBlock({
 				<Box key={`d-${i}`} flexDirection="row">
 					<Rule />
 					<Box flexGrow={1}>
-						<Text color={detailLineColor(line)} wrap="wrap">
+						<Text color={detailLineColor(line, diff !== undefined)} wrap="wrap">
 							{line.length > 0 ? line : ' '}
 						</Text>
 					</Box>
@@ -439,10 +452,13 @@ function DetailBlock({
 }
 
 /** Whether the preview hides text and App should mark the body as expandable. */
-export function willCollapse(detail: readonly string[] | undefined): boolean {
+export function willCollapse(
+	detail: readonly string[] | undefined,
+	diff?: { readonly preview: number },
+): boolean {
 	return (
 		detail !== undefined &&
-		(detail.length > COLLAPSE_LINES ||
+		(detail.length > (diff?.preview ?? COLLAPSE_LINES) ||
 			detail.some((line) => terminalDisplayText(line).length > PREVIEW_LINE_CHARS))
 	)
 }
@@ -452,15 +468,30 @@ function splitDetail(
 	lines: readonly string[],
 	expanded: boolean,
 	detailRef?: number,
+	diff?: { readonly preview: number },
 ): readonly string[] {
 	if (expanded) return lines
+	const canExpand = detailRef !== undefined
+	if (diff) {
+		// A diff reads from the top: the first rows, then how many are folded.
+		const shown = lines.slice(0, diff.preview).map((line) => clipLine(line))
+		const folded = lines.slice(diff.preview)
+		if (folded.length === 0) return shown
+		return [
+			...shown,
+			hiddenLinesHint(folded.length, {
+				chars: folded.reduce((sum, line) => sum + line.length, 0),
+				canExpand,
+			}),
+		]
+	}
 	const fragmentLines = COLLAPSE_LINES / 2
 	const selected =
 		lines.length > COLLAPSE_LINES
 			? [...lines.slice(0, fragmentLines), ...lines.slice(-fragmentLines)]
 			: lines
-	// A "… N lines not shown" line stands for N lines the kernel kept out of a
-	// long stream, so folding it away hides N lines, not one.
+	// A "… +N lines" line stands for N lines the kernel kept out of a long
+	// stream, so folding it away hides N lines, not one.
 	const folded =
 		lines.length > COLLAPSE_LINES ? lines.slice(fragmentLines, lines.length - fragmentLines) : []
 	const hidden = folded.reduce((count, line) => {
@@ -468,17 +499,20 @@ function splitDetail(
 		return count + (gap ? Number((gap[1] ?? '1').replaceAll(',', '')) : 1)
 	}, 0)
 	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
-	const shown = selected.map((line) =>
-		line.length > PREVIEW_LINE_CHARS
-			? `${line.slice(0, PREVIEW_LINE_CHARS - 1).replace(/[\uD800-\uDBFF]$/, '')}…`
-			: line,
-	)
-	const action = detailRef === undefined ? '' : ' · ctrl+o'
+	const shown = selected.map(clipLine)
 	if (hidden > 0) {
-		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} not shown${action}${clipped ? ' · shortened preview' : ''}`
+		const hint = hiddenLinesHint(hidden, {
+			chars: folded.reduce((sum, line) => sum + line.length, 0),
+			canExpand,
+		})
 		return [...shown.slice(0, fragmentLines), hint, ...shown.slice(fragmentLines)]
 	}
-	return clipped ? [...shown, `… line shortened${action}`] : shown
+	return clipped ? [...shown, `… line shortened${canExpand ? ` ${EXPAND_HINT}` : ''}`] : shown
+}
+
+/** A preview row, cut at the preview width without splitting an emoji. */
+function clipLine(line: string): string {
+	return clipText(line, PREVIEW_LINE_CHARS)
 }
 
 /**
@@ -511,6 +545,7 @@ function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
 		message.detailRef,
+		message.diff,
 	)
 	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
 	// plus the two-column `▏` rule. Those columns are not available to the text,
@@ -522,7 +557,11 @@ function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	return shown.map((line) => gutter + line)
 }
 
-function detailLineColor(line: string): string {
+function detailLineColor(line: string, diff = false): string {
+	if (diff) {
+		const marker = diffRowMarker(line)
+		return marker === '+' ? theme.status.ok : marker === '-' ? theme.status.error : theme.text.muted
+	}
 	if (line.startsWith('+')) return theme.status.ok
 	if (line.startsWith('-')) return theme.status.error
 	return theme.text.muted

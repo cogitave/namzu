@@ -31,7 +31,7 @@ describe('a `!` line', () => {
 		expect(result.output).toContain('out')
 		expect(result.output).toContain('err')
 		expect(result.exitCode).toBe(3)
-		expect(describeShellEscape('printf out', result)).toBe('! printf out · exit 3')
+		expect(describeShellEscape('printf out', result)).toBe('printf out failed (exit 3)')
 		if (process.platform !== 'win32') {
 			expect(result.output).toBe('outerr')
 			expect(describeShellEscapeForModel('printf out', result)).toBe(
@@ -64,7 +64,7 @@ describe('a `!` line', () => {
 			signal: controller.signal,
 		})
 		expect(result).toMatchObject({ timedOut: true, exitCode: null, output: 'Türkçe 🧪' })
-		expect(describeShellEscape('waiting-command', result)).toContain('killed after')
+		expect(describeShellEscape('waiting-command', result)).toContain('was stopped after')
 	})
 
 	it('bounds decoded transcript output and reports underlying byte truncation', async () => {

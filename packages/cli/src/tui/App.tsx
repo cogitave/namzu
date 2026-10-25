@@ -14,7 +14,8 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
-import { join, relative } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
 import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
@@ -123,6 +124,7 @@ import {
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
+import { journalOf } from '../integrations/sessions/journal-trail.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -159,10 +161,10 @@ import {
 import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
+import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { completionNotice, isBackgroundLaunch } from '../integrations/workflows/notice.js'
-import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
+import { completionNotice } from '../integrations/workflows/notice.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -273,14 +275,11 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
+import { STOP_ALL_CONFIRM_MS, stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
-	agentDoneRows,
-	agentMessageRow,
-	agentNotice,
 	childMessageNotice,
 	childMessageRow,
-	launchReceipt,
-	reportsAsNotification,
+	failureReason,
 	settleLine,
 	workflowNotice,
 } from './agent-transcript-rows.js'
@@ -295,6 +294,7 @@ import {
 	type ScreenPermissionRequest,
 	type SessionScope,
 	type UserQuestion,
+	builtinToolPresenter,
 	createAgentSession,
 	describeProviderModels,
 	probeAgentSession,
@@ -310,9 +310,17 @@ import {
 	moveChoiceSelection,
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
+import {
+	COMPACTED_HINT,
+	COMPACTING_LABEL,
+	COMPACT_NOT_SAVED_TEXT,
+	COMPACT_RESULT_HINT,
+	COMPACT_RESULT_TEXT,
+	NOTHING_TO_COMPACT_TEXT,
+	compactionSummaryLines,
+} from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { contextMeter } from './context-meter.js'
-import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
@@ -335,7 +343,6 @@ import {
 	describeLoginStart,
 	describeProviderLogout,
 } from './login-prompt.js'
-import { modelCatalogueView } from './model-catalogue-view.js'
 import {
 	AUTO_ALREADY_ON,
 	AUTO_MODEL_LABEL,
@@ -353,7 +360,7 @@ import {
 	resolveModelSwitch,
 } from './model-switch.js'
 import { isRepeatedNotice } from './notices.js'
-import { formatSize, homePath, plural, productName } from './person-terms.js'
+import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
@@ -372,16 +379,12 @@ import { needsQuestionDialog } from './question-dialog.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
+	deliveryLevel,
 	sourceConversationBinding,
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
-import {
-	SHELL_LIVE_LINES,
-	type ShellOutput,
-	shellCommandFull,
-	shellCommandHeader,
-} from './shell-cell.js'
+import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -398,18 +401,26 @@ import {
 	writeSuggestionLedger,
 } from './skills/suggestion-ledger.js'
 import {
+	CLOSING_GLYPH,
+	CONTINUATION_GLYPH,
+	SYSTEM_ROW_GLYPH,
+	type SystemLevel,
+	clipboardSentNotice,
+	goalRoundHeadline,
+	interruptionRow,
+	systemRowStyle,
+} from './system-rows.js'
+import {
 	type TaskOperation,
 	applyTaskOperation,
-	isTaskTool,
 	removeTask,
 	taskOperationFor,
 	taskReportChecklist,
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
-import { declinedLine } from './tidy-tool-output.js'
 import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
-import { transcriptTagLine } from './triggers/copy.js'
+import { STEERED_NOT_APPLIED_REASON, notAppliedLine, transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
 import {
 	BUILTIN_TRIGGERS,
@@ -419,16 +430,19 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { formatCompactCount } from './units.js'
-import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
+import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import { EXIT_HINT_MS } from './exit-hint.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
+import { PauseClock } from './pause-clock.js'
 import {
 	buildPermissionReview,
 	buildPermissionSummary,
@@ -436,6 +450,16 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
+import {
+	type RestoreOptions,
+	agentCompletionRows,
+	agentLaunchRow,
+	createRestoredTurnWriter,
+	numberDetailRows,
+	trailFromRecords,
+	withSavedAgentRows,
+	workflowClosingRow,
+} from './restored-rows.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -447,6 +471,7 @@ import {
 	type CommandPickerEntry,
 	type SlashContext,
 	baseBranchReviewPrompt,
+	commandPickerDescription,
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
@@ -469,6 +494,7 @@ import {
 	terminalTitleText,
 } from './terminal-title.js'
 import { theme } from './theme.js'
+import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
@@ -610,7 +636,10 @@ type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin
 	readonly options: readonly ChoicePickerOption[]
 }
 
-type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?: object } & (
+type ChoicePickerState = {
+	readonly back?: ChoicePickerState
+	readonly request?: object
+} & (
 	| PluginChoiceState
 	| {
 			readonly kind: 'resume-goal'
@@ -659,6 +688,8 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'workflow-runs'
 			readonly title: string
 			readonly notice?: string
+			/** `1 running, 2 finished`, counted when the list opened. */
+			readonly subtitle?: string
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -826,6 +857,8 @@ type StreamState = {
 	taskBlockKey?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
 	startedAt?: number
+	/** What the pause clock read when this turn began, so waiting for the person is left out of its time. */
+	pausedAtStart?: number
 	/**
 	 * Output tokens the provider has reported for this turn, and characters of
 	 * reply and reasoning streamed since that report. Together they are the
@@ -864,6 +897,16 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 	return null
 }
 
+/** The first thing a person typed in a conversation, short enough for a title; `undefined` when none. */
+function firstTypedPrompt(messages: readonly Message[]): string | undefined {
+	for (const message of messages) {
+		if (message.role !== 'user' || message.source) continue
+		const text = typedTextOf(message.content).text.replace(/\s+/g, ' ').trim()
+		if (text.length > 0) return text.length > 60 ? `${text.slice(0, 59)}…` : text
+	}
+	return undefined
+}
+
 /** Exact operator-authored prompts that belong in terminal input history. */
 export function promptHistoryFromConversation(messages: readonly Message[]): readonly string[] {
 	return messages.flatMap((message) =>
@@ -873,14 +916,42 @@ export function promptHistoryFromConversation(messages: readonly Message[]): rea
 	)
 }
 
-/** Build the transcript projection of exact model-visible history. */
+/**
+ * Build the transcript projection of exact model-visible history.
+ *
+ * Tool calls come back as the rows the live run drew for them, a turn closes
+ * with its "Worked for" line, and a turn the operator interrupted says so.
+ * `restore.trail` (the journal of the conversation, see `trailFromRecords`)
+ * supplies the typed facts, timings and turn boundaries; without it the rows
+ * are drawn from the saved messages alone.
+ */
 export function projectConversation(
 	messages: readonly Message[],
 	nextId: () => string,
 	readableUserTexts: readonly string[] = [],
+	restore?: Partial<RestoreOptions>,
 ): readonly TranscriptMessage[] {
 	let userOrdinal = 0
-	return messages.flatMap<TranscriptMessage>((message) => {
+	const writer = createRestoredTurnWriter(messages, nextId, {
+		presenter: restore?.presenter ?? builtinToolPresenter(),
+		...(restore?.trail ? { trail: restore.trail } : {}),
+	})
+	const out: TranscriptMessage[] = []
+	for (const message of messages) {
+		out.push(...writer.enter(message))
+		const rows = projectMessage(message)
+		out.push(...rows)
+		if (message.role === 'assistant') {
+			const tools = writer.toolRows(message)
+			out.push(...tools.rows)
+			const last = out.at(-1)
+			if (tools.launchedIn && last) out[out.length - 1] = { ...last, agentTurnId: tools.launchedIn }
+		}
+	}
+	out.push(...writer.finish())
+	return numberDetailRows(out)
+
+	function projectMessage(message: Message): readonly TranscriptMessage[] {
 		if (message.role === 'user') {
 			if (message.source?.type === 'project-instructions') {
 				return [
@@ -888,7 +959,8 @@ export function projectConversation(
 						id: nextId(),
 						role: 'system',
 						content: 'Project instructions',
-						glyph: '◇',
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
 						detail: message.source.files.map(
 							(file) => `In force: ${visibleProjectInstructionPath(file)}`,
 						),
@@ -900,9 +972,16 @@ export function projectConversation(
 					{
 						id: nextId(),
 						role: 'system',
-						content: `Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
-						glyph: '◎',
-						detail: [`Objective: ${message.source.objective}`],
+						content: goalRoundHeadline(message.source.round, message.source.maxGoalRounds),
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
+					},
+					{
+						id: nextId(),
+						role: 'system',
+						content: message.source.objective,
+						glyph: CONTINUATION_GLYPH,
+						glyphColor: theme.text.muted,
 					},
 				]
 			}
@@ -916,7 +995,8 @@ export function projectConversation(
 						id: nextId(),
 						role: 'system',
 						content: runtimeContextLabel(message.source.kind),
-						glyph: '↳',
+						glyph: SYSTEM_ROW_GLYPH,
+						glyphColor: systemRowStyle('notice').color,
 						detail: [message.content],
 					},
 				]
@@ -943,14 +1023,17 @@ export function projectConversation(
 				{
 					id: nextId(),
 					role: 'system',
-					content: 'Earlier replies are summarised below.',
-					glyph: '⌫',
+					content: 'Conversation compacted',
+					glyph: CLOSING_GLYPH,
+					glyphColor: theme.text.muted,
+					meta: COMPACTED_HINT,
+					activity: 'summary',
 					detail: summaryDetail(message),
 				},
 			]
 		}
 		return []
-	})
+	}
 }
 
 /** A running tool tracked internally: the live row's fields plus what we need
@@ -1371,7 +1454,12 @@ export function App({
 		readonly pending: Map<string, string>
 		readonly delivered: Set<string>
 		readonly shown: Set<string>
-	}>({ ownerSession: null, pending: new Map(), delivered: new Set(), shown: new Set() })
+	}>({
+		ownerSession: null,
+		pending: new Map(),
+		delivered: new Set(),
+		shown: new Set(),
+	})
 	const [jobSnapshot, setJobSnapshot] = useState<{
 		readonly ownerSession: AgentSession | null
 		readonly jobs: readonly BackgroundJob[]
@@ -1621,6 +1709,12 @@ export function App({
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
+	// A summary is being written inside a running reply (the clearing pass was
+	// not enough), so the live area says so until the pass ends.
+	const [summarising, setSummarising] = useState(false)
+	// The session whose effort listing has answered, so "still loading" is never
+	// said about a model that already reported it has no levels.
+	const reasoningListedRef = useRef<AgentSession | null>(null)
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
 	const {
 		selection: selectedResume,
@@ -1710,7 +1804,10 @@ export function App({
 		readonly turnId: string
 		readonly reason?: string
 	} | null>(null)
-	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(null)
+	const handoffParkRef = useRef<{
+		readonly turnId: string
+		readonly reason?: string
+	} | null>(null)
 	const setHandoffPark = useCallback(
 		(value: { readonly turnId: string; readonly reason?: string } | null) => {
 			handoffParkRef.current = value
@@ -1757,6 +1854,8 @@ export function App({
 	const railJustFocusedRef = useRef(false)
 	/** ctrl+x was the last key on the rail: ctrl+k next stops every running agent. */
 	const railChordRef = useRef(false)
+	/** The first press of the stop-all chord is waiting for its second (3 s). */
+	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -1911,6 +2010,11 @@ export function App({
 		},
 		[setAgentSurface, withSavedSubagents],
 	)
+	const idRef = useRef<number>(0)
+	const nextId = useCallback(() => {
+		idRef.current += 1
+		return `m${idRef.current}`
+	}, [])
 	/**
 	 * Re-reads what this conversation's finished children left on disk.
 	 *
@@ -1937,8 +2041,10 @@ export function App({
 		}
 		if (token !== savedSubagentsTokenRef.current) return
 		savedSubagentsRef.current = saved
+		// The rows of the agents a resumed conversation launched, where it launched them.
+		setMessages((rows) => withSavedAgentRows(rows, saved, nextId))
 		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
-	}, [replaceSubagents, session])
+	}, [nextId, replaceSubagents, session])
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
@@ -2066,7 +2172,7 @@ export function App({
 	}, [session, setJobSurface])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
-	const exitArmedRef = useRef<boolean>(false)
+	const exitArmedRef = useRef<'Ctrl-C' | 'Ctrl-D' | null>(null)
 	const abortRef = useRef<AbortController | null>(null)
 	/**
 	 * A prompt that holds the turn slot while it waits at the turn boundary,
@@ -2115,7 +2221,10 @@ export function App({
 		codexLoginRef.current = null
 	}, [])
 	const runProbeRef = useRef<
-		| ((options?: { readonly signal?: AbortSignal; readonly announce?: boolean }) => Promise<void>)
+		| ((options?: {
+				readonly signal?: AbortSignal
+				readonly announce?: boolean
+		  }) => Promise<void>)
 		| null
 	>(null)
 	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
@@ -2246,6 +2355,8 @@ export function App({
 	 * could first have been SEEN rather than when it was decided upon.
 	 */
 	const trustShownAtRef = useRef<number | null>(null)
+	// What the folder's own config pre-approves, read once for the gate.
+	const trustGrants = useMemo(() => readFolderGrants(trustedCwdRef.current), [])
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
@@ -2321,7 +2432,10 @@ export function App({
 				scheduleLiveRef.current?.review(request, signal) ?? Promise.resolve('cancel' as const),
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
-				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
+				Promise.resolve({
+					kind: 'reject' as const,
+					feedback: 'Nobody can answer yet.',
+				}),
 			submit: (text, createdBy) => scheduleLiveRef.current?.submit(text, createdBy),
 		})
 	}
@@ -2468,6 +2582,41 @@ export function App({
 		})
 		closeAndExit()
 	}, [closeAndExit, onExitSummary])
+	/**
+	 * The first Ctrl+C (with nothing to interrupt) or Ctrl+D (on an empty
+	 * composer) arms exit and says so in the footer for 800 ms; the same key
+	 * again inside that window exits. Nothing is written to the transcript, so
+	 * nothing is left behind in the scrollback after the exit.
+	 */
+	const [exitHint, setExitHint] = useState<'Ctrl-C' | 'Ctrl-D' | null>(null)
+	const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const armExit = useCallback(
+		(keyName: 'Ctrl-C' | 'Ctrl-D') => {
+			if (exitArmedRef.current === keyName) {
+				if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+				exitTimerRef.current = null
+				exitArmedRef.current = null
+				setExitHint(null)
+				exitWithSummary()
+				return
+			}
+			if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+			exitArmedRef.current = keyName
+			setExitHint(keyName)
+			exitTimerRef.current = setTimeout(() => {
+				exitTimerRef.current = null
+				exitArmedRef.current = null
+				setExitHint(null)
+			}, EXIT_HINT_MS)
+		},
+		[exitWithSummary],
+	)
+	useEffect(
+		() => () => {
+			if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+		},
+		[],
+	)
 	/** Durable active state is not permission to spend turns after a restart. */
 	const [goalActivation] = useState(() => new SessionGoalActivation())
 	const goalDriveInFlightRef = useRef(false)
@@ -2559,11 +2708,6 @@ export function App({
 	 * the picker over a switch that happens anyway.
 	 */
 	const resumeCommittedRef = useRef<boolean>(false)
-	const idRef = useRef<number>(0)
-	const nextId = useCallback(() => {
-		idRef.current += 1
-		return `m${idRef.current}`
-	}, [])
 	// Reset the transcript view: clear the terminal + remount <Static> so its
 	// already-printed lines don't linger above fresh content (/clear,
 	// /clear-screen, /resume).
@@ -2711,9 +2855,16 @@ export function App({
 			activity?: TranscriptMessage['activity'],
 			sourceDelivery?: true,
 			shell?: ShellOutput,
+			diff?: TranscriptMessage['diff'],
 		) => {
+			// One mapping for every system row: a caller that names no glyph gets
+			// the dim notice dot, so no producer can bypass `systemRowStyle`.
+			const noticeStyle =
+				role === 'system' && glyph === undefined && !pending ? systemRowStyle('notice') : undefined
+			const rowGlyph = noticeStyle ? noticeStyle.glyph : glyph
+			const rowGlyphColor = glyphColor ?? noticeStyle?.color
 			const id = nextId()
-			const candidate = { role, content, pending, glyph, detail, activity }
+			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -2726,12 +2877,13 @@ export function App({
 								role,
 								content,
 								pending,
-								glyph,
+								glyph: rowGlyph,
 								detail,
-								glyphColor,
+								glyphColor: rowGlyphColor,
 								meta,
 								activity,
 								...(shell ? { shell } : {}),
+								...(diff ? { diff } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -2743,7 +2895,7 @@ export function App({
 								//
 								// Derived from `prev` rather than a counter, so the number is a
 								// fact about the transcript rather than a second record of it.
-								...((activity && detail?.length) || messageCollapses({ detail, shell })
+								...((activity && detail?.length) || messageCollapses({ detail, shell, diff })
 									? {
 											detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
 										}
@@ -2755,6 +2907,86 @@ export function App({
 		},
 		[nextId],
 	)
+	/**
+	 * Every system row except the two `✻` lines goes through here: the level
+	 * picks the dot's colour, and a second line, when there is one, hangs
+	 * under the dot as `⎿`. No caller chooses a glyph of its own.
+	 */
+	const pushSystem = useCallback(
+		(
+			level: SystemLevel,
+			content: string,
+			options?: {
+				readonly detail?: readonly string[]
+				readonly meta?: string
+				readonly continuation?: string
+			},
+		) => {
+			const style = systemRowStyle(level)
+			const id = pushMessage(
+				'system',
+				content,
+				false,
+				style.glyph,
+				options?.detail,
+				style.color,
+				options?.meta,
+			)
+			if (options?.continuation)
+				pushMessage(
+					'system',
+					options.continuation,
+					false,
+					CONTINUATION_GLYPH,
+					undefined,
+					theme.text.muted,
+				)
+			return id
+		},
+		[pushMessage],
+	)
+	/** Write a row a shared builder produced, as `pushMessage` writes a live one. */
+	const pushRow = useCallback(
+		(row: ToolRow) =>
+			pushMessage(
+				row.role,
+				row.content,
+				false,
+				row.glyph,
+				row.detail,
+				row.glyphColor,
+				row.meta,
+				row.activity,
+				undefined,
+				row.shell,
+				row.diff,
+			),
+		[pushMessage],
+	)
+	/**
+	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
+	 * running says so, the first press arms a 3 s confirm, the second stops every
+	 * background agent still going and says how many.
+	 */
+	const requestStopAllAgents = useCallback(() => {
+		const running = stoppableBackgroundAgents(railRowsRef.current)
+		const armed = stopAllArmedRef.current !== null
+		const step = stopAllStep(running.length, armed)
+		if (stopAllArmedRef.current !== null) {
+			clearTimeout(stopAllArmedRef.current)
+			stopAllArmedRef.current = null
+		}
+		if (step.kind === 'arm') {
+			const timer = setTimeout(() => {
+				stopAllArmedRef.current = null
+			}, STOP_ALL_CONFIRM_MS)
+			timer.unref?.()
+			stopAllArmedRef.current = timer
+		} else if (step.kind === 'stop') {
+			for (const agent of running) session?.stopSubagent?.(agent.viewId)
+		}
+		pushMessage('system', step.notice)
+	}, [pushMessage, session])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -2875,7 +3107,11 @@ export function App({
 	 * has proposed one, and whether it has used a skill. Keyed by the
 	 * conversation generation, so `/clear`, `/resume` and a fork start over.
 	 */
-	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
+	const learningRef = useRef({
+		generation: -1,
+		proposed: false,
+		skillUsed: false,
+	})
 	/** `/skills save off|on` in this session, over whatever the config files say. */
 	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
 	/** `/config triggers on|off` in this session, over whatever the config files say. */
@@ -3097,6 +3333,8 @@ export function App({
 	 * finished forces the receipt out, so it never trails its completion.
 	 */
 	const reportedAgentsRef = useRef(new Set<string>())
+	/** The reason each failed agent was last reported with, so a repeat of it reads as `failed again`. */
+	const reportedFailuresRef = useRef(new Map<string, string>())
 	const reportedBatchesRef = useRef(new Set<string>())
 	/** Workflows whose single group line is already in the conversation, by group id. */
 	const reportedWorkflowLinesRef = useRef(new Set<string>())
@@ -3105,6 +3343,7 @@ export function App({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
+		reportedFailuresRef.current.clear()
 		reportedBatchesRef.current.clear()
 		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
@@ -3156,14 +3395,7 @@ export function App({
 			}
 			reportedBatchesRef.current.add(key)
 			if (!claimReceipt(members)) continue
-			pushMessage(
-				'tool',
-				launchReceipt(members).content,
-				false,
-				'●',
-				undefined,
-				theme.accent.assistant,
-			)
+			pushRow(agentLaunchRow(members))
 		}
 		for (const agent of subagents) {
 			if (isWorkflowRunAgent(agent)) continue
@@ -3187,61 +3419,19 @@ export function App({
 			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					pushMessage(
-						'tool',
-						launchReceipt(batches.get(key) ?? [agent]).content,
-						false,
-						'●',
-						undefined,
-						theme.accent.assistant,
-					)
+					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
 				}
 			}
 			reportedAgentsRef.current.add(agent.viewId)
-			// A workflow's agents are read in its detail view; the workflow closes
-			// with one line of its own.
-			if (agent.workflow !== DEFAULT_AGENT_WORKFLOW) continue
-			// An agent the parent waited on handed its result back inline: the line
-			// is the tool's own result, not a notification.
-			if (agent.status === 'completed' && !reportsAsNotification(agent)) {
-				const done = agentDoneRows(agent)
-				pushMessage('tool', done.header, false, '●', undefined, theme.accent.assistant)
-				pushMessage('tool', done.result, false, '⎿', undefined, theme.text.muted)
-				continue
-			}
-			// What the agent said (collapsed, ctrl+o opens it), then one line that
-			// says it is over. The answer is not repeated in that line.
-			const said = agentMessageRow(agent)
-			if (said) {
-				pushMessage(
-					'tool',
-					said.content,
-					false,
-					'›',
-					said.detail,
-					theme.text.muted,
-					said.hint,
-					'agent-result',
-				)
-			}
-			const notice = agentNotice(agent)
-			pushMessage(
-				'tool',
-				notice.content,
-				false,
-				'●',
-				undefined,
-				notice.tone === 'ok'
-					? theme.status.ok
-					: notice.tone === 'error'
-						? theme.status.error
-						: theme.status.warn,
-			)
+			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
+			if (agent.status === 'failed')
+				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
+			for (const done of agentCompletionRows(agent, previousFailure)) pushRow(done)
 		}
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushMessage, session, receiptTick])
+	}, [subagents, activeTools, pushRow, session, receiptTick])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -3267,21 +3457,9 @@ export function App({
 				continue
 			}
 			reportedWorkflowsRef.current.add(workflow.id)
-			const notice = workflowNotice(workflow)
-			pushMessage(
-				'tool',
-				notice.content,
-				false,
-				notice.glyph,
-				undefined,
-				notice.tone === 'error'
-					? theme.status.error
-					: notice.tone === 'warn'
-						? theme.status.warn
-						: theme.text.muted,
-			)
+			pushRow(workflowClosingRow(workflow))
 		}
-	}, [pushMessage])
+	}, [pushRow])
 	// A member that settles after its turn ended (it was not waited for) closes the workflow then.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; the flush reads the ref it mirrors.
 	useEffect(() => {
@@ -3420,7 +3598,10 @@ export function App({
 	 * asking, with the reason in the transcript, and the footer follows.
 	 */
 	const handleAutoModeLimit = useCallback(
-		(event: { readonly limit: 'consecutive' | 'total'; readonly reason: string }): void => {
+		(event: {
+			readonly limit: 'consecutive' | 'total'
+			readonly reason: string
+		}): void => {
 			if (permissionModeRef.current !== 'classify') return
 			commitPermissionMode('prompt', false)
 			pushMessage(
@@ -3539,7 +3720,7 @@ export function App({
 					setReasoningEffort(pin.before)
 					pushMessage(
 						'system',
-						`Hypermode is off — effort back to ${pin.before ?? 'the provider default'}.`,
+						`Hypermode is off. Effort is back to ${pin.before ?? 'the provider default'}.`,
 					)
 					return
 				}
@@ -3551,37 +3732,49 @@ export function App({
 				if (pinned === undefined) return false
 				// Turning it on twice keeps the effort from before the first time.
 				if (!hypermodePinRef.current)
-					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					hypermodePinRef.current = {
+						before: reasoningEffortRef.current,
+						pinned,
+					}
 				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
 				setReasoningEffort(pinned)
 				pushMessage(
 					'system',
-					`Hypermode is on — effort pinned to ${pinned} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this conversation.`,
+					`Hypermode is on for this conversation: ${pinned} effort, and Namzu will split big tasks across agents.`,
 				)
 				return true
 			}
 			if (pinNow()) return
-			if (session.reasoningSettled !== undefined && session.reasoningEffortLevels === undefined) {
+			if (
+				session.reasoningSettled !== undefined &&
+				session.reasoningEffortLevels === undefined &&
+				// Only a listing that has not answered yet is "still loading"; one that
+				// answered with no levels has said so already, and /effort agrees.
+				reasoningListedRef.current !== session
+			) {
 				// The model's effort menu is still loading: say so, and pin when it lands
 				// unless the mode was switched off or the session replaced meanwhile.
 				pushMessage(
 					'system',
-					`Hypermode is on — the effort menu for ${session.modelSummary ?? 'this model'} is still loading; effort will be pinned once it arrives. Delegation guidance is strengthened for this conversation.`,
+					`Hypermode is on for this conversation: Namzu will split big tasks across agents. Effort is set once ${session.modelSummary ?? 'the model'}'s settings finish loading.`,
 				)
 				void session.reasoningSettled.then(() => {
 					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
 					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
 					const pinned = hypermodeEffort(session.reasoningEffortLevels)
 					if (pinned === undefined) return
-					hypermodePinRef.current = { before: reasoningEffortRef.current, pinned }
+					hypermodePinRef.current = {
+						before: reasoningEffortRef.current,
+						pinned,
+					}
 					setReasoningEffort(pinned)
-					pushMessage('system', `Effort pinned to ${pinned} for hypermode.`)
+					pushMessage('system', `Effort set to ${pinned} for hypermode.`)
 				})
 				return
 			}
 			pushMessage(
 				'system',
-				`Hypermode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this conversation.`,
+				`Hypermode is on for this conversation: Namzu will split big tasks across agents. ${session.modelSummary ?? 'This model'} has no effort levels to choose from, so effort stays as it is.`,
 			)
 		},
 		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
@@ -3634,7 +3827,7 @@ export function App({
 		(sessionId: SessionId, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			const sessions = sessionsRef.current
 			if (!sessions) {
-				pushMessage('system', 'Could not record feedback: this conversation is not being saved.')
+				pushSystem('error', 'Could not record feedback: this conversation is not being saved.')
 				return
 			}
 			// Feedback lives beside the conversation's log (`<session-id>/feedback/`)
@@ -3659,11 +3852,11 @@ export function App({
 					})
 					pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
 				} catch (error) {
-					pushMessage('system', explainFailure(error, 'Could not record feedback.'))
+					pushSystem('error', explainFailure(error, 'Could not record feedback.'))
 				}
 			})()
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	const activateSkill = useCallback(
@@ -3685,10 +3878,10 @@ export function App({
 				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not load skill "${name}".`))
+				pushSystem('error', explainFailure(error, `Could not load skill "${name}".`))
 			}
 		},
-		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
+		[conversationLearning, ctx.cwd, ctx.skills, pushMessage, pushSystem],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -3731,7 +3924,7 @@ export function App({
 				else if (target === 'codex') clearStoredCodexCredential()
 				else clearStoredGoogleApiKey()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, `Could not remove ${homePath(path)}.`))
+				pushSystem('error', explainFailure(error, `Could not remove ${homePath(path)}.`))
 				return
 			}
 			pushMessage(
@@ -3743,7 +3936,7 @@ export function App({
 				),
 			)
 		},
-		[pushMessage],
+		[pushMessage, pushSystem],
 	)
 
 	/** Publish one recoverable, read-only tombstone before leaving the TUI. */
@@ -3904,7 +4097,10 @@ export function App({
 						case 'request-sent':
 							pushMessage(
 								'system',
-								`Export copy request sent for ${plural(projected.turns, 'reply', 'replies')} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+								clipboardSentNotice(
+									projected.markdown.length,
+									plural(projected.turns, 'reply', 'replies'),
+								),
 							)
 							break
 						case 'unavailable':
@@ -4144,7 +4340,7 @@ export function App({
 							return
 						if (!mergeBase) {
 							setChoicePicker(null)
-							pushMessage('system', `Could not resolve a merge base for ${branch}.`)
+							pushSystem('error', `Could not resolve a merge base for ${branch}.`)
 							return
 						}
 						advanceQueueContinuation()
@@ -4195,7 +4391,10 @@ export function App({
 					false,
 					'?',
 				)
-				resolveQuestion({ kind: 'answer', selectedOptionIds: [value as string] })
+				resolveQuestion({
+					kind: 'answer',
+					selectedOptionIds: [value as string],
+				})
 				return
 			}
 			if (picker.kind === 'review-commit') {
@@ -4364,15 +4563,12 @@ export function App({
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
 			switch (result.kind) {
 				case 'request-sent':
-					pushMessage(
-						'system',
-						`Copy request sent for ${selection} (${formatSize(result.bytes)}). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
-					)
+					pushMessage('system', clipboardSentNotice(target.text.length, selection))
 					break
 				case 'unavailable':
 					pushMessage(
 						'system',
-						`Cannot send a copy request here — ${result.detail}. /copy needs an interactive terminal with OSC 52 clipboard support.`,
+						`Couldn’t copy here: ${result.detail}. /copy needs a terminal that allows clipboard access.`,
 					)
 					break
 				case 'too-large':
@@ -4382,7 +4578,7 @@ export function App({
 					)
 					break
 				case 'write-failed':
-					pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
+					pushSystem('error', `Could not send the terminal copy request: ${result.detail}`)
 					break
 				default: {
 					const exhaustive: never = result
@@ -4390,7 +4586,7 @@ export function App({
 				}
 			}
 		},
-		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout],
+		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout, pushSystem],
 	)
 
 	const sendTerminalNotification = useCallback(
@@ -4437,6 +4633,36 @@ export function App({
 		},
 		[ctx.tui, pushMessage, session, stdout.isTTY, writeStdout],
 	)
+
+	// The approval notice (terminal and hooks) is held back: it goes out only
+	// when a dialog has been open for 6 s with no keypress, and not at all if
+	// it was answered first. `ApprovalNotifier` owns the rule.
+	const pauseClockRef = useRef(new PauseClock())
+	const approvalSendRef = useRef(sendTerminalNotification)
+	approvalSendRef.current = sendTerminalNotification
+	const approvalNotifierRef = useRef<ApprovalNotifier | null>(null)
+	if (approvalNotifierRef.current === null) {
+		approvalNotifierRef.current = new ApprovalNotifier({
+			now: Date.now,
+			setTimer: (run, ms) => {
+				const handle = setTimeout(run, ms)
+				handle.unref?.()
+				return handle
+			},
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			lastInteractionAt: () => lastKeyAtRef.current,
+			isDialogOpen: () =>
+				permissionResolveRef.current !== null ||
+				questionDialogRef.current !== null ||
+				choicePickerRef.current !== null ||
+				planPromptRef.current !== null ||
+				scheduleReviewPromptRef.current !== null ||
+				saveSkillPromptRef.current !== null,
+			send: () => approvalSendRef.current({ kind: 'approval-required' }),
+		})
+	}
+	const announceApproval = useCallback(() => approvalNotifierRef.current?.dialogOpened(), [])
+	useEffect(() => () => approvalNotifierRef.current?.dispose(), [])
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
 		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
@@ -4531,7 +4757,29 @@ export function App({
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
-			setMessages(projectConversation(restored, nextId))
+			// The same closing row every resume path draws: the title a person gave
+			// it, else the first thing they typed.
+			let named: string | undefined
+			try {
+				named = await titleOf(sessions, asSessionId(requestedConversationId))
+			} catch {
+				// A title is a courtesy; the conversation opens without it.
+			}
+			const resumedTitle = named ?? firstTypedPrompt(restored)
+			setMessages([
+				...projectConversation(restored, nextId, [], {
+					trail: trailFromRecords(journalOf(restored)),
+				}),
+				...(resumedTitle
+					? [
+							{
+								id: nextId(),
+								role: 'system' as const,
+								content: `Resumed: ${displayConversationTitle(resumedTitle)}`,
+							},
+						]
+					: []),
+			])
 			setHistory(promptHistoryFromConversation(restored))
 			const persistedOutput = latestAssistantOutput(restored)
 			lastCompletedOutputRef.current = persistedOutput
@@ -4756,7 +5004,10 @@ export function App({
 				options.beforePublish?.()
 				commands = definition
 					? []
-					: discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
+					: discoverUserCommands({
+							cwd: activeCtx.cwd,
+							reserved: hostCommandNames(),
+						})
 				// Construction and validation precede the saved change. There is no
 				// await between this atomic write and publishing the usable session.
 				if (persistSelection && !definition) writePreferences(prefs)
@@ -4849,6 +5100,7 @@ export function App({
 				// listing. A listing that fails costs the effort menu and nothing else.
 				void s.reasoningSettled.then(({ notice }) => {
 					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					reasoningListedRef.current = s
 					setReasoningVersion((version) => version + 1)
 					if (notice) pushMessage('system', notice)
 					settleEffort()
@@ -5122,7 +5374,12 @@ export function App({
 	)
 
 	const runProbe = useCallback(
-		async (options: { readonly signal?: AbortSignal; readonly announce?: boolean } = {}) => {
+		async (
+			options: {
+				readonly signal?: AbortSignal
+				readonly announce?: boolean
+			} = {},
+		) => {
 			const { signal, announce = false } = options
 			try {
 				if (signal?.aborted) return
@@ -5160,7 +5417,10 @@ export function App({
 				if (pinnedPal?.model) {
 					const preferences = tuiPalPreferences(pinnedPal, probe.preferences)
 					if (!preferences) throw new Error('The Pal has no available model route.')
-					await hydrateSession(preferences, probe.detected, { signal, announce })
+					await hydrateSession(preferences, probe.detected, {
+						signal,
+						announce,
+					})
 					return
 				}
 				const launch = ctxRef.current.launchSettings
@@ -5252,7 +5512,10 @@ export function App({
 				if (probe.preferences) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
-					await hydrateSession(probe.preferences, probe.detected, { signal, announce })
+					await hydrateSession(probe.preferences, probe.detected, {
+						signal,
+						announce,
+					})
 					return
 				}
 				const signedIn = signedInSubscriptionProviders(probe.detected)
@@ -5276,7 +5539,10 @@ export function App({
 						if (!admissionSignal.aborted)
 							pushMessage(
 								'system',
-								describeAutomaticChoice({ provider: chosen, kind: automaticKind(chosen) }),
+								describeAutomaticChoice({
+									provider: chosen,
+									kind: automaticKind(chosen),
+								}),
 							)
 						return
 					} catch (error) {
@@ -5681,10 +5947,10 @@ export function App({
 				await session.abandonTurn(active.turnId as TurnId, reason)
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t stop the paused reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
-		[pushMessage, session, state],
+		[pushMessage, session, state, pushSystem],
 	)
 
 	/**
@@ -5781,7 +6047,9 @@ export function App({
 								currentPermissionMode: () => permissionModeRef.current,
 								onAutoModeLimit: handleAutoModeLimit,
 								...(resume?.handoffReason
-									? { systemNote: handoffContinuationNote(resume.handoffReason) }
+									? {
+											systemNote: handoffContinuationNote(resume.handoffReason),
+										}
 									: {}),
 							}),
 				})) {
@@ -5807,7 +6075,7 @@ export function App({
 					advanceQueueContinuation()
 				}
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Couldn’t continue this reply.'))
+				pushSystem('error', explainFailure(err, 'Couldn’t continue this reply.'))
 			} finally {
 				if (abortRef.current === ac) abortRef.current = null
 				setState('idle')
@@ -5829,6 +6097,7 @@ export function App({
 			session,
 			setHandoffPark,
 			state,
+			pushSystem,
 		],
 	)
 
@@ -5894,7 +6163,7 @@ export function App({
 				setSelectedResume(0)
 				setPhase('resume')
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not list conversations.'))
+				pushSystem('error', explainFailure(err, 'Could not list conversations.'))
 			}
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
@@ -5938,7 +6207,7 @@ export function App({
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not list archived conversations.'))
+			pushSystem('error', explainFailure(err, 'Could not list archived conversations.'))
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage, state])
 
@@ -5949,7 +6218,10 @@ export function App({
 		screenConsent: pending.screenConsent === true,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
-			? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
+			? {
+					commandArguments: session.commandArguments,
+					rememberWhere: displayPath(ctx.cwd, 28),
+				}
 			: {}),
 	})
 
@@ -6061,6 +6333,7 @@ export function App({
 				setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 			} else discardQueued()
 			clearActiveTools()
+			setSummarising(false)
 			setState('idle')
 			return true
 		},
@@ -6076,16 +6349,40 @@ export function App({
 		],
 	)
 	/**
+	 * The one way a turn is interrupted from the keyboard: stop it, then leave
+	 * the one interruption row behind. The row hangs under the call that was
+	 * running when there was one (read before the stop clears it), and says
+	 * only "Interrupted" after a send-now steer, whose answer is already on its
+	 * way. `always` draws the row even when nothing was running to stop.
+	 */
+	const interruptWithRow = useCallback(
+		(
+			recoverInput: boolean,
+			options?: { readonly steered?: boolean; readonly always?: boolean },
+		) => {
+			const callRunning = activeToolsRef.current.length > 0
+			const interrupted = interruptTurn(recoverInput)
+			if (interrupted || options?.always === true) {
+				const row = interruptionRow({
+					callRunning,
+					...(options?.steered ? { steered: true } : {}),
+				})
+				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
+			}
+			return interrupted
+		},
+		[interruptTurn, pushMessage],
+	)
+	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
 	 * pending steer (the reply stops, the steer starts the next one); a queue
 	 * that was only held by that interruption is released so it runs too.
 	 */
 	const sendPendingNow = useCallback(() => {
 		if (!abortRef.current) return
-		interruptTurn(true)
+		interruptWithRow(true, { steered: true, always: true })
 		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
-		pushMessage('system', 'Interrupted.')
-	}, [interruptTurn, pushMessage, setQueuePause])
+	}, [interruptWithRow, setQueuePause])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -6171,12 +6468,14 @@ export function App({
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not resume that conversation.'))
+				pushSystem('error', explainFailure(err, 'Could not resume that conversation.'))
 				return
 			}
 			resumeCommittedRef.current = false
 			setPhase('ready')
-			const restored = projectConversation(msgs, nextId)
+			const restored = projectConversation(msgs, nextId, [], {
+				trail: trailFromRecords(journalOf(msgs)),
+			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
 			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
@@ -6262,6 +6561,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6413,7 +6713,7 @@ export function App({
 									? ''
 									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
 							}`
-						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
+						: `Started a fresh conversation. Conversations cannot be saved right now, so this one is lost when you quit.${
 								clearScreen
 									? ''
 									: ' Earlier rows above are display only and are not part of this conversation’s model context.'
@@ -6432,8 +6732,8 @@ export function App({
 					)
 				}
 			} catch (err) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						err,
 						'Couldn’t start a new conversation. The current one and any running reply are unchanged.',
@@ -6458,6 +6758,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6614,10 +6915,10 @@ export function App({
 						: `Named "${title}".`,
 				)
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save the name.'))
+				pushSystem('error', explainFailure(err, 'Could not save the name.'))
 			}
 		},
-		[materializeConversation, pushMessage, setTextPrompt],
+		[materializeConversation, pushMessage, setTextPrompt, pushSystem],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -6637,7 +6938,11 @@ export function App({
 				if (pending) {
 					pushMessage('system', `Answered "${pending.question.question}": ${text}`, false, '?')
 				}
-				resolveQuestion({ kind: 'answer', selectedOptionIds: [], freeText: text })
+				resolveQuestion({
+					kind: 'answer',
+					selectedOptionIds: [],
+					freeText: text,
+				})
 				return
 			}
 
@@ -6678,8 +6983,7 @@ export function App({
 					}
 					pushMessage('system', `Named "${value.trim()}".`)
 				},
-				(error: unknown) =>
-					pushMessage('system', explainFailure(error, 'Could not save the name.')),
+				(error: unknown) => pushSystem('error', explainFailure(error, 'Could not save the name.')),
 			)
 		},
 		[pushMessage, runConversationExport, setTextPrompt],
@@ -6768,7 +7072,7 @@ export function App({
 				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
 			)
 		} catch (err) {
-			pushMessage('system', explainFailure(err, 'Could not fork.'))
+			pushSystem('error', explainFailure(err, 'Could not fork.'))
 		} finally {
 			conversationMutationRef.current = null
 			setConversationMutation(null)
@@ -6783,6 +7087,7 @@ export function App({
 		resetSubagentActivity,
 		session,
 		wakeGoalDriver,
+		pushSystem,
 	])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
@@ -6853,10 +7158,10 @@ export function App({
 				// this before its next turn.
 				operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not restore the files.'))
+				pushSystem('error', explainFailure(err, 'Could not restore the files.'))
 			}
 		},
-		[hasUnsettledTurn, pushMessage, session, state],
+		[hasUnsettledTurn, pushMessage, session, state, pushSystem],
 	)
 
 	/** Fork before the selected prompt, then reopen that prompt in the composer. */
@@ -6941,7 +7246,7 @@ export function App({
 				)
 			} catch (err) {
 				setPhase('ready')
-				pushMessage('system', explainFailure(err, 'Could not edit the selected prompt.'))
+				pushSystem('error', explainFailure(err, 'Could not edit the selected prompt.'))
 			} finally {
 				editCommittedRef.current = false
 				conversationMutationRef.current = null
@@ -6961,6 +7266,7 @@ export function App({
 			session,
 			resetTranscript,
 			wakeGoalDriver,
+			pushSystem,
 		],
 	)
 
@@ -6977,6 +7283,7 @@ export function App({
 			}
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
+				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
@@ -6995,10 +7302,10 @@ export function App({
 				setPermissionDetailsOpen(!summary.complete)
 				setPermission({ ...req, review: review.text, summary, siteNotes })
 				setState('awaiting-permission')
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			})
 		},
-		[sendTerminalNotification, setPermissionDetailsOpen, setPermissionReviewOffset],
+		[announceApproval, setPermissionDetailsOpen, setPermissionReviewOffset],
 	)
 
 	/**
@@ -7034,7 +7341,7 @@ export function App({
 					signal?.addEventListener('abort', onAbort, { once: true })
 					setJobSurface(null)
 					setQuestionDialog(entry)
-					sendTerminalNotification({ kind: 'approval-required' })
+					announceApproval()
 					return
 				}
 				const values = [
@@ -7057,7 +7364,12 @@ export function App({
 							...(option.recommended === true ? { recommended: true } : {}),
 						})),
 						...(question.allowFreeText
-							? [{ label: 'Something else…', description: 'Answer in your own words' }]
+							? [
+									{
+										label: 'Something else…',
+										description: 'Answer in your own words',
+									},
+								]
 							: []),
 					],
 				}
@@ -7069,11 +7381,11 @@ export function App({
 				setSelectedChoice(0)
 				setJobSurface(null)
 				setChoicePicker(picker)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
 		[
 			closeLiveReply,
-			sendTerminalNotification,
+			announceApproval,
 			setChoicePicker,
 			setQuestionDialog,
 			setSelectedChoice,
@@ -7123,9 +7435,9 @@ export function App({
 				const onAbort = () => finish({ kind: 'keep-planning' })
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setPlanPrompt(entry)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
-		[applyPermissionMode, closeLiveReply, pushMessage, sendTerminalNotification, setPlanPrompt],
+		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
 	)
 	/**
 	 * The card's answer. It answers from its own key handler, which Ink calls
@@ -7149,7 +7461,7 @@ export function App({
 			const ownerSession = session
 			const child = subagentsRef.current.find((candidate) => candidate.viewId === viewId)
 			if (!ownerSession?.messageSubagent || !child || child.replayed) {
-				throw new Error('This child is saved evidence and cannot receive messages here.')
+				throw new Error('This agent is a saved record and cannot receive messages.')
 			}
 			if (
 				compactingRef.current ||
@@ -7233,9 +7545,9 @@ export function App({
 				const onAbort = () => entry.resolve('cancel')
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setScheduleReviewPrompt(entry)
-				sendTerminalNotification({ kind: 'approval-required' })
+				announceApproval()
 			}),
-		[closeLiveReply, sendTerminalNotification, setScheduleReviewPrompt],
+		[closeLiveReply, announceApproval, setScheduleReviewPrompt],
 	)
 
 	/**
@@ -7359,7 +7671,11 @@ export function App({
 					totalTokens: budget.ownTokens,
 					budget,
 					cost: {
-						...(own?.cost ?? { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 }),
+						...(own?.cost ?? {
+							totalCost: 0,
+							cacheDiscount: 0,
+							unpricedTokens: 0,
+						}),
 						unpricedTokens:
 							(own?.cost.unpricedTokens ?? 0) +
 							Math.max(0, budget.ownTokens - (own?.totalTokens ?? 0)),
@@ -7433,7 +7749,10 @@ export function App({
 							: undefined
 					const tool: RunningTool = {
 						...(waitingAgent
-							? { taskId: waitingAgent.taskId, waitingOn: waitingAgent.description }
+							? {
+									taskId: waitingAgent.taskId,
+									waitingOn: waitingAgent.description,
+								}
 							: {}),
 						id: event.toolUseId,
 						...(event.turnId ? { turnId: event.turnId } : {}),
@@ -7469,7 +7788,9 @@ export function App({
 						...withoutFraction,
 						progress: event.message,
 						...(current.command !== undefined
-							? { tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES) }
+							? {
+									tail: [...(current.tail ?? []), event.message].slice(-SHELL_LIVE_LINES),
+								}
 							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 					}
@@ -7552,246 +7873,24 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
-					if (!event.isError && done?.activity === 'exploration') {
-						// Preserve the result, including the summary removed from detail by the adapter.
-						const output =
-							event.output !== undefined
-								? event.output.split('\n')
-								: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
-						pushMessage(
-							'tool',
-							event.headline ?? done.label,
-							false,
-							'└',
-							output,
-							theme.text.muted,
-							output.length > 0 ? 'ctrl+o output' : undefined,
-							'exploration',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const web = event.web ?? done?.web
-					if (web) {
-						// Two rows, the call and what it came to, drawn as `web` activity:
-						// consecutive ones sit together and the result list stays behind
-						// Ctrl+O, as the reference terminal draws them.
-						const activity: WebActivity = {
-							...web,
-							...((event.web?.target ?? done?.web?.target)
-								? { target: event.web?.target ?? done?.web?.target }
-								: {}),
-						}
-						const durationMs = event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
-						const output = web.hosted ? undefined : event.output
-						pushMessage(
-							'tool',
-							webCallTitle(activity),
-							false,
-							event.isError ? '✗' : '✓',
-							undefined,
-							event.isError ? theme.status.error : theme.status.ok,
-							undefined,
-							'web',
-						)
-						const outputLines = output !== undefined ? output.split('\n') : undefined
-						pushMessage(
-							'tool',
-							event.isError
-								? `failed: ${event.summary}`
-								: webSettledLine(activity, {
-										...(durationMs !== undefined ? { durationMs } : {}),
-										...(activity.kind === 'fetch' && output !== undefined
-											? { bytes: Buffer.byteLength(output, 'utf8') }
-											: {}),
-									}),
-							false,
-							'⎿',
-							outputLines,
-							undefined,
-							outputLines && outputLines.length > 0 ? 'ctrl+o output' : undefined,
-							'web',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (isTaskTool(event.toolName)) {
-						// The task event already wrote the block. A listing refreshes it
-						// while there is a plan to show; with none it keeps its own row.
-						if (!event.isError && event.toolName !== 'task_list') {
-							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-							break
-						}
-						if (!event.isError && tasksRef.current.length > 0) {
-							writeTaskBlock(st, null, tasksRef.current)
-							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-							break
-						}
-						// Its own row, in words: the call's label, and the result's
-						// label rather than the model's receipt, which names ids.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary, true),
-							false,
-							event.isError ? '✗' : '✓',
-							undefined,
-							event.isError ? theme.status.error : theme.status.ok,
-						)
-						const said =
-							event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
-						if (said.length > 0) {
-							pushMessage('tool', event.isError ? `failed: ${said}` : said, false, '⎿')
-						}
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.declined) {
-						// The person's own No: neither a failure nor a mystery. The model's
-						// refusal text is for the model and is not shown.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'○',
-							undefined,
-							theme.text.muted,
-						)
-						pushMessage('tool', declinedLine(event.declined.note), false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.cancelled) {
-						// A No on the tool's own screen: the person's answer, not a failure.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'○',
-							undefined,
-							theme.text.muted,
-							event.durationMs !== undefined ? formatElapsed(event.durationMs) : undefined,
-						)
-						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (
-						!event.isError &&
-						event.toolName === WORKFLOW_TOOL_NAME &&
-						isBackgroundLaunch(event.output ?? '')
-					) {
-						// The call returned at once and the run goes on in the background.
-						// What the model was told (the run's id, how it will hear back) is
-						// for the model; the person gets the name and where to manage it.
-						pushMessage(
-							'tool',
-							done?.label ?? formatToolCall(event.toolName, event.summary),
-							false,
-							'●',
-							undefined,
-							theme.accent.assistant,
-						)
-						pushMessage('tool', WORKFLOW_BACKGROUND_NOTE, false, '⎿')
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const catalogue =
-						!event.isError && event.toolName === 'agent_models' && event.output !== undefined
-							? modelCatalogueView(event.output)
-							: undefined
-					if (catalogue !== undefined) {
-						pushMessage(
-							'tool',
-							catalogue,
-							false,
-							'✓',
-							event.output?.split('\n'),
-							theme.status.ok,
-							'ctrl+o details',
-							'catalogue',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					const evidence =
-						!event.isError && event.output !== undefined
-							? conversationEvidenceView(event.toolName, event.output)
-							: undefined
-					if (evidence !== undefined) {
-						pushMessage(
-							'tool',
-							evidence.content,
-							false,
-							'✓',
-							evidence.detail,
-							theme.status.ok,
-							'ctrl+o details',
-							'evidence',
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					if (event.shell && done?.command !== undefined) {
-						// One row: the header, and the `⎿` result hung under it. The dot says
-						// how it ended; the elapsed time is not repeated per command.
-						const failed = event.isError || event.shell.failed
-						const command = done?.command
-						const header = command
-							? formatToolCall(event.toolName, shellCommandHeader(command))
-							: (done?.label ?? formatToolCall(event.toolName, event.summary))
-						const full = command
-							? formatToolCall(event.toolName, shellCommandFull(command))
-							: undefined
-						// A tool that failed without an exit status (blocked, refused) has its
-						// words in stdout; they read as the error they are.
-						const settled: ShellOutput =
-							event.isError && event.shell.stderr.length === 0
-								? { ...event.shell, stdout: [], stderr: event.shell.stdout, failed: true }
-								: { ...event.shell, failed }
-						pushMessage(
-							'tool',
-							header,
-							false,
-							'●',
-							[...settled.stdout, ...settled.stderr],
-							failed ? theme.status.error : theme.status.ok,
-							undefined,
-							undefined,
-							undefined,
-							full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
-						)
-						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-						break
-					}
-					pushMessage(
-						'tool',
-						done?.label ?? formatToolCall(event.toolName, event.summary),
-						false,
-						event.isError ? '✗' : '✓',
-						done?.detail,
-						event.isError ? theme.status.error : theme.status.ok,
-						event.durationMs !== undefined
-							? formatElapsed(event.durationMs)
-							: done
-								? formatElapsed(Date.now() - done.startedAt)
-								: undefined,
-					)
-					if (
-						event.isError ||
-						(!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0))
-					) {
-						pushMessage(
-							'tool',
-							event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
-							false,
-							'⎿',
-							event.detail,
-						)
+					const built = toolEndRows(event, done, {
+						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
+						hasPlan: tasksRef.current.length > 0,
+					})
+					if (built.kind === 'task-block') {
+						writeTaskBlock(st, null, tasksRef.current)
+					} else if (built.kind === 'rows') {
+						for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 					break
 				}
 				case 'usage':
+					// The model's response is over (the kernel reports its spend after the
+					// last delta): commit what it wrote now. Left open until the turn
+					// settles, the tail of a reply stays held back for as long as the turn
+					// waits on background agents, and their notices print above it.
+					closeAssistant()
 					st.lastUsage = event
 					setUsage({
 						totalTokens: event.totalTokens,
@@ -7866,7 +7965,24 @@ export function App({
 					// someone reading back could not tell whether the gap they are
 					// looking at was compacted. The event is a fact about the
 					// conversation and belongs in its record.
-					pushMessage('system', event.text, false, event.shed ? '⌫' : '⌦')
+					// Tool-result clearing is tallied for /context and never drawn;
+					// the summary that follows a clearing pass that was not enough
+					// shows as a live "Compacting conversation…" line meanwhile.
+					setSummarising(event.compacting === true)
+					if (event.row === 'compacted') {
+						pushMessage(
+							'system',
+							event.text,
+							false,
+							CLOSING_GLYPH,
+							event.detail,
+							theme.text.muted,
+							COMPACTED_HINT,
+							'summary',
+						)
+					} else if (event.row !== 'hidden') {
+						pushSystem(event.row === 'warning' ? 'warning' : 'notice', event.text)
+					}
 					if (event.shed) {
 						setCompactionTally((tally) => ({
 							passes: tally.passes + 1,
@@ -7878,7 +7994,7 @@ export function App({
 					}
 					break
 				case 'hook-notice':
-					pushMessage('system', event.text, false, '!')
+					pushSystem(event.halted ? 'warning' : 'notice', event.text)
 					break
 				case 'provider-fallback':
 					// The transcript, for the reason compaction is in the transcript
@@ -7886,11 +8002,11 @@ export function App({
 					// thing happens, and someone reading back a session needs to know
 					// which answers came from the provider they picked and which did
 					// not. A swap is a permanent fact about this turn.
-					pushMessage('system', event.text, false, '⇄')
+					pushSystem('warning', event.text)
 					break
 				case 'capability-warning':
-					pushMessage(
-						'system',
+					pushSystem(
+						'warning',
 						withDebugDetail(
 							describeCapabilityNotice({
 								capability: event.capability,
@@ -7900,13 +8016,11 @@ export function App({
 							event.text,
 							debugRequested(),
 						),
-						false,
-						'!',
 					)
 					break
 				case 'history-repair':
-					pushMessage(
-						'system',
+					pushSystem(
+						'notice',
 						withDebugDetail(
 							describeHistoryRepairNotice({
 								source: event.source,
@@ -7923,11 +8037,10 @@ export function App({
 							event.text,
 							debugRequested(),
 						),
-						false,
-						'!',
 					)
 					break
 				case 'done': {
+					setSummarising(false)
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
 					if (event.text !== undefined) st.text = event.text
@@ -7944,7 +8057,7 @@ export function App({
 					}
 					closeAssistant()
 					const stopNotice = describeTurnStop(event.stopReason, event.budget)
-					if (stopNotice) pushMessage('system', stopNotice, false, '■')
+					if (stopNotice) pushSystem('warning', stopNotice)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
@@ -7956,12 +8069,18 @@ export function App({
 						// a stop or a cancellation has already said how it ended.
 						const closing =
 							delegated.length > 0 || st.completed
-								? settleLine(Date.now() - since, delegated)
+								? settleLine(
+										Date.now() -
+											since -
+											(pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)),
+										delegated,
+									)
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
-						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
+						if (closing)
+							pushMessage('system', closing, false, CLOSING_GLYPH, undefined, theme.text.muted)
 					}
 					// A save the operator asked for in words takes the place of
 					// the proposal to save it.
@@ -7970,6 +8089,7 @@ export function App({
 					break
 				}
 				case 'paused':
+					setSummarising(false)
 					// Paused is a recoverable SDK verdict, not success and not failure.
 					// Conversation evidence has no paused member, so it records the
 					// truthful coarse outcome (`stopped`) while queue copy retains the
@@ -7988,28 +8108,26 @@ export function App({
 						// Without a window the sign-in happens in `namzu browser
 						// login`, which needs the profile this session holds.
 						if (browserNotice && browser && browserStatus?.headless) void browser.release()
-						pushMessage(
-							'system',
-							browserNotice ??
-								`${describePlainInterruption(event, plainOptions())}\nWhen that is done, press Enter to continue · Esc to stop.`,
-							false,
-							'‖',
-						)
-						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
+						pushSystem('warning', browserNotice ?? describePlainInterruption(event, plainOptions()))
+						setHandoffPark({
+							turnId: event.turnId,
+							reason: event.handoff.reason,
+						})
 					} else {
-						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '‖')
+						pushSystem('warning', describePlainInterruption(event, plainOptions()))
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
 						setHandoffPark({ turnId: event.turnId })
 					}
 					break
 				case 'error':
+					setSummarising(false)
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					triggerFollowUpsRef.current?.(st, st.outcome)
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', describePlainInterruption(event, plainOptions()), false, '!')
+						pushSystem('error', describePlainInterruption(event, plainOptions()))
 					} else st.notification = null
 					break
 			}
@@ -8073,8 +8191,8 @@ export function App({
 			try {
 				durableScope = await materializeConversation()
 			} catch (error) {
-				pushMessage(
-					'system',
+				pushSystem(
+					'error',
 					explainFailure(
 						error,
 						'This conversation could not be saved. It will continue, but it cannot be resumed later.',
@@ -8102,7 +8220,7 @@ export function App({
 						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
 						wakeGoalDriver()
 					}
-					pushMessage('system', explainFailure(err, 'Your message was not sent.'))
+					pushSystem('error', explainFailure(err, 'Your message was not sent.'))
 					setState('idle')
 					return
 				}
@@ -8227,22 +8345,20 @@ export function App({
 			const pinnedEffort = triggerEffort(turnTriggers, session.reasoningEffortLevels)
 
 			if (prompt.kind === 'peer') {
-				pushMessage('system', peerMailLabel(prompt.mail), false, '↳')
+				pushSystem('notice', peerMailLabel(prompt.mail))
 			} else if (prompt.kind === 'notice') {
 				// The closing line for what ended is already in the conversation; the
 				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
-				pushMessage(
-					'system',
-					`Goal round ${goalRound.round} / ${goalRound.maxGoalRounds}`,
-					false,
-					'◎',
-					[`Objective: ${goalRound.objective}`],
-				)
+				pushSystem('notice', goalRoundHeadline(goalRound.round, goalRound.maxGoalRounds), {
+					continuation: goalRound.objective,
+				})
 			} else {
 				pushMessage(
 					'user',
-					text,
+					// What the operator typed: a command that composes the model's
+					// message (`/workflow <task>`) shows the command, not the rewrite.
+					prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
 					false,
 					undefined,
 					undefined,
@@ -8253,18 +8369,10 @@ export function App({
 					effort: pinnedEffort,
 					steered: false,
 				})
-				if (tagLine) pushMessage('system', tagLine, false, '✦', undefined, theme.accent.trigger)
+				if (tagLine) pushSystem('notice', tagLine)
 				for (const id of requestedTriggers) {
 					const reason = triggerUnavailable(id, triggerContext)
-					if (reason)
-						pushMessage(
-							'system',
-							`${triggerDefinition(id).label} · not applied: ${reason}`,
-							false,
-							'✧',
-							undefined,
-							theme.text.muted,
-						)
+					if (reason) pushSystem('notice', notAppliedLine([triggerDefinition(id).label], reason))
 				}
 			}
 			// A plan is scoped to the request it was made for. Cleared here, at
@@ -8282,6 +8390,7 @@ export function App({
 			const st: StreamState = {
 				assistantId: null,
 				startedAt: Date.now(),
+				pausedAtStart: pauseClockRef.current.total(Date.now()),
 				text: '',
 				conversationMessages: undefined,
 				pending: '',
@@ -8353,7 +8462,10 @@ export function App({
 					activeTurnTokenRef.current !== turnToken ||
 					previousSessionRef.current !== session
 				) {
-					return { kind: 'rejected', reason: 'The requesting turn is no longer active.' }
+					return {
+						kind: 'rejected',
+						reason: 'The requesting turn is no longer active.',
+					}
 				}
 				const accepted = pendingModelSwitchRef.current
 				if (
@@ -8396,7 +8508,10 @@ export function App({
 						!stillHere() ||
 						activeTurnTokenRef.current !== turnToken
 					) {
-						return { kind: 'rejected', reason: 'The model switch was cancelled or superseded.' }
+						return {
+							kind: 'rejected',
+							reason: 'The model switch was cancelled or superseded.',
+						}
 					}
 					if (result.kind === 'rejected') return result
 					pending.selection = result.selection
@@ -8484,7 +8599,7 @@ export function App({
 						for (const input of delivered) {
 							pushMessage(
 								'user',
-								input.prompt.text,
+								input.prompt.recallText ?? input.prompt.text,
 								false,
 								undefined,
 								undefined,
@@ -8541,7 +8656,10 @@ export function App({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: { readonly ids: readonly string[]; readonly text?: string } = {
+			let idleNoticeSnapshot: {
+				readonly ids: readonly string[]
+				readonly text?: string
+			} = {
 				ids: [],
 			}
 			let monitorSnapshot: {
@@ -8588,7 +8706,10 @@ export function App({
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
-						origin: { protocol: 'cli', kind: goalRound ? 'goal-round' : 'prompt' },
+						origin: {
+							protocol: 'cli',
+							kind: goalRound ? 'goal-round' : 'prompt',
+						},
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
@@ -8606,6 +8727,7 @@ export function App({
 							? { effort: pinnedEffort ?? turnReasoningEffort }
 							: {}),
 						...(turnHypermode ? { hypermode: true } : {}),
+						...(turnTriggers.includes('workflow') ? { workflow: true } : {}),
 						// Read at every iteration, so an after-turn trigger a steer
 						// binds to this turn is said from the next one on.
 						hostContext: () =>
@@ -8629,7 +8751,10 @@ export function App({
 						workflowReview: {
 							onPermission: async (request) => {
 								if (!workflowOwns()) {
-									return { kind: 'reject', feedback: 'The owning conversation changed.' }
+									return {
+										kind: 'reject',
+										feedback: 'The owning conversation changed.',
+									}
 								}
 								const decision = await onPermission(request)
 								// An agent can ask while no turn runs; nothing else would put the
@@ -8686,7 +8811,7 @@ export function App({
 									finalizeMessage(st.assistantId)
 									st.assistantId = null
 								}
-								for (const item of mail) pushMessage('system', peerMailLabel(item), false, '↳')
+								for (const item of mail) pushSystem('notice', peerMailLabel(item))
 							}
 							return [
 								...operatorMessages,
@@ -8755,7 +8880,7 @@ export function App({
 					// the failure would be discarded along with the turn.
 					flushStream(st)
 					if (st.assistantId) finalizeMessage(st.assistantId)
-					pushMessage('system', explainFailure(err, 'That reply failed.'))
+					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
 				if (st.completed && stillHere()) {
@@ -8823,9 +8948,15 @@ export function App({
 					// around it are decoration too.
 					abortRef.current = null
 					if (ownsTurn) activeTurnTokenRef.current = null
-					permissionResolveRef.current?.({ kind: 'reject', feedback: 'The owning turn ended.' })
+					permissionResolveRef.current?.({
+						kind: 'reject',
+						feedback: 'The owning turn ended.',
+					})
 					for (const pending of permissionQueueRef.current.splice(0))
-						pending.resolve({ kind: 'reject', feedback: 'The owning turn ended.' })
+						pending.resolve({
+							kind: 'reject',
+							feedback: 'The owning turn ended.',
+						})
 					setQueuedPermissionCount(0)
 					permissionResolveRef.current = null
 					permissionOpenedAtRef.current = null
@@ -9138,13 +9269,16 @@ export function App({
 					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
 					return
 				}
-				const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
+				const saved = appendMemoryWithStatus(note, {
+					scope: 'project',
+					cwd: ctx.cwd,
+				})
 				pushMessage('system', renderMemorySaveResult(saved, note))
 			} catch (err) {
-				pushMessage('system', explainFailure(err, 'Could not save memory.'))
+				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session],
+		[ctx.cwd, pushMessage, session, pushSystem],
 	)
 
 	/**
@@ -9164,20 +9298,22 @@ export function App({
 				live.contextTexts = [
 					...new Set([...(live.contextTexts ?? []), ...triggerContextTexts(afterTurn)]),
 				]
-				const line = transcriptTagLine(afterTurn, { effort: undefined, steered: true })
-				if (line) pushMessage('system', line, false, '✦', undefined, theme.accent.trigger)
+				const line = transcriptTagLine(afterTurn, {
+					effort: undefined,
+					steered: true,
+				})
+				if (line) pushSystem('notice', line)
 			}
 			if (turnOnly.length > 0)
-				pushMessage(
-					'system',
-					`${turnOnly.map((id) => triggerDefinition(id).label).join(', ')} · not applied: Enter steered this message into the running reply. Tab queues it as a new message.`,
-					false,
-					'✧',
-					undefined,
-					theme.text.muted,
+				pushSystem(
+					'notice',
+					notAppliedLine(
+						turnOnly.map((id) => triggerDefinition(id).label),
+						STEERED_NOT_APPLIED_REASON,
+					),
 				)
 		},
-		[pushMessage],
+		[pushSystem],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -9316,7 +9452,7 @@ export function App({
 				if (palDefinitionRef.current) {
 					pushMessage(
 						'system',
-						'Host shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command in its own computer.',
+						'Shell shortcuts are unavailable in Pal chat. Ask the Pal to run the command on its own computer.',
 					)
 					return
 				}
@@ -9361,13 +9497,12 @@ export function App({
 					(id) => triggerDefinition(id).standalone === undefined,
 				)
 				if (needTask.length > 0)
-					pushMessage(
-						'system',
-						`${needTask.map((id) => triggerDefinition(id).label).join(', ')} · not applied: the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}.`,
-						false,
-						'✧',
-						undefined,
-						theme.text.muted,
+					pushSystem(
+						'notice',
+						notAppliedLine(
+							needTask.map((id) => triggerDefinition(id).label),
+							`the message has no task. Put the task in the same message${needTask.includes('hypermode') ? ', e.g. “hypermode fix the flaky test”' : ''}`,
+						),
 					)
 				armedTriggers = []
 				if (!command) return
@@ -9396,6 +9531,10 @@ export function App({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
+						// The command as typed, then its answer hung under `⎿`, so a readout
+						// in the scrollback says which command it answers. A system row, not
+						// a user one: it is not a prompt and must not be offered for editing.
+						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
 						if (slash.statusRows) {
 							setMessages((previous) => [
 								...previous,
@@ -9406,7 +9545,7 @@ export function App({
 									statusRows: slash.statusRows,
 								},
 							])
-						} else pushMessage(slash.role, slash.content)
+						} else pushMessage(slash.role, slash.content, false, '⎿')
 						return
 					case 'command-picker': {
 						if (slash.commands.length === 0) {
@@ -9422,7 +9561,7 @@ export function App({
 								label: `/${command.name}`,
 								description: command.problem
 									? `Unavailable: ${command.problem}`
-									: command.description,
+									: commandPickerDescription(command.description),
 								disabledReason: command.problem,
 							})),
 							windowSize: suggestionWindowSize(terminal.rows),
@@ -9452,7 +9591,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer message failed.')),
+									pushSystem('error', explainFailure(error, 'Peer message failed.')),
 								)
 						} else if (!verb || verb === 'list') {
 							void peers
@@ -9464,7 +9603,7 @@ export function App({
 									),
 								)
 								.catch((error) =>
-									pushMessage('system', explainFailure(error, 'Peer discovery failed.')),
+									pushSystem('error', explainFailure(error, 'Peer discovery failed.')),
 								)
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
@@ -9514,12 +9653,13 @@ export function App({
 								setChoicePicker({
 									kind: 'workflow-runs',
 									title: 'Workflows',
+									subtitle: workflowRunsSubtitle(runs),
 									values: runs.map((run) => run.runId),
 									options: runs.map(workflowRunOption),
 								})
 							})
 							.catch((error) =>
-								pushMessage('system', explainFailure(error, 'Could not read the workflows.')),
+								pushSystem('error', explainFailure(error, 'Could not read the workflows.')),
 							)
 						return
 					}
@@ -9573,7 +9713,10 @@ export function App({
 							return
 						}
 						if (slash.kind === 'turn-limits-set') {
-							turnLimitsOverrideRef.current = { ...turnLimitsOverrideRef.current, ...slash.limits }
+							turnLimitsOverrideRef.current = {
+								...turnLimitsOverrideRef.current,
+								...slash.limits,
+							}
 						}
 						const commands = turnLimitCommands(
 							resolveTurnGuards(currentLimits, turnLimitsOverrideRef.current),
@@ -9604,7 +9747,9 @@ export function App({
 								label: 'Reasoning effort',
 								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future replies in this conversation.`,
 								...(session?.reasoningEffortLevels === undefined
-									? { problem: 'This model does not publish reasoning choices.' }
+									? {
+											problem: 'This model does not publish reasoning choices.',
+										}
 									: {}),
 							},
 							{
@@ -9718,7 +9863,10 @@ export function App({
 												name: 'goal status',
 												description: 'View goal progress and continuation status.',
 											},
-											{ name: 'goal edit', description: 'Change the objective.' },
+											{
+												name: 'goal edit',
+												description: 'Change the objective.',
+											},
 											...(goal.phase === 'complete'
 												? []
 												: [
@@ -9766,7 +9914,7 @@ export function App({
 									choicePickerRef.current?.request === request
 								) {
 									setChoicePicker(null)
-									pushMessage('system', explainFailure(error, 'Could not load goal.'))
+									pushSystem('error', explainFailure(error, 'Could not load goal.'))
 								}
 							} finally {
 								wakeGoalDriver()
@@ -9986,10 +10134,13 @@ export function App({
 							return
 						}
 						try {
-							const saved = appendMemoryWithStatus(slash.text, { scope: slash.scope, cwd: ctx.cwd })
+							const saved = appendMemoryWithStatus(slash.text, {
+								scope: slash.scope,
+								cwd: ctx.cwd,
+							})
 							pushMessage('system', renderMemorySaveResult(saved, slash.text))
 						} catch (err) {
-							pushMessage('system', explainFailure(err, 'Could not save memory.'))
+							pushSystem('error', explainFailure(err, 'Could not save memory.'))
 						}
 						return
 					case 'import-notes': {
@@ -10002,13 +10153,14 @@ export function App({
 						}
 						void session.importCuratedNotes().then(
 							(report) => pushMessage('system', report),
-							(err: unknown) =>
-								pushMessage('system', explainFailure(err, 'Notes were not copied.')),
+							(err: unknown) => pushSystem('error', explainFailure(err, 'Notes were not copied.')),
 						)
 						return
 					}
 					case 'show-memory': {
-						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd })
+						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), {
+							cwd: ctx.cwd,
+						})
 						const stored = session?.storedMemoryIndex
 						if (!stored) {
 							pushMessage('system', curated)
@@ -10027,8 +10179,8 @@ export function App({
 								)
 							},
 							(err: unknown) =>
-								pushMessage(
-									'system',
+								pushSystem(
+									'error',
 									explainFailure(err, `${curated}\n\nStored memories not loaded.`),
 								),
 						)
@@ -10389,7 +10541,7 @@ export function App({
 								)
 							} catch (error) {
 								if (conversationGenRef.current !== generation) return
-								pushMessage('system', explainFailure(error, `Could not run /${slash.name}.`))
+								pushSystem('error', explainFailure(error, `Could not run /${slash.name}.`))
 							} finally {
 								releaseGoalCommand()
 							}
@@ -10472,16 +10624,21 @@ export function App({
 						// Fire-and-forget, like its neighbours: a git invocation is not
 						// something to block a keystroke on.
 						void (async () => {
-							const { summary, detail } = renderWorkspaceDiff(await workspaceDiff(ctx.cwd))
-							setMessages((prev) => [
-								...prev,
-								{
-									id: `diff-${Date.now()}`,
-									role: 'system',
-									content: summary,
-									...(detail.length > 0 ? { detail } : {}),
-								},
-							])
+							const { summary, detail, diff } = renderWorkspaceDiff(await workspaceDiff(ctx.cwd))
+							// Through the one row writer, so a long diff is numbered and Ctrl+O opens it.
+							pushMessage(
+								'system',
+								summary,
+								false,
+								undefined,
+								detail.length > 0 ? detail : undefined,
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								diff,
+							)
 						})()
 						return
 					}
@@ -10514,10 +10671,7 @@ export function App({
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
 									// operator asked on purpose.
-									pushMessage(
-										'system',
-										'Nothing to compact yet — this conversation is short enough that adding a summary would save no messages.',
-									)
+									pushSystem('notice', NOTHING_TO_COMPACT_TEXT)
 									return
 								}
 
@@ -10542,24 +10696,31 @@ export function App({
 								// the projection just as `/resume` does when it replaces the log.
 								resetTranscript()
 								setMessages((prev) => {
+									const kept = keepRecentRows(prev, keptTurns)
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: `Summarised ${plural(result.shed, 'earlier message')} into a short recap.${
-											result.usage.totalTokens > 0
-												? ` Verifier used ${result.usage.totalTokens.toLocaleString('en-US')} tokens.`
-												: ''
-										}${
-											durable
-												? ''
-												: ' This conversation could not be saved, so the summary lasts only until you quit.'
-										}`,
+										content: durable
+											? COMPACT_RESULT_TEXT
+											: `${COMPACT_RESULT_TEXT}. ${COMPACT_NOT_SAVED_TEXT}`,
+										glyph: CLOSING_GLYPH,
+										glyphColor: theme.text.muted,
+										meta: COMPACT_RESULT_HINT,
+										activity: 'summary',
 										detail: summaryDetail(result.summary),
+										// Numbered after the rows that stay, so Ctrl+O can name it.
+										detailRef: Math.max(0, ...kept.map((m) => m.detailRef ?? 0)) + 1,
 									}
-									return [summaryRow, ...keepRecentRows(prev, keptTurns)]
+									return [summaryRow, ...kept]
 								})
+								// /context counts a manual pass like an automatic one.
+								setCompactionTally((tally) => ({
+									...tally,
+									passes: tally.passes + 1,
+									summaries: tally.summaries + 1,
+								}))
 							} catch (err) {
-								pushMessage('system', explainFailure(err, 'Couldn’t summarise the conversation.'))
+								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
 							} finally {
 								compactingRef.current = false
 								setCompacting(false)
@@ -10807,6 +10968,29 @@ export function App({
 		idleNotifierRef.current?.backgroundChanged()
 	}, [backgroundJobs, subagents])
 	useEffect(() => () => idleNotifierRef.current?.dispose(), [])
+	// A permission or a question waiting on the person: the notice countdown
+	// ends when none is left, and the turn's "Worked for" leaves the wait out.
+	const awaitingPerson =
+		permission !== null ||
+		questionDialog !== null ||
+		planPrompt !== null ||
+		scheduleReviewPrompt !== null ||
+		(choicePicker !== null && choicePicker.kind === 'user-question')
+	useEffect(() => {
+		if (awaitingPerson) pauseClockRef.current.begin(Date.now())
+		else pauseClockRef.current.end(Date.now())
+	}, [awaitingPerson])
+	useEffect(() => {
+		if (
+			permission === null &&
+			questionDialog === null &&
+			choicePicker === null &&
+			planPrompt === null &&
+			scheduleReviewPrompt === null &&
+			saveSkillPrompt === null
+		)
+			approvalNotifierRef.current?.dialogClosed()
+	}, [permission, questionDialog, choicePicker, planPrompt, scheduleReviewPrompt, saveSkillPrompt])
 	// `--resume` without a title that names one conversation: the picker, opened
 	// once, as if `/resume` had been typed. The ref is spent before the call.
 	const launchResumePickerRef = useRef(initialCtx.openResumePicker)
@@ -10833,7 +11017,9 @@ export function App({
 		)
 			return
 		launchMessageRef.current = undefined
-		handleSubmit(message.trim(), undefined, 'submit', { source: 'launch-message' })
+		handleSubmit(message.trim(), undefined, 'submit', {
+			source: 'launch-message',
+		})
 	}, [phase, state, session, permission, textPrompt, choicePicker, handleSubmit])
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
 	// picker is also used by review/export flows. Keep only this dispatch hop in
@@ -10866,13 +11052,9 @@ export function App({
 									? 'the reply already saved a skill'
 									: triggerUnavailable('save-skill', triggerContextNow())
 		if (reason) {
-			pushMessage(
-				'system',
-				`save as skill · not run: ${reason} · /skills save runs it anyway`,
-				false,
-				'✧',
-				undefined,
-				theme.text.muted,
+			pushSystem(
+				'notice',
+				`Namzu did not offer to save a skill: ${reason}. /skills save saves one anyway.`,
 			)
 			return true
 		}
@@ -10885,17 +11067,10 @@ export function App({
 			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
 			...queuedRef.current,
 		])
-		pushMessage(
-			'system',
-			'save as skill · running /skills save for this reply',
-			false,
-			'✦',
-			undefined,
-			theme.accent.trigger,
-		)
+		pushSystem('notice', 'Saving a skill from this reply.')
 		return true
 	}
-	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
+	saveSkillNotifyRef.current = () => announceApproval()
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
 		say: (text) => {
@@ -10936,9 +11111,9 @@ export function App({
 						'system',
 						sourceDeliveryLine(delivery),
 						false,
-						'◷',
+						SYSTEM_ROW_GLYPH,
 						undefined,
-						undefined,
+						systemRowStyle(deliveryLevel(delivery.status)).color,
 						undefined,
 						undefined,
 						true,
@@ -10962,9 +11137,9 @@ export function App({
 				const key = JSON.stringify([generation, source])
 				if (sourceDeliveryIssueRef.current === key) return
 				sourceDeliveryIssueRef.current = key
-				pushMessage('system', sourceDeliveryReadError(error), false, '◷')
+				pushSystem('warning', sourceDeliveryReadError(error))
 			})
-	}, [appLifetime.signal, pushMessage])
+	}, [appLifetime.signal, pushMessage, pushSystem])
 	sourceDeliveryPollRef.current = pollSourceDeliveries
 	useEffect(() => {
 		pollSourceDeliveries()
@@ -11284,9 +11459,9 @@ export function App({
 			.catch((error) => {
 				peersStartingRef.current = false
 				appLifetime.signal.removeEventListener('abort', onClose)
-				if (!disposed) pushMessage('system', explainFailure(error, 'Peer messaging unavailable.'))
+				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
@@ -11460,7 +11635,9 @@ export function App({
 			const prefs: Preferences =
 				saved && primaryProvider(saved).id === credential.entry.id
 					? saved
-					: selectPrimaryProvider(saved, { id: credential.entry.id as ProviderId })
+					: selectPrimaryProvider(saved, {
+							id: credential.entry.id as ProviderId,
+						})
 			void (async () => {
 				const started = await hydrateFromPicker(prefs, next, signal)
 				if (!started || credential.entry.id !== 'google') return
@@ -11682,6 +11859,10 @@ export function App({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// The focus rests on the exit choice, so a deliberate Enter exits. It
+				// can only leave: the in-flight Enter above is still ignored, and
+				// nothing here grants trust.
+				else if (key.return) exitWithSummary()
 				return
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
@@ -11796,11 +11977,18 @@ export function App({
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
-					setJobSurface({ ...shellView, busyJobId: selectedJob.id, notice: undefined })
+					setJobSurface({
+						...shellView,
+						busyJobId: selectedJob.id,
+						notice: undefined,
+					})
 					void stopJob(selectedJob.id).then(
 						(result) => {
 							if (previousSessionRef.current !== owner) return
-							setJobSnapshot({ ownerSession: owner, jobs: owner.jobs?.() ?? [] })
+							setJobSnapshot({
+								ownerSession: owner,
+								jobs: owner.jobs?.() ?? [],
+							})
 							const current = jobSurfaceRef.current
 							if (current?.busyJobId === selectedJob.id)
 								setJobSurface({
@@ -11855,7 +12043,12 @@ export function App({
 											: key.downArrow
 												? Math.max(0, offset - 1)
 												: null
-					if (next !== null) setJobSurface({ ...shellView, tailOffset: next, notice: undefined })
+					if (next !== null)
+						setJobSurface({
+							...shellView,
+							tailOffset: next,
+							notice: undefined,
+						})
 					return
 				}
 				if (key.return && selectedJob) {
@@ -11886,7 +12079,12 @@ export function App({
 										? Math.max(0, current - 1)
 										: Math.min(backgroundJobs.length - 1, current + 1)
 					const job = backgroundJobs[next]
-					if (job) setJobSurface({ ...shellView, selectedJobId: job.id, notice: undefined })
+					if (job)
+						setJobSurface({
+							...shellView,
+							selectedJobId: job.id,
+							notice: undefined,
+						})
 				}
 				return
 			}
@@ -11927,10 +12125,8 @@ export function App({
 					railChordRef.current = true
 					return
 				} else if (key.ctrl && input === 'k' && chordPending) {
-					// Every agent still going; workflows are stopped one at a time with `x`.
-					for (const agent of rows) {
-						if (railActionFor(agent) === 'stop') session?.stopSubagent?.(agent.viewId)
-					}
+					// Background agents only; workflows are stopped one at a time with `x`.
+					requestStopAllAgents()
 					return
 				} else if (key.upArrow || key.downArrow) {
 					const index = at + (key.downArrow ? 1 : -1)
@@ -12212,7 +12408,7 @@ export function App({
 						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
 						setAgentSurface(null)
 						setViewNotice(undefined)
-						if (abortRef.current && interruptTurn()) pushMessage('system', 'Interrupted.')
+						if (abortRef.current) interruptWithRow(false)
 						return
 					}
 					if (key.pageUp || key.pageDown || key.home || key.end) {
@@ -12361,6 +12557,18 @@ export function App({
 					)
 					return
 				}
+				if (picker.kind === 'workflow-runs' && input === 'x' && !key.ctrl && !key.meta) {
+					// Stops the highlighted run when it is still going; a finished one has nothing to stop.
+					const chosen = options[selectedChoiceRef.current]
+					const runId = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					const run = workflowRunsRef.current.find((item) => item.runId === runId)
+					if (run?.status === 'running') {
+						session?.workflows?.stop(run.runId)
+						setChoicePicker(null)
+						pushMessage('system', `Stopping ${run.name}.`)
+					}
+					return
+				}
 				if (/^[1-9]$/.test(input)) {
 					const index = Number(input) - 1
 					if (options[index]) applyVisibleChoice(index)
@@ -12443,8 +12651,7 @@ export function App({
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
-				interruptTurn(true)
-				pushMessage('system', 'Interrupted.')
+				interruptWithRow(true, { always: true })
 				return
 			}
 			// Small expansions stay in place. Older or oversized bodies open a viewer.
@@ -12498,23 +12705,27 @@ export function App({
 				} else setMessages(proposed)
 				return
 			}
+			// Ctrl+D on an empty composer arms the same exit Ctrl+C does; with
+			// anything typed it stays the composer's delete-forward key.
+			if (
+				key.ctrl &&
+				input === 'd' &&
+				phase === 'ready' &&
+				!composerHasDraft &&
+				permission === null &&
+				textPrompt === null &&
+				choicePickerRef.current === null &&
+				copyPicker === null
+			) {
+				armExit('Ctrl-D')
+				return
+			}
 			if (key.ctrl && input === 'c') {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
-				if (interruptTurn()) {
-					pushMessage('system', 'Interrupted.')
-					return
-				}
-				if (exitArmedRef.current) {
-					exitWithSummary()
-					return
-				}
-				exitArmedRef.current = true
-				pushMessage('system', 'Press Ctrl+C again to exit.')
-				setTimeout(() => {
-					exitArmedRef.current = false
-				}, 2000)
+				if (interruptWithRow(false)) return
+				armExit('Ctrl-C')
 			}
 		},
 		// Active on every phase. It was gated off during the picker, which is what
@@ -12625,8 +12836,9 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
-	const statusHint =
-		conversationMutation === 'fork'
+	const statusHint = exitHint
+		? `Press ${exitHint} again to exit`
+		: conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
 			: conversationMutation === 'edit'
 				? 'branching before prompt — input is paused'
@@ -12705,9 +12917,16 @@ export function App({
 		!composerHasDraft &&
 		permission === null &&
 		railFocus === null
-	const runningAgentCount =
-		liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length +
-		liveWorkflows.filter((flow) => flow.status === 'running').length
+	const runningAgentCount = liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length
+	// `/workflows`: `x to stop` is offered only on a run that is still going.
+	const workflowPickerCanStop = (() => {
+		if (choicePicker?.kind !== 'workflow-runs') return false
+		const chosen = filterChoiceOptions(choicePicker.options, choiceQuery)[selectedChoice]
+		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
+		return workflowRunsRef.current.find((run) => run.runId === runId)?.status === 'running'
+	})()
+	// A run is one workflow, not an agent: the footer says so.
+	const runningWorkflowCount = liveWorkflows.filter((flow) => flow.status === 'running').length
 	// While the rail has the keyboard its key line replaces the footer's mode line.
 	const railHintText =
 		railFocus !== null &&
@@ -12775,7 +12994,7 @@ export function App({
 						}}
 					/>
 				) : phase === 'trust' ? (
-					<TrustPrompt cwd={ctx.cwd} />
+					<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
 				) : phase === 'unhealthy' ? (
 					// The sentence above already says what to do when it is a complete
 					// one; saying "resolve the error above" under it is the same advice
@@ -12846,9 +13065,10 @@ export function App({
 						scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
+								{...(compacting || summarising ? { activityLabel: COMPACTING_LABEL } : {})}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
-								interruptible={abortRef.current !== null}
+								compacting={compacting}
 								animate={
 									stdout.isTTY === true &&
 									permission === null &&
@@ -12905,11 +13125,18 @@ export function App({
 								batchOnly={permission.batchOnly === true}
 								mode={permissionMode}
 								{...(session?.allowForSession && session.commandArguments
-									? { commandArguments: session.commandArguments, rememberWhere: homePath(ctx.cwd) }
+									? {
+											commandArguments: session.commandArguments,
+											rememberWhere: displayPath(ctx.cwd, 28),
+										}
 									: {})}
 								siteNotes={permission.siteNotes}
 								{...(permission.screenConsent === true
-									? { screenConsent: { provider: session?.providerSummary ?? null } }
+									? {
+											screenConsent: {
+												provider: session?.providerSummary ?? null,
+											},
+										}
 									: {})}
 							/>
 						) : null}
@@ -12984,6 +13211,12 @@ export function App({
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								title={choicePicker.title}
 								notice={choicePicker.notice}
+								{...(choicePicker.kind === 'workflow-runs'
+									? {
+											subtitle: choicePicker.subtitle,
+											hints: workflowRunsHints(workflowPickerCanStop),
+										}
+									: {})}
 								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
 								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 								selected={selectedChoice}
@@ -13113,6 +13346,8 @@ export function App({
 									onLeave: () => setQueueSelection(null),
 								}}
 								onSendNow={sendPendingNow}
+								onStopAllAgents={requestStopAllAgents}
+								railFocused={railFocus !== null}
 								userCommands={userCommands}
 								builtins={hostCommands.map((command) => ({
 									...command,
@@ -13135,10 +13370,15 @@ export function App({
 				{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
 				    does nothing before the folder is trusted. */}
-				{phase === 'trust' || !showComposerSurface || statusLineText === undefined ? null : (
+				{phase === 'trust' ||
+				outputViewer !== null ||
+				!showComposerSurface ||
+				statusLineText === undefined ? null : (
 					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
 				)}
-				{phase === 'trust' ? null : (
+				{/* The tool-output viewer carries its own key line; the mode footer above
+				    its box was a stale row from the composer it replaced. */}
+				{phase === 'trust' || outputViewer !== null ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
@@ -13150,6 +13390,8 @@ export function App({
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}
+						hintDim={exitHint !== null}
+						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
 						composerMounted={showComposerSurface}
@@ -13159,6 +13401,7 @@ export function App({
 						pr={prStatus}
 						hyperlinks={hyperlinks}
 						agentCount={footerKeysLive ? runningAgentCount : 0}
+						workflowCount={footerKeysLive ? runningWorkflowCount : 0}
 						canManage={
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
@@ -13330,16 +13573,6 @@ function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	return <Box flexDirection="column">{children}</Box>
 }
 
-// Tool call label: the tool name title-cased, then its most identifying
-// argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
-// of forty calls says nothing about which one this was.
-function formatToolCall(toolName: string, summary: string, standalone = false): string {
-	if (standalone) return summary
-	const words = toolName.replace(/[_-]+/g, ' ')
-	const display = words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words
-	return summary.length > 0 ? `${display}(${summary})` : display
-}
-
 /**
  * The footer's key hint for the screens that have no box of their own. A
  * picker or prompt prints its hints inside its box instead (see `boxOwnsKeys`).
@@ -13405,6 +13638,21 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	]
 	if (batch.live) columns.push('live')
 	return { label: batch.name, description: columns.join(' · ') }
+}
+
+/** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
+function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]): string {
+	const running = runs.filter((run) => run.status === 'running').length
+	return `${running} running, ${runs.length - running} finished`
+}
+
+/** The `/workflows` list's own key hints: Enter opens a run, `x` stops one that is going. */
+function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
+	return [
+		{ text: 'enter to view', rank: 5 },
+		...(canStop ? [{ text: 'x to stop', rank: 3 }] : []),
+		{ text: 'esc to close', rank: 4 },
+	]
 }
 
 /** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */
@@ -13545,7 +13793,10 @@ function bypassConsentPicker(
 		values: ['decline', 'accept'],
 		options: [
 			{ label: 'No, keep asking', description: 'Stay in the current mode.' },
-			{ label: 'Yes, bypass permissions', description: 'Remembered; you will not be asked again.' },
+			{
+				label: 'Yes, bypass permissions',
+				description: 'Remembered; you will not be asked again.',
+			},
 		],
 	}
 }
@@ -13559,14 +13810,14 @@ function bypassConsentPicker(
  */
 const HYPERMODE_VALUE = 'hypermode' as const
 
-/** ` · ✦ save as skill` when queued messages carry composer triggers, so the queue line says so. */
+/** ` · save as skill` when queued messages carry composer triggers, so the queue line says so. */
 function queuedTriggerLabels(queued: readonly QueuedPrompt[]): string {
 	const labels = new Set<string>()
 	for (const prompt of queued) {
 		if (prompt.kind !== 'human') continue
 		for (const id of prompt.triggers ?? []) labels.add(triggerDefinition(id).label)
 	}
-	return labels.size > 0 ? ` · ✦ ${[...labels].join(', ')}` : ''
+	return labels.size > 0 ? ` · ${[...labels].join(', ')}` : ''
 }
 
 /** Last entry of a low-to-high menu every provider publishes in that order; `undefined` when none is known. */
@@ -13638,7 +13889,7 @@ function reasoningEffortDescription(effort: ReasoningEffort | undefined): string
 		case 'max':
 			return 'Maximum reasoning depth offered by this model'
 		case 'ultra':
-			return 'Highest host-level reasoning setting when supported'
+			return 'Highest reasoning setting, when the model supports it'
 	}
 }
 
@@ -13652,6 +13903,5 @@ function reasoningEffortDescription(effort: ReasoningEffort | undefined): string
  * check what survived has to be able to.
  */
 function summaryDetail(summary: Message): readonly string[] {
-	const text = typeof summary.content === 'string' ? summary.content : ''
-	return text.length > 0 ? text.split('\n') : ['(the summary was empty)']
+	return compactionSummaryLines(typeof summary.content === 'string' ? summary.content : '')
 }

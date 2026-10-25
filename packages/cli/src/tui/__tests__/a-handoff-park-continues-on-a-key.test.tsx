@@ -173,11 +173,11 @@ async function pausedByHandoff() {
 	await tick(40)
 	harness.stdin.write('\r')
 	await until(
-		() => (harness.lastFrame() ?? '').includes('press Enter to continue'),
+		() => (harness.lastFrame() ?? '').includes('Press Enter to continue'),
 		'the handoff notice',
 	)
 	const frame = harness.lastFrame() ?? ''
-	expect(frame).toContain(`needs you: ${REASON}`)
+	expect(frame).toContain(`Paused. ${REASON}`)
 	expect(frame).toContain('Esc to stop')
 	expect(frame).toContain('enter continue · esc stop')
 	return harness

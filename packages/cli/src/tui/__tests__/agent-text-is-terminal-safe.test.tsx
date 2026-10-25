@@ -127,7 +127,7 @@ it('names a parallel Agent batch as delegated work instead of exposing tool prot
 		expect(frame).toContain('Start 4 agents')
 		expect(frame).toContain('Start these 4 agents')
 		expect(frame).toContain('1. Research APIs')
-		expect(frame).toMatch(/d full( instructions)?/)
+		expect(frame).toMatch(/d instructions/)
 		expect(frame).not.toContain('"calls"')
 		expect(frame).not.toContain('call-0')
 	} finally {

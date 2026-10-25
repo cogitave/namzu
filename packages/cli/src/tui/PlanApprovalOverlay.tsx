@@ -214,14 +214,14 @@ export function PlanApprovalOverlay({
 				{fitHints(
 					[
 						{ text: '↑↓ select', rank: 5 },
-						{ text: 'enter confirm', short: 'enter ok', rank: 5 },
-						{ text: 'esc keep planning', short: 'esc no', rank: 5 },
+						{ text: 'enter confirm', rank: 5 },
+						{ text: 'esc cancel', rank: 5 },
 						{
 							text: 'shift+tab approve with note',
 							short: 'shift+tab',
 							rank: 2,
 						},
-						{ text: 'ctrl+c stop the reply', short: 'ctrl+c stop', rank: 4 },
+						{ text: 'ctrl+c stop', rank: 4 },
 					],
 					hintWidth,
 				)}

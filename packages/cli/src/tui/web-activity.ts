@@ -17,7 +17,7 @@
  */
 
 import { formatSize } from './person-terms.js'
-import { formatElapsed } from './units.js'
+import { settledElapsed } from './units.js'
 
 export type WebActivityKind = 'search' | 'fetch'
 
@@ -77,7 +77,8 @@ export function webSettledLine(
 	activity: WebActivity,
 	outcome: { readonly durationMs?: number; readonly bytes?: number },
 ): string {
-	const took = outcome.durationMs !== undefined ? ` in ${formatElapsed(outcome.durationMs)}` : ''
+	const elapsed = settledElapsed(outcome.durationMs)
+	const took = elapsed !== undefined ? ` in ${elapsed}` : ''
 	if (activity.kind === 'search') {
 		const n = activity.results
 		return n !== undefined ? `Found ${n} result${n === 1 ? '' : 's'}${took}` : `Did 1 search${took}`

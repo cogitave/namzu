@@ -10,6 +10,7 @@ import { fingerprintContent, staleFileError, unreadFileError } from './content-f
 import { type NormalizedEditInput, applyEdit, normalizeEditInput } from './edit-apply.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { lineDiff } from './line-diff.js'
 
 /**
  * Two schemas, on purpose.
@@ -375,6 +376,27 @@ function admitAgainstRead(
 const EDIT_SHAPES =
 	'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.'
 
+/**
+ * What the person is told about a finished edit: the counts and hunks of a real
+ * line diff of the whole file, so a batch, an insertion and `replace_all` are
+ * counted by what changed and not by what the call said.
+ */
+function editFacts(path: string, replacements: number, before: string, after: string) {
+	const diff = lineDiff(before, after)
+	return {
+		diff,
+		facts: {
+			kind: 'edit' as const,
+			path,
+			replacements,
+			added: diff.added,
+			removed: diff.removed,
+			...(diff.hunks.length > 0 ? { hunks: diff.hunks } : {}),
+			...(diff.truncated ? { hunksTruncated: true as const } : {}),
+		},
+	}
+}
+
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
@@ -513,19 +535,16 @@ export const EditTool = defineTool({
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
 				recordEditedContent(context, parsed.data.path, result.content)
+				const changed = editFacts(parsed.data.path, result.replacements, content, result.content)
 				return {
 					success: true as const,
-					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
+					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]`,
 					data: {
 						path: parsed.data.path,
 						replacements: result.replacements,
 						sandboxed: true,
 					},
-					facts: {
-						kind: 'edit' as const,
-						path: parsed.data.path,
-						replacements: result.replacements,
-					},
+					facts: changed.facts,
 				}
 			}
 
@@ -545,15 +564,12 @@ export const EditTool = defineTool({
 			// turn compares against what we just wrote rather than the read
 			// before it.
 			recordEditedContent(context, hostPath, result.content)
+			const changed = editFacts(hostPath, result.replacements, content, result.content)
 			return {
 				success: true as const,
-				output: `Edited ${hostPath}: ${result.replacements} replacement(s)`,
+				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})`,
 				data: { path: hostPath, replacements: result.replacements },
-				facts: {
-					kind: 'edit' as const,
-					path: hostPath,
-					replacements: result.replacements,
-				},
+				facts: changed.facts,
 			}
 		})
 	},

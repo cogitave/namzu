@@ -4,11 +4,11 @@ import { jobExitRow } from '../job-exit-row.js'
 import { theme } from '../theme.js'
 
 describe('the row for a finished background command', () => {
-	it('says completed in green with the runtime', () => {
+	it('says finished in green with the runtime', () => {
 		expect(
 			jobExitRow({ command: 'npm test', status: 'exited', exitCode: 0, runtimeMs: 12_000 }),
 		).toEqual({
-			text: 'Background command "npm test" completed (exit code 0)',
+			text: 'Background command "npm test" finished (exit code 0)',
 			color: theme.status.ok,
 			meta: '12s',
 		})

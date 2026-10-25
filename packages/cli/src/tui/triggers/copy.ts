@@ -29,7 +29,12 @@ export interface TagCopyContext {
 }
 
 /** Turn-scoped triggers apply only to a new turn: Enter mid-turn steers without them. */
-const TURN_SCOPED: ReadonlySet<TriggerId> = new Set(['hypermode', 'schedule', 'max-effort'])
+const TURN_SCOPED: ReadonlySet<TriggerId> = new Set([
+	'hypermode',
+	'workflow',
+	'schedule',
+	'max-effort',
+])
 
 export function tagRow(detection: Detection, context: TagCopyContext): string | null {
 	if (detection.paused) return fit(`${OTHER_MARK} triggers paused: draft too long`, context.columns)
@@ -74,16 +79,32 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 		switch (hit.id) {
 			case 'hypermode':
 				if (detection.onlyTriggers)
-					return { full: 'type the task in the same message', short: 'add the task' }
+					return {
+						full: 'type the task in the same message',
+						short: 'add the task',
+					}
 				return {
 					full: `this reply: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
 					short: `this reply${effort ? `, ${effort}` : ''}`,
 					...(effort ? { tiny: effort } : {}),
 				}
+			case 'workflow':
+				if (detection.onlyTriggers)
+					return {
+						full: 'type the task in the same message',
+						short: 'add the task',
+					}
+				return {
+					full: 'this turn, offers the workflow tool',
+					short: 'this turn, offers the tool',
+				}
 			case 'save-skill':
 				if (detection.onlyTriggers && context.standaloneAllowed)
 					return turnActive
-						? { full: 'runs /skills save after the running reply', short: 'runs /skills save' }
+						? {
+								full: 'runs /skills save after the running reply',
+								short: 'runs /skills save',
+							}
 						: { full: 'runs /skills save', short: 'runs /skills save' }
 				if (turnActive)
 					return {
@@ -157,8 +178,8 @@ function fit(text: string, columns: number): string {
 
 /**
  * The line under the operator's row in the transcript, naming what the
- * message carried: `hypermode (this turn, effort xhigh)`. The row's own
- * glyph is the `✦`. Undefined when nothing applies.
+ * message carried in a sentence: `Hypermode is on for this reply (effort
+ * xhigh).` Undefined when nothing applies.
  */
 export function transcriptTagLine(
 	ids: readonly TriggerId[],
@@ -168,20 +189,40 @@ export function transcriptTagLine(
 		readonly steered: boolean
 	},
 ): string | undefined {
-	const effort = context.effort ? `, effort ${context.effort}` : ''
+	const effort = context.effort ? ` (effort ${context.effort})` : ''
 	const parts = ids.flatMap((id) => {
 		switch (id) {
 			case 'hypermode':
-				return context.steered ? [] : [`hypermode (this reply${effort})`]
+				return context.steered ? [] : [`Hypermode is on for this reply${effort}.`]
+			case 'workflow':
+				return context.steered ? [] : ['Workflow is on for this reply.']
 			case 'save-skill':
 				return [
-					`save as skill (${context.steered ? 'after the running reply' : 'after this reply'})`,
+					`Namzu will offer to save a skill after ${context.steered ? 'the running reply' : 'this reply'}.`,
 				]
 			case 'schedule':
-				return context.steered ? [] : ['schedule (the agent proposes a job)']
+				return context.steered ? [] : ['Namzu will propose a scheduled job for you to confirm.']
 			case 'max-effort':
-				return context.steered ? [] : [`max effort (this reply${effort})`]
+				return context.steered ? [] : [`Maximum effort is on for this reply${effort}.`]
 		}
 	})
-	return parts.length > 0 ? parts.join(' · ') : undefined
+	return parts.length > 0 ? parts.join(' ') : undefined
 }
+
+/** A trigger's label starting a sentence: `save as skill` reads `Save as skill`. */
+function sentenceCase(label: string): string {
+	return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+/**
+ * The row for triggers that were armed but did not apply, and why:
+ * `Hypermode was not applied: the message has no task.`
+ */
+export function notAppliedLine(labels: readonly string[], reason: string): string {
+	const named = labels.map((label, index) => (index === 0 ? sentenceCase(label) : label)).join(', ')
+	return `${named} ${labels.length === 1 ? 'was' : 'were'} not applied: ${reason.replace(/\.$/u, '')}.`
+}
+
+/** What Enter does with a message that arrives while a reply runs. */
+export const STEERED_NOT_APPLIED_REASON =
+	'Enter sent this message into the running reply. Press Tab to queue it as a new message instead'

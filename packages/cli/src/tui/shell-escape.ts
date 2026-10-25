@@ -36,7 +36,11 @@ export function shellEscapeCommand(line: string): string | null {
 
 export async function runShellEscape(
 	command: string,
-	options: { readonly cwd: string; readonly timeoutMs?: number; readonly signal?: AbortSignal },
+	options: {
+		readonly cwd: string
+		readonly timeoutMs?: number
+		readonly signal?: AbortSignal
+	},
 ): Promise<ShellEscapeResult> {
 	const startedAt = Date.now()
 	let output = ''
@@ -83,7 +87,13 @@ export async function runShellEscape(
 		// A spawn failure otherwise looks like an empty command result.
 		if (!output && !timedOut && !options.signal?.aborted) append(failure.message)
 	}
-	return { output, exitCode, timedOut, truncated, durationMs: Date.now() - startedAt }
+	return {
+		output,
+		exitCode,
+		timedOut,
+		truncated,
+		durationMs: Date.now() - startedAt,
+	}
 }
 
 /**
@@ -98,17 +108,35 @@ export function describeShellEscapeForModel(command: string, result: ShellEscape
 		body.length > SHELL_ESCAPE_MODEL_CHARS
 			? `${body.slice(0, SHELL_ESCAPE_MODEL_CHARS)}\n… (output cut)`
 			: body
-	return `$ ${command}\n${cut.length > 0 ? `${cut}\n` : ''}(${describeShellEscape(command, result).replace(/^! .* · /u, '')})`
+	return `$ ${command}\n${cut.length > 0 ? `${cut}\n` : ''}(${shellEscapeState(result)})`
 }
 
 export const SHELL_ESCAPE_MODEL_CHARS = 8_000
 
-/** The transcript row for a finished `!` command. */
-export function describeShellEscape(command: string, result: ShellEscapeResult): string {
+/** How a `!` command ended, in words: `exit 0`, `exit 2`, `killed after 30s`, with `output cut` when shortened. */
+function shellEscapeState(result: ShellEscapeResult): string {
 	const state = result.timedOut
 		? `killed after ${Math.round((result.durationMs ?? 0) / 1000)}s`
 		: result.exitCode === 0
 			? 'exit 0'
 			: `exit ${result.exitCode ?? '?'}`
-	return `! ${command} · ${state}${result.truncated ? ' · output cut' : ''}`
+	return `${state}${result.truncated ? ' · output cut' : ''}`
+}
+
+const SHELL_ROW_COMMAND_CHARS = 60
+
+/**
+ * The transcript row for a finished `!` command: `ls finished (exit 0, output
+ * shortened)`, `make failed (exit 2)`, `sleep 99 was stopped after 30s`.
+ */
+export function describeShellEscape(command: string, result: ShellEscapeResult): string {
+	const flat = command.trim().split('\n')[0]?.replace(/\s+/gu, ' ') ?? ''
+	const label =
+		flat.length > SHELL_ROW_COMMAND_CHARS ? `${flat.slice(0, SHELL_ROW_COMMAND_CHARS - 1)}…` : flat
+	const shortened = result.truncated ? ', output shortened' : ''
+	if (result.timedOut) {
+		return `${label} was stopped after ${Math.round((result.durationMs ?? 0) / 1000)}s${shortened ? ` (${shortened.slice(2)})` : ''}`
+	}
+	if (result.exitCode === 0) return `${label} finished (exit 0${shortened})`
+	return `${label} failed (exit ${result.exitCode ?? '?'}${shortened})`
 }

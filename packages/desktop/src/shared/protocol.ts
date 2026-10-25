@@ -531,8 +531,10 @@ export interface DesktopTurnUndo {
 	turnId: string
 	status: DesktopUndoState
 	files: number
-	added: number
-	removed: number
+	/** Of those files, how many the reply created (files, never lines). */
+	created: number
+	/** Of those files, how many the reply deleted (files, never lines). */
+	deleted: number
 	/** A shell command ran in the reply; undo cannot reverse what it changed. */
 	uncoveredShell: boolean
 	skipped: DesktopUndoSkipped[]

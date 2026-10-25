@@ -209,6 +209,34 @@ describe('parallel and pipeline', () => {
 		expect(host.started.map((s) => s.request.prompt)).toEqual(['keep', 'next-1-2'])
 	})
 
+	it('parallel never rejects: a throwing thunk resolves to null and says why through log()', async () => {
+		const host = makeHost()
+		const { result, events } = await runScript(
+			`${META}return await parallel([() => agent('a'), () => { throw new Error('boom') }, async () => { throw new TypeError('late') }, () => agent('b')])`,
+			{ host },
+		)
+		expect(result.status).toBe('completed')
+		expect(result.result).toEqual(['ok:a', null, null, 'ok:b'])
+		const logs = events
+			.filter((e) => e.type === 'workflow_log')
+			.map((e) => (e as { message: string }).message)
+		expect(logs).toEqual(['parallel item 2 failed: boom', 'parallel item 3 failed: late'])
+	})
+
+	it('pipeline drops an item whose stage throws to null and keeps the others', async () => {
+		const host = makeHost()
+		const { result, events } = await runScript(
+			`${META}return await pipeline([1, 2], (x) => { if (x === 1) throw new Error('nope'); return agent('keep') }, (t) => agent('next-' + t))`,
+			{ host },
+		)
+		expect(result.status).toBe('completed')
+		expect(result.result).toEqual([null, 'ok:next-ok:keep'])
+		const logs = events
+			.filter((e) => e.type === 'workflow_log')
+			.map((e) => (e as { message: string }).message)
+		expect(logs).toEqual(['pipeline item 1 stopped at stage 1: nope'])
+	})
+
 	it('refuses non-array input and non-function stages', async () => {
 		const { result } = await runScript(
 			`${META}const out = []

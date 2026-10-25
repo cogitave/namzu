@@ -41,3 +41,24 @@ it('draws no folder row when none is given', async () => {
 	const rows = await header(100, undefined)
 	expect(rows.join('\n')).not.toContain('/srv')
 })
+
+it('cuts a long folder on a separator and shows it from the home folder', async () => {
+	const { homedir } = await import('node:os')
+	const rows = await header(100, `${homedir()}/work/namzu`)
+	expect(rows.join('\n')).toContain('~/work/namzu')
+	const long = '/srv/work/a-very-long-parent-folder/another-long-folder/namzu/packages/cli'
+	const narrow = await header(60, long)
+	const folderRow = narrow.find((row) => row.includes('packages/cli'))
+	// A cut path starts at a folder boundary, never inside a name.
+	expect(folderRow).toMatch(/…\/[A-Za-z]/)
+})
+
+it('wraps the bypass warning on words, every continuation row at the same indent', async () => {
+	const { bypassWarningLines } = await import('../BrandHeader.js')
+	const lines = bypassWarningLines('Bypass permissions', 60)
+	expect(lines.length).toBeGreaterThan(2)
+	expect(lines[0]?.startsWith('Warning:')).toBe(true)
+	for (const line of lines.slice(1)) expect(line).toMatch(/^ {2}\S/)
+	for (const line of lines) expect(line.length).toBeLessThanOrEqual(57)
+	expect(lines.join(' ').replace(/\s+/g, ' ')).toContain('Use /permissions to change this.')
+})

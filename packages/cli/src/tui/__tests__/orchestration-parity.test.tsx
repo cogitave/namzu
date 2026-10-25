@@ -26,6 +26,7 @@ import {
 	agentNotice,
 	childMessageNotice,
 	childMessageRow,
+	failureReason,
 	launchReceipt,
 	reportsAsNotification,
 	settleLine,
@@ -78,7 +79,7 @@ describe('launch receipt', () => {
 			agent({ viewId: 'a', description: 'Birinci rengi seç', startedAt: 1_000 }),
 		])
 		expect(receipt.content.split('\n')).toEqual([
-			'Launched 2 agents (↓ to manage)',
+			'Launched 2 agents',
 			'├ Birinci rengi seç',
 			'└ İkinci rengi seç',
 		])
@@ -98,7 +99,25 @@ describe('launch receipt', () => {
 	it('names one agent inline, and leaves the unlabelled defaults out', () => {
 		expect(
 			launchReceipt([agent({ viewId: 'solo', description: 'Join the colours' })]).content,
-		).toBe('Launched Join the colours (↓ to manage)')
+		).toBe('Launched Join the colours')
+	})
+
+	it('offers the manage key only when every agent of the batch runs in the background', () => {
+		expect(
+			launchReceipt([
+				agent({ viewId: 'a', description: 'One', background: true }),
+				agent({ viewId: 'b', description: 'Two', background: true }),
+			]).content.split('\n')[0],
+		).toBe('2 background agents launched (↓ to manage)')
+		expect(
+			launchReceipt([
+				agent({ viewId: 'a', description: 'One', background: true }),
+				agent({ viewId: 'b', description: 'Two' }),
+			]).content.split('\n')[0],
+		).toBe('Launched 2 agents')
+		expect(
+			launchReceipt([agent({ viewId: 'solo', description: 'Alone', background: true })]).content,
+		).toBe('Launched Alone (↓ to manage)')
 	})
 
 	it('never carries a line break or tab a model put in a label', () => {
@@ -158,11 +177,11 @@ describe('what a finished agent leaves in the conversation', () => {
 				}),
 			),
 		).toEqual({
-			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 3s',
+			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 2s',
 			tone: 'error',
 		})
 		expect(agentNotice(agent({ ...base, status: 'cancelled', completedAt: 500 }))).toEqual({
-			content: 'Agent "Count words in a.txt" was stopped · 1s',
+			content: 'Agent "Count words in a.txt" was stopped · 500ms',
 			tone: 'warn',
 		})
 	})
@@ -255,8 +274,8 @@ describe('settle line', () => {
 	it('names the agents of a turn that delegated and the time alone of one that did not', () => {
 		const three = ['a', 'b', 'c'].map((viewId) => agent({ viewId }))
 		expect(settleLine(38_200, three)).toBe('Worked for 38s · 3 agents')
-		expect(settleLine(1_700, [agent({ viewId: 'solo' })])).toBe('Worked for 1.7s · 1 agent')
-		expect(settleLine(5_000, [])).toBe('Worked for 5.0s')
+		expect(settleLine(1_700, [agent({ viewId: 'solo' })])).toBe('Worked for 1s · 1 agent')
+		expect(settleLine(5_000, [])).toBe('Worked for 5s')
 		expect(settleLine(46_000, [])).toBe('Worked for 46s')
 		// An answer that arrived at once closes without an account of it.
 		expect(settleLine(2_999, [])).toBeUndefined()
@@ -270,7 +289,7 @@ describe('settle line', () => {
 		]
 		expect(settleLine(12_000, phased)).toBe('Worked for 12s · 3 agents · 27.1k tokens · 1 failed')
 		expect(settleLine(2_000, [agent({ viewId: 'x', phase: 'Only', phaseId: 'p' })])).toBe(
-			'Worked for 2.0s · 1 agent',
+			'Worked for 2s · 1 agent',
 		)
 	})
 })
@@ -356,7 +375,7 @@ describe('the cockpit of a phased workflow', () => {
 			const frame = mounted.viewport().join('\n')
 			expect(frame).toMatch(/Two-phase colour sentence\s+2\/3 agents · \S+/u)
 			expect(frame).toMatch(/┬ Phase 2 · 1 agent\s/u)
-			expect(frame).toMatch(/❯● Join the two colours/u)
+			expect(frame).toMatch(/❯ ● Join the two colours/u)
 			await mounted.unmount()
 
 			const finished = phased.map((member) =>
@@ -378,7 +397,7 @@ describe('the cockpit of a phased workflow', () => {
 				{ cols: 120, rows: 24 },
 			)
 			const levelOne = mounted.viewport().join('\n')
-			expect(levelOne).toMatch(/3\/3 agents · 9\.0s · done/u)
+			expect(levelOne).toMatch(/3\/3 agents · 9s · finished/u)
 			expect(levelOne).toMatch(/❯ ✔\s+Phase 1\s+2\/2/u)
 			expect(levelOne).toMatch(/✔\s+Phase 2\s+1\/1/u)
 			await mounted.unmount()
@@ -427,7 +446,6 @@ describe('the waiting line', () => {
 			<LiveActivity
 				activeTools={[wait('a', 'Birinci'), wait('b', 'İkinci')]}
 				working
-				interruptible
 				animate={false}
 			/>,
 			{ cols: 40, rows: 6 },
@@ -632,5 +650,31 @@ describe('hypermode on the message box', () => {
 		)
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
 		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m hypermode /u)
+	})
+})
+
+describe('a repeated failure', () => {
+	it('reads as failed again when the reason is the one already reported', () => {
+		const base = {
+			viewId: 'a',
+			description: 'Audit the config',
+			startedAt: 0,
+			completedAt: 6_000,
+			status: 'failed' as const,
+			transcript: [
+				{
+					id: 'a:failure',
+					kind: 'system' as const,
+					text: 'The provider could not use this request. Start the task again, or choose another model.',
+				},
+			],
+		}
+		const first = agentNotice(agent(base))
+		expect(first.content).toBe(
+			'Agent "Audit the config" failed: The provider could not use this request. Start the task again, or choose another model. · 6s',
+		)
+		const again = agentNotice(agent(base), 10_000, failureReason(agent(base)))
+		expect(again.content).toBe('Agent "Audit the config" failed again · 6s')
+		expect(agentNotice(agent(base), 10_000, 'Something else.').content).toContain('failed: ')
 	})
 })

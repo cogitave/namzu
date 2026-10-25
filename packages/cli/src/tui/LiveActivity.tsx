@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
 import { shellRunningRows, shellToneColor } from './shell-cell.js'
+import { blendTowardStall, easeStall, stallTarget } from './stall-colour.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatCompactCount, formatElapsed } from './units.js'
@@ -45,8 +46,8 @@ export interface LiveActivityProps {
 	readonly working: boolean
 	/** Actual child sessions retained by the current conversation. */
 	readonly agentCount?: number
-	/** Whether Esc currently reaches an abortable parent turn. */
-	readonly interruptible?: boolean
+	/** A compaction is running: the figures group shows, and the stall tint stays off. */
+	readonly compacting?: boolean
 	/** False for non-interactive renderers and deterministic snapshots. */
 	readonly animate?: boolean
 	/**
@@ -74,6 +75,11 @@ export interface LiveActivityProps {
 	 * `Retrying in 5s · attempt 2/10` that counts down.
 	 */
 	readonly waitNotice?: ProviderWaitNotice | null
+	/**
+	 * What the row says in place of `Working`, for a stretch that is not a reply
+	 * (`Compacting conversation…`). The spinner and the clock stay.
+	 */
+	readonly activityLabel?: string
 }
 
 /** Redraws once a second while a retry is being waited out, so its countdown moves. */
@@ -88,17 +94,29 @@ function useSecondTick(active: boolean): void {
 
 const MAX_VISIBLE_TOOLS = 3
 
+/** The figures in parentheses stay hidden until there is something to say, or the wait gets long. */
+const FIGURES_AFTER_MS = 16_000
+
+/** Approximate RGB of the label's three states, the starting points of the stall blend. */
+const LABEL_RGB = {
+	done: [85, 255, 85],
+	edge: [255, 255, 255],
+	ahead: [138, 138, 138],
+	plain: [188, 188, 188],
+} as const
+
 export function LiveActivity({
 	compact = false,
 	activeTools,
 	working,
 	agentCount = 0,
-	interruptible = false,
+	compacting = false,
 	animate = true,
 	thinking = null,
 	tokens,
 	waitingForYou = false,
 	waitNotice = null,
+	activityLabel,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -119,11 +137,25 @@ export function LiveActivity({
 	}
 	if (!active) startedAtRef.current = null
 	if (waitingForYou && pausedRef.current.since === null) pausedRef.current.since = Date.now()
-	if (!waitingForYou && pausedRef.current.since !== null) {
+	const resumedFromWait = !waitingForYou && pausedRef.current.since !== null
+	if (resumedFromWait && pausedRef.current.since !== null) {
 		pausedRef.current.total += Date.now() - pausedRef.current.since
 		pausedRef.current.since = null
 	}
 	useSecondTick(waitNotice?.retryAt !== undefined)
+	// The last moment the reply made progress: a token count or a reasoning line that moved.
+	const progressRef = useRef<{ key: string; at: number; stall: number; eased: number }>({
+		key: '',
+		at: Date.now(),
+		stall: 0,
+		eased: Date.now(),
+	})
+	const progressKey = `${tokens ?? 0}|${thinking ?? ''}`
+	if (!active) progressRef.current = { key: '', at: Date.now(), stall: 0, eased: Date.now() }
+	else if (progressRef.current.key !== progressKey)
+		progressRef.current = { key: progressKey, at: Date.now(), stall: 0, eased: Date.now() }
+	// Waiting on the person is not the model being slow: count again from their answer.
+	else if (waitingForYou || resumedFromWait) progressRef.current.at = Date.now()
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
 		interval: 120,
@@ -131,13 +163,30 @@ export function LiveActivity({
 	if (!active) return null
 	if (waitingForYou) {
 		return (
-			<Box>
+			<Box marginTop={1}>
 				<Text color={theme.text.secondary}>Waiting for you</Text>
 				<Text color={theme.text.muted}> · the question below</Text>
 			</Box>
 		)
 	}
-	const label = 'Working'
+	const now = Date.now()
+	const elapsedMs = now - (startedAtRef.current ?? now) - pausedRef.current.total
+	const elapsed = formatElapsed(elapsedMs)
+	// The stall tint: eased toward its target, and never while the wait is not the model's.
+	const progress = progressRef.current
+	const stallExempt = activeTools.length > 0 || thinking !== null || compacting
+	// A tool, reasoning or a compaction is not silence: measure the gap from when it ends.
+	if (stallExempt) progress.at = now
+	progress.stall = easeStall(
+		progress.stall,
+		stallTarget({ sinceLastTokenMs: now - progress.at, exempt: stallExempt }),
+		now - progress.eased,
+	)
+	progress.eased = now
+	const tint = motion && progress.stall > 0 ? progress.stall : 0
+	const labelColor = (rgb: readonly [number, number, number], plain: string): string =>
+		tint > 0 ? blendTowardStall(rgb, tint) : plain
+	const label = activityLabel ?? 'Working'
 	const edge = tick % (label.length + 1)
 	const mark = (
 		<Text>
@@ -149,10 +198,10 @@ export function LiveActivity({
 						!motion
 							? theme.text.secondary
 							: column < edge
-								? 'greenBright'
+								? labelColor(LABEL_RGB.done, 'greenBright')
 								: column === edge
-									? 'whiteBright'
-									: theme.text.muted
+									? labelColor(LABEL_RGB.edge, 'whiteBright')
+									: labelColor(LABEL_RGB.ahead, theme.text.muted)
 					}
 				>
 					{char}
@@ -160,11 +209,22 @@ export function LiveActivity({
 			))}
 		</Text>
 	)
-	const now = Date.now()
-	const elapsed = formatElapsed(now - (startedAtRef.current ?? now) - pausedRef.current.total)
 	const spent =
 		tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
 	const waiting = waitingLine(activeTools)
+	const hasFigures =
+		(tokens !== undefined && tokens > 0) ||
+		thinking !== null ||
+		compacting ||
+		agentCount > 0 ||
+		elapsedMs > FIGURES_AFTER_MS
+	const figures = hasFigures
+		? `${elapsed}${spent}${
+				agentCount > 0
+					? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ctrl+t to view`
+					: ''
+			}`
+		: ''
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
 	const noticeRow = waitNotice ? (
@@ -190,17 +250,20 @@ export function LiveActivity({
 	if (compact) {
 		const current = activeTools[0]
 		return (
-			<Box flexDirection="column">
+			<Box flexDirection="column" marginTop={1}>
 				<Box>
 					{mark}
-					<Text color={theme.text.muted}>
-						{' · '}
-						{elapsed}
-						{spent}
-						{activeTools.length > 0
-							? ` · ${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`
-							: ''}
-					</Text>
+					{(() => {
+						const parts = [
+							...(hasFigures ? [`${elapsed}${spent}`] : []),
+							...(activeTools.length > 0
+								? [`${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`]
+								: []),
+						]
+						return parts.length > 0 ? (
+							<Text color={theme.text.muted}>{` · ${parts.join(' · ')}`}</Text>
+						) : null
+					})()}
 				</Box>
 				{noticeRow ??
 					(waitingRow ? (
@@ -226,20 +289,16 @@ export function LiveActivity({
 	}
 
 	return (
-		<Box flexDirection="column">
+		<Box flexDirection="column" marginTop={1}>
 			<Box flexDirection="row">
 				{/* The label keeps its letters on a narrow terminal; the figures after
 				    it are what gets cut, with an ellipsis. */}
 				<Box flexShrink={0}>{mark}</Box>
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{' ('}
-					{elapsed}
-					{spent}
-					{agentCount > 0
-						? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ctrl+t to view`
-						: ''}
-					{interruptible ? ' · esc to interrupt' : ''})
-				</Text>
+				{hasFigures ? (
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{` (${figures})`}
+					</Text>
+				) : null}
 			</Box>
 			{waitingRow}
 			{noticeRow}

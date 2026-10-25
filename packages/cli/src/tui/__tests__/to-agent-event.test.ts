@@ -324,13 +324,15 @@ describe('compaction is reported, not silent', () => {
 			presenter,
 		)
 
-		expect(mapped).toMatchObject({ kind: 'context', shed: true })
-		const text = (mapped as { text: string }).text
-		expect(text).toContain('42')
-		expect(text).toContain('9')
-		expect(text).toContain('120k')
+		expect(mapped).toMatchObject({ kind: 'context', shed: true, row: 'compacted' })
+		// The row is calm; the counts sit behind ctrl+o.
+		expect((mapped as { text: string }).text).toBe('Conversation compacted')
+		const history = (mapped as { detail: readonly string[] }).detail.join(' ')
+		expect(history).toContain('42')
+		expect(history).toContain('9')
+		expect(history).toContain('120k')
 		// It must NOT claim to know what was lost — only the counts are checkable.
-		expect(text).not.toMatch(/turns? \d+-\d+|removed the/i)
+		expect(history).not.toMatch(/turns? \d+-\d+|removed the/i)
 	})
 
 	it('marks an estimate as an estimate', () => {
@@ -353,7 +355,7 @@ describe('compaction is reported, not silent', () => {
 			presenter,
 		)
 
-		expect((mapped as { text: string }).text).toContain('estimated')
+		expect((mapped as { detail: readonly string[] }).detail.join(' ')).toContain('about 9k')
 	})
 })
 
@@ -376,27 +378,27 @@ describe('the three decline causes get three sentences', () => {
 		return (mapped as { text: string }).text
 	}
 
-	it('a thrown reducer may work next time, and carries its own error', () => {
+	it('a thrown reducer may work next time, and keeps its own error out of sight', () => {
 		const text = failure('reducer_threw', 'provider returned 400')
 
-		expect(text).toContain('provider returned 400')
-		expect(text).toContain('a later pass may succeed')
+		expect(text).toContain('Namzu will try again')
+		expect(text).not.toContain('provider returned 400')
+		expect(text).not.toMatch(/reducer/i)
 	})
 
 	it('shedding nothing is a fact, not an error, and will not change', () => {
 		const text = failure('shed_nothing')
 
-		expect(text).toContain('later passes will answer the same')
-		// Not dressed as a failure: an irreducible history is a true statement
-		// about the conversation, and calling it one sends someone hunting a
-		// bug that is not there.
-		expect(text).not.toMatch(/failed|error/i)
+		expect(text).toContain('conversation could not be reduced below the context limit')
+		// No bug to hunt: it points at what fills the context.
+		expect(text).toContain('large file or tool output')
+		expect(text).not.toMatch(/reducer|bug/i)
 	})
 
-	it('a split tool pair is a reducer bug and suggests no user action', () => {
+	it('a split tool pair suggests no user action and never says reducer', () => {
 		const text = failure('split_tool_pair')
 
-		expect(text).toContain('bug in the reducer')
+		expect(text).not.toMatch(/reducer|bug/i)
 		expect(text).not.toMatch(/try again|later pass|retry/i)
 	})
 
@@ -418,13 +420,13 @@ describe('the three decline causes get three sentences', () => {
 	it('the refill breaker names the cause and never tells the person to start over', () => {
 		const text = failure('refilling')
 
-		expect(text).toMatch(/too large for the context window/)
+		expect(text).toMatch(/too large/)
 		expect(text).not.toMatch(/\/clear|\/new|start fresh|new (?:session|conversation)/i)
 	})
 
 	it('every cause states the history is unchanged', () => {
 		for (const cause of ['reducer_threw', 'shed_nothing', 'split_tool_pair']) {
-			expect(failure(cause)).toContain('31 messages unchanged')
+			expect(failure(cause)).toContain('unchanged')
 		}
 	})
 

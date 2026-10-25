@@ -267,8 +267,8 @@ knew:
 | `read` | `path`, `binary`, `bytes`, `totalLines`, `returnedLines`, `partial` |
 | `search` (grep) | `pattern`, `path`, `matches`, `filesMatched`, `filesSearched`, `truncated` |
 | `list` (glob) | `pattern`, `path`, `count`, `truncated` |
-| `edit` | `path`, `replacements` |
-| `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed` |
+| `edit` | `path`, `replacements`, `added`, `removed`, `hunks`, `hunksTruncated` |
+| `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed`, `hunks`, `hunksTruncated` |
 | `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`), `subject` |
 
 A `ToolTextWindow` is the first 80 lines of a stream, its last 40 and the number of lines left out between them
@@ -289,6 +289,16 @@ The call side uses the same shapes. A generic `ToolCallView` may carry `facts` f
 `path`, `search` with a `pattern`, `command` with the command line) so a host headlines the row before any result
 exists. `bash`, `read`, `grep` and `glob` do; their labels are unchanged for hosts that ignore the field.
 
+`added` and `removed` on `edit` and `write` come from one real line diff of the whole file (the `diff` package's
+`structuredPatch`, three lines of context, abandoned for a coarse count after 5 seconds), so a batch, an
+insertion and `replace_all` are counted by what changed, two edits far apart are two lines and not the stretch
+between them, and a change to the final newline only is `+1 -1` (a final newline terminates a line). `hunks` are
+`ToolDiffHunk`s (`oldStart`, `oldLines`, `newStart`, `newLines`, and `lines`, each a space, `+` or `-` followed
+by the line without its newline) with the context; a created file is one hunk of added lines. At most 400 rows
+are carried and each is cut at 500 characters; `hunksTruncated` says rows were left out, and the counts still
+cover all of the change. The model-facing receipts use the same counts: `Updated a (+2 -2)` for `write`,
+`Edited a: 4 replacement(s) (+4 -4)` for `edit`.
+
 A saved conversation keeps `facts` in the `tool_completed` record. `admitToolFacts(value)` reads one back into the
 closed shape (any other field is dropped, and the text of a command's streams is not kept), which is what the
 Desktop host does when it restores history. `execHostShell` also returns `stdoutBytes` and `stderrBytes`.
@@ -303,10 +313,11 @@ UTF-8 `bytes` and a full `sha256` of the submitted body; the existing `size`
 field remains a JavaScript character count. These describe a successful write,
 not an independent read-back verification or a cross-process transaction.
 
-When previous state is known, `added`, `removed`, `newlineChanged` and `preview`
-describe the differing region after trimming equal prefix and suffix lines.
-This is a contiguous replacement preview, not a minimal multi-hunk diff.
-A final newline terminates a line; an actual extra blank line is counted.
+When previous state is known, `added`, `removed` and `newlineChanged` come from a real
+line diff of the whole file (see the `edit` and `write` rows of `ToolFacts` above for the
+counting rules and the `hunks` it carries), and `preview` holds the old and the new side of
+those hunks, context included. A final newline terminates a line, so changing only the final
+newline is `+1 -1`; an actual extra blank line is counted.
 A generic result view may carry `declined: { note? }` when a person said No to the call at review, so it never ran. The runtime sets it on the recorded `tool_completed` of a call refused through a review answer that marked itself as the person's (see [Review policy](review-policy.md)); `label` names the call's target (its path or command, taken from the tool's `presentCall`, or the tool name) and `note` is what they said, up to 4,000 characters. A tool does not set it, and a refusal by policy never carries it: such a call keeps no presentation, exactly as before. Hosts that do not know the field draw the call as a failure with its label.
 
 The optional `ToolCallView` diff `label` supplies an operation summary while

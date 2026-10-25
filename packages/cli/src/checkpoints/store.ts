@@ -132,10 +132,10 @@ export interface TurnUndoStatus {
 	readonly status: TurnUndoState
 	/** Files the reply changed that a history covers. */
 	readonly files: number
-	/** Of those, files the reply created. */
-	readonly added: number
-	/** Of those, files the reply deleted. */
-	readonly removed: number
+	/** Of those, files the reply created. A count of files, never of lines. */
+	readonly created: number
+	/** Of those, files the reply deleted. A count of files, never of lines. */
+	readonly deleted: number
 	readonly uncoveredShell: boolean
 	readonly skipped: readonly { path: string; reason: SkipReason }[]
 }
@@ -689,8 +689,8 @@ export class FileCheckpointStore {
 						turnId,
 						status: 'none',
 						files: 0,
-						added: 0,
-						removed: 0,
+						created: 0,
+						deleted: 0,
 						uncoveredShell: false,
 						skipped: [],
 					}
@@ -704,8 +704,8 @@ export class FileCheckpointStore {
 					turnId,
 					status,
 					files: changed.length,
-					added: changed.filter((e) => e.before === null).length,
-					removed: changed.filter((e) => e.before !== null && e.after === null).length,
+					created: changed.filter((e) => e.before === null).length,
+					deleted: changed.filter((e) => e.before !== null && e.after === null).length,
 					uncoveredShell: rec.m.uncoveredShell,
 					skipped: rec.m.skipped,
 				}

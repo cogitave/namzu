@@ -252,7 +252,7 @@ it('cancels an in-flight replacement and closes its late candidate without publi
 	await press(screen, '\x1b')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Interrupted.'),
+		() => screen.viewport().join('\n').includes('Interrupted'),
 		'Pending switch was not interrupted',
 	)
 	candidate.resolve(makeSession(NEXT))
@@ -477,7 +477,7 @@ it('cancels a host intent lookup before a late catalogue can change the model', 
 	await press(screen, '\x1b')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Interrupted.'),
+		() => screen.viewport().join('\n').includes('Interrupted'),
 		'Host selection was not cancelled',
 	)
 	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
@@ -530,7 +530,7 @@ it('turning hypermode on pins the highest level not above xhigh on a menu withou
 		() => screen.viewport().join('\n').includes('Hypermode is on'),
 		'Hypermode did not turn on',
 	)
-	expect(screen.viewport().join('\n')).toContain('effort pinned to high')
+	expect(screen.viewport().join('\n')).toContain('high effort')
 	const viewport = screen.viewport()
 	const frameTop = viewport.find((row) => /^\s*─+ hypermode ─\s*$/u.test(row)) ?? ''
 	const frameBottom = lowerRuleRow(viewport)
@@ -552,7 +552,7 @@ it('puts the effort back when hypermode turns off, unless it was changed meanwhi
 	await submit(screen, '/hypermode off')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Hypermode is off — effort back to low.'),
+		() => screen.viewport().join('\n').includes('Hypermode is off. Effort is back to low.'),
 		'the effort did not come back',
 	)
 	await submit(screen, 'go')
@@ -608,7 +608,8 @@ it('pins xhigh, not the top level, on a model whose menu goes up to max', async 
 	await submit(screen, '/hypermode on')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Hypermode is on — effort pinned to xhigh'),
+		() =>
+			screen.viewport().join('\n').includes('Hypermode is on for this conversation: xhigh effort'),
 		'Hypermode did not pin xhigh',
 	)
 	await submit(screen, 'go')
@@ -664,7 +665,7 @@ it("hypermode re-pins after a model switch once the new model's menu has loaded"
 	activate = async () => next.session
 	const screen = await open()
 	await submit(screen, '/hypermode on')
-	await until(screen, () => screen.viewport().join('\n').includes('effort pinned to high'), 'on')
+	await until(screen, () => screen.viewport().join('\n').includes('high effort'), 'on')
 	await submit(screen, `/model ${NEXT}`)
 	await until(
 		screen,
@@ -689,12 +690,12 @@ it('hypermode turned on before the menu loads says so and pins when it arrives',
 	await submit(screen, '/hypermode on')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('is still loading'),
+		() => screen.viewport().join('\n').includes('finish loading'),
 		'Loading message missing',
 	)
-	expect(screen.viewport().join('\n')).not.toContain('does not publish an exact effort menu')
+	expect(screen.viewport().join('\n')).not.toContain('has no effort levels to choose from')
 	first.arrive()
-	await until(screen, () => screen.viewport().join('\n').includes('Effort pinned to xhigh'), 'pin')
+	await until(screen, () => screen.viewport().join('\n').includes('Effort set to xhigh'), 'pin')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('xhigh')
@@ -709,7 +710,9 @@ it('accepts hypermode without pinning when the model publishes no effort menu, a
 		() => screen.viewport().join('\n').includes('Hypermode is on'),
 		'Hypermode did not turn on',
 	)
-	expect(screen.viewport().join('\n')).toContain('does not publish an exact effort menu')
+	expect(screen.viewport().join('\n').replace(/\s+/g, ' ')).toContain(
+		'has no effort levels to choose from',
+	)
 	await submit(screen, 'continue')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBeUndefined()

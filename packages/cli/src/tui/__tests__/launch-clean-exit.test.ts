@@ -47,7 +47,7 @@ describe('launchTui clean settlement', () => {
 			}),
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			'To resume this conversation, run:\ncd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
+			'\nTo resume this conversation, run:\ncd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
 		)
 	})
 
@@ -65,7 +65,7 @@ describe('launchTui clean settlement', () => {
 			},
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			"To resume this conversation, run:\ncd '/project workspace' && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n",
+			"\nTo resume this conversation, run:\ncd '/project workspace' && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n",
 		)
 	})
 

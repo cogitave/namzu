@@ -347,6 +347,8 @@ export function unavailable(id: TriggerId, context: TriggerContext): string | un
 			if (context.sessionHypermode) return 'already on for this conversation'
 			if (!context.agentTool) return 'unavailable: this conversation cannot delegate'
 			return undefined
+		case 'workflow':
+			return undefined
 		case 'save-skill':
 			if (context.permissionMode === 'plan' || context.permissionMode === 'strict')
 				return `unavailable in ${context.permissionMode} mode`

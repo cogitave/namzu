@@ -120,7 +120,7 @@ describe('the shell jobs child screen', () => {
 		expect(visible).toContain('Background')
 		expect(visible).toContain('1 active shell')
 		expect(visible).toContain('❯ ● npm run dev  running')
-		expect(visible).toContain('✓ pnpm build  done')
+		expect(visible).toContain('● pnpm build  finished')
 		expect(visible).not.toContain('b0000000')
 		expect(visible).toContain('x stop')
 		for (const row of screen.viewport()) expect(stringWidth(row)).toBeLessThanOrEqual(40)
@@ -143,14 +143,14 @@ describe('the shell jobs child screen', () => {
 			{ cols: 80, rows: 24 },
 		)
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('Shell details')
+		expect(visible).toContain('Command details')
 		expect(visible).not.toContain('b0000000')
 		expect(visible).toContain('Status: running')
 		expect(visible).toContain('Runtime: 30s')
 		expect(visible).toContain('Command:')
 		expect(visible).toContain('Output:')
 		expect(visible).toContain('npm run dev\\u{001b}[2J')
-		expect(visible).toContain('Earlier output discarded by the job buffer')
+		expect(visible).toContain('Earlier output was dropped')
 		expect(visible).toContain('\\u{001b}[31munsafe')
 		expect(visible).toContain('last line')
 		expect(visible).toContain('x stop')
@@ -173,7 +173,7 @@ describe('the shell jobs child screen', () => {
 			{ cols: 40, rows: 20 },
 		)
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('Status: completed (exit code 0)')
+		expect(visible).toContain('Status: finished (exit code 0)')
 		expect(visible).toContain('Runtime: 30s')
 		expect(visible).toContain('Server ready')
 		expect(visible).toContain('esc back')
@@ -240,7 +240,7 @@ describe('the shell jobs child screen', () => {
 	it('bounds a noisy process to its latest output and reports both kinds of omission', () => {
 		const long = `HEAD${'old'.repeat(12_000)}\nTAIL`
 		const rows = backgroundJobOutputRows(output(long, 100), 40)
-		expect(rows.join('')).toContain('Earlier output discarded by the job buffer (100 B).')
+		expect(rows.join('')).toContain('Earlier output was dropped (100 B).')
 		expect(rows.join('')).toContain('Showing the latest 32 KB.')
 		expect(rows.join('\n')).toContain('TAIL')
 		expect(rows.join('\n')).not.toContain('HEAD')

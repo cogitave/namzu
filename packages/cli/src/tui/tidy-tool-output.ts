@@ -2,8 +2,10 @@ import { stripVTControlCharacters } from 'node:util'
 
 import type { ToolFacts, ToolTextWindow } from '@namzu/sdk'
 
-import { formatSize, homePath, plural } from './person-terms.js'
+import { displayPath } from './display-path.js'
+import { formatSize, plural } from './person-terms.js'
 import type { ShellOutput } from './shell-cell.js'
+import { clipText, hiddenLinesHint } from './truncation.js'
 
 export interface TidyOutput {
 	/** What the transcript shows under the step. The retained raw output is untouched. */
@@ -104,13 +106,13 @@ function endedHow(facts: CommandFacts): string | undefined {
  * A detail line that stands for lines the kernel kept out of a long stream.
  * The transcript counts it as that many hidden lines when it collapses a body.
  */
-export const NOT_SHOWN_LINE = /^… ([\d,]+) lines? not shown$/
+export const NOT_SHOWN_LINE = /^… \+([\d,]+) lines?$/
 
 /** One stream's window as lines: the first lines, a gap line, the last lines. */
 function windowLines(window: ToolTextWindow): string[] {
 	const lines = window.head.length > 0 ? window.head.split('\n') : []
 	if (window.omittedLines) {
-		lines.push(`… ${plural(window.omittedLines, 'line')} not shown`)
+		lines.push(hiddenLinesHint(window.omittedLines, { canExpand: false }))
 	}
 	if (window.tail) lines.push(...window.tail.split('\n'))
 	return lines
@@ -204,8 +206,17 @@ export function declinedLine(note: string | undefined): string {
  * ("Blocked by the authorization gate: … rewording it will not help") is never
  * what a person reads.
  */
-export function failureFactsLine(facts: Extract<ToolFacts, { kind: 'failure' }>): string {
-	const subject = facts.subject ? homePath(facts.subject) : undefined
+export function failureFactsLine(
+	facts: Extract<ToolFacts, { kind: 'failure' }>,
+	cwd?: string,
+): string {
+	// A file named as the model gave it or relative to the working folder; a
+	// tool's own name (for an unknown tool) is not a path and is left alone.
+	const subject = facts.subject
+		? facts.reason === 'unknown_tool'
+			? facts.subject
+			: displayPath(facts.subject, cwd)
+		: undefined
 	switch (facts.reason) {
 		case 'not_found':
 			return subject ? `Couldn’t find ${subject}.` : 'Couldn’t find that.'
@@ -237,8 +248,7 @@ function fileName(path: string): string {
 }
 
 function clipped(text: string, max: number): string {
-	const flat = text.replace(/\s+/g, ' ').trim()
-	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+	return clipText(text.replace(/\s+/g, ' ').trim(), max)
 }
 
 /** `+2 −1`; a side with nothing is left out, and no change at all gives ''. */
@@ -250,29 +260,6 @@ function changeStats(added: number | undefined, removed: number | undefined): st
 }
 
 /**
- * Lines a replacement added and removed. The receipt of an edit holds only the
- * text it replaced, so the lines both sides share at the start and the end are
- * not counted as changes.
- */
-export function editedLineCounts(
-	before: string,
-	after: string,
-): { readonly added: number; readonly removed: number } {
-	const a = before === '' ? [] : before.split('\n')
-	const b = after === '' ? [] : after.split('\n')
-	let head = 0
-	while (head < a.length && head < b.length && a[head] === b[head]) head++
-	let tail = 0
-	while (
-		tail < a.length - head &&
-		tail < b.length - head &&
-		a[a.length - 1 - tail] === b[b.length - 1 - tail]
-	)
-		tail++
-	return { removed: a.length - head - tail, added: b.length - head - tail }
-}
-
-/**
  * The one-line account of a finished read, search, write or edit, from the typed
  * facts the kernel reports (`ToolResult.facts`), not from the model's receipt:
  * "Read a.ts", "Searched for x · 2 matches in 2 files", "Edited a.ts +2 −1",
@@ -280,10 +267,7 @@ export function editedLineCounts(
  * the caller keeps the text it already had (a conversation saved before facts
  * existed, or any other tool).
  */
-export function factsHeadline(
-	facts: ToolFacts | undefined,
-	edit?: { readonly before: string; readonly after: string },
-): string | undefined {
+export function factsHeadline(facts: ToolFacts | undefined): string | undefined {
 	if (!facts) return undefined
 	switch (facts.kind) {
 		case 'read': {
@@ -327,8 +311,9 @@ export function factsHeadline(
 		}
 		case 'edit': {
 			if (!facts.path) return undefined
-			const counts = edit ? editedLineCounts(edit.before, edit.after) : undefined
-			const stats = counts ? changeStats(counts.added, counts.removed) : ''
+			// A final-newline-only change is +1 −1 in the kernel's count, so a real
+			// change is never headlined as nothing.
+			const stats = changeStats(facts.added, facts.removed)
 			return `Edited ${fileName(facts.path)}${stats ? ` ${stats}` : ''}`
 		}
 		default:

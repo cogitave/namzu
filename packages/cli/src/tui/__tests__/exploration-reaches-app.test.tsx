@@ -156,7 +156,7 @@ it('groups observations, preserves expandable evidence and distinguishes backgro
 	expect(transcript).toContain('Read one.ts')
 	expect(transcript).toContain('Search needle in src')
 	expect(transcript).toContain('Read background output · job-one')
-	expect(transcript).toContain('✗ Read missing.ts')
+	expect(transcript).toContain('● Read missing.ts')
 	expect(transcript).not.toContain('FIRST evidence')
 	expect(transcript).not.toContain('SEARCH evidence')
 	screen.press('\x0f')

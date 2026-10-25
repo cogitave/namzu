@@ -182,6 +182,15 @@ const MAPPING: {
 			failures: e.failures,
 		}),
 	},
+	compaction_started: {
+		wire: 'compaction.started',
+		transform: (e) => ({
+			iteration: e.iteration,
+			reason: e.reason,
+			tokens_before: e.tokensBefore,
+			context_window_tokens: e.contextWindowTokens,
+		}),
+	},
 	compaction_tool_results_cleared: {
 		wire: 'compaction.tool_results_cleared',
 		transform: (e) => ({

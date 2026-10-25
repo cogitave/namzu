@@ -139,7 +139,7 @@ async function startPaused(): Promise<Screen> {
 	screens.push(screen)
 	await until(screen, () => screen.viewport().join('\n').includes('Type a message'), 'not ready')
 	await submit(screen, 'first')
-	await until(screen, () => screen.scrollback().join('\n').includes('Paused:'), 'did not pause')
+	await until(screen, () => screen.scrollback().join('\n').includes('Paused.'), 'did not pause')
 	return screen
 }
 

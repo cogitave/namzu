@@ -100,7 +100,10 @@ describe('a structured summary must reclaim estimated prompt space', () => {
 		expect(messages).toEqual(original)
 		expect(messages[1]).toBe(original[1])
 		expect(invalidate).not.toHaveBeenCalled()
-		expect(events).toMatchObject([{ type: 'compaction_failed', cause: 'shed_nothing' }])
+		expect(events).toMatchObject([
+			{ type: 'compaction_started', reason: 'threshold' },
+			{ type: 'compaction_failed', cause: 'shed_nothing' },
+		])
 	})
 
 	it('still commits a summary that replaces substantially larger unretained history', async () => {

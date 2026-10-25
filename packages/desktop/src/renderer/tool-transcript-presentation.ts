@@ -606,6 +606,9 @@ function factsRow(
 				lead,
 				file,
 				operation: 'edited',
+				...(facts.added !== undefined || facts.removed !== undefined
+					? { stats: { added: facts.added ?? 0, removed: facts.removed ?? 0 } }
+					: {}),
 			}
 		}
 		case 'write': {
@@ -790,7 +793,16 @@ export function toolTranscriptPresentation(
 		const authored = path ? undefined : nonBlank(view.label)
 		if (path) file = { name, path }
 		label = authored ?? `${lead} ${name}`
-		if (state === 'completed') stats = diffStats(view)
+		if (state === 'completed') {
+			// One count from one diff: the kernel's own, when it reported it. Only a
+			// conversation saved before edits carried counts is compared here.
+			const reported =
+				tool.facts?.kind === 'write' || tool.facts?.kind === 'edit' ? tool.facts : undefined
+			stats =
+				reported && (reported.added !== undefined || reported.removed !== undefined)
+					? { added: reported.added ?? 0, removed: reported.removed ?? 0 }
+					: diffStats(view)
+		}
 	} else if (typed) {
 		// The words come from typed fields; the model's receipt is not drawn.
 		label = typed.label

@@ -629,6 +629,7 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	approval_policy_changed: true,
 	request_envelope: true,
 	iteration_completed: true,
+	compaction_started: true,
 	compaction_shed: true,
 	compaction_completed: true,
 	compaction_tool_results_cleared: true,
@@ -688,12 +689,12 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	child_session_idled: true,
 }
 
-/** All 63 live event type literals. */
+/** All 64 live event type literals. */
 export const SESSION_EVENT_TYPES: readonly SessionEventType[] = Object.freeze(
 	Object.keys(SESSION_EVENT_TYPE_TABLE) as SessionEventType[],
 )
 
-/** The 58 event types a session log records: all 63 but the five ephemeral ones. */
+/** The 58 event types a session log records: all 64 but the six ephemeral ones. */
 export const PERSISTED_SESSION_EVENT_TYPES: readonly PersistedSessionEventType[] = Object.freeze(
 	SESSION_EVENT_TYPES.filter(
 		(type) => !EPHEMERAL_EVENT_TYPES.has(type),

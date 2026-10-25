@@ -68,7 +68,9 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 			{showPreview && conversations[selected] && (
 				<Box flexDirection="column" paddingTop={1}>
 					<Text color={theme.text.secondary} wrap="truncate-end">
-						{conversations[selected]?.preview || 'No saved user prompt available.'}
+						{conversations[selected]?.preview
+							? `Last prompt: ${conversations[selected]?.preview}`
+							: 'No saved prompt.'}
 					</Text>
 					<Text color={theme.text.muted} wrap="truncate-end">
 						{plural(conversations[selected]?.count ?? 0, 'message')}

@@ -96,6 +96,9 @@ describe('the footer row', () => {
 		expect(await row({ agentCount: 2 })).toContain('← 2 agents')
 		expect(await row({ agentCount: 120 })).toContain('← 99+ agents')
 		expect(await row({ agentCount: 0 })).not.toContain('←')
+		expect(await row({ workflowCount: 1 })).toContain('← 1 workflow')
+		expect(await row({ workflowCount: 1 })).not.toContain('agent')
+		expect(await row({ agentCount: 2, workflowCount: 1 })).toContain('← 2 agents · 1 workflow')
 	})
 
 	it('offers ↓ to manage only when told ↓ reaches something, and swaps it for enter while the pill is selected', async () => {
@@ -190,7 +193,7 @@ describe('the footer row', () => {
 		expect(await row({ pr: { kind: 'none' } })).not.toContain('PR')
 	})
 
-	it('drops the manage hint, the agents hint, the interrupt hint, then the pill, and never wraps', async () => {
+	it('shortens the manage hint, drops the agents and interrupt hints, keeps the pointer, then the pill, and never wraps', async () => {
 		const props: Partial<StatusBarProps> = {
 			permissionMode: 'bypass',
 			canCycleMode: true,
@@ -206,15 +209,18 @@ describe('the footer row', () => {
 		}
 		const wide = await row(props, 110)
 		expect(wide).toContain('↓ to manage')
-		const noManage = await row(props, 79)
-		expect(noManage).toContain('← 1 agent')
-		expect(noManage).not.toContain('↓ to manage')
-		const noAgents = await row(props, 69)
-		expect(noAgents).toContain('esc to interrupt')
-		expect(noAgents).not.toContain('← 1 agent')
-		const noInterrupt = await row(props, 51)
+		const shortManage = await row(props, 79)
+		expect(shortManage).toContain('esc to interrupt')
+		expect(shortManage).toContain('↓ agents')
+		expect(shortManage).not.toContain('↓ to manage')
+		expect(shortManage).not.toContain('← 1 agent')
+		const noInterrupt = await row(props, 69)
 		expect(noInterrupt).toContain('2 shells')
+		expect(noInterrupt).toContain('↓ agents')
 		expect(noInterrupt).not.toContain('esc to interrupt')
+		const pointerGone = await row(props, 55)
+		expect(pointerGone).toContain('2 shells')
+		expect(pointerGone).not.toContain('↓ agents')
 		const narrow = await row(props, 45)
 		expect(narrow).toContain('⏵⏵ bypass permissions on')
 		expect(narrow).toContain('PR #592')

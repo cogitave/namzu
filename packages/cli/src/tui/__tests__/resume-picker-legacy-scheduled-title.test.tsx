@@ -32,3 +32,24 @@ describe('old scheduled conversation titles in /resume', () => {
 		}
 	})
 })
+
+describe('the preview under the list', () => {
+	it('labels the last prompt, and counts only what a person wrote and read', () => {
+		const conversation: RecentConversation = {
+			id: generateSessionId(),
+			title: 'plain-q',
+			named: false,
+			updatedAt: '2026-09-27T11:32:00Z',
+			count: 2,
+			preview: 'tools-q',
+		}
+		const picker = render(<ResumePicker conversations={[conversation]} selected={0} />)
+		try {
+			const frame = picker.lastFrame() ?? ''
+			expect(frame).toContain('Last prompt: tools-q')
+			expect(frame).toContain('2 messages')
+		} finally {
+			picker.unmount()
+		}
+	})
+})

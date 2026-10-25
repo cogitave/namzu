@@ -38,7 +38,13 @@ describe('composerTriggers shape', () => {
 			enabled: true,
 			suggest: true,
 			languages: ['en', 'tr'],
-			arming: { hypermode: 'arm', 'save-skill': 'arm', schedule: 'suggest', 'max-effort': 'off' },
+			arming: {
+				hypermode: 'arm',
+				workflow: 'arm',
+				'save-skill': 'arm',
+				schedule: 'suggest',
+				'max-effort': 'off',
+			},
 		})
 	})
 

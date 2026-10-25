@@ -765,7 +765,9 @@ describe('publishing a picker selection', () => {
 		await submit(harness, `/help ${name}`)
 		await frameShows(harness.lastFrame, 'Usage:')
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toMatch(new RegExp(`· /${name}\\b`))
+		// The typed command, then its answer under `⎿`.
+		expect(frame).toContain(`› /help ${name}`)
+		expect(frame).toMatch(new RegExp(`⎿ /${name}\\b`))
 		expect(frame).toContain(usage)
 		expect(frame).toContain('Type a message')
 		expect(frame).not.toContain('Choose a command')
@@ -1543,12 +1545,66 @@ describe('Ctrl+C from a ready conversation', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 
 		harness.stdin.write('\x03')
-		await frameShows(harness.lastFrame, 'Press Ctrl+C again to exit')
+		await frameShows(harness.lastFrame, 'Press Ctrl-C again to exit')
 		harness.stdin.write('\x03')
 		await exitedWithin()
 
 		expect(summaries).toEqual([{}])
 		expect(startConversationCalls).toBe(0)
+	})
+
+	it('arms exit with a footer hint, not a transcript row, and a second Ctrl+D exits', async () => {
+		const summaries: TuiExitSummary[] = []
+		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		harness.stdin.write('\x04')
+		await frameShows(harness.lastFrame, 'Press Ctrl-D again to exit')
+		expect(exited).toBe(false)
+		harness.stdin.write('\x04')
+		await exitedWithin()
+
+		expect(summaries).toEqual([{}])
+	})
+
+	it('leaves Ctrl+D to the composer when something is typed', async () => {
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		harness.stdin.write('abc')
+		await frameShows(harness.lastFrame, 'abc')
+		harness.stdin.write('\x04')
+		await tick(120)
+
+		expect(harness.lastFrame()).not.toContain('again to exit')
+		expect(exited).toBe(false)
+	})
+
+	it('forgets the armed exit after 800 ms: the hint goes and the next press only re-arms', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+		try {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			harness.stdin.write('\x03')
+			await frameShows(harness.lastFrame, 'Press Ctrl-C again to exit')
+			await vi.advanceTimersByTimeAsync(700)
+			expect(harness.lastFrame()).toContain('Press Ctrl-C again to exit')
+			await vi.advanceTimersByTimeAsync(200)
+			await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('again to exit'))
+
+			harness.stdin.write('\x03')
+			await frameShows(harness.lastFrame, 'Press Ctrl-C again to exit')
+			expect(exited, 'a press after the window must only arm again').toBe(false)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('hands the durable conversation id to the shell summary before exiting', async () => {
@@ -1561,7 +1617,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		await frameShows(harness.lastFrame, 'start a conversation')
 
 		harness.stdin.write('\x03')
-		await frameShows(harness.lastFrame, 'Press Ctrl+C again to exit')
+		await frameShows(harness.lastFrame, 'Press Ctrl-C again to exit')
 		harness.stdin.write('\x03')
 		await exitedWithin()
 

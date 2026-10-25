@@ -1,19 +1,11 @@
 import { render } from 'ink-testing-library'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { LiveActivity } from '../LiveActivity.js'
 
 describe('the redrawable Working region', () => {
 	it('names only controls and child observation that are actually available', () => {
-		const quiet = render(
-			<LiveActivity
-				activeTools={[]}
-				working
-				agentCount={2}
-				interruptible={false}
-				animate={false}
-			/>,
-		)
+		const quiet = render(<LiveActivity activeTools={[]} working agentCount={2} animate={false} />)
 		try {
 			const frame = quiet.lastFrame() ?? ''
 			expect(frame).toContain('Working')
@@ -24,31 +16,74 @@ describe('the redrawable Working region', () => {
 			quiet.unmount()
 		}
 
-		const interruptible = render(
-			<LiveActivity activeTools={[]} working interruptible animate={false} />,
-		)
+		// `esc to interrupt` lives in the footer only, never in the spinner row.
+		const plain = render(<LiveActivity activeTools={[]} working animate={false} />)
 		try {
-			expect(interruptible.lastFrame()).toContain('esc to interrupt')
+			expect(plain.lastFrame()).not.toContain('esc to interrupt')
 		} finally {
-			interruptible.unmount()
+			plain.unmount()
 		}
 	})
 
-	it('counts the turn’s output tokens beside its time, and keeps the interrupt key', () => {
-		const harness = render(
-			<LiveActivity activeTools={[]} working interruptible animate={false} tokens={1_100} />,
-		)
+	it('hides the figures group until tokens, thinking, compaction, agents or 16 s', () => {
+		const frame = (props: Partial<React.ComponentProps<typeof LiveActivity>>) => {
+			const harness = render(<LiveActivity activeTools={[]} working animate={false} {...props} />)
+			try {
+				return harness.lastFrame() ?? ''
+			} finally {
+				harness.unmount()
+			}
+		}
+		expect(frame({})).not.toContain('(')
+		expect(frame({ tokens: 0 })).not.toContain('(')
+		expect(frame({ tokens: 1_100 })).toMatch(/Working \(0s · ↓ 1\.1k tokens\)/u)
+		expect(frame({ thinking: '' })).toContain('Working (0s)')
+		expect(frame({ compacting: true })).toContain('Working (0s)')
+	})
+
+	it('opens the figures group after 16 s and reads the time as 17s, then 1m 23s', () => {
+		vi.useFakeTimers({ toFake: ['Date'] })
 		try {
-			expect(harness.lastFrame()).toMatch(
-				/Working \(\d+\.\ds · ↓ 1\.1k tokens · esc to interrupt\)/u,
-			)
+			const harness = render(<LiveActivity activeTools={[]} working animate={false} />)
+			try {
+				expect(harness.lastFrame()).not.toContain('(')
+				vi.setSystemTime(Date.now() + 16_000)
+				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
+				expect(harness.lastFrame()).not.toContain('(')
+				vi.setSystemTime(Date.now() + 1_500)
+				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
+				expect(harness.lastFrame()).toContain('Working (17s)')
+				vi.setSystemTime(Date.now() + 66_000)
+				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
+				expect(harness.lastFrame()).toContain('Working (1m 23s)')
+			} finally {
+				harness.unmount()
+			}
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('leaves a blank row above the working row', () => {
+		const harness = render(<LiveActivity activeTools={[]} working animate={false} />)
+		try {
+			const lines = (harness.lastFrame() ?? '').split('\n')
+			expect(lines[0]).toBe('')
+			expect(lines[1]).toContain('Working')
+		} finally {
+			harness.unmount()
+		}
+	})
+
+	it('counts the turn’s output tokens beside its time', () => {
+		const harness = render(<LiveActivity activeTools={[]} working animate={false} tokens={1_100} />)
+		try {
+			expect(harness.lastFrame()).toMatch(/Working \(\d+s · ↓ 1\.1k tokens\)/u)
 		} finally {
 			harness.unmount()
 		}
 		// Nothing written yet reads as nothing, not as `↓ 0 tokens`.
-		const silent = render(
-			<LiveActivity activeTools={[]} working interruptible animate={false} tokens={0} />,
-		)
+		const silent = render(<LiveActivity activeTools={[]} working animate={false} tokens={0} />)
 		try {
 			expect(silent.lastFrame()).not.toContain('tokens')
 		} finally {

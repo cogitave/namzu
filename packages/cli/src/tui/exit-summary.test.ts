@@ -17,7 +17,7 @@ describe('the shell handoff after the TUI exits', () => {
 				{ cwd: '/private/control', command: ['/opt/node', '/checkout/bin.js'] },
 				'linux',
 			),
-		).toBe('To resume this conversation, run:\nnamzu pal chat pal_owned --resume ses_owned\n')
+		).toBe('\nTo resume this conversation, run:\nnamzu pal chat pal_owned --resume ses_owned\n')
 	})
 
 	it('quotes Pal arguments using the Windows PowerShell handoff', () => {
@@ -28,13 +28,15 @@ describe('the shell handoff after the TUI exits', () => {
 				'win32',
 			),
 		).toBe(
-			"To resume this conversation, run in PowerShell:\n& 'namzu.cmd' 'pal' 'chat' 'pal_owned' '--resume' 'ses_owned'\n",
+			"\nTo resume this conversation, run in PowerShell:\n& 'namzu.cmd' 'pal' 'chat' 'pal_owned' '--resume' 'ses_owned'\n",
 		)
 	})
 	it('prints a copy-pasteable shell command for the durable conversation', () => {
 		expect(
 			formatTuiExitSummary({ conversationId: '5be5e0e7-6c3c-4013-971a-f75c0d2d2538' }, {}, 'linux'),
-		).toBe('To resume this conversation, run:\nnamzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n')
+		).toBe(
+			'\nTo resume this conversation, run:\nnamzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
+		)
 	})
 
 	it('prints nothing before a durable conversation exists', () => {
@@ -56,7 +58,7 @@ describe('the shell handoff after the TUI exits', () => {
 				'linux',
 			),
 		).toBe(
-			'To resume this conversation, run:\ncd /home/operator && namzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
+			'\nTo resume this conversation, run:\ncd /home/operator && namzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
 		)
 	})
 
@@ -70,7 +72,7 @@ describe('the shell handoff after the TUI exits', () => {
 				},
 				'win32',
 			),
-		).toBe("To resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_example'\n")
+		).toBe("\nTo resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_example'\n")
 	})
 
 	it('uses a literal directory and guards resume on its successful PowerShell 5.1 change', () => {
@@ -81,7 +83,7 @@ describe('the shell handoff after the TUI exits', () => {
 				'win32',
 			),
 		).toBe(
-			"To resume this conversation, run in PowerShell:\nSet-Location -LiteralPath 'C:\\project''s [work]'; if ($?) { & 'namzu' 'resume' 'ses_''$(Get-Item .)' }\n",
+			"\nTo resume this conversation, run in PowerShell:\nSet-Location -LiteralPath 'C:\\project''s [work]'; if ($?) { & 'namzu' 'resume' 'ses_''$(Get-Item .)' }\n",
 		)
 	})
 
@@ -101,7 +103,7 @@ describe('the shell handoff after the TUI exits', () => {
 				},
 				'win32',
 			),
-		).toBe("To resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_source'\n")
+		).toBe("\nTo resume this conversation, run in PowerShell:\n& 'namzu' 'resume' 'ses_source'\n")
 	})
 
 	it.skipIf(process.platform === 'win32')(
@@ -124,7 +126,7 @@ describe('the shell handoff after the TUI exits', () => {
 					{ conversationId: id },
 					{ cwd, command: [process.execPath, 'ignored.js'] },
 				)
-				const command = line.slice('To resume this conversation, run:\n'.length).trimEnd()
+				const command = line.slice('\nTo resume this conversation, run:\n'.length).trimEnd()
 				const out = execFileSync('sh', ['-c', command], {
 					encoding: 'utf8',
 					env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },

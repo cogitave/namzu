@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	declinedLine,
-	editedLineCounts,
 	factsHeadline,
 	failureFactsLine,
 	looksBinary,
@@ -70,9 +69,7 @@ describe('command output in the transcript', () => {
 			'STDOUT:\n1\n... 199 similar lines omitted\n\nThe full output was written to: /tmp/x',
 		)
 		expect(tidy.failure).toBeUndefined()
-		expect(tidy.output).toBe(
-			[...lines.slice(0, 80), '… 80 lines not shown', ...lines.slice(-40)].join('\n'),
-		)
+		expect(tidy.output).toBe([...lines.slice(0, 80), '… +80 lines', ...lines.slice(-40)].join('\n'))
 	})
 
 	it('names a timeout, a signal and binary output from the fields', () => {
@@ -181,16 +178,15 @@ describe('the headline of a read, search, write or edit', () => {
 		)
 	})
 
-	it('counts an edit from its receipt, leaving out the lines both sides share', () => {
-		expect(editedLineCounts('a\nb\nc', 'a\nX\nY\nc')).toEqual({ added: 2, removed: 1 })
-		expect(editedLineCounts('', 'one\ntwo')).toEqual({ added: 2, removed: 0 })
+	it('headlines an edit from the counts the kernel reported', () => {
 		expect(
-			factsHeadline(
-				{ kind: 'edit', path: '/p/a.ts', replacements: 1 },
-				{ before: 'a\nb', after: 'a\nX\nY' },
-			),
+			factsHeadline({ kind: 'edit', path: '/p/a.ts', replacements: 1, added: 2, removed: 1 }),
 		).toBe('Edited a.ts +2 −1')
 		expect(factsHeadline({ kind: 'edit', path: 'a.ts' })).toBe('Edited a.ts')
+		// A final-newline-only change is one line on each side and is never hidden.
+		expect(factsHeadline({ kind: 'edit', path: 'a.ts', added: 1, removed: 1 })).toBe(
+			'Edited a.ts +1 −1',
+		)
 	})
 
 	it('has no opinion on anything else, so a saved conversation keeps its text', () => {
@@ -257,5 +253,22 @@ describe('the shell cell data', () => {
 		expect(
 			tidyTerminalOutput('Started background job job_2. For finite work, wait.').shell?.note,
 		).toBe('Running in the background (↓ to manage)')
+	})
+})
+
+describe('a file that is not in the working folder', () => {
+	it('is named under home or in full, never as ../../x', () => {
+		const line = failureFactsLine(
+			{ kind: 'failure', reason: 'not_found', subject: '../../etc/x.conf' },
+			'/work/proj',
+		)
+		expect(line).not.toContain('..')
+		expect(line).toBe('Couldn’t find /etc/x.conf.')
+	})
+
+	it('leaves a tool name alone', () => {
+		expect(failureFactsLine({ kind: 'failure', reason: 'unknown_tool', subject: 'ls' }, '/w')).toBe(
+			'The model asked for a tool that does not exist (ls). It will try another way.',
+		)
 	})
 })

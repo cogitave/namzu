@@ -92,7 +92,7 @@ describe('the shell cell result rows', () => {
 	})
 
 	it('counts a kernel gap line as the lines it stands for', () => {
-		const stdout = ['a', 'b', 'c', 'd', '… 80 lines not shown', 'x', 'y']
+		const stdout = ['a', 'b', 'c', 'd', '… +80 lines', 'x', 'y']
 		const rows = shellResultRows(ok(stdout), collapsed)
 		expect(rows.at(-1)?.text).toBe('… +83 lines (ctrl+o to expand)')
 	})

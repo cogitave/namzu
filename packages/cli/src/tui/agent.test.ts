@@ -112,13 +112,149 @@ describe('toAgentEvent', () => {
 			toAgentEvent(completed({ action: 'continue', halt: { reason: 'change freeze' } }), presenter),
 		).toEqual({
 			kind: 'hook-notice',
-			text: 'A hook stopped this turn: change freeze',
+			text: 'A hook stopped this reply: change freeze',
+			halted: true,
 		})
 		expect(toAgentEvent(completed({ action: 'continue', notice: 'careful' }), presenter)).toEqual({
 			kind: 'hook-notice',
 			text: 'A hook says: careful',
 		})
 		expect(toAgentEvent(completed({ action: 'continue' }), presenter)).toBeNull()
+	})
+
+	describe('compaction and provider-switch rows', () => {
+		const event = (value: object) => ({ ...env, iteration: 1, ...value }) as unknown as SessionEvent
+
+		it('maps a completed compaction to the calm row with its counts behind ctrl+o', () => {
+			expect(
+				toAgentEvent(
+					event({
+						type: 'compaction_completed',
+						messagesBefore: 24,
+						messagesAfter: 3,
+						tokensBefore: 180_000,
+						tokensAfter: 12_000,
+						measuredBy: 'estimate',
+					}),
+					presenter,
+				),
+			).toMatchObject({
+				kind: 'context',
+				text: 'Conversation compacted',
+				row: 'compacted',
+				detail: [
+					'24 messages became 3 messages.',
+					'Context went from about 180k to about 12k tokens.',
+				],
+				shed: true,
+				summarised: true,
+				reclaimedTokens: 168_000,
+			})
+		})
+
+		it('starts a live compacting line without a transcript row or a tally entry', () => {
+			const started = toAgentEvent(
+				event({
+					type: 'compaction_started',
+					iteration: 1,
+					reason: 'threshold',
+					tokensBefore: 90_000,
+					contextWindowTokens: 100_000,
+				}),
+				presenter,
+			)
+			expect(started).toMatchObject({
+				kind: 'context',
+				row: 'hidden',
+				shed: false,
+				compacting: true,
+			})
+		})
+
+		it('keeps tool-result clearing out of the transcript but in the tally', () => {
+			const cleared = toAgentEvent(
+				event({
+					type: 'compaction_tool_results_cleared',
+					clearedCount: 12,
+					stubbedCount: 3,
+					charsReclaimed: 100,
+					reclaimedTokens: 41_000,
+					reliefWasEnough: false,
+				}),
+				presenter,
+			)
+			expect(cleared).toMatchObject({
+				kind: 'context',
+				row: 'hidden',
+				cleared: 12,
+				stubbed: 3,
+				reclaimedTokens: 41_000,
+				compacting: true,
+			})
+			const enough = toAgentEvent(
+				event({
+					type: 'compaction_tool_results_cleared',
+					clearedCount: 1,
+					charsReclaimed: 10,
+					reclaimedTokens: 5,
+					reliefWasEnough: true,
+				}),
+				presenter,
+			)
+			expect(enough).toMatchObject({ row: 'hidden' })
+			expect(enough).not.toHaveProperty('compacting')
+		})
+
+		it('words a failed compaction without the reducer or the raw error', () => {
+			const failed = toAgentEvent(
+				event({
+					type: 'compaction_failed',
+					cause: 'reducer_threw',
+					messages: 31,
+					error: 'ECONNRESET',
+				}),
+				presenter,
+			)
+			expect(failed).toMatchObject({ kind: 'context', row: 'warning', shed: false })
+			const text = (failed as { text: string }).text
+			expect(text).toContain('Compaction failed')
+			expect(text).not.toMatch(/reducer|ECONNRESET|messages unchanged/i)
+			expect(
+				(
+					toAgentEvent(
+						event({ type: 'compaction_failed', cause: 'shed_nothing', messages: 5 }),
+						presenter,
+					) as { text: string }
+				).text,
+			).toContain('conversation could not be reduced below the context limit')
+		})
+
+		it('says nothing for an open circuit breaker', () => {
+			expect(
+				toAgentEvent(
+					event({ type: 'compaction_failed', cause: 'breaker_open', messages: 5 }),
+					presenter,
+				),
+			).toBeNull()
+		})
+
+		it('names both products in a provider switch and keeps the code to itself', () => {
+			const switched = toAgentEvent(
+				event({
+					type: 'provider_fallback',
+					fromIndex: 0,
+					fromProviderId: 'openai',
+					toIndex: 1,
+					toProviderId: 'anthropic',
+					code: 'rate_limit',
+					status: 429,
+				}),
+				presenter,
+			) as { kind: string; text: string }
+			expect(switched.kind).toBe('provider-fallback')
+			expect(switched.text).toContain('Namzu used')
+			expect(switched.text).not.toMatch(/HTTP 429|rate_limit|Provider chain|fallback #/i)
+		})
 	})
 
 	it('maps tool_executing to tool-start with a command summary', () => {
@@ -673,6 +809,94 @@ describe('the rows under a tool call', () => {
 			summary: 'Created x (+1 -0)',
 			detail: ['+ one'],
 		})
+	})
+
+	it('draws an edit from the kernel hunks, with the kernel counts, not from the call', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'edit',
+				isError: false,
+				result: 'Edited /p/a.ts: 4 replacement(s) (+4 -4)',
+				facts: {
+					kind: 'edit',
+					path: '/p/a.ts',
+					replacements: 4,
+					added: 4,
+					removed: 4,
+					hunks: [
+						{
+							oldStart: 2,
+							oldLines: 3,
+							newStart: 2,
+							newLines: 3,
+							lines: [' keep', '-old', '+new', ' keep'],
+						},
+					],
+				},
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect(event).toMatchObject({
+			kind: 'tool-end',
+			headline: 'Edited a.ts +4 −4',
+			detail: ['2   keep', '3 - old', '3 + new', '4   keep'],
+			diff: { preview: 40 },
+		})
+	})
+
+	it('shows a created file as a short diff and an overwrite as a full one', () => {
+		const written = (operation: 'created' | 'updated') =>
+			toAgentEvent(
+				{
+					type: 'tool_completed',
+					sessionId,
+					turnId,
+					toolUseId,
+					toolName: 'write',
+					isError: false,
+					result: 'Wrote x',
+					facts: {
+						kind: 'write',
+						path: '/p/x.txt',
+						operation,
+						added: 1,
+						removed: 0,
+						hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, lines: ['+one'] }],
+					},
+				} as unknown as SessionEvent,
+				presenter,
+			)
+		expect(written('created')).toMatchObject({
+			headline: 'Created x.txt +1',
+			diff: { preview: 10 },
+		})
+		expect(written('updated')).toMatchObject({
+			headline: 'Updated x.txt +1',
+			diff: { preview: 40 },
+		})
+	})
+
+	it('names a missing file as the model gave it, not as a raw absolute path', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'read',
+				isError: true,
+				result: 'ENOENT',
+				facts: { kind: 'failure', reason: 'not_found', subject: '/work/proj/missing-file.txt' },
+			} as unknown as SessionEvent,
+			presenter,
+			undefined,
+			'/work/proj',
+		)
+		expect(event).toMatchObject({ plainFailure: 'Couldn’t find missing-file.txt.' })
 	})
 
 	it('renders creation diffs without a phantom final line', () => {

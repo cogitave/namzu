@@ -73,4 +73,31 @@ describe('keepRecentRows', () => {
 	it('handles an empty transcript', () => {
 		expect(keepRecentRows([], 3)).toEqual([])
 	})
+
+	it('starts the kept range on the prompt, never on an orphan answer', () => {
+		// Three kept turns of a two-turn pair would open on `a1` and draw an
+		// answer with no question above it.
+		const rows = [
+			row('user', 'u1'),
+			row('assistant', 'a1'),
+			row('tool', 'ran bash'),
+			row('assistant', 'a1b'),
+			row('user', 'u2'),
+			row('assistant', 'a2'),
+		]
+		expect(keepRecentRows(rows, 4).map((r) => r.content)).toEqual([
+			'u1',
+			'a1',
+			'ran bash',
+			'a1b',
+			'u2',
+			'a2',
+		])
+		expect(keepRecentRows(rows, 3)[0]?.role).toBe('user')
+	})
+
+	it('keeps the cut where it was when no prompt precedes it', () => {
+		const rows = [row('system', 'summary'), row('assistant', 'a0'), row('assistant', 'a1')]
+		expect(keepRecentRows(rows, 1).map((r) => r.content)).toEqual(['a1'])
+	})
 })

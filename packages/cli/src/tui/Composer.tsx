@@ -146,6 +146,10 @@ export interface ComposerProps {
 	}
 	/** ctrl+x ctrl+s: deliver the waiting messages now instead of at the next boundary. */
 	readonly onSendNow?: () => void
+	/** ctrl+x ctrl+k: stop the background agents (the host arms and confirms). */
+	readonly onStopAllAgents?: () => void
+	/** The agents rail has the keyboard: the composer stays on screen, dim. */
+	readonly railFocused?: boolean
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 	/**
@@ -575,6 +579,8 @@ export function Composer({
 	onRecallQueued,
 	queuedEdit,
 	onSendNow,
+	onStopAllAgents,
+	railFocused = false,
 	onCycleMode,
 	triggers,
 	turnActive = false,
@@ -880,6 +886,10 @@ export function Composer({
 			}
 			if (chordArmed && key.ctrl && input === 's' && onSendNow) {
 				onSendNow()
+				return
+			}
+			if (chordArmed && key.ctrl && input === 'k' && onStopAllAgents) {
+				onStopAllAgents()
 				return
 			}
 			if (queuedEdit) {
@@ -1459,8 +1469,8 @@ export function Composer({
 	)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
-	const promptGlyph = disabled ? '…' : '❯'
-	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
+	const promptGlyph = disabled && !railFocused ? '…' : '❯'
+	const showPlaceholder = (!disabled || railFocused) && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null

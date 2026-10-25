@@ -6,6 +6,7 @@
 
 import { wrapUntrusted } from '@namzu/sdk'
 
+import { formatElapsed } from '../../tui/units.js'
 import { type WorkflowRunView, countAgents, runTokens } from './view.js'
 
 /** Longest return value, in characters, that goes into the completion message. */
@@ -15,11 +16,12 @@ export const WORKFLOW_RESULT_CHAR_CAP = 8000
 const MAX_FAILURES = 10
 
 export function formatDuration(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / 1000))
-	if (seconds < 60) return `${seconds}s`
-	const minutes = Math.floor(seconds / 60)
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+	const seconds = Math.max(0, ms)
+	if (seconds >= 3_600_000) {
+		const minutes = Math.floor(seconds / 60_000)
+		return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+	}
+	return formatElapsed(seconds)
 }
 
 function clip(text: string, max: number): string {

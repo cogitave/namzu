@@ -110,8 +110,8 @@ async function submit(screen: Screen, text: string): Promise<void> {
 }
 
 it.each([
-	['token_budget', 'token limit for this reply was reached'],
-	['max_iterations', 'step limit was reached'],
+	['token_budget', 'stopped at its token limit'],
+	['max_iterations', 'stopped at its step limit'],
 	['cost_unmeasurable', 'no price on file'],
 ] as const)('shows %s with retained partial work and a usable composer', async (reason, notice) => {
 	stopReason = reason
@@ -125,11 +125,12 @@ it.each([
 		await until(screen, () => screen.viewport().join('\n').includes(notice))
 		const stopped = screen.viewport().join('\n')
 		expect(stopped).toContain(partial)
-		expect(stopped).toContain('Stopped:')
+		expect(stopped).toContain('●')
 		expect(stopped).toContain('Type a message')
 		expect(stopped).not.toContain('Working')
 		expect(stopped).not.toContain('tokens spent')
-		if (reason !== 'max_iterations') expect(stopped).toContain('/cost shows reported usage.')
+		if (reason !== 'max_iterations')
+			expect(stopped.replace(/\s+/g, ' ')).toContain('/cost shows reported usage.')
 
 		await submit(screen, followup)
 		await until(screen, () => screen.viewport().join('\n').includes('Continuing with the retained'))
@@ -140,7 +141,7 @@ it.each([
 			screen
 				.scrollback()
 				.join('\n')
-				.match(/Stopped:/g),
+				.match(/The reply stopped /g),
 		).toHaveLength(1)
 	} finally {
 		await screen.unmount()

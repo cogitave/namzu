@@ -184,6 +184,28 @@ type CoreSessionEvent =
 			/** Automatic threshold, provider rejection, or a host-requested pass. */
 			reason: 'threshold' | 'overflow' | 'manual'
 	  }
+	/**
+	 * An automatic compaction pass is about to run.
+	 *
+	 * Summarising can take many seconds and every other compaction event
+	 * arrives AFTER the work, so a host had nothing to show while the turn
+	 * sat silent. This one arrives first. It is always followed by exactly
+	 * one of `compaction_completed`, `compaction_failed` or
+	 * `compaction_tool_results_cleared` (when clearing alone made room), so
+	 * a host can show a live line and drop it on any of the three.
+	 */
+	| {
+			type: 'compaction_started'
+			sessionId: SessionId
+			turnId?: TurnId
+			iteration: number
+			/** `overflow` when the provider rejected the prompt, `threshold` when the trigger fired. */
+			reason: 'threshold' | 'overflow'
+			/** Context size in tokens that the pass is trying to reduce. */
+			tokensBefore: number
+			/** The window the trigger measured against. */
+			contextWindowTokens: number
+	  }
 	| {
 			type: 'compaction_completed'
 			sessionId: SessionId
@@ -1274,6 +1296,9 @@ export type SessionEventListener = (event: SessionEvent) => void | Promise<void>
  * runtime-context message or tool result that carried it, and a noisy watch
  * would write tens of megabytes an hour of raw process output a second time.
  * `background_job_exited.monitor` is the durable record of how a watch ended.
+ * `compaction_started` is ephemeral too: it only says a pass is about to run,
+ * and the `compaction` record or `compaction_failed` that ends it is the
+ * durable fact.
  */
 export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
 	'text_delta',
@@ -1281,14 +1306,20 @@ export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Sess
 	'reasoning_delta',
 	'tool_progress',
 	'monitor_event',
+	'compaction_started',
 ])
 
 export function isEphemeralEvent(event: { readonly type: string }): boolean {
 	return EPHEMERAL_EVENT_TYPES.has(event.type as SessionEventType)
 }
 
-/** The event types a session log records: every literal except the ephemeral five. */
+/** The event types a session log records: every literal except the ephemeral six. */
 export type PersistedSessionEventType = Exclude<
 	SessionEventType,
-	'text_delta' | 'tool_input_delta' | 'reasoning_delta' | 'tool_progress' | 'monitor_event'
+	| 'text_delta'
+	| 'tool_input_delta'
+	| 'reasoning_delta'
+	| 'tool_progress'
+	| 'monitor_event'
+	| 'compaction_started'
 >

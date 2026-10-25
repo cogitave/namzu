@@ -44,27 +44,27 @@ export function describeBrowserHandoff(
 	const profile = clean(detail.profile ?? browser?.profile, 64) || 'default'
 	const what = clean(handoff.reason)
 	const command = clean(detail.loginCommand, 400) || `namzu browser login ${profile} ${origin}`
-	const lead = `The browser needs you: ${what}.`
+	const lead = `Paused. The browser needs you: ${what}.`
 	if (detail.cause === 'http-auth') {
 		if (browser && !browser.headless) {
-			return `${lead}\nCheck access to ${origin} in the browser window (profile ${profile}). If authentication succeeds, press Enter to continue · Esc to stop.`
+			return `${lead}\nCheck access to ${origin} in the browser window (profile ${profile}). If authentication succeeds, press Enter to continue, or Esc to stop.`
 		}
-		return `${lead}\nThis browser has no window, so namzu closed it to free the profile. In another terminal run:\n  ${command}\nCheck access in the window it opens, then close it. If authentication succeeds, press Enter here to continue · Esc to stop.`
+		return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nCheck access in the window it opens, then close it. If authentication succeeds, press Enter here to continue, or Esc to stop.`
 	}
 	if (browser && !browser.headless) {
 		const verb = AT_THE_WINDOW[detail.cause ?? ''] ?? 'sign in to'
-		return `${lead}\n${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${origin} in the browser window (profile ${profile}), then press Enter to continue · Esc to stop.`
+		return `${lead}\n${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${origin} in the browser window (profile ${profile}), then press Enter to continue, or Esc to stop.`
 	}
-	return `${lead}\nThis browser has no window, so namzu closed it to free the profile. In another terminal run:\n  ${command}\nsign in in the window it opens, close it, then press Enter here to continue · Esc to stop.`
+	return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nsign in in the window it opens, close it, then press Enter here to continue, or Esc to stop.`
 }
 
 /**
- * One line per browser call in a review: which site rule decided it, under
- * which profile and engine. `site rule: https://github.com → ask · profile work · windows-cdp`.
+ * One line per browser call in a review, saying what the site rule decided in
+ * words: `Browser: asks before using github.com (profile work).`
  */
 export function browserSiteNotes(
 	toolCalls: readonly { readonly name: string; readonly input: unknown }[],
-	browser: Pick<BrowserStatus, 'sites' | 'profile' | 'engine'> | undefined,
+	browser: Pick<BrowserStatus, 'sites' | 'profile'> | undefined,
 ): string[] {
 	if (!browser) return []
 	const notes: string[] = []
@@ -72,9 +72,16 @@ export function browserSiteNotes(
 		const origin = browserCallOrigin(call.name, call.input)
 		if (origin === undefined) continue
 		const rule = browserSiteRuleFor(browser.sites, origin)
-		const via =
-			rule.site === origin ? '' : rule.site === '*' ? ' (any other site)' : ` (${rule.site})`
-		const note = `site rule: ${origin}${via} → ${rule.level} · profile ${browser.profile} · ${browser.engine}`
+		const site = clean(origin.replace(/^https?:\/\//u, ''), 120)
+		const what =
+			rule.level === 'deny'
+				? `${site} is blocked`
+				: rule.level === 'read'
+					? `${site} can be read but not changed`
+					: rule.level === 'act'
+						? `can use ${site} without asking`
+						: `asks before using ${site}`
+		const note = `Browser: ${what} (profile ${clean(browser.profile, 64)}).`
 		if (!notes.includes(note)) notes.push(note)
 	}
 	return notes
@@ -110,7 +117,9 @@ export async function runBrowserSlash(
 			}
 		}
 		if (options.busy) {
-			return { text: 'The profile cannot change while a reply is running. Try again when it ends.' }
+			return {
+				text: 'The profile cannot change while a reply is running. Try again when it ends.',
+			}
 		}
 		try {
 			const status = await control.switchProfile(name)

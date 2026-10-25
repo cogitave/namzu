@@ -20,6 +20,8 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
+import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
+import { EXPAND_HINT } from './truncation.js'
 
 import {
 	DEFAULT_AGENT_PHASE,
@@ -29,6 +31,7 @@ import {
 import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { formatTook } from './units.js'
 
 /**
  * The key that reaches the agents from an empty composer: `↓` focuses the
@@ -78,8 +81,10 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 		: []
 	const where = labels.length > 0 ? ` · ${labels.join(' / ')}` : ''
 	if (members.length === 1 && first) {
+		// `↓ to manage` only for background work: a foreground agent is waited on.
+		const hint = first.background === true ? ` (${AGENT_MANAGE_HINT})` : ''
 		return {
-			content: `Launched ${launchLabel(first)}${where} (${AGENT_MANAGE_HINT})`,
+			content: `Launched ${launchLabel(first)}${where}${hint}`,
 		}
 	}
 	const tree = members.map(
@@ -88,17 +93,8 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// Agents started in the background say so; a batch the turn waits on does not.
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
-		: `Launched ${members.length} agents${where} (${AGENT_MANAGE_HINT})`
+		: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
-}
-
-/** `8s`, `1m 4s`, `1h 2m`: the spaced form the notification lines use. */
-export function spacedElapsed(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / 1000))
-	if (seconds < 60) return `${seconds}s`
-	const minutes = Math.floor(seconds / 60)
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 export interface AgentMessageRow {
@@ -120,7 +116,7 @@ export function agentMessageRow(agent: SubagentActivity): AgentMessageRow | unde
 	return {
 		content: `Message from @${oneLine(agent.agentId)}`,
 		detail,
-		hint: '(ctrl+o to expand)',
+		hint: EXPAND_HINT,
 	}
 }
 
@@ -138,7 +134,7 @@ export function childMessageRow(message: {
 	return {
 		content: `Message from @${oneLine(message.agentId)}`,
 		detail,
-		hint: '(ctrl+o to expand)',
+		hint: EXPAND_HINT,
 	}
 }
 
@@ -200,7 +196,7 @@ export function agentDoneRows(
 	now = Date.now(),
 ): { readonly header: string; readonly result: string } {
 	const uses = agent.toolCalls ?? 0
-	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatTook(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	return {
 		header: `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
 		result: `Done (${[
@@ -212,7 +208,7 @@ export function agentDoneRows(
 }
 
 /** Why an agent failed, from the row the monitor wrote for it. */
-function failureReason(agent: SubagentActivity): string {
+export function failureReason(agent: SubagentActivity): string {
 	const row = [...agent.transcript]
 		.reverse()
 		.find(
@@ -232,17 +228,28 @@ function failureReason(agent: SubagentActivity): string {
  * `was stopped by user`, `was stopped by Namzu` (the conversation's own agent
  * asked), or plain `was stopped` when nobody recorded who (REA fn Qxt).
  */
-export function agentNotice(agent: SubagentActivity, now = Date.now()): AgentNotice {
+export function agentNotice(
+	agent: SubagentActivity,
+	now = Date.now(),
+	/** The reason this agent's last failure notice gave: the same reason again is folded to `failed again`. */
+	previousFailure?: string,
+): AgentNotice {
 	const label = oneLine(agent.description || agent.agentId)
-	const took = spacedElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+	const took = formatTook(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
 	if (agent.status === 'completed')
 		return { content: `Agent "${label}" finished · ${took}`, tone: 'ok' }
 	if (agent.status === 'cancelled') {
 		const by =
 			agent.stoppedBy === 'user' ? ' by user' : agent.stoppedBy === 'parent' ? ' by Namzu' : ''
-		return { content: `Agent "${label}" was stopped${by} · ${took}`, tone: 'warn' }
+		return {
+			content: `Agent "${label}" was stopped${by} · ${took}`,
+			tone: 'warn',
+		}
 	}
-	return { content: `Agent "${label}" failed: ${failureReason(agent)} · ${took}`, tone: 'error' }
+	const reason = failureReason(agent)
+	if (previousFailure !== undefined && previousFailure === reason)
+		return { content: `Agent "${label}" failed again · ${took}`, tone: 'error' }
+	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
 }
 
 export interface WorkflowNotice {
@@ -254,16 +261,11 @@ export interface WorkflowNotice {
 
 /**
  * The one line a workflow leaves in the conversation when its last agent
- * settles: `Workflow Release audit completed · 4m02s · 7 agents · 112k tokens`.
+ * settles: `Workflow Release audit finished · 4m02s · 7 agents · 112k tokens`.
  * Written once per settled workflow, below the last agent's own row.
  */
 export function workflowNotice(workflow: RailWorkflow, now = Date.now()): WorkflowNotice {
-	const word =
-		workflow.status === 'failed'
-			? 'failed'
-			: workflow.status === 'stopped'
-				? 'stopped'
-				: 'completed'
+	const word = endWord(workflow.status)
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const parts = [
 		`Workflow ${oneLine(workflow.name)} ${word}`,
@@ -275,7 +277,8 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	return {
 		content: parts.join(' · '),
 		tone: workflow.status === 'failed' ? 'error' : workflow.status === 'stopped' ? 'warn' : 'ok',
-		glyph: workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? '■' : '✓',
+		glyph:
+			workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? SYSTEM_ROW_GLYPH : '✓',
 	}
 }
 

@@ -43,6 +43,8 @@ Shift+Tab walks `prompt`, `accept-edits`, `plan`, then `bypass` when it is avail
 
 The footer names the mode: `⏵⏵ bypass permissions on` in red, `⏵⏵ auto mode on` in yellow, `⏵⏵ accept edits on`, `‖ plan mode on`, `‖ preapproved only on`.
 
+The question before the screen opens when bypass starts (the one-time "Run without asking?") wraps on words at the terminal's width, and so does the red warning under the header while the mode is on. The permission box itself is described in [Terminal design](terminal-design.md): a write says whether it creates or replaces the file, and the answers keep their indent when one wraps.
+
 ## Which modes are available
 
 **Bypass** is available only when the launch opened it: `--yolo`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode bypass`, or `permissions.defaultMode: bypass` in your own user file or the managed file. A project file cannot open it. `permissions.disableBypassMode: true` in any file shuts it for good, and a flag that names it is then an error (`Bypass mode is turned off by permissions.disableBypassMode in your configuration.`). Switching to bypass from inside a session when the launch did not open it is refused with a sentence that says how to start one that can.

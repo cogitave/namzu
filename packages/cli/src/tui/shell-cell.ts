@@ -25,6 +25,7 @@
  */
 
 import stringWidth from 'string-width'
+import { hiddenLinesHint } from './truncation.js'
 
 import { theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -143,7 +144,10 @@ function stream(
 	return [
 		...rows.slice(0, limit),
 		{
-			text: `… +${hidden} lines${options.canExpand === false ? '' : ' (ctrl+o to expand)'}`,
+			text: hiddenLinesHint(hidden, {
+				chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0),
+				canExpand: options.canExpand !== false,
+			}),
 			tone: 'dim',
 		},
 	]

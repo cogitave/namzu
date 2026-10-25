@@ -145,3 +145,24 @@ it('shows a disabled reason without sacrificing the current marker at wide width
 	expect(viewport).toContain('Sign in first')
 	expect(viewport).not.toContain('Original description')
 })
+
+it('shows a subtitle under the title and replaces the standard key hints when asked', async () => {
+	mounted = await renderToScreen(
+		<ChoicePicker
+			title="Workflows"
+			subtitle="1 running, 2 finished"
+			hints={[
+				{ text: 'enter to view', rank: 5 },
+				{ text: 'x to stop', rank: 3 },
+				{ text: 'esc to close', rank: 4 },
+			]}
+			options={[{ label: 'audit', description: 'running' }]}
+			selected={0}
+		/>,
+		{ cols: 100, rows: 12 },
+	)
+	const viewport = mounted.viewport().join('\n')
+	expect(viewport).toContain('1 running, 2 finished')
+	expect(viewport).toContain('enter to view · x to stop · esc to close')
+	expect(viewport).not.toContain('enter apply')
+})

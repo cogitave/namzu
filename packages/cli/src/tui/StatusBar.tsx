@@ -34,6 +34,15 @@ export interface StatusBarProps {
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
+	/** Draw the hint dim (a passing notice such as the exit reminder) rather than in the state's colour. */
+	readonly hintDim?: boolean
+	/**
+	 * A dialog or picker owns the keyboard and prints its own keys. One rule
+	 * for every such screen: the footer keeps the mode and its facts, and names
+	 * no key the screen does not answer to, neither the cycle key nor
+	 * `esc to interrupt` (Esc belongs to the dialog).
+	 */
+	readonly dialogOpen?: boolean
 	/** The mode governing undecided tool calls. Omitted or 'prompt' shows the quiet cycle reminder instead of a badge. */
 	readonly permissionMode?: PermissionMode
 	/** Whether Shift+Tab actually reaches `permissionMode` here, so the footer never advertises a dead key. */
@@ -66,6 +75,8 @@ export interface StatusBarProps {
 	 * whenever `←` would not open them: input typed, a panel open, the rail focused.
 	 */
 	readonly agentCount?: number
+	/** Workflow runs that are running now, offered after the agents as `1 workflow`; a run is never counted as an agent. */
+	readonly workflowCount?: number
 	/** Whether `↓` from the empty composer reaches the shells or the agents rail; adds `↓ to manage`. */
 	readonly canManage?: boolean
 	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
@@ -116,6 +127,8 @@ const QUIET_MODE_HINT = 'shift+tab to cycle'
 const CYCLE_SUFFIX = ' (shift+tab to cycle)'
 const INTERRUPT_HINT = 'esc to interrupt'
 const MANAGE_HINT = '↓ to manage'
+/** What the pointer shrinks to when the full hint does not fit. */
+const SHORT_MANAGE_HINT = '↓ agents'
 const VIEW_SHELLS_HINT = 'enter to view shells'
 
 const PR_COLOR: Readonly<Record<PrReview, string | null>> = {
@@ -142,6 +155,8 @@ export function StatusBar({
 	goal,
 	state,
 	hint,
+	hintDim = false,
+	dialogOpen = false,
 	permissionMode,
 	canCycleMode,
 	composerMounted = true,
@@ -151,6 +166,7 @@ export function StatusBar({
 	pr,
 	hyperlinks = false,
 	agentCount = 0,
+	workflowCount = 0,
 	canManage = false,
 	shellsSelected = false,
 	railHint,
@@ -167,6 +183,7 @@ export function StatusBar({
 		shellCount + monitorCount === 0 &&
 		!hasPr &&
 		agentCount === 0 &&
+		workflowCount === 0 &&
 		!canManage &&
 		!shellsSelected
 	const layout = fitStatusLine({
@@ -183,22 +200,23 @@ export function StatusBar({
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
-			: composerMounted && restingHint && !working && nothingElse
+			: composerMounted && !dialogOpen && restingHint && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
 		// The reference drops the cycle key as soon as a background task is on
 		// the row: the pill is what the row is about then.
 		cycleSuffix:
-			activeMode && canCycleMode && composerMounted && shellCount + monitorCount === 0
+			activeMode &&
+			canCycleMode &&
+			composerMounted &&
+			!dialogOpen &&
+			shellCount + monitorCount === 0
 				? CYCLE_SUFFIX
 				: null,
-		interrupt: working && !hint ? INTERRUPT_HINT : null,
+		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
 		context: contextMeter?.text ?? null,
 		shells: backgroundPill(shellCount, monitorCount),
-		agents:
-			agentCount > 0
-				? `← ${agentCount > 99 ? '99+' : agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`
-				: null,
+		agents: runningText(agentCount, workflowCount),
 		manage:
 			shellsSelected && shellCount + monitorCount > 0
 				? VIEW_SHELLS_HINT
@@ -300,7 +318,15 @@ export function StatusBar({
 				)}
 				<Text>{layout.gap}</Text>
 				{layout.right.kind === 'text' ? (
-					<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
+					<Text
+						color={
+							layout.right.isGoal
+								? theme.accent.system
+								: hintDim
+									? theme.text.muted
+									: colorForState(state)
+						}
+					>
 						{layout.right.text}
 					</Text>
 				) : layout.right.model ? (
@@ -365,10 +391,11 @@ export interface StatusLineLayout {
  * a goal label is the durable work state, so both reserve their width before
  * the model identity does. The model is Namzu's own addition and shows only
  * while the whole row fits beside it. Past that the row loses items from its
- * right end, the way the reference's clipped row does: `↓ to manage`,
- * `← N agents`, `esc to interrupt`, then the cycle key (the reference hides
- * it first once a task is running), the context meter, the effort label, the shell pill, the
- * pull request item; after that the quiet reminder goes, then the mode
+ * right end: `↓ to manage` (which
+ * first shrinks to `↓ agents`, the only way to the agents rail, and goes after
+ * the cycle key), `← N agents`, `esc to interrupt`, then the cycle key (hidden
+ * first once a task is running), the context meter, the
+ * effort label, the shell pill, the pull request item; after that the quiet reminder goes, then the mode
  * truncates, and last of all it goes. A line too wide for its room loses
  * whole items, never half of one, except the mode, which is the state itself.
  */
@@ -433,10 +460,15 @@ export function fitStatusLine(input: {
 		gapWidth = 0
 		leftBudget = columns
 	}
-	if (over()) manage = null
+	// The pointer to the agents is the one way to reach them: it shrinks before
+	// the other items go and outlasts them.
+	if (over() && manage === MANAGE_HINT) manage = SHORT_MANAGE_HINT
 	if (over()) agents = null
 	if (over()) interrupt = null
 	if (over()) cycleSuffix = null
+	// Only now does the pointer to the agents go: the mode's own cycle hint and the
+	// other hints leave first, the context, effort, shells and pull request after.
+	if (over()) manage = null
 	if (over()) context = null
 	if (over()) effort = null
 	if (over()) shells = null
@@ -483,4 +515,16 @@ function shortenRightToFit(value: string, max: number): string {
 	const available = max - 1
 	const head = Math.ceil(available * 0.45)
 	return `${value.slice(0, head)}…${value.slice(-(available - head))}`
+}
+
+/** `← 2 agents`, `← 1 workflow`, or `← 2 agents · 1 workflow`; null when nothing runs. */
+function runningText(agentCount: number, workflowCount: number): string | null {
+	const count = (n: number) => (n > 99 ? '99+' : String(n))
+	const parts = [
+		agentCount > 0 ? `${count(agentCount)} ${agentCount === 1 ? 'agent' : 'agents'}` : null,
+		workflowCount > 0
+			? `${count(workflowCount)} ${workflowCount === 1 ? 'workflow' : 'workflows'}`
+			: null,
+	].filter((part): part is string => part !== null)
+	return parts.length > 0 ? `← ${parts.join(' · ')}` : null
 }

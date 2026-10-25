@@ -30,10 +30,20 @@ The `workflow` tool is not in the tool list on an ordinary turn. It is offered
 for a turn when the operator asked for orchestration:
 
 - hypermode is on (`/hypermode`), or
-- the message says `workflow` or `workflows` in any case, or `iş akışı` in
-  Turkish (with or without the diacritics), or
-- the message is `/workflow <what to do>`, which sends `Use a workflow for
-  this: <what to do>`.
+- the message arms the `workflow` composer trigger: `workflow` or `workflows`
+   as the first or last word of a clause, matched by
+  the same rules as `hypermode`. The composer shows a tag
+  (`✦ workflow · this turn, offers the workflow tool · alt+w drop`) before you
+  send, and Alt+W drops it. A question about workflows ("how does the build
+  workflow cache work?") only suggests it, and `composerTriggers` can turn it
+  off ([Composer triggers](composer-triggers.md)), or
+- the message is `/workflow <what to do>`. The transcript shows what you
+  typed (`› /workflow <what to do>`); only the model receives `Use a workflow
+  for this: <what to do>`.
+
+Each agent a workflow starts is told in its prompt that its step is its
+assigned job, which the person approved with the script, so a note elsewhere
+that a message carries no user authority is not a reason to skip it.
 
 It is offered for that turn only; the next message gets the tool back only if
 it asks again (or hypermode is on). A scheduled or resident run never gets it.
@@ -65,12 +75,14 @@ The screen shows, in order:
 │ Do you want to start this workflow?                                          │
 │ ❯ 1. Start this workflow                                                     │
 │   2. Do not start                                                            │
-│ ↑↓ select · enter confirm · y / n answer · esc decline · d script            │
+│ ↑↓ select · enter confirm · y / n answer · esc cancel · d script             │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The name, purpose and phases are read from the script's `meta` literal
-without running anything. `d` shows the whole script, every line verbatim;
+without running anything. The review shows the script's first lines, however
+short the script is; `d` ("d read the whole script") shows every line of it
+verbatim under the heading "Workflow script", never the raw prepared input;
 `d` again collapses it; the full view scrolls with PgUp, PgDn, Home and End.
 The script may be as large as the runtime accepts (256 KiB, with `args` up to
 64 KiB): the 8 000-byte limit that refuses an oversized batch of ordinary tool
@@ -119,11 +131,13 @@ one of three events of the run itself (never a timer), and answers on the first:
 - **The script asks for its first `agent()`.** The run is real work now; the call
   returns the launch receipt and the run goes on in the background, as below.
 - **The script fails before that.** The call is a **failed tool call** carrying the
-  located message (error, line and column, the line's text, "No agent had
-  started."). There is no rail row, no launch line and no completion message
-  afterwards; the person sees the call as failed, like any other. When the call
-  passed no `args`, the error says so, because `args` is exactly the object given
-  in the call's `args` field and is `undefined` when it is omitted.
+  located message in one plain sentence (`The script stopped at line 3, column
+  20: <what went wrong>`, then the line's text, then "No agent had started.");
+  the interpreter's error names are not shown. There is no rail row, no launch
+  line and no completion message afterwards; the person sees the call as failed,
+  like any other. When the call passed no `args` and the error mentions `args`,
+  it says so, because `args` is exactly the object given in the call's `args`
+  field and is `undefined` when it is omitted.
 - **The script finishes without asking for an agent.** The call returns the same
   summary the completion message carries, inline, and no message follows.
 
@@ -168,6 +182,11 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    declared order; one nothing has started in is dim, with no count. Esc goes
    back to the row. `x` stops the whole run: queued agents never start, running
    ones are cancelled.
+   A phase whose agents were all skipped shows `✘`, not the tick: the tick is
+   for a phase where something finished. The phase's detail text (from
+   `meta.phases`) sits right under its title in the right-hand pane. The last
+   `log()` line the script wrote shows under the header, the two before it dim;
+   the rail row never shows them.
 2. **`<phase> · N agents`**: each agent as `✔` done, `✘` failed or skipped, `●`
    running or `◌` queued, with its label, type, model, tokens and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:
@@ -177,7 +196,8 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    and the phase (`denetim · Tarama`) and the agent's label rather than
    "Subagent". Workflow agents cannot be messaged from here.
 
-A skipped agent does not fail its phase. The header reads `denetim  <purpose>
+A skipped agent does not fail its phase, and a run in the footer counts as
+`1 workflow`, never as an agent (`← 2 agents · 1 workflow`). The header reads `denetim  <purpose>
 3/6 agents · 12s` and, once the run has ended, ends with `· completed`,
 `· failed` or `· stopped`.
 
@@ -220,7 +240,9 @@ review the script, so a headless run may start a workflow only in `bypass` mode
 
 `/workflows` lists this conversation's runs, newest first, with status, agents
 settled over asked, tokens, how long ago it began and how long it took. Enter
-opens the same detail. Runs started in this process come from the live registry;
+opens the same detail; the footer reads `enter to view · x to stop · esc to
+close` (`x` only on a run that is still going, and it stops that run), under a
+subtitle such as `1 running, 2 finished`. Runs started in this process come from the live registry;
 earlier ones are read from their journals. A run whose process ended before it
 finished is listed as stopped.
 

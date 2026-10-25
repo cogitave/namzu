@@ -96,6 +96,27 @@ type LaunchOutcome =
 	| { readonly kind: 'background' }
 	| { readonly kind: 'ended'; readonly end: WorkflowRunEnd }
 
+/**
+ * A script failure as one plain sentence for the person: the interpreter's
+ * error names (`TypeError: Error: `) are dropped, the position leads, and the
+ * source line follows on a line of its own. Text that is not in the runtime's
+ * `<what> — line L, column C: <source>` shape only loses the error names.
+ */
+export function plainScriptFailure(raw: string): string {
+	const newline = raw.indexOf('\n')
+	const first = newline === -1 ? raw : raw.slice(0, newline)
+	const rest = newline === -1 ? '' : raw.slice(newline)
+	const names = /^(?:[A-Za-z]*Error:\s*)+/
+	const at = /^([\s\S]*?) — line (\d+), column (\d+): ([\s\S]*)$/.exec(first)
+	if (at) {
+		const [, what, line, column, source] = at
+		return `The script stopped at line ${line}, column ${column}: ${(what ?? '').replace(names, '')}\nThat line reads: ${source}${rest}`
+	}
+	const none = /^([\s\S]*?) — the interpreter gave no line number for this error\.$/.exec(first)
+	if (none) return `The script stopped: ${(none[1] ?? '').replace(names, '')}${rest}`
+	return `${first.replace(names, '')}${rest}`
+}
+
 /** The tool's answer for a run that ended before it asked for any agent. */
 function endedBeforeAgents(end: WorkflowRunEnd, noArgs: boolean) {
 	const { view } = end
@@ -106,9 +127,9 @@ function endedBeforeAgents(end: WorkflowRunEnd, noArgs: boolean) {
 			data: { run_id: view.runId, name: view.name, status: 'completed', inline: true },
 		}
 	}
-	const reason = view.error ?? 'no reason was given'
+	const reason = plainScriptFailure(view.error ?? 'no reason was given')
 	const hint =
-		view.status === 'failed' && noArgs
+		view.status === 'failed' && noArgs && /\bargs\b/.test(reason)
 			? '\nThis call passed no "args", so `args` was undefined in the script.'
 			: ''
 	return {

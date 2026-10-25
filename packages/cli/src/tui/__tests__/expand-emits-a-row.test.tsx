@@ -177,9 +177,10 @@ describe('a collapsed body advertises how to read it', () => {
 
 		const frame = lastFrame() ?? ''
 		// Both blocks hide six lines, and each points at the same key.
-		expect(frame.split('… 6 lines not shown · ctrl+o').length - 1, 'both bodies name the key').toBe(
-			2,
-		)
+		expect(
+			frame.split('… +6 lines (ctrl+o to expand)').length - 1,
+			'both bodies name the key',
+		).toBe(2)
 		// The command this replaced must not still be advertised anywhere.
 		expect(frame, 'a removed command is still advertised').not.toContain('/expand')
 	})

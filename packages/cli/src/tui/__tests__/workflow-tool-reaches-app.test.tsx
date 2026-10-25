@@ -258,7 +258,7 @@ describe('the rail and the detail view of a run', () => {
 		flows.set([run()])
 		const screen = await start()
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => text(screen).includes('Enter to view · x to stop'))
+		await waitUntil(screen, () => text(screen).includes('enter to view · x to stop'))
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Phases'))
 		expect(text(screen)).toMatch(/❯ 1\s+Scan\s+1\/2/)
@@ -276,7 +276,7 @@ describe('the rail and the detail view of a run', () => {
 		flows.set([run()])
 		const screen = await start()
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => text(screen).includes('Enter to view'))
+		await waitUntil(screen, () => text(screen).includes('enter to view'))
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Phases'))
 		screen.press('x')
@@ -287,7 +287,7 @@ describe('the rail and the detail view of a run', () => {
 		await waitUntil(screen, () => text(screen).includes('Scan · 2 agents'))
 		// The first agent is done: nothing to skip. Down to the running one.
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => /❯● agent:2/.test(text(screen)))
+		await waitUntil(screen, () => /❯ ● agent:2/.test(text(screen)))
 		expect(text(screen)).toContain('x skip')
 		screen.press('x')
 		await waitUntil(screen, () => flows.calls.skip.length === 1)
@@ -309,7 +309,7 @@ describe('the rail and the detail view of a run', () => {
 		flows.set([run({ agents: [] })])
 		const screen = await start()
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => text(screen).includes('Enter to view'))
+		await waitUntil(screen, () => text(screen).includes('enter to view'))
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Phases'))
 		expect(text(screen)).toMatch(/1\s+Scan/)
@@ -418,14 +418,14 @@ describe('the conversation', () => {
 		flows.set([ended])
 		flows.end(ended)
 		await waitUntil(screen, () =>
-			/✓ Workflow audit completed · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
+			/✓ Workflow audit finished · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
 		)
 	})
 
 	it('says a stopped run was stopped and a failed one failed', async () => {
 		const screen = await start()
 		flows.end(run({ status: 'stopped', endedAt: NOW }))
-		await waitUntil(screen, () => /■ Workflow audit stopped/.test(everything(screen)))
+		await waitUntil(screen, () => /● Workflow audit stopped/.test(everything(screen)))
 		flows.end(run({ name: 'build', status: 'failed', endedAt: NOW, error: 'it threw' }))
 		await waitUntil(screen, () => /✗ Workflow build failed/.test(everything(screen)))
 	})
@@ -508,7 +508,7 @@ describe('what the model is told when a run ends', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => everything(screen).includes('long work'))
 		flows.end(run({ status: 'completed', endedAt: NOW }))
-		await waitUntil(screen, () => everything(screen).includes('Workflow audit completed'))
+		await waitUntil(screen, () => everything(screen).includes('Workflow audit finished'))
 		releaseTurn()
 		await waitUntil(screen, () => delivered.length > 0)
 		expect(String(delivered[0]?.content)).toContain('Workflow "audit" (wrun00001) completed.')
@@ -549,8 +549,35 @@ describe('/workflows', () => {
 		await waitUntil(screen, () => text(screen).includes('nightly'))
 		await waitUntil(screen, () => text(screen).includes('Phases'))
 		expect(text(screen)).toContain('1/1 agent')
-		expect(text(screen)).toContain('· done')
+		expect(text(screen)).toContain('· finished')
 		expect(text(screen)).not.toContain('x to stop')
+	})
+})
+
+describe('a slash command is shown as typed', () => {
+	it('echoes the command, with its answer hung under it', async () => {
+		const screen = await start()
+		screen.press('/cost')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => everything(screen).includes('No usage reported yet'))
+		expect(everything(screen)).toMatch(/› \/cost\n+\s*⎿ No usage reported yet/)
+	})
+
+	it('shows /workflow <task> as typed and sends the rewritten sentence to the model only', async () => {
+		const sent: string[] = []
+		sendOverride.current = async function* (messages) {
+			sent.push(String(messages.at(-1)?.content))
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		screen.press('/workflow audit the repo')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => sent.length === 1)
+		expect(sent[0]).toBe('Use a workflow for this: audit the repo')
+		expect(everything(screen)).toContain('› /workflow audit the repo')
+		expect(everything(screen)).not.toContain('Use a workflow for this')
 	})
 })
 
@@ -576,7 +603,7 @@ describe('a workflow agent that asks after the turn is over', () => {
 				{ id: 'c1', name: 'write', input: { path: 'a.txt', content: 'b' }, isDestructive: true },
 			],
 		} as never)
-		await waitUntil(screen, () => text(screen).includes('Do you want to write a.txt?'))
+		await waitUntil(screen, () => text(screen).includes('Do you want to write this file?'))
 		screen.press('\x1b')
 		const decision = await answer
 		expect(decision?.kind).toBe('reject')
