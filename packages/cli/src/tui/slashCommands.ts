@@ -171,6 +171,8 @@ export type SlashAction =
 	| { kind: 'fork' }
 	/** List file checkpoints, or put the tree back to before turn `turn`. */
 	| { kind: 'restore'; turn?: number }
+	/** Open the rewind picker: restore the files and/or the conversation to an earlier prompt. */
+	| { kind: 'rewind' }
 	/** Let the file tools reach another directory for the rest of the session. */
 	| { kind: 'add-dir'; path: string }
 	/**
@@ -985,6 +987,29 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			}
 			return { kind: 'add-dir', path }
 		},
+	},
+	{
+		name: 'rewind',
+		help: {
+			usage: ['/rewind'],
+			details: [
+				'Pick an earlier prompt, then restore the files, the conversation, or both to the point before it, or summarize around it. Restoring the conversation continues in a new branch; the original stays in /resume. Pressing Esc twice on an empty message does the same.',
+			],
+		},
+		description: 'Restore the code and/or conversation to a previous point.',
+		action: () => ({ kind: 'rewind' }),
+	},
+	{
+		name: 'undo',
+		help: { usage: ['/undo'], details: ['Same as /rewind.'] },
+		description: 'Same as /rewind.',
+		action: () => ({ kind: 'rewind' }),
+	},
+	{
+		name: 'checkpoint',
+		help: { usage: ['/checkpoint'], details: ['Same as /rewind.'] },
+		description: 'Same as /rewind.',
+		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'restore',

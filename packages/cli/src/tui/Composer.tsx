@@ -59,6 +59,9 @@ import {
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
 
+/** A second Esc on an empty composer within this long opens the rewind picker. */
+export const REWIND_DOUBLE_ESC_MS = 800
+
 export interface ComposerProps {
 	readonly disabled?: boolean
 	/** A bounded text editor for a child conversation, without host commands or image attachments. */
@@ -113,7 +116,7 @@ export interface ComposerProps {
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
 	readonly onExternalEdit?: (seed: string) => Promise<string>
-	/** Empty-composer Esc ×2 asks App to select a durable prompt to edit. */
+	/** Empty-composer Esc ×2 (inside REWIND_DOUBLE_ESC_MS) asks App to open the rewind picker. */
 	readonly onEditPrevious?: () => void
 	/** One-shot prompt restored after App has created a source-preserving fork. */
 	readonly draftToRestore?: ComposerDraft | null
@@ -665,7 +668,23 @@ export function Composer({
 		},
 		[],
 	)
-	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
+	// The first Esc on an empty composer arms the rewind picker for a short
+	// window and shows nothing; a second Esc inside it opens the picker.
+	const editPreviousTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const setEditPreviousArmed = useCallback((armed: boolean) => {
+		if (editPreviousTimerRef.current) clearTimeout(editPreviousTimerRef.current)
+		editPreviousTimerRef.current = armed
+			? setTimeout(() => {
+					editPreviousTimerRef.current = null
+				}, REWIND_DOUBLE_ESC_MS)
+			: null
+	}, [])
+	useEffect(
+		() => () => {
+			if (editPreviousTimerRef.current) clearTimeout(editPreviousTimerRef.current)
+		},
+		[],
+	)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
 	useEffect(() => {
@@ -843,6 +862,7 @@ export function Composer({
 		clearPastes,
 		replaceAttachments,
 		setBuffer,
+		setEditPreviousArmed,
 		setHistoryIndex,
 		setHistorySearch,
 		setSelectedIndex,
@@ -888,6 +908,7 @@ export function Composer({
 			clearPastes,
 			replaceAttachments,
 			setBuffer,
+			setEditPreviousArmed,
 			setHistoryIndex,
 			setHistorySearch,
 			setSelectedIndex,
@@ -1052,7 +1073,7 @@ export function Composer({
 				onStepReasoningEffort('raise')
 				return
 			}
-			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
+			if (!key.escape && editPreviousTimerRef.current) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const pastes = pasteStoreRef.current
 				// Chips become the words they stand for; image chips go, the image travels beside.
@@ -1168,7 +1189,7 @@ export function Composer({
 				}
 				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
 				if (empty && onEditPrevious) {
-					if (editPreviousArmed) {
+					if (editPreviousTimerRef.current) {
 						setEditPreviousArmed(false)
 						onEditPrevious()
 					} else setEditPreviousArmed(true)
@@ -1510,10 +1531,7 @@ export function Composer({
 	// plain placeholder takes over. The decision is made while rendering, so the
 	// frame that first shows the placeholder already has the right words in it.
 	const queuedHintWanted =
-		(!disabled || railFocused) &&
-		value.length === 0 &&
-		!editPreviousArmed &&
-		queuedEdit?.available === true
+		(!disabled || railFocused) && value.length === 0 && queuedEdit?.available === true
 	const settledEpisode = nextQueuedHintEpisode(queuedHintEpisode, queuedHintWanted)
 	if (settledEpisode !== queuedHintEpisode) setQueuedHintEpisode(settledEpisode)
 	useEffect(() => {
@@ -1548,7 +1566,7 @@ export function Composer({
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
 	const promptGlyph = disabled && !railFocused ? '…' : '❯'
-	const showPlaceholder = (!disabled || railFocused) && value.length === 0 && !editPreviousArmed
+	const showPlaceholder = (!disabled || railFocused) && value.length === 0
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null
@@ -1589,8 +1607,6 @@ export function Composer({
 						<Text color={theme.text.muted}>
 							{settledEpisode.active && settledEpisode.show ? QUEUED_HINT : placeholder}
 						</Text>
-					) : editPreviousArmed ? (
-						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
 							{displayValue.leadingEllipsis ? '… ' : ''}

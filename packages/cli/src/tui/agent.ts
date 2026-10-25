@@ -157,7 +157,9 @@ import {
 	buildSessionGoalTools,
 	builtinCommandArguments,
 	compactNow,
+	compactRegion,
 	compactSession,
+	compactSessionRange,
 	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
@@ -1279,6 +1281,20 @@ export interface AgentSession {
 		/** What the person asked the summary to keep, from `/compact <text>`. */
 		instructions?: string,
 	) => Promise<CompactionResult | null>
+	/**
+	 * Summarise one span of a conversation on request, leaving the rest as it
+	 * is. `from` is the first message summarised (the start when absent) and
+	 * `until` the message the span stops before (the end when absent), both
+	 * given as messages of `messages`. Same answers as `compact`: `null` when
+	 * the span holds nothing worth a summary; a message the conversation no
+	 * longer holds throws. Absent on a session that cannot summarise.
+	 */
+	readonly compactRange?: (input: {
+		readonly messages: readonly Message[]
+		readonly from?: Message
+		readonly until?: Message
+		readonly instructions?: string
+	}) => Promise<CompactionResult | null>
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -4859,6 +4875,55 @@ export async function createAgentSession(
 				}
 				return compactNow({ ...common, messages })
 			}),
+		compactRange: ({ messages, from, until, instructions }) =>
+			operations.promise(undefined, async (signal) => {
+				const sessionId = scope.sessionId
+				const sessions = options.conversationSessions
+				await prepareProviderCredential(signal)
+				const common = {
+					config: compactionConfigFor(options.compaction),
+					provider: providerForSession(sessionId),
+					model,
+					signal,
+					...(instructions ? { instructions } : {}),
+				}
+				if (sessions && !options.ephemeral) {
+					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
+						throw new Error('Manual compaction is outside the current conversation scope.')
+					// The log names a message by the id it recorded it under.
+					if ((from && !from.id) || (until && !until.id)) {
+						throw new Error(
+							'That message is no longer in the active context. Choose a more recent message.',
+						)
+					}
+					return await compactSessionRange({
+						...common,
+						sessionId,
+						...(from?.id ? { from: from.id } : {}),
+						...(until?.id ? { until: until.id } : {}),
+						locator: {
+							log: DiskSessionLog.at(paths, { sessionId }),
+							index: sessions.index,
+						},
+					})
+				}
+				const at = (message: Message | undefined, fallback: number): number => {
+					if (!message) return fallback
+					const found = messages.indexOf(message)
+					if (found < 0) {
+						throw new Error(
+							'That message is no longer in the active context. Choose a more recent message.',
+						)
+					}
+					return found
+				}
+				return compactRegion({
+					...common,
+					messages,
+					start: at(from, 0),
+					end: at(until, messages.length),
+				})
+			}),
 		// Reads the same manager the session composed, at call time — the pair
 		// of `promptExemptTools` below, and for the same reason.
 		toolNames: () =>
@@ -5559,7 +5624,9 @@ export async function createAgentSession(
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
 						await announceSessionStart()
-						checkpoints.beginTurn(lastUserText(messages), turnId)
+						checkpoints.beginTurn(lastUserText(messages), turnId, {
+							promptOrdinal: Math.max(0, messages.filter((m) => m.role === 'user').length - 1),
+						})
 						if (opts?.goalRound) {
 							if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
 							if (
