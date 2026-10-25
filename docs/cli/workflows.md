@@ -141,11 +141,10 @@ one of three events of the run itself (never a timer), and answers on the first:
 - **The script asks for its first `agent()`.** The run is real work now; the call
   returns the launch receipt and the run goes on in the background, as below.
 - **The script fails before that.** The call is a **failed tool call** carrying the
-  located message. The conversation row is one plain sentence (`The workflow
-  script stopped with an error.`) with no `Error:` or `failed:` prefix; the
-  position (`line 3, column 20`), the engine's own message, the line's text, "No
-  agent had started." and the hint about a missing `args` stay behind ctrl+o, and
-  the model gets all of them unchanged. There is
+  located message. The conversation row shows `✘` and the first line of that
+  message as the script printed it, in the error colour, under the call; the
+  rest (the line's text, the phase, the hint about a missing `args`) is not
+  shown and there is nothing to expand. The model gets the whole message unchanged. There is
   no rail row, no launch line and no completion message afterwards. The hint
   appears when the call passed no `args` and the error mentions `args`, because
   `args` is exactly the object given in the call's `args` field and is

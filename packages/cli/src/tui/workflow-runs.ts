@@ -82,6 +82,9 @@ export function projectRunAgents(
 			...((agent.lastTool ?? child?.latestActivity)
 				? { latestActivity: (agent.lastTool ?? child?.latestActivity) as string }
 				: {}),
+			...(agent.status === 'failed' && (agent.error ?? child?.error)
+				? { error: (agent.error ?? child?.error) as string }
+				: {}),
 			transcript: child?.transcript ?? [],
 			workflowRunId: run.runId,
 			workflowAgentIndex: agent.index,

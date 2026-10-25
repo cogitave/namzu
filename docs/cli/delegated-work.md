@@ -310,10 +310,16 @@ press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer 
 `All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
 
-A failed agent's row says one plain sentence with a next step, for example
-`The provider was too busy for this agent. Wait a moment, then message the agent
-to try again.`, never the provider's name, status line or raw body (those follow
-only under `--debug`). When the cause is not one Namzu recognises the row reads `This agent stopped because something went wrong. Message the agent to try again, or start the task again.` An agent that fails again with the same reason after a
+A failed agent shows the error text the agent produced, verbatim and in the
+error colour, in three places. In the conversation the failed `Agent` call shows
+it under the call as `Error: <text>` (a text that already starts with `Error: `
+or `Cancelled: ` is shown as it is, an input-validation error is shortened to
+`Invalid tool parameters` until expanded, and a call with no text says `Tool
+execution failed`): the first 10 lines, then a dim `… +N lines (ctrl+o to
+expand)`, and every line when expanded. In the agent's own view the error is a
+section of its own: a blank line, a bold `Error` heading and the whole message,
+wrapped. In a workflow's agent list the agent's row ends with ` — <error>` on
+one line. An agent that fails again with the same reason after a
 message reads `failed again`. Messaging a finished agent keeps its row where it
 was, with the time and spend it had, and writes `Continuing with a new task.`
 in its own transcript.

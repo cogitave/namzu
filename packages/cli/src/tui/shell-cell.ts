@@ -51,6 +51,13 @@ export interface ShellOutput {
 	readonly status?: string
 	/** The complete header, when {@link shellCommandHeader} cut it. */
 	readonly fullHeader?: string
+	/**
+	 * Count lines as the text has them: a long line is not several, and a single
+	 * folded line still says so. For an error message drawn as the tool wrote it.
+	 */
+	readonly byLine?: true
+	/** Shown in place of `stderr` until the body is expanded. */
+	readonly folded?: readonly string[]
 }
 
 export type ShellTone = 'out' | 'err' | 'dim'
@@ -122,6 +129,8 @@ export interface ShellRowOptions {
 	readonly width?: number
 	/** The `(ctrl+o to expand)` suffix is true: the row can be expanded. */
 	readonly canExpand?: boolean
+	/** Lines are counted as the text has them; see {@link ShellOutput.byLine}. */
+	readonly byLine?: boolean
 }
 
 /** How many output lines a row stands for: a kernel gap line stands for all it left out. */
@@ -140,12 +149,14 @@ function stream(
 	if (options.expanded || rows.length <= limit) return rows
 	const hidden = rows.slice(limit).reduce((count, row) => count + weight(row.text), 0)
 	// One hidden line costs a row to say so, so it is simply shown.
-	if (hidden === 1) return rows
+	if (hidden === 1 && !options.byLine) return rows
 	return [
 		...rows.slice(0, limit),
 		{
 			text: hiddenLinesHint(hidden, {
-				chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0),
+				...(options.byLine
+					? {}
+					: { chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0) }),
 				canExpand: options.canExpand !== false,
 			}),
 			tone: 'dim',
@@ -156,9 +167,11 @@ function stream(
 /** The rows under a settled shell call's header. */
 export function shellResultRows(shell: ShellOutput, options: ShellRowOptions): ShellRow[] {
 	const limit = shell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
+	const byLine = shell.byLine === true
+	const shown: ShellRowOptions = byLine ? { ...options, byLine } : options
 	const rows = [
-		...stream(shell.stdout, 'out', limit, options),
-		...stream(shell.stderr, 'err', limit, options),
+		...stream(shell.stdout, 'out', limit, shown),
+		...stream(!options.expanded && shell.folded ? shell.folded : shell.stderr, 'err', limit, shown),
 	]
 	if (rows.length === 0) {
 		return [{ text: shell.note ?? '(No output)', tone: shell.failed ? 'err' : 'dim' }]
@@ -175,8 +188,10 @@ export function shellCollapses(shell: ShellOutput | undefined): boolean {
 	if (!shell) return false
 	if (shell.fullHeader !== undefined) return true
 	const limit = shell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
+	if (shell.folded) return true
 	return [shell.stdout, shell.stderr].some(
-		(lines) => lines.length > limit || lines.some((line) => stringWidth(line) > 60),
+		(lines) =>
+			lines.length > limit || (!shell.byLine && lines.some((line) => stringWidth(line) > 60)),
 	)
 }
 

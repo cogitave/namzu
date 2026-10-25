@@ -1184,6 +1184,12 @@ function BorderSegment({
 	)
 }
 
+/** ` — <error>` in the error colour after a failed agent's row, the agent's own message on one line. */
+function agentErrorTail(agent: Pick<SubagentActivity, 'status' | 'error'>): ReactNode {
+	if (agent.status !== 'failed' || agent.error === undefined) return null
+	return <Text color={theme.status.error}> — {oneLine(agent.error)}</Text>
+}
+
 /** What an agent row says after its label: model, spend, and how it ended. */
 function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 	return [
@@ -1461,6 +1467,7 @@ export function WorkflowDetail({
 												wrap="truncate-end"
 											>
 												{agentDetailLabel(agent)}
+												{agentErrorTail(agent)}
 											</Text>
 										</Box>
 										<Box flexShrink={0} marginLeft={1}>
@@ -1581,6 +1588,7 @@ export function WorkflowDetail({
 									<Box flexGrow={1} flexShrink={1} minWidth={0}>
 										<Text color={theme.text.muted} wrap="truncate-end">
 											{agentDetailMeta(agent, columns)}
+											{agentErrorTail(agent)}
 										</Text>
 									</Box>
 									<Box flexShrink={0} marginLeft={1}>
@@ -1928,7 +1936,7 @@ export function AgentTranscript({
 								</Text>
 							</Box>
 							<Box flexGrow={1} minWidth={0}>
-								<Text color={lineColor(line)} wrap="truncate-end">
+								<Text color={lineColor(line)} bold={line.heading === true} wrap="truncate-end">
 									{line.text}
 								</Text>
 							</Box>
@@ -2013,7 +2021,11 @@ export function AgentView({
 							</Text>
 						</Box>
 						<Box flexGrow={1} minWidth={0}>
-							<Text color={lineColor(line)} bold={isOperatorLine(line)} wrap="truncate-end">
+							<Text
+								color={lineColor(line)}
+								bold={isOperatorLine(line) || line.heading === true}
+								wrap="truncate-end"
+							>
 								{line.text}
 							</Text>
 						</Box>
@@ -2101,6 +2113,8 @@ export interface AgentTranscriptLine {
 	readonly id: string
 	readonly text: string
 	readonly continuation: boolean
+	/** The `Error` heading of a failure section. */
+	readonly heading?: true
 	readonly source: 'prompt' | SubagentActivity['transcript'][number]
 }
 
@@ -2128,10 +2142,14 @@ export function agentTranscriptRows(
 	const lines: AgentTranscriptLine[] = []
 	for (const source of sources) {
 		let sourceLine = 0
+		const failure =
+			source.source !== 'prompt' && source.source.kind === 'system' && source.source.failure
+		let logicalIndex = 0
 		for (const logical of terminalDisplayText(source.text).split('\n')) {
+			const heading = failure === true && logicalIndex++ === 1
 			let text = ''
 			let cells = 0
-			let continuation = sourceLine > 0
+			let continuation = sourceLine > 0 || failure === true
 			for (const { segment: point } of graphemes.segment(expandTabs(logical))) {
 				const pointCells = stringWidth(point)
 				while (text.length > 0 && cells + pointCells > width) {
@@ -2145,6 +2163,7 @@ export function agentTranscriptRows(
 						id: `${source.id}:${sourceLine++}`,
 						text: text.slice(0, split),
 						continuation,
+						...(heading ? { heading: true as const } : {}),
 						source: source.source,
 					})
 					text = rest
@@ -2158,6 +2177,7 @@ export function agentTranscriptRows(
 				id: `${source.id}:${sourceLine++}`,
 				text,
 				continuation,
+				...(heading ? { heading: true as const } : {}),
 				source: source.source,
 			})
 		}
@@ -2315,6 +2335,8 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
 	if (row.kind === 'system' && row.direction === 'to-child') return `queued from main: ${row.text}`
+	// A failure is its own section: a blank line, the heading, the whole message.
+	if (row.kind === 'system' && row.failure) return `\nError\n${row.text}`
 	// What you typed to the agent reads as your own row.
 	if (row.kind === 'system' && row.direction === 'operator-to-child') return row.text
 	return row.text
@@ -2327,7 +2349,7 @@ function lineColor(line: AgentTranscriptLine): string {
 
 function rowColor(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return theme.text.primary
-	if (row.kind === 'system') return theme.text.muted
+	if (row.kind === 'system') return row.failure ? theme.status.error : theme.text.muted
 	return row.status === 'failed' ? theme.status.error : theme.text.secondary
 }
 
