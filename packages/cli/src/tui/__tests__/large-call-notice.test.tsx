@@ -27,7 +27,7 @@ function overlayFor(calls: ReadonlyArray<{ name: string; input: unknown }>) {
 		<PermissionOverlay
 			toolCalls={toolCalls}
 			review={review.text}
-			summary={buildPermissionSummary(review.text)}
+			summary={buildPermissionSummary(review.text, { withheld: review.withheld })}
 			detailsOpen={false}
 			columns={100}
 			rows={30}
@@ -74,8 +74,9 @@ it('names the call that is too large inside a batch, and leaves the others reada
 	try {
 		await screen.waitForRender()
 		const visible = screen.viewport().join('\n')
-		expect(visible).toContain('2. write: Too large to show in full.')
-		expect(visible).not.toContain('1. bash: Too large')
+		expect(visible).toContain('1 of 2 calls is marked below.')
+		expect(visible).toMatch(/2\. write · destructive · too large to show/u)
+		expect(visible).not.toMatch(/1\. bash[^\n]*too large/u)
 		expect(visible).toContain('git status')
 	} finally {
 		await screen.unmount()
@@ -128,6 +129,44 @@ it('shows a 20 kB write bounded, with the rest one page key away and no notice',
 		expect(first).toMatch(/rows \d+-\d+\/\d+ · PgUp\/PgDn/u)
 		expect(first).not.toContain('LAST_LINE')
 		expect(first).toContain('Write · 501 lines')
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('keeps the box one notice tall however many calls are withheld', async () => {
+	const calls = Array.from({ length: 24 }, (_, index) => ({
+		name: 'write',
+		input: { path: `/tmp/f${index}`, content: 'w'.repeat(MAX_REVIEW_VALUE_CHARS + 1) },
+	}))
+	const screen = await renderToScreen(overlayFor(calls), { cols: 100, rows: 30 })
+	try {
+		await screen.waitForRender()
+		const visible = screen.viewport().join('\n')
+		expect(visible).toContain('24 of 24 calls are marked below.')
+		expect(visible.match(/is marked below|are marked below/gu)).toHaveLength(1)
+		// The title is still on screen: nothing scrolled it away.
+		expect(visible).toContain('24 tool calls')
+		expect(visible.split('\n').length).toBeLessThanOrEqual(30)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('marks a long but whole input beside its own call', async () => {
+	const screen = await renderToScreen(
+		overlayFor([
+			{ name: 'bash', input: { command: 'git status' } },
+			{ name: 'mcp__docs__search', input: { query: 'q'.repeat(9000) } },
+		]),
+		{ cols: 100, rows: 40 },
+	)
+	try {
+		await screen.waitForRender()
+		const visible = screen.viewport().join('\n')
+		expect(visible).toMatch(/2\. mcp__docs__search · destructive · long input/u)
+		expect(visible).toContain('1 of 2 calls is marked below.')
+		expect(visible).not.toContain('3. ')
 	} finally {
 		await screen.unmount()
 	}

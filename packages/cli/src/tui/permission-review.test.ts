@@ -63,10 +63,10 @@ describe('buildPermissionReview', () => {
 		expect(result.ok).toBe(true)
 		if (!result.ok) return
 		expect(result.withheld).toEqual([
-			{ index: 0, name: 'bash', characters: MAX_REVIEW_VALUE_CHARS + 1 },
+			{ index: 0, name: 'bash', characters: MAX_REVIEW_VALUE_CHARS + 1, omitted: true },
 		])
 		expect(JSON.parse(result.text).calls[0].input).toEqual({
-			command: `[${MAX_REVIEW_VALUE_CHARS + 1} characters not shown]`,
+			command: '[about 200k characters not shown]',
 			cwd: '/work',
 		})
 		expect(result.bytes).toBeLessThan(1000)
@@ -119,9 +119,65 @@ describe('buildPermissionReview', () => {
 		const b = make('b')
 		expect(a.ok && b.ok).toBe(true)
 		if (!a.ok || !b.ok) return
-		expect(a.text).toBe(b.text.replace('b', 'a'))
+		expect(a.text).toBe(b.text)
 		expect(a.envelopeHash).not.toBe(b.envelopeHash)
 		expect(make('a')).toEqual(a)
+	})
+
+	it('says a placeholder size in rounded plain words, never an exact count', () => {
+		const placeholder = (characters: number) => {
+			const result = buildPermissionReview([
+				{
+					id: 'c',
+					name: 'write',
+					input: { content: 'x'.repeat(characters) },
+					isDestructive: true,
+				},
+			])
+			if (!result.ok) throw new Error('fixture must be representable')
+			return JSON.parse(result.text).calls[0].input.content
+		}
+		expect(placeholder(MAX_REVIEW_VALUE_CHARS + 5)).toBe('[about 200k characters not shown]')
+		expect(placeholder(1_250_000)).toBe('[about 1.3M characters not shown]')
+	})
+
+	describe('a long input to a tool with no view of its own', () => {
+		const review = (name: string, input: unknown) => {
+			const result = buildPermissionReview([{ id: 'c', name, input, isDestructive: false }])
+			if (!result.ok) throw new Error('fixture must be representable')
+			return result
+		}
+
+		it('is approved once only when its line is over 2 000 units, though shown whole', () => {
+			const result = review('mcp__docs__search', { query: 'q'.repeat(9000) })
+			expect(result.withheld).toEqual([
+				{ index: 0, name: 'mcp__docs__search', characters: 0, omitted: false },
+			])
+			expect(result.text).toContain('q'.repeat(9000))
+		})
+
+		it('is approved normally under 2 000 units', () => {
+			expect(review('mcp__docs__search', { query: 'q'.repeat(1900) }).withheld).toEqual([])
+		})
+
+		it('is approved once only past 10 000 elements', () => {
+			const result = review('mcp__docs__bulk', { ids: Array.from({ length: 10_001 }, () => 1) })
+			expect(result.withheld).toHaveLength(1)
+		})
+
+		it('is approved once only when nested deeper than 64', () => {
+			let nested: unknown = 'leaf'
+			for (let level = 0; level < 70; level += 1) nested = { next: nested }
+			expect(review('mcp__docs__tree', nested).withheld).toHaveLength(1)
+			let shallow: unknown = 'leaf'
+			for (let level = 0; level < 40; level += 1) shallow = { next: shallow }
+			expect(review('mcp__docs__tree', shallow).withheld).toEqual([])
+		})
+
+		it('leaves a shell command and a file write to the per-value limit', () => {
+			expect(review('bash', { command: 'echo '.concat('x'.repeat(9000)) }).withheld).toEqual([])
+			expect(review('write', { path: '/tmp/f', content: 'x'.repeat(9000) }).withheld).toEqual([])
+		})
 	})
 
 	it('keeps refusing input the protocol cannot represent', () => {

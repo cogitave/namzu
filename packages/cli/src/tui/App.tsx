@@ -7418,6 +7418,7 @@ export function App({
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
+				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {

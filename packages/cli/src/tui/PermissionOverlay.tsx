@@ -22,10 +22,10 @@ import type { PermissionToolCall } from './agent.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
-	WITHHELD_NOTICE,
 	type WithheldCall,
 	permissionReviewPageRows,
 	permissionReviewRows,
+	withheldNotice,
 } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -480,15 +480,11 @@ export function PermissionOverlay({
 					{terminalDisplayText(note)}
 				</Text>
 			))}
-			{withheld.map((call) => (
-				<Text key={`withheld-${call.index}`} color={theme.text.muted}>
-					{terminalDisplayText(
-						withheld.length > 1 || toolCalls.length > 1
-							? `${call.index + 1}. ${call.name}: ${WITHHELD_NOTICE}`
-							: WITHHELD_NOTICE,
-					)}
+			{withheld.length > 0 ? (
+				<Text color={theme.text.muted}>
+					{terminalDisplayText(withheldNotice(withheld, toolCalls.length))}
 				</Text>
-			))}
+			) : null}
 			{siteNotes.map((note) => (
 				<Text key={note} color={theme.text.secondary}>
 					{terminalDisplayText(note)}
