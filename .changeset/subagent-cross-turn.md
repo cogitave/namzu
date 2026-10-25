@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+An agent can now be waited on, messaged, resumed or cancelled by its task id from any later turn of the same conversation, whether it is still running or has already ended. Before, an agent whose turn had ended could be reached only while it was running, and every other id was refused with "does not belong to this parent turn", so a task id taken from an earlier notification often failed. A finished agent returns its result without a new wait, `cancel_agent` reports that it already ended, and `send_message` resumes it from its own transcript under the current turn's limits and review channel; an agent you stopped is still not resumed. An id that belongs to no agent of the conversation, or to another conversation, now answers "No task with ID … in this conversation." and lists the agents that are running. If you call the sub-agent tools from the SDK, match on that text instead of the old one. Agents from an earlier run of the program are still read-only history.

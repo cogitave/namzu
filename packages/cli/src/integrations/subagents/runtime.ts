@@ -493,7 +493,7 @@ export interface SubagentRuntime {
 	/** Retrieve a child result without starting another task. */
 	readonly waitForTaskTool: ToolDefinition
 	readonly agentTaskListTool: ToolDefinition
-	/** Queue a correction for an owned task that has not finished. */
+	/** Send a message to an agent of the conversation: queued while it runs, a resume once it has ended. */
 	readonly sendMessageTool: ToolDefinition
 	readonly cancelAgentTool: ToolDefinition
 	/**
@@ -573,13 +573,13 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 
 	override async waitForTask(taskId: TaskId): Promise<TaskHandle> {
 		const task = this.getTask(taskId)
-		if (!task) throw new Error(`Task ${taskId} does not belong to this parent turn`)
+		if (!task) throw new Error(`No task with ID ${taskId} in this conversation.`)
 		if (isTerminalAgentTaskState(task.state)) return task
 		return super.waitForTask(taskId)
 	}
 
 	override async continueTask(taskId: TaskId, message: string): Promise<void> {
-		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent turn`)
+		if (!this.owns(taskId)) throw new Error(`No task with ID ${taskId} in this conversation.`)
 		await this.validateParent()
 		await super.continueTask(taskId, message)
 	}
@@ -691,6 +691,14 @@ export async function createSubagentRuntime(
 		busy: boolean
 	}
 	const conversations = new Map<string, OwnedConversation>()
+	// Every task id a visible agent has run under, to that agent's view id: a
+	// resumed agent gets a new task, and the id the model was handed first
+	// keeps naming the same agent.
+	const taskViews = new Map<string, string>()
+	const dropConversation = (viewId: string): void => {
+		conversations.delete(viewId)
+		for (const [taskId, owner] of taskViews) if (owner === viewId) taskViews.delete(taskId)
+	}
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
 	const sessions = new Map<string, SharedSession>()
 	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
@@ -795,7 +803,7 @@ export async function createSubagentRuntime(
 				await oldest[1].ready.then((value) => value.manager.dispose())
 				for (const [id, conversation] of conversations) {
 					if (conversation.parentKey !== oldest[0]) continue
-					conversations.delete(id)
+					dropConversation(id)
 					if (conversation.dynamic) registry.unregister(conversation.agentId)
 				}
 			}
@@ -1091,6 +1099,73 @@ export async function createSubagentRuntime(
 		}
 		return own
 	}
+	/**
+	 * A task of this conversation, from any turn: one still held by a gateway
+	 * (this turn's, or a retired turn's with agents running), or one that ended
+	 * after its turn was released, found through the agent the conversation
+	 * retains. A task of another conversation resolves to nothing, exactly as
+	 * an id nobody launched does.
+	 */
+	type ResolvedTask =
+		| { readonly kind: 'live'; readonly gateway: TaskScheduler; readonly task: TaskHandle }
+		| {
+				readonly kind: 'settled'
+				readonly owned: OwnedConversation
+				readonly viewId: string
+				readonly task: TaskHandle
+		  }
+	const resolveTask = async (taskId: TaskId, turnId: TurnId): Promise<ResolvedTask | undefined> => {
+		const parentKey = sessionKey(await resolveParent(turnId))
+		const viewId = taskViews.get(String(taskId))
+		const owned = viewId === undefined || closed ? undefined : conversations.get(viewId)
+		if (owned && owned.parentKey !== parentKey) return undefined
+		// A resumed agent answers to every id it has run under, with its latest run.
+		const current = owned ? owned.task.taskId : taskId
+		const gateway = await gatewayHolding(current, turnId)
+		const live = gateway.getTask(current)
+		if (live) return { kind: 'live', gateway, task: live }
+		if (!owned || viewId === undefined) return undefined
+		const settled = owned.gateway.getTask(current) ?? owned.task
+		return isTerminalAgentTaskState(settled.state)
+			? { kind: 'settled', owned, viewId, task: settled }
+			: undefined
+	}
+	/** Why no task answered to an id: what is running, and where a saved record might be. */
+	const unknownTaskMessage = async (taskId: TaskId, turnId: TurnId): Promise<string> => {
+		const parentKey = sessionKey(await resolveParent(turnId))
+		const running: string[] = []
+		const seen = new Set<string>()
+		const collect = (gateway: TaskScheduler): void => {
+			for (const task of gateway.listTasks()) {
+				if (isTerminalAgentTaskState(task.state) || seen.has(String(task.taskId))) continue
+				seen.add(String(task.taskId))
+				running.push(String(task.taskId))
+			}
+		}
+		collect(await gatewayForTurn(turnId))
+		for (const owned of conversations.values()) {
+			if (owned.parentKey === parentKey && !isTerminalAgentTaskState(owned.task.state))
+				collect(owned.gateway)
+		}
+		let saved = false
+		if (opts.savedAgents) {
+			try {
+				await opts.savedAgents((await resolveParent(turnId)).sessionId).read(String(taskId))
+				saved = true
+			} catch {
+				// Not a saved agent of this conversation either.
+			}
+		}
+		return [
+			`No task with ID ${taskId} in this conversation.`,
+			running.length > 0 ? `Running agents: ${running.join(', ')}.` : '',
+			saved
+				? 'That ID is a saved agent from an earlier run; see agent_task_list with history: true.'
+				: 'Agents of earlier turns are listed by agent_task_list; ones saved from earlier runs, with history: true.',
+		]
+			.filter(Boolean)
+			.join(' ')
+	}
 	const completionInboxForTurn = async (turnId: TurnId): Promise<CompletionInbox> => {
 		await gatewayForTurn(turnId)
 		const pending = parents.get(turnId)
@@ -1321,11 +1396,12 @@ export async function createSubagentRuntime(
 						busy: false,
 					}
 					conversations.set(tracker.viewId, retained)
+					taskViews.set(String(task.taskId), tracker.viewId)
 					const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
 					for (const [id, previous] of conversations) {
 						if (visible.has(id) || previous.busy || !isTerminalAgentTaskState(previous.task.state))
 							continue
-						conversations.delete(id)
+						dropConversation(id)
 						if (previous.dynamic) registry.unregister(previous.agentId)
 					}
 					tracker.settle(task)
@@ -1634,7 +1710,7 @@ export async function createSubagentRuntime(
 	const agentTaskListTool = defineTool({
 		name: 'agent_task_list',
 		description:
-			'List the agent invocations launched by this turn and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
+			'List the agent invocations of this conversation, from this turn and earlier ones, and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1679,6 +1755,17 @@ export async function createSubagentRuntime(
 				const runtime = await pending.catch(() => undefined)
 				if (runtime?.retired) tasks.push(...runtime.gateway.listTasks())
 			}
+			// Agents of earlier turns that have ended are still this conversation's
+			// work. They come first, so the newest launches survive the cap.
+			const parentKey = sessionKey(await resolveParent(context.turnId))
+			const listed = new Set(tasks.map((task) => String(task.taskId)))
+			const earlier: TaskHandle[] = []
+			for (const owned of conversations.values()) {
+				if (owned.parentKey !== parentKey || listed.has(String(owned.task.taskId))) continue
+				const task = owned.gateway.getTask(owned.task.taskId) ?? owned.task
+				if (isTerminalAgentTaskState(task.state)) earlier.push(task)
+			}
+			tasks.unshift(...earlier)
 			const snapshot = activity.getSnapshot()
 			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
 			const shown = tasks.slice(-40).map((task) => ({
@@ -1709,7 +1796,7 @@ export async function createSubagentRuntime(
 	const waitForTaskTool = defineTool({
 		name: 'wait_for_task',
 		description:
-			'Wait for a task this turn already launched, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
+			'Wait for a task of this conversation, launched in this turn or an earlier one, running or finished, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1750,14 +1837,17 @@ export async function createSubagentRuntime(
 					error: 'task_id must be a task UUID returned by Agent or a task notification.',
 				}
 			}
-			gateway = await gatewayHolding(taskId, context.turnId)
-			const task = gateway.getTask(taskId)
-			if (!task)
+			const found = await resolveTask(taskId, context.turnId)
+			if (!found)
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: await unknownTaskMessage(taskId, context.turnId),
 				}
+			// An agent that ended in an earlier turn has nothing left to wait for.
+			if (found.kind === 'settled') return completedAgentResult(found.task)
+			gateway = found.gateway
+			const task = found.task
 			const outcome = await runBlockingAgentTask({
 				gateway,
 				task,
@@ -1788,7 +1878,7 @@ export async function createSubagentRuntime(
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
-			'Send a correction or additional context to a sub-agent owned by this turn, addressed by its task id. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
+			'Send a correction or additional context to a sub-agent of this conversation, running or finished, from any turn, addressed by its task id. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1824,17 +1914,38 @@ export async function createSubagentRuntime(
 					error: 'Message must not be blank.',
 				}
 			const taskId = asTaskId(task_id)
-			const gateway = await gatewayHolding(taskId, context.turnId)
-			const task = gateway.getTask(taskId)
-			if (!task)
+			const found = await resolveTask(taskId, context.turnId)
+			if (!found) {
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: await unknownTaskMessage(taskId, context.turnId),
 				}
+			}
+			const task = found.task
+			if (found.kind === 'settled') {
+				// A finished agent is resumed from its own transcript with the message,
+				// on this turn's gateway, limits and review channel; one the user
+				// stopped is not.
+				const label = found.owned.seed.agentId
+				try {
+					await messageChild(found.viewId, message, context.turnId, context.abortSignal, 'parent')
+				} catch (error) {
+					return {
+						success: false,
+						output: '',
+						error: error instanceof Error ? error.message : String(error),
+					}
+				}
+				return {
+					success: true,
+					output: `Resuming agent ${label}. It will notify you again when it finishes.`,
+					data: { task_id: found.owned.task.taskId, status: 'resumed' },
+				}
+			}
+			const gateway = found.gateway
 			if (isTerminalAgentTaskState(task.state)) {
-				// A finished agent is resumed from its own transcript with the message;
-				// one the user stopped is not.
+				// Ended inside its own turn's gateway, still held: the same resume.
 				const shown = activity.getSnapshot().find((entry) => entry.taskId === String(taskId))
 				const label = shown?.agentId ?? String(taskId)
 				if (!shown)
@@ -1875,7 +1986,7 @@ export async function createSubagentRuntime(
 	const cancelAgentTool = defineTool({
 		name: 'cancel_agent',
 		description:
-			'Request cancellation of one running or queued agent task owned by this turn. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
+			'Request cancellation of one running or queued agent task of this conversation, from any turn. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1895,19 +2006,20 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const taskId = asTaskId((input as { task_id: string }).task_id)
-			const gateway = await gatewayHolding(taskId, context.turnId)
-			const task = gateway.getTask(taskId)
-			if (!task)
+			const found = await resolveTask(taskId, context.turnId)
+			if (!found)
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent turn.`,
+					error: await unknownTaskMessage(taskId, context.turnId),
 				}
-			if (isTerminalAgentTaskState(task.state))
+			const task = found.task
+			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
 				return {
 					success: true,
 					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. No cancellation sent.`,
 				}
+			const gateway = found.gateway
 			context.abortSignal.throwIfAborted()
 			// The cause stays `user`: it is what closes the request in flight on an
 			// estimate rather than as unknown spend. Who asked is the display's.
@@ -2188,6 +2300,7 @@ export async function createSubagentRuntime(
 				owned.task = task
 				owned.gateway = gateway
 				owned.turnId = turnId
+				taskViews.set(String(task.taskId), viewId)
 				tracker.settle(task)
 				void gateway.waitForTask(task.taskId).then(
 					(result) => {
@@ -2248,6 +2361,7 @@ export async function createSubagentRuntime(
 				if (conversation.dynamic) registry.unregister(conversation.agentId)
 			}
 			conversations.clear()
+			taskViews.clear()
 			activity.close()
 		})()
 		return closePromise

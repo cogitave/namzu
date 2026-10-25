@@ -180,15 +180,19 @@ what the rules leave to review, as the unattended default does, except a sandbox
 path outside the roots, which is refused; `plan` and `strict` refuse. `namzu
 exec` resumes under the mode the session was started with.
 
-`send_message` takes `task_id` and `message`. A running or queued child owned by
-the current parent session is sent the message for its next tool round
+`send_message` takes `task_id` and `message`. The task may come from any turn of
+the conversation, running or finished. A running or queued child of the
+conversation is sent the message for its next tool round
 ("Message queued for delivery … at its next tool round"); acceptance confirms
 queuing, not delivery or execution. A **finished** child is resumed from its own
 transcript with the message ("Resuming agent …") and notifies again when it
 ends. A child the user stopped is refused: "Agent … was stopped by the user and
 was not resumed. Treat its work as cancelled; only start a new agent for it if
-the user explicitly asks." Messages are bounded to 16,000 characters, and
-another parent's task cannot receive the message.
+the user explicitly asks." A resumed child runs under the current turn's limits
+and review channel. Messages are bounded to 16,000 characters. An id that no
+agent of this conversation has, including one of another conversation, gets the
+same answer: "No task with ID … in this conversation.", followed by the running
+agents and a pointer to `agent_task_list`; nothing is sent and no row is added.
 
 A running child has a `send_message` of its own with `to: "main"` and a
 `message`, offered only while the host can show the message (the interactive
@@ -357,9 +361,12 @@ whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
 Completion reaches the model as a task notification. `wait_for_task` retrieves
-the result without launching duplicate work, also in a later turn than the one
-that launched the agent, and `send_message`, `cancel_agent` and `agent_task_list`
-see a background agent that a finished turn left running. Background work keeps
+the result without launching duplicate work. `wait_for_task`, `send_message`,
+`cancel_agent` and `agent_task_list` reach every agent of the conversation from
+any later turn, running or finished: a finished one is returned as it ended
+(`wait_for_task` starts no new wait, `cancel_agent` says it already ended) or,
+with `send_message`, resumed; a running one keeps the review channel it was
+launched under. Background work keeps
 the same parent authority, shared tree budget and capacity limit. In the terminal
 a background agent outlives the turn that started it and is stopped by you (Ctrl+C
 when idle, `ctrl+x ctrl+k`, `x` on its rail row) or by closing the conversation;

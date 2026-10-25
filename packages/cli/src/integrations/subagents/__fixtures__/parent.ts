@@ -23,11 +23,30 @@ export async function subagentParentFixture(cwd: string, turnId: TurnId = genera
 		{ projectId: project.id, topicId: topic.id, currentActor: null },
 		tenantId,
 	)
+	// The turns this parent answers for, each with the session it runs in.
+	const turns = new Map<TurnId, typeof session.id>([[turnId, session.id]])
 	return {
+		/** A later turn of the same conversation. */
+		addTurn(): TurnId {
+			const later = generateTurnId()
+			turns.set(later, session.id)
+			return later
+		},
+		/** A turn of another conversation of the same project and topic. */
+		async addForeignTurn(): Promise<TurnId> {
+			const other = await sessions.createSession(
+				{ projectId: project.id, topicId: topic.id, currentActor: null },
+				tenantId,
+			)
+			const foreign = generateTurnId()
+			turns.set(foreign, other.id)
+			return foreign
+		},
 		scope: { turnId, projectId: project.id, topicId: topic.id, sessionId: session.id, tenantId },
 		async resolveParent(requested: TurnId): Promise<SubagentParent> {
-			if (requested !== turnId) throw new Error(`Unknown parent turn: ${requested}`)
-			return { project, topic, sessionId: session.id }
+			const sessionId = turns.get(requested)
+			if (sessionId === undefined) throw new Error(`Unknown parent turn: ${requested}`)
+			return { project, topic, sessionId }
 		},
 	}
 }
