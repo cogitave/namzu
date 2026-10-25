@@ -4,7 +4,7 @@
  *
  * Keys: Enter submits/steers (or runs the highlighted command while the
  * autocomplete dropdown is open), tab completes that command or queues the
- * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
+ * draft, a second Esc clears (the first only offers it) / Esc closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
  * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
  * message into an empty composer, Backspace deletes, Alt+W drops or
@@ -26,6 +26,7 @@ import {
 import { fitHints } from './key-hints.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
+import type { Notice } from './notifications.js'
 import {
 	attachmentChip,
 	chipBefore,
@@ -58,6 +59,13 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
+
+/** The footer notice that offers the second Esc. */
+const ESC_CLEAR_KEY = 'escape-again-to-clear'
+/** The second Esc clears inside this window. */
+export const ESC_CLEAR_WINDOW_MS = 800
+/** The notice outlives the window a little. */
+const ESC_CLEAR_NOTICE_MS = 1000
 
 export interface ComposerProps {
 	readonly disabled?: boolean
@@ -109,6 +117,11 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/** Put a passing notice in the footer's slot / take it back out (`notifications.ts`). */
+	readonly onFooterNotice?: (notice: Notice) => void
+	readonly onFooterNoticeRemove?: (key: string) => void
+	/** The second Esc threw a typed draft away: hand its text over so Up can bring it back. */
+	readonly onClearedDraft?: (text: string) => void
 	/** Step through the active model's published reasoning menu. */
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
@@ -581,6 +594,9 @@ export function Composer({
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
+	onFooterNotice,
+	onFooterNoticeRemove,
+	onClearedDraft,
 	onStepReasoningEffort,
 	onExternalEdit,
 	onEditPrevious,
@@ -666,6 +682,14 @@ export function Composer({
 		[],
 	)
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
+	/** The first Esc on a typed draft waits this long for the second, which clears it. */
+	const clearArmRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	useEffect(
+		() => () => {
+			if (clearArmRef.current !== null) clearTimeout(clearArmRef.current)
+		},
+		[],
+	)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
 	useEffect(() => {
@@ -1174,7 +1198,30 @@ export function Composer({
 					} else setEditPreviousArmed(true)
 					return
 				}
-				reset()
+				if (empty) return
+				// One Esc on a typed draft only says how to clear it: a stray key
+				// should not throw the text away. The second inside the window does.
+				if (clearArmRef.current !== null) {
+					clearTimeout(clearArmRef.current)
+					clearArmRef.current = null
+					onFooterNoticeRemove?.(ESC_CLEAR_KEY)
+					// A cleared draft stays recallable, like a submitted line.
+					const cleared = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+					if (cleared.trim().length > 0) onClearedDraft?.(cleared)
+					reset()
+					return
+				}
+				const timer = setTimeout(() => {
+					clearArmRef.current = null
+				}, ESC_CLEAR_WINDOW_MS)
+				timer.unref?.()
+				clearArmRef.current = timer
+				onFooterNotice?.({
+					key: ESC_CLEAR_KEY,
+					text: 'Esc again to clear',
+					priority: 'immediate',
+					timeoutMs: ESC_CLEAR_NOTICE_MS,
+				})
 				return
 			}
 			if (key.backspace && (key.meta || key.ctrl)) {

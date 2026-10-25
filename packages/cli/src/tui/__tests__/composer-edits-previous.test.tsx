@@ -43,11 +43,14 @@ describe('Esc ×2 previous-prompt entry', () => {
 		expect(harness.onEditPrevious).toHaveBeenCalledTimes(1)
 	})
 
-	it('clears a non-empty draft before it can arm editing', async () => {
+	it('clears a non-empty draft with the second Esc, before it can arm editing', async () => {
 		const harness = open()
 		harness.stdin.write('do not branch this')
 		await tick()
 
+		harness.stdin.write('\x1B')
+		await tick()
+		expect(harness.lastFrame()).toContain('do not branch this')
 		harness.stdin.write('\x1B')
 		await tick()
 		expect(harness.lastFrame()).not.toContain('do not branch this')

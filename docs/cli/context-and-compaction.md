@@ -221,8 +221,9 @@ other tool at 20%); file reads at 5% and 10,000 tokens; memory files at 5% and
 longer fits. Before the first reply, which is when the window is first known,
 `/context` says there is no size yet.
 
-The footer also shows `N% until auto-compact` once the context is within
-20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
+The footer's notice slot also shows `N% until auto-compact` once the context is
+within 20,000 tokens of the summary point. A compaction hides it until the next
+turn starts; see [the composer footer](terminal-design.md#the-composer-footer).
 
 `/context details` adds, under the advice, the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing
