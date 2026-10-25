@@ -135,6 +135,8 @@ export type SlashAction =
 	| { kind: 'recap-setting'; setting: 'on' | 'off' | 'list' }
 	/** `/recap`: write a recap of the conversation now. */
 	| { kind: 'recap-now' }
+	/** `/config tips on|off`: the spinner tips' switch, written to the user config. */
+	| { kind: 'spinner-tips'; on: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -738,10 +740,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config triggers [on|off|list]',
 				'/config motion [on|off]',
 				'/config recap [on|off|list]',
+				'/config tips [on|off]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
 				'/config recap off stops the one-line recap shown when you come back after a few minutes away, in your user config; /config recap on turns it back on.',
+				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
 			],
 		},
 		action: (ctx, args) => {
@@ -752,6 +756,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
 					return { kind: 'reduced-motion', setting }
 				return { kind: 'message', role: 'system', content: 'Usage: /config motion [on|off]' }
+			}
+			if (args[0] === 'tips') {
+				const setting = (args[1] ?? '').toLowerCase()
+				if (args.length === 2 && (setting === 'on' || setting === 'off'))
+					return { kind: 'spinner-tips', on: setting === 'on' }
+				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off]' }
 			}
 			if (args[0] === 'triggers') {
 				const setting = (args[1] ?? 'list').toLowerCase()
@@ -775,7 +785,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers|motion|recap]',
+						: 'Usage: /config [sources|limits|triggers|motion|recap|tips]',
 			}
 		},
 	},

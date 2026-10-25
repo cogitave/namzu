@@ -1632,7 +1632,10 @@ const CONFIG_READERS: ConfigReaders = {
 			theme?: unknown
 			reducedMotion?: unknown
 			recap?: unknown
+			spinnerTips?: unknown
 		}
+		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
+			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -1689,6 +1692,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
+			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 		}
 	},
 }

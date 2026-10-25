@@ -66,6 +66,12 @@ export interface TuiConfig {
 	 * `NAMZU_RECAP` variable overrides this either way.
 	 */
 	readonly recap?: boolean
+	/**
+	 * Show one dim tip under the working row while a reply runs. Default
+	 * `true`; only an explicit `false` turns it off. The `Next:` row (the
+	 * plan's next task) is not a tip and shows either way.
+	 */
+	readonly spinnerTips?: boolean
 }
 
 /** Where the CLI may discover executable plugin bundles. */

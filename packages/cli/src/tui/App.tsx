@@ -272,6 +272,10 @@ import {
 } from './ScheduleReviewOverlay.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
+import { nextTask, nextTaskLine } from './next-task.js'
+import { setSpinnerTips } from './spinner-tips-setting.js'
+import type { TipHistoryStore } from './tip-history.js'
+import { useSpinnerTip } from './use-spinner-tip.js'
 import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
@@ -578,6 +582,8 @@ export interface AppProps {
 	readonly examplePrompts?: boolean
 	/** Where the queued-messages hint's count is kept; the launcher gives the user-level file. */
 	readonly queuedHintCount?: QueuedHintCount
+	/** Where spinner tips are remembered between launches; absent shows no tips (tests, embeds). */
+	readonly tipHistory?: TipHistoryStore
 }
 
 type PendingPermission = ScreenPermissionRequest & {
@@ -1296,6 +1302,7 @@ function AppBody({
 	terminationExit,
 	examplePrompts = false,
 	queuedHintCount,
+	tipHistory,
 }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
@@ -3403,6 +3410,23 @@ function AppBody({
 		recapOverride ?? recapEnabled({ env: process.env, tui: initialCtx.tui, interactive: true })
 	const recapOnRef = useRef(recapOn)
 	recapOnRef.current = recapOn
+	/** `/config tips on|off` in this session, over whatever the config files say. */
+	const [spinnerTipsOverride, setSpinnerTipsOverride] = useState<boolean | undefined>()
+	const spinnerTipsOn = spinnerTipsOverride ?? ctx.tui?.spinnerTips !== false
+	/** Tool calls the reply in flight has made; the tip picker reads and clears it at the reply's end. */
+	const turnToolCallsRef = useRef(0)
+	const spinnerTip = useSpinnerTip({
+		store: tipHistory,
+		enabled: spinnerTipsOn,
+		busy: state !== 'idle',
+		statusLineSet: ctx.statusLine !== undefined,
+		notificationsSet: ctx.tui?.notifications !== undefined,
+		lastTurnToolCalls: () => {
+			const calls = turnToolCallsRef.current
+			turnToolCallsRef.current = 0
+			return calls
+		},
+	})
 	/**
 	 * Whether the model can run `skill-creator` here, which save-as-skill
 	 * needs. Read once for the tag row; read again when a turn starts and when
@@ -6018,6 +6042,8 @@ function AppBody({
 	})
 	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
+	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
+	const nextPlanned = nextTask(tasks)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
@@ -7985,6 +8011,7 @@ function AppBody({
 					break
 				}
 				case 'tool-start': {
+					turnToolCallsRef.current += 1
 					closeAssistant()
 					// A call that only looks joins the open counted line; any other call ends it.
 					if (event.fold)
@@ -8194,6 +8221,12 @@ function AppBody({
 						id: event.taskId,
 						subject: event.subject,
 						status: event.status,
+						...(event.blockedBy
+							? { blockedBy: event.blockedBy }
+							: (() => {
+									const known = tasksRef.current.find((task) => task.id === event.taskId)?.blockedBy
+									return known ? { blockedBy: known } : {}
+								})()),
 					}
 					// A reply in progress ends here, as it does at a tool call, so
 					// the block lands after the text that led to it.
@@ -9833,6 +9866,10 @@ function AppBody({
 			}
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
+				const commandName = /^\/([\w-]+)/u.exec(dispatch.trim())?.[1]
+				if (commandName) tipHistory?.recordUse(commandName.toLowerCase())
+			}
+			if (slash) {
 				switch (slash.kind) {
 					case 'message':
 						// The command as typed, then its answer hung under `⎿`, so a readout
@@ -10107,6 +10144,13 @@ function AppBody({
 								description: recapOn
 									? 'On · a one-line recap when you return after a few minutes away. Select to turn off.'
 									: 'Off · no recap on return. Select to turn on.',
+							},
+							{
+								name: `config tips ${spinnerTipsOn ? 'off' : 'on'}`,
+								label: 'Tips',
+								description: spinnerTipsOn
+									? 'On · one short tip shows under the working row. Select to turn off.'
+									: 'Off · no tip under the working row. Select to turn on.',
 							},
 							{
 								name: 'config sources',
@@ -11207,6 +11251,15 @@ function AppBody({
 						})
 						return
 					}
+					case 'spinner-tips': {
+						const profile = ctx.configDebug?.selectedProfile?.name
+						setSpinnerTipsOverride(slash.on)
+						pushMessage(
+							'system',
+							setSpinnerTips(slash.on, { cwd: ctx.cwd, ...(profile ? { profile } : {}) }),
+						)
+						return
+					}
 					case 'hypermode': {
 						if (slash.via === 'orchestrate') pushMessage('system', ORCHESTRATE_ALIAS_NOTICE)
 						const enabled = slash.enabled === 'toggle' ? !hypermodeRef.current : slash.enabled
@@ -11317,6 +11370,8 @@ function AppBody({
 			applyPermissionMode,
 			bindSteeredTriggers,
 			composerTriggersOn,
+			spinnerTipsOn,
+			tipHistory,
 			conversationLearning,
 			applyReasoningEffort,
 			appLifetime,
@@ -13584,6 +13639,8 @@ function AppBody({
 									scheduleReviewPrompt === null
 								}
 								thinking={thinking}
+								{...(spinnerTip ? { tip: spinnerTip } : {})}
+								{...(nextPlanned ? { nextTask: nextTaskLine(nextPlanned) } : {})}
 								waitNotice={providerWaitNotice}
 								tokens={turnTokens}
 								waitingForYou={
