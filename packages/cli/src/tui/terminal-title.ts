@@ -17,6 +17,10 @@ export const DEFAULT_TERMINAL_TITLE = 'Namzu'
 export const IDLE_TITLE_GLYPH = '✳'
 /** Before the title while a turn runs. */
 export const BUSY_TITLE_GLYPH = '◐'
+/** The two glyphs a running turn alternates between. */
+export const BUSY_TITLE_FRAMES: readonly string[] = [BUSY_TITLE_GLYPH, '◑']
+/** How long each frame shows while the terminal has focus. */
+export const TITLE_ANIMATION_MS = 960
 /** Longest name put in a title. */
 const TITLE_NAME_MAX = 100
 
@@ -41,6 +45,27 @@ export interface TerminalTitleInput {
 	readonly generated?: string | undefined
 	/** A turn is running. */
 	readonly busy: boolean
+	/** Which busy frame to show; counted up by the animation, any whole number. */
+	readonly frame?: number | undefined
+}
+
+/**
+ * Whether the busy glyph moves: only while a turn is working (not while it
+ * waits on a permission), the terminal has not reported losing focus, and no
+ * terminal multiplexer (`TMUX`, `STY`, `ZELLIJ`) would redraw its tab on every
+ * change. A stopped animation keeps the frame it stopped on.
+ */
+export function titleAnimates(input: {
+	readonly working: boolean
+	readonly focused: boolean
+	readonly env: Readonly<Record<string, string | undefined>>
+}): boolean {
+	return input.working && input.focused && !underMultiplexer(input.env)
+}
+
+/** A terminal multiplexer is hosting this terminal. */
+export function underMultiplexer(env: Readonly<Record<string, string | undefined>>): boolean {
+	return Boolean(env.TMUX || env.STY || env.ZELLIJ)
 }
 
 /** The title text for the current state: name, else generated title, else the product name. */
@@ -49,7 +74,11 @@ export function terminalTitleText(input: TerminalTitleInput): string {
 		.map((candidate) => printable(candidate ?? ''))
 		.find((candidate) => candidate.length > 0) as string
 	const shown = name.length > TITLE_NAME_MAX ? `${name.slice(0, TITLE_NAME_MAX - 1)}…` : name
-	return `${input.busy ? BUSY_TITLE_GLYPH : IDLE_TITLE_GLYPH} ${shown}`
+	const frames = BUSY_TITLE_FRAMES.length
+	const glyph = input.busy
+		? (BUSY_TITLE_FRAMES[(((input.frame ?? 0) % frames) + frames) % frames] ?? BUSY_TITLE_GLYPH)
+		: IDLE_TITLE_GLYPH
+	return `${glyph} ${shown}`
 }
 
 export function setTerminalTitleSequence(text: string): string {
