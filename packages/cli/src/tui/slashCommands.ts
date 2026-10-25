@@ -131,6 +131,10 @@ export type SlashAction =
 	| { kind: 'theme'; setting: ThemeSetting }
 	/** `/config motion on|off|list`: reduced motion, written to the user config. */
 	| { kind: 'reduced-motion'; setting: 'on' | 'off' | 'list' }
+	/** `/config recap on|off|list`: the away recap's switch, written to the user config. */
+	| { kind: 'recap-setting'; setting: 'on' | 'off' | 'list' }
+	/** `/recap`: write a recap of the conversation now. */
+	| { kind: 'recap-now' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -726,9 +730,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config limits unlimited',
 				'/config triggers [on|off|list]',
 				'/config motion [on|off]',
+				'/config recap [on|off|list]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
+				'/config recap off stops the one-line recap shown when you come back after a few minutes away, in your user config; /config recap on turns it back on.',
 			],
 		},
 		action: (ctx, args) => {
@@ -750,15 +756,26 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: 'Usage: /config triggers [on|off|list]',
 				}
 			}
+			if (args[0] === 'recap') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'recap-setting', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config recap [on|off|list]' }
+			}
 			return {
 				kind: 'message',
 				role: 'system',
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers|motion]',
+						: 'Usage: /config [sources|limits|triggers|motion|recap]',
 			}
 		},
+	},
+	{
+		name: 'recap',
+		description: 'Write a short recap of this conversation now.',
+		action: () => ({ kind: 'recap-now' }),
 	},
 	{
 		name: 'settings',

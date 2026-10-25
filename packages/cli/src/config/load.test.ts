@@ -336,6 +336,23 @@ describe('terminal notification config', () => {
 		},
 	)
 
+	it.each([true, false])('accepts tui.recap: %s', (recap) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui: { recap } }))
+
+		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({ recap })
+	})
+
+	it.each([{ recap: 'off' }, { recap: 0 }])(
+		'refuses a recap that is not a boolean: $recap',
+		(tui) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
+
+			expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
+		},
+	)
+
 	it.each([
 		{ notifications: ['turn-complet'] },
 		{ notifications: 'yes' },

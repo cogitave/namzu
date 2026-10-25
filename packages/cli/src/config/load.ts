@@ -1631,6 +1631,7 @@ const CONFIG_READERS: ConfigReaders = {
 			notificationMethod?: unknown
 			theme?: unknown
 			reducedMotion?: unknown
+			recap?: unknown
 		}
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
@@ -1678,12 +1679,16 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.reducedMotion !== undefined && typeof raw.reducedMotion !== 'boolean') {
 			return invalidConfigValue(context, ['reducedMotion'], 'must be true or false')
 		}
+		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
+			return invalidConfigValue(context, ['recap'], 'must be true or false')
+		}
 
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
+			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 		}
 	},
 }

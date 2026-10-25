@@ -60,6 +60,12 @@ export interface TuiConfig {
 	 * Absent or `false` means motion is on. Your own config files only.
 	 */
 	readonly reducedMotion?: boolean
+	/**
+	 * The one-line recap shown when a person returns to the terminal after a few
+	 * minutes away. Absent or `true` means on; only `false` turns it off. The
+	 * `NAMZU_RECAP` variable overrides this either way.
+	 */
+	readonly recap?: boolean
 }
 
 /** Where the CLI may discover executable plugin bundles. */

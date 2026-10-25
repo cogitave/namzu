@@ -40,6 +40,11 @@ export interface TranscriptMessage {
 	readonly id: string
 	readonly role: MessageRole
 	readonly content: string
+	/**
+	 * `recap`: the away recap, a display-only row (`※ recap: …`). Never sent to
+	 * the model and never counted as something the person typed.
+	 */
+	readonly kind?: 'recap'
 	/** Host-only schedule result from the active conversation's sidecar inbox. */
 	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */

@@ -18,7 +18,12 @@ import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdow
 import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
-import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
+import {
+	RECAP_GLYPH,
+	RECAP_LABEL,
+	RESULT_GUTTER_INDENT,
+	RESULT_GUTTER_WIDTH,
+} from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { useThemeEpoch } from './theme-store.js'
 import { theme } from './theme.js'
@@ -217,7 +222,13 @@ function RawMessageRow({
 	readonly prev: TranscriptMessage | undefined
 }) {
 	const content =
-		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
+		message.kind === 'recap'
+			? `${RECAP_LABEL} ${terminalDisplayText(message.content)}`
+			: message.content.length > 0
+				? terminalDisplayText(message.content)
+				: message.pending
+					? '…'
+					: ''
 	const fullHeader = message.shell?.fullHeader
 	const text = [
 		`${fullHeader !== undefined ? terminalDisplayText(fullHeader) : content}${message.meta ? `${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}` : ''}`,
@@ -238,6 +249,29 @@ function RawMessageRow({
 	)
 }
 
+/** The away recap: `※`, a bold `recap:` label and the text in italics, all dim. */
+function RecapRow({
+	message,
+	prev,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+}) {
+	return (
+		<Box flexDirection="row" marginTop={prev ? 1 : 0}>
+			<Box width={2} flexShrink={0}>
+				<Text color={theme.text.muted}>{RECAP_GLYPH}</Text>
+			</Box>
+			<Box flexGrow={1}>
+				<Text color={theme.text.muted} wrap="wrap">
+					<Text bold>{RECAP_LABEL} </Text>
+					<Text italic>{terminalDisplayText(message.content)}</Text>
+				</Text>
+			</Box>
+		</Box>
+	)
+}
+
 function MessageRow({
 	message,
 	prev,
@@ -249,6 +283,7 @@ function MessageRow({
 }) {
 	// The row is memoised on its props; the epoch makes a new theme repaint it.
 	useThemeEpoch()
+	if (message.kind === 'recap') return <RecapRow message={message} prev={prev} />
 	if (message.statusRows) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>

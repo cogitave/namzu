@@ -31,6 +31,11 @@ export const RESULT_GUTTER_INDENT = 2
 /** Width of the `⎿` plus the two spaces after it. */
 export const RESULT_GUTTER_WIDTH = 3
 
+/** The gutter glyph of the away recap row. It belongs to that row only. */
+export const RECAP_GLYPH = '※'
+/** The label before the text of an away recap. */
+export const RECAP_LABEL = 'recap:'
+
 /** The gutter glyph of the reply-closing line and of the compaction line. */
 export const CLOSING_GLYPH = '✻'
 

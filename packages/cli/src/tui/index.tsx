@@ -16,11 +16,13 @@ import {
 	type TuiResumeInvocation,
 	formatTuiExitSummary,
 } from './exit-summary.js'
+import { installFocusReporting } from './focus-reporting.js'
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
 import { applyLaunchTheme } from './theme-launch.js'
+import { terminalFocus } from './terminal-focus.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(
@@ -67,6 +69,12 @@ export async function launchTui(
 		consoleInput === undefined ? { input: process.stdin, output: process.stdout } : undefined,
 	)
 	if (themeReady) await themeReady
+	// Focus reports (`ESC [ I` / `ESC [ O`) are taken off the stream before Ink reads it, and
+	// switched on only while raw mode is held (see `focus-reporting.ts`).
+	const inputStream = consoleInput?.stream ?? process.stdin
+	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
+		terminalFocus.set(focused),
+	)
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
@@ -82,7 +90,7 @@ export async function launchTui(
 		{
 			stdout: process.stdout,
 			stderr: process.stderr,
-			stdin: consoleInput?.stream ?? process.stdin,
+			stdin: inputStream,
 			exitOnCtrlC: false,
 			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
 			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
@@ -109,6 +117,7 @@ export async function launchTui(
 	} finally {
 		termination.dispose()
 		stopSizeWatch?.()
+		stopFocusReporting()
 		consoleInput?.release()
 		logs.close()
 		// A hangup means the terminal is gone: nobody is there to read the
