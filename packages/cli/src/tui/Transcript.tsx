@@ -14,6 +14,7 @@ import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
 import { Checklist, checklistLine } from './Checklist.js'
+import { ContextGridRow } from './ContextGridRow.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
@@ -245,6 +246,13 @@ function MessageRow({
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
 }) {
+	if (message.contextView) {
+		return (
+			<Box marginTop={prev ? 1 : 0}>
+				<ContextGridRow view={message.contextView} />
+			</Box>
+		)
+	}
 	if (message.statusRows) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>

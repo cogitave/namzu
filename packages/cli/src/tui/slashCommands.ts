@@ -183,6 +183,11 @@ export type SlashAction =
 	 */
 	/** `instructions` is the free text after `/compact`, in the person's words. */
 	| { kind: 'compact'; instructions?: string }
+	/**
+	 * Draw where the context goes. Async in App because the instruction files,
+	 * skills and agents are read from disk to size them.
+	 */
+	| { kind: 'context'; details: boolean }
 	/** Choose a raw source region from the latest available assistant output. */
 	| { kind: 'copy' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
@@ -366,6 +371,8 @@ export interface SlashContext {
 			readonly windowTokens: number
 			readonly measured: boolean
 			readonly windowAssumed: boolean
+			/** Where the window figure came from, when the kernel said. */
+			readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 		}
 	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
@@ -1243,11 +1250,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'context',
 		help: { usage: ['/context [details]'] },
-		description: 'Show context usage and automatic cleanup.',
-		action: (ctx, args) =>
-			reportCommand('context', args, (details) =>
-				renderContext(ctx.usage, ctx.compaction, details),
-			),
+		description: 'Show where the context goes, as a grid.',
+		action: (ctx, args) => {
+			// `all` is accepted for people who type it; the full lists are always shown.
+			const option = args.join(' ').trim().toLowerCase()
+			if (option !== '' && option !== 'details' && option !== 'all')
+				return { kind: 'message', role: 'system', content: 'Usage: /context [details]' }
+			return { kind: 'context', details: option === 'details' }
+		},
 	},
 	{
 		name: 'review',
@@ -1664,37 +1674,47 @@ export function renderContext(
 	const lines = contextMeasurement(usage, details)
 	if (usage?.context && details)
 		lines.push('Latest reported context size; not cumulative token usage.')
-	if (!compaction) {
-		lines.push('Older messages are summarised automatically when the context fills.')
-	} else {
-		lines.push(
-			compaction.passes === 0
-				? 'Nothing summarised yet.'
-				: compaction.reclaimedTokens > 0
-					? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
-					: `Summarised ${plural(compaction.passes, 'time')}.`,
-		)
-		if (details) {
-			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
-			lines.push(`Strategy: ${compaction.strategy}`)
-			if (compaction.strategy === 'salience') {
-				lines.push(
-					`Older, less useful content is shortened from ${pct(compaction.softTarget)} of the window; older history is summarised at ${pct(compaction.triggerThreshold)}.`,
-				)
-			} else {
-				lines.push(
-					`Older tool results are cleared at ${pct(compaction.triggerThreshold)} of the window; history is summarised if needed.`,
-				)
-			}
-			lines.push(
-				`Tool results cleared: ${compaction.clearedResults.toLocaleString('en-US')}`,
-				`Messages shortened: ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
-				`Summaries written: ${compaction.summaries.toLocaleString('en-US')}`,
-			)
-		}
-	}
+	lines.push(...contextCleanupLines(compaction, details))
 	if (!details) lines.push('/context details for how it was summarised.')
 	return lines.join('\n')
+}
+
+/** What the automatic cleanup has done, and with `details` how it decides. */
+export function contextCleanupLines(
+	compaction: CompactionSummary | null,
+	details = false,
+): string[] {
+	const lines: string[] = []
+	if (!compaction) {
+		lines.push('Older messages are summarised automatically when the context fills.')
+		return lines
+	}
+	lines.push(
+		compaction.passes === 0
+			? 'Nothing summarised yet.'
+			: compaction.reclaimedTokens > 0
+				? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
+				: `Summarised ${plural(compaction.passes, 'time')}.`,
+	)
+	if (details) {
+		const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
+		lines.push(`Strategy: ${compaction.strategy}`)
+		if (compaction.strategy === 'salience') {
+			lines.push(
+				`Older, less useful content is shortened from ${pct(compaction.softTarget)} of the window; older history is summarised at ${pct(compaction.triggerThreshold)}.`,
+			)
+		} else {
+			lines.push(
+				`Older tool results are cleared at ${pct(compaction.triggerThreshold)} of the window; history is summarised if needed.`,
+			)
+		}
+		lines.push(
+			`Tool results cleared: ${compaction.clearedResults.toLocaleString('en-US')}`,
+			`Messages shortened: ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
+			`Summaries written: ${compaction.summaries.toLocaleString('en-US')}`,
+		)
+	}
+	return lines
 }
 
 /** Keep unknown prices distinct from measured zero, in status and cost alike. */

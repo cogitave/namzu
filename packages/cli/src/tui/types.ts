@@ -29,6 +29,7 @@ import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
+import type { ContextView } from './context-grid.js'
 import type { DiffInfo } from './diff-view.js'
 import type { ShellOutput } from './shell-cell.js'
 import type { TaskOperation } from './task-activity.js'
@@ -43,6 +44,8 @@ export interface TranscriptMessage {
 	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */
 	readonly statusRows?: readonly (readonly [string, string])[]
+	/** The `/context` grid and lists; `content` carries the same as plain text. */
+	readonly contextView?: ContextView
 	readonly pending?: boolean
 	/**
 	 * Compact successful observation, with full output available on expansion.

@@ -95,13 +95,14 @@ describe('analyzeContextUsage', () => {
 		expect(sum(b) + (b.categories.at(-1)?.tokens ?? 0)).toBe(200_000)
 	})
 
-	it('draws a 3,000 token compact buffer as an ordinary line when auto-compact is off', () => {
+	it('keeps a 3,000 token compact buffer when auto-compact is off', () => {
 		const b = analyzeContextUsage({ ...base, autoCompact: false, contextTokens: 1_000 })
 		expect(b.categories.find((c) => c.id === 'buffer')).toMatchObject({
 			name: 'Compact buffer',
 			tokens: 3_000,
-			kind: 'used',
+			kind: 'buffer',
 		})
+		expect(b.autoCompact).toBe(false)
 	})
 
 	it('estimates the conversation without a measurement', () => {

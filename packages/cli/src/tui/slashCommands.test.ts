@@ -1287,17 +1287,25 @@ describe('commands that became keys or folded into another command', () => {
 	})
 })
 
+/** `/context` asks the app for the grid; its plain text is what `renderContext` writes. */
+function contextReport(command: string, ctx: SlashContext) {
+	const action = runSlash(command, ctx)
+	if (action?.kind !== 'context') return action
+	return {
+		kind: 'message' as const,
+		content: renderContext(ctx.usage, ctx.compaction, action.details),
+	}
+}
+
 describe('/context', () => {
 	it('says there is nothing to report before a session', () => {
-		const r = runSlash('/context', context({ usage: null }))
-		expect(r?.kind).toBe('message')
-		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No context size yet')
-		expect(r.content).not.toContain('Counted by the provider')
+		const text = renderContext(null, null)
+		expect(text).toContain('No context size yet')
+		expect(text).not.toContain('Counted by the provider')
 	})
 
 	it('names the strategy, its thresholds and what the passes did', () => {
-		const r = runSlash(
+		const r = contextReport(
 			'/context details',
 			context({
 				usage: {
@@ -1330,7 +1338,7 @@ describe('/context', () => {
 	})
 
 	it('leaves the "freeing about" clause out when no reclaimed size is known', () => {
-		const r = runSlash(
+		const r = contextReport(
 			'/context',
 			context({
 				usage: {

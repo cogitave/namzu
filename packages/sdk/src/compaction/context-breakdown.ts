@@ -97,6 +97,8 @@ export interface ContextBreakdown {
 	readonly percentage: number
 	/** The compaction buffer, 0 when it is not drawn. */
 	readonly bufferTokens: number
+	/** Whether the session summarises on its own; names the buffer. */
+	readonly autoCompact: boolean
 	/** How far past the window the context is; 0 while it fits. */
 	readonly overflowTokens: number
 	readonly messageBreakdown: ContextMessageBreakdown
@@ -208,8 +210,7 @@ export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown 
 			id: 'buffer',
 			name: input.autoCompact ? 'Autocompact buffer' : 'Compact buffer',
 			tokens: bufferTokens,
-			// With nothing summarising on its own the room is an ordinary line.
-			kind: input.autoCompact ? 'buffer' : 'used',
+			kind: 'buffer',
 		})
 	}
 	categories.push({ id: 'free', name: 'Free space', tokens: free, kind: 'free' })
@@ -220,6 +221,7 @@ export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown 
 		totalTokens,
 		percentage: windowTokens > 0 ? Math.round((totalTokens / windowTokens) * 100) : 0,
 		bufferTokens,
+		autoCompact: input.autoCompact,
 		overflowTokens: Math.max(0, totalTokens - windowTokens),
 		messageBreakdown: breakdownMessages(messages),
 	}
