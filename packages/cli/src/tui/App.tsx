@@ -546,8 +546,8 @@ import type { TranscriptMessage, TuiContext } from './types.js'
 import { updateAmbient } from './update-notice.js'
 import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
-import { useReadSearchGroup } from './useReadSearchGroup.js'
 import { useNotifications } from './useNotifications.js'
+import { useReadSearchGroup } from './useReadSearchGroup.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
