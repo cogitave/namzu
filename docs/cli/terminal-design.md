@@ -224,6 +224,19 @@ for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
 `TERM=dumb`); the label remains readable without colour. A frame too narrow for the
 complete mode name omits the label rather than clipping it.
 
+### Esc
+
+Esc means one thing at a time, and the thing is chosen by what the screen is doing:
+
+| Where | One Esc | A second Esc |
+|---|---|---|
+| A reply is running | interrupts it | nothing more to stop |
+| Idle, a draft typed | shows `Esc again to clear` for a second; the draft stays | within 800 ms clears the draft and adds it to the prompt history |
+| Idle, empty box, at least one message sent | arms, shows nothing | within 800 ms opens the [rewind dialog](file-checkpoints.md#rewind) |
+| The detailed transcript, the rewind dialog, a picker or a dialog | closes that screen, or goes back one step | closes the next one |
+
+The two 800 ms windows are separate and never count toward each other. Any other key between two presses (typing, deleting, moving the cursor) ends the window, so the next Esc is a first press again; a draft cleared by the second Esc leaves the next Esc as the first press of the rewind window; deleting the draft down to nothing does the same. A press that arrives after the window is a first press. In the detailed transcript Esc closes the screen and does nothing else, so it neither clears the draft underneath nor interrupts a reply that is still running.
+
 ### Composer triggers
 
 A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
@@ -914,8 +927,8 @@ chooser above.
 Command, settings, goal, skill, branch and commit menus accept text filtering.
 Digits belong to the search query in these menus. Arrow keys navigate and
 Enter applies an available selection; non-searchable menus keep their numeric
-shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
-picker. The first key pressed after a menu appears is accepted; the key that
+shortcuts. Esc returns to the parent or cancels, including the rewind
+dialog. The first key pressed after a menu appears is accepted; the key that
 opened the menu cannot also select its first row. The footer describes the
 keys used by the active surface.
 
@@ -1300,8 +1313,15 @@ scrollback by opening or closing it, so a settled row is never reprinted: the sc
 live region (never the alternate screen) as tall as the terminal less a footer.
 
 - Every row is drawn expanded: tool bodies and shell output whole, a command whole, a diff whole, an
-  agent's answer whole, a compaction's counts and summary. No `(ctrl+o to expand)` hint is drawn on
-  it, because every hint elsewhere points here.
+  agent's answer whole, a compaction's counts and summary. A counted line of reads and searches, open
+  or settled, shows each of its calls with its result, and a call that failed shows its error in the
+  error colour. No `(ctrl+o to expand)` hint is drawn on it, because every hint elsewhere points here:
+  a folded result, an error body past ten lines, a shortened line, a diff past its fold, a shell
+  output, a counted line, an agent's answer, a compaction, a web result and a conversation lookup each
+  show their hidden part here.
+- While a reply streams and the screen is open, nothing under it is rewritten: an idle compaction
+  waits, and a `/context` read afterwards sizes the conversation from its messages when a compaction
+  has made the last reported size stale.
 - The model's thinking is kept on the row that followed it and drawn only here, dim italic under the
   mark `∵` (the assistant mark stays `∴`).
 - Only the last 30 rows show. When older ones exist the first row reads `ctrl+e to show N previous

@@ -26,7 +26,7 @@ The palettes are data in `packages/cli/src/tui/theme-palettes.ts`. The live `the
 
 ## Choosing
 
-`/theme` opens a list of the seven rows. The saved one is marked `[current]` and is highlighted first. Moving the highlight recolours the screen at once (a preview); `Enter` saves and says `Theme set to Light mode.`, `Esc` puts the saved theme back. Under the list a small sample shows an added and a removed row and the success, failure and warning colours (it is left out on a terminal shorter than 26 rows). `/theme <name>` applies and saves a name directly (`/theme light-daltonized`); an unknown name prints the usage line. `/config` lists a `Theme` row that opens the same picker.
+`/theme` opens a list of the seven rows. The saved one is marked `[current]` and is highlighted first. Moving the highlight recolours the screen at once (a preview); `Enter` saves and says `Theme set to Light mode.`, `Esc` puts the saved theme back. Under the list a small sample shows an added and a removed row and the success, failure and warning colours (it is left out on a terminal shorter than 26 rows). `/theme <name>` applies and saves a name directly (`/theme light-daltonized`); an unknown name prints the usage line. `/config` lists a `Theme` row that opens the same picker, and `/config theme [name]` does what `/theme [name]` does. A row already on screen is redrawn in the new theme, its mark included; every surface (the detailed transcript with its thinking text, divider and footer, the rewind dialog, the tip row and the notices) is drawn from the theme colours, so the light, colorblind-friendly and ANSI-only themes apply to all of them.
 
 Saving a theme reprints the transcript once, the way a resize does, so what is already on screen follows the new colours. A line that was written with a colour of its own (a few status glyphs) keeps the colour it was written in.
 
@@ -55,7 +55,9 @@ Both keys are read from your own files (user config, a profile you select, the m
 `tui.reducedMotion: true`, or `/config motion on` (also the `Reduce motion` row in `/config`), turns off decoration that moves:
 
 - the working line's highlight sweep and its slow shift toward red when the model goes quiet: the words stay, in one plain colour;
-- the pulse along the composer's rule when hypermode is switched on.
+- the pulse along the composer's rule when hypermode is switched on (it plays once when `/hypermode` turns the session mode on, not when the word is merely typed into a message);
+- the blinking dot of an open line of reads and searches, which stays lit;
+- the tab title's busy glyph, which stays on its first frame.
 
 Text, colours otherwise, and every figure (elapsed time, token count) are unchanged. Default off. `NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb` and a screen reader also stop the motion, with or without the setting. `/config motion` says which it is now.
 

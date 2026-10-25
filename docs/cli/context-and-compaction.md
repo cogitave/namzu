@@ -128,7 +128,7 @@ A skipped or failed attempt shows nothing and is not retried. A successful one i
 Compacted while idle, before the prompt cache expired · turn off with "idleCompaction": false under "compaction" in the config
 ```
 
-A person who comes back while it is running sees the usual compacting state. No usage-limit signal reaches the terminal, so there is no check against one.
+A person who comes back while it is running sees the usual compacting state. No usage-limit signal reaches the terminal, so there is no check against one. Like any compaction it hides the footer's context meter until the next reply, and `/context` sizes the conversation from its messages until then. It does not run while the detailed transcript is open. It is a file setting and has no `/config` row: it needs the one-hour cache lifetime chosen when the conversation starts, so a change takes effect from the next start.
 
 # Automatic historical evidence
 
