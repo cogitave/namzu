@@ -184,17 +184,47 @@ workspace to infer its past nor replays a state-changing action.
 
 # `/context`
 
-The short report shows the latest context token count, window size and
-percentage, followed by cleanup passes and estimated tokens freed this
-session. It labels whether the token count was measured by the provider or
-estimated by Namzu, and whether the window was declared or assumed. An
-approximate percentage is marked with `~`; missing measurements are reported
-as unavailable rather than zero.
+`/context` draws where the window goes. A grid of squares stands for the whole
+window: 10 by 10 (100 squares), 5 by 5 on a terminal under 80 columns, and
+20 by 10 for a window of a million tokens or more. Each category fills
+`round(tokens / window x squares)` squares, at least one, in a colour of its
+own. A category's last square is `⛁` when it is at least 70% full and `⛀`
+below that; free space is a dim `⛶`; the auto-compact buffer, when it is
+drawn, comes last as `⛝`.
+
+Beside the grid: the model, `used/window tokens (percent)` (`42k/200k tokens
+(21%)`, with a leading `~` when the size is an estimate), and one line per
+category with its size and a one-decimal share. The categories, in order, are
+System prompt, System tools, MCP tools, MCP server instructions, Custom agents,
+Memory files, Skills and Messages, then Free space. A category with nothing in
+it is left out. Messages is what is left of the provider's measured size once
+the other categories are taken out, so the lines add up to the window.
+
+The Autocompact buffer (the room kept for a reply plus 13,000 tokens, 33,000 on
+a 200,000-token window) and an `Auto-compact window:` line appear only when the
+window was set in the config or assumed for an unrecognised model. On a window
+the provider or Namzu's model table declares, there is no buffer and free space
+is the window minus what is used. When the context is past the window, a red
+line says by how much and to run `/compact`.
+
+Under the grid, each list that has something in it: MCP tools (`/mcp`), Custom
+agents (`.namzu/agents/`, grouped by Project and User), Memory files
+(`/memory`, one line per instruction file) and Skills (`/skills`, a rough size
+rounded to ten, or `< 20`). Sizes are estimated from characters, except that
+the total is the provider's own count when it gave one.
+
+Advice follows, warnings first and then by how much it could free: context at
+80% or more; a tool whose calls and results are at least 15% of the window and
+10,000 tokens (shell, read, search and web fetch each get their own hint, any
+other tool at 20%); file reads at 5% and 10,000 tokens; memory files at 5% and
+5,000 tokens, naming the three largest. There is no advice once the context no
+longer fits. Before the first reply, which is when the window is first known,
+`/context` says there is no size yet.
 
 The footer also shows `N% until auto-compact` once the context is within
 20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
 
-`/context details` adds the strategy and thresholds, the number of tool results
+`/context details` adds, under the advice, the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing
 less useful content at its soft target and summarises older history at its
 trigger; `structured` clears older tool results at its trigger and summarises
