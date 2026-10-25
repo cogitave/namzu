@@ -49,6 +49,7 @@ smallModel: anthropic/claude-haiku-4-5
 | Side job | When | Request |
 | --- | --- | --- |
 | [Conversation title](#conversation-titles) | After the first message of a conversation | No tools, 60 tokens |
+| [The away recap](#the-away-recap) | After a conversation was left alone for a few minutes with the window out of focus, or on `/recap` | No tools, 120 tokens |
 | The answer `web_fetch` extracts ([web tools](../sdk/web-tools.md)) | When a page is fetched with a `prompt` | No tools, 8192 tokens |
 
 The live label of a running background agent is a third side request of the same
@@ -105,3 +106,16 @@ A name a person chose is never replaced. `/rename` writes a named title, which
 wins over the generated one whenever it was written; removing the name falls
 back to the first message. Desktop lists the same stored title. A conversation
 started in Desktop is not named by the model yet.
+
+## The away recap
+
+When the terminal window loses focus and a finished reply has been left alone for three minutes,
+the small model writes a recap of under 40 words that is shown as a row when you come back (see
+[Focus and the away recap](terminal-design.md#focus-and-the-away-recap) for when it runs and how it
+looks). It sends a bounded digest, never the whole conversation: at most the last 12 typed prompts
+and final replies, each cut to 600 characters, 6,000 in all, with tool output left out. The newest
+prompt is always in it, so a correction you made last is what the recap reflects. The digest is
+wrapped as data, the request has no tools, a failure shows nothing, and a result that arrives after
+you came back or switched conversations is dropped. The route is the one every side job takes:
+`smallModel`, else the cheapest text model of the provider, else the conversation's model. Switch
+it off with `tui.recap: false`, `/config recap off` or `NAMZU_RECAP=0`.

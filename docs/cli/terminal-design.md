@@ -1045,9 +1045,14 @@ OSC 0, which sets the window title and the icon name, ended by BEL:
   [small model](small-model.md#conversation-titles) wrote; else `Namzu`. It is
   shown on one line (control characters and line breaks are removed) and cut at
   100 characters.
-- **The glyph** is `✳` while the interface waits for input and `◐` while a turn
-  runs. Namzu does not track terminal focus, so it shows one
-  busy glyph and writes the title only when the text changes.
+- **The glyph** is `✳` while the interface waits for input and while it waits
+  for a permission answer. While a turn is working it alternates `◐` and `◑`
+  every 960 ms. The animation runs only while the terminal has focus (see
+  [Focus and the away recap](#focus-and-the-away-recap)); a window that reported
+  losing focus keeps the frame it was on. Under a terminal multiplexer (`TMUX`,
+  `STY` or `ZELLIJ` in the environment) the glyph does not move and a working turn
+  shows `✳`, because the multiplexer would redraw its tab on every change. The
+  title is written only when its text changes.
 - **When it is written:** when the interface opens, when the name or the
   generated title changes (`/rename`, the first message's title, `/resume`, a new
   conversation), and when a turn starts or ends.
@@ -1055,6 +1060,54 @@ OSC 0, which sets the window title and the icon name, ended by BEL:
   the process exits abnormally, so the shell's own title comes back.
 - **Off:** `NAMZU_DISABLE_TERMINAL_TITLE=1`. Nothing is written to a stream that is
   not a terminal.
+
+## Focus and the away recap
+
+**Focus reporting.** While the interface holds the keyboard it asks the terminal to report focus
+(`ESC [ ? 1004 h`) and turns that off when it lets go, including while an external editor runs and
+at exit (`ESC [ ? 1004 l`). The terminal answers with `ESC [ I` (gained) and `ESC [ O` (lost). The
+reports are taken off the input stream before it is read (`focus-reporting.ts`), so they are never
+typed into the composer. Nothing is written to a stream that is not a terminal. A terminal that
+never reports leaves focus *unknown*, which counts as focused: only an explicit loss of focus ever
+makes Namzu behave as if you are away, and a key pressed after one proves you are back. Focus
+drives the title animation above and the recap below.
+
+**The recap.** A conversation that has been left alone gets one line saying where things stand,
+written by the [small model](small-model.md#the-away-recap), shown when you come back:
+
+```text
+※ recap: Adding retries to the upload client; tests pass. Next: wire the config flag. (disable recaps in /config)
+```
+
+- **When it starts.** Only from a loss of focus the terminal reported. It is written three minutes
+  after a reply ended, and no sooner than two seconds after the window lost focus. If the window is
+  still unfocused then, the rules below are checked and the request is made.
+- **When it does not.** The recap is off; a reply is running; the composer holds a draft; a
+  background agent or workflow is running; a session loop is scheduled; the conversation has fewer
+  than three typed prompts, or fewer than two since the last recap; its last row is already a
+  recap; or three attempts in the current reply have failed. A failed attempt shows nothing.
+- **Coming back cancels it.** Regaining focus, or a new reply starting, stops the countdown and
+  drops a recap still being written. A conversation switch (`/new`, `/resume`, `/clear`) forgets
+  the old countdown.
+- **What it looks like.** A row in the conversation, not an overlay: `※`, a bold `recap:` and the
+  text, all muted and the text in italics, one blank row above. The first three recaps of a launch
+  end with ` (disable recaps in /config)`. It is a display row only: it is not sent to the model,
+  not counted as something you typed, and not part of an export. `/raw` shows `recap: <text>`.
+- **The text.** Under 40 words, one or two plain sentences, no markdown: the overall goal and what
+  is being worked on, then the one next action. Longer than 400 characters it is cut at a word and
+  ends with `…`.
+- **Off.** `tui.recap: false` in a config file, `/config recap off` (writes that to your user
+  config; `/config recap on` removes it) or the **Session recap** row in `/config`. `NAMZU_RECAP`
+  overrides the setting: `0`, `false`, `no`, `off` turn it off and `1`, `true`, `yes`, `on` turn it
+  on. Runs without a screen (`namzu exec`, `--json`) never recap. `NAMZU_RECAP_WAIT_MS` replaces the
+  three-minute wait with a number of milliseconds, so the recap can be tried without waiting.
+- **`/recap`** writes one now, whatever the setting, focus, draft or background work. The answer is
+  an ordinary notice without the `※` row or the hint. With no reply yet it says "Nothing to
+  recap yet — send a message first."; if it is stopped, "Recap cancelled."; if the small model
+  could not answer, "Couldn't generate a recap. Run with --debug for details." It refuses when a
+  loop you scheduled sent the line rather than you typing it.
+- **Cost.** One small-model request per recap (120 reply tokens at most, a digest of at most 6,000
+  characters), charged to the latest reply. Recaps need at least two new prompts to repeat.
 
 ## Terminal boundaries
 

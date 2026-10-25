@@ -26,7 +26,7 @@ clause, so no line ends mid-sentence.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config recap on\|off` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -54,6 +54,7 @@ clause, so no line ends mid-sentence.
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines, drawn like an edit's result (line-number gutter, full-width green and red rows, changed words highlighted, three lines of context). |
 | `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
+| `/recap` | Write a short recap of this conversation now (the [away recap](terminal-design.md#focus-and-the-away-recap) shown on its own after a few minutes away is switched with `/config recap on\|off`). |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
