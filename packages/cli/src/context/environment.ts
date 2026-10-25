@@ -35,6 +35,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promisify } from 'node:util'
+import type { PermissionMode } from '../permissions/mode.js'
 
 const run = promisify(execFile)
 
@@ -65,6 +66,11 @@ export interface ExecutionBoundary {
 	readonly escape: 'ask' | 'unattended' | 'refused'
 	/** Whether a person answers the permission prompts in this session. */
 	readonly interactive: boolean
+	/**
+	 * The permission mode the turn starts under. Absent leaves the sentence
+	 * about permissions general, as it was before the mode was passed.
+	 */
+	readonly mode?: PermissionMode
 }
 
 /** What the model needs to know about running under WSL. */
@@ -271,6 +277,35 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 	return `## Environment\n\n${lines.join('\n')}`
 }
 
+/**
+ * What the permission mode does to a call on the host, said per mode and never
+ * more than the mode does: the safety rules that no mode relaxes are named as
+ * such, so a mode that stops asking is not read as one that stops checking.
+ */
+function permissionSentence(boundary: ExecutionBoundary): string {
+	const noOneAsks = boundary.interactive
+		? ''
+		: ' Nobody is at the terminal, so a call that would ask is refused.'
+	switch (boundary.mode) {
+		case undefined:
+			return 'Shell commands and file changes go through the permission settings, which may ask the user before they run.'
+		case 'prompt':
+			return `Shell commands and file changes the user's rules do not already allow are put to the user before they run.${noOneAsks}`
+		case 'accept-edits':
+			return `File edits and simple file commands in the working directory run without asking; any other shell command or change is put to the user first.${noOneAsks}`
+		case 'plan':
+			return 'This is plan mode: reading is allowed and every change is refused until the user leaves plan mode.'
+		case 'bypass':
+			return "Permission prompts are off in this mode, so calls run without asking. What always needs the user still does: removing a home or top-level directory, leaving a sandbox, and anything the user's rules say to ask about. Protected files and the safety rules apply as usual."
+		case 'classify':
+			return `A second model checks each call that would otherwise ask the user and blocks the risky ones. A blocked call is a decision, not an error to route around.${noOneAsks}`
+		case 'strict':
+			return 'Only preapproved tools run; any other call is refused without asking.'
+		case 'auto':
+			return 'Nobody is asked: routine calls run and anything out of bounds is refused.'
+	}
+}
+
 /** The boundary, and the way past it, in the words the model acts on. */
 function boundaryLines(boundary: ExecutionBoundary): string[] {
 	if (!boundary.sandbox) {
@@ -278,7 +313,7 @@ function boundaryLines(boundary: ExecutionBoundary): string[] {
 			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
 			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
-			'Tools run on this machine, not in a sandbox: shell commands and file changes go through the permission settings, which may ask the user before they run.',
+			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary)}`,
 			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
 		]
 	}

@@ -2818,7 +2818,7 @@ export async function createAgentSession(
 	// Whether the last send had somebody to answer a prompt. A child's
 	// environment is composed outside any send, so it reads this.
 	let lastSendInteractive = false
-	const boundaryFor = (interactive: boolean): ExecutionBoundary => ({
+	const boundaryFor = (interactive: boolean, mode?: PermissionMode): ExecutionBoundary => ({
 		...(sandbox.provider && sandbox.environment
 			? {
 					sandbox: {
@@ -2836,6 +2836,7 @@ export async function createAgentSession(
 						? 'unattended'
 						: 'refused',
 		interactive,
+		...(mode ? { mode } : {}),
 	})
 	// Always built: the executor hands it to the tools only where it is
 	// safe — on the host, or inside a sandbox that can start a detached
@@ -5352,7 +5353,7 @@ export async function createAgentSession(
 						const environmentPrompt = composeEnvironmentPrompt({
 							...environmentFacts,
 							additionalDirectories: [...directories],
-							boundary: boundaryFor(opts?.onPermission !== undefined),
+							boundary: boundaryFor(opts?.onPermission !== undefined, initialMode),
 							...(wsl ? { wsl } : {}),
 						})
 						// The repository as it stood when THIS turn began, through the
