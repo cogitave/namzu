@@ -255,6 +255,46 @@ export function failureFactsLine(
 	}
 }
 
+const REFUSAL_REASONS: ReadonlySet<string> = new Set([
+	'not_found',
+	'not_a_file',
+	'already_exists',
+	'invalid_input',
+	'not_read',
+	'changed_on_disk',
+	'text_not_found',
+	'not_unique',
+])
+
+/**
+ * The short text a refused call of a file, search or language tool reads as.
+ * Only a refusal before the tool did its work gets one (a missing file, a file
+ * not read yet, text that is not there, input it could not use); a fault such as
+ * a permission error keeps its own sentence. The full message stays behind
+ * ctrl+o. A file that has to be read first is advice, so it is drawn dim.
+ */
+export function shortToolFailure(
+	toolName: string,
+	facts: Extract<ToolFacts, { kind: 'failure' }>,
+): { readonly text: string; readonly tone: 'error' | 'muted' } | undefined {
+	if (!REFUSAL_REASONS.has(facts.reason)) return undefined
+	const missing = facts.reason === 'not_found'
+	const name = toolName.toLowerCase()
+	if (name.startsWith('mcp__')) return undefined
+	const error = (text: string) => ({ text, tone: 'error' as const })
+	if (name === 'read') return error(missing ? 'File not found' : 'Error reading file')
+	if (name === 'edit') {
+		if (facts.reason === 'not_read') return { text: 'File must be read first', tone: 'muted' }
+		return error(missing ? 'File not found' : 'Error editing file')
+	}
+	if (name === 'write') return error('Error writing file')
+	if (name.includes('notebook')) return error('Error editing notebook')
+	if (name === 'grep' || name === 'glob')
+		return error(missing ? 'File not found' : 'Error searching files')
+	if (name === 'lsp') return error('LSP operation failed')
+	return undefined
+}
+
 /**
  * How a classed failure reads: most are faults, drawn in the error colour. A
  * file that has to be read first is advice, not a fault, and is drawn dim.

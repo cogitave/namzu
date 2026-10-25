@@ -890,7 +890,7 @@ describe('the rows under a tool call', () => {
 				sessionId,
 				turnId,
 				toolUseId,
-				toolName: 'read',
+				toolName: 'stat_file',
 				isError: true,
 				result: 'ENOENT',
 				facts: { kind: 'failure', reason: 'not_found', subject: '/work/proj/missing-file.txt' },

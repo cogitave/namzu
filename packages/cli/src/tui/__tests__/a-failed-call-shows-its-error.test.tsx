@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { Transcript } from '../Transcript.js'
 import { theme } from '../theme.js'
-import { failureFactsLine, failureFactsTone } from '../tidy-tool-output.js'
+import { failureFactsLine, failureFactsTone, shortToolFailure } from '../tidy-tool-output.js'
 import { type ToolEndEvent, toolEndRows } from '../tool-end-rows.js'
 import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -155,5 +155,51 @@ describe('a failure the kernel classed', () => {
 		)
 		expect(failureFactsTone(facts('not_read'))).toBe('muted')
 		expect(failureFactsTone(facts('changed_on_disk'))).toBe('error')
+	})
+})
+
+describe('the short text of a refused file, search or language call', () => {
+	const fail = (reason: string) => ({ kind: 'failure', reason, subject: '/w/a.ts' }) as never
+	const text = (tool: string, reason: string) => shortToolFailure(tool, fail(reason))
+
+	it('words a missing file and a refused read', () => {
+		expect(text('read', 'not_found')).toEqual({
+			text: 'File not found',
+			tone: 'error',
+		})
+		expect(text('read', 'invalid_input')).toEqual({
+			text: 'Error reading file',
+			tone: 'error',
+		})
+	})
+
+	it('words an edit that was refused, dim when the file must be read first', () => {
+		expect(text('edit', 'not_read')).toEqual({
+			text: 'File must be read first',
+			tone: 'muted',
+		})
+		expect(text('edit', 'not_found')?.text).toBe('File not found')
+		for (const reason of ['changed_on_disk', 'text_not_found', 'not_unique']) {
+			expect(text('edit', reason)).toEqual({
+				text: 'Error editing file',
+				tone: 'error',
+			})
+		}
+	})
+
+	it('words a refused write, notebook edit, search and language call', () => {
+		expect(text('write', 'not_read')?.text).toBe('Error writing file')
+		expect(text('write', 'already_exists')?.text).toBe('Error writing file')
+		expect(text('notebook_edit', 'invalid_input')?.text).toBe('Error editing notebook')
+		expect(text('grep', 'not_found')?.text).toBe('File not found')
+		expect(text('glob', 'invalid_input')?.text).toBe('Error searching files')
+		expect(text('lsp', 'invalid_input')?.text).toBe('LSP operation failed')
+	})
+
+	it('leaves a fault and any other tool to its own wording', () => {
+		expect(text('read', 'permission_denied')).toBeUndefined()
+		expect(text('edit', 'timed_out')).toBeUndefined()
+		expect(text('bash', 'invalid_input')).toBeUndefined()
+		expect(text('mcp__files__read', 'not_found')).toBeUndefined()
 	})
 })

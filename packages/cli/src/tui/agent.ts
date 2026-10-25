@@ -23,6 +23,7 @@ import {
 	factsHeadline,
 	failureFactsLine,
 	failureFactsTone,
+	shortToolFailure,
 	tidyCommandOutput,
 	tidyTerminalOutput,
 	unknownToolNotice,
@@ -7404,7 +7405,11 @@ export function toAgentEvent(
 				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
-			const plainFailure = unknownTool ?? classed ?? tidy?.failure
+			const short =
+				event.isError && event.facts?.kind === 'failure'
+					? shortToolFailure(event.toolName, event.facts)
+					: undefined
+			const plainFailure = unknownTool ?? short?.text ?? classed ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -7427,9 +7432,9 @@ export function toAgentEvent(
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
 				...(plainFailure &&
-				classed &&
-				event.facts?.kind === 'failure' &&
-				failureFactsTone(event.facts) === 'muted'
+				(short
+					? short.tone === 'muted'
+					: classed && event.facts?.kind === 'failure' && failureFactsTone(event.facts) === 'muted')
 					? { plainFailureTone: 'muted' as const }
 					: {}),
 				...(tidy?.shell ? { shell: tidy.shell } : {}),
