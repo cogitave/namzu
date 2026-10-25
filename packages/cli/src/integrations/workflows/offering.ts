@@ -1,13 +1,12 @@
 /**
- * The `workflow` tool: its name, the `/workflow` command's message, the text
+ * The `workflow` tool: its name, the text
  * the model reads, and who may start a run.
  *
  * A workflow is a lot of work started on one decision, so the model is told
  * when it may call the tool; the tool itself is listed on every turn of a host
  * that can run one (the model is gated by wording, not by the list).
  * The opt-in is the operator's keyword (`hypermode`, shown as a tag and
- * dropped with Alt+W), hypermode being on, their own words, or the
- * `/workflow` command. Pure.
+ * dropped with Alt+W), hypermode being on, or their own words. Pure.
  */
 
 export const WORKFLOW_TOOL_NAME = 'workflow'
@@ -15,33 +14,9 @@ export const WORKFLOW_TOOL_NAME = 'workflow'
 /** The line under a workflow's launch row in the conversation. */
 export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
 
-/** The words `workflowCommandPrompt` starts a message with. */
-const COMMAND_PROMPT_PREFIX = 'Use a workflow for '
-
-/**
- * Whether a message is the one `/workflow` composes. The bare word in a
- * message the operator typed is not a request by itself: it goes through the
- * composer-trigger matcher (`tui/triggers/`), which shows a tag and lets
- * Alt+W drop it.
- */
-export function isWorkflowCommandPrompt(text: string): boolean {
-	return text.startsWith(COMMAND_PROMPT_PREFIX)
-}
-
-/**
- * The `/workflow <task>` command, as the message the model receives: the
- * operator's task, plus the words that make the request explicit.
- */
-export function workflowCommandPrompt(task: string): string {
-	const trimmed = task.trim()
-	return trimmed.length === 0
-		? `${COMMAND_PROMPT_PREFIX}the work I describe next.`
-		: `${COMMAND_PROMPT_PREFIX}this: ${trimmed}`
-}
-
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. ONLY call it after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words or with /workflow, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. ONLY call it after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',

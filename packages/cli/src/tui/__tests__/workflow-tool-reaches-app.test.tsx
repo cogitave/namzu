@@ -592,7 +592,7 @@ describe('a slash command is shown as typed', () => {
 		expect(everything(screen)).toMatch(/› \/cost\n+\s*⎿ {2}No usage reported yet/)
 	})
 
-	it('shows /workflow <task> as typed and sends the rewritten sentence to the model only', async () => {
+	it('has no /workflow command: it is answered as an unknown command and nothing is sent', async () => {
 		const sent: string[] = []
 		sendOverride.current = async function* (messages) {
 			sent.push(String(messages.at(-1)?.content))
@@ -602,10 +602,8 @@ describe('a slash command is shown as typed', () => {
 		screen.press('/workflow audit the repo')
 		await screen.waitForRender()
 		screen.press('\r')
-		await waitUntil(screen, () => sent.length === 1)
-		expect(sent[0]).toBe('Use a workflow for this: audit the repo')
-		expect(everything(screen)).toContain('› /workflow audit the repo')
-		expect(everything(screen)).not.toContain('Use a workflow for this')
+		await waitUntil(screen, () => everything(screen).includes('Unknown command: /workflow'))
+		expect(sent).toEqual([])
 	})
 })
 
