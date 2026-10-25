@@ -899,7 +899,8 @@ describe('the rows under a tool call', () => {
 			undefined,
 			'/work/proj',
 		)
-		expect(event).toMatchObject({ plainFailure: 'Couldn’t find missing-file.txt.' })
+		// A tool with no label of its own shows its message, not a sentence.
+		expect((event as { plainFailure?: string }).plainFailure).toBeUndefined()
 	})
 
 	it('renders creation diffs without a phantom final line', () => {

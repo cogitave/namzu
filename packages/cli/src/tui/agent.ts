@@ -21,8 +21,6 @@ import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
 	factsHeadline,
-	failureFactsLine,
-	failureFactsTone,
 	shortToolFailure,
 	tidyCommandOutput,
 	tidyTerminalOutput,
@@ -7381,16 +7379,10 @@ export function toAgentEvent(
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
 			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
-			// A refusal or failure the kernel classed says so in a sentence of its own.
-			const classed =
-				event.isError && event.facts?.kind === 'failure'
-					? failureFactsLine(event.facts, cwd)
-					: undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
 			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
-			const detail =
-				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
+			const detail = unknownTool || declined ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7409,7 +7401,9 @@ export function toAgentEvent(
 				event.isError && event.facts?.kind === 'failure'
 					? shortToolFailure(event.toolName, event.facts)
 					: undefined
-			const plainFailure = unknownTool ?? short?.text ?? classed ?? tidy?.failure
+			// Only a short label the tool family earns, or a command's own line, replaces
+			// the tool's message; every other failure shows that message.
+			const plainFailure = short?.text ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -7431,12 +7425,7 @@ export function toAgentEvent(
 				summary: headline ?? summary,
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
-				...(plainFailure &&
-				(short
-					? short.tone === 'muted'
-					: classed && event.facts?.kind === 'failure' && failureFactsTone(event.facts) === 'muted')
-					? { plainFailureTone: 'muted' as const }
-					: {}),
+				...(short?.tone === 'muted' && plainFailure ? { plainFailureTone: 'muted' as const } : {}),
 				...(tidy?.shell ? { shell: tidy.shell } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),

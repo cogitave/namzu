@@ -19,9 +19,7 @@ import {
 	agentDoneRows,
 	agentMessageRow,
 	agentNotice,
-	failureReason,
 	launchReceipt,
-	plainFailureReason,
 	reportsAsNotification,
 	settleLine,
 	workflowNotice,
@@ -29,7 +27,6 @@ import {
 import { type AgentEvent, toAgentEvent } from './agent.js'
 import { theme } from './theme.js'
 import { type ToolEndStart, type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
-import { EXPAND_HINT } from './truncation.js'
 import { describeTurnStop } from './turn-interruption.js'
 import type { TranscriptMessage } from './types.js'
 import { webCallTitle } from './web-activity.js'
@@ -456,10 +453,6 @@ export function agentCompletionRows(
 	// answer as its expandable detail (Ctrl+O) instead of a second row.
 	const said = agent.status === 'completed' ? agentMessageRow(agent) : undefined
 	const notice = agentNotice(agent, Date.now(), previousFailure)
-	// A failure's sentence is the plain one; the provider's own text stays one
-	// ctrl+o away so shortening it never loses anything.
-	const raw = agent.status === 'failed' ? failureReason(agent) : undefined
-	const rawDetail = raw !== undefined && plainFailureReason(raw) !== raw ? [raw] : undefined
 	return [
 		{
 			role: 'tool',
@@ -474,9 +467,6 @@ export function agentCompletionRows(
 			// Only the glyph carries the outcome; the sentence is the primary text.
 			contentColor: theme.text.primary,
 			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
-			...(rawDetail
-				? { detail: rawDetail, meta: EXPAND_HINT, activity: 'agent-result' as const }
-				: {}),
 		},
 	]
 }

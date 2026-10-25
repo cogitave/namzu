@@ -20,7 +20,6 @@
  */
 
 import { wrapUntrusted } from '@namzu/sdk'
-import { cleanVendorMessage } from './plain-interruption.js'
 import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
 import { EXPAND_HINT } from './truncation.js'
 
@@ -228,15 +227,6 @@ export function failureReason(agent: SubagentActivity): string {
 }
 
 /**
- * A failure reason as the notification row says it: the sentence inside a
- * provider's JSON body, without its ids or status prefix. A reason with
- * nothing to clean is said as it is. The raw text stays on `failureReason`.
- */
-export function plainFailureReason(reason: string): string {
-	return cleanVendorMessage(reason) ?? reason
-}
-
-/**
  * The one line that closes an agent's run in the conversation, worded as a
  * notification: `finished`, `failed: <reason>`, and for a stop
  * `was stopped by user`, `was stopped by Namzu` (the conversation's own agent
@@ -264,7 +254,7 @@ export function agentNotice(
 	// A failure carries no duration: the line says what went wrong, not how long it took.
 	if (previousFailure !== undefined && previousFailure === reason)
 		return { content: `Agent "${label}" failed again`, tone: 'error' }
-	return { content: `Agent "${label}" failed: ${plainFailureReason(reason)}`, tone: 'error' }
+	return { content: `Agent "${label}" failed: ${reason}`, tone: 'error' }
 }
 
 /**

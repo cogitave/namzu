@@ -1,8 +1,9 @@
 /**
  * A failed call of an ordinary tool: the error text the tool produced in the
  * error colour, ten lines and then how many more ctrl+o shows; a failure the
- * kernel classed reads as one short sentence with the tool's own message
- * behind ctrl+o.
+ * kernel refused before the tool ran reads as a short label with the tool's
+ * own message behind ctrl+o; a fault such as a permission error or a timeout
+ * is the tool's message like any other.
  */
 
 import { createRequire } from 'node:module'
@@ -11,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { Transcript } from '../Transcript.js'
 import { theme } from '../theme.js'
-import { failureFactsLine, failureFactsTone, shortToolFailure } from '../tidy-tool-output.js'
+import { failureFactsLine, shortToolFailure } from '../tidy-tool-output.js'
 import { type ToolEndEvent, toolEndRows } from '../tool-end-rows.js'
 import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -113,36 +114,45 @@ describe('an unclassified failure of an ordinary tool', () => {
 	})
 })
 
-describe('a failure the kernel classed', () => {
+describe('a classed fault with no label', () => {
+	it('reads as the red "Error: <text>" body, not a sentence', async () => {
+		const screen = await draw(rowsOf(failedCall('read', 'EACCES: permission denied, open a.ts')))
+		const text = screen.scrollback().join('\n')
+		expect(text).toContain('Error: EACCES: permission denied, open a.ts')
+		expect(text).not.toContain('No permission')
+	})
+})
+
+describe('a refusal with a short label', () => {
 	it('draws the sentence in the error colour and keeps the tool message behind ctrl+o', async () => {
 		const event = failedCall('read', '<tool_use_error>File does not exist.</tool_use_error>', {
-			plainFailure: 'Couldn’t find a.ts.',
+			plainFailure: 'File not found',
 		})
 		const rows = rowsOf(event)
-		expect(rows[1]?.content).toBe('Couldn’t find a.ts.')
+		expect(rows[1]?.content).toBe('File not found')
 		expect(rows[1]?.meta).toBe('(ctrl+o to expand)')
 		const folded = await draw(rows)
 		const text = folded.scrollback().join('\n')
-		expect(text).toContain('Couldn’t find a.ts.')
+		expect(text).toContain('File not found')
 		expect(text).not.toContain('failed:')
 		expect(text).not.toContain('File does not exist')
-		const row = folded.viewport().findIndex((line) => line.includes('Couldn’t find'))
-		expect(folded.cell(row, folded.row(row).indexOf('Couldn’t')).fg).toBe(ERROR_FG)
+		const row = folded.viewport().findIndex((line) => line.includes('File not found'))
+		expect(folded.cell(row, folded.row(row).indexOf('File not')).fg).toBe(ERROR_FG)
 		const full = (await draw(rows, true)).scrollback().join('\n')
 		expect(full).toContain('Error: File does not exist.')
 	})
 
 	it('draws advice that a file must be read first dim, not red', async () => {
 		const event = failedCall('edit', 'a.ts has not been read yet.', {
-			plainFailure: 'Read a.ts first, then try again.',
+			plainFailure: 'File must be read first',
 			plainFailureTone: 'muted',
 		})
 		const screen = await draw(rowsOf(event))
-		const row = screen.viewport().findIndex((line) => line.includes('Read a.ts first'))
-		expect(screen.cell(row, screen.row(row).indexOf('Read a.ts')).fg).toBe(MUTED_FG)
+		const row = screen.viewport().findIndex((line) => line.includes('File must be read first'))
+		expect(screen.cell(row, screen.row(row).indexOf('File must')).fg).toBe(MUTED_FG)
 	})
 
-	it('words the four edit refusals and tones only the read-first one as advice', () => {
+	it('words the four edit refusals', () => {
 		const facts = (reason: 'not_read' | 'changed_on_disk' | 'text_not_found' | 'not_unique') =>
 			({ kind: 'failure', reason, subject: '/w/a.ts' }) as const
 		expect(failureFactsLine(facts('not_read'), '/w')).toBe('Read a.ts first, then try again.')
@@ -153,8 +163,6 @@ describe('a failure the kernel classed', () => {
 		expect(failureFactsLine(facts('not_unique'), '/w')).toBe(
 			'That text appears more than once in a.ts.',
 		)
-		expect(failureFactsTone(facts('not_read'))).toBe('muted')
-		expect(failureFactsTone(facts('changed_on_disk'))).toBe('error')
 	})
 })
 
@@ -199,6 +207,10 @@ describe('the short text of a refused file, search or language call', () => {
 	it('leaves a fault and any other tool to its own wording', () => {
 		expect(text('read', 'permission_denied')).toBeUndefined()
 		expect(text('edit', 'timed_out')).toBeUndefined()
+		expect(text('read', 'not_a_file')).toBeUndefined()
+		expect(text('read', 'timed_out')).toBeUndefined()
+		expect(text('edit', 'permission_denied')).toBeUndefined()
+		expect(text('write', 'not_found')).toBeUndefined()
 		expect(text('bash', 'invalid_input')).toBeUndefined()
 		expect(text('mcp__files__read', 'not_found')).toBeUndefined()
 	})

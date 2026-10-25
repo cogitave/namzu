@@ -1,8 +1,7 @@
 /**
  * The line a background agent leaves when it fails: the outcome is the
- * glyph's colour, the sentence is plain primary text with no duration, the
- * provider's JSON and request ids are cleaned off it, and the provider's own
- * text is one ctrl+o away.
+ * glyph's colour, the sentence is plain primary text with no duration, and
+ * the reason is the error's own text on one line.
  */
 
 import { createRequire } from 'node:module'
@@ -59,26 +58,21 @@ function failed(text: string, extra: Partial<SubagentActivity> = {}): SubagentAc
 }
 
 describe('the notice for an agent that failed', () => {
-	it('says the plain sentence from a provider body, with no JSON, id or duration', () => {
-		expect(agentNotice(failed(RAW)).content).toBe(
-			'Agent "Audit the config" failed: credit balance too low',
-		)
-	})
-
-	it('falls back to the one-line text when there is nothing to clean', () => {
+	it('says the error text on one line, with no duration', () => {
+		expect(agentNotice(failed(RAW)).content).toBe(`Agent "Audit the config" failed: ${RAW}`)
 		expect(agentNotice(failed('Provider refused the request')).content).toBe(
 			'Agent "Audit the config" failed: Provider refused the request',
 		)
 	})
 
-	it('folds a repeat of the same raw reason, and not two raws that clean alike', () => {
+	it('folds a repeat of the same reason, and not a different one', () => {
 		const first = failed(RAW)
 		expect(agentNotice(first, 1, failureReason(first)).content).toBe(
 			'Agent "Audit the config" failed again',
 		)
 		const other = RAW.replace('req_abc12345', 'req_zzz99999')
 		expect(agentNotice(failed(other), 1, failureReason(first)).content).toBe(
-			'Agent "Audit the config" failed: credit balance too low',
+			`Agent "Audit the config" failed: ${other}`,
 		)
 	})
 
@@ -93,12 +87,10 @@ describe('the notice for an agent that failed', () => {
 })
 
 describe('the row an agent failure leaves', () => {
-	it('keeps the raw text behind ctrl+o, and has no body when nothing was cleaned', () => {
+	it('has no expandable body', () => {
 		const [row] = agentCompletionRows(failed(RAW))
-		expect(row?.detail).toEqual([failureReason(failed(RAW))])
-		expect(row?.meta).toBe('(ctrl+o to expand)')
-		const [plain] = agentCompletionRows(failed('Provider refused the request'))
-		expect(plain?.detail).toBeUndefined()
+		expect(row?.detail).toBeUndefined()
+		expect(row?.meta).toBeUndefined()
 	})
 
 	it('colours the glyph by outcome and the sentence as primary text', async () => {
@@ -113,8 +105,7 @@ describe('the row an agent failure leaves', () => {
 		await screen.waitForRender()
 		const at = screen.viewport().findIndex((line) => line.includes('Agent "Audit'))
 		const text = screen.row(at)
-		expect(text).toContain('failed: credit balance too low')
-		expect(text).not.toContain('req_')
+		expect(text).toContain('failed: API Error: 400')
 		expect(screen.cell(at, text.indexOf('●')).fg).toBe(paletteOf(theme.status.error))
 		expect(screen.cell(at, text.indexOf('Agent')).fg).toBe(paletteOf(theme.text.primary))
 	})

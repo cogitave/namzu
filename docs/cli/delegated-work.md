@@ -310,7 +310,7 @@ press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer 
 `All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
 
-A background agent's notice row colours only its `●` by outcome (green, red for a failure, warning for a stop); its sentence is plain primary text. A failure's sentence is the provider's message with its JSON body, status prefix and request ids removed, up to 160 characters, and the row carries no duration; when that cleaned the text, Ctrl+O opens the provider's own text under the row. `failed again` still compares the provider's own text, so two different messages that clean to the same sentence are not folded.
+A background agent's notice row colours only its `●` by outcome (green, red for a failure, warning for a stop); its sentence is plain primary text. A failure's sentence is the error's own text on one line (whitespace folded, wrapped at the terminal width, never cut), and the row carries no duration and no expandable body. `failed again` compares that text.
 
 A failed agent shows the error text the agent produced, verbatim and in the
 error colour, in three places. In the conversation the failed `Agent` call shows
