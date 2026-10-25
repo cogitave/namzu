@@ -1571,10 +1571,12 @@ export function WorkflowDetail({
 						<Box width={rightInner} flexShrink={0}>
 							{agent && agentGlyph ? (
 								<>
-									<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
-									<Text> </Text>
-									<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
-									<Text> </Text>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={2} flexShrink={0}>
+										<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
+									</Box>
 									<Box width={labelCells + 3} flexShrink={0}>
 										<Text
 											color={agentActive ? theme.accent.assistant : theme.text.primary}
