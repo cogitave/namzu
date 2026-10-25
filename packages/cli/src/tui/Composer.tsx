@@ -64,8 +64,8 @@ import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
 const ESC_CLEAR_KEY = 'escape-again-to-clear'
 /** The second Esc clears inside this window. */
 export const ESC_CLEAR_WINDOW_MS = 800
-/** The notice outlives the window a little. */
-const ESC_CLEAR_NOTICE_MS = 1000
+/** The notice goes when the window does: after that a press only arms again. */
+const ESC_CLEAR_NOTICE_MS = ESC_CLEAR_WINDOW_MS
 /** A second Esc on an empty composer within this long opens the rewind picker. */
 export const REWIND_DOUBLE_ESC_MS = 800
 

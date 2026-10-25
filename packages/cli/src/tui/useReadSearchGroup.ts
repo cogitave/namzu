@@ -43,6 +43,8 @@ function settled(state: GroupState): GroupState {
 export function useReadSearchGroup(
 	setMessages: Dispatch<SetStateAction<readonly TranscriptMessage[]>>,
 	nextId: () => string,
+	/** Hands over the reasoning that came before this row, once, or nothing. */
+	takeThinking?: () => string | undefined,
 ): ReadSearchGroupControls {
 	const openRef = useRef<OpenGroup | null>(null)
 
@@ -54,9 +56,17 @@ export function useReadSearchGroup(
 				open.state = foldOp(open.state, op, now)
 				open.members.add(memberKey)
 				const { id, state } = open
+				const more = takeThinking?.()
 				setMessages((prev) =>
 					prev.map((m) =>
-						m.id === id ? { ...m, group: state, content: groupText(state, true) } : m,
+						m.id === id
+							? {
+									...m,
+									group: state,
+									content: groupText(state, true),
+									...(more ? { thinking: `${m.thinking ?? ''}${more}` } : {}),
+								}
+							: m,
 					),
 				)
 				return
@@ -64,6 +74,7 @@ export function useReadSearchGroup(
 			const id = nextId()
 			const state = foldOp(EMPTY_GROUP, op, now)
 			openRef.current = { id, state, members: new Set([memberKey]), detail: [] }
+			const thinking = takeThinking?.()
 			setMessages((prev) => [
 				...prev,
 				{
@@ -74,10 +85,11 @@ export function useReadSearchGroup(
 					glyph: ' ',
 					activity: 'exploration',
 					group: state,
+					...(thinking ? { thinking } : {}),
 				},
 			])
 		},
-		[nextId, setMessages],
+		[nextId, setMessages, takeThinking],
 	)
 
 	const finish = useCallback(

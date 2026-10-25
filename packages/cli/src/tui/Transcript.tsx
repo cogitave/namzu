@@ -329,6 +329,7 @@ function MessageRow({
 	if (message.group) {
 		return (
 			<Box flexDirection="column" marginTop={gap}>
+				{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
 				<ReadSearchGroup message={message} />
 				{message.detail && message.detail.length > 0 && message.detailExpanded ? (
 					<DetailBlock

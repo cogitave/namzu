@@ -79,7 +79,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					summary: 'ls',
 					detail: CALL_DETAIL,
 				} as AgentEvent
-				await new Promise((r) => setTimeout(r, 10))
+				await new Promise<void>((r) => setImmediate(r))
 				yield {
 					kind: 'tool-end',
 					toolUseId: 'u1',
@@ -97,7 +97,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 const { App } = await import('../App.js')
 
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
-const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
+/** Yield to the event loop a few times so queued renders land; no wall-clock wait. */
+const tick = async (_ms?: number): Promise<void> => {
+	for (let turn = 0; turn < 8; turn++) await new Promise<void>((resolve) => setImmediate(resolve))
+}
 const mounted: { unmount: () => void }[] = []
 
 afterEach(() => {

@@ -2133,7 +2133,13 @@ function AppBody({
 		idRef.current += 1
 		return `m${idRef.current}`
 	}, [])
-	const readSearchGroup = useReadSearchGroup(setMessages, nextId)
+	const takeThinking = useCallback(() => {
+		const text = thinkingForNextRowRef.current
+		if (text.trim() === '') return undefined
+		thinkingForNextRowRef.current = ''
+		return text
+	}, [])
+	const readSearchGroup = useReadSearchGroup(setMessages, nextId, takeThinking)
 	/**
 	 * Re-reads what this conversation's finished children left on disk.
 	 *
@@ -2474,6 +2480,14 @@ function AppBody({
 	 * could first have been SEEN rather than when it was decided upon.
 	 */
 	const trustShownAtRef = useRef<number | null>(null)
+	// A request that waited behind the detailed transcript was not seen while it
+	// waited: the settle window starts again when the screen closes.
+	const transcriptWasOpenRef = useRef(false)
+	useEffect(() => {
+		if (transcriptWasOpenRef.current && !transcriptScreen && permissionOpenedAtRef.current !== null)
+			permissionOpenedAtRef.current = Date.now()
+		transcriptWasOpenRef.current = transcriptScreen
+	}, [transcriptScreen])
 	// What the folder's own config pre-approves, read once for the gate.
 	const trustGrants = useMemo(() => readFolderGrants(trustedCwdRef.current), [])
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries

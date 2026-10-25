@@ -45,7 +45,7 @@ describe('Esc on a typed draft', () => {
 			key: 'escape-again-to-clear',
 			text: 'Esc again to clear',
 			priority: 'immediate',
-			timeoutMs: 1000,
+			timeoutMs: ESC_CLEAR_WINDOW_MS,
 		})
 	})
 
