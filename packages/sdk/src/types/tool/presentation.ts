@@ -126,6 +126,12 @@ export type ToolFacts =
 			/** The command line, on the call. */
 			readonly command?: string
 			readonly exitCode?: number
+			/**
+			 * A non-zero `exitCode` that is the command's answer and not a failure
+			 * (`grep` found nothing, `diff` found a difference): a short plain
+			 * sentence. A host draws the call as having succeeded.
+			 */
+			readonly exitNote?: string
 			readonly timedOut?: boolean
 			/** The signal that ended it, when one did. */
 			readonly signal?: string

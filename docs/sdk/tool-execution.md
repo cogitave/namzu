@@ -263,13 +263,17 @@ knew:
 
 | `kind` | Fields |
 | --- | --- |
-| `command` | `command`, `exitCode`, `timedOut`, `signal`, `stdout` and `stderr` as `ToolTextWindow`, `binary: { bytes }`, `background` |
+| `command` | `command`, `exitCode`, `exitNote`, `timedOut`, `signal`, `stdout` and `stderr` as `ToolTextWindow`, `binary: { bytes }`, `background` |
 | `read` | `path`, `binary`, `bytes`, `totalLines`, `returnedLines`, `partial` |
 | `search` (grep) | `pattern`, `path`, `matches`, `filesMatched`, `filesSearched`, `truncated` |
 | `list` (glob) | `pattern`, `path`, `count`, `truncated` |
 | `edit` | `path`, `replacements`, `added`, `removed`, `hunks`, `hunksTruncated` |
 | `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed`, `hunks`, `hunksTruncated` |
 | `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`), `subject` |
+
+#### Exit status as an answer
+
+`bash` does not read every non-zero exit as a failure. When the last command of the line is `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` or `git grep`, exit 1 is that command's answer: the result has `success: true`, no `error`, `data.exitCode` and `facts.exitCode` of 1, and `data.exitNote` / `facts.exitNote` with a short plain sentence (`No matches found`, `Some directories were inaccessible`, `Files differ`, `Condition is false`). Exit 2 and above, and every other command, still fail on any non-zero status. The model's text is unchanged (the output, or `(no output)`); the note is for hosts. The last command is the one after the final `|`, `;`, `||` or `&&`, and when it follows `&&` the status may have come from an earlier step (`cd missing && grep x f`), so that line keeps the plain rule, as does a line with a subshell, a here-document or an open quote. The `exitNote` fact is optional; a host that ignores it sees a command whose exit code is non-zero and whose result succeeded.
 
 A `ToolTextWindow` is the first 80 lines of a stream, its last 40 and the number of lines left out between them
 (`omittedLines`), with `totalLines` and `totalBytes`; neither half is longer than 6,000 characters. A stream that

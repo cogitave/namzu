@@ -49,7 +49,10 @@ export function looksBinary(text: string): boolean {
 export function tidyTerminalOutput(raw: string): TidyOutput {
 	if (looksBinary(raw)) {
 		const output = 'The command printed binary data, which is not shown.'
-		return { output, shell: { stdout: [], stderr: [], failed: false, note: output } }
+		return {
+			output,
+			shell: { stdout: [], stderr: [], failed: false, note: output },
+		}
 	}
 	let failure: string | undefined
 	const kept: string[] = []
@@ -96,6 +99,8 @@ function endedHow(facts: CommandFacts): string | undefined {
 	if (facts.background) return undefined
 	if (facts.timedOut) return 'timed out'
 	if (facts.signal) return 'was stopped before it finished'
+	// A status the command uses to answer (no match, files differ) is not an end to report.
+	if (facts.exitNote !== undefined) return undefined
 	if (facts.exitCode !== undefined && facts.exitCode !== 0) {
 		return `exited with code ${facts.exitCode}`
 	}
@@ -177,7 +182,7 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 	// kernel's own sentence is the answer. Only its bookkeeping is removed.
 	return withFailure(
 		tidyTerminalOutput(raw).output,
-		cell([], [], facts.background ? BACKGROUND_NOTE : undefined),
+		cell([], [], facts.background ? BACKGROUND_NOTE : facts.exitNote),
 	)
 }
 

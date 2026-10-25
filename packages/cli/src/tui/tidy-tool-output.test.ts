@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { type ShellOutput, shellResultRows } from './shell-cell.js'
+
 import {
 	declinedLine,
 	factsHeadline,
@@ -270,5 +272,38 @@ describe('a file that is not in the working folder', () => {
 		expect(failureFactsLine({ kind: 'failure', reason: 'unknown_tool', subject: 'ls' }, '/w')).toBe(
 			'The model asked for a tool that does not exist (ls). It will try another way.',
 		)
+	})
+})
+
+describe('a command that answered with its exit status', () => {
+	const facts = {
+		kind: 'command' as const,
+		command: 'grep zzz src',
+		exitCode: 1,
+		exitNote: 'No matches found',
+	}
+
+	it('is not a failure and says the answer where "(No output)" would be', () => {
+		const tidy = tidyCommandOutput(facts, '(no output)')
+		expect(tidy.failure).toBeUndefined()
+		expect(tidy.shell).toMatchObject({ failed: false, note: 'No matches found' })
+		expect(shellResultRows(tidy.shell as ShellOutput, { expanded: false })).toEqual([
+			{ text: 'No matches found', tone: 'dim' },
+		])
+	})
+
+	it('keeps the output of a differing diff and does not mark it failed', () => {
+		const tidy = tidyCommandOutput(
+			{
+				...facts,
+				command: 'diff a b',
+				exitNote: 'Files differ',
+				stdout: { head: '1c1', totalLines: 1, totalBytes: 3 },
+			},
+			'STDOUT:\n1c1',
+		)
+		expect(tidy.failure).toBeUndefined()
+		expect(tidy.shell).toMatchObject({ failed: false, stdout: ['1c1'] })
+		expect(tidy.shell?.status).toBeUndefined()
 	})
 })
