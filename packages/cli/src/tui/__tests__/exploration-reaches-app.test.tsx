@@ -150,7 +150,7 @@ it('groups observations, preserves expandable evidence and distinguishes backgro
 	screen.press('inspect')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted().includes('failed: missing file'))
+	await waitUntil(screen, () => painted().includes('Error: missing file'))
 	const transcript = painted()
 	// A read and a search fold into one counted line; the background-output
 	// call is a call of its own and ends it, so the read that failed after it

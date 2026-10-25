@@ -130,6 +130,13 @@ function normalizeInsertLine(
 	return { success: true, value }
 }
 
+/** A refused edit, with the kind of refusal when it is one a host can phrase. */
+export type EditApplyFailure = {
+	success: false
+	error: string
+	reason?: 'text_not_found' | 'not_unique'
+}
+
 /**
  * Apply every operation in order, or none of them.
  *
@@ -149,7 +156,7 @@ function normalizeInsertLine(
 export function applyEdit(
 	content: string,
 	operations: readonly NormalizedEditInput[],
-): { success: true; content: string; replacements: number } | { success: false; error: string } {
+): { success: true; content: string; replacements: number } | EditApplyFailure {
 	let current = content
 	let replacements = 0
 
@@ -159,6 +166,7 @@ export function applyEdit(
 			return {
 				success: false,
 				error: framedError(result.error, index, operations.length),
+				...(result.reason ? { reason: result.reason } : {}),
 			}
 		}
 		current = result.content
@@ -171,7 +179,7 @@ export function applyEdit(
 function applyOne(
 	content: string,
 	input: NormalizedEditInput,
-): { success: true; content: string; replacements: number } | { success: false; error: string } {
+): { success: true; content: string; replacements: number } | EditApplyFailure {
 	if (input.operation === 'insert') {
 		return applyLineInsert(content, input)
 	}
@@ -191,6 +199,7 @@ function applyOne(
 		if (resolved === null) {
 			return {
 				success: false,
+				reason: 'text_not_found',
 				error:
 					'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.',
 			}
@@ -225,6 +234,7 @@ function applyOne(
 		const secondLine = content.slice(0, secondIndex).split('\n').length
 		return {
 			success: false,
+			reason: 'not_unique',
 			error: `old_string/oldStr is not unique — found at lines ${lineNumber} and ${secondLine}. Provide more surrounding context to make it unique, or use replace_all: true.`,
 		}
 	}

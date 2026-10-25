@@ -106,6 +106,14 @@ export type ToolFailureReason =
 	| 'unknown_tool'
 	| 'timed_out'
 	| 'invalid_input'
+	/** An edit or write on a file the conversation never read. */
+	| 'not_read'
+	/** An edit or write based on a copy that has since changed on disk. */
+	| 'changed_on_disk'
+	/** An edit whose text is not in the file. */
+	| 'text_not_found'
+	/** An edit whose text appears more than once. */
+	| 'not_unique'
 
 /**
  * What a call was about and what came of it, as typed fields.

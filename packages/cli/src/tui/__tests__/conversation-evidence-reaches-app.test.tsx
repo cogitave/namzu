@@ -148,7 +148,7 @@ it('renders incomplete search and empty lookup honestly, and leaves retrieval fa
 	]
 	const s = await start(100)
 	const painted = () => s.scrollback().join('\n')
-	await until(() => painted().includes('failed: Cannot read this evidence address.'))
+	await until(() => painted().includes('Error: Cannot read this evidence address.'))
 	expect(painted()).toContain('0 matches on this page')
 	expect(painted()).toContain(
 		'Search not finished · a missing result may not have been reached yet',

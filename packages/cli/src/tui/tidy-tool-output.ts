@@ -238,7 +238,64 @@ export function failureFactsLine(
 			return 'It took too long and was stopped.'
 		case 'invalid_input':
 			return 'The model sent input this tool could not use.'
+		case 'not_read':
+			return subject
+				? `Read ${subject} first, then try again.`
+				: 'Read the file first, then try again.'
+		case 'changed_on_disk':
+			return subject
+				? `${subject} changed on disk since it was read.`
+				: 'The file changed on disk since it was read.'
+		case 'text_not_found':
+			return subject ? `Couldn’t find that text in ${subject}.` : 'Couldn’t find that text.'
+		case 'not_unique':
+			return subject
+				? `That text appears more than once in ${subject}.`
+				: 'That text appears more than once.'
 	}
+}
+
+/**
+ * The short text a refused call of a file, search or language tool reads as,
+ * only where a refusal is worth a label of its own: a missing file, a file
+ * that has to be read first, and a refusal made before the tool did its work
+ * (input it could not use, text that is not there, a copy gone stale). Every
+ * other failure, a permission error, a timeout or a directory read as a file,
+ * has no label and is drawn as the tool's own message. The full message stays
+ * behind ctrl+o. A file that has to be read first is advice, so it is drawn dim.
+ */
+export function shortToolFailure(
+	toolName: string,
+	facts: Extract<ToolFacts, { kind: 'failure' }>,
+): { readonly text: string; readonly tone: 'error' | 'muted' } | undefined {
+	const name = toolName.toLowerCase()
+	const reason = facts.reason
+	const missing = reason === 'not_found'
+	const refused =
+		reason === 'invalid_input' ||
+		reason === 'not_read' ||
+		reason === 'changed_on_disk' ||
+		reason === 'text_not_found' ||
+		reason === 'not_unique' ||
+		reason === 'already_exists'
+	const error = (text: string) => ({ text, tone: 'error' as const })
+	if (name === 'read') {
+		if (missing) return error('File not found')
+		return refused ? error('Error reading file') : undefined
+	}
+	if (name === 'edit') {
+		if (reason === 'not_read') return { text: 'File must be read first', tone: 'muted' }
+		if (missing) return error('File not found')
+		return refused ? error('Error editing file') : undefined
+	}
+	if (name === 'write') return refused ? error('Error writing file') : undefined
+	if (name.includes('notebook')) return refused ? error('Error editing notebook') : undefined
+	if (name === 'grep' || name === 'glob') {
+		if (missing) return error('File not found')
+		return refused ? error('Error searching files') : undefined
+	}
+	if (name === 'lsp') return refused ? error('LSP operation failed') : undefined
+	return undefined
 }
 
 /** The file's own name: a headline names the file, and the full path is not for the transcript. */

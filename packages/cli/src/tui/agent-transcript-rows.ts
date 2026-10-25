@@ -251,9 +251,10 @@ export function agentNotice(
 		}
 	}
 	const reason = failureReason(agent)
+	// A failure carries no duration: the line says what went wrong, not how long it took.
 	if (previousFailure !== undefined && previousFailure === reason)
-		return { content: `Agent "${label}" failed again · ${took}`, tone: 'error' }
-	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
+		return { content: `Agent "${label}" failed again`, tone: 'error' }
+	return { content: `Agent "${label}" failed: ${reason}`, tone: 'error' }
 }
 
 /**

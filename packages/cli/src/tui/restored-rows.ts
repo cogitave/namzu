@@ -465,6 +465,8 @@ export function agentCompletionRows(
 					: notice.tone === 'error'
 						? theme.status.error
 						: theme.status.warn,
+			// Only the glyph carries the outcome; the sentence is the primary text.
+			contentColor: theme.text.primary,
 			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
 		},
 	]

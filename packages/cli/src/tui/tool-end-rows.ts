@@ -45,7 +45,15 @@ export type ToolRow = Pick<TranscriptMessage, 'role' | 'content'> &
 	Partial<
 		Pick<
 			TranscriptMessage,
-			'glyph' | 'glyphColor' | 'meta' | 'detail' | 'activity' | 'shell' | 'diff' | 'group'
+			| 'glyph'
+			| 'glyphColor'
+			| 'contentColor'
+			| 'meta'
+			| 'detail'
+			| 'activity'
+			| 'shell'
+			| 'diff'
+			| 'group'
 		>
 	>
 
@@ -100,6 +108,50 @@ function foldOf(start: ToolEndStart | undefined): FoldOp | undefined {
 	return start?.activity === 'exploration' ? { kind: 'read', key: start.label } : undefined
 }
 
+/**
+ * The rows of a failed call that has no look of its own.
+ *
+ * A failure the kernel classed reads as one short sentence (dim when it is
+ * advice, red when it is a fault) with the tool's own message behind ctrl+o.
+ * Any other failure is the tool's message itself: `Error: <text>` in the error
+ * colour, ten lines, then how many more ctrl+o shows. A schema failure reads
+ * `Invalid tool parameters` until expanded.
+ */
+function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): readonly ToolRow[] {
+	const head: ToolRow = {
+		role: 'tool',
+		content: headOf(event, start),
+		glyph: '●',
+		glyphColor: theme.status.error,
+	}
+	// A result that carried no text says what the summary said.
+	const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
+	const full = toolFailureText(said, true).split('\n')
+	if (event.plainFailure !== undefined) {
+		return [
+			head,
+			{
+				role: 'tool',
+				content: event.plainFailure,
+				glyph: '⎿',
+				contentColor: event.plainFailureTone === 'muted' ? theme.text.muted : theme.status.error,
+				...(said !== undefined && said.trim().length > 0
+					? { detail: full, meta: EXPAND_HINT, activity: 'agent-result' as const }
+					: {}),
+			},
+		]
+	}
+	const text = toolFailureText(said, false)
+	const lines = text.split('\n')
+	return [
+		{
+			...head,
+			detail: full,
+			shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
+		},
+	]
+}
+
 /** The words a call is headed with when its start was never seen. */
 function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
@@ -135,7 +187,7 @@ export function toolEndRows(
 		])
 	}
 	const web = event.web ?? start?.web
-	if (web) {
+	if (web && !event.isError) {
 		// Two rows, the call and what it came to, drawn as `web` activity:
 		// consecutive ones sit together and the result list stays behind
 		// Ctrl+O.
@@ -153,19 +205,17 @@ export function toolEndRows(
 				role: 'tool',
 				content: webCallTitle(activity),
 				glyph: '●',
-				glyphColor: event.isError ? theme.status.error : theme.status.ok,
+				glyphColor: theme.status.ok,
 				activity: 'web',
 			},
 			{
 				role: 'tool',
-				content: event.isError
-					? `failed: ${event.summary}`
-					: webSettledLine(activity, {
-							...(durationMs !== undefined ? { durationMs } : {}),
-							...(activity.kind === 'fetch' && output !== undefined
-								? { bytes: Buffer.byteLength(output, 'utf8') }
-								: {}),
-						}),
+				content: webSettledLine(activity, {
+					...(durationMs !== undefined ? { durationMs } : {}),
+					...(activity.kind === 'fetch' && output !== undefined
+						? { bytes: Buffer.byteLength(output, 'utf8') }
+						: {}),
+				}),
 				glyph: '⎿',
 				...(outputLines ? { detail: outputLines } : {}),
 				...(outputLines && outputLines.length > 0 ? { meta: EXPAND_HINT } : {}),
@@ -173,26 +223,26 @@ export function toolEndRows(
 			},
 		])
 	}
-	if (isTaskTool(event.toolName)) {
+	if (isTaskTool(event.toolName) && !event.isError) {
 		// The task event already wrote the block. A listing refreshes it
 		// while there is a plan to show; with none it keeps its own row.
-		if (!event.isError && event.toolName !== 'task_list') return { kind: 'none' }
-		if (!event.isError && ctx.hasPlan) return { kind: 'task-block' }
+		if (event.toolName !== 'task_list') return { kind: 'none' }
+		if (ctx.hasPlan) return { kind: 'task-block' }
 		// Its own row, in words: the call's label, and the result's
 		// label rather than the model's receipt, which names ids.
-		const said = event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
+		const said = event.resultLabel ?? ''
 		return rows([
 			{
 				role: 'tool',
 				content: start?.label ?? formatToolCall(event.toolName, event.summary, true),
 				glyph: '●',
-				glyphColor: event.isError ? theme.status.error : theme.status.ok,
+				glyphColor: theme.status.ok,
 			},
 			...(said.length > 0
 				? [
 						{
 							role: 'tool' as const,
-							content: event.isError ? `failed: ${said}` : said,
+							content: said,
 							glyph: '⎿',
 						},
 					]
@@ -344,6 +394,7 @@ export function toolEndRows(
 			},
 		])
 	}
+	if (event.isError) return rows(failedCallRows(event, start))
 	const elapsed = settledElapsed(event.durationMs ?? ctx.elapsedMs)
 	const list: ToolRow[] = [
 		{
@@ -352,21 +403,14 @@ export function toolEndRows(
 			glyph: '●',
 			// The change to a file is drawn once, under its result.
 			detail: event.diff ? undefined : start?.detail,
-			glyphColor: event.isError ? theme.status.error : theme.status.ok,
+			glyphColor: theme.status.ok,
 			...(elapsed !== undefined ? { meta: elapsed } : {}),
 		},
 	]
-	if (
-		event.isError ||
-		(!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0))
-	) {
+	if (!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0)) {
 		list.push({
 			role: 'tool',
-			content: event.isError
-				? (event.plainFailure ?? `failed: ${withoutErrorName(event.summary)}`)
-				: event.diff?.summary
-					? spansText(event.diff.summary)
-					: event.summary,
+			content: event.diff?.summary ? spansText(event.diff.summary) : event.summary,
 			glyph: '⎿',
 			detail: event.detail,
 			...(event.diff ? { diff: event.diff } : {}),

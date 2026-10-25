@@ -400,6 +400,10 @@ const FAILURE_TEXT: Record<ToolFailureReason, string> = {
 	unknown_tool: 'unknown tool',
 	timed_out: 'timed out',
 	invalid_input: 'invalid request',
+	not_read: 'not read yet',
+	changed_on_disk: 'changed since it was read',
+	text_not_found: 'text not found',
+	not_unique: 'text appears more than once',
 }
 
 function failureLead(kind: ActionKind): string {

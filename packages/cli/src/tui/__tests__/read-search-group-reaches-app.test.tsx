@@ -220,8 +220,8 @@ it('ends the line on an error and keeps the error as a row of its own', async ()
 		{ toolName: 'read', input: { path: 'missing.ts' }, result: 'no such file', isError: true },
 	]
 	const screen = await send('look')
-	await waitUntil(screen, () => everything(screen).includes('failed: no such file'))
+	await waitUntil(screen, () => everything(screen).includes('Error: no such file'))
 	const text = everything(screen)
 	expect(text).toContain('Read 2 files')
-	expect(text.indexOf('Read 2 files')).toBeLessThan(text.indexOf('failed: no such file'))
+	expect(text.indexOf('Read 2 files')).toBeLessThan(text.indexOf('Error: no such file'))
 })

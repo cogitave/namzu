@@ -302,6 +302,7 @@ function MessageRow({
 	// A long message is echoed by its two ends, with a note of what lies between.
 	const userCut = message.role === 'user' ? cutUserText(content) : content
 	const glyph = message.glyph ?? glyphForRole(message.role)
+	const textColor = message.contentColor ?? contentColorForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
 		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
@@ -356,7 +357,7 @@ function MessageRow({
 					) : !web && content.length > 0 ? (
 						// Every other row wraps the way a reply does, each row in the
 						// same column (see `markdown-wrap.ts`); a web row is cut instead.
-						<Text color={contentColorForRole(message.role)} wrap="wrap">
+						<Text color={textColor} wrap="wrap">
 							<WrappedSpans
 								spans={[
 									...(message.diff?.summary ?? [{ text: content }]),
@@ -372,11 +373,11 @@ function MessageRow({
 								width={
 									glyph === '⎿' ? width - RESULT_GUTTER_INDENT - (RESULT_GUTTER_WIDTH - 2) : width
 								}
-								color={contentColorForRole(message.role)}
+								color={textColor}
 							/>
 						</Text>
 					) : (
-						<Text color={contentColorForRole(message.role)} wrap={web ? 'truncate-end' : 'wrap'}>
+						<Text color={textColor} wrap={web ? 'truncate-end' : 'wrap'}>
 							{content}
 							{message.meta ? (
 								<Text color={theme.text.muted}>

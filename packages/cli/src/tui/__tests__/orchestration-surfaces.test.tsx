@@ -178,7 +178,7 @@ describe('what a finished agent leaves in the conversation', () => {
 				}),
 			),
 		).toEqual({
-			content: 'Agent "Count words in a.txt" failed: Provider refused the request · 2s',
+			content: 'Agent "Count words in a.txt" failed: Provider refused the request',
 			tone: 'error',
 		})
 		expect(agentNotice(agent({ ...base, status: 'cancelled', completedAt: 500 }))).toEqual({
@@ -199,16 +199,14 @@ describe('what a finished agent leaves in the conversation', () => {
 		expect(stopped({})).toBe('Agent "Count words" was stopped · 4s')
 		const failed = (extra: Partial<SubagentActivity>) =>
 			agentNotice(agent({ ...base, status: 'failed', ...extra })).content
-		expect(failed({})).toBe('Agent "Count words" failed: Unknown error · 4s')
-		expect(failed({ latestActivity: 'Failed' })).toBe(
-			'Agent "Count words" failed: Unknown error · 4s',
-		)
+		expect(failed({})).toBe('Agent "Count words" failed: Unknown error')
+		expect(failed({ latestActivity: 'Failed' })).toBe('Agent "Count words" failed: Unknown error')
 		expect(
 			failed({
 				latestActivity: 'Failed',
 				transcript: [{ id: 'a:failure', kind: 'system', text: 'Provider refused the request' }],
 			}),
-		).toBe('Agent "Count words" failed: Provider refused the request · 4s')
+		).toBe('Agent "Count words" failed: Provider refused the request')
 	})
 
 	// Every caller is the background path: an agent the
@@ -687,10 +685,10 @@ describe('a repeated failure', () => {
 		}
 		const first = agentNotice(agent(base))
 		expect(first.content).toBe(
-			'Agent "Audit the config" failed: The provider could not use this request. Start the task again, or choose another model. · 6s',
+			'Agent "Audit the config" failed: The provider could not use this request. Start the task again, or choose another model.',
 		)
 		const again = agentNotice(agent(base), 10_000, failureReason(agent(base)))
-		expect(again.content).toBe('Agent "Audit the config" failed again · 6s')
+		expect(again.content).toBe('Agent "Audit the config" failed again')
 		expect(agentNotice(agent(base), 10_000, 'Something else.').content).toContain('failed: ')
 	})
 })
