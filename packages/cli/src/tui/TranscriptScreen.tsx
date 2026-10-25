@@ -90,7 +90,12 @@ export function TranscriptScreen({
 	const footer = screenFooter({ showAll, dialogWaiting, columns: Math.max(10, columns - 12) })
 	return (
 		<Box flexDirection="column">
-			<Box height={height} flexDirection="column" justifyContent="flex-end" overflow="hidden">
+			<Box
+				height={contentRows > 0 ? Math.min(height, contentRows) : height}
+				flexDirection="column"
+				justifyContent="flex-end"
+				overflow="hidden"
+			>
 				<Box
 					ref={content}
 					flexDirection="column"
