@@ -90,6 +90,9 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
 | `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
+| `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
+| `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
+| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (Anthropic; Bedrock on Claude 4.5 and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
@@ -106,6 +109,26 @@ ordinary budget. Exact originals remain available through
 [conversation evidence search](conversation-evidence.md); see the
 [SDK retention contract](../sdk/harness-invariants.md) for text/rich-channel
 boundaries. A short preview is an excerpt, not the complete output.
+
+# Compacting while idle
+
+A one-hour prompt cache is written once and read cheaply for an hour. Come back to a large conversation after it has lapsed and the whole context is written again at full price. With `compaction.idleCompaction: true` and `compaction.promptCacheTtl: 1h`, Namzu compacts the conversation shortly before the cache would lapse, so coming back re-reads a small context instead.
+
+It is off by default and acts only when every one of these holds at the moment the timer fires, which is once per finished reply, 90% of the way through the cache's life since its last use (54 minutes for a one-hour cache):
+
+- the provider reported a one-hour lifetime for the reply that just finished (a five-minute cache, or a provider that reports no lifetime, never triggers it);
+- the timer is no more than a minute late, so a laptop that slept does not compact a cache that is already gone;
+- the context holds at least `idleCompactionMinTokens`;
+- no new request, turn, dialog, queued message or background work exists, and nobody has pressed a key for a minute;
+- the conversation and model are the ones it was armed for.
+
+A skipped or failed attempt shows nothing and is not retried. A successful one is recorded in the conversation log as an `idle` compaction and leaves one dim row:
+
+```text
+Compacted while idle, before the prompt cache expired · turn off with "idleCompaction": false under "compaction" in the config
+```
+
+A person who comes back while it is running sees the usual compacting state. No usage-limit signal reaches the terminal, so there is no check against one.
 
 # Automatic historical evidence
 
