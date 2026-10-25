@@ -126,10 +126,21 @@ describe('the assembled prompts', () => {
 		expect(unknown).toEqual([])
 	})
 
-	it.each(assembled())('%s: names no other product', (_n, text) => {
-		expect(text).not.toMatch(
-			/\b(claude code|codex|github copilot|aider|gemini cli|opencode|chatgpt)\b/i,
-		)
+	it.each(assembled())('%s: every tool name is spelled exactly as mounted', (_n, text) => {
+		// A right name in the wrong case (`Bash`, `Task`) or a one-word alias
+		// (`shell`) is the same mistake as `bash.run`, and has no `_` or `.` to
+		// give it away.
+		const exact = new Set(known)
+		const lower = new Map([...exact].map((n) => [n.toLowerCase(), n]))
+		const tokens = [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1] ?? '')
+		const miscased = tokens.filter((t) => !exact.has(t) && lower.has(t.toLowerCase()))
+		const aliases = tokens.filter((t) => ['shell', 'task', 'terminal'].includes(t.toLowerCase()))
+		expect([...miscased, ...aliases]).toEqual([])
+	})
+
+	it.each(assembled())('%s: Namzu is the only agent it names', (_n, text) => {
+		const identities = [...text.matchAll(/\bYou are (?:an? |the )?([A-Z][\w-]*)/g)].map((m) => m[1])
+		expect(identities.filter((w) => w !== 'Namzu' && w !== 'In')).toEqual([])
 	})
 
 	it.each(assembled())('%s: never tells the person to start over', (_n, text) => {

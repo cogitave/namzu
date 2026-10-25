@@ -294,7 +294,7 @@ function permissionSentence(boundary: ExecutionBoundary): string {
 		case 'accept-edits':
 			return `File edits and simple file commands in the working directory run without asking; any other shell command or change is put to the user first.${noOneAsks}`
 		case 'plan':
-			return 'This is plan mode: reading is allowed and every change is refused until the user leaves plan mode.'
+			return 'This is plan mode: reading is allowed and every change is refused, except to the plan file, until the user leaves plan mode.'
 		case 'bypass':
 			return "Permission prompts are off in this mode, so calls run without asking. What always needs the user still does: removing a home or top-level directory, leaving a sandbox, and anything the user's rules say to ask about. Protected files and the safety rules apply as usual."
 		case 'classify':
