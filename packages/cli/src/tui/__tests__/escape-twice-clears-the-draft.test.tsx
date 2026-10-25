@@ -61,6 +61,41 @@ describe('Esc on a typed draft', () => {
 		expect(h.removed).toEqual(['escape-again-to-clear'])
 	})
 
+	it('hands the cleared text over, and Up brings it back from the history', async () => {
+		const cleared: string[] = []
+		const history: string[] = []
+		const view = (list: readonly string[]) => (
+			<Composer history={list} onSubmit={vi.fn()} onClearedDraft={(text) => cleared.push(text)} />
+		)
+		const h = render(view(history))
+		mounted.push(h)
+		h.stdin.write('half a thought')
+		await settle()
+		h.stdin.write('\x1B')
+		await settle()
+		h.stdin.write('\x1B')
+		await settle()
+		expect(cleared).toEqual(['half a thought'])
+		expect(h.lastFrame()).not.toContain('half a thought')
+		h.rerender(view([...history, ...cleared]))
+		await settle()
+		h.stdin.write('\x1B[A')
+		await settle()
+		expect(h.lastFrame()).toContain('half a thought')
+	})
+
+	it('does not record a blank draft', async () => {
+		const cleared: string[] = []
+		const h = open({ onClearedDraft: (text: string) => cleared.push(text) })
+		h.stdin.write('   ')
+		await settle()
+		h.stdin.write('\x1B')
+		await settle()
+		h.stdin.write('\x1B')
+		await settle()
+		expect(cleared).toEqual([])
+	})
+
 	it('keeps the draft and arms again when the second Esc comes after the window', async () => {
 		const h = open()
 		h.stdin.write('half a thought')

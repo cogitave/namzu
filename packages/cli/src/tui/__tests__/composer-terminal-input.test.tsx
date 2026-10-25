@@ -37,12 +37,10 @@ async function waitUntil(screen: Awaited<ReturnType<typeof renderToScreen>>, che
 describe('the composer on a production-shaped terminal', () => {
 	it('reports only actionable empty/non-empty transitions to its parent', async () => {
 		const transitions: boolean[] = []
-		const offered: string[] = []
 		const screen = await renderToScreen(
 			<Composer
 				history={[]}
 				onSubmit={vi.fn()}
-				onFooterNotice={(notice) => offered.push(notice.key)}
 				onDraftPresenceChange={(present) => transitions.push(present)}
 			/>,
 			{ cols: 100, rows: 16 },
@@ -58,11 +56,9 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			expect(transitions).toEqual([true])
 
-			// The first Esc only offers the clear; the second, inside its window, does it.
-			screen.press('\x1b')
-			await waitUntil(screen, () => offered.length === 1)
-			expect(transitions).toEqual([true])
-			screen.press('\x1b')
+			// Ctrl+U empties the draft; the Esc clear is covered under a fake clock in
+			// escape-twice-clears-the-draft.test.tsx.
+			screen.press('\x15')
 			await waitUntil(screen, () => transitions.length === 2)
 			expect(transitions).toEqual([true, false])
 		} finally {

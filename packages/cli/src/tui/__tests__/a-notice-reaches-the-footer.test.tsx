@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { StatusBar } from '../StatusBar.js'
-import { useNotifications } from '../useNotifications.js'
 import type { Notice } from '../notifications.js'
+import { useNotifications } from '../useNotifications.js'
 
 /** Move the fake clock, then let React's own (real) scheduler paint what the timers changed. */
 async function advance(ms: number): Promise<void> {

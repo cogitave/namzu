@@ -454,8 +454,6 @@ import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './bro
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
-import { updateAmbient } from './update-notice.js'
-import { useNotifications } from './useNotifications.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import { PauseClock } from './pause-clock.js'
@@ -518,8 +516,10 @@ import {
 	handoffContinuationNote,
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
+import { updateAmbient } from './update-notice.js'
 import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
+import { useNotifications } from './useNotifications.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -13570,6 +13570,7 @@ export function App({
 								onNotice={(text) => pushMessage('system', text)}
 								onFooterNotice={notices.add}
 								onFooterNoticeRemove={notices.remove}
+								onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
 								onStepReasoningEffort={stepReasoningEffort}
 								onExternalEdit={requestExternalEditor}
 								onEditPrevious={openPromptEditor}

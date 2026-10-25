@@ -92,7 +92,8 @@ them. Its items are joined by a dim ` · `, left to right:
   - `Esc again to clear` (immediate, 1 s): the first Esc on a typed draft
     shows it; the second Esc inside 800 ms clears the draft. One Esc no
     longer clears it, and an Esc after the window arms again. A running turn
-    keeps Esc for interrupting.
+    keeps Esc for interrupting. The cleared text is added to the prompt history
+    (blank text is not), so Up and Ctrl+R bring it back.
   - `No background agents running` (immediate, 2 s) and
     `Press ctrl+x ctrl+k again to stop background agents` (immediate, 3 s)
     from the stop-all chord.

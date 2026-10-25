@@ -108,6 +108,16 @@ describe('the notice queue', () => {
 		expect(state.current?.key).toBe('b')
 	})
 
+	it('drops a waiting notice that a later non-immediate one invalidates', () => {
+		const { state } = run([
+			add(note('shown', 'low')),
+			add(note('waits', 'low')),
+			add(note('new', 'low', { invalidates: ['waits'] })),
+		])
+		expect(state.current?.key).toBe('shown')
+		expect(state.queue.map((n) => n.key)).toEqual(['new'])
+	})
+
 	it('lets a high notice wait behind a medium one that is up', () => {
 		const { state } = run([add(note('m', 'medium')), add(note('h', 'high'))])
 		expect(state.current?.key).toBe('m')

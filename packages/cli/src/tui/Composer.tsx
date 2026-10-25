@@ -4,7 +4,7 @@
  *
  * Keys: Enter submits/steers (or runs the highlighted command while the
  * autocomplete dropdown is open), tab completes that command or queues the
- * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
+ * draft, a second Esc clears (the first only offers it) / Esc closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
  * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
  * message into an empty composer, Backspace deletes, Alt+W drops or
@@ -24,9 +24,9 @@ import {
 	nextQueuedHintEpisode,
 } from './composer-hints.js'
 import { fitHints } from './key-hints.js'
-import type { Notice } from './notifications.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
+import type { Notice } from './notifications.js'
 import {
 	attachmentChip,
 	chipBefore,
@@ -120,6 +120,8 @@ export interface ComposerProps {
 	/** Put a passing notice in the footer's slot / take it back out (`notifications.ts`). */
 	readonly onFooterNotice?: (notice: Notice) => void
 	readonly onFooterNoticeRemove?: (key: string) => void
+	/** The second Esc threw a typed draft away: hand its text over so Up can bring it back. */
+	readonly onClearedDraft?: (text: string) => void
 	/** Step through the active model's published reasoning menu. */
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
@@ -594,6 +596,7 @@ export function Composer({
 	onNotice,
 	onFooterNotice,
 	onFooterNoticeRemove,
+	onClearedDraft,
 	onStepReasoningEffort,
 	onExternalEdit,
 	onEditPrevious,
@@ -1202,6 +1205,9 @@ export function Composer({
 					clearTimeout(clearArmRef.current)
 					clearArmRef.current = null
 					onFooterNoticeRemove?.(ESC_CLEAR_KEY)
+					// A cleared draft stays recallable, like a submitted line.
+					const cleared = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+					if (cleared.trim().length > 0) onClearedDraft?.(cleared)
 					reset()
 					return
 				}

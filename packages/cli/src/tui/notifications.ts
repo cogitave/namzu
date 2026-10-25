@@ -118,6 +118,7 @@ function add(state: NoticeState, notice: Notice): NoticeStep {
 	if (notice.priority === 'immediate') {
 		const old = state.current
 		const queue = state.queue.filter((waiting) => !invalidated(waiting.key))
+		// Deliberate: the same key being shown again never queues itself behind itself.
 		const comesBack =
 			old !== null &&
 			old.key !== notice.key &&
@@ -140,7 +141,7 @@ function add(state: NoticeState, notice: Notice): NoticeStep {
 			queue = queue.map((waiting) => (waiting.key === notice.key ? fold(waiting, notice) : waiting))
 		}
 	} else {
-		queue = [...queue, notice]
+		queue = [...queue.filter((waiting) => !invalidated(waiting.key)), notice]
 	}
 	if (current !== null && invalidated(current.key)) {
 		current = null

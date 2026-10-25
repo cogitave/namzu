@@ -245,6 +245,7 @@ beforeEach(() => {
 afterEach(() => {
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 })
 
@@ -353,6 +354,7 @@ describe('esc while a turn is running', () => {
 		// The other half: Esc must not become inert. With no turn in flight it
 		// is the composer's own clear, which is what it is for.
 		askPermission = false
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 		// The placeholder is drawn only while the composer is enabled and empty,
@@ -366,8 +368,8 @@ describe('esc while a turn is running', () => {
 		// statement about the composer rather than about the machine's load.
 		await frameShows(() => said(harness), 'throwaway', 'the keystrokes never reached the composer')
 
-		// Two presses: the first only offers the clear (the footer says so), the
-		// second, inside the 800 ms window, does it.
+		// The clear window runs on the fake clock, which only vi.waitFor moves, a
+		// poll at a time: the second press lands inside it however slow the host.
 		harness.stdin.write('\x1B')
 		await frameShows(
 			harness.lastFrame,
@@ -412,6 +414,31 @@ describe('while the prompt is up', () => {
 
 		expect(harness.lastFrame(), 'a key meant for the prompt landed in the draft').not.toContain(
 			`${draft}q`,
+		)
+	})
+})
+
+describe('the footer notice slot at App level', () => {
+	it('shows "no background agents" for two seconds and then takes it back', async () => {
+		askPermission = false
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
+		harness.stdin.write('\x18')
+		harness.stdin.write('\x0b')
+		await frameShows(
+			harness.lastFrame,
+			'No background agents running',
+			'the empty case was not announced',
+		)
+		await vi.advanceTimersByTimeAsync(1_900)
+		expect(harness.lastFrame()).toContain('No background agents running')
+		await vi.advanceTimersByTimeAsync(200)
+		await frameShows(
+			() => ((harness.lastFrame() ?? '').includes('No background agents running') ? '' : 'gone'),
+			'gone',
+			'the notice outstayed its two seconds',
 		)
 	})
 })
