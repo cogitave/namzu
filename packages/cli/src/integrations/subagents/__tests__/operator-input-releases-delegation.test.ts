@@ -538,7 +538,7 @@ describe('operator input releases delegation waits without cancelling children',
 				context,
 			)
 			expect(invalid.success).toBe(false)
-			expect(invalid.error).toContain('task UUID')
+			expect(invalid.error).toContain('No task with ID ../../other-turn in this conversation.')
 		} finally {
 			release.resolve()
 			await launch.catch(() => {})
