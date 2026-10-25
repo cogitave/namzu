@@ -1,5 +1,18 @@
 # Changelog
 
+## 52.7.0
+
+### Minor Changes
+
+- eb92ef4: Adds a `compaction_started` session event, emitted when an automatic compaction pass begins (fields: `iteration`, `reason` of `threshold` or `overflow`, `tokensBefore`, `contextWindowTokens`). A host can show a live "compacting" line instead of staying silent while the summary is written; it is always followed by `compaction_completed`, `compaction_failed` or `compaction_tool_results_cleared`. It is a new member of the `SessionEvent` union, so a consumer with an exhaustive `switch` over event types must add a case (or a default). The SSE bridge sends it as `compaction.started`; the A2A bridge does not forward it.
+- eb92ef4: The line counts `edit` and `write` report are now the counts of a real line diff of the whole file, and `edit` reports them at all. Before, `write` counted everything between the first and last changed line (two lines changed far apart in a 200-line file read `+196 -196`) and a change to only the final newline counted as nothing; `edit` carried no counts, so a host rebuilt them from the call and got a batch, an insertion and `replace_all` wrong.
+
+  New: `ToolFacts` of kind `edit` gains `added`, `removed`, `hunks` and `hunksTruncated`, and kind `write` gains `hunks` and `hunksTruncated`, with the new `ToolDiffHunk` type (three lines of context, rows marked by a space, `+` or `-`). `admitToolFacts` reads them back from a saved conversation. Receipts for the model now carry the same counts: `Edited a: 4 replacement(s) (+4 -4)`. `data.fileChange.preview` of `write` now holds the old and new side of the hunks, context included, instead of only the changed lines. `@namzu/sdk` now depends on `diff` 9.0.0.
+
+  Nothing is removed and no existing field changes meaning except the counts becoming correct; a host that ignored the new fields keeps working.
+
+- eb92ef4: Workflow scripts: `parallel()` and `pipeline()` no longer reject. A thunk that throws now resolves to `null` in its place, and a pipeline stage that throws drops that item to `null` (the other items go on); the reason is written through `log()`. Before, one throwing thunk failed the whole run with the siblings' work lost. A script that relied on the old rejection to stop the run must check for `null` itself (`.filter(Boolean)` or an explicit test). Nothing else in the public API changes.
+
 ## 52.6.3
 
 ### Patch Changes
