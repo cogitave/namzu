@@ -255,7 +255,6 @@ import {
 } from './Composer.js'
 import { ComposerFrame } from './ComposerFrame.js'
 import { CopyPicker } from './CopyPicker.js'
-import { EditPromptPicker } from './EditPromptPicker.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
@@ -264,6 +263,7 @@ import { Picker } from './Picker.js'
 import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
 import { QuestionDialog } from './QuestionDialog.js'
 import { ResumePicker } from './ResumePicker.js'
+import { RewindPicker } from './RewindPicker.js'
 import { SaveSkillOverlay } from './SaveSkillOverlay.js'
 import {
 	type ScheduleReviewAnswer,
@@ -394,6 +394,17 @@ import {
 } from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
 import { needsQuestionDialog } from './question-dialog.js'
+import {
+	REWIND_COUNT_BUDGET_MS,
+	type RewindOption,
+	type RewindRow,
+	type RewindState,
+	buildRewindRows,
+	countRewindRows,
+	openRewind,
+	optionsFor,
+	rewindKey,
+} from './rewind.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
@@ -1820,11 +1831,18 @@ function AppBody({
 		setSelection: setSelectedResume,
 	} = useSelectionIndex(0)
 	const [editList, setEditList] = useState<readonly EditablePrompt[]>([])
-	const {
-		selection: selectedEdit,
-		selectionRef: selectedEditRef,
-		setSelection: setSelectedEdit,
-	} = useSelectionIndex(0)
+	/** The rewind dialog: the prompts it offers, where it stands, and when it opened. */
+	const [rewind, setRewind] = useState<{
+		readonly rows: readonly RewindRow[]
+		readonly state: RewindState
+		readonly openedAt: number
+	} | null>(null)
+	const rewindRef = useRef<typeof rewind>(null)
+	const rewindGenRef = useRef(0)
+	const setRewindView = useCallback((next: typeof rewind) => {
+		rewindRef.current = next
+		setRewind(next)
+	}, [])
 	const editCommittedRef = useRef(false)
 	/** `/copy` owns this exact response snapshot until selection or cancellation. */
 	const [copyPicker, setCopyPickerState] = useState<CopyPickerState | null>(null)
@@ -7363,38 +7381,57 @@ function AppBody({
 		pushSystem,
 	])
 
-	/** Open the durable prompt picker after the composer's second empty Esc. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	/** Open the rewind picker after the composer's second empty Esc, or `/rewind`. */
 	const openPromptEditor = useCallback(() => {
 		if (palDefinitionRef.current) {
-			pushMessage(
-				'system',
-				'Editing earlier prompts by forking is not available in a Pal conversation yet.',
-			)
+			pushMessage('system', 'Rewinding is not available in a Pal conversation yet.')
 			return
 		}
 		if (conversationMutationRef.current || compactingRef.current) return
 		if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 			pushMessage(
 				'system',
-				'A reply is still running or being saved. Wait for it to finish before editing earlier messages.',
+				'A reply is still running or being saved. Wait for it to finish before rewinding.',
 			)
 			return
 		}
 		if (queuedRef.current.length > 0) {
-			pushMessage('system', 'Queued prompts must finish before an earlier prompt can be edited.')
+			pushMessage('system', 'Queued prompts must finish before the conversation can be rewound.')
 			return
 		}
-		const candidates = editablePrompts(modelHistoryRef.current, messages)
-		if (candidates.length === 0) {
-			pushMessage('system', 'No previous message to edit.')
-			return
-		}
-		setEditList(candidates)
-		setSelectedEdit(candidates.length - 1)
-		editCommittedRef.current = false
-		setPhase('edit')
-	}, [hasUnsettledTurn, messages, pushMessage, state])
+		const history = modelHistoryRef.current
+		if (history.length === 0 && messages.length === 0) return
+		const candidates = editablePrompts(history, messages)
+		const store = session?.checkpoints
+		void (async () => {
+			if (store) await store.open().catch(() => undefined)
+			const rows = buildRewindRows(candidates, store ? store.list() : undefined, history)
+			const generation = rewindGenRef.current + 1
+			rewindGenRef.current = generation
+			setEditList(candidates)
+			editCommittedRef.current = false
+			setRewindView({ rows, state: openRewind(rows.length), openedAt: Date.now() })
+			setPhase('edit')
+			if (!store) return
+			// Newest first and under one budget; the dialog is usable meanwhile.
+			void countRewindRows(rows, (from, expired) => store.rewindSummary(from, expired), {
+				now: Date.now,
+				budgetMs: REWIND_COUNT_BUDGET_MS,
+				onRow: (index, summary) => {
+					const current = rewindRef.current
+					if (!current || rewindGenRef.current !== generation) return
+					setRewindView({
+						...current,
+						rows: current.rows.map((row, at) =>
+							at === index && row.files.kind === 'changes'
+								? { ...row, files: { ...row.files, summary } }
+								: row,
+						),
+					})
+				},
+			})
+		})()
+	}, [hasUnsettledTurn, messages, pushMessage, session, setRewindView, state])
 
 	/** `/restore`: list the file checkpoints, or put the tree back to before a turn. */
 	const doRestore = useCallback(
@@ -7437,17 +7474,19 @@ function AppBody({
 		[hasUnsettledTurn, pushMessage, session, state, pushSystem],
 	)
 
-	/** Fork before the selected prompt, then reopen that prompt in the composer. */
-	const confirmPromptEdit = useCallback(
+	/**
+	 * Continue the conversation from before the selected prompt: write a fork
+	 * holding everything ahead of it, switch to it, and put the prompt back in
+	 * the composer. The original stays unchanged and in /resume. Throws a plain
+	 * sentence when it cannot.
+	 */
+	const forkBeforePrompt = useCallback(
 		async (target: EditablePrompt) => {
 			if (editCommittedRef.current || conversationMutationRef.current) return
 			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
-				setPhase('ready')
-				pushMessage(
-					'system',
-					'Conversation history changed while the prompt picker was open. Nothing was forked; open it again.',
+				throw new Error(
+					'The conversation changed while the rewind dialog was open. Nothing was changed; open it again.',
 				)
-				return
 			}
 
 			editCommittedRef.current = true
@@ -7459,9 +7498,7 @@ function AppBody({
 					sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
 				const scope = scopeRef.current
 				if (!sessions || !scope) {
-					setPhase('ready')
-					pushMessage('system', 'Conversation history is unavailable in this folder.')
-					return
+					throw new Error('Conversation history is unavailable in this folder.')
 				}
 				const source = scope.sessionId
 				await persistenceTailRef.current
@@ -7514,14 +7551,12 @@ function AppBody({
 						: {}),
 				})
 				setEditList([])
+				setRewindView(null)
 				setPhase('ready')
 				pushMessage(
 					'system',
 					`Forked into "${displayConversationTitle(forked.title)}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
 				)
-			} catch (err) {
-				setPhase('ready')
-				pushSystem('error', explainFailure(err, 'Could not edit the selected prompt.'))
 			} finally {
 				editCommittedRef.current = false
 				conversationMutationRef.current = null
@@ -7540,9 +7575,160 @@ function AppBody({
 			resetSubagentActivity,
 			session,
 			resetTranscript,
+			setRewindView,
 			wakeGoalDriver,
-			pushSystem,
 		],
+	)
+
+	/** Put the files back to before the chosen prompt, through the drift-checked plan. */
+	const rewindCode = useCallback(
+		async (row: RewindRow) => {
+			const store = session?.checkpoints
+			if (!store || row.files.kind !== 'changes') {
+				throw new Error('There is no saved file history to restore from.')
+			}
+			await store.open()
+			const report = await store.restore(row.files.restoreFrom)
+			if (report.restored.length + report.removed.length === 0 && report.failed.length > 0) {
+				const n = report.failed.length
+				throw new Error(
+					`No files were restored: ${n} ${n === 1 ? 'file' : 'files'} failed (the saved copy is missing, or the file could not be updated).`,
+				)
+			}
+			return report
+		},
+		[session],
+	)
+
+	/** Summarise the conversation before or from the chosen prompt, in place. */
+	const rewindSummarize = useCallback(
+		async (target: EditablePrompt, option: 'summarize' | 'summarize_up_to', context?: string) => {
+			const compactRange = session?.compactRange
+			if (!compactRange) throw new Error('This conversation cannot be summarized.')
+			const history = modelHistoryRef.current
+			if (!history.includes(target.message)) {
+				throw new Error(
+					'That message is no longer in the active context. Choose a more recent message.',
+				)
+			}
+			if (compactingRef.current) return
+			compactingRef.current = true
+			try {
+				const result = await compactRange({
+					messages: history,
+					...(option === 'summarize' ? { from: target.message } : { until: target.message }),
+					...(context ? { instructions: context } : {}),
+				})
+				if (!result)
+					throw new Error('There is nothing to summarize in that part of the conversation.')
+				modelHistoryRef.current = [...result.messages]
+				const at = editList.indexOf(target)
+				const readable =
+					option === 'summarize'
+						? editList.slice(0, Math.max(0, at)).map((prompt) => prompt.displayText)
+						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
+				resetTranscript()
+				setMessages(
+					projectConversation(result.messages, nextId, readable, { cwd: ctxRef.current.cwd }),
+				)
+				if (option === 'summarize') {
+					composerDraftTokenRef.current += 1
+					setComposerDraft({
+						token: composerDraftTokenRef.current,
+						text: target.displayText,
+						...(target.message.attachments && target.message.attachments.length > 0
+							? { attachments: [...target.message.attachments] }
+							: {}),
+					})
+				}
+				setCompactionTally((tally) => ({
+					...tally,
+					passes: tally.passes + 1,
+					summaries: tally.summaries + 1,
+				}))
+				setEditList([])
+				setRewindView(null)
+				setPhase('ready')
+				pushMessage('system', 'Conversation summarized.')
+			} finally {
+				compactingRef.current = false
+			}
+		},
+		[editList, nextId, pushMessage, resetTranscript, session, setRewindView],
+	)
+
+	/** Carry out a choice made in the rewind dialog. Errors stay inside the dialog. */
+	const runRewindChoice = useCallback(
+		async (
+			rowIndex: number,
+			option: Exclude<RewindOption, 'nevermind'>,
+			context: string | undefined,
+		) => {
+			const view = rewindRef.current
+			const row = view?.rows[rowIndex]
+			const prompt = row?.prompt
+			if (!view || !row || !prompt) return
+			if (editCommittedRef.current || conversationMutationRef.current) return
+			const settle = (error?: string) => {
+				const latest = rewindRef.current ?? view
+				setRewindView({
+					...latest,
+					state: { ...latest.state, busy: undefined, ...(error ? { error } : {}) },
+				})
+			}
+			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+				settle('The conversation changed while this dialog was open. Nothing was changed.')
+				return
+			}
+			setRewindView({ ...view, state: { ...view.state, busy: option, error: undefined } })
+			const plain = (err: unknown) => explainFailure(err, 'Something went wrong.')
+			try {
+				if (option === 'summarize' || option === 'summarize_up_to') {
+					try {
+						await rewindSummarize(prompt, option, context)
+					} catch (err) {
+						settle(`Failed to summarize:\n${plain(err)}`)
+					}
+					return
+				}
+				let report: Awaited<ReturnType<typeof rewindCode>> | undefined
+				if (option === 'code' || option === 'both') {
+					try {
+						report = await rewindCode(row)
+					} catch (err) {
+						settle(`Failed to restore the code:\n${plain(err)}`)
+						return
+					}
+				}
+				const announce = () => {
+					if (!report) return
+					pushMessage('system', renderRestore(report, ctxRef.current.cwd))
+					// The model's picture of those files is now wrong; it reads
+					// this before its next turn.
+					operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
+				}
+				if (option === 'conversation' || option === 'both') {
+					try {
+						await forkBeforePrompt(prompt)
+					} catch (err) {
+						announce()
+						settle(
+							`Failed to restore the ${option === 'both' ? 'conversation and code' : 'conversation'}:\n${plain(err)}`,
+						)
+						return
+					}
+					announce()
+					return
+				}
+				setEditList([])
+				setRewindView(null)
+				setPhase('ready')
+				announce()
+			} catch (err) {
+				settle(plain(err))
+			}
+		},
+		[forkBeforePrompt, hasUnsettledTurn, pushMessage, rewindCode, rewindSummarize, setRewindView],
 	)
 
 	// Bridge passed into session.send(): the agent calls this before a
@@ -10762,6 +10948,9 @@ function AppBody({
 					case 'restore':
 						void doRestore(slash.turn)
 						return
+					case 'rewind':
+						openPromptEditor()
+						return
 					case 'add-dir': {
 						const dirs = session?.directories
 						if (!dirs) {
@@ -12333,35 +12522,35 @@ function AppBody({
 				if (key.ctrl && input === 'c') exitWithSummary()
 				return
 			}
-			// Previous-prompt picker uses the same cancel key as other selectors.
+			// The rewind dialog owns the keyboard while open.
 			if (phase === 'edit') {
 				if (editCommittedRef.current) return
-				if (key.escape || (key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+				const view = rewindRef.current
+				const closeRewind = () => {
+					rewindGenRef.current += 1
 					setEditList([])
+					setRewindView(null)
 					setPhase('ready')
+				}
+				if (!view) {
+					closeRewind()
 					return
 				}
-				if (key.home || key.end || key.pageUp || key.pageDown) {
-					setSelectedEdit((index) =>
-						moveSelection(
-							index,
-							editList.length,
-							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
-						),
-					)
+				if (key.ctrl && input === 'c' && !view.state.busy) {
+					closeRewind()
 					return
 				}
-				if (key.leftArrow || key.upArrow) {
-					setSelectedEdit((index) => moveSelection(index, editList.length, 'previous'))
+				const step = rewindKey(view.state, input, key, {
+					rows: view.rows,
+					canSummarize: Boolean(session?.compactRange),
+				})
+				if (step.effect?.kind === 'close') {
+					closeRewind()
 					return
 				}
-				if (key.rightArrow || key.downArrow) {
-					setSelectedEdit((index) => moveSelection(index, editList.length, 'next'))
-					return
-				}
-				if (key.return) {
-					const target = editList[selectedEditRef.current]
-					if (target) void confirmPromptEdit(target)
+				if (step.state !== view.state) setRewindView({ ...view, state: step.state })
+				if (step.effect?.kind === 'choose') {
+					void runRewindChoice(step.effect.row, step.effect.option, step.effect.context)
 				}
 				return
 			}
@@ -13574,7 +13763,19 @@ function AppBody({
 						mode={phase === 'unarchive' ? 'restore' : 'resume'}
 					/>
 				) : phase === 'edit' ? (
-					<EditPromptPicker prompts={editList} selected={selectedEdit} />
+					rewind ? (
+						<RewindPicker
+							rows={rewind.rows}
+							state={rewind.state}
+							options={optionsFor(rewind.state, {
+								rows: rewind.rows,
+								canSummarize: Boolean(session?.compactRange),
+							})}
+							checkpointing={Boolean(session?.checkpoints)}
+							now={rewind.openedAt}
+							working={rewind.state.busy?.startsWith('summarize') ? 'Summarizing…' : 'Restoring…'}
+						/>
+					) : null
 				) : phase === 'picker' ? (
 					<Picker
 						detected={pickerDetected ?? detected}

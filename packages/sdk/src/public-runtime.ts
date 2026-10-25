@@ -404,8 +404,11 @@ export type {
 // session between turns.
 export { abandonTurn } from './runtime/query/abandon-turn.js'
 export type { AbandonTurnOptions, SessionLocatorOptions } from './runtime/query/abandon-turn.js'
-export { compactSession } from './runtime/query/compact-session.js'
-export type { CompactSessionParams } from './runtime/query/compact-session.js'
+export { compactSession, compactSessionRange } from './runtime/query/compact-session.js'
+export type {
+	CompactSessionParams,
+	CompactSessionRangeParams,
+} from './runtime/query/compact-session.js'
 export { prepareForkState } from './runtime/query/fork/prepare.js'
 export { listCheckpoints } from './runtime/query/fork/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'

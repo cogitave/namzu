@@ -12,7 +12,8 @@ Both entry points accept `instructions`, the person's words about what the
 summary must keep; see [Compaction trigger, circuit breaker and output limits](context-limits.md#compactnow-instructions).
 
 `compactNow` reduces a host-owned history; `compactRegion` reduces a selected
-valid span. Neither mutates the supplied array or owns a running invocation.
+valid span; `compactSessionRange` does the same for a durable session, naming
+the span by recorded message ids (see below). Neither mutates the supplied array or owns a running invocation.
 The result contains replacement `messages`, the pinned `summary`, net `shed`
 count and optional verifier `usage`. `null` means no reduction is available.
 
@@ -53,3 +54,19 @@ The disk store's [large-message encoding](retained-tool-evidence.md) also applie
 to manually retained `compaction_shed` events. It keeps original attachments and
 metadata outside the bounded transcript line, without changing the public event
 returned by full SDK readers.
+
+## Summarising one span of a session
+
+`compactSessionRange({ sessionId, locator, provider, config, from?, until?, instructions? })`
+is `compactSession` for a span. It reads the session's folded context, summarises
+the messages from `from` (a recorded `MessageId`; the start when omitted) up to but
+not including `until` (the end when omitted), and appends one
+`compaction{ trigger: 'manual' }` record, so the originals stay in the log and a resume
+folds the summary. Messages marked `retain` inside the span stay as they are.
+
+It throws `not_found` when `from` or `until` is not in the current context (a
+compaction may already have folded it away), `invalid_config` when a boundary would
+split a tool call from its result, and `TurnInProgressError` while a turn is
+active. It returns `null`, appending nothing, when the span holds nothing worth a
+summary. `CompactSessionRangeParams` extends `CompactSessionParams` with `from` and
+`until`.

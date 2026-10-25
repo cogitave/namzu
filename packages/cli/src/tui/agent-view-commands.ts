@@ -45,6 +45,8 @@ export function agentViewCommandClass(name: string): AgentViewCommandClass | und
 		case 'clear':
 		case 'new':
 		case 'rewind':
+		case 'undo':
+		case 'checkpoint':
 			return {
 				kind: 'confirm',
 				title: `/${name} acts on the main conversation, not this agent`,
