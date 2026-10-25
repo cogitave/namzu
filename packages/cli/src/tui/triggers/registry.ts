@@ -131,7 +131,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		id: 'workflow',
 		label: 'workflow',
 		// The bare word, matched like `hypermode` (no Turkish phrase: `iş`
-		// folds onto `is`, which the fold test forbids; `/workflow` works in any language): a request edge, not talk
+		// folds onto `is`, which the fold test forbids): a request edge, not talk
 		// about workflows. It offers the `workflow` tool for this message; the
 		// script is still shown for approval before anything starts.
 		keywords: ['workflow', 'workflows'],

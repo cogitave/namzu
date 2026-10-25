@@ -8478,7 +8478,7 @@ export function App({
 				pushMessage(
 					'user',
 					// What the operator typed: a command that composes the model's
-					// message (`/workflow <task>`) shows the command, not the rewrite.
+					// message shows the command, not the rewrite.
 					prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
 					false,
 					undefined,
@@ -9785,7 +9785,7 @@ export function App({
 								if (runs.length === 0) {
 									pushMessage(
 										'system',
-										'No workflows in this conversation. Ask for one with /workflow <what to do>.',
+										'No workflows in this conversation. Start or end a message with the word workflow to ask for one.',
 									)
 									return
 								}

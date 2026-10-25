@@ -5486,7 +5486,7 @@ export async function createAgentSession(
 						// The `workflow` tool is listed on every turn of a host that can run
 						// one, and the model is gated by wording: its description and
 						// `WORKFLOW_DOCTRINE` say when it may be called (the operator's
-						// keyword, hypermode on, their own words, `/workflow`). A tool list
+						// keyword, hypermode on, their own words). A tool list
 						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
 							workflowHost !== undefined && opts?.workflowReview !== undefined && !residentContext

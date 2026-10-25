@@ -1,22 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { WORKFLOW_DOCTRINE } from '../doctrine.js'
-import {
-	WORKFLOW_TOOL_DESCRIPTION,
-	isWorkflowCommandPrompt,
-	workflowCommandPrompt,
-	workflowRefusal,
-} from '../offering.js'
-
-describe('the /workflow command', () => {
-	it('turns /workflow <task> into a message the tool may be used for', () => {
-		const prompt = workflowCommandPrompt('  audit the packages ')
-		expect(prompt).toBe('Use a workflow for this: audit the packages')
-		expect(isWorkflowCommandPrompt(prompt)).toBe(true)
-		expect(isWorkflowCommandPrompt(workflowCommandPrompt(''))).toBe(true)
-		expect(isWorkflowCommandPrompt('fix the failing test in cart.ts')).toBe(false)
-	})
-})
+import { WORKFLOW_TOOL_DESCRIPTION, workflowRefusal } from '../offering.js'
 
 describe('who may start one', () => {
 	it('lets a turn with someone to review it start one', () => {
@@ -68,11 +53,11 @@ describe('what the tool description says about failures', () => {
 })
 
 describe('the opt-in rule the model reads', () => {
-	it('names the four opt-ins and refuses everything else, in the tool text and the doctrine', () => {
+	it('names the opt-ins and refuses everything else, in the tool text and the doctrine', () => {
 		for (const text of [WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_DOCTRINE]) {
 			expect(text).toContain('"hypermode"')
 			expect(text).toContain('hypermode is on')
-			expect(text).toContain('/workflow')
+			expect(text).not.toContain('/workflow')
 			expect(text).toContain('do not call')
 		}
 	})

@@ -18,9 +18,8 @@ explain why they cannot run and are checked again when selected.
 
 A command that answers on the spot is shown as typed (`› /cost`) with its
 answer hung under it (`⎿`), so a readout in the scrollback says which command
-it answers. A command that composes a message for the model, such as
-`/workflow <task>`, also shows what you typed; only the model receives the
-rewritten sentence. The `/help` list shows each description up to its first
+it answers. A command that composes a message for the model also shows what you typed;
+only the model receives the rewritten sentence. The `/help` list shows each description up to its first
 clause, so no line ends mid-sentence.
 
 | Command | What it does |
@@ -71,7 +70,6 @@ clause, so no line ends mid-sentence.
 | `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 | `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript. See [Workflows in the CLI](workflows.md). |
-| `/workflow <what to do>` | Ask for a workflow: the model is offered the `workflow` tool for this message, writes a script that runs many agents in phases, and you approve it before anything starts. |
 
 ## Command-specific help
 
@@ -180,7 +178,7 @@ Choosing an effort level, in `/effort` or the picker, never touches the mode.
 What the model is told. The `workflow` tool is in the tool list on every turn of
 a terminal that can run one, with its opt-in rule in the tool text and a stable
 note in the system prompt (the operator's keyword, hypermode on, the operator's
-own words or `/workflow`, a named saved workflow; anything else uses `Agent`).
+own words, a named saved workflow; anything else uses `Agent`).
 While hypermode is on, a short hidden reminder (never the cached system prompt, never shown
 as something you typed) says so: in full on the first message after it was
 turned on, again sparsely after ten of your messages, and once when it ends;

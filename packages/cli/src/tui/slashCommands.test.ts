@@ -375,6 +375,15 @@ describe('runSlash', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('Unknown command')
 	})
 
+	it('has /workflows but no /workflow command', () => {
+		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
+		expect(names).toContain('workflows')
+		expect(names).not.toContain('workflow')
+		const r = runSlash('/workflow audit', ctx)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') expect(r.content).toContain('Unknown command: /workflow.')
+	})
+
 	it('/help opens a finite chooser over every registered command', () => {
 		const r = runSlash('/help', ctx)
 		expect(r?.kind).toBe('command-picker')
