@@ -16,14 +16,13 @@ export const WEB_PAGE_CACHE_MAX_BYTES = 50 * 1024 * 1024
 export const WEB_PAGE_CONVERT_MAX_CHARS = 1024 * 1024
 /** Most page text a model is asked about in one call. */
 export const WEB_PAGE_MODEL_MAX_CHARS = 100_000
-/** Marker the reference-shaped cuts end with. */
+/** Marker that truncated content ends with. */
 export const WEB_PAGE_TRUNCATED_MARKER = '[Content truncated due to length...]'
 
 /**
  * A redirect stays on the site when only the path or query changes (and
  * `www.` comes or goes). `http:` to `https:` on the same host and default
- * port is the same site too: the reference upgrades every URL to `https:`
- * before it asks, so that hop never reaches it.
+ * port is the same site too.
  */
 export function isSameSiteRedirect(from: URL, to: URL): boolean {
 	const upgrade = from.protocol === 'http:' && to.protocol === 'https:'

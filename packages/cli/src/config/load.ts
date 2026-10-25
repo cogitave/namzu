@@ -522,8 +522,7 @@ const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
 
 /**
  * The project's local config: the same settings as the project file, kept out
- * of git. It is where a "don't ask again" answer is written, the way the
- * reference terminal writes its own local settings file, and it sits over
+ * of git. It is where a "don't ask again" answer is written, and it sits over
  * the project file in the cascade (user < project < local < profile < env <
  * managed).
  */

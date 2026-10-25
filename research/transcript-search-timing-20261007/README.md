@@ -55,7 +55,7 @@ WAI comparison criteria come from the
 [captured seeded reference](../local-speech-20261007/artifacts/wai-reference.json):
 32 px disclosure/action rows, 14/20 px header text, 8 px header gap, and a rail
 with 16 px content inset. This is a comparison of the inspected layout and
-interaction states, not a claim of pixel parity or agent-runtime equivalence.
+interaction states, not a claim of pixel-level match or agent-runtime equivalence.
 Namzu retains its own theme and branding.
 
 An extra 390 px browser stress run passed the interaction, timestamp and search

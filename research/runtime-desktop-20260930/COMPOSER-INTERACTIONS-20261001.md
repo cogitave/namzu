@@ -2,10 +2,10 @@
 
 ## Scope and sources
 
-The operator reported Quick search breaking and asked for the actual model,
-settings and attachment interactions shown in the reference composers. The
+The operator reported Quick search breaking and asked for working model,
+settings and attachment interactions in the composer. The
 work continues from `3ff96b40` in the owned `feat/runtime-desktop-foundation`
-worktree. The primary reference remains the MIT-licensed source clone
+worktree. The primary source remains the MIT-licensed source clone
 `/tmp/namzu-workflow-peers-20260930.ckQyBT/t3code`, revision
 `c18e5ea6ed741443a8ec4a5d22d4b6939b0ecd21`.
 
@@ -15,12 +15,12 @@ worktree. The primary reference remains the MIT-licensed source clone
   from later asynchronous upload work; attachment records and previews follow
   that owner. `ChatView.tsx` snapshots draft attachments into message/queue
   admission rather than rebuilding them from mutable file paths.
-- The appUI popup and its icon family were already examined in
+- The popup and its icon family were already examined in
   [the preceding audit](MODEL-PICKER-20261001.md). The extra paperclip, text-file,
   puzzle glyphs use unchanged SVG paths from the same licensed original source;
   ellipsis and rounded navigation outlines use the existing stock icon package.
   `icon-source-map.json` identifies both sources.
-- The supplied images establish visible composition, not reference DOM, fonts,
+- The supplied images establish visible composition, not the target DOM, fonts,
   timing or unsupported product capabilities. No voice, branch or worktree
   action is presented without an implemented host operation.
 
@@ -97,13 +97,13 @@ isolation checks, drafts/reload/offline refusal and reconnect. Its second
 conversation is explicitly seeded through the native API for the navigation
 baseline; the landing itself creates no hidden session.
 
-The subsequent light-sidebar image is a new visual reference. It is not present
-in the current appUI source consumers; its exact icon family remains unverified.
+The subsequent light-sidebar image shows a new visual direction. Its exact icon
+family remains unverified.
 Verified shape corrections use existing licensed assets: rounded outline
 navigation glyphs, a plain clock instead of a rewind/history arrow, and a filled
 home with the real doorway cutout. Service marks still identify only their
 actual providers. This is a visual adaptation, not a claim of literal source
-parity. Grouped project conversations and opened-conversation tabs are a layout
+match. Grouped project conversations and opened-conversation tabs are a layout
 direction to evaluate separately from composer delivery; no decorative navigation
 action is added for a host operation that does not exist.
 

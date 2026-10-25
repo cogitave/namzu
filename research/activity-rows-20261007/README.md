@@ -1,7 +1,7 @@
 # Activity rows (Desktop)
 
 Proof for [Action rows](../../docs/cli/desktop.md#action-rows): the transcript's work list drawn as
-one-line rows like the reference (images 17 to 19), instead of the inline Before/After block (16).
+one-line rows (images 17 to 19), instead of the inline Before/After block (16).
 
 Captured from the live dev preview with Playwright Chromium. Saved turns: `/preview?activity=1`.
 Running turn: `/preview?live=1` (`&hold=edit` stops it while the edit is under way). Light theme is

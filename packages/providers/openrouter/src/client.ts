@@ -116,7 +116,7 @@ const EPHEMERAL = { type: 'ephemeral' } as const
  *
  * Always INSIDE a content part: a top-level `cache_control` on a `tool`
  * message is not accepted by OpenRouter, while one inside its content part
- * is (NousResearch/hermes-agent#57845, verified against
+ * is (verified against
  * `anthropic/claude-haiku-4.5`).
  */
 function markLastPart(message: { content?: unknown }): boolean {

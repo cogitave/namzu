@@ -146,7 +146,7 @@ prompts. Active work must settle before a direct host selection can apply.
 
 The composer also previews `/effort <level>` against the current session's
 published menu, marking unsupported values unavailable. Preview is not application.
-`ultracode` is not an alias for an effort level; available levels come from the
+A mode name is not an alias for an effort level; available levels come from the
 provider. See [OpenAI reasoning menus](../sdk/openai-reasoning.md) for Astra's
 different API and subscription menus.
 
@@ -155,7 +155,7 @@ different API and subscription menus.
 `/hypermode` (`/hypermode on`, `/hypermode off`, or no argument to toggle)
 turns a session setting on or off, layered above effort rather than inside it —
 it is never a `ReasoningEffort` value, so `/effort hypermode` reports
-`unavailable for this model`, the same refusal `ultracode` gets, because
+`unavailable for this model`, the same refusal any other mode name gets, because
 neither name is an effort level a provider publishes. When the `/effort`
 picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.

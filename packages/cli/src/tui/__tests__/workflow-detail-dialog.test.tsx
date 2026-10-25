@@ -130,7 +130,7 @@ describe('at 140 columns', () => {
 	})
 })
 
-// Reference (REA fns vt, Bo and Zt, chunk-t32eta2x.js): a list longer than the
+// A list longer than the
 // rows its pane holds says which of them it shows, in the box's bottom border.
 describe('the window tag on the box border', () => {
 	it('writes the arrows on the sides that have more, and a space on the side that has not', () => {

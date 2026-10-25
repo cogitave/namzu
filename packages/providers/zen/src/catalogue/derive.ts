@@ -12,7 +12,7 @@
  *
  * Routes come from the service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model, except for three Go
- * rows whose reference-client wire differs from the published pair. Their
+ * rows whose gateway wire differs from the published pair. Their
  * exact ids and documented wires are pinned below. Both halves are read
  * and required to agree, because a page that changed shape must stop the run
  * rather than have one half guessed: the wire a model is served on is a routing
@@ -521,12 +521,12 @@ export function protocolFor(
 }
 
 /**
- * Go's route table currently disagrees with the reference client's routes
- * for these model ids. Keep the published pair validation above, then
- * pin only the documented old wire to that reference wire. If the page changes
+ * Go's route table currently disagrees with the wires the service's own
+ * client uses for these model ids. Keep the published pair validation above, then
+ * pin only the documented old wire to the gateway wire. If the page changes
  * its route again, stop so the exception can be reviewed instead of guessing.
  */
-const GO_REFERENCE_ROUTES: Readonly<
+const GO_PINNED_ROUTES: Readonly<
 	Record<string, { documented: ZenProtocol; gateway: ZenProtocol }>
 > = Object.freeze({
 	'deepseek-v4-flash': { documented: 'chat', gateway: 'responses' },
@@ -548,15 +548,15 @@ export function isDirectAnonymousZenId(id: string): boolean {
 	return ZEN_DIRECT_ANONYMOUS_IDS.has(id)
 }
 
-/** The reference-client Go route for an id with a known documentation mismatch. */
+/** The pinned Go route for an id with a known documentation mismatch. */
 export function pinnedProtocolForGo(id: string): ZenProtocol | undefined {
-	return GO_REFERENCE_ROUTES[id]?.gateway
+	return GO_PINNED_ROUTES[id]?.gateway
 }
 
 /**
  * The row's routed protocol, or its refusal — the Go pinning decides the same
- * way `routeFor` does, then names the reference client's wire for the ids the
- * published page and the reference client disagree on.
+ * way `routeFor` does, then names the gateway wire for the ids the
+ * published page and the service's own client disagree on.
  */
 function pinnedRouteFor(
 	row: ZenRouteRow,
@@ -565,7 +565,7 @@ function pinnedRouteFor(
 	const verdict = routeFor(row, service)
 	if ('refusal' in verdict) return verdict
 	if (service !== 'go') return verdict
-	const exception = GO_REFERENCE_ROUTES[row.id]
+	const exception = GO_PINNED_ROUTES[row.id]
 	if (!exception) return verdict
 	if (verdict.protocol === exception.gateway) return verdict
 	if (verdict.protocol !== exception.documented) {
@@ -612,7 +612,7 @@ export interface DerivedZenModel {
 /**
  * What a model is carried with while models.dev states nothing about it: small
  * enough to be safe on any routed model, and flagged `limitsVerified: false` so
- * a host can say so. Tool use is true because the reference client calls tools
+ * a host can say so. Tool use is true because the service's own client calls tools
  * on every model the page routes.
  */
 const CONSERVATIVE_LIMITS = Object.freeze({

@@ -53,7 +53,7 @@ import { MemoryRevisionConflictError, assertMemoryRevision, memoryRevision } fro
 
 /**
  * Versioned like every other record this SDK persists. A memory file carries
- * no `schemaVersion` while it is at version 1 — the reference shape has no
+ * no `schemaVersion` while it is at version 1 — the canonical shape has no
  * such field and a hand-written file should not need one — so the stamp only
  * appears once a later build writes a later version, and THIS build refuses
  * that file rather than reading it partially and writing the difference away.

@@ -44,7 +44,7 @@ sign-in status establish availability of that interface; neither establishes
 that a fresh inference request is authorized. Native startup may itself
 refresh or change its own authentication state.
 
-Model rows keep the engine's own ids. Codex labels read as its app shows them (`GPT-5.6-Sol` becomes `GPT-5.6 Sol`), and the row the engine recommends carries an optional `default: true`: Codex's `isDefault` row, or for the second external engine the row its non-selectable `default` entry resolves to.
+Model rows keep the engine's own ids. Codex labels get a space before the last word (`GPT-5.6-Sol` becomes `GPT-5.6 Sol`), and the row the engine recommends carries an optional `default: true`: Codex's `isDefault` row, or for the second external engine the row its non-selectable `default` entry resolves to.
 
 A real native turn can refuse expired or missing credentials even when its
 local catalogue is available. Authentication failures use a fixed notice.
@@ -234,7 +234,7 @@ An integration fixture runs that adapter through the real SDK session and
 original journal, checking native review resolution, observed tool receipts
 and result-only message identity. The fixture performs no inference.
 Native Windows metadata was separately checked with the installed `claude`
-executable, version 2.1.278:
+executable:
 initialize and `list_models` returned five installed-engine rows and EOF closed
 the owned process with exit zero. That metadata probe sent no user prompt and
 does not prove successful inference or account authentication.

@@ -43,7 +43,7 @@ async function fixture(lockTimeoutMs?: number) {
 }
 
 describe('MarkdownMemoryStore keeps one Markdown file per memory', () => {
-	it('writes the reference shape and reads it back unchanged', async () => {
+	it('writes the canonical shape and reads it back unchanged', async () => {
 		const { directory, store } = await fixture()
 		const { entry, content } = await store.create({
 			title: 'Tests need a built SDK',

@@ -63,7 +63,7 @@ tool, is never restarted, because the call may already be under way.
 ## The terminal's policy
 
 The terminal chooses its own numbers (`packages/cli/src/provider-retry.ts`),
-following the reference terminal's behaviour for the same failures:
+for the same failures:
 
 - ten retries (eleven tries in all);
 - a wait that starts at half a second and doubles to thirty-two, with up to a

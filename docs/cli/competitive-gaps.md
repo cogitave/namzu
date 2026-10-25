@@ -77,7 +77,7 @@ Codex uses a two-second text shimmer with palette-aware rendering in
 and centralizes reduced-motion choices in
 [motion.rs](https://github.com/openai/codex/blob/ac192cd7937b0d73edc6dffe009940ae53782dd4/codex-rs/tui/src/motion.rs#L38).
 Namzu uses a clockwise composer-border light and a shared animation scheduler.
-These are different visual choices; parity does not require the same animation.
+These are different visual choices; the two need not share an animation.
 
 Production-renderer terminal probes confirmed Namzu's complete clockwise lap,
 stationary composer children and quiet idle, unfocused and disabled-color
@@ -164,8 +164,7 @@ The second pass found more genuine gaps, but each needs its own host contract:
 | Reusable MCP image files | The `Claude Code` [changelog](https://github.com/anthropics/claude-code/blob/7779afb12e3635f46f56ec823979d68350ae000b/CHANGELOG.md) records image retention. | Namzu passes image blocks to the model, but a file path for later `Read` needs private storage, size validation, retention and sandbox scope. Saving arbitrary server bytes into the caller's workspace without that boundary would be a different behavior. |
 
 Each gap needs a host-specific contract. The public `Claude Code` repository omits its CLI runtime, so
-its behavior here is attributed to its changelog or documentation rather than
-reverse-engineered from examples.
+its behavior here is taken from its changelog or documentation only.
 
 Modern MCP catalogue updates were also checked against the
 [2026-07-28 protocol](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/streamable-http.mdx).

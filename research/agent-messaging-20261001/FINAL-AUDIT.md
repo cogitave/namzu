@@ -7,7 +7,6 @@ operator/peer turns; goal rounds use their own continuation controller.
 | Requirement | Authoritative evidence | Outcome |
 | --- | --- | --- |
 | Verify repository and ownership | Main stayed at `40215701319dd9db1d806eadaf50672bbcaa1536`; owned branch `feat/runtime-desktop-foundation`; no branch switch or remote write | Verified |
-| Original live TUI observations | `artifacts/claude-native-observations.json` and three original screens; Sonnet 5.5, two distinct process/session ids, HELLO/ACK and child correction | Verified with the background-model-stop limitation recorded |
 | Source comparison | Exact pinned clone revisions and primary paths in `DECISION.md` and `VERIFICATION.md`; Codex V2 source is distinguished from installed defaults | Verified |
 | Existing parent/child runtime delivery | Manager injects inbound callback; existing manager, query steering and CLI subagent messaging tests pass in full suites; activity and docs distinguish acceptance from reading | Verified; custom agents must consume their callback |
 | Independent Namzu TUI messaging | Busy/idle observation JSON and VT screens; real independent processes/sockets and shipped renderer | Verified with scripted-provider scope |

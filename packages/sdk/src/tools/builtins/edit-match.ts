@@ -9,18 +9,17 @@
  * carries the same transformation across to `new_string` so the replacement
  * stays consistent with what it replaced.
  *
- * The strategies and their order are a faithful port of the reference client's
- * file-edit resolver (the `lje`/`b`/`_`/`L`/`k`/`R`/`C`/`cDs`/`ipt`/`H`/`Q`/`N`
- * functions in its shipped bundle), so an edit that lands there lands here:
+ * The strategies and their order are fixed as follows, so an edit that matches
+ * under one of them matches here:
  *
  *   1. exact
  *   2. curly vs straight quotes, both directions
  *   3. `\uXXXX` escape in `old_string`, character in the file
  *   4. character in `old_string`, `\uXXXX` escape in the file
  *
- * The reference also expands a map of its own prompt delimiters (`<fnr>` →
- * `<function_results>`, `\n\nH:` → `\n\nHuman:`, …). That is deliberately NOT
- * ported: those tokens are artifacts of that client's own transcript format,
+ * Prompt delimiters from a transcript format (`<fnr>` →
+ * `<function_results>`, `\n\nH:` → `\n\nHuman:`, …) are deliberately NOT
+ * expanded: those tokens are artifacts of a transcript format,
  * not a mismatch a Namzu model produces against a real source file.
  *
  * Pure by construction, like `edit-apply`: every function here is from strings

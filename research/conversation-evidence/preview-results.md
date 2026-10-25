@@ -75,7 +75,7 @@ a slightly earlier valid byte offset for its exact read. Live choices therefore
 differ, and this pair does not isolate preview size from every behavioral effect
 or establish a general success rate or cost improvement.
 
-The reference live run reported 16,896 cached tokens; the candidate reported
+The baseline live run reported 16,896 cached tokens; the candidate reported
 5,632. Per-request counts remain in the JSON record. Subscription usage is unpriced here;
 the zero monetary cost field must not be read as free execution. No timing or
 native-Windows claim is made, and no live non-Codex provider was exercised.

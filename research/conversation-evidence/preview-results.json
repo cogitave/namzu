@@ -10,7 +10,7 @@
       "pydantic_ai_harness/tool_output_limits/_bands.py",
       "pydantic_ai_harness/tool_output_limits/_capability.py"
     ],
-    "observation": "Spill threshold is separate from bounded preview; failed actions have explicit fallbacks. Namzu selects a 4000-character retained preview, not the reference 1000-character default."
+    "observation": "Spill threshold is separate from bounded preview; failed actions have explicit fallbacks. Namzu selects a 4000-character retained preview, not the 1000-character default of the other system."
   },
   "samples": [
     {

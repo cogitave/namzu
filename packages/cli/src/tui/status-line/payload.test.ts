@@ -15,7 +15,7 @@ const base = {
 } as const
 
 describe('buildStatusLinePayload', () => {
-	it('names the reference fields for what a fresh session knows', () => {
+	it('names the fields a fresh session knows', () => {
 		expect(buildStatusLinePayload(base)).toEqual({
 			hook_event_name: 'StatusLine',
 			session_id: 'sess-1',

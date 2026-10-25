@@ -15,8 +15,7 @@
  * work without any injection), which is what lets the tests advance a window
  * by calling a function rather than by waiting for one.
  *
- * The constants and the wording come from the reference implementation of this
- * tool; deviations are named where they are made.
+ * The constants and the wording are fixed here.
  */
 
 /** A longer line keeps its first this-many characters. */

@@ -6,36 +6,26 @@ Scope: the same two-phase colour prompt as `tui-orchestration-parity-results.md`
 
 - **Before**: `feat/orchestration-tui-parity` at `0a394539`.
 - **After**: the same branch with read-only launches started without a review in `prompt` mode, phases on the rail and in the cockpit, and the closing line's phase count and spend.
-- **Reference**: the reference terminal's run of the same prompt with its script-driven workflow tool (auto mode; one workflow, three agents).
 - **Real model**: one run of the after build with the owner's codex / gpt-5.6-luna configuration, orchestrate on, `prompt` mode, in a fresh scratch directory.
 
 Frames were captured at 120x40, 80x24 and 40x30; excerpts are 120x40 unless named, with the boot notices left out.
 
 ## What changed
 
-| | Before | After | Reference |
-|---|---|---|---|
-| Read-only launch in `prompt` mode | "Start 2 agents" review | starts; the rail is up at once | not asked (auto mode) |
-| Launch that can write | review | review | not asked (auto mode) |
-| Rail while Phase 2 runs | Phase 2's agent only | `✓ Phase 1 · 2/2 · 4.0s`, then `● Phase 2 · 0/1` with its agent | one line per workflow |
-| Rail header | `1 running · ↓ / ctrl+t` | `1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t` | `2/3 agents done · 10s · ↓ 40.4k tokens` |
-| Cockpit opens on | the first phase | the phase still working | the first phase |
-| Cockpit header | `1 active · 3 total` | `2/3 agents done · 1 running · 7.8s · 18.0k tokens`, then `3/3 agents · 9.5s · 27.0k tokens · done` | `3/3 agents · 12s · done` |
-| Agent pane title | `Agents · 1/2` | `Phase 2 · 1 agent` | `Name colours · 2 agents` |
-| Phase row | `✓ 1 Phase 1   2/2` | `✓ 1 Phase 1   2/2 · 4.0s` | `✔ Name colours 2/2` |
-| Closing line | `✻ Worked for 12s · 3 agents` | `✻ Worked for 11s · 3 agents in 2 phases · 27.0k tokens` | `✻ Crunched for 20s · done 9:15 AM`, after `● Dynamic workflow "…" completed · 12s` |
-| Wide cockpit row | last cell on the frame's padding (`9.0k│`) | one blank cell before the border | — |
+| | Before | After |
+|---|---|---|
+| Read-only launch in `prompt` mode | "Start 2 agents" review | starts; the rail is up at once |
+| Launch that can write | review | review |
+| Rail while Phase 2 runs | Phase 2's agent only | `✓ Phase 1 · 2/2 · 4.0s`, then `● Phase 2 · 0/1` with its agent |
+| Rail header | `1 running · ↓ / ctrl+t` | `1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t` |
+| Cockpit opens on | the first phase | the phase still working |
+| Cockpit header | `1 active · 3 total` | `2/3 agents done · 1 running · 7.8s · 18.0k tokens`, then `3/3 agents · 9.5s · 27.0k tokens · done` |
+| Agent pane title | `Agents · 1/2` | `Phase 2 · 1 agent` |
+| Phase row | `✓ 1 Phase 1   2/2` | `✓ 1 Phase 1   2/2 · 4.0s` |
+| Closing line | `✻ Worked for 12s · 3 agents` | `✻ Worked for 11s · 3 agents in 2 phases · 27.0k tokens` |
+| Wide cockpit row | last cell on the frame's padding (`9.0k│`) | one blank cell before the border |
 
-Kept from namzu: the per-batch launch receipt and per-agent completion rows with their collapsed answers (the reference writes one workflow line and a completion line); `✓`/`✗` and the status word in the cockpit; the drill-in transcript with the prompt, every tool row and the answer in order.
-
-## Not adopted, and why
-
-- **One rail line per workflow.** The reference can draw a whole workflow on one line because its script knows every agent up front. namzu's parent launches phase by phase, so the rail draws what exists: finished phases folded to one line, the live phase expanded.
-- **`Prompt` / `Activity` / `Outcome` sections in the agent view.** namzu's drill-in already shows the prompt (`›`), each tool row and the final answer (`∴`) in that order; three labels would cost three rows on a 24-row screen and add nothing that is not already on it.
-- **Right/Left to drill in and out.** namzu's cockpit uses ←/→ to move between panes and Enter to open an agent; changing that would change what those keys do.
-- **Terminal tab title.** The reference sets a live title (`◐ <short label>`). namzu writes to the terminal outside its frame only when the operator opts in, and only content-free text (`tui.notifications`); a title carrying a model-written workflow label needs the same opt-in and sanitising, so it is left for a change of its own.
-- **Wall-clock time in the closing line** (`done 9:15 AM`): namzu prints no clock times anywhere else.
-- **A `/workflows` list and "save".** D5: namzu has no workflow scripts; Ctrl+T and `/agents` are the workflow view.
+Kept from namzu: the per-batch launch receipt and per-agent completion rows with their collapsed answers; `✓`/`✗` and the status word in the cockpit; the drill-in transcript with the prompt, every tool row and the answer in order.
 
 ## Phase 1
 
@@ -80,16 +70,6 @@ Kept from namzu: the per-batch launch receipt and per-agent completion rows with
 ```
 
 ## Phase 2 running
-
-**Reference (≈10 s in; one line per workflow under the footer)**
-
-```text
-──────────────────────────────────────────────────────────────────────────────────────────────────────────── ultracode ─
-❯
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent
-  ◯ colour-sentence  Two agents each name a colour, then one agent joins them … 2/3 agents done · 10s · ↓ 40.4k tokens
-```
 
 **Before**
 
@@ -139,16 +119,6 @@ Kept from namzu: the per-batch launch receipt and per-agent completion rows with
 
 ## The cockpit
 
-**Reference (`/workflows` after the run)**
-
-```text
-   colour-sentence
-   Two agents each name a colour, then one agent joins them into a sentence                 3/3 agents · 12s · done
-   ╭ Phases ──────────────┬ Name colours · 2 agents ──────────────────────────────────────────────────────────────╮
-   │   ✔ Name colours 2/2 │  ✔ colour-1     Haiku 4.5 · 20.2k tok                                              4s │
-   │   ✔ Join         1/1 │ ❯✔ colour-2     Haiku 4.5 · 20.2k tok                                              6s │
-```
-
 **Before (Ctrl+T while Phase 2 runs)**
 
 ```text
@@ -192,21 +162,6 @@ Kept from namzu: the per-batch launch receipt and per-agent completion rows with
 ```
 
 ## Turn end
-
-**Reference**
-
-```text
-u
-  Get to finished work sooner with Opus 5.5. Switch anytime with /model.
-❯ /effort
-  ⎿  Set effort level to ultracode (this session only): xhigh + dynamic workflow orchestration
-❯ Use a workflow for this. Phase A: two agents in parallel, each names one colour in a single word. Phase B: one agent
-  joins the two colours into one short sentence. Keep every agent tiny (use the haiku model) and report the sentence.
-● Workflow(Two agents each name a colour, then one agent joins them into a sentence)
-  ⎿  /workflows to view dynamic workflow runs
-  ⎿  Allowed by auto mode classifier
-● The workflow is running in the background:
-```
 
 **Before**
 

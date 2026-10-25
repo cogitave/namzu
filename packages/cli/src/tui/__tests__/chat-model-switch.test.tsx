@@ -518,8 +518,8 @@ it('previews supported effort as requested and unsupported effort as unavailable
 		'Effort command did not execute',
 	)
 	expect(sent).toHaveLength(0)
-	await press(screen, '/effort ultracode')
-	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
+	await press(screen, '/effort megamode')
+	expect(screen.viewport().join('\n')).toContain('Effort: megamode · unavailable for this model')
 })
 
 it('turning hypermode on leaves the effort alone and says so', async () => {

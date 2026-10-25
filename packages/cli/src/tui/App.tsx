@@ -644,7 +644,7 @@ type ConversationExportDestination =
 const FREE_TEXT_ANSWER = '__free_text__'
 /**
  * The footer's shell pill as a stop in the rail's focus order: before `main`
- * and the agents, as the shells pill comes before the agents in the reference.
+ * and the agents: the shells pill comes before the agents.
  * It cannot collide with a view id or a `workflow:` focus id.
  */
 const SHELLS_FOCUS = 'shells'
@@ -3121,7 +3121,7 @@ export function App({
 			)
 			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
 			// No `notify()`: a message queued for the next turn does not release a wait the
-			// running turn is in (the reference queues it at `next` priority); the turn
+			// running turn is in (it is queued at `next` priority); the turn
 			// takes it at its next request boundary, an idle session wakes for it below.
 			setNoticeVersion((version) => version + 1)
 		})
@@ -3691,8 +3691,8 @@ export function App({
 	/**
 	 * Change the permission mode, now — including while a turn runs.
 	 *
-	 * It used to be refused until the current work settled. The reference
-	 * terminal applies the key at once, mid-turn, and so does this: the running
+	 * It used to be refused until the current work settled. Shift+Tab applies at once, mid-turn, and
+	 * so does this: the running
 	 * turn reads the mode at every decision (`SendOptions.currentPermissionMode`),
 	 * so the change governs its next tool call and every turn after. A dialog
 	 * already on screen is decided under the mode it was asked under; entering
@@ -3701,8 +3701,8 @@ export function App({
 	 * `approval_policy_changed`, which also tells the model once.
 	 *
 	 * `announce` is for a change asked for by name (`/permissions`), which gets
-	 * a reply. Shift+Tab is a reflex key: the footer is its reply, as it is in
-	 * the reference, and five presses no longer leave five transcript lines.
+	 * a reply. Shift+Tab is a reflex key: the footer is its reply, and five presses no longer leave
+	 * five transcript lines.
 	 */
 	/** The two modes that stop asking, as Shift+Tab and the picker see them right now. */
 	const permissionAvailability = useCallback(
@@ -4167,8 +4167,8 @@ export function App({
 	}, [hasUnsettledTurn, pushMessage, state])
 
 	/**
-	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`, the
-	 * reference's cycle. `auto` is a stop only when the session may use it
+	 * Shift+Tab: `prompt` → `accept-edits` → `plan` → `auto` → `prompt`. `auto` is a stop only when
+	 * the session may use it
 	 * (launched in it, or `--allow-dangerously-skip-permissions`); otherwise
 	 * plan returns to `prompt`. `strict` is a deliberate choice made by name
 	 * in `/permissions` and the key returns it to `prompt`. The change goes through the same path `/permissions`
@@ -9510,7 +9510,7 @@ export function App({
 				const text = value.trim()
 				// A command the host answers itself is never the agent's: it runs
 				// against the conversation, after asking where it changes history, and
-				// `/model` is refused. Other `/` text is for the agent. REA fn p3e/Ece.
+				// `/model` is refused. Other `/` text is for the agent.
 				const confirmed = mainCommandConfirmedRef.current === value
 				if (confirmed) mainCommandConfirmedRef.current = null
 				const parsed = confirmed ? null : parseSlash(text)
@@ -10808,7 +10808,7 @@ export function App({
 							try {
 								// The same lossless record `runTurn` reads — including an earlier
 								// compaction summary and attachments. The transcript is only its
-								// rendered view and is never reverse-engineered into history.
+								// rendered view and is never rebuilt into history.
 								const result = await session.compact(modelHistoryRef.current, slash.instructions)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
@@ -12536,8 +12536,7 @@ export function App({
 					// has ended it goes back to the conversation (its row lingers, the
 					// draft stays in the composer). Ctrl+C stops a running agent and goes
 					// back either way, and interrupts the conversation's own turn too if
-					// one is running. The reference does exactly this (REA fn Y_e and
-					// ese in chunk-2rs9vjmc.js).
+					// one is running.
 					if (key.escape) {
 						if (railActionFor(selected) === 'stop') {
 							session?.stopSubagent?.(selected.viewId)

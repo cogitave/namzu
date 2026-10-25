@@ -1,9 +1,9 @@
 /**
  * Which shell lines only read, so that they run without a prompt.
  *
- * The reference terminal runs `ls`, `cat`, `git status` and `git diff` without
- * asking, because each is on a vetted list and nothing in the line is decided
- * at run time. This is that list and those conditions (version 2.1.302):
+ * `ls`, `cat`, `git status` and `git diff` run without asking, because each is
+ * on a vetted list and nothing in the line is decided at run time. The list and
+ * the conditions are these:
  *
  * - every command of the line is on the list, the line parses completely, and
  *   nothing in it is read at run time: no `$var` outside single quotes, no
@@ -22,7 +22,7 @@
  *
  * Not ported, and so never read-only here: `sed`, `ps`, `lsof`, `ss`, `date`,
  * `man`, `xargs`, `fd`, `gh`, `docker logs|inspect`, `printf`, `[[`, `test`
- * and the shell builtins other than `cd`. The reference's check of the working
+ * and the shell builtins other than `cd`. The check of the working
  * directory for a planted bare repository needs the directory, which the tool
  * predicate does not get; the trusted-project gate is what stands in for it.
  *
@@ -35,7 +35,7 @@ import type { ShellDialect } from '../types/tool/index.js'
 import { FLAG_TABLES, type FlagTable } from './readonly-flags.js'
 import { type ShellWord, lexShellCommandLine } from './shell-lexer.js'
 
-/** Lines longer than this are not analysed (the reference's budget). */
+/** Lines longer than this are not analysed (the budget). */
 const MAX_LINE_LENGTH = 20_000
 
 /** Variables whose value cannot change what a command does. */
@@ -80,7 +80,7 @@ const SAFE_ENVIRONMENT: ReadonlySet<string> = new Set([
 	'GIT_TERMINAL_PROMPT',
 ])
 
-/** Commands that read and print, with any arguments (the reference's bare-safe list). */
+/** Commands that read and print, with any arguments (the bare-safe list). */
 const ANY_ARGUMENTS: ReadonlySet<string> = new Set([
 	'cal',
 	'uptime',
@@ -570,7 +570,7 @@ const GIT_CHECKS: Readonly<Record<string, Dangerous>> = {
 	},
 }
 
-// -- the commands with a regex of their own in the reference ----------------
+// -- the commands with a regex of their own ----------------
 
 function uniqIsReadOnly(args: readonly string[]): boolean {
 	for (let i = 0; i < args.length; i += 1) {

@@ -2,11 +2,9 @@
 
 ## Evidence
 
-Actual interactive runs of the installed original CLI used Sonnet 5.5. Two
-independent processes discovered each other by name and exchanged HELLO/ACK
-through local Unix sockets. The incoming peer message was attributed separately
-from operator input. See `artifacts/claude-native-observations.json`; busy peer
-delivery and different permission modes were not established by that experiment.
+Two independent processes discover each other by name and exchange messages
+through local Unix sockets. An incoming peer message is attributed separately
+from operator input.
 
 Source snapshots inspected without running their setup scripts:
 

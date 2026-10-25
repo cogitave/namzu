@@ -46,8 +46,7 @@ export interface PathEscalationContext {
  * a root that itself sits under a protected name is not a reason to ask about
  * every file in it. The case that matters is the managed worktree a sub-agent
  * runs in, `~/.namzu/projects/<slug>/worktrees/<name>`, which lies under
- * `.namzu` by construction; the reference terminal makes the same exception
- * for its own worktrees directory. A path in no root is looked at whole.
+ * `.namzu` by construction. A path in no root is looked at whole.
  */
 function protectedScope(absolute: string, roots: readonly string[]): string {
 	let best: string | undefined
@@ -194,7 +193,7 @@ export async function shellEscalations(
 				if (!context.reviewOutside) continue
 				if (unresolved) {
 					// A write whose target is decided at runtime cannot be checked; a
-					// read of one is left, as the reference leaves it.
+					// read of one is left alone.
 					if (use.access === 'write') outside.add(spelled)
 					continue
 				}

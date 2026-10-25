@@ -2,9 +2,9 @@ import type { AcpTask, ToolCallView } from '@namzu/sdk'
 import type { HistoryWorkSnapshot } from '../shared/history-work.js'
 import type { ChatMessage, ConversationView, DesktopEvent } from '../shared/protocol.js'
 
-// Saved and live work shaped like the reference's activity rows: narration between short action
-// rows, a counted summary over a run, and a running turn with a clock. Reached only through
-// /preview?activity=1 (saved turns) and /preview?live=1 (a running turn); nothing runs otherwise.
+// Saved and live work: narration between short action rows, a counted summary over a run,
+// and a running turn with a clock. Reached only through /preview?activity=1 (saved turns)
+// and /preview?live=1 (a running turn); nothing runs otherwise.
 export const activityConversationId = 'sample-activity'
 
 const command = (text: string, output: string): ToolCallView => ({
@@ -39,7 +39,7 @@ interface SampleTurn {
 const css = '.row {\n  padding: 4px;\n}\n'
 const sampleTurns: SampleTurn[] = [
 	{
-		// The finished turn of the reference: narration, two commands, a created file, the answer.
+		// A finished turn: narration, two commands, a created file, the answer.
 		id: 'a1',
 		prompt: 'Try adding a test line to an empty file.',
 		durationMs: 42000,

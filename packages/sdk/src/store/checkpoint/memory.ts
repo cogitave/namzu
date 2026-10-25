@@ -26,7 +26,7 @@ export interface InMemorySessionCheckpointStoreOptions {
  *
  * It keeps the serialised bytes rather than the object, so `restore` hashes
  * exactly what `write` hashed and refuses exactly what the disk store
- * refuses. It is the parity partner of the disk store and the store an
+ * refuses. It is the counterpart of the disk store and the store an
  * in-memory session keeps its checkpoints in.
  */
 export class InMemorySessionCheckpointStore implements SessionCheckpointStore {

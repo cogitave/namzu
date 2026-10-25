@@ -10,11 +10,11 @@ Run from the repository root:
 node research/transcript-motion-20261007/motion-proof.mjs .
 ```
 
-## Fixture and reference scope
+## Fixture scope
 
 The fixture reuses the isolated SDK journal and current CLI/ACP mapping in `../transcript-search-timing-20261007/artifacts/journal-fixtures.json`. Hosted search comes from the qualified provider-hosted ACP update, and the earlier-message lookup retains the exact `search_conversation` tool identity and public synthetic query. No command subgroup or source URL is invented from metadata.
 
-The live sequence is synthetic: commentary, completed tools, then actual pending reasoning. Its controlled clock reads six seconds while running, and it settles at fifteen seconds. Those durations test presentation; they are not measured provider latency. The user's supplied screenshots establish the requested composition: a muted timed work header with a hairline, commentary/actions inside, the current Thinking phase separately at the bottom, and the final answer outside the disclosure. No reference app DOM or pixel parity is claimed for those images.
+The live sequence is synthetic: commentary, completed tools, then actual pending reasoning. Its controlled clock reads six seconds while running, and it settles at fifteen seconds. Those durations test presentation; they are not measured provider latency. The composition is a muted timed work header with a hairline, commentary/actions inside, the current Thinking phase separately at the bottom, and the final answer outside the disclosure.
 
 The previous audit's local WAI geometry and live BeautifulUI/AI Elements reference captures remain in `../transcript-search-timing-20261007/`. This audit adds measured local motion rather than claiming that its easing reproduces an inaccessible reference animation.
 

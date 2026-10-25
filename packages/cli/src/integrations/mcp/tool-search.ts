@@ -4,19 +4,18 @@
  *
  * Every connected server's tools used to be sent in full on every request:
  * name, description and input schema. A large server does not fit. One
- * reverse-engineering server lists 207 tools whose definitions come to about
+ * server lists 207 tools whose definitions come to about
  * 792,000 characters, more than a 200,000-token window holds, so the first
  * message overflowed and compaction, which shortens the conversation, had
  * nothing it could shorten.
  *
- * The rule is the reference client's automatic tool search: when the
+ * The rule: when the
  * external servers' tool definitions come to 10% of the turn's context
  * window or more, they are deferred. The model then sees each tool's name and
  * the first sentence of its description, and loads the full definition with
  * `search_tools` before it calls one. Below the threshold nothing changes and
  * every tool stays loaded. Tokens are not counted here, so the size is
- * measured in characters at the reference's own fallback rate of 2.5
- * characters per token.
+ * measured in characters at a fixed rate of 2.5 characters per token.
  *
  * Decided per turn, not per session: the window belongs to the turn's model,
  * and a switch to a smaller model has to defer what a larger one could carry.
@@ -28,7 +27,7 @@ import { type ToolDefinition, type Toolset, deferred, toolWireSchema } from '@na
 /** Share of the context window, in percent, external tool definitions may take while still loaded up front. */
 export const MCP_TOOL_SEARCH_PERCENT = 10
 
-/** Characters per token where tokens are not counted; the reference's fallback rate. */
+/** Characters per token where tokens are not counted. */
 const CHARS_PER_TOKEN = 2.5
 
 /**

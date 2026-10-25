@@ -6,8 +6,8 @@ import type { ToolCallSummary } from '@namzu/sdk'
 /**
  * The file plan mode may write.
  *
- * The reference terminal keeps one plan file per session, named by a session
- * slug, in a plans directory under its config home. Here the session already
+ * One plan file is kept per session, named by a session
+ * slug, in a plans directory under the config home. Here the session already
  * has a directory of its own, so the file is `plans/plan.md` inside it
  * (`SessionPaths.planFile`): `~/.namzu/projects/<slug>/<session-id>/plans/plan.md`.
  * There is no separate plans-directory setting.

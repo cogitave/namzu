@@ -36,7 +36,7 @@ describe('Codex external protocol projection', () => {
 			{ id: 'native-model', label: 'Native model', effortLevels: [], defaultEffort: undefined },
 		])
 	})
-	it('writes display names the way the Codex app does and flags the default row', () => {
+	it('writes spaced display names and flags the default row', () => {
 		const labels: [string, string][] = [
 			['GPT-5.6-Sol', 'GPT-5.6 Sol'],
 			['GPT-6.1-Sol', 'GPT-6.1 Sol'],

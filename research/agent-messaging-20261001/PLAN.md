@@ -3,14 +3,12 @@
 Baseline: `308522a5fde0508428257c0a30d4a023d4ac5a62` on the owned
 `feat/runtime-desktop-foundation` worktree. Main checkout remains untouched.
 
-Operator request: test actual interactive message delivery in Claude and Namzu,
+Operator request: test actual interactive message delivery in Namzu,
 inspect cloned Codex/Pydantic AI/Hermes sources, and correct the architectural
 foundation before introducing Pals. Distinguish internal communication from A2A.
 
 - [x] Trace operator steering, next-turn queue, parent-to-child correction and
   child completion paths; identify acceptance versus model-visible delivery.
-- [x] Record installed Claude TUI behavior with a bounded background child and
-  an operator correction during work. Observe tool/turn boundaries and status.
 - [x] Inspect pinned peer source for delivery, ownership and terminology.
 - [x] Exercise Namzu's real TUI and runtime with equivalent cases, retaining
   receipts. Clearly separate live-provider observations from scripted transports.

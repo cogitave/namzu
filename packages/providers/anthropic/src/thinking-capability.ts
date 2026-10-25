@@ -167,7 +167,7 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 			//
 			// SOURCED, NOT MEASURED, and the distinction is recorded because
 			// this file has been wrong from exactly this evidence class
-			// before. The reference states this model's availability twice: it
+			// before. The published model table states this model's availability twice: it
 			// is in the `max` list both times and in the `xhigh` list neither,
 			// and it says outright that some models supporting `max` do not
 			// support `xhigh`. The model is not reachable from the tenant used

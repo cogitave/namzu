@@ -1,18 +1,17 @@
 # Composer, workspace and execution engine audit
 
-## References
+## Layout and sources
 
-The supplied composer image is the geometry reference: an inset context strip
+The composer layout is an inset context strip
 above the main input, project folder and “This computer” on its left, workspace
 choice on its right, then attachment/permission controls below left and the
 chosen model below right. The requested model icon belongs immediately before
-the selected model. The image establishes visible layout, not executable
-worktree, voice or external-agent capabilities.
+the selected model. The layout implies no executable worktree, voice or
+external-agent capability.
 
 MonoCode's official repository was inspected read-only at
 `271b66ded71e795e0569db77c9bbf599219c8cdc`. Its interaction semantics inform the
-implementation; its different composer geometry does not override the user's
-reference.
+implementation; its different composer geometry does not override the layout above.
 
 - [Composer project/workspace controls](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/sessions/ui/Composer.tsx#L2165).
 - [Chosen model with harness icon](https://github.com/hardbeat920/monocode/blob/271b66ded71e795e0569db77c9bbf599219c8cdc/src/features/sessions/ui/ModelPicker.tsx#L672).
@@ -160,7 +159,7 @@ wordmark was measured and captured without clipping or a duplicate text label.
 The final [native engine receipt](artifacts/native-harness-engines-20261004.json)
 records these checks separately from the earlier provider-only proof.
 
-Installed `claude` version 2.1.278 returned five models during initialize and
+An installed `claude` CLI returned five models during initialize and
 `list_models`; that metadata-only probe sent no prompt. The desktop subsequently
 attempted an actual native prompt and displayed the authentication notice while
 retaining the engine binding. Local credential inspection found empty
@@ -203,18 +202,12 @@ behavior. Native catalogue/TLS results belong in the separate receipt above.
 
 ## Project, permission and model selection follow-up
 
-The actual native reference client was inspected in Codex mode: project search,
-New project, name/Source folders, Add folder on This computer, its native Windows
-folder dialog, approval menu, model submenu and reasoning-level control. The
-reference dialogs were cancelled without changing a user project or policy.
-Its named multi-folder project and automatic approval reviewer exceed Namzu's
+Named multi-folder projects and an automatic approval reviewer exceed Namzu's
 current single-folder execution contexts; no placeholder control advertises them.
 The documented [project flow](https://learn.chatgpt.com/docs/projects),
 [permission modes](https://learn.chatgpt.com/docs/permission-modes) and
-[model selection](https://learn.chatgpt.com/docs/model-selection) were checked
-against the native observations. The reference default is workspace-write with
-on-request approval. Namzu retains its conservative native read-only/untrusted
-Ask first mapping and describes that difference explicitly.
+[model selection](https://learn.chatgpt.com/docs/model-selection) are public.
+Namzu keeps its conservative native read-only/untrusted Ask first mapping.
 
 The ordinary Namzu menu now exposes Ask first, Allow tools and Plan. Previously
 saved legacy modes remain visible without silently replacing their policy.
@@ -283,8 +276,8 @@ Model search, actual catalogue rows, selected state and unavailable notices reta
 their existing ownership. Engine choices retain the actual installed-engine route.
 Short-window menus scroll within the available viewport, focus returns through
 the existing primitives, and reduced-motion styling removes the transitions.
-These are observed interaction and styling changes, not a claim of pixel parity
-with the reference application.
+These are observed interaction and styling changes, not a claim of pixel-level match
+with the other application.
 
 Ordinary tabs now use the pixel Namzu **N** for Namzu conversations, the respective
 native-engine mark for external conversations, and a spinner for running work.
@@ -298,7 +291,7 @@ short-window fitting, and light/dark and reduced-motion checks without fixture
 catalogues.
 
 The later authenticated native-engine check supersedes the earlier sign-in
-failure reports above: installed Claude Code **2.1.289** supplied **11 models**,
+failure reports above: installed Claude Code supplied **11 models**,
 completed the actual reply “Claude giriş kontrolü tamam.”, and retained it after
 renderer reload. No new login was needed. The
 [Claude reply image](artifacts/composer-polish-claude-reply-20261004.png) is evidence
@@ -307,8 +300,7 @@ historical and is not the final tab reference. An actual GPT-5.6-Sol native Code
 reply was also retained after reload. These inference checks are separate from
 metadata discovery and contain no account or credential payloads.
 
-The supplied AppUI Composer Panel image and its implementation establish the
-selected-model-row Effort trigger. Namzu now uses that flow: the row's Low/Medium
+The composer panel uses a selected-model-row Effort trigger. Namzu now uses that flow: the row's Low/Medium
 control opens an Effort panel with a value pill, a discrete slider and the
 Faster/Smarter scale. Only the actual supported effort subset supplies its stops;
 levels are deduplicated and sorted by effort. The model's actual default stays

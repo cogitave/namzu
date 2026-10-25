@@ -206,7 +206,7 @@
   },
   "limits": [
     "Published-package installs/releases and remote hosts are outside this native proof.",
-    "The installed guest applications are Chromium, xterm and Files; other applications in the reference are not installed.",
+    "The installed guest applications are Chromium, xterm and Files.",
     "Delete Pal has no saved-profile deletion API and is explicitly disabled; the computer plus control is disabled while its only actual tab is already open.",
     "No external model turn or authenticated browser account was exercised.",
     "Screenshots stay in the private local development folder; device names, credentials, endpoints and page contents are omitted from this receipt.",

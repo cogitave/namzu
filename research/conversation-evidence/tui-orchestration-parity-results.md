@@ -1,4 +1,4 @@
-# Orchestration TUI parity, verified in the real TUI
+# Orchestration TUI, verified in the real TUI
 
 Date: 2026-09-23
 
@@ -6,7 +6,6 @@ Scope: the two-phase, three-child colour prompt ("Delegate this to subagents in 
 
 - **Before**: `origin/main` at 92270560 (namzu 28.1.0).
 - **After**: `feat/orchestration-tui-parity`.
-- **Reference**: the Claude Code capture of the same prompt (auto mode, medium effort; its Phase 2 was interrupted by the capturing harness).
 - **Real model**: one run of the branch with the owner's codex / gpt-5.6-luna configuration, orchestrate on, prompt mode.
 
 Frames were captured at 120x40, 100x30, 80x24 and 40x30; the excerpts below are 120x40 unless named, with the boot notices left out.
@@ -34,18 +33,6 @@ Found and fixed on the way: settled rows were laid out as wide as the terminal r
 
 
 ## Effort picker
-
-**Reference**
-
-```text
-▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ◐ medium · /effort ▔
-   Effort
-                             Faster                                                 Smarter
-                             ──────────▲────────────────────────────────┆──────────────────
-                             low     medium     high     xhigh      max       ultracode
-                                                                          xhigh + workflows
-   ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
-```
 
 **Before**
 
@@ -79,25 +66,6 @@ Found and fixed on the way: settled rows were laid out as wide as the terminal r
 ```
 
 ## Phase 1 running
-
-**Reference (t=4 s)**
-
-```text
-     and testing
-❯ Delegate this to subagents in two phases. Phase 1: two agents in parallel, each names one colour in a single word.
-  Phase 2: one agent joins the two colours into one short sentence. Keep every agent tiny and report the sentence.
-● Running 2 agents…
-   ├ Name a colour · 0 tool uses
-   │ ⎿  Initializing…
-   └ Name another colour · 0 tool uses
-     ⎿  Initializing…
-✽ Metamorphosing… (3s · ↓ 86 tokens)
-  ⎿  Tip: Use git worktrees to run multiple Claude sessions in parallel.
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← 1 agent
-```
 
 **Before**
 
@@ -183,31 +151,6 @@ Found and fixed on the way: settled rows were laid out as wide as the terminal r
 ```
 
 ## Turn end
-
-**Reference**
-
-```text
-❯ Delegate this to subagents in two phases. Phase 1: two agents in parallel, each names one colour in a single word.
-  Phase 2: one agent joins the two colours into one short sentence. Keep every agent tiny and report the sentence.
-● 2 background agents launched (↓ to manage)
-   ├ Name a colour
-   └ Name another colour
-● Phase 1 is running: two agents are each naming a colour. When both reply, I'll start Phase 2 to join the colours into
-  one sentence.
-✻ Waiting for 2 background agents to finish
-› Message from @a5ffb55c1a6027fa3 (ctrl+o to expand)
-› Message from @a51f96276e760e602 (ctrl+o to expand)
-  ⎿  Interrupted · What should Claude do instead?
-● Agent "Name a colour" finished · 11s
-● Agent "Name another colour" finished · 15s
-● Phase 1 finished and the two agents picked Blue and Green. You interrupted before Phase 2 started, so no agent has
-  joined them into a sentence yet. Should I run Phase 2 now?
-✻ Cogitated for 23s · done 2:20 AM
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯ yes, run phase 2
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent
-```
 
 **Before**
 

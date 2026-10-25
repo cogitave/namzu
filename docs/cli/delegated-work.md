@@ -343,7 +343,7 @@ afterwards (at most 8,000 tokens from a limited turn), and is skipped when the
 turn has no room or its own request is in flight. Agents inside a
 `workflow` run keep their `label`. ↓ in an empty
 composer moves into it, where Enter views an agent on the main screen (the one
-composer stays live and talks to it) and `x` stops it. Workflows and subagents are kept apart, as in the reference terminal. A
+composer stays live and talks to it) and `x` stops it. Workflows and subagents are kept apart. A
 subagent is an agent the model started without a `workflow` label: it has an
 agent row. A workflow is the set of agents started with the same `workflow`
 label: it has no agent rows at all, only one row after the agent rows (`◯ name

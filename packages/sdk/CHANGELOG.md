@@ -36,7 +36,7 @@
 
 ### Minor Changes
 
-- c230860: Make `edit` recover a few `old_string` near-misses instead of failing, matching the reference terminal's resolver and order: a straight quote against the file's curly one (or the reverse), and a `\uXXXX` escape where the file holds the character (or a character where the file holds the escape). The matched span is a real substring of the file, so the uniqueness rule still applies and the same transformation is carried onto `new_string`. A whitespace or indentation difference is still not recovered — the error continues to tell the model to match those exactly. A deletion (empty `new_string`) now takes the matched line's trailing newline with it, so removing a whole line no longer leaves a blank one behind. The CRLF/LF reconciliation this kernel already did is unchanged.
+- c230860: Make `edit` recover a few `old_string` near-misses instead of failing, in a fixed order: a straight quote against the file's curly one (or the reverse), and a `\uXXXX` escape where the file holds the character (or a character where the file holds the escape). The matched span is a real substring of the file, so the uniqueness rule still applies and the same transformation is carried onto `new_string`. A whitespace or indentation difference is still not recovered — the error continues to tell the model to match those exactly. A deletion (empty `new_string`) now takes the matched line's trailing newline with it, so removing a whole line no longer leaves a blank one behind. The CRLF/LF reconciliation this kernel already did is unchanged.
 
 ## 52.5.0
 
@@ -119,7 +119,7 @@
 ### Major Changes
 
 - 5258c05: The `bash` tool no longer kills a foreground command that outruns its `timeout` when the turn has a background job registry (the CLI session, and any host that passes `QueryParams.backgroundJobs`). Before, the command was stopped and the call failed with `timedOut`. Now the same process is moved to a background job: the call succeeds, returns the output so far and a line naming the job, and the command keeps running until it ends or is stopped. The model awaits it with `wait_for_job`, reads it with `job` and stops it with `job` action `kill`, and is told when it ends. A host that relied on the timeout to stop a runaway command must now set `NAMZU_DISABLE_BACKGROUND_TASKS=1` (also refuses `run_in_background`) to keep the old kill, or stop the job itself. Unchanged: no registry, a sandboxed turn, a sandbox escape, a command that only runs `sleep`, and an owner at its job limit all still kill at the timeout. New and optional: `BackgroundJobRegistryRef.adopt`, `StartJobParams.initialOutput` and `hostOutput`, and the `onTimeout` option and `backgroundedJobId` result of `execHostShell`.
-- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger as the reference terminal does: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
+- 5258c05: The default point at which older history is summarised changes. `compactionConfig.triggerThreshold` no longer defaults to `0.7`; it is optional, and when absent the kernel derives the trigger as follows: the window, less room for the reply (the model's output cap, at most 20,000 tokens), less a 13,000-token buffer. That is 167,000 tokens (83.5%) of a 200,000-token window and 967,000 (96.7%) of a 1,000,000-token one, and never less than half the window. A host with long contexts compacts later than before, so a conversation keeps more of its history and runs closer to the provider's limit.
 
   The type of `triggerThreshold` is now `number | undefined` (it was `number` after parsing), so code that reads it from a parsed `CompactionConfig` must handle `undefined`; `resolveTriggerThreshold(configured, windowTokens, maxOutputTokens?)` is exported and returns the fraction actually used.
 
@@ -127,7 +127,7 @@
 
   The CLI no longer sets 0.7 and takes the derived trigger; its footer meter and `/context details` read the same function.
 
-- 5258c05: The file tools follow the reference terminal's rules, and four defaults change.
+- 5258c05: The file tools have new rules, and four defaults change.
 
   **What breaks, and what to do:**
 
@@ -145,14 +145,14 @@
 
   Breaking, in the order a hook author meets them:
 
-  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine as the reference terminal's do: a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
+  - **Hooks of one event now run in parallel.** They used to run one after another (`post_*` in reverse registration order), each seeing the previous hook's `modify`, and a refusal stopped the chain. Now all of an event's hooks start together on the same original context and nothing short-circuits. Their answers combine by one rule: a refusal beats `ask`, which beats `allow`; of several rewrites (`modify`, `replace`) the last in priority/registration order wins and no hook sees another's rewrite; every `context` is kept and every `halt` honoured. A hook that relied on running after another (a formatter before a linter) must be one script or one hook. Plugins that registered with `priority` still get the first refusal quoted in priority order, but priority no longer sets who starts first.
   - **The default hook deadline is ten minutes, not 30 s** (`DEFAULT_SHELL_HOOK_TIMEOUT_MS`, and `HOOK_TIMEOUT_MS` for the lifecycle manager's own per-hook limit, which was 5 s). To keep the old limit set `timeoutMs: 30000` on the hook (shell hooks), or `hookTimeoutMs` on the plugin manager or in the CLI's `plugins` config.
   - **Exit code `2` now acts** where it used to be logged and ignored: on `turn_end` and `subagent_stop` it keeps the model working, with stderr as its next message (the turn's iteration limit still ends a hook that never relents); on `pre_compact` it cancels a compaction the context threshold asked for (never one the provider forced); on `post_tool_use` the stderr is shown to the model beside that call's result. A hook that exits `2` on these events by habit and meant "ignore" should exit `1`, which is still logged and ignored.
   - **JSON on stdout is now read.** A hook that exits `0` and prints a JSON object starting with `{` is taken as an answer. A hook that printed such text on purpose and wants it left alone should not start its output with `{`.
 
   `@namzu/cli` is major for the same reasons: its `hooks:` config key is where these behaviours are reached, and a configured hook behaves differently for the same input.
 
-- 5258c05: `web_fetch` now works like the reference terminal's WebFetch, which changes its input and its default output.
+- 5258c05: `web_fetch` changes its input and its default output.
 
   What breaks, and what to do:
 
@@ -169,7 +169,7 @@
 
 - 5258c05: `ask_user_question` can ask up to four related questions in one call and returns one answer per question. The model-facing input is now `{ questions: [...] }`; the older single-question input (`question`, `options`, … at the top level) is still accepted as a batch of one, so nothing that sends it needs to change. A host that does not know about batches keeps working: `UserQuestionData` gains an optional `questions` list whose first entry its existing fields mirror, so it shows and answers the first question and the rest read as not answered. A host that does know sends `answer_question.answers` with one `{ questionId, selectedOptionIds, freeText? }` per question it has an answer for (a missing entry means not answered); the question ids are `<tool_use_id>#<index>`. An option can carry an optional `preview` for a host to show beside the list. Question texts and headers must be unique within one call.
 - 5258c05: A host can now feed a turn hidden reminders, and give plan mode one writable file. Everything is opt-in; a host that passes none of it sees no change. `QueryParams.reminders` takes a `ReminderSource`, which the kernel calls before every model request of the turn (except the closing one a limit forces) with the session, turn, iteration and the conversation so far; each text it returns is appended as a user-role runtime message of the new kind `'reminder'` (`isReminderMessage` recognises it), kept in the durable history and never counted as operator input, so a source can read the history to set its own cadence. `ReviewPolicyOptions.planModeWrite` names the one call `plan` mode lets through (outside the roots, overwriting, and without a question); left out, plan mode refuses every change as before, and the option does nothing in any other mode. `SessionPaths.plans()` and `planFile()` give a session's plan directory and its `plans/plan.md`. `RUNTIME_CONTEXT_MESSAGE_KINDS` gains `'reminder'`, so a `switch` over `RuntimeContextMessageKind` with no default branch now needs a case for it.
-- 5258c05: Context limits follow Claude Code, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
+- 5258c05: Context limits are derived from the model's window, and every new rule that stops something is opt-in in the SDK. Nothing a host gets without asking changes in this entry.
 
   SDK, all additive:
 
@@ -184,7 +184,7 @@
   - `/compact <text>` steers the summary.
   - The CLI turns on `maxOutputContinuations: 3` and `circuitBreaker`, so a looping model or a window that refills stops the turn with a one-line explanation.
 
-- 5258c05: Read-only shell commands no longer ask. `ls`, `cat`, `head`, `wc`, `git status`, `git diff`, `git log`, `git show` and the rest of the reference terminal's vetted list run without a prompt in `prompt` and `accept-edits`, are allowed in `plan`, and run beside other read-only tool calls instead of one at a time. Anything the list does not vouch for still asks: a write redirection, a `$variable`, a substitution, a subshell, a here-document, a glob on a command that is not a plain reader, `cd` next to `git`, and any git flag outside the vetted table (`--output`, `-c`, `--exec-path`, `--config-env`, `fetch`, `commit`, branch or tag creation).
+- 5258c05: Read-only shell commands no longer ask. `ls`, `cat`, `head`, `wc`, `git status`, `git diff`, `git log`, `git show` and the rest of the vetted list run without a prompt in `prompt` and `accept-edits`, are allowed in `plan`, and run beside other read-only tool calls instead of one at a time. Anything the list does not vouch for still asks: a write redirection, a `$variable`, a substitution, a subshell, a here-document, a glob on a command that is not a plain reader, `cd` next to `git`, and any git flag outside the vetted table (`--output`, `-c`, `--exec-path`, `--config-env`, `fetch`, `commit`, branch or tag creation).
 
   What changes for you: a turn that used to stop at `git status` now runs it. A read-only command that reads outside the working directory and added directories is still asked about, and so are protected paths and catastrophic removals. If you embed the SDK and rely on `bash` never being exempt from review, a host that wants the old behaviour passes its own `isReviewExempt` that returns false for `bash`.
 
@@ -196,7 +196,7 @@
 
   `namzu.config.local.json` is added to the SDK's protected paths, so a model write to it is asked about in every mode.
 
-- 5258c05: Three safety floors follow the reference terminal, so a turn in `auto` (`--yolo`) now stops and asks where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
+- 5258c05: Three safety floors now stop a turn in `auto` (`--yolo`) and ask, where it used to run silently. No exported name, option or default value changes; `ToolCallEscalation` gains two optional fields (`protectedPaths`, `dangerousRemoval`).
 
   What changes for you:
 
@@ -218,7 +218,7 @@
 
 ### Minor Changes
 
-- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait) the way the reference terminal does, instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
+- 9e63191: The terminal now retries a model call that fails for a reason that may pass (a dropped connection, a 5xx, an overloaded server, a rate limit with a short wait) instead of stopping after three tries. It tries ten times, waits from half a second doubling to thirty-two seconds with a little added on top, treats a `Retry-After` as a minimum, gives up on a wait longer than a minute (the reply then pauses and Enter tries again), and believes a provider that says `x-should-retry: false`. A reply cut off by a dropped connection starts over and the half-drawn text is taken back. While it waits, the Working row reads `Retrying in 5s · attempt 2/10` and counts down; Esc interrupts it. Nothing needs changing in your setup.
 
   SDK: `ProviderRetryConfig` gains optional `jitter` (`'full'` or `'proportional'`), `retryAfter` (`'exact'` or `'floor'`) and `retryMidStream`, `ProviderRetryNotice` and the `provider_retry` event gain an optional `restart`, `ProviderRequestError` gains `shouldRetry` (only `false` is acted on), `providerHttpError` takes `shouldRetry`, and `providerVendorError` reads `x-should-retry`. No default changed: `maxRetries` is still 3, jitter still full, `Retry-After` still exact, a stream that failed after output is still not retried unless a host sets `retryMidStream` (a host that does must drop what the failed attempt showed when it sees `restart`; the turn drops its own copy). Hosts that want the terminal's numbers pass them in `query({ retry })`.
 
@@ -2340,7 +2340,7 @@ worktrees}/`. `SessionPaths`, `ensureProject`, `slugForCwd` and `tempRoot`
 
 - 449642e: Add `/orchestrate`, a session mode layered above reasoning effort rather than inside it.
 
-  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as `ultracode` does today. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
+  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as the mode's earlier name did. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
 
   `@namzu/sdk`: `codingAgentDoctrineContribution` gains an optional `orchestrate` field on `CodingAgentDoctrineOptions`, and a new exported `CODING_AGENT_ORCHESTRATE_DOCTRINE` constant. Passing `orchestrate: true` (and leaving `delegation` at its default) appends that text after the existing delegation doctrine. Leaving the new field unset — the only behavior any existing caller can observe — renders byte-identical output to before this field existed. No default changed and no export was renamed or removed, so this is additive for every current consumer.
 
@@ -8074,7 +8074,7 @@ progress in <a local notes directory>/...` — a runtime error
     returns 404, to explain the doctor's protocol/runtime split. The split is now
     explained in the sentence itself.
   - `@namzu/sdk` source comments cited design documents by path. They cite the
-    session by name instead, which is what the reference was ever worth.
+    session by name instead, which is all such a citation was ever worth.
 
   No API, type, or behaviour change. The `@namzu/sandbox` message text is the
   only runtime string affected, and nothing asserts on it.
@@ -11410,7 +11410,7 @@ z.ZodArray`) will take a different branch. If you relied on the permissive
 
   Comments across the kernel explained namzu's design by naming another
   product: "mirrors X's container architecture", "reference: X's
-  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "another tool
   uses 2000 for the same reason". Behaviour was correct throughout — this is
   about what the code says it is. A kernel that explains itself by citation
   reads as a reimplementation of something else, and namzu is not one.
@@ -13149,7 +13149,7 @@ z.ZodArray`) will take a different branch. If you relied on the permissive
   That is the failure the rule exists for. A design explained by reference to
   somebody else's product has handed over its rationale: the next reader
   reaches for that product's model instead of asking what namzu is trying to
-  achieve, and when the reference changes the comment becomes a claim nobody
+  achieve, and when that product changes the comment becomes a claim nobody
   can check. Each one now states the same decision on its own terms — what it
   accomplishes, and what breaks without it.
 
@@ -13902,10 +13902,10 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
   host side before calling `Agent`, and updating it on the host
   side once the tool result is in hand.
 
-- ea21863: feat(sdk)!: rename builtin tools to Claude Code canonical names
+- ea21863: feat(sdk)!: rename builtin tools to canonical names
 
-  **Breaking change.** Builtin tool names now mirror Claude Code's canonical
-  tool table verbatim (per `code.claude.com/docs/en/tools-reference`):
+  **Breaking change.** Builtin tool names now use the canonical
+  names listed below:
 
   - `bash` → `Bash`
   - `edit` → `Edit`
@@ -13915,16 +13915,14 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
   - `write_file` → `Write`
 
   `LsTool` and `SearchToolsTool` are still exported but **removed from the
-  default `getBuiltinTools()` set**. Claude Code's training distribution
+  default `getBuiltinTools()` set**. The canonical set
   does not include `LS` (directory listing is `Bash` + `Glob`) and has no
   `search_tools` analogue at all. Including them in the defaults gave the
   model two tools that looked right but degraded alignment. Hosts that
   genuinely want either can register them explicitly.
 
-  Why this is breaking and worth it: Namzu is a peer to Claude Code's
-  native agentic surface, not a wrapper around the Anthropic Beta Agents
-  API. Mirroring the canonical names verbatim means Claude's pretrained
-  agentic instincts apply for free — no system-prompt argument needed to
+  Why this is breaking and worth it: Namzu is not a wrapper around the Anthropic Beta Agents
+  API. Using the canonical names verbatim means the model's agentic habits apply for free — no system-prompt argument needed to
   explain what `Read` or `Bash` does. Idiosyncratic snake_case names threw
   that alignment away on every call.
 
@@ -14055,7 +14053,7 @@ mkdir '/Users'` crash that hit sibling-container deployments.
     branched on the env, only logged it; size grew with the skill
     list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
 
-  The reference Dockerfile pre-creates **only the parent directories**
+  The image pre-creates **only the parent directories**
   `/mnt`, `/mnt/user-data`, `/mnt/skills` — root-owned, mode 0555.
   Leaf paths (`outputs/`, `uploads/`, `tool_results/`, `transcripts/`,
   `<skill-id>/`) are intentionally NOT pre-created. When a bind is
@@ -14095,8 +14093,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
 
   Adds `buildAgentTool({ gateway, workingDirectory, allowedAgentIds, ... })`
   that builds a single tool named `Agent` with the input shape
-  `{ description, prompt, subagent_type }`. This mirrors Claude Code's
-  training distribution verbatim (per `code.claude.com/docs/en/sub-agents`):
+  `{ description, prompt, subagent_type }`. The tool's behaviour is:
   the parent's tool call BLOCKS on `gateway.waitForTask(handle.taskId)`,
   the subagent runs in its own context window, and the subagent's final
   text comes back as the tool result.
@@ -14113,7 +14110,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
 
   Both surfaces remain available — the coordinator trio is the right
   choice for genuine work-queue surfaces, the `Agent` tool is the
-  right choice when the host wants Claude Code parity.
+  right choice when the host wants the blocking `Agent` tool.
 
 - 265150b: feat(sdk): default sandboxed verification gate preset + expanded brick-pattern denylist
 
@@ -14146,7 +14143,7 @@ test:smoke`) runs an opt-in docker integration test exercising the
   child level (deny dangerous shell patterns, restrict by category) can now
   pass the same preset they pass to the supervisor.
 
-- d6b5bc1: **Remove the legacy `append` file tool.** `AppendFileTool` is gone — it was already excluded from `getBuiltinTools()` (Claude Code's tool distribution has no `Append`), and appending is canonical `edit` with `insertLine: "end"`. The export is removed from the public surface; hosts that relied on it should switch to `edit`. namzu's CLI no longer needs to filter `append` out of its tool set.
+- d6b5bc1: **Remove the legacy `append` file tool.** `AppendFileTool` is gone — it was already excluded from `getBuiltinTools()` (the default set has no `Append`), and appending is canonical `edit` with `insertLine: "end"`. The export is removed from the public surface; hosts that relied on it should switch to `edit`. namzu's CLI no longer needs to filter `append` out of its tool set.
 - 63b4885: feat(sdk): forward sandboxProvider through reactive/supervisor agents
 
   `ReactiveAgentConfig` and `SupervisorAgentConfig` gain an optional

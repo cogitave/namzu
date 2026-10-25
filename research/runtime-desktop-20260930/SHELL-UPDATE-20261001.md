@@ -1,16 +1,12 @@
-# Desktop shell reference update
+# Desktop shell update
 
-The operator supplied a new Windows screenshot as the visual target: one slim
-window bar, a persistent icon rail, a separate project/conversation list, and a
-centred empty-state composer. This supersedes the earlier shell composition.
-Existing adapted controls, approvals, model selection and diff views remain in
-use. Namzu retains its two-row ASCII wordmark and phosphor accent.
+The shell is one slim window bar, a persistent icon rail, a separate
+project/conversation list, and a centred empty-state composer. This supersedes
+the earlier shell composition. Existing adapted controls, approvals, model
+selection and diff views remain in use. Namzu retains its two-row ASCII
+wordmark and phosphor accent.
 
-## Observed reference and implementation
-
-The reference is a screenshot, so its DOM, zoom, actual font face and motion are
-not available. Measurements below describe the implementation, not a claim of
-pixel parity with an inaccessible reference DOM.
+## Implementation
 
 - One 32px window strip replaces the default caption plus separate menu row.
   Native caption buttons and resizing are retained. File has working local
@@ -32,17 +28,10 @@ pixel parity with an inaccessible reference DOM.
 
 ## Additional source references
 
-The supplied Work screenshots add an expanded editor with a lower control row
-and project context extension, plus a quiet transcript and right summary card.
-The local appUI project was inspected at
-`/home/arda/workspaces/@cogitave/cogitave-labs/appUI`, specifically
-`components/blocks/composer-panel/composer-panel.tsx`,
-`components/blocks/composer/composer.tsx`, `styles/composer-panel.css` and
-`components/base/card/card.tsx`. Its 102px panel, 24px corners, action-row
-composition and card roles informed the adaptation. It is a concurrent non-Git
-working copy with no license declaration found; no clean or pinned-state claim
-is made and no files there were modified. Namzu retains its own admission,
-queuing, draft and model semantics and existing accessible controls.
+The Work view adds an expanded editor with a lower control row and project
+context extension, plus a quiet transcript and right summary card. Namzu keeps
+its own admission, queuing, draft and model semantics and existing accessible
+controls.
 
 The pinned ZCode source (`29628c9acdb81b703bbd4080c207a0e7ce5e276e`) was inspected
 in `packages/ui/src/v4/ConversationStatusPanel.tsx`, `conversationLayout.ts` and

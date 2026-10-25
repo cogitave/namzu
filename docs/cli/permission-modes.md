@@ -21,7 +21,7 @@ A mode decides what happens to a call that no rule decided. The `[permissions]` 
 | `auto` | **Auto** | what a second model allows | the same list, and what the classifier blocks |
 | `strict` | **Preapproved tools only** | only calls a rule allows | nothing is asked: the rest is refused |
 
-`strict` is the reference's `dontAsk`: for a run where nobody can be asked and every call must be pre-decided.
+`strict` is for a run where nobody can be asked and every call must be pre-decided.
 
 ## Reaching a mode
 

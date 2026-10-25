@@ -385,7 +385,7 @@ describe('rail rows', () => {
 		).toBe('10s · ↑ 950 tokens')
 	})
 
-	// Reference (REA fn p0e): the arrow is up until the agent has done its first
+	// The arrow is up until the agent has done its first
 	// thing, down after; no figure at all for zero.
 	it('points the token arrow up until the first tool call and down after it', () => {
 		const spent = { viewId: 'a', tokens: 1_200 }

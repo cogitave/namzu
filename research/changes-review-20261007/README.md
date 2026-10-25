@@ -1,8 +1,8 @@
 # Changes review view, 2026-10-07
 
-Proof for the Changes tab review view against the reference (the Codex Changes tab: scope pill with totals,
-one file's diff on the left, filterable file tree with per-file counts on the right). Layout and density follow
-the reference; wording is ours.
+Proof for the Changes tab review view (scope pill with totals,
+one file's diff on the left, filterable file tree with per-file counts on the right). Layout and density are
+chosen for this view; wording is ours.
 
 Re-run with the desktop dev server up: `node research/changes-review-20261007/capture.mjs` (it prints PASS/FAIL checks and rewrites `artifacts/`).
 
@@ -18,5 +18,4 @@ Checks the capture asserts (PASS/FAIL on stdout): a card file row opens Last rep
 (`aria-selected` on exactly one tree row), the binary header has no `+0 −0`, Open file on an uncommitted path adds its tab,
 `]` steps files, the filter narrows the tree, no horizontal scroll at 900 px.
 
-Compare against the reference `images/12.png`: scope pill plus totals at top left, toolbar at right, one diff left, filterable tree right.
 Rerun: start the dev server, then `node research/changes-review-20261007/capture.mjs` from the repo root.

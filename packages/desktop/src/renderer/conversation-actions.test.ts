@@ -55,7 +55,7 @@ const find = (value: ConversationActionInput, id: ConversationActionId) =>
 		.find((entry) => entry.id === id)
 
 describe('the actions matrix', () => {
-	it('offers everything for a Namzu conversation, in the reference order', () => {
+	it('offers everything for a Namzu conversation, in the fixed order', () => {
 		const groups = conversationActionGroups(input())
 		expect(groups.map((group) => group.map((entry) => entry.id))).toEqual([
 			['rename', 'pin'],

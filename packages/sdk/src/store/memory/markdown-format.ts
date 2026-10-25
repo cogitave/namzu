@@ -249,7 +249,7 @@ export interface MemoryFileFields {
 /**
  * The file for one memory. Fields that repeat another are left out — a title
  * equal to the name, a summary equal to the description, the default format —
- * so an ordinary file carries the reference shape and nothing else.
+ * so an ordinary file carries the canonical shape and nothing else.
  */
 export function formatMemoryFile(fields: MemoryFileFields, body: string): string {
 	const lines: string[] = ['---']

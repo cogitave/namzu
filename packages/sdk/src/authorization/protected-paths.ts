@@ -10,10 +10,8 @@
  * "approve all" said. That is what a mode is, an answer given before the call
  * existed, and none of them saw this path.
  *
- * The lists are the reference terminal's protected-directory and
- * protected-file tables (version 2.1.302), with its own configuration
- * directory and file mapped to Namzu's: the project directory is `.namzu` and
- * the project file is `namzu.config.json`.
+ * The lists name the protected directories and protected files. The project
+ * directory is `.namzu` and the project file is `namzu.config.json`.
  *
  * Matching is by name, on every segment of the path. `.git` anywhere above a
  * file protects it, and `.config/git` counts as one two-segment unit. Names

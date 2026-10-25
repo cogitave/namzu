@@ -10,8 +10,8 @@ function uses(line: string) {
 describe('the paths a shell line names', () => {
 	it('reads the operands of the read commands', () => {
 		expect(uses('cat /etc/passwd')).toEqual(['read:cat:/etc/passwd'])
-		// The reference drops every flag before the first operand and keeps the
-		// rest, so a flag's own value (`5`) is listed too; it is a relative name.
+		// Flags before the first operand are dropped and the rest are kept,
+		// so a flag's own value (`5`) is listed too; it is a relative name.
 		expect(uses('head -n 5 a.txt b.txt')).toEqual([
 			'read:head:5',
 			'read:head:a.txt',
@@ -108,7 +108,7 @@ describe('the paths a shell line names', () => {
 		expect(uses('git status')).toEqual([])
 	})
 
-	it('stops reading flags at an unknown one, as the reference does for fold and its kin', () => {
+	it('stops reading flags at an unknown one, for fold and its kin', () => {
 		expect(uses('fold -w 5 a.txt')).toEqual(['read:fold:a.txt'])
 		expect(uses('cut -d , -f 1 a.csv')).toEqual(['read:cut:a.csv'])
 	})

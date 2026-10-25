@@ -10,8 +10,8 @@
  * Keys: ↑/↓ or 1-3 pick a row, Enter takes it, PgUp/PgDn page the plan, Esc
  * keeps planning without a word, Ctrl+C stops the reply. The last row is a text
  * row: type what to change and press Enter, and the words go back to the model.
- * Shift+Tab approves the first row with whatever is typed, as the reference
- * does. Approving waits out the settle window every consent screen waits out,
+ * Shift+Tab approves the first row with whatever is typed. Approving waits out the settle window
+ * every consent screen waits out,
  * so a key already in flight cannot approve a plan its owner has not read;
  * refusing never waits.
  */

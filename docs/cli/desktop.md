@@ -1796,7 +1796,7 @@ what the side in force means ("Desktop: you chat with this engine in this window
 opens this engine in a terminal tab."). The provider column's icons carry their name as a tooltip
 and as their accessible name.
 
-The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn’t load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol", as Codex rows do; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
+The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn’t load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol"; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
 
 Starting an engine is cheap to the person and cheap to the machine. Choosing Codex or the second external engine in the engine view never waits for the engine to answer: the host starts reading its models in the background and the choice is acknowledged at once. While an engine process is actually being waited for (a build never read before, so no stored list can be shown) the model trigger reads **Starting Codex…** (or the second engine's name in the same form), with the seconds waited (`Starting Codex… 3s`) once it takes a second, instead of a blank or the previous model; it is announced as "Model, Starting Codex". A stored list shows at once and is revalidated in the background, so nothing is shown while it is. Behind that the CLI host spawns the engine's executable once per use: the Codex app-server that listed the models stays running (closed after two idle minutes, and when the connection closes) and the conversation's first message takes it over, so opening the picker, choosing the engine and sending a message start one process, not two or three. A model list read less than ten minutes ago is served from memory; an older one, or one read in the previous run, is read again in the background, and the last good list of each installed build is kept in `engine-models.json` in the CLI home so a later launch names the default model without waiting. A model the person chose that an older list lacks is looked for once more in a list read now before it is refused.
 
@@ -2770,10 +2770,6 @@ and the work that remains outside the transcript are in
 The preview's `/preview?stress=300` flag adds the long conversation and a timer-driven streamed
 reply for repeating them.
 
-The [reference observations](../../research/runtime-desktop-20260930/artifacts/transcript-reference-observations-20261006.json)
-record the installed Codex build's verified source labels and motion constants.
-Its live transcript DOM was unavailable without restarting that application,
-so these observations do not establish pixel parity with a running reference.
 The [transcript browser proof](../../research/runtime-desktop-20260930/artifacts/transcript-reference-motion-proof-20261006.json)
 uses the actual Namzu renderer with synthetic runtime events, deterministic
 animation frames, keyboard disclosures, rapid reversals, reduced motion and
@@ -2875,7 +2871,7 @@ Design evidence comes from inspected WAI seeded UI and the public
 [Beautiful UI](https://www.beautifului.dev/) Thinking, Tool Chips and Sources
 examples, plus [AI Elements](https://elements.ai-sdk.dev/components/chain-of-thought)
 and [shadcn Item](https://ui.shadcn.com/docs/components/item). These are component
-and layout comparisons, not proof of execution or a claim of pixel parity.
+and layout comparisons, not proof of execution or a claim of pixel-level agreement.
 The [research and renderer checks](../../research/transcript-search-timing-20261007/README.md)
 record inspected states, actual source-derived fixtures and supported window sizes.
 
@@ -3625,10 +3621,8 @@ their own polling loop. This display metadata never supplies stop, archive,
 computer-idle or permission admission. Pal views and externally owned native
 engine processes do not receive a Namzu shell-registry indicator.
 
-The [background work reference observations](../../research/runtime-desktop-20260930/artifacts/background-work-reference-observations-20261006.json)
-record the installed reference's compact process section and the limit of its
-source-only inspection. Namzu retains its own named-job controls and output
-history. The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
+Namzu keeps its own named-job controls and output history.
+The [background processes browser proof](../../research/runtime-desktop-20260930/artifacts/background-processes-browser-proof-20261006.json)
 checks overlapping reads, failed/retried stops, poll ordering, navigation,
 long commands, narrow and short layouts, light/dark themes and reduced motion
 without native, model or computer actions.

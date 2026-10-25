@@ -16,7 +16,7 @@ the sandbox to enforce network isolation, auto-approves it.
 `web_search` ships no backend: a host supplies a `WebSearchProvider`. `web_fetch`
 ships a guarded provider, `GuardedFetchProvider`, and this page is about what the
 tool does with a page once the guard has let it through. The tool was changed to
-follow the reference terminal's WebFetch, read from its code.
+follow the WebFetch rules set out here.
 
 ## What `web_fetch` takes
 
@@ -106,8 +106,8 @@ context.web = {
 }
 ```
 
-`GuardedFetchProvider` still reads at most 2 MiB by default; the reference reads
-10 MiB, and the CLI sets `maxBytes` to that. The tool builds the instruction and
+`GuardedFetchProvider` still reads at most 2 MiB by default; the CLI web tool reads
+10 MiB and sets `maxBytes` to that. The tool builds the instruction and
 the user message, so every host asks the model the same way.
 
 ## What changed for an existing host

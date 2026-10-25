@@ -1134,7 +1134,7 @@ export interface SessionWorkflows {
 	readonly reset: () => void
 }
 
-/** Most bytes of a page `web_fetch` reads (the reference reads ten mebibytes). */
+/** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 /** Most tokens of answer the small model gives to a question about a page. */
 const WEB_EXTRACT_MAX_TOKENS = 8192
@@ -3265,7 +3265,7 @@ export async function createAgentSession(
 	let sideModel: SideModel | undefined
 	const webCapability = options.web?.fetch
 		? {
-				// A page may be ten mebibytes, as in the reference; the guard's own
+				// A page may be ten mebibytes; the guard's own
 				// default is two.
 				fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
 				// The answer to a prompt about a page comes from the small model. It is
@@ -6496,8 +6496,8 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // from `turnConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
 /**
- * Nudges allowed in a row after a reply is cut off at its output limit, as in
- * the reference terminal. The kernel's default is no cap, so the CLI asks.
+ * Nudges allowed in a row after a reply is cut off at its output limit. The kernel's default is no
+ * cap, so the CLI asks.
  */
 const MAX_OUTPUT_CONTINUATIONS = 3
 
@@ -7616,7 +7616,7 @@ export function toAgentEvent(
 				reclaimedTokens: event.reclaimedTokens,
 			}
 		case 'compaction_failed':
-			// Silent for the person, as in the reference terminal: three failed passes
+			// Silent for the person: three failed passes
 			// only stop proactive compaction, and a real overflow still gets relief.
 			if (event.cause === 'breaker_open') return null
 			return {

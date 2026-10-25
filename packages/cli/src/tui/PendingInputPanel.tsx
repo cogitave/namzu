@@ -40,7 +40,7 @@ export interface PendingInputPanelProps {
 	} | null
 }
 
-/** The pointer every pending row carries, as in the reference transcript. */
+/** The pointer every pending row carries. */
 export const PENDING_POINTER = '❯'
 export const SEND_NOW_HINT = 'ctrl+x ctrl+s to send now'
 

@@ -221,8 +221,7 @@ export function measureContext(ctx: IterationContext): {
 }
 
 /**
- * Reactive compactions allowed for one overflow, as in the reference
- * terminal: the first relief, then at most one deeper pass.
+ * Reactive compactions allowed for one overflow: the first relief, then at most one deeper pass.
  */
 export const OVERFLOW_RELIEF_LIMIT = 2
 
@@ -350,8 +349,8 @@ export async function relieveOverflow(
 
 /**
  * Why the last compaction attempt errored, kept for the turn so that when
- * relief runs out the failure it ends on can say so, as the reference
- * terminal's " · automatic compaction failed: <cause>" does.
+ * relief runs out the failure it ends on can say so, and it reads
+ * " · automatic compaction failed: <cause>".
  */
 const compactionErrors = new WeakMap<object, string>()
 const MAX_COMPACTION_CAUSE_CHARS = 300
@@ -430,9 +429,8 @@ async function declined(
 /**
  * The third refill in a row: stop the turn instead of compacting again.
  * Returns true when this pass must not run. Only with `circuitBreaker`.
- * The loop also asks it before the first reactive relief of an overflow, as
- * the reference terminal does (`rhr` runs first in its withheld-overflow
- * handling), so a re-read loop made only of overflows is counted too.
+ * The loop also asks it before the first reactive relief of an overflow, so a re-read loop made
+ * only of overflows is counted too.
  */
 export async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
 	const breaker = compactionBreaker(ctx)
@@ -721,7 +719,7 @@ async function runCompactionCheckInner(
 	const breaker = compactionBreaker(ctx)
 	if (breaker?.failuresOpen && !options?.force) {
 		if (breaker.takeFailureNotice()) {
-			// Silent for the person, as in the reference terminal: a log line and the
+			// Silent for the person: a log line and the
 			// event for a host that wants it, but no sentence to show. Only the
 			// proactive pass stops; a real overflow still runs the reactive ladder.
 			ctx.log.warn('Compaction failed three times in a row — switched off for this turn', {

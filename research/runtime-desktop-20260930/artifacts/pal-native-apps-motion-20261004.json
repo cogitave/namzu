@@ -8,33 +8,6 @@
     "normalUserData": true,
     "fixtureOverrides": false
   },
-  "reference": {
-    "client": "actual Windows ChatGPT client in Codex mode, Happy workspace",
-    "inspection": "Native UI Automation and screenshots, guest New Tab and application grid, host new-tab panel and timed chat opening/closing frames",
-    "domAvailable": false,
-    "observedGuestApps": [
-      "3D Slicer",
-      "Blender",
-      "Draw",
-      "FreeCAD",
-      "GIMP",
-      "Go",
-      "Godot",
-      "Inkscape",
-      "Kdenlive",
-      "KiCad",
-      "Mousepad",
-      "OpenSCAD",
-      "ParaView",
-      "QGIS Desktop",
-      "Solitaire"
-    ],
-    "blankBlurredNewTabOmnibox": true,
-    "chatOpening": "Frame grows from bottom-right launcher with content fading in",
-    "chatClosing": "Frame shrinks back to circular launcher",
-    "restoredOriginalViewAndControl": true,
-    "messagesSent": false
-  },
   "checks": {
     "motion": {
       "start": {

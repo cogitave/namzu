@@ -251,7 +251,7 @@ it('does nothing for a hypermode dropped with Alt+W, pasted, talked about, or th
 	await enter()
 	await until(() => sent.length === 3, 'the question was not sent')
 
-	await typeKeys('ultracode fix the flaky test')
+	await typeKeys('megamode fix the flaky test')
 	expect(now()).not.toContain('✦')
 	expect(now()).not.toContain('✧')
 	await enter()

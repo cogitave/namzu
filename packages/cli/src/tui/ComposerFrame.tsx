@@ -8,7 +8,7 @@ const HYPERMODE_GLOW_COLORS = ['ansi256(183)', theme.accent.hypermode, 'ansi256(
 
 /**
  * The composer's frame: a plain horizontal rule above and below the input and
- * nothing at the sides, no corners and no title, as the reference draws it.
+ * nothing at the sides, no corners and no title.
  * Its content stays mounted while another prompt owns focus. The one thing
  * written on a rule is the session mode (today only `hypermode`), at the right
  * end of the upper one.

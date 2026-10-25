@@ -48,7 +48,7 @@ const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] 
 	// `disabled` + `max` was refused locally as an effort problem.
 	['claude-opus-5-5', true, false, false, ALL, ALL],
 	// The preview takes `max` and NOT `xhigh`, which is the pairing it is easy
-	// to assume away — the reference says outright that some models supporting
+	// to assume away — the published model table says outright that some models supporting
 	// `max` do not support `xhigh`, and this is one. Reading the levels as a
 	// ladder is what put ALL on this row originally, and a ladder reading sends
 	// a level the wire rejects.

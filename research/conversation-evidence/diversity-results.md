@@ -84,4 +84,4 @@ tests remain the evidence for that separate path. Recall stays opt-in. It still
 searches a bounded pool (24 candidates, four CLI pages, 8 MiB), and cannot select
 a correction that discovery never reached. This change does not summarize an
 entire archive, resolve conflicting claims automatically, order different runs
-by time, or establish parity with another harness.
+by time, or show that it matches another harness.

@@ -88,7 +88,7 @@
     }
   },
   "limits": [
-    "The installed guest provides Chromium, Openbox and xterm. The other applications in the reference are not installed.",
+    "The installed guest provides Chromium, Openbox and xterm.",
     "Native proof exercises pointer click, text forwarding, Home, Ctrl+L, Ctrl+R, takeover and return. Drag/scroll and ownership edge cases also have deterministic unit coverage.",
     "Screenshots were captured and inspected locally; user device names and local state are omitted from this receipt.",
     "No external model turn was submitted in this verification.",

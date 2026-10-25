@@ -1,5 +1,5 @@
 /**
- * The delegated-work surfaces aligned with the reference terminal: the
+ * The delegated-work surfaces: the
  * phased cockpit, the rows delegated work leaves in the conversation,
  * the folded waiting line, the effort slider and the hypermode rule on the
  * message box. Each is checked at a comfortable width, at 40 columns, and
@@ -187,7 +187,7 @@ describe('what a finished agent leaves in the conversation', () => {
 		})
 	})
 
-	// Reference wording (REA fn Qxt): `was stopped by user`, `was stopped by <the
+	// Wording: `was stopped by user`, `was stopped by <the
 	// main agent>` (Namzu's is `Namzu`), plain `was stopped` when nobody recorded
 	// it, and `failed: <error>` with `Unknown error` as the fallback.
 	it('says who stopped an agent, and why one failed', () => {
@@ -211,7 +211,7 @@ describe('what a finished agent leaves in the conversation', () => {
 		).toBe('Agent "Count words" failed: Provider refused the request · 4s')
 	})
 
-	// Reference (REA fn Qxt: every caller is the background path): an agent the
+	// Every caller is the background path: an agent the
 	// parent waited on leaves the tool's own result, never a notification.
 	it('leaves a waited-on agent as a Done line and a background one as a notification', () => {
 		const waited = agent({
@@ -372,7 +372,7 @@ describe('the cockpit of a phased workflow', () => {
 			}),
 		]
 
-		it('fills the cockpit the reference way: done count, time and spend, the pane named by its phase', async () => {
+		it('fills the cockpit: done count, time and spend, the pane named by its phase', async () => {
 			const join = phased.find((member) => member.viewId === 'join')
 			if (!join) throw new Error('fixture')
 			mounted = await renderToScreen(

@@ -20,10 +20,8 @@
     "transcript-content-light-narrow-reduced-20261007.png",
     "transcript-content-pal-delivery-20261007.png"
   ],
-  "referenceEvidence": "transcript-reference-observations-20261006.json",
   "limitations": [
-    "Isolated event fixtures; no provider prompt or native computer action.",
-    "Reference live DOM unavailable; no pixel-parity claim."
+    "Isolated event fixtures; no provider prompt or native computer action."
   ],
   "narrow": {
     "width": 620,

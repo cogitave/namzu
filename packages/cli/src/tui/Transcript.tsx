@@ -703,7 +703,7 @@ export function contentColorForRole(role: TranscriptMessage['role']): string {
 /**
  * What joins a row's hint to its text. A hint written in parentheses, like
  * `(ctrl+o to expand)` after `› Message from @name`, follows the text after a
- * space as the reference draws it; any other hint is set off with a middle dot.
+ * space; any other hint is set off with a middle dot.
  */
 export function metaSeparator(meta: string): string {
 	return meta.startsWith('(') ? ' ' : ' · '

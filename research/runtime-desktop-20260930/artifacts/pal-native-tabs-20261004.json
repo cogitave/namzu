@@ -8,35 +8,6 @@
     "normalUserData": true,
     "fixtureOverrides": false
   },
-  "reference": {
-    "client": "actual Windows ChatGPT client in Codex mode, Happy workspace",
-    "inspection": "Native UI Automation bounds and screenshots; physical tab, layout and profile navigation",
-    "windowBounds": {
-      "x": 4,
-      "y": 3,
-      "width": 1678,
-      "height": 1008
-    },
-    "peerTabFrames": {
-      "chat": {
-        "width": 238,
-        "height": 32
-      },
-      "computer": {
-        "width": 238,
-        "height": 32
-      }
-    },
-    "observedStates": [
-      "selected full chat with right profile and inactive open computer tab",
-      "selected full computer",
-      "split chat and computer with aligned header divider",
-      "split profile overlay"
-    ],
-    "restoredOriginalView": true,
-    "messagesSent": false,
-    "domAvailable": false
-  },
   "checks": {
     "nativeWindows": true,
     "actualRuntime": true,

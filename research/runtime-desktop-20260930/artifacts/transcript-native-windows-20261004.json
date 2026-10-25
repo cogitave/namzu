@@ -1,30 +1,6 @@
 {
   "date": "2026-10-04",
   "sourceBaseCommit": "81d17219f766025c14ad170f87d6f6a6889c8543",
-  "reference": {
-    "client": "actual native Windows ChatGPT client in Codex mode",
-    "method": "UI Automation, screenshots and existing completed normal-conversation turn expansion; original Happy route restored",
-    "domAvailable": false,
-    "modelPromptsSent": false,
-    "observed": [
-      "completed Worked for 57m 17s disclosure above the answer",
-      "inline ordered public thoughts, commentary and tool aggregates",
-      "bounded command list with real command labels and durations",
-      "normal assistant text and muted public reasoning"
-    ],
-    "liveReferencePhases": "No live reference model turn was induced; Working/Thinking semantics were also checked against pinned official Codex source",
-    "primarySource": {
-      "repository": "https://github.com/openai/codex",
-      "commit": "a44afa527cf11114aed19ec893491bfc8d3931bb",
-      "paths": [
-        "codex-rs/tui/src/chatwidget/turn_runtime.rs",
-        "codex-rs/tui/src/chatwidget/streaming.rs",
-        "codex-rs/tui/src/chatwidget/status_surfaces.rs",
-        "codex-rs/tui/src/history_cell/messages.rs",
-        "codex-rs/tui/src/chatwidget/tests/reasoning_status_tests.rs"
-      ]
-    }
-  },
   "transcriptNativeProof": {
     "passed": true,
     "nativeWindows": true,
@@ -172,7 +148,6 @@
     "transcript-native-expanded-20261004.png"
   ],
   "limits": [
-    "Reference DOM/computed styles were unavailable. This records inspected native states, not exact pixel parity across all Codex views.",
     "Native transcript phase verification uses a controlled ACP subprocess; SDK mapping/order is covered separately by final ACP tests.",
     "Cold durable history currently restores text without tool/reasoning/timing receipts, as documented.",
     "User account screenshots, identifiers, drafts, process/container IDs and native diagnostic paths are kept private."

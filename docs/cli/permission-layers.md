@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 # Permission layers and remembered answers
 
-The `permissions` table is read from every config file that has one, and the tables are **joined**, not replaced. The order is the reference terminal's, lowest to highest: user (`~/.namzu/config.yaml`), project (`namzu.config.json`), local (`namzu.config.local.json`), a selected profile, managed.
+The `permissions` table is read from every config file that has one, and the tables are **joined**, not replaced. The order, lowest to highest: user (`~/.namzu/config.yaml`), project (`namzu.config.json`), local (`namzu.config.local.json`), a selected profile, managed.
 
 ## How the layers combine
 
@@ -35,11 +35,11 @@ Before this, a layer that wrote a `permissions` table replaced the whole table o
 
 A prompt for a plain shell command, a fetch or an MCP tool offers `Yes, and don't ask again for <what> in <folder>`. The answer approves the call, holds for the rest of the session at once, and is written to the folder's `namzu.config.local.json` as `permissions.<tool>.<pattern> = "allow"`, so the next session starts with it. The write merges into what the file already says; a file that is not valid JSON is left alone, and the session is told the answer holds for this session only.
 
-The first time it writes, in a git work tree, Namzu adds `**/namzu.config.local.json` to the global git ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else `~/.config/git/ignore`), as the reference does for its own local file, unless git already ignores the file. A file git already tracks cannot be ignored and is logged.
+The first time it writes, in a git work tree, Namzu adds `**/namzu.config.local.json` to the global git ignore file (`core.excludesFile`, else `$XDG_CONFIG_HOME/git/ignore`, else `~/.config/git/ignore`), unless git already ignores the file. A file git already tracks cannot be ignored and is logged.
 
-What the answer remembers, as the reference suggests it:
+What the answer remembers:
 
-- **A two-word prefix** (`git commit *`, `npm run *`) when the command has at least two words, the first is not a shell or a wrapper (`sh`, `bash`, `zsh`, `env`, `xargs`, `sudo`, `doas`, `su`, `timeout`, `nohup`, `nice`, `time`, `watch`, `command`, `builtin` and the rest of the reference's list) and the second is a plain lower-case subcommand (`commit`, `cherry-pick`). `*` after a space matches the bare command too and is a word boundary, so `git commit *` does not cover `git commitx`.
+- **A two-word prefix** (`git commit *`, `npm run *`) when the command has at least two words, the first is not a shell or a wrapper (`sh`, `bash`, `zsh`, `env`, `xargs`, `sudo`, `doas`, `su`, `timeout`, `nohup`, `nice`, `time`, `watch`, `command`, `builtin` and the rest of the list) and the second is a plain lower-case subcommand (`commit`, `cherry-pick`). `*` after a space matches the bare command too and is a word boundary, so `git commit *` does not cover `git commitx`.
 - **The exact command** otherwise (`make`, `git -C sub status`, `cd src`).
 - **One rule per command** for a compound line (`a && b | c`), up to five; the line must be made of plain commands, so one with a glob, a substitution, a redirection or several lines gets no such answer.
 - **The host** of a fetched URL (`http://host/*` and `https://host/*`) and **one MCP tool** by name.
@@ -48,7 +48,7 @@ An answer never covers a call that is asked every time: a sandbox escape, a path
 
 ## Shell commands that run without a prompt
 
-`ls`, `cat`, `git status`, `git diff` and the other commands on the reference's read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
+`ls`, `cat`, `git status`, `git diff` and the other commands on the read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
 
 ## Upgrading
 

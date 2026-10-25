@@ -260,16 +260,6 @@
     "version": "2.1.289",
     "model": "opus"
   },
-  "reference": {
-    "nativeWindowsUIAutomation": true,
-    "referenceDOMUnavailable": true,
-    "projectPopupPixelWidth": 262,
-    "freshPermissionPopupPixels": {
-      "width": 413,
-      "height": 162
-    },
-    "localMenusUseExistingTokens": true
-  },
   "screenshots": [
     "composer-polish-native-workspace-20261004.png",
     "composer-polish-tabs-20261004.png",
@@ -279,7 +269,6 @@
     "composer-polish-effort-short-20261004.png",
     "composer-polish-effort-light-20261004.png",
     "composer-polish-claude-reply-20261004.png",
-    "composer-reference-permissions-20261004.png",
     "composer-polish-effort-minimum-20261004.png"
   ],
   "baselineMetricNote": "Permission bounding box was sampled during the opening scale transition; final screenshots and short viewport checks use settled state.",

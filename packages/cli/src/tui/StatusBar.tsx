@@ -58,8 +58,8 @@ export interface StatusBarProps {
 	readonly composerMounted?: boolean
 	/**
 	 * Whether the quiet `shift+tab to cycle` reminder may fill an otherwise
-	 * empty row. Off while a custom status line is configured: the reference
-	 * suppresses its resting hint then, and the operator's line owns the
+	 * empty row. Off while a custom status line is configured: the resting hint is suppressed then,
+	 * and the operator's line owns the
 	 * quiet moments.
 	 */
 	readonly restingHint?: boolean
@@ -208,7 +208,7 @@ export function StatusBar({
 			: composerMounted && !dialogOpen && restingHint && !working && nothingElse
 				? QUIET_MODE_HINT
 				: '',
-		// The reference drops the cycle key as soon as a background task is on
+		// The cycle key is dropped as soon as a background task is on
 		// the row: the pill is what the row is about then.
 		cycleSuffix:
 			activeMode &&

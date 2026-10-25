@@ -223,7 +223,7 @@ describe('what the model is asked, and what it is shown', () => {
 		)
 	})
 
-	it('asks for markdown first, as the reference does', async () => {
+	it('asks for markdown first', async () => {
 		const origin = await site('127.0.0.1', { '/guide': { body: PAGE } })
 		await call(contextWith(undefined), `${origin.origin}/guide`)
 		expect(origin.hits[0]?.accept).toBe(WEB_FETCH_ACCEPT)
@@ -480,7 +480,7 @@ describe('a page too long for one question', () => {
 	})
 })
 
-describe('URLs the reference refuses before any request', () => {
+describe('URLs refused before any request', () => {
 	it('refuses a hostname without a dot, and points to a shell command', async () => {
 		const context = contextWith(undefined)
 		const result = await call(context, 'http://localhost:3000/')

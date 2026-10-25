@@ -20,7 +20,7 @@ lowercases word tokens and ranks messages with BM25; its multi-word queries
 match words independently. The useful distinction is between searchable forms
 and the original evidence. Namzu now offers Unicode case-insensitive literal
 matching while retaining original text and positions. It does not implement
-that reference's BM25 ranking or independent-word semantics.
+that other system's BM25 ranking or independent-word semantics.
 
 SDK run-source search keeps `caseSensitive: true` as its default and adds the
 optional false setting. CLI `search_conversation` selects false by default;
