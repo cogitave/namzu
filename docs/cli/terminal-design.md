@@ -70,16 +70,6 @@ them. Its items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
-- **The context meter**, dim `12% until auto-compact`, after the effort label
-  and only once the context is within 20,000 tokens of the point where older
-  history is summarised. The percentage counts down to
-  that point, not to the end of the window, and the point is the kernel's own
-  trigger (`resolveTriggerThreshold`: the window less up to 20,000 tokens for
-  the reply less 13,000, so 167,000 tokens of a 200,000-token window). With
-  auto-compact off it reads `Context low (N% remaining) · Run /compact to
-  compact & continue` in red, counted against the whole window (no CLI
-  strategy turns it off today). Nothing shows before that: the always-on gauge
-  stays removed.
 - **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
   separate `N shells running` line that used to sit under the footer, and it
   hides with the composer surface (a permission or child view owning the
@@ -89,6 +79,38 @@ them. Its items are joined by a dim ` · `, left to right:
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
   already carries a hint that names Esc; no footer is drawn while a dialog or
   picker owns the keyboard). The Working row does not repeat it; it lives here only.
+- **The notice slot.** The right end of the row shows one passing notice at a
+  time, behind a hint and ahead of the goal, a standing item and the model. Notices
+  queue by priority (`immediate`, `high`, `medium`, `low`; equal priorities go
+  in arrival order) and each stays 8 s unless it names its own time. An
+  `immediate` notice shows at once and the notice it covers returns after it
+  (an `immediate` one only if it asks to); anything else waits for the one that
+  is up, so a `medium` notice that stays is never displaced by a `high` one.
+  The same key never queues twice: a newer reading of a showing notice
+  replaces it and restarts its time. Notices are dim unless they name a tone,
+  and a dialog's own key line outranks them. The notices today:
+  - `Esc again to clear` (immediate, 1 s): the first Esc on a typed draft
+    shows it; the second Esc inside 800 ms clears the draft. One Esc no
+    longer clears it, and an Esc after the window arms again. A running turn
+    keeps Esc for interrupting.
+  - `No background agents running` (immediate, 2 s) and
+    `Press ctrl+x ctrl+k again to stop background agents` (immediate, 3 s)
+    from the stop-all chord.
+  - **The context meter**, dim `12% until auto-compact` (medium, stays while
+    true), once the context is within 20,000 tokens of the point where older
+    history is summarised. The percentage counts down to that point, not to the
+    end of the window, and the point is the kernel's own trigger
+    (`resolveTriggerThreshold`: the window less up to 20,000 tokens for the
+    reply less 13,000, so 167,000 tokens of a 200,000-token window). With
+    auto-compact off it reads `Context low (N% remaining) · Run /compact to
+    compact & continue` in red, counted against the whole window (no CLI
+    strategy turns it off today). It is hidden from the moment a compaction
+    finishes until the next turn starts, and it is not in the left items, so
+    `esc to interrupt` and the rest stay while it shows.
+- **The update pointer.** When the launch check finds a newer Namzu, the right
+  end carries a standing yellow `Update available! Run: namzu upgrade` (the
+  command bold) in place of the old scrollback row. It yields to a hint, a
+  notice and the goal, and sits ahead of the model.
 - **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
   on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
   in the right-hand slot for 800 ms; the same key again inside that window
@@ -122,7 +144,7 @@ The keys the hints name:
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
-reminder, the context meter, the effort label, the shell pill, the pull request item, the quiet
+reminder, the effort label, the shell pill, the pull request item, the quiet
 reminder, and only then does the mode truncate. Whole items go, never half of
 one.
 Where no composer is on screen (a picker, the trust prompt, a stopped start) the

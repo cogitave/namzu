@@ -191,8 +191,9 @@ estimated by Namzu, and whether the window was declared or assumed. An
 approximate percentage is marked with `~`; missing measurements are reported
 as unavailable rather than zero.
 
-The footer also shows `N% until auto-compact` once the context is within
-20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
+The footer's notice slot also shows `N% until auto-compact` once the context is
+within 20,000 tokens of the summary point. A compaction hides it until the next
+turn starts; see [the composer footer](terminal-design.md#the-composer-footer).
 
 `/context details` adds the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing
