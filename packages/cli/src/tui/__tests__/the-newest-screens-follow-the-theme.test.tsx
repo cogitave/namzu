@@ -43,8 +43,10 @@ afterEach(() => {
 	resetThemeStore()
 })
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches colour escapes in a frame.
 const LITERAL_COLOUR = /\u001b\[(?:[0-9;]*;)?(?:38|48);(?:5|2);/
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches colour escapes in a frame.
 const NAMED_COLOUR = /\u001b\[(?:3[0-7]|9[0-7])m/
 
 const prompt = (userOrdinal: number, text: string) => ({
@@ -102,7 +104,11 @@ function surfaces(): Record<string, string> {
 			onClose={() => {}}
 		/>,
 	)
-	const rewindRows = buildRewindRows([prompt(0, 'first prompt'), prompt(1, 'second')], undefined, [])
+	const rewindRows = buildRewindRows(
+		[prompt(0, 'first prompt'), prompt(1, 'second')],
+		undefined,
+		[],
+	)
 	grab(
 		'the rewind list',
 		<RewindPicker
@@ -123,7 +129,7 @@ function surfaces(): Record<string, string> {
 		<RewindPicker
 			rows={rewindRows}
 			state={confirm}
-			options={rewindOptions({ canRestoreCode: true } as never) as never}
+			options={rewindOptions(true, true)}
 			checkpointing
 			now={0}
 		/>,

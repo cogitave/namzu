@@ -446,7 +446,12 @@ export function agentCompletionRows(
 	if (agent.status === 'completed' && !reportsAsNotification(agent)) {
 		const done = agentDoneRows(agent)
 		return [
-			{ role: 'tool', content: done.header, glyph: '●', glyphColor: tokenColor('accent.assistant') },
+			{
+				role: 'tool',
+				content: done.header,
+				glyph: '●',
+				glyphColor: tokenColor('accent.assistant'),
+			},
 			{ role: 'tool', content: done.result, glyph: '⎿', glyphColor: tokenColor('text.muted') },
 		]
 	}

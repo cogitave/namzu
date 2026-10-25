@@ -37,6 +37,12 @@ export interface ContextSources {
 		readonly windowAssumed: boolean
 		readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 	}
+	/**
+	 * The conversation was rewritten (compacted, summarised in part) since that
+	 * report, so its size is out of date. The conversation's share is then
+	 * estimated from `messages` and the figures are marked approximate.
+	 */
+	readonly sizeOutOfDate?: boolean
 	readonly terminalColumns: number
 	readonly model?: string
 	readonly autoCompact: boolean
@@ -134,7 +140,7 @@ export async function collectContextView(sources: ContextSources): Promise<Conte
 		windowTokens: sources.context.windowTokens,
 		windowSource: source,
 		autoCompact: sources.autoCompact,
-		contextTokens: sources.context.tokens,
+		...(sources.sizeOutOfDate ? {} : { contextTokens: sources.context.tokens }),
 		systemPromptTokens: sources.systemPrompt ? estimateTextTokens(sources.systemPrompt) : 0,
 		systemToolTokens: sum(builtIn),
 		mcpToolTokens: sum(mcp),
@@ -214,7 +220,7 @@ export async function collectContextView(sources: ContextSources): Promise<Conte
 		breakdown,
 		windowSource: source,
 		autoCompact: sources.autoCompact,
-		approximate: !sources.context.measured,
+		approximate: sources.sizeOutOfDate === true || !sources.context.measured,
 		...(sources.model ? { model: sources.model } : {}),
 		terminalColumns: sources.terminalColumns,
 		sections,
@@ -226,6 +232,8 @@ export interface ContextRowInput {
 	readonly usage: SlashContext['usage']
 	readonly compaction: SlashContext['compaction']
 	readonly details: boolean
+	/** A compaction or a summary has rewritten the history since the last reply's size was reported. */
+	readonly sizeOutOfDate?: boolean
 	readonly session: AgentSession | null | undefined
 	readonly messages: readonly Message[]
 	readonly cwd: string
@@ -260,6 +268,7 @@ export async function buildContextRow(input: ContextRowInput): Promise<ContextVi
 	const inventory = input.session?.contextInventory?.()
 	const view = await collectContextView({
 		context,
+		...(input.sizeOutOfDate ? { sizeOutOfDate: true } : {}),
 		terminalColumns: input.columns,
 		...(input.model ? { model: input.model } : {}),
 		autoCompact: true,

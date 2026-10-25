@@ -164,7 +164,9 @@ it('groups observations, keeps a failed look in its line, and shows every call w
 	expect(transcript).not.toContain('FIRST evidence')
 	expect(transcript).not.toContain('SEARCH evidence')
 	screen.press('\x0f')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Showing detailed transcript'))
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Showing detailed transcript'),
+	)
 	const shown = screen.viewport().join('\n')
 	// Every call of both lines, with its result, and the failed call with its error.
 	expect(shown).toContain('FIRST evidence')

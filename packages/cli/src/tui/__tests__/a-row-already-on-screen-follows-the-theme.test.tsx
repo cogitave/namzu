@@ -10,9 +10,9 @@ import { render } from 'ink-testing-library'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { Transcript } from '../Transcript.js'
+import { systemRowStyle } from '../system-rows.js'
 import { ThemeEpochContext, resetThemeStore, setThemeSetting } from '../theme-store.js'
 import { tokenColor } from '../theme.js'
-import { systemRowStyle } from '../system-rows.js'
 import type { TranscriptMessage } from '../types.js'
 
 const inkRequire = createRequire(createRequire(import.meta.url).resolve('ink'))

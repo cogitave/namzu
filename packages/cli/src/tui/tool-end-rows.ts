@@ -134,7 +134,10 @@ function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): r
 				role: 'tool',
 				content: event.plainFailure,
 				glyph: '⎿',
-				contentColor: event.plainFailureTone === 'muted' ? tokenColor('text.muted') : tokenColor('status.error'),
+				contentColor:
+					event.plainFailureTone === 'muted'
+						? tokenColor('text.muted')
+						: tokenColor('status.error'),
 				...(said !== undefined && said.trim().length > 0
 					? { detail: full, meta: EXPAND_HINT, activity: 'agent-result' as const }
 					: {}),

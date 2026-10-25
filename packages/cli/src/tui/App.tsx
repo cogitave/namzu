@@ -272,10 +272,6 @@ import {
 } from './ScheduleReviewOverlay.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
-import { nextTask, nextTaskLine } from './next-task.js'
-import { setSpinnerTips } from './spinner-tips-setting.js'
-import type { TipHistoryStore } from './tip-history.js'
-import { useSpinnerTip } from './use-spinner-tip.js'
 import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
@@ -377,6 +373,7 @@ import {
 	resolveModelSwitch,
 } from './model-switch.js'
 import { reducedMotion, useReducedMotion } from './motion.js'
+import { nextTask, nextTaskLine } from './next-task.js'
 import { isRepeatedNotice } from './notices.js'
 import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
@@ -429,6 +426,7 @@ import {
 	readSuggestionLedger,
 	writeSuggestionLedger,
 } from './skills/suggestion-ledger.js'
+import { setSpinnerTips } from './spinner-tips-setting.js'
 import {
 	CLOSING_GLYPH,
 	CONTINUATION_GLYPH,
@@ -458,6 +456,7 @@ import {
 	shownTheme,
 	useThemeSubscription,
 } from './theme-store.js'
+import type { TipHistoryStore } from './tip-history.js'
 import { triggerContextTexts, triggerEffort } from './triggers/context-text.js'
 import { STEERED_NOT_APPLIED_REASON, notAppliedLine, transcriptTagLine } from './triggers/copy.js'
 import { type TriggerContext, unavailable as triggerUnavailable } from './triggers/detect.js'
@@ -470,6 +469,7 @@ import {
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
 import { formatCompactCount } from './units.js'
+import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
 
@@ -2713,6 +2713,10 @@ function AppBody({
 	const notices = useNotifications()
 	/** A compaction hides the context meter until the next turn starts. */
 	const [contextHidden, setContextHidden] = useState(false)
+	const contextHiddenRef = useRef(false)
+	contextHiddenRef.current = contextHidden
+	/** The idle compactor, once it exists, for what a rewrite of the history must tell it. */
+	const idleCompactionRef = useRef<{ contextTokens: { current: number | undefined } } | null>(null)
 	const contextTokens = usage?.context?.tokens
 	const contextWindow = usage?.context?.windowTokens
 	const addNotice = notices.add
@@ -3408,7 +3412,8 @@ function AppBody({
 	const applyThemeChoice = useCallback(
 		(setting: ThemeSetting) => {
 			pushMessage('system', saveTheme(setting))
-			if (shownTheme() !== printedThemeRef.current) resetTranscript({ preserveTranscriptScreen: true })
+			if (shownTheme() !== printedThemeRef.current)
+				resetTranscript({ preserveTranscriptScreen: true })
 		},
 		[pushMessage, resetTranscript],
 	)
@@ -7620,6 +7625,9 @@ function AppBody({
 				if (!result)
 					throw new Error('There is nothing to summarize in that part of the conversation.')
 				modelHistoryRef.current = [...result.messages]
+				// The history is shorter: the meter and the idle compactor wait for the next reply's size.
+				setContextHidden(true)
+				if (idleCompactionRef.current) idleCompactionRef.current.contextTokens.current = undefined
 				const at = editList.indexOf(target)
 				const readable =
 					option === 'summarize'
@@ -8578,7 +8586,14 @@ function AppBody({
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
 						if (closing)
-							pushMessage('system', closing, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
+							pushMessage(
+								'system',
+								closing,
+								false,
+								CLOSING_GLYPH,
+								undefined,
+								tokenColor('text.muted'),
+							)
 					}
 					// A save the operator asked for in words takes the place of
 					// the proposal to save it.
@@ -11186,6 +11201,8 @@ function AppBody({
 								usage,
 								compaction: slashCtx.compaction,
 								details: slash.details,
+								// A compaction or a summary since the last reply made its size stale.
+								sizeOutOfDate: contextHiddenRef.current,
 								session,
 								messages: modelHistoryRef.current,
 								cwd: ctx.cwd,
@@ -11610,8 +11627,13 @@ function AppBody({
 		sendNotification: sendTerminalNotification,
 	})
 	idleStateRef.current = {
+		// The detailed transcript is the person reading: nothing is rewritten under it.
 		dialogOpen:
-			permission !== null || textPrompt !== null || choicePicker !== null || phase !== 'ready',
+			permission !== null ||
+			textPrompt !== null ||
+			choicePicker !== null ||
+			phase !== 'ready' ||
+			transcriptScreen,
 		session,
 		sendNotification: sendTerminalNotification,
 	}
@@ -11749,6 +11771,7 @@ function AppBody({
 				modelHistoryRef.current = [...result.messages]
 				// The size of the new context is not known until the next reply.
 				idleCompaction.contextTokens.current = undefined
+				setContextHidden(true)
 				const keptTurns = result.messages.filter(
 					(m) => m.role === 'user' || m.role === 'assistant',
 				).length
@@ -11767,6 +11790,7 @@ function AppBody({
 			}
 		},
 	})
+	idleCompactionRef.current = idleCompaction
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.
 	const awaitingPerson =

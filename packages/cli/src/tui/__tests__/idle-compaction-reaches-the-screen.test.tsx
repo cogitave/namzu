@@ -192,4 +192,26 @@ describe('compacting while idle', () => {
 		await vi.advanceTimersByTimeAsync(30_000)
 		expect(compactCalls).toEqual([])
 	})
+
+	it('takes the context meter down, as any compaction does, until the next reply', async () => {
+		// 970k of a 1M window is past the point where the footer says how much is left.
+		const harness = await mountAndAnswer({ cacheTtlMs: HOUR, contextTokens: 970_000 })
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('until auto-compact'))
+
+		await vi.advanceTimersByTimeAsync(0.9 * HOUR + 1_000)
+		await frameShows(harness, IDLE_COMPACTION_NOTICE)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('until auto-compact'))
+	})
+
+	it('leaves the history alone while the detailed transcript is open', async () => {
+		const harness = await mountAndAnswer({ cacheTtlMs: HOUR, contextTokens: 400_000 })
+		harness.stdin.write('\x0f')
+		await vi.waitFor(() =>
+			expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'),
+		)
+
+		await vi.advanceTimersByTimeAsync(0.9 * HOUR + 1_000)
+		expect(compactCalls).toEqual([])
+		expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript')
+	})
 })

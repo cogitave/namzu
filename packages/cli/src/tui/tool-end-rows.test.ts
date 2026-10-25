@@ -55,9 +55,13 @@ it('a shell look and a connector call fold the same way, under their own headlin
 
 it('a failed look stays in its counted line, with its error behind the detailed transcript', () => {
 	const start = { label: 'Read(a.ts)', fold: { kind: 'read', key: 'a.ts' } } as const
-	const failed = toolEndRows(end({ isError: true, summary: 'no such file', output: undefined }), start, {
-		hasPlan: false,
-	})
+	const failed = toolEndRows(
+		end({ isError: true, summary: 'no such file', output: undefined }),
+		start,
+		{
+			hasPlan: false,
+		},
+	)
 	expect(failed.kind).toBe('rows')
 	const row = failed.kind === 'rows' ? failed.rows[0] : undefined
 	// Counted like a look that worked, with no error text on the line itself.

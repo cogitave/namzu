@@ -18,12 +18,12 @@ import {
 } from './exit-summary.js'
 import { installFocusReporting } from './focus-reporting.js'
 import { fileQueuedHintCount } from './hint-counts.js'
-import { fileTipHistory } from './tip-history.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
+import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(

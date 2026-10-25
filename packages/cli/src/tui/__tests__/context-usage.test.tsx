@@ -108,6 +108,19 @@ describe('collecting the view', () => {
 		expect(agents?.groups[1]?.items.map((i) => i.label)).toEqual(['big', 'small'])
 	})
 
+	it('estimates the conversation from its messages once a compaction made the reported size stale', async () => {
+		const messages = [
+			{ role: 'user', content: 'x'.repeat(4_000) },
+			{ role: 'assistant', content: 'y'.repeat(4_000) },
+		] as never
+		const fresh = await collectContextView(sources({ messages }))
+		const stale = await collectContextView(sources({ messages, sizeOutOfDate: true }))
+		expect(fresh.text).toContain('42k/200k tokens')
+		// About two thousand tokens of messages, not the 42k of the reply before the compaction.
+		expect(stale.text).not.toContain('42k/200k')
+		expect(stale.text).toMatch(/~\d(?:\.\d)?k\/200k tokens/)
+	})
+
 	it('leaves out a list with nothing in it', async () => {
 		const view = await collectContextView(sources())
 		expect(view.sections).toEqual([])

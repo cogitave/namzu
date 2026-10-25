@@ -26,7 +26,12 @@ import { conversationEvidenceView } from '../conversation-evidence-view.js'
 import { diffBodyFromFacts } from '../diff-rows.js'
 import { EMPTY_GROUP, foldOp, groupText } from '../read-search-group.js'
 import { agentCompletionRows, numberDetailRows } from '../restored-rows.js'
-import { type ToolEndEvent, type ToolEndStart, type ToolRow, toolEndRows } from '../tool-end-rows.js'
+import {
+	type ToolEndEvent,
+	type ToolEndStart,
+	type ToolRow,
+	toolEndRows,
+} from '../tool-end-rows.js'
 import { EXPAND_HINT } from '../truncation.js'
 import type { TranscriptMessage } from '../types.js'
 
@@ -105,7 +110,10 @@ describe('a collapsed group of looks', () => {
 
 	it('a group made only of a failed call shows the call and its error', () => {
 		const rows = messages(
-			rowsOf({ toolName: 'read', isError: true, output: 'ENOENT: no such file or directory' }, read),
+			rowsOf(
+				{ toolName: 'read', isError: true, output: 'ENOENT: no such file or directory' },
+				read,
+			),
 		)
 		const drawn = live(rows)
 		expect(drawn).toContain('Read 1 file (ctrl+o to expand)')
@@ -196,7 +204,10 @@ describe('a long result', () => {
 	})
 
 	it('a created file folds after its first ten lines', () => {
-		const content = Array.from({ length: 16 }, (_, i) => `file-line-${String(i + 1).padStart(2, '0')}`)
+		const content = Array.from(
+			{ length: 16 },
+			(_, i) => `file-line-${String(i + 1).padStart(2, '0')}`,
+		)
 		const diffBody = diffBodyFromFacts(
 			{
 				kind: 'write',
@@ -217,7 +228,12 @@ describe('a long result', () => {
 		)
 		const rows = messages(
 			rowsOf(
-				{ toolName: 'write', summary: 'Wrote 16 lines', detail: diffBody?.rows, diff: diffBody?.diff },
+				{
+					toolName: 'write',
+					summary: 'Wrote 16 lines',
+					detail: diffBody?.rows,
+					diff: diffBody?.diff,
+				},
 				{ label: 'Write(notes.txt)' },
 			),
 		)
@@ -328,7 +344,11 @@ describe('delegated work', () => {
 		}) as SubagentActivity
 
 	it('a finished agent keeps its answer behind the hint', () => {
-		const answer = { id: 'x:assistant', kind: 'assistant' as const, text: 'the-agents-final-answer' }
+		const answer = {
+			id: 'x:assistant',
+			kind: 'assistant' as const,
+			text: 'the-agents-final-answer',
+		}
 		const rows = messages(agentCompletionRows(agent({ transcript: [answer as never] })))
 		expect(rows[0]?.meta).toBe(EXPAND_HINT)
 		expectTrueHint(rows, 'the-agents-final-answer')

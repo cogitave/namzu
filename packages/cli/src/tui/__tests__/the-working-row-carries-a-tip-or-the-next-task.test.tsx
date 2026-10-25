@@ -3,9 +3,9 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it } from 'vitest'
 
 import { LiveActivity, type LiveActivityProps } from '../LiveActivity.js'
-import { useSpinnerTip } from '../use-spinner-tip.js'
 import type { Tip } from '../spinner-tips.js'
 import type { TipHistory, TipHistoryStore } from '../tip-history.js'
+import { useSpinnerTip } from '../use-spinner-tip.js'
 
 const frame = (props: Partial<LiveActivityProps>): string => {
 	const harness = render(<LiveActivity activeTools={[]} working animate={false} {...props} />)

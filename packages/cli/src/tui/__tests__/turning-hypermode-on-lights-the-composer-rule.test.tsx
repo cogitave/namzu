@@ -124,7 +124,8 @@ async function runHypermode(typed: string) {
 	return { harness, before }
 }
 
-const glowIn = (frames: readonly string[]) => frames.some((f) => GLOW.some((code) => f.includes(code)))
+const glowIn = (frames: readonly string[]) =>
+	frames.some((f) => GLOW.some((code) => f.includes(code)))
 
 it('plays when /hypermode turns the session mode on, in the theme glow colours', async () => {
 	const { harness, before } = await runHypermode('/hypermode')

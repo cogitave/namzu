@@ -316,7 +316,8 @@ function MessageRow({
 	const textColor = paint(message.contentColor) ?? contentColorForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
-		paint(message.glyphColor) ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+		paint(message.glyphColor) ??
+		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.

@@ -52,7 +52,8 @@ export function transcriptScrollRows(
 		const prev = index > 0 ? ordered[index - 1] : undefined
 		const glyph = message.glyph ?? glyphForRole(message.role)
 		const glyphColor =
-			paint(message.glyphColor) ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+			paint(message.glyphColor) ??
+			(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 		const color = paint(message.contentColor) ?? contentColorForRole(message.role)
 		const joined = message.statusRows
 			? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
