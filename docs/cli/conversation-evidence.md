@@ -390,12 +390,32 @@ Cancellation is checked again after an awaited page returns, so a custom reader
 that ignores the signal cannot turn a cancelled request into successful text.
 
 Supply the optional `byteOffset` from search to start near a match, or omit it
-to read from the beginning. Copy the returned value exactly: rounding or estimating
-a byte position can split a UTF-8 character and is refused. The read tool's error
-guidance points back to the exact search position without exposing private paths.
-Repeat that initial offset unchanged with subsequent
-cursor calls. The tool returns `offset` in UTF-16 units, not bytes. A
-record without a character index is read sequentially from zero.
+to read from the beginning. Repeat that initial offset unchanged with subsequent
+cursor calls. The tool returns `offset` in UTF-16 units, not bytes.
+
+## When a read cannot go as asked
+
+A read does not end in one fixed sentence. It either recovers and says so in the
+page's `note`, or fails with a short message that names the cause and the next
+step. Ownership, scope and integrity refusals are never loosened and are never
+explained beyond "could not be read or verified; search again".
+
+| Situation | Result |
+| --- | --- |
+| `byteOffset` falls inside a multi-byte character | Reads from the start of that character (up to three bytes back); the note gives the offset used. |
+| `byteOffset` is past the end, or at it | An empty, complete page with `totalChars`; the note says nothing is left. |
+| `byteOffset` is not a nonnegative integer | Ignored, reading from the start; the note says so. |
+| The record has no character index | Reads from zero; the note says the offset was ignored. |
+| The cursor expired or the process restarted | Restarts from the `seq`/`part` address and the call's `byteOffset`; the note says so. |
+| The cursor belongs to a different read (other offset or conversation) | Refused: repeat the original `seq`, `part` and `byteOffset`, or leave the cursor out. |
+| `seq` is past the end of the conversation | Refused, naming the highest retained `seq`. |
+| The record exists but not that `part` | Refused, naming the parts that hold text. |
+| The record holds no recorded text | Refused, pointing to `search_conversation`. |
+| The retained text changed, or the address now names another record | Refused: run `search_conversation` again for a fresh `seq` and `part`. |
+| Anything else (ownership, integrity, unreadable log) | Refused with the generic "could not be read or verified; search again" message. |
+
+Only the first page of a read is adjusted; a later page's offset came from the
+reader itself, so a failure there is reported, not retried.
 
 Each call scans at most 8 MiB and returns at most 6,000 UTF-16 code units,
 without splitting surrogate pairs. `text` may be empty while scanning toward
