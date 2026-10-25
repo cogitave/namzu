@@ -32,6 +32,10 @@ export async function subagentParentFixture(cwd: string, turnId: TurnId = genera
 			turns.set(later, session.id)
 			return later
 		},
+		/** The turn is over: like the host, the parent no longer answers for it. */
+		end(ended: TurnId): void {
+			turns.delete(ended)
+		},
 		/** A turn of another conversation of the same project and topic. */
 		async addForeignTurn(): Promise<TurnId> {
 			const other = await sessions.createSession(

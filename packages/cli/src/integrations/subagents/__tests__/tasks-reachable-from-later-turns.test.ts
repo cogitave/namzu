@@ -144,6 +144,11 @@ async function conversation(options: { holdFirstChild?: boolean; durable?: boole
 		unwound,
 		turn1,
 		turn2,
+		/** End a turn the way the host does: release its delegation, then forget its scope. */
+		async endTurn(turnId: TurnId) {
+			await runtime.releaseTurn(turnId)
+			parent.end(turnId)
+		},
 		context1: contextFor(turn1),
 		context2: contextFor(turn2),
 		contextFor,
@@ -169,7 +174,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		const world = await conversation()
 		try {
 			const taskId = await launch(world, false)
-			await world.runtime.releaseTurn(world.turn1)
+			await world.endTurn(world.turn1)
 			expect(world.requests).toHaveLength(1)
 
 			const waited = await world.runtime.waitForTaskTool.execute(
@@ -202,7 +207,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		const world = await conversation({ durable: true })
 		try {
 			const taskId = await launch(world, false)
-			await world.runtime.releaseTurn(world.turn1)
+			await world.endTurn(world.turn1)
 			world.handlerTurns.length = 0
 			world.limitTurns.length = 0
 
@@ -245,7 +250,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		try {
 			const taskId = await launch(world, true)
 			await world.started.promise
-			await world.runtime.releaseTurn(world.turn1)
+			await world.endTurn(world.turn1)
 
 			const sent = await world.runtime.sendMessageTool.execute(
 				{ task_id: taskId, message: 'LATE_CORRECTION' },
@@ -288,7 +293,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		try {
 			const taskId = await launch(world, true)
 			await world.started.promise
-			await world.runtime.releaseTurn(world.turn1)
+			await world.endTurn(world.turn1)
 
 			const cancelled = await world.runtime.cancelAgentTool.execute(
 				{ task_id: taskId },
@@ -315,7 +320,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			const view = world.runtime.activity.getSnapshot()[0]
 			expect(world.runtime.stopChild(String(view?.viewId))).toBe(true)
 			world.hold.resolve()
-			await world.runtime.releaseTurn(world.turn1)
+			await world.endTurn(world.turn1)
 			await world.runtime.waitForTaskTool.execute({ task_id: taskId }, world.context2)
 
 			const sent = await world.runtime.sendMessageTool.execute(
@@ -369,7 +374,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		const world = await conversation({ holdFirstChild: true })
 		const taskId = await launch(world, true)
 		await world.started.promise
-		await world.runtime.releaseTurn(world.turn1)
+		await world.endTurn(world.turn1)
 		world.hold.resolve()
 		await world.finish()
 		expect(world.requests).toHaveLength(1)

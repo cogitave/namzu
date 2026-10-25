@@ -542,6 +542,8 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 		context: AgentTaskContext,
 		onEvent: ((event: SessionEvent) => void) | undefined,
 		private readonly validateParent: () => Promise<void>,
+		/** What a message to a task already running here needs; defaults to the full check. */
+		private readonly validateContinuation: () => Promise<void> = validateParent,
 	) {
 		super(manager, context, onEvent)
 	}
@@ -580,7 +582,7 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 
 	override async continueTask(taskId: TaskId, message: string): Promise<void> {
 		if (!this.owns(taskId)) throw new Error(`No task with ID ${taskId} in this conversation.`)
-		await this.validateParent()
+		await this.validateContinuation()
 		await super.continueTask(taskId, message)
 	}
 }
@@ -883,7 +885,7 @@ export async function createSubagentRuntime(
 						tenantId: parent.project.tenantId,
 					},
 				}
-				const gateway = new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {
+				const gatewayCheck = async (): Promise<void> => {
 					assertOwned()
 					const current = await resolveParent(turnId)
 					assertOwned()
@@ -891,7 +893,22 @@ export async function createSubagentRuntime(
 						throw new Error('Delegation turn changed its parent scope')
 					await refreshLimits(lease.shared, current)
 					assertOwned()
-				})
+				}
+				// A message to an agent still running. Once the launching turn has ended
+				// and the agent outlives it, that turn no longer answers for the
+				// delegation; the turn sending the message was checked when its tool
+				// resolved the task, so only the gateway itself must still be live.
+				const gatewayMessage = async (): Promise<void> => {
+					if (!runtime.retired) return gatewayCheck()
+					assertOwned()
+				}
+				const gateway = new ParentTaskScheduler(
+					manager,
+					taskContext,
+					opts.onEvent,
+					gatewayCheck,
+					gatewayMessage,
+				)
 				const completionInbox = new CompletionInbox(undefined, {
 					holdsTurnOpen: opts.backgroundByDefault !== true,
 				})
