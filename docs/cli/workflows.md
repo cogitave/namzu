@@ -39,16 +39,13 @@ message, which keeps the cached prompt prefix stable). The opt-in is the operato
   (`Workflow · this turn, opts into the workflow tool · alt+w drop`) before you
   send, and Alt+W drops it. A question about workflows ("how does the build
   workflow cache work?") only suggests it, and `composerTriggers` can turn it
-  off ([Composer triggers](composer-triggers.md)), or
-- the message is `/workflow <what to do>`. The transcript shows what you
-  typed (`› /workflow <what to do>`); only the model receives `Use a workflow
-  for this: <what to do>`.
+  off ([Composer triggers](composer-triggers.md)).
 
 Each agent a workflow starts is told in its prompt that its step is its
 assigned job, which the person approved with the script, so a note elsewhere
 that a message carries no user authority is not a reason to skip it.
 
-The keyword, the `workflow` trigger and `/workflow` opt in one message only;
+The keyword and the `workflow` trigger opt in one message only;
 the next message needs to ask again unless hypermode is on. Hypermode on is a
 standing opt-in: the model is told so in a hidden reminder kept in the conversation (full the
 first time, sparsely after ten of your messages, once when it ends; a resumed
