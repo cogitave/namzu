@@ -81,7 +81,7 @@ function RewindList({ rows, state, checkpointing }: RewindPickerProps) {
 	const { start, items } = selectionWindow(rows, state.selected, LIST_WINDOW)
 	return (
 		<Box flexDirection="column" paddingTop={1}>
-			<Text>{listHeader(checkpointing)}</Text>
+			<Text color={theme.text.primary}>{listHeader(checkpointing)}</Text>
 			<Box flexDirection="column" paddingTop={1}>
 				{items.map((row, offset) => {
 					const index = start + offset
@@ -115,7 +115,7 @@ function RewindList({ rows, state, checkpointing }: RewindPickerProps) {
 							</Box>
 							{detail ? (
 								<Box paddingLeft={2}>
-									<Text dimColor wrap="truncate-end">
+									<Text color={theme.text.muted} wrap="truncate-end">
 										{detail}
 									</Text>
 								</Box>
@@ -136,7 +136,7 @@ function RewindConfirm({ rows, state, options, now }: RewindPickerProps) {
 	const code = codeLine(state.option, row.files)
 	return (
 		<Box flexDirection="column" paddingTop={1}>
-			<Text>{confirmHeader(canRestoreCode)}</Text>
+			<Text color={theme.text.primary}>{confirmHeader(canRestoreCode)}</Text>
 			<Box
 				flexDirection="column"
 				paddingLeft={1}
@@ -144,14 +144,16 @@ function RewindConfirm({ rows, state, options, now }: RewindPickerProps) {
 				borderRight={false}
 				borderTop={false}
 				borderBottom={false}
-				borderDimColor
+				borderColor={theme.text.muted}
 			>
-				<Text wrap="truncate-end">{oneLine(row.prompt.displayText)}</Text>
-				{age ? <Text dimColor>({age})</Text> : null}
+				<Text color={theme.text.primary} wrap="truncate-end">
+					{oneLine(row.prompt.displayText)}
+				</Text>
+				{age ? <Text color={theme.text.muted}>({age})</Text> : null}
 			</Box>
 			<Box flexDirection="column">
-				<Text dimColor>{conversationLine(state.option)}</Text>
-				{code ? <Text dimColor>{code}</Text> : null}
+				<Text color={theme.text.muted}>{conversationLine(state.option)}</Text>
+				{code ? <Text color={theme.text.muted}>{code}</Text> : null}
 			</Box>
 			<Box flexDirection="column" paddingTop={1}>
 				{options.map((option) => {
@@ -179,7 +181,7 @@ function RewindConfirm({ rows, state, options, now }: RewindPickerProps) {
 			</Box>
 			{canRestoreCode ? (
 				<Box paddingTop={1}>
-					<Text dimColor>{REWIND_CODE_WARNING}</Text>
+					<Text color={theme.text.muted}>{REWIND_CODE_WARNING}</Text>
 				</Box>
 			) : null}
 		</Box>

@@ -376,7 +376,7 @@ import {
 	type ModelSwitchRequest,
 	resolveModelSwitch,
 } from './model-switch.js'
-import { reducedMotion } from './motion.js'
+import { reducedMotion, useReducedMotion } from './motion.js'
 import { isRepeatedNotice } from './notices.js'
 import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
@@ -7128,8 +7128,10 @@ function AppBody({
 	// permission wait and a terminal multiplexer show the idle glyph.
 	const terminalFocused = useTerminalFocused()
 	const titleWorking = state === 'thinking' || state === 'tool'
+	const motionReduced = useReducedMotion()
 	const titleFrame = useTitleFrame(
-		titleAnimates({ working: titleWorking, focused: terminalFocused, env: process.env }),
+		!motionReduced &&
+			titleAnimates({ working: titleWorking, focused: terminalFocused, env: process.env }),
 	)
 	const terminalTitle = terminalTitleText({
 		...conversationNames,

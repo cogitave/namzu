@@ -1,6 +1,7 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useEffect, useState } from 'react'
 
+import { motionAllowed, useReducedMotion } from './motion.js'
 import { HINT_INTERVAL_MS, groupSegments, visibleHint } from './read-search-group.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -25,15 +26,11 @@ export function ReadSearchGroup({
 }) {
 	const state = message.group
 	const live = message.pending === true
+	// Redraws when the setting changes, so a blinking dot stops at once.
+	useReducedMotion()
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
-	const motion =
-		live &&
-		stdout.isTTY === true &&
-		!screenReader &&
-		process.env.NO_COLOR === undefined &&
-		process.env.FORCE_COLOR !== '0' &&
-		process.env.TERM !== 'dumb'
+	const motion = live && stdout.isTTY === true && !screenReader && motionAllowed()
 	const { frame } = useAnimation({ isActive: motion, interval: 300 })
 	const [, setTick] = useState(0)
 	const queued = live && state?.hintQueued !== undefined ? state.hintShownAt : undefined
