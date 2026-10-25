@@ -1,5 +1,21 @@
 # Changelog
 
+## 53.0.0
+
+### Major Changes
+
+- 7608640: Workflow scripts: `pipeline()` stages now receive `(prevResult, originalItem, index)`; they used to receive `(value, index, item)`. A script that reads its 2nd or 3rd parameter must swap them (`(v, i, item) => ...` becomes `(v, item, i) => ...`); a stage that only uses the first parameter is unaffected. The first stage now gets the item as both `prevResult` and `originalItem`.
+
+  Also changed, and worth checking if you set limits: an agent with no `label` is titled with the first 60 characters of its prompt (whitespace squeezed) instead of `Agent N`; the default `maxConcurrency` is `min(16, CPUs - 2)`, at least 2 (was `min(8, CPUs - 2)`, at least 1) and the default `maxAgents` is 1000 (was 200), so pass the old values in `limits` to keep them; `budget` is now `{ total, spent(), remaining() }` and `agent()` throws a `WorkflowBudgetExceededError` once `spent()` reaches `limits.tokenBudget` (it used to resolve `null`), so a script that loops on `agent()` should guard on `budget.total` and catch the error. `budget.tokensUsed` and `budget.tokenLimit` stay as deprecated aliases.
+
+### Minor Changes
+
+- 7608640: `CompletionInbox` accepts `{ holdsTurnOpen: false }` as a second constructor argument (and the new `CompletionInboxOptions` type is exported). With it, a turn that is about to end no longer waits at its settle point for the delegated tasks it launched: it ends at the model's answer, leaves those tasks running, and does not list them as abandoned (`abandonedTaskIds` stays absent). The host then owns their completion. Nothing changes for existing callers: the default is `true`, the previous behaviour. Use it when the host keeps background tasks alive itself and wakes the model when they end, as the terminal now does.
+
+### Patch Changes
+
+- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from ` ⎿ ` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
+
 ## 52.7.0
 
 ### Minor Changes
