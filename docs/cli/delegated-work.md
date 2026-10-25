@@ -273,7 +273,7 @@ all-background batch. Each observed agent completion adds **one** row, whether o
 not the model calls `wait_for_task`: `● Agent "<description>" finished · 1m 4s
 (ctrl+o to expand)` with the agent's answer behind Ctrl+O (in place while the row
 is live and in the output viewer once it has settled into history), or
-`failed: <reason> · 3s`, `was stopped by user · 1s`, `was stopped by Namzu · 1s`
+`failed: <reason>` (no duration), `was stopped by user · 1s`, `was stopped by Namzu · 1s`
 when the conversation's own agent cancelled it, or `was stopped · 1s`, with no
 token count and no repeat of the result. The separate `Message from @<type>` row
 now belongs only to a running agent's own `send_message`. Only an agent that runs on its own
@@ -309,6 +309,8 @@ press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer 
 3 seconds (it is not a transcript row); the second stops them and leaves
 `All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
+
+A background agent's notice row colours only its `●` by outcome (green, red for a failure, warning for a stop); its sentence is plain primary text. A failure's sentence is the provider's message with its JSON body, status prefix and request ids removed, up to 160 characters, and the row carries no duration; when that cleaned the text, Ctrl+O opens the provider's own text under the row. `failed again` still compares the provider's own text, so two different messages that clean to the same sentence are not folded.
 
 A failed agent shows the error text the agent produced, verbatim and in the
 error colour, in three places. In the conversation the failed `Agent` call shows

@@ -238,7 +238,31 @@ export function failureFactsLine(
 			return 'It took too long and was stopped.'
 		case 'invalid_input':
 			return 'The model sent input this tool could not use.'
+		case 'not_read':
+			return subject
+				? `Read ${subject} first, then try again.`
+				: 'Read the file first, then try again.'
+		case 'changed_on_disk':
+			return subject
+				? `${subject} changed on disk since it was read.`
+				: 'The file changed on disk since it was read.'
+		case 'text_not_found':
+			return subject ? `Couldn’t find that text in ${subject}.` : 'Couldn’t find that text.'
+		case 'not_unique':
+			return subject
+				? `That text appears more than once in ${subject}.`
+				: 'That text appears more than once.'
 	}
+}
+
+/**
+ * How a classed failure reads: most are faults, drawn in the error colour. A
+ * file that has to be read first is advice, not a fault, and is drawn dim.
+ */
+export function failureFactsTone(
+	facts: Extract<ToolFacts, { kind: 'failure' }>,
+): 'error' | 'muted' {
+	return facts.reason === 'not_read' ? 'muted' : 'error'
 }
 
 /** The file's own name: a headline names the file, and the full path is not for the transcript. */

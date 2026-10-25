@@ -2893,6 +2893,7 @@ export function App({
 			sourceDelivery?: true,
 			shell?: ShellOutput,
 			diff?: TranscriptMessage['diff'],
+			contentColor?: string,
 		) => {
 			// A reply's text belongs after the receipt of the agents its turn
 			// launched, so a receipt still waiting out its settle window is
@@ -2925,6 +2926,7 @@ export function App({
 								activity,
 								...(shell ? { shell } : {}),
 								...(diff ? { diff } : {}),
+								...(contentColor ? { contentColor } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -3001,6 +3003,7 @@ export function App({
 				undefined,
 				row.shell,
 				row.diff,
+				row.contentColor,
 			),
 		[pushMessage],
 	)

@@ -480,7 +480,7 @@ and never redrawn; the live state belongs to the rail.
   ├ Choose first colour
   └ Choose second colour
 ● Agent "Choose first colour" finished · 1m 4s (ctrl+o to expand)
-● Agent "Choose second colour" failed: Provider refused the request · 3s
+● Agent "Choose second colour" failed: Provider refused the request
 ✻ Worked for 38s · done 3:45 PM · 3 agents · 27.0k tokens
 ```
 
@@ -504,8 +504,10 @@ live state belongs to the rail.
   `● Agent "<description>" finished · 1m 4s (ctrl+o to expand)` (green; the hint
   follows the time in parentheses, after a space, and the answer behind Ctrl+O is
   the child's text, shown as text: terminal controls in it are displayed, never
-  obeyed), `failed: <reason> · 3s` (red; `Unknown error` when nothing says why,
-  and no answer to open) or `was stopped by user · 1s`, `was stopped by Namzu ·
+  obeyed), `failed: <reason>` (the glyph is red and the sentence is plain text, with no
+  duration; the provider's JSON body and request ids are cleaned off it, the
+  provider's own text opens with Ctrl+O when cleaning changed it, and
+  `Unknown error` stands when nothing says why) or `was stopped by user · 1s`, `was stopped by Namzu ·
   1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
   `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the answer
   in place while the row is still in the live region; once it has settled into
@@ -580,6 +582,8 @@ An edit has no row cap; when the kernel itself carried only part of a very large
 
 A settled tool row is one shape: `●` (green when it worked, red when it failed, dim when the person declined or cancelled) and the call, then `⎿` for what came of it. The elapsed time shows only from 1 second up; an instant tool shows none. A tool error names the file as the model gave it or relative to the working folder, `~/x` under the home folder and the full path elsewhere, never `../../x` and never a raw scratch path, and a path too long for the row wraps after a `/` or `\` instead of in the middle of a name.
 
+A failed call has two shapes. A failure the kernel classed (a file that is not there, no permission, a refused edit) is one short sentence on the `⎿` row, in the error colour, with the tool's own message behind Ctrl+O (`Couldn’t find a.ts.`, `a.ts changed on disk since it was read.`, `Couldn’t find that text in a.ts.`, `That text appears more than once in a.ts.`); a file that must be read first reads `Read a.ts first, then try again.` in the dim colour, because it is advice and not a fault. Every other failure shows the tool's own error text under the call as `Error: <text>` in the error colour: the first 10 lines, then a dim `… +N lines (ctrl+o to expand)`, every line when expanded. An input-validation error reads `Invalid tool parameters` until expanded, and a call with no text reads `Tool execution failed`. There is no `failed:` lead word. A command that fails shows its own output the same way.
+
 A tool's result is a `⎿` row with the output's first line and, under it, the rest of the output as a collapsible body. A first line of up to 300 characters (`RESULT_SUMMARY_WHOLE_MAX`) is shown whole on the `⎿` row, wrapping if it must, and is not repeated in the body. A longer one is shortened to 120 characters on the row and kept whole as the body's first line, where `Ctrl+O` shows it. A browser action's note (`A navigation to … was blocked before it was sent: …`) used to be printed twice, once cut off and once in full.
 
 A tool that shows the operator something of its own while it runs — the `schedule` tool's confirmation, a question card — first closes the reply the model streamed with the call, as the tool's start would. The kernel hands the loop a tool's start only when its batch settles, and a reply left pending holds every later row out of scrollback: a confirmation taller than the screen was drawn in the redrawable tail with its top cut off, so the job's model, budget and warnings were never on screen while the operator was asked about them.
@@ -616,7 +620,7 @@ terminal's width with an ellipsis. A fetched page or a search's result list
 stays behind Ctrl+O. Provider-hosted searches (see [Web search](web-search.md))
 are named from the query the provider reports; a provider that opens a page
 rather than running a query is shown as a fetch of that page. A failed call
-keeps `✗` and its `failed: …` line.
+is drawn like any failed call (below).
 
 ## Tables
 

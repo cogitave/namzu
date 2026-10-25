@@ -22,6 +22,7 @@ import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
 	factsHeadline,
 	failureFactsLine,
+	failureFactsTone,
 	tidyCommandOutput,
 	tidyTerminalOutput,
 	unknownToolNotice,
@@ -518,6 +519,8 @@ export type AgentEvent =
 			readonly diff?: DiffInfo
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
+			/** `muted` when that sentence is advice rather than a fault; absent means the error colour. */
+			readonly plainFailureTone?: 'muted'
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
 			readonly headline?: string
 			/**
@@ -7423,6 +7426,12 @@ export function toAgentEvent(
 				summary: headline ?? summary,
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
+				...(plainFailure &&
+				classed &&
+				event.facts?.kind === 'failure' &&
+				failureFactsTone(event.facts) === 'muted'
+					? { plainFailureTone: 'muted' as const }
+					: {}),
 				...(tidy?.shell ? { shell: tidy.shell } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),

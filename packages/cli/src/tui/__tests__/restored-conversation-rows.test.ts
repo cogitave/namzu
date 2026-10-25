@@ -277,7 +277,6 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
 			['user', 'go'],
 			['●', 'Nope tool({"a":1})'],
-			['⎿', 'failed: boom'],
 			['○', 'Bash(sleep 99)'],
 			['⎿', 'Interrupted'],
 		])

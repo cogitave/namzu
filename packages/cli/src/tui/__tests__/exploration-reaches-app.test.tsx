@@ -150,7 +150,7 @@ it('groups observations, preserves expandable evidence and distinguishes backgro
 	screen.press('inspect')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted().includes('failed: missing file'))
+	await waitUntil(screen, () => painted().includes('Error: missing file'))
 	const transcript = painted()
 	expect(transcript.match(/Explored/g)).toHaveLength(1)
 	expect(transcript).toContain('Read one.ts')

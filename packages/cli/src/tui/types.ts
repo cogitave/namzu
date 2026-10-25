@@ -55,6 +55,8 @@ export interface TranscriptMessage {
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */
 	readonly glyphColor?: string
+	/** Overrides the colour of the row's text (the glyph keeps `glyphColor`). */
+	readonly contentColor?: string
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */
 	readonly meta?: string
 	/** Collapsible body under the line (tool diff / output). */

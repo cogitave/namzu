@@ -53,7 +53,7 @@ export function transcriptScrollRows(
 		const glyph = message.glyph ?? glyphForRole(message.role)
 		const glyphColor =
 			message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
-		const color = contentColorForRole(message.role)
+		const color = message.contentColor ?? contentColorForRole(message.role)
 		const joined = message.statusRows
 			? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
 			: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${

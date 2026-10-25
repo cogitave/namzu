@@ -269,7 +269,7 @@ knew:
 | `list` (glob) | `pattern`, `path`, `count`, `truncated` |
 | `edit` | `path`, `replacements`, `added`, `removed`, `hunks`, `hunksTruncated` |
 | `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed`, `hunks`, `hunksTruncated` |
-| `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`), `subject` |
+| `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`, `not_read`, `changed_on_disk`, `text_not_found`, `not_unique`), `subject` |
 
 A `ToolTextWindow` is the first 80 lines of a stream, its last 40 and the number of lines left out between them
 (`omittedLines`), with `totalLines` and `totalBytes`; neither half is longer than 6,000 characters. A stream that
