@@ -9,6 +9,7 @@ import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-
 import { isTaskTool } from './task-activity.js'
 import { theme } from './theme.js'
 import { declinedLine } from './tidy-tool-output.js'
+import { firstLineOf, toolFailureText } from './tool-failure-text.js'
 import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 import { settledElapsed } from './units.js'
@@ -80,12 +81,14 @@ export function formatToolCall(toolName: string, summary: string, standalone = f
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
-/** What the person reads when a workflow script stopped with an error. */
-const SCRIPT_STOPPED = 'The workflow script stopped with an error.'
-
 /** A failure line without the interpreter's error name (`Error: `, `TypeError: `) in front of the sentence. */
 export function withoutErrorName(text: string): string {
 	return text.replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+}
+
+/** An error message drawn as the tool wrote it: error colour, ten lines, then the fold. */
+function failureBody(lines: readonly string[], folded?: readonly string[]): ShellOutput {
+	return { stdout: [], stderr: lines, failed: true, byLine: true, ...(folded ? { folded } : {}) }
 }
 
 /** The words a call is headed with when its start was never seen. */
@@ -237,30 +240,34 @@ export function toolEndRows(
 		])
 	}
 	if (event.isError && event.toolName === WORKFLOW_TOOL_NAME && event.output !== undefined) {
-		// A script that could not run: the person gets one plain sentence. The
-		// position it stopped at, the engine's own message, the line it stopped
-		// on and the hint for the model about missing arguments stay behind
-		// ctrl+o.
-		const [first = '', ...rest] = event.output.split('\n')
-		const said = first.trim().replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
-		const scripted = /^The script stopped\b/.test(said)
-		const sentence = scripted ? SCRIPT_STOPPED : said
-		const body = [...(scripted ? [said] : []), ...rest.filter((line) => line.trim().length > 0)]
+		// A script that could not run: the first line of its error, after the
+		// failure mark, in the error colour. Nothing is folded behind ctrl+o.
+		const said = [`✘ ${firstLineOf(event.output)}`]
 		return rows([
 			{
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
 				glyphColor: theme.status.error,
+				detail: said,
+				shell: failureBody(said),
 			},
+		])
+	}
+	if (event.isError && event.toolName.toLowerCase() === 'agent') {
+		// A failed agent call: the error text it produced, in the error colour,
+		// ten lines and then how many more ctrl+o shows.
+		const text = toolFailureText(event.output, false)
+		const full = toolFailureText(event.output, true).split('\n')
+		const lines = text.split('\n')
+		return rows([
 			{
 				role: 'tool',
-				content: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`,
-				glyph: '⎿',
+				content: headOf(event, start),
+				glyph: '●',
 				glyphColor: theme.status.error,
-				...(body.length > 0
-					? { detail: body, meta: EXPAND_HINT, activity: 'evidence' as const }
-					: {}),
+				detail: full,
+				shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
 			},
 		])
 	}

@@ -294,11 +294,9 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 			createToolMessage('could not start', 'bad', true),
 		]
 		const rows = projectConversation(messages, ids())
-		expect(rows.map((row) => row.content)).toEqual([
-			'delegate',
-			'Agent(Fail)',
-			'failed: could not start',
-		])
+		expect(rows.map((row) => row.content)).toEqual(['delegate', 'Agent(Fail)'])
+		// The failed launch's error text hangs under the call, as the tool wrote it.
+		expect(rows[1]?.shell?.stderr).toEqual(['Error: could not start'])
 	})
 })
 
