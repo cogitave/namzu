@@ -214,14 +214,25 @@ it('counts a run of looks live, settles it on the reply text, and starts a new l
 	expect(text).not.toMatch(/(Searching|Reading|Listing) /)
 })
 
-it('ends the line on an error and keeps the error as a row of its own', async () => {
+it('keeps a failed look in the line, with its error behind the detailed transcript', async () => {
 	script = [
 		{ toolName: 'read', input: { path: 'one.ts' }, result: 'FIRST evidence' },
 		{ toolName: 'read', input: { path: 'missing.ts' }, result: 'no such file', isError: true },
+		{ text: 'Done.' },
 	]
 	const screen = await send('look')
-	await waitUntil(screen, () => everything(screen).includes('Error: no such file'))
-	const text = everything(screen)
-	expect(text).toContain('Read 2 files')
-	expect(text.indexOf('Read 2 files')).toBeLessThan(text.indexOf('Error: no such file'))
+	await waitUntil(screen, () => everything(screen).includes('Done.'))
+	const text = screen.scrollback().join('\n')
+	// Both calls are counted and the failure is not a row of its own.
+	expect(text).toContain('Read 2 files (ctrl+o to expand)')
+	expect(text).not.toContain('no such file')
+	expect(text).not.toContain('missing.ts')
+	screen.press('\x0f')
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Showing detailed transcript'),
+	)
+	const shown = screen.viewport().join('\n')
+	expect(shown).toContain('FIRST evidence')
+	expect(shown).toContain('Error: no such file')
+	expect(shown).not.toContain('(ctrl+o to expand)')
 })
