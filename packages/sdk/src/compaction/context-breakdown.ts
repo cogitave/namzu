@@ -13,6 +13,7 @@
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import type { Message } from '../types/message/index.js'
+import type { LLMToolSchema } from '../types/tool/index.js'
 import { TRIGGER_BUFFER_TOKENS, TRIGGER_OUTPUT_RESERVE_CAP_TOKENS } from './context-window.js'
 import { estimateMessageTokens, estimateTextTokens } from './token-estimate.js'
 
@@ -103,7 +104,7 @@ export interface ContextBreakdown {
 
 /** Per-tool size of a catalogue already rendered the way it is sent. */
 export function describeToolCatalogTokens(
-	tools: readonly { readonly name: string }[],
+	tools: readonly LLMToolSchema[],
 ): { name: string; tokens: number }[] {
 	return tools.map((tool) => {
 		let length = 0
@@ -112,7 +113,7 @@ export function describeToolCatalogTokens(
 		} catch {
 			// A tool that cannot render is the model call's problem to report.
 		}
-		return { name: tool.name, tokens: Math.ceil(length / CHARS_PER_TOKEN) }
+		return { name: tool.function.name, tokens: Math.ceil(length / CHARS_PER_TOKEN) }
 	})
 }
 

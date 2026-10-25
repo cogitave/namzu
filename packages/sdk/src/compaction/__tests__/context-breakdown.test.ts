@@ -133,10 +133,12 @@ describe('analyzeContextUsage', () => {
 
 describe('describeToolCatalogTokens', () => {
 	it('sizes each tool by its rendered length', () => {
-		const out = describeToolCatalogTokens([
-			{ name: 'a' },
-			{ name: 'b', extra: 'x'.repeat(100) } as never,
-		])
-		expect(out[0]?.tokens).toBeLessThan(out[1]?.tokens ?? 0)
+		const tool = (name: string, description: string) => ({
+			type: 'function' as const,
+			function: { name, description, parameters: {} },
+		})
+		const out = describeToolCatalogTokens([tool('a', ''), tool('b', 'x'.repeat(400))])
+		expect(out.map((t) => t.name)).toEqual(['a', 'b'])
+		expect(out[1]?.tokens).toBeGreaterThan((out[0]?.tokens ?? 0) + 99)
 	})
 })
