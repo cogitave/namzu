@@ -78,3 +78,52 @@ export const theme: SemanticColors = {
 		focus: 'ansi256(83)',
 	},
 }
+
+/**
+ * The backgrounds a diff row is drawn on. Six tokens: a whole added or removed row, the same dimmed for a change that was
+ * refused, and the words that differ inside a changed pair of rows.
+ */
+export interface DiffColors {
+	readonly added: string
+	readonly removed: string
+	readonly addedDimmed: string
+	readonly removedDimmed: string
+	readonly addedWord: string
+	readonly removedWord: string
+}
+
+/** For a terminal that reports 24-bit colour: the dark-theme values. */
+export const DIFF_COLORS_TRUECOLOR: DiffColors = {
+	added: 'rgb(34,92,43)',
+	removed: 'rgb(122,41,54)',
+	addedDimmed: 'rgb(71,88,74)',
+	removedDimmed: 'rgb(105,72,77)',
+	addedWord: 'rgb(56,166,96)',
+	removedWord: 'rgb(179,89,107)',
+}
+
+/** For every other terminal: the named ANSI colours, words in the bright variant. */
+export const DIFF_COLORS_ANSI: DiffColors = {
+	added: 'green',
+	removed: 'red',
+	addedDimmed: 'green',
+	removedDimmed: 'red',
+	addedWord: 'greenBright',
+	removedWord: 'redBright',
+}
+
+const TRUECOLOR_PROGRAMS = new Set(['iTerm.app', 'vscode', 'WezTerm', 'ghostty', 'Hyper'])
+
+/** Whether the terminal says it draws 24-bit colour. */
+export function reportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean {
+	const colorterm = env.COLORTERM?.toLowerCase()
+	if (colorterm === 'truecolor' || colorterm === '24bit') return true
+	if (env.WT_SESSION !== undefined) return true
+	if (env.TERM_PROGRAM !== undefined && TRUECOLOR_PROGRAMS.has(env.TERM_PROGRAM)) return true
+	return /direct|truecolor|24bit/i.test(env.TERM ?? '')
+}
+
+/** The diff colours this terminal can draw. */
+export function diffColors(env: NodeJS.ProcessEnv = process.env): DiffColors {
+	return reportsTruecolor(env) ? DIFF_COLORS_TRUECOLOR : DIFF_COLORS_ANSI
+}

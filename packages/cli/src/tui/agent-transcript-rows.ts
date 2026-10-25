@@ -80,6 +80,9 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 			].map((label) => oneLine(label))
 		: []
 	const where = labels.length > 0 ? ` · ${labels.join(' / ')}` : ''
+	const ended = (agent: SubagentActivity): boolean =>
+		agent.status === 'completed' || agent.status === 'failed' || agent.status === 'cancelled'
+	const allEnded = members.every(ended)
 	if (members.length === 1 && first) {
 		// `↓ to manage` only for background work: a foreground agent is waited on.
 		const hint = first.background === true ? ` (${AGENT_MANAGE_HINT})` : ''
@@ -93,7 +96,9 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	// Agents started in the background say so; a batch the turn waits on does not.
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
-		: `Launched ${members.length} agents${where}`
+		: allEnded
+			? `${members.length} agents finished${where}`
+			: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
 }
 
@@ -252,6 +257,23 @@ export function agentNotice(
 	return { content: `Agent "${label}" failed: ${reason} · ${took}`, tone: 'error' }
 }
 
+/**
+ * The agent count of a finished workflow's closing line: how many agents it
+ * ran, `3 agents`, whether or not some failed. Failures show in the detail,
+ * the rail's red dot and the status word, not in this count.
+ */
+export function workflowAgentTotal(total: number): string {
+	return `${total} ${total === 1 ? 'agent' : 'agents'}`
+}
+
+/** A `/workflows` row's count: the agents that finished over all of them, `2/3 agents`. */
+export function workflowAgentProgress(counts: {
+	readonly done: number
+	readonly total: number
+}): string {
+	return `${counts.done}/${counts.total} ${counts.total === 1 ? 'agent' : 'agents'}`
+}
+
 export interface WorkflowNotice {
 	readonly content: string
 	/** Completed reads quiet, failed is red, stopped is yellow. */
@@ -270,15 +292,13 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	const parts = [
 		`Workflow ${oneLine(workflow.name)} ${word}`,
 		elapsed,
-		`${workflow.total} agent${workflow.total === 1 ? '' : 's'}`,
-		...(workflow.failed > 0 ? [`${workflow.failed} failed`] : []),
+		...(workflow.total > 0 ? [workflowAgentTotal(workflow.total)] : []),
 		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
 	]
 	return {
 		content: parts.join(' · '),
 		tone: workflow.status === 'failed' ? 'error' : workflow.status === 'stopped' ? 'warn' : 'ok',
-		glyph:
-			workflow.status === 'failed' ? '✗' : workflow.status === 'stopped' ? SYSTEM_ROW_GLYPH : '✓',
+		glyph: SYSTEM_ROW_GLYPH,
 	}
 }
 
@@ -288,29 +308,37 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
  */
 export const SETTLE_LINE_MIN_MS = 3_000
 
+/** The clock time a closing line was written at, `3:45 PM` in the person's own locale. */
+export function doneClock(at: Date): string {
+	return at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
 /**
- * `Worked for 38s · 3 agents · 27.0k tokens`, or `Worked for 46s`
- * for a turn that delegated nothing — a finished turn closes with how long it
- * took, as the reference terminal's do — or `undefined` for a turn that
- * delegated nothing and finished within {@link SETTLE_LINE_MIN_MS}.
+ * `Worked for 38s · done 3:45 PM · 3 agents · 27.0k tokens`, or
+ * `Worked for 46s · done 3:45 PM` for a turn that delegated nothing — a
+ * finished turn closes with how long it took and when it ended — or
+ * `undefined` for a turn that delegated nothing and finished within
+ * {@link SETTLE_LINE_MIN_MS}. The clock part is left out when no time is given.
  *
- * Phases never appear here: the reference shows them only inside a
- * workflow's detail view. The tokens appear only when a child reported
- * spend, and `· 1 failed` only when one did.
+ * Phases never appear here: they show only inside a workflow's detail view.
+ * The tokens appear only when a child reported spend, and `· 1 failed` only
+ * when one did.
  */
 export function settleLine(
 	elapsedMs: number,
 	agents: readonly SubagentActivity[],
+	doneAt?: Date,
 ): string | undefined {
-	if (agents.length <= 0)
-		return elapsedMs >= SETTLE_LINE_MIN_MS ? `Worked for ${formatElapsed(elapsedMs)}` : undefined
+	const worked = (ms: number): string =>
+		`Worked for ${formatElapsed(Math.max(0, ms))}${doneAt ? ` · done ${doneClock(doneAt)}` : ''}`
+	if (agents.length <= 0) return elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
 	const spent = agents.reduce<number | undefined>(
 		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 		undefined,
 	)
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
-		`Worked for ${formatElapsed(Math.max(0, elapsedMs))}`,
+		worked(elapsedMs),
 		`${agents.length} agent${agents.length === 1 ? '' : 's'}`,
 		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
 		...(failed > 0 ? [`${failed} failed`] : []),

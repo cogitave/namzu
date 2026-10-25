@@ -631,6 +631,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.composerTriggers
 						? { composerTriggers: resolvedCtx.config.composerTriggers }
 						: {}),
+					...(resolvedCtx.config.hypermode === true ? { hypermode: true } : {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),

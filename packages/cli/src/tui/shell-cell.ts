@@ -51,6 +51,13 @@ export interface ShellOutput {
 	readonly status?: string
 	/** The complete header, when {@link shellCommandHeader} cut it. */
 	readonly fullHeader?: string
+	/**
+	 * Count lines as the text has them: a long line is not several, and a single
+	 * folded line still says so. For an error message drawn as the tool wrote it.
+	 */
+	readonly byLine?: true
+	/** Shown in place of `stderr` until the body is expanded. */
+	readonly folded?: readonly string[]
 }
 
 export type ShellTone = 'out' | 'err' | 'dim'
@@ -110,6 +117,50 @@ export function wrapShellLine(line: string, width: number): string[] {
 	return rows
 }
 
+/**
+ * Break one line into rows of at most `width` cells at word boundaries: a
+ * break falls at a space, and only a word longer than the whole width is cut
+ * inside. Leading indentation of the line is kept on its first row.
+ */
+export function wrapWords(line: string, width: number): string[] {
+	const limit = Math.max(1, width)
+	if (stringWidth(line) <= limit) return [line]
+	const rows: string[] = []
+	let row = ''
+	let rowCells = 0
+	let gap = ''
+	const indent = /^ */.exec(line)?.[0] ?? ''
+	row = indent
+	rowCells = indent.length
+	for (const token of line.slice(indent.length).split(/( +)/)) {
+		if (token.length === 0) continue
+		if (token.startsWith(' ')) {
+			gap = token
+			continue
+		}
+		const cells = stringWidth(token)
+		const lead = row.trim().length === 0 ? '' : gap
+		if (rowCells + lead.length + cells <= limit) {
+			row += lead + token
+			rowCells += lead.length + cells
+		} else if (cells <= limit) {
+			if (row.trim().length > 0) rows.push(row)
+			row = token
+			rowCells = cells
+		} else {
+			// A word longer than the whole width starts a fresh row and is cut there.
+			if (row.trim().length > 0) rows.push(row)
+			const pieces = wrapShellLine(token, limit)
+			rows.push(...pieces.slice(0, -1))
+			row = pieces.at(-1) ?? ''
+			rowCells = stringWidth(row)
+		}
+		gap = ''
+	}
+	rows.push(row)
+	return rows
+}
+
 function visualLines(lines: readonly string[], width: number | undefined): string[] {
 	if (width === undefined) return [...lines]
 	return lines.flatMap((line) => wrapShellLine(line, width))
@@ -122,6 +173,8 @@ export interface ShellRowOptions {
 	readonly width?: number
 	/** The `(ctrl+o to expand)` suffix is true: the row can be expanded. */
 	readonly canExpand?: boolean
+	/** Lines are counted as the text has them; see {@link ShellOutput.byLine}. */
+	readonly byLine?: boolean
 }
 
 /** How many output lines a row stands for: a kernel gap line stands for all it left out. */
@@ -130,22 +183,46 @@ function weight(text: string): number {
 	return gap ? Number((gap[1] ?? '1').replaceAll(',', '')) : 1
 }
 
+/** A body counted in the lines the text has: cut to `limit` lines, each wrapped at word boundaries. */
+function lineStream(
+	lines: readonly string[],
+	tone: 'out' | 'err',
+	limit: number,
+	options: ShellRowOptions,
+): ShellRow[] {
+	const wrap = (line: string) =>
+		options.width === undefined ? [line] : wrapWords(line, options.width)
+	const shown = options.expanded ? lines : lines.slice(0, limit)
+	const rows: ShellRow[] = shown.flatMap(wrap).map((text) => ({ text, tone }))
+	const hidden = options.expanded
+		? 0
+		: lines.slice(limit).reduce((count, line) => count + weight(line), 0)
+	if (hidden <= 0) return rows
+	return [
+		...rows,
+		{ text: hiddenLinesHint(hidden, { canExpand: options.canExpand !== false }), tone: 'dim' },
+	]
+}
+
 function stream(
 	lines: readonly string[],
 	tone: 'out' | 'err',
 	limit: number,
 	options: ShellRowOptions,
 ): ShellRow[] {
+	if (options.byLine) return lineStream(lines, tone, limit, options)
 	const rows = visualLines(lines, options.width).map((text) => ({ text, tone }) as const)
 	if (options.expanded || rows.length <= limit) return rows
 	const hidden = rows.slice(limit).reduce((count, row) => count + weight(row.text), 0)
 	// One hidden line costs a row to say so, so it is simply shown.
-	if (hidden === 1) return rows
+	if (hidden === 1 && !options.byLine) return rows
 	return [
 		...rows.slice(0, limit),
 		{
 			text: hiddenLinesHint(hidden, {
-				chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0),
+				...(options.byLine
+					? {}
+					: { chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0) }),
 				canExpand: options.canExpand !== false,
 			}),
 			tone: 'dim',
@@ -156,9 +233,11 @@ function stream(
 /** The rows under a settled shell call's header. */
 export function shellResultRows(shell: ShellOutput, options: ShellRowOptions): ShellRow[] {
 	const limit = shell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
+	const byLine = shell.byLine === true
+	const shown: ShellRowOptions = byLine ? { ...options, byLine } : options
 	const rows = [
-		...stream(shell.stdout, 'out', limit, options),
-		...stream(shell.stderr, 'err', limit, options),
+		...stream(shell.stdout, 'out', limit, shown),
+		...stream(!options.expanded && shell.folded ? shell.folded : shell.stderr, 'err', limit, shown),
 	]
 	if (rows.length === 0) {
 		return [{ text: shell.note ?? '(No output)', tone: shell.failed ? 'err' : 'dim' }]
@@ -175,8 +254,10 @@ export function shellCollapses(shell: ShellOutput | undefined): boolean {
 	if (!shell) return false
 	if (shell.fullHeader !== undefined) return true
 	const limit = shell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
+	if (shell.folded) return true
 	return [shell.stdout, shell.stderr].some(
-		(lines) => lines.length > limit || lines.some((line) => stringWidth(line) > 60),
+		(lines) =>
+			lines.length > limit || (!shell.byLine && lines.some((line) => stringWidth(line) > 60)),
 	)
 }
 

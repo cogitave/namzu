@@ -35,6 +35,15 @@ conversation lists and notices without rewriting stored sessions.
 
 ## The composer footer
 
+**No footer under a dialog.** The footer belongs to the message box. While a
+permission request, a question, a plan or skill review, a picker, a text prompt or
+a full-screen choice (resume, edit, provider setup) is on screen, no footer is
+drawn: the box carries its own key line, so nothing under it says half of the
+footer (the model alone, or a mode without its cycle hint). The one exception is
+a transient notice that needs the row, such as `Press Ctrl-C again to exit`, which
+brings the footer back for as long as it lasts. The footer returns with the
+message box.
+
 A [custom status line](status-line.md), when `statusLine` is configured, is drawn on the
 rows above this line, and the quiet `shift+tab to cycle` reminder then stays off.
 
@@ -79,10 +88,8 @@ items are joined by a dim ` · `, left to right:
 - **The reasoning effort**, when the operator has set one, as `effort <level>`
   (Namzu's own item; the reference has none).
 - **`esc to interrupt`**, dim, while a turn runs (omitted when the right side
-  already carries a hint that names Esc, and while a dialog or picker owns the
-  keyboard: Esc declines or goes back there, and the footer then keeps the mode
-  without its `(shift+tab to cycle)` key as well, one rule for every such
-  screen). The Working row does not repeat it; it lives here only.
+  already carries a hint that names Esc; no footer is drawn while a dialog or
+  picker owns the keyboard). The Working row does not repeat it; it lives here only.
 - **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
   on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
   in the right-hand slot for 800 ms; the same key again inside that window
@@ -166,7 +173,15 @@ accent colour and the others lose their pointer. Up and Down move, Enter loads
 the chosen message into the input with its attachments and armed triggers,
 and Esc only leaves the choice. Typing anything else leaves it too. While
 messages can be edited the input's placeholder reads `Press up to edit queued
-messages`. Alt+Up still restores the newest one at once. A held queue says why
+messages`, the first three times it would appear (the count is kept in
+`~/.namzu/hint-counts.json` as `queuedMessagesHint`, so it carries over
+between launches; each appearance counts once, and the words are decided
+before the frame is drawn, so the usual placeholder never flashes first), then
+the usual placeholder returns. Enter on an empty box loads the chosen queued
+message for editing; it never sends the queue. On the very first prompt of a
+conversation the placeholder is a rotating example, `Try "fix lint errors"`,
+and, in a git repository, ones that name a frequently modified source file
+(`Try "refactor src/app.ts"`). Alt+Up still restores the newest one at once. A held queue says why
 under its rows: after a failed reply `Paused after the failed reply · send a
 message to run them`; after Esc, a new Enter message runs before the queue.
 `ctrl+x ctrl+s` is a two-key chord (any key in between drops it) that does what
@@ -180,7 +195,7 @@ is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the right end of the composer's upper rule in violet. The rule rests in
-plain graphite. Turning the mode on sends one short lavender glow from the visible
+plain graphite. While it is on the footer's effort item also reads `Hypermode on`. Turning the mode on sends one short lavender glow from the visible
 rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
@@ -192,19 +207,18 @@ complete mode name omits the label rather than clipping it.
 A [composer trigger](composer-triggers.md) — `hypermode`, "bunu skill olarak
 kaydet" — gets one row inside the composer's rules, above the input, where the
 `Effort:`/`Model:` previews go:
-`✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`.
+`Hypermode · this reply: offers workflows, effort unchanged · alt+w drop`.
 The armed words in the draft are bold and underlined in sky (ANSI 117), the
 trigger's own colour: violet belongs to the session mode, which lasts, and a
 trigger lasts one message. The highlight is cut from the draft before unsafe
-characters are escaped for the terminal, so it stays on the right cells. `✦`
-(armed) and `✧` (suggested, dropped, unavailable) are one cell wide and are not
-emoji, and the state is always also a word or mark (`?`, `(off)`,
-`unavailable …`), so a terminal without colour, or a reader who cannot tell
-the two glyphs apart, loses nothing. The row is one row at every width and
+characters are escaped for the terminal, so it stays on the right cells. The
+row is sentence case and has no glyph; the state is a word or mark (`?`,
+`(off)`, `unavailable …`), so a terminal without colour loses nothing. The row is one row at every width and
 shortens by steps (full copy from 84 terminal columns, a short form from 64,
 label and key from 44, the label alone below). The border and the footer are
-unchanged by a trigger: a one-turn effort pin shows in the row and in the
-transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
+unchanged by a trigger: a one-turn max-effort pin shows in the row and in the
+transcript line under the message (a hypermode keyword says `Hypermode is on
+for this reply: Namzu may use workflows.` and pins nothing),
 and the footer keeps the session's own effort. The queued-message heading names
 armed triggers on taller terminals; a compact terminal prioritizes the next
 message's text.
@@ -271,8 +285,8 @@ first tool call on, and nothing until it has reported usage); an agent
 still waiting for a slot reads `waiting` instead of a clock, and messages sent
 to it that it has not taken in yet read `N queued` in the warning colour. The
 name column is as wide as the longest type or workflow name on screen, up to 28
-cells, shared by agent and workflow rows; when every row is the same type and no
-workflow row is shown, the column is left out. The description is always the
+cells, shared by agent and workflow rows; every agent row has it, so a row reads
+the same whether it is alone or among others. The description is always the
 sentence the agent was launched with, and its **live label** (cut to 24 cells,
 left out below 64 columns) sits in the right-hand block before the clock:
 every 30 seconds, while a background agent runs and has done something new
@@ -432,7 +446,7 @@ When the model launches labelled agents the conversation gets one group line,
 instead of a launch row per agent, and no completion rows for them. When a
 workflow is over it leaves one line in the conversation, above the
 turn's `✻ Worked for …` line: `✓ Workflow Release audit completed · 4m02s · 7
-agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or `■ …
+agents · 112.0k tokens` (dim), `✗ … failed · … · 3 agents …` (red) or `■ …
 stopped …` (yellow). "Over" means the parent turn that ran it has ended and
 every member has settled, so a later phase that starts long after the previous
 one finished does not produce a second line; the line is written once per
@@ -469,10 +483,9 @@ and never redrawn; the live state belongs to the rail.
 ● 2 background agents launched (↓ to manage)
   ├ Choose first colour
   └ Choose second colour
-› Message from @general-purpose (ctrl+o to expand)
-● Agent "Choose first colour" finished · 1m 4s
+● Agent "Choose first colour" finished · 1m 4s (ctrl+o to expand)
 ● Agent "Choose second colour" failed: Provider refused the request · 3s
-✻ Worked for 38s · 3 agents · 27.0k tokens
+✻ Worked for 38s · done 3:45 PM · 3 agents · 27.0k tokens
 ```
 
 Delegated work leaves these rows, each written once and never redrawn; the
@@ -480,7 +493,8 @@ live state belongs to the rail.
 
 - **A launch receipt** per batch: the agents one model response launched
   together, each by its description under one line (`N background agents
-  launched` when they all run in the background, else `Launched N agents`). A
+  launched` when they all run in the background, `Launched N agents` while a
+  batch the turn waits on runs, `N agents finished` once it has ended). A
   single agent is named inline. Agents the
   model gave a `workflow` label are one workflow and get one `● Workflow <name>`
   line instead (see the rail section), once per workflow. The receipt waits until
@@ -490,24 +504,26 @@ live state belongs to the rail.
   open: a reviewed batch's events reach the terminal only when the batch
   finishes, so the reply stays open for the whole of a foreground agent's run.
   An agent resumed by a later message gets no second receipt.
-- **Two rows per agent that reports on its own.** First what it said, collapsed:
-  `› Message from @<type> (ctrl+o to expand)` (the hint follows the sender in
-  parentheses, after a space; the sender is the agent
-  type, so two general agents both read `@general-purpose`). Ctrl+O opens the
-  answer in place while the row is still in the live region; once it has
-  settled into history, the press after the live bodies are open shows the
-  newest settled body in the output viewer, where ←/→ reach the others. The
-  answer is the child's text and is shown as text — terminal controls in it are
-  displayed, never obeyed. Then one line that says it is over:
-  `● Agent "<description>" finished · 1m 4s` (green), `failed: <reason> · 3s`
-  (red; `Unknown error` when nothing says why) or `was stopped by user · 1s`,
-  `was stopped by Namzu · 1s` (the conversation's own agent stopped it with
-  `cancel_agent`), or plain `was stopped · 1s` when nobody recorded who
-  (warning). The result is not repeated in that line and it carries no token
-  count; an agent resumed by a later message writes the pair again when it ends
-  again. Only an agent that runs on its own writes the pair: a background
-  launch, one whose wait was released (the operator wrote while the parent
-  waited) and one a later message resumed.
+- **One row per agent that reports on its own.** The line that says it is over:
+  `● Agent "<description>" finished · 1m 4s (ctrl+o to expand)` (green; the hint
+  follows the time in parentheses, after a space, and the answer behind Ctrl+O is
+  the child's text, shown as text: terminal controls in it are displayed, never
+  obeyed), `failed: <reason> · 3s` (red; `Unknown error` when nothing says why,
+  and no answer to open) or `was stopped by user · 1s`, `was stopped by Namzu ·
+  1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
+  `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the answer
+  in place while the row is still in the live region; once it has settled into
+  history, the press after the live bodies are open shows the newest settled body
+  in the output viewer, where ←/→ reach the others. The result is not repeated in
+  the line and it carries no token count; an agent resumed by a later message
+  writes the row again when it ends again. Only an agent that runs on its own
+  writes it: a background launch, one whose wait was released (the operator wrote
+  while the parent waited) and one a later message resumed.
+- **A live group while the turn waits on a batch.** `Running 3 agents…`, then per
+  agent `description · 4 tool uses · 12.1k tokens` over `⎿ <last tool>` (or
+  `Initializing…`, `Done`), above the composer. The batch's receipt, `3 agents
+  finished`, is written when the last member ends. An all-background batch has no
+  live group: its receipt is written at launch and the rail shows the agents.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
@@ -519,11 +535,15 @@ live state belongs to the rail.
   row, and the model gets the text, framed as the agent's own words, with its
   next turn (an idle conversation wakes for it). It does not interrupt a wait
   the running turn is in.
+- **A waiting line** when a turn ends over background agents that are still
+  running: `✻ Waiting for 2 background agents to finish` (`and 1 dynamic
+  workflow` when one is running), dim, above the composer, which is free. The
+  closing line below is written when the last one ends, with the wait counted.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched (phases are never counted here),
   what they spent when any reported it, and how many failed
   when one did. A turn that delegated nothing closes with its time alone,
-  `✻ Worked for 46s`, when it finished normally and took three seconds or more
+  `✻ Worked for 46s · done 3:45 PM`, when it finished normally and took three seconds or more
   (time spent waiting for a permission or a question to be answered is left
   out);
   a quicker answer, or a turn that was stopped or cancelled (which already says
@@ -550,7 +570,17 @@ used.
 
 Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
 
-A read, search, write or edit that the kernel described in fields (`ToolResult.facts`) is headlined from them, as the Desktop does: `Read a.ts`, `Searched for x · 2 matches in 2 files`, `Edited a.ts +2 −1`, `Created n.txt +2`, `Updated w.txt +2 −2` (a file is named by its own name, never its full path). The counts are the kernel's own (`facts.added` and `facts.removed`, one real line diff of the whole file, so a batch edit, an insertion and `replace_all` are counted by what changed and a final-newline-only change is `+1 −1`), never rebuilt from the call. Under the headline the `⎿` row opens to the change as hunks: a right-aligned line-number gutter, a `+`, `-` or space marker, three dim context lines, a dim `...` between hunks, additions green and removals red. An overwrite renders as a diff; a created file shows its first 10 lines. A body longer than its preview ends in `… +N lines (ctrl+o to expand)`. A conversation saved before facts existed has none and keeps the receipt's first line.
+A read, search or file listing that the kernel described in fields (`ToolResult.facts`) is headlined from them, as the Desktop does: `Read a.ts`, `Searched for x · 2 matches in 2 files` (a file is named by its own name, never its full path).
+
+An edit or a write draws the change with line numbers, full-width colour and word highlights. The call row is `● Update(src/a.ts)` for an edit or `● Write(src/a.ts)`, the path relative to the working folder. Under it the `⎿` row says `Added 2 lines, removed 1 line` (the numbers bold; `Removed 1 line` when nothing was added; `line` when exactly one), with the counts the kernel measured over the whole file (`facts.added`, `facts.removed`). The hunks sit under that row, in the column its words start in (the same column a shell call's output hangs from, and the same for a created file's lines and for any other result body), with no rule beside them, as many as the kernel carried:
+
+- each row is a line-number gutter (the number right-aligned to the widest in its hunk plus one, then a space), the marker `+`, `-` or space, and the code straight after it with no space between. The first number of a hunk is the line the hunk starts at in the file before the change (`oldStart`); a context or added row takes the counter and advances it, a removed row takes it without advancing it, and the added rows that replace a removed run start at the number the run started at;
+- an added or removed row is filled to the full width with a background (`diffAdded` green, `diffRemoved` red) and the theme's text colour; a context row has a dim gutter and plain code and no fill; hunks are joined by a dim `...`;
+- a removed row followed by an added row is compared word by word, and when no more than 0.4 of the pair's characters differ the changed words get the stronger `diffRemovedWord` / `diffAddedWord` background;
+- a long line wraps inside the width and the rows it continues on keep a blank gutter; a line past 2,000 characters is cut with a dim ` … [+N chars]`; tabs expand to stops of eight;
+- colours are the dark theme (`rgb(34,92,43)` / `rgb(122,41,54)`, words `rgb(56,166,96)` / `rgb(179,89,107)`, dimmed `rgb(71,88,74)` / `rgb(105,72,77)`) on a terminal that reports truecolor (`COLORTERM=truecolor|24bit`, Windows Terminal and the usual truecolor programs), and the named ANSI colours (`green`/`red`, words `greenBright`/`redBright`) elsewhere. The tokens are `DIFF_COLORS_TRUECOLOR` and `DIFF_COLORS_ANSI` in `theme.ts`.
+
+An edit has no row cap; when the kernel itself carried only part of a very large change, a dim `… more changes are not shown` ends the body. A created file reads `Wrote 14 lines to notes.txt` (the count and path bold), then its first 10 lines as plain code (no gutter, no markers) and `… +4 lines (ctrl+o to expand)`; an overwrite reads as an edit. A write or edit the person declined keeps `You declined this, so it did not run.` and then shows what it would have changed with the dimmed colours (an edit as hunks numbered from where the old text sits in the file, with no word highlights, and numbered the same way when the conversation is resumed or forked; a write as its first 10 lines). A conversation saved before facts existed has no hunks and keeps the counts the receipt carried (`Added 2 lines, removed 1 line`) with no body. `/diff` draws the working-tree patch with the same renderer, a heading per file, and folds after 40 rows. A filled row is the same width whether the row is still live or already in scrollback, so no filled row ends in `…`; the height the live window reserves for a change is counted from the rows actually drawn, wrapped lines included.
 
 A settled tool row is one shape: `●` (green when it worked, red when it failed, dim when the person declined or cancelled) and the call, then `⎿` for what came of it. The elapsed time shows only from 1 second up; an instant tool shows none. A tool error names the file as the model gave it or relative to the working folder, `~/x` under the home folder and the full path elsewhere, never `../../x` and never a raw scratch path, and a path too long for the row wraps after a `/` or `\` instead of in the middle of a name.
 
@@ -700,7 +730,7 @@ limits add an explicit incomplete-search notice. See
 The writing area is two plain horizontal rules, `─` in graphite, with the input
 between them: no side borders, no corners and no title, as in the reference.
 The input line starts with a dim `❯ ` (`…` while the composer is paused), and
-the placeholder, pasted-text and attachment rows, the effort, model and trigger
+the placeholder, the effort, model and trigger
 rows and the suggestion menus sit between the rules, left-aligned with the
 prompt. The only text ever written on a rule is the session mode, `hypermode`,
 at the upper rule's right end. The frame is a constant three rows plus the blank
@@ -750,7 +780,7 @@ space before the transcript keeps any older messages in its redrawable tail.
 
 `namzu -c`, `namzu resume <id>` and the `/resume` picker show what the live run
 showed, not only the messages: the same tool rows (a read's `Read a.ts`, an
-edit's `Edited a.ts +2 −1` with its diff body, a write's `Created n.txt +2`, a
+edit's `Update(a.ts)` and `Added 2 lines, removed 1 line` with its diff body, a write's `Wrote 2 lines to n.txt`, a
 command's cell with its output behind Ctrl+O, a failed call's one-line reason),
 the `Worked for 46s` line that closed a turn, `Interrupted.` for a turn the
 operator stopped (and the one-line reason for a turn a limit stopped), and the
@@ -981,7 +1011,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 
   The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window shows its gap as "… +80 lines", counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
 - **The permission, question and plan dialogs share one verb set.** `enter confirm`, `esc cancel` (it declines the batch and the agent carries on; in the plan dialog it keeps planning), `ctrl+c stop` (it also ends the reply), `y / n answer`, `d input` / `d script` / `d instructions` for the details toggle, and `←→ questions`, `space toggle` in the question dialog. The earlier `esc decline`, `esc skip`, `esc keep planning`, `enter choose`, `enter ok` and `ctrl+c stop the reply` are gone, so one key reads the same on every dialog. A duration under a second that a row does show (the workflow, web and agent lines) reads `420ms` rather than `0s`; a tool row says nothing for a call under a second; live counters keep whole seconds.
-- **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and the footer stays quiet while a box is open; it keeps the mode, the folder and the model. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the tool-output viewer, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
+- **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and no footer is drawn while a box is open. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the tool-output viewer, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
 - **A list that does not fit says so.** When the provider list is cut to the terminal's height it draws a quiet `↓ 3 more` under the last row it shows and `↑ 2 more` above the first, counted in rows; the lines come out of the height budget, so the box is still no taller than the screen, and the row under the cursor stays in view as it moves.
 - **A startup that stopped on a file the person can fix** is the sentence alone, with no dot in front of it and no second block. "Startup stopped / Resolve the error above, then restart Namzu." appears only under an error that does not say what to do itself (a `ConfigLoadError` with `complete` set already ends with "Fix it, then start Namzu again."). The footer under a screen with no composer (this one, the pickers, the trust prompt) names the folder and any active mode but not `shift+tab to cycle`, which is the composer's key.
 - **No Node warnings on screen.** `warning-filter.ts` is the first import of `bin.ts`. It drops Node's `ExperimentalWarning: SQLite is an experimental feature and might change at any time` (printed on Node 22 when the session index opens `node:sqlite`) and nothing else: the type and the sentence must both match, so every other warning still prints. `exec`, the scheduler and the desktop host start from the same `bin.ts`.
@@ -996,7 +1026,12 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **The startup header and `/status` write the folder the same way**: from `~` or, when it does not fit, its last folders cut on a separator (`…/hygiene-live/run/proj`), never clipped from the left in the middle of a name. The bypass warning under the header and the bypass question printed before the screen opens wrap on words, with one constant indent on continuation rows, at the terminal's width.
 - **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted) and the extra directories the folder adds to the workspace, then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The `ctrl+o` viewer hides the stale mode footer while open; clipping of long descriptions below about 90 columns and the viewer opening over the previous readout are not addressed here.
 - **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
-- **The tool-output viewer (`ctrl+o`) replaces the composer's mode footer** rather than drawing under it, so no stale footer row sits above its box.
+- **The tool-output viewer (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above their boxes; both carry their own key line.
+- **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.
+- **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`, and that is the only row it leaves: the stopped agents write no row of their own and the waiting line ends without a closing line. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
+- **`/compact` leaves its echo and result where it ran**: the turns that stay, then `› /compact`, then `✻ Compacted (ctrl+o to see full summary)`. `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.
+- **A launch receipt is written before the reply that follows the launch**, even when the reply arrives inside the receipt's 250 ms settle window.
+- **`/workflows` and every choice list use a rounded frame**; below 70 columns a description wraps under its label (two lines at most) and a `·`-separated row drops whole trailing parts rather than cutting a number. The permission box labels its toggle `d view input`.
 - **The model picker says the same thing at every width**: "Applies to this conversation and future launches." and the `(namzu default)` mark are cut by the row on a narrow terminal, never reworded.
 - **A provider that cannot take something the conversation holds** is one sentence built from the event's fields, never from the kernel's text (`capability-notice.ts`): "Ollama can’t use tools, so Namzu will only chat while you use it. Switch to another provider to let Namzu work with files and commands.", "Ollama can’t see images, so it won’t see the picture you attached. Switch to a provider that reads images to include it.", the same for documents, and a "text note in place of a picture a tool returned" variant for tool results. The next step is always "Switch to another provider" (or "a provider that reads images/documents"), because the capability belongs to the provider driver, not the model. A history that was repaired before a reply says what happened in words, with no counts: when steps were left unfinished, "Your last reply was cut off before its steps finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again."; when only leftover duplicate or unmatched results were removed, "Namzu cleaned up some leftover steps from earlier in this conversation. Nothing you need to do." The counts show only under `--debug`. The provider is named by product name, never its id, and no tool count or label shows. The kernel's own wording follows only under `--debug`, and an exported transcript uses the same sentences (a provider switch reads "Anthropic was too busy, so Namzu used OpenAI for the rest of that reply.", with no ids or reason codes).
 - **Setup and picker wording** is plain: the setup intro says the other coding apps are optional and that Namzu can reuse their sign-ins, a missing sign-in reads "Not signed in for Namzu" followed by the login command, "Zen free models · experimental, and Zen may refuse them", "1 found · sign-ins, API keys and local servers". Zen’s free models are experimental and Zen may refuse them, so the Zen rows and notices say that and point at a Zen API key as the next step. Text that can wrap is broken by `wrapBalancedText`, not by the renderer (which starts a continuation with the space it broke at), so no wrapped line starts indented and none is one stray word. Each line wraps inside 40 to 80 columns (`plain-setup-wording-at-narrow-widths.test.tsx`, `plain-provider-list-wording-at-narrow-widths.test.tsx`).
@@ -1095,10 +1130,13 @@ Off by default. `tui.notifications` in a config file turns on notices written to
 
 The composer enables terminal bracketed paste while it owns input. A paste split
 across terminal input chunks is assembled before editing the draft; pasted
-newlines do not submit it. Windows CRLF and CR line endings become LF. Large or
-multiline text has a `Pasted text #N · N chars` chip; the count uses Unicode code
-points, including emoji as one code point. Short single-line pastes insert at
-the cursor. Terminals without bracketed-paste support retain chunk-based fallback
+newlines do not submit it. Windows CRLF and CR line endings become LF. A paste
+longer than 800 characters, or with more than `min(rows - 10, 2)` line breaks,
+becomes a chip inside the input text: `[Pasted text #N +M lines]` (`[Pasted text
+#N]` when it has no line break). A pasted image is `[Image #N]`; N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
+a chip removes it whole, and the chip is replaced by the text it stands for when
+the message is sent, so history recall and draft restore see the full text. The sent message is echoed in the conversation with that text in full, pasted lines included; only a message over 10,000 characters is cut, to its first and last 2,500 characters with a dim divider between them that reads `(N lines, ~M KB hidden)`. The model always receives the whole message. Other
+pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback
 handling, which cannot reconstruct a paste boundary the terminal does not send.
 
 Separate provider message IDs create separate assistant transcript entries,

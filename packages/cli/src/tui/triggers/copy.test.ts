@@ -42,61 +42,58 @@ const row = (
 		{
 			columns,
 			turnActive: options.turnActive ?? false,
-			// A menu that goes up to max: hypermode still names xhigh.
+			// A menu that goes up to max: only the max-effort trigger names it.
 			highestEffort: 'max',
-			hypermodeEffort: 'xhigh',
 			standaloneAllowed: true,
 		},
 	)
 
 describe('the tag row', () => {
-	it('says what an armed hypermode does, and that it pins the highest effort', () => {
+	it('says what an armed hypermode does, and that it leaves the effort alone', () => {
 		expect(row('hypermode fix the flaky test', 116)).toBe(
-			'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
+			'Hypermode · this reply: offers workflows, effort unchanged · alt+w drop',
 		)
 		expect(row('hypermode fix the flaky test', 70)).toBe(
-			'✦ hypermode · this reply, effort xhigh · alt+w',
+			'Hypermode · this reply: workflows · alt+w',
 		)
-		expect(row('hypermode fix the flaky test', 45)).toBe('✦ hypermode · effort xhigh · alt+w')
-		expect(row('hypermode fix the flaky test', 30)).toBe('✦ hypermode')
+		expect(row('hypermode fix the flaky test', 45)).toBe('Hypermode · workflows · alt+w')
+		expect(row('hypermode fix the flaky test', 30)).toBe('Hypermode')
 	})
 
 	it('says what save as skill does embedded, standalone, and while a turn runs', () => {
 		expect(row('fix it, then save it as a skill', 116)).toBe(
-			'✦ save as skill · after this reply, if it did work; you confirm the file · alt+w drop',
+			'Save as skill · after this reply, if it did work; you confirm the file · alt+w drop',
 		)
 		expect(row('bunu skill olarak kaydet', 116)).toBe(
-			'✦ save as skill · runs /skills save · alt+w drop',
+			'Save as skill · runs /skills save · alt+w drop',
 		)
 		expect(row('fix it, then save it as a skill', 116, { turnActive: true })).toBe(
-			'✦ save as skill · enter: after the running reply · tab: after the next · alt+w drop',
+			'Save as skill · enter: after the running reply · tab: after the next · alt+w drop',
 		)
 	})
 
 	it('says Enter steers without a turn trigger while a turn runs', () => {
 		expect(row('hypermode fix it', 116, { turnActive: true })).toBe(
-			'✦ hypermode · enter steers without it · tab: new message with it · alt+w drop',
+			'Hypermode · enter steers without it · tab: new message with it · alt+w drop',
 		)
 	})
 
 	it('names the missing task for a trigger-only hypermode', () => {
-		expect(row('hypermode', 116)).toBe(
-			'✦ hypermode · type the task in the same message · alt+w drop',
-		)
+		expect(row('hypermode', 116)).toBe('Hypermode · type the task in the same message · alt+w drop')
 	})
 
 	it('keeps the state in words at every width', () => {
 		const suggested = 'what is hypermode?'
 		const dropped = new Map([['hypermode@0', 'dropped' as const]])
 		for (const columns of [120, 80, 60, 40, 30]) {
-			expect(row(suggested, columns), `${columns}`).toMatch(/^✧ hypermode\?/u)
+			expect(row(suggested, columns), `${columns}`).toMatch(/^Hypermode\?/u)
 			expect(row('hypermode fix it', columns, { overrides: dropped }), `${columns}`).toMatch(
-				/^✧ hypermode \(off\)/u,
+				/^Hypermode \(off\)/u,
 			)
 			expect(
 				row('save it as a skill', columns, { context: { permissionMode: 'plan' } }),
 				`${columns}`,
-			).toMatch(/^✧ save as skill · unavailable/u)
+			).toMatch(/^Save as skill · unavailable/u)
 			for (const text of [
 				suggested,
 				'hypermode fix it',
@@ -111,15 +108,15 @@ describe('the tag row', () => {
 
 	it('lists several, and counts them where there is no room', () => {
 		const text = 'hypermode fix it, then save it as a skill'
-		expect(row(text, 116)).toBe('✦ hypermode (effort xhigh) · ✦ save as skill · alt+w drop')
-		expect(row(text, 50)).toBe('✦ 2 armed · alt+w')
-		expect(row(text, 30)).toBe('✦ 2 armed')
+		expect(row(text, 116)).toBe('Hypermode (workflows) · save as skill · alt+w drop')
+		expect(row(text, 50)).toBe('2 armed · alt+w')
+		expect(row(text, 30)).toBe('2 armed')
 		const oneOff = new Map([['hypermode@0', 'dropped' as const]])
-		expect(row(text, 50, { overrides: oneOff })).toBe('✦ 1 armed · 1 off · alt+w')
+		expect(row(text, 50, { overrides: oneOff })).toBe('1 armed · 1 off · alt+w')
 	})
 
 	it('offers a suggestion for text that was not typed here', () => {
-		expect(row('hypermode fix it', 116, { nonTyped: [[0, 16]] })).toBe('✧ hypermode? · alt+w arms')
+		expect(row('hypermode fix it', 116, { nonTyped: [[0, 16]] })).toBe('Hypermode? · alt+w arms')
 	})
 
 	it('is nothing when no trigger is named', () => {
@@ -135,26 +132,29 @@ describe('the copy is true in every permission mode', () => {
 		const context = { permissionMode: mode }
 		const save = row('fix it, then save it as a skill', 116, { context })
 		if (mode === 'plan' || mode === 'strict')
-			expect(save).toBe(`✧ save as skill · unavailable in ${mode} mode`)
+			expect(save).toBe(`Save as skill · unavailable in ${mode} mode`)
 		else expect(save).toContain('you confirm the file')
 		const schedule = row('schedule it', 116, {
 			context,
 			overrides: new Map([['schedule@0', 'armed']]),
 		})
-		if (mode === 'plan') expect(schedule).toBe('✧ schedule · unavailable in plan mode')
+		if (mode === 'plan') expect(schedule).toBe('Schedule · unavailable in plan mode')
 		else expect(schedule).toContain('you confirm it on screen')
 		// Hypermode reviews nothing differently in any mode: the row never
 		// claims otherwise.
-		expect(row('hypermode fix it', 116, { context })).toContain('delegate to parallel agents')
+		expect(row('hypermode fix it', 116, { context })).toContain('offers workflows')
 	})
 })
 
 describe('the transcript line', () => {
 	it('names what the message carried', () => {
 		expect(
-			transcriptTagLine(['hypermode', 'save-skill'], { effort: 'xhigh', steered: false }),
+			transcriptTagLine(['hypermode', 'save-skill'], {
+				effort: undefined,
+				steered: false,
+			}),
 		).toBe(
-			'Hypermode is on for this reply (effort xhigh). Namzu will offer to save a skill after this reply.',
+			'Hypermode is on for this reply: Namzu may use workflows. Namzu will offer to save a skill after this reply.',
 		)
 		expect(transcriptTagLine(['hypermode'], { effort: undefined, steered: true })).toBeUndefined()
 		expect(transcriptTagLine(['save-skill'], { effort: undefined, steered: true })).toBe(

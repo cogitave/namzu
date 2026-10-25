@@ -45,7 +45,6 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
-import { workflowCommandPrompt } from '../integrations/workflows/offering.js'
 import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
 import {
 	type PermissionMode,
@@ -767,18 +766,6 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'agents', args }),
 	},
 	{
-		name: 'workflow',
-		description:
-			'Ask for a workflow: the model writes a script that runs many agents in phases, after you approve it.',
-		help: {
-			usage: ['/workflow <what to do>'],
-			details: [
-				'Offers the model the workflow tool for this message. You see the script, its phases and its limits before anything starts.',
-			],
-		},
-		action: (_ctx, args) => ({ kind: 'prompt', text: workflowCommandPrompt(args.join(' ')) }),
-	},
-	{
 		name: 'workflows',
 		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
@@ -1470,8 +1457,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		help: {
 			usage: ['/hypermode [on|off]'],
 			details: [
-				'A setting for this conversation, not a reasoning-effort level — see /effort, where it is the last stop. On, effort pins to xhigh (the highest level below it when this model or usable fallback publishes no xhigh) and delegation guidance strengthens toward delegating by default, so independent work goes to parallel agents; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the model is told so.',
-				'For one message only, start or end that message with the word hypermode: effort pinned the same way for that reply, then back.',
+				'An independent on/off switch for this conversation, not a reasoning-effort level: it never changes effort. On, the model is told to use the workflow tool for substantial tasks. Off, the tool is still listed, but the model may call it only after you opt in: the word hypermode in a message, the word workflow, or asking for one in your own words. With no argument, toggles the current state. Choosing an effort level never turns hypermode off.',
+				'For one message only, start or end that message with the word hypermode: the model is told to use the workflow tool for that reply only, then it goes back to the standing state.',
 			],
 		},
 		description: 'Toggle hypermode for this conversation: /hypermode [on|off].',
@@ -1683,7 +1670,9 @@ export function renderContext(
 		lines.push(
 			compaction.passes === 0
 				? 'Nothing summarised yet.'
-				: `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`,
+				: compaction.reclaimedTokens > 0
+					? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
+					: `Summarised ${plural(compaction.passes, 'time')}.`,
 		)
 		if (details) {
 			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`

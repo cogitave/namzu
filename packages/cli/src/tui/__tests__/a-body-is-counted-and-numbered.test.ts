@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { renderedDetailLines } from '../Transcript.js'
+import { diffViewBody, plainDiffRows } from '../diff-view.js'
 import { estimateRenderedLines, transcriptLines } from '../live-window.js'
 import type { TranscriptMessage } from '../types.js'
 
@@ -28,13 +29,13 @@ describe('renderedDetailLines', () => {
 		// Three opening lines, the omission row, and three closing lines.
 		const lines = renderedDetailLines(row({ detail: body(12) }))
 		expect(lines).toEqual([
-			'   line-1',
-			'   line-2',
-			'   line-3',
-			'   … +6 lines',
-			'   line-10',
-			'   line-11',
-			'   line-12',
+			'     line-1',
+			'     line-2',
+			'     line-3',
+			'     … +6 lines',
+			'     line-10',
+			'     line-11',
+			'     line-12',
 		])
 	})
 
@@ -42,7 +43,7 @@ describe('renderedDetailLines', () => {
 		// The complete hint can wrap on a narrow terminal, so measurement must
 		// include both the omission count and the available action.
 		const lines = renderedDetailLines(row({ detail: body(12), detailRef: 3 }))
-		expect(lines[3]).toBe('   … +6 lines (ctrl+o to expand)')
+		expect(lines[3]).toBe('     … +6 lines (ctrl+o to expand)')
 	})
 
 	it('measures a body against the width it has, not the width of the terminal', () => {
@@ -58,19 +59,19 @@ describe('renderedDetailLines', () => {
 	it('counts every line of a body that fits, with no hint', () => {
 		// Nothing is hidden, so nothing advertises hiding it.
 		const lines = renderedDetailLines(row({ detail: body(6), detailRef: 1 }))
-		expect(lines).toEqual(body(6).map((line) => `   ${line}`))
+		expect(lines).toEqual(body(6).map((line) => `     ${line}`))
 	})
 
 	it('omits exactly the middle line when a body first exceeds the preview', () => {
 		const lines = renderedDetailLines(row({ detail: body(7), detailRef: 1 }))
 		expect(lines).toEqual([
-			'   line-1',
-			'   line-2',
-			'   line-3',
-			'   … +1 line (ctrl+o to expand)',
-			'   line-5',
-			'   line-6',
-			'   line-7',
+			'     line-1',
+			'     line-2',
+			'     line-3',
+			'     … +1 line (ctrl+o to expand)',
+			'     line-5',
+			'     line-6',
+			'     line-7',
 		])
 	})
 
@@ -79,7 +80,7 @@ describe('renderedDetailLines', () => {
 		// 114 shown lines plus the gap's 80.
 		const detail = [...body(80), '… +80 lines', ...body(40)]
 		const lines = renderedDetailLines(row({ detail, detailRef: 1 }))
-		expect(lines[3]).toBe('   … +194 lines (ctrl+o to expand)')
+		expect(lines[3]).toBe('     … +194 lines (ctrl+o to expand)')
 	})
 
 	it('folds a diff after its preview, reading from the top, with the one wording', () => {
@@ -87,18 +88,31 @@ describe('renderedDetailLines', () => {
 			{ length: 14 },
 			(_, i) => `${String(i + 1).padStart(2)} + line ${i + 1}`,
 		)
-		const lines = renderedDetailLines(row({ detail: rows, diff: { preview: 10 }, detailRef: 1 }))
+		const lines = renderedDetailLines(
+			row({ detail: rows, diff: { mode: 'file', hunks: [], preview: 10 }, detailRef: 1 }),
+		)
 		expect(lines).toHaveLength(11)
-		expect(lines[0]).toBe('    1 + line 1')
-		expect(lines[9]).toBe('   10 + line 10')
-		expect(lines[10]).toBe('   … +4 lines (ctrl+o to expand)')
+		// The change hangs from the result column (five in); the two dots stand for the cells the gutter
+		// and the reserve take from a long row, so it is not counted short.
+		expect(lines[0]).toBe('      1 + line 1..')
+		expect(lines[9]).toBe('     10 + line 10..')
+		expect(lines[10]).toBe('     … +4 lines (ctrl+o to expand)')
 	})
 
 	it('shows a whole diff that fits its preview, with no hint', () => {
 		const rows = ['1   keep', '2 - old', '2 + new']
-		expect(renderedDetailLines(row({ detail: rows, diff: { preview: 40 }, detailRef: 1 }))).toEqual(
-			rows.map((line) => `   ${line}`),
-		)
+		expect(
+			renderedDetailLines(
+				row({ detail: rows, diff: { mode: 'hunks', hunks: [], preview: 40 }, detailRef: 1 }),
+			),
+		).toEqual(rows.map((line) => `     ${line}..`))
+	})
+
+	it('never folds an edit, which names no preview', () => {
+		const rows = Array.from({ length: 60 }, (_, i) => `${i + 1} + line`)
+		expect(
+			renderedDetailLines(row({ detail: rows, diff: { mode: 'hunks', hunks: [] }, detailRef: 1 })),
+		).toHaveLength(60)
 	})
 
 	it('sizes a fold of a thousand or more characters', () => {
@@ -150,5 +164,53 @@ describe('what the live-window estimator is given', () => {
 	it('leaves out the row still streaming, which is not in the static log yet', () => {
 		// Pending content is already rendered below the finalized live window.
 		expect(transcriptLines([row({ pending: true, detail: body(12) })])).toEqual([])
+	})
+})
+
+describe('the height of a change', () => {
+	const long = `export const text = '${'word '.repeat(60)}'`
+	const hunks = [
+		{
+			oldStart: 1,
+			oldLines: 3,
+			newStart: 1,
+			newLines: 3,
+			lines: [' keep', `-${long}`, `+${long}!`, `+${long}!!`],
+		},
+	]
+	const info = { mode: 'hunks', hunks, added: 2, removed: 1 } as const
+	const change = (): TranscriptMessage =>
+		row({ detail: plainDiffRows(info), diff: info, glyph: '⎿', detailRef: 1 })
+
+	it('counts every row the renderer draws, wrapped lines included', () => {
+		for (const columns of [60, 100]) {
+			const drawn = diffViewBody(info, {
+				width: Math.max(10, columns - 4 - 3 - 1),
+				expanded: false,
+				canExpand: true,
+			}).length
+			const counted = estimateRenderedLines(renderedDetailLines(change(), columns), columns)
+			expect(counted).toBeGreaterThanOrEqual(drawn)
+			expect(renderedDetailLines(change(), columns)).toHaveLength(drawn)
+		}
+	})
+
+	it('counts the folded rows of a long wrapped created file by what is drawn, not by its source lines', () => {
+		const lines = Array.from({ length: 14 }, (_, i) => `+${'x'.repeat(150)} ${i}`)
+		const file = {
+			mode: 'file',
+			hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 14, lines }],
+			preview: 10,
+			added: 14,
+		} as const
+		const message = row({ detail: plainDiffRows(file), diff: file, detailRef: 1 })
+		const columns = 80
+		const drawn = diffViewBody(file, {
+			width: columns - 4 - 3 - 1,
+			expanded: false,
+			canExpand: true,
+		})
+		expect(renderedDetailLines(message, columns)).toHaveLength(drawn.length)
+		expect(drawn.length).toBe(11)
 	})
 })

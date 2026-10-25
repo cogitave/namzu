@@ -60,7 +60,7 @@ describe('the review of a workflow start', () => {
 		]) {
 			expect(summary.text).toContain(line)
 		}
-		expect(summary.text).toMatch(/Agents: up to \d+ at a time, 200 in all/)
+		expect(summary.text).toMatch(/Agents: up to \d+ at a time, 1000 in all/)
 	})
 
 	it('shows a short script whole and `d` reads the same script verbatim, never the wire JSON', () => {
@@ -261,7 +261,7 @@ describe('the review at a narrow width', () => {
 			expect(text).toMatch(/d script|d read the whole script/)
 			// A word is never split across two rows (`r / ail`, `t / he`).
 			expect(text).not.toMatch(/\bt\s*\n\s*(↳ )?he\b/)
-			expect(text).toContain('Agent call')
+			expect(text).toMatch(/Agent[\s│]+(↳\s*)?call/)
 		} finally {
 			await screen.unmount()
 		}

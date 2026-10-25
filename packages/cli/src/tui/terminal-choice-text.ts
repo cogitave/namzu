@@ -141,3 +141,24 @@ export function truncateChoiceText(source: string, columns: number): string {
 	}
 	return `${result}…`
 }
+
+/**
+ * Shorten a `a · b · c` description to `columns` cells by dropping whole
+ * trailing parts, never by cutting through one: a duration or a count is
+ * either shown or left out, not `1…`. A single part wider than the room (or a
+ * text with no separators) falls back to {@link truncateChoiceText}.
+ */
+export function truncateAtSeparator(source: string, columns: number): string {
+	const text = choiceDisplayText(source)
+	const width = Math.max(0, Math.floor(columns))
+	if (stringWidth(text) <= width) return text
+	const parts = text.split(' · ')
+	if (parts.length < 2) return truncateChoiceText(text, width)
+	let kept = ''
+	for (const part of parts) {
+		const next = kept === '' ? part : `${kept} · ${part}`
+		if (stringWidth(next) > width) break
+		kept = next
+	}
+	return kept === '' ? truncateChoiceText(text, width) : kept
+}

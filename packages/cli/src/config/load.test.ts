@@ -39,6 +39,15 @@ describe('loadConfig cascade', () => {
 		expect(cfg.quiet).toBe(true)
 	})
 
+	it('reads the hypermode switch from a file, off by default, and refuses a non-boolean', () => {
+		const empty = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		expect(loadConfig({ home: empty, cwd: tmpdir(), env: {} }).hypermode).toBeUndefined()
+		const on = userConfig('hypermode: true\n')
+		expect(loadConfig({ home: on, cwd: tmpdir(), env: {} }).hypermode).toBe(true)
+		const bad = userConfig('hypermode: sometimes\n')
+		expect(() => loadConfig({ home: bad, cwd: tmpdir(), env: {} })).toThrow(/hypermode/)
+	})
+
 	it('project config overrides user config', () => {
 		const home = userConfig('format: yaml\n')
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
@@ -195,7 +204,15 @@ describe('workflow config', () => {
 		expect(loadConfig({ home: top, cwd: tmpdir(), env: {} }).workflow).toEqual({ maxAgents: 1000 })
 		expect(loadConfig({ home: userConfig(''), cwd: tmpdir(), env: {} }).workflow).toBeUndefined()
 	})
+	it('reads the size guideline', () => {
+		const home = userConfig('workflow:\n  sizeGuideline: large\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).workflow).toEqual({
+			sizeGuideline: 'large',
+		})
+	})
 	it.each([
+		'workflow:\n  sizeGuideline: huge\n',
+		'workflow:\n  sizeGuideline: 5\n',
 		'workflow: 4\n',
 		'workflow:\n  maxConcurrency: 17\n',
 		'workflow:\n  maxConcurrency: 0\n',

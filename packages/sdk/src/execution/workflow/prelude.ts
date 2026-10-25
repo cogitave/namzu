@@ -44,6 +44,15 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		if (t === 'object') return typeof value.then === 'function' ? 'a promise' : 'an object';
 		return 'a ' + t;
 	}
+	function overBudget() {
+		return config.tokenLimit !== null && config.tokenLimit > 0 && spent.tokensUsed >= config.tokenLimit;
+	}
+	function budgetError() {
+		var e = new Error('Workflow token budget exceeded (' + spent.tokensUsed.toLocaleString('en-US') + ' / ' + config.tokenLimit.toLocaleString('en-US') + ' output tokens). Stopping further agent() calls. Agents already running will finish and their results are kept.');
+		e.name = 'WorkflowBudgetExceededError';
+		return e;
+	}
+	function isBudgetError(e) { return !!e && e.name === 'WorkflowBudgetExceededError'; }
 	async function agent(prompt, opts) {
 		if (typeof prompt !== 'string' || prompt.length === 0) {
 			throw new TypeError('agent(prompt, options?): the prompt must be a non-empty string, got ' + kind(prompt));
@@ -52,6 +61,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		if (typeof o !== 'object' || Array.isArray(o)) {
 			throw new TypeError('agent(prompt, options?): options must be an object, got ' + kind(o));
 		}
+		if (overBudget()) throw budgetError();
 		var request = { prompt: prompt, cursor: cursor };
 		if (o.label != null) request.label = clean(o.label, 120);
 		if (o.phase != null) request.phase = clean(o.phase, 120);
@@ -72,12 +82,16 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 				throw new TypeError('parallel(thunks): item ' + (p + 1) + ' must be a function (wrap the work as () => agent(...)), got ' + kind(thunks[p]));
 			}
 		}
-		return Promise.all(thunks.map(function (t, n) {
+		var dropped = 0;
+		var results = await Promise.all(thunks.map(function (t, n) {
 			return Promise.resolve().then(t).catch(function (e) {
-				log('parallel item ' + (n + 1) + ' failed: ' + clean(e && e.message ? e.message : e, 300));
+				if (isBudgetError(e)) { dropped++; return null; }
+				log('Step ' + (n + 1) + ' stopped: ' + clean(e && e.message ? e.message : e, 300));
 				return null;
 			});
 		}));
+		if (dropped > 0) log('parallel: ' + dropped + (dropped === 1 ? ' item' : ' items') + ' dropped because the token budget is spent.');
+		return results;
 	}
 	async function pipeline(items) {
 		if (!Array.isArray(items)) {
@@ -89,21 +103,31 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 				throw new TypeError('pipeline(items, ...stages): stage ' + (s + 1) + ' must be a function, got ' + kind(stages[s]));
 			}
 		}
-		return Promise.all(items.map(async function (item, index) {
+		if (items.length > 0 && overBudget()) throw budgetError();
+		var dropped = 0;
+		var results = await Promise.all(items.map(async function (item, index) {
 			var value = item;
 			for (var i = 0; i < stages.length; i++) {
 				try {
-					value = await stages[i](value, index, item);
+					value = await stages[i](value, item, index);
 				} catch (e) {
-					log('pipeline item ' + (index + 1) + ' stopped at stage ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
+					if (isBudgetError(e)) { dropped++; return null; }
+					log('Item ' + (index + 1) + ' stopped at step ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
 					return null;
 				}
 				if (value === null || value === undefined) return null;
 			}
 			return value;
 		}));
+		if (dropped > 0) log('pipeline: ' + dropped + (dropped === 1 ? ' item' : ' items') + ' dropped because the token budget is spent.');
+		return results;
 	}
 	var budget = Object.freeze({
+		get total() { return config.tokenLimit; },
+		spent: function () { return spent.tokensUsed; },
+		remaining: function () {
+			return config.tokenLimit === null ? Infinity : Math.max(0, config.tokenLimit - spent.tokensUsed);
+		},
 		get tokensUsed() { return spent.tokensUsed; },
 		get tokenLimit() { return config.tokenLimit === null ? undefined : config.tokenLimit; },
 	});

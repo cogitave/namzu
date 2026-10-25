@@ -468,6 +468,11 @@ describe('the permission prompt', () => {
 		expect(frame, 'named the key without naming what makes it different').toContain('ctrl+c stop')
 	})
 
+	it('labels the d key as view input', async () => {
+		const { lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame() ?? '').toContain('d view input')
+	})
+
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		expect(lastFrame()).toContain('Bash command')

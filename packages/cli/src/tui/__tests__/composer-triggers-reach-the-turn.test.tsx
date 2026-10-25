@@ -2,8 +2,8 @@
  * Composer triggers through the real App: what a typed trigger changes about
  * the turn it starts, and what it must never change.
  *
- * - `hypermode` pins `xhigh` (not the model's top level, `max` here) and adds namzu's request-only
- *   context for that turn alone; the session's hypermode stays off and the
+ * - `hypermode` pins no effort and adds namzu's request-only context for that turn
+ *   alone; the session's hypermode stays off and the
  *   next turn gets neither. Dropped with Alt+W, pasted, or talked about, it
  *   does nothing.
  * - Save as skill runs exactly `/skills save` after a turn that completed and
@@ -100,7 +100,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			compact: async () => null,
 			providerSummary: 'test-provider',
 			modelSummary: 'test-model',
-			// Up to max, so the tests show hypermode pins xhigh and not the top.
+			// Up to max, so the tests show hypermode leaves the effort alone.
 			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
 			toolNames: () => [],
 			presenter: genericPresenter,
@@ -182,7 +182,7 @@ async function until(check: () => boolean, why: string): Promise<void> {
 	expect(check(), why).toBe(true)
 }
 
-const HYPERMODE_CONTEXT = 'The operator asked for hypermode for THIS turn only'
+const HYPERMODE_CONTEXT = 'The operator included the keyword "hypermode"'
 const SAVE_CONTEXT = 'The operator asked namzu to save this work as a skill after this turn'
 const SKILL_PROMPT = '"from this conversation" mode'
 const PROPOSAL = 'Save it as a reusable skill?'
@@ -212,19 +212,17 @@ async function mount() {
 	return { harness, typeKeys, enter, shown, now }
 }
 
-it('arms hypermode for one turn: xhigh and namzu’s context, then neither', async () => {
+it('arms hypermode for one turn: namzu’s context and no effort change, then neither', async () => {
 	const { typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
-	expect(now()).toContain(
-		'✦ hypermode · this reply: effort xhigh, delegate to parallel agents · alt+w drop',
-	)
+	expect(now()).toContain('Hypermode · this reply: offers workflows, effort unchanged · alt+w drop')
 	await enter()
 	await until(() => shown().includes('ANSWER1'), 'the turn never finished')
 	expect(sent[0]?.prompt).toBe('hypermode fix the flaky test')
-	expect(sent[0]?.options?.effort).toBe('xhigh')
+	expect(sent[0]?.options?.effort).toBeUndefined()
 	expect(sent[0]?.options?.hypermode).toBeUndefined()
 	expect(sent[0]?.context.join('\n')).toContain(HYPERMODE_CONTEXT)
-	expect(shown()).toContain('Hypermode is on for this reply (effort xhigh).')
+	expect(shown()).toContain('Hypermode is on for this reply: Namzu may use workflows.')
 	// The session's mode never turned on: the footer does not name it.
 	expect(now()).not.toMatch(/· hypermode(?! \()/u)
 
@@ -239,17 +237,17 @@ it('does nothing for a hypermode dropped with Alt+W, pasted, talked about, or th
 	const { harness, typeKeys, enter, shown, now } = await mount()
 	await typeKeys('hypermode fix the flaky test')
 	harness.stdin.write('\u001bw')
-	await until(() => now().includes('✧ hypermode (off) · alt+w restores'), 'Alt+W did not drop it')
+	await until(() => now().includes('Hypermode (off) · alt+w restores'), 'Alt+W did not drop it')
 	await enter()
 	await until(() => sent.length === 1, 'the dropped message was not sent')
 
 	harness.stdin.write('\u001b[200~hypermode fix the flaky test\u001b[201~')
-	await until(() => now().includes('✧ hypermode? · alt+w arms'), 'the paste did not suggest')
+	await until(() => now().includes('Hypermode? · alt+w arms'), 'the paste did not suggest')
 	await enter()
 	await until(() => sent.length === 2, 'the pasted message was not sent')
 
 	await typeKeys('what is hypermode?')
-	expect(now()).toContain('✧ hypermode? · alt+w arms')
+	expect(now()).toContain('Hypermode? · alt+w arms')
 	await enter()
 	await until(() => sent.length === 3, 'the question was not sent')
 
@@ -351,7 +349,7 @@ it('checks again when the turn ends: a switch to plan mode meanwhile cancels the
 it('runs /skills save for a message that is only the phrase, and needs a task for hypermode', async () => {
 	const { typeKeys, enter, shown } = await mount()
 	await typeKeys('bunu skill olarak kaydet')
-	expect(shown()).toContain('✦ save as skill · runs /skills save · alt+w drop')
+	expect(shown()).toContain('Save as skill · runs /skills save · alt+w drop')
 	await enter()
 	await until(() => sent.length === 1, '/skills save never ran')
 	expect(sent[0]?.prompt).toContain(SKILL_PROMPT)

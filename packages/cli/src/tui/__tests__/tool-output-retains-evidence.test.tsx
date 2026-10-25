@@ -137,8 +137,8 @@ it.each([40, 80])(
 		}
 		const projected = renderedDetailLines(message)
 		expect(projected).toHaveLength(7)
-		expect(projected[3]).toBe('   … +200 lines (ctrl+o to expand) (~2 KB)')
-		expect(projected.every((line) => line.length <= 243)).toBe(true)
+		expect(projected[3]).toBe('     … +200 lines (ctrl+o to expand) (~2 KB)')
+		expect(projected.every((line) => line.length <= 245)).toBe(true)
 		expect(projected.join('\n')).not.toMatch(/\p{Surrogate}/u)
 		const screen = await renderToScreen(
 			<Transcript messages={[message]} pending={null} state="idle" settled={0} resetKey={0} />,

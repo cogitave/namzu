@@ -2,11 +2,14 @@ import { isBackgroundLaunch } from '../integrations/workflows/notice.js'
 import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
 import type { AgentEvent } from './agent.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
+import { type ProposedChange, proposedBody } from './diff-rows.js'
+import { spansText } from './diff-view.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
 import { theme } from './theme.js'
 import { declinedLine } from './tidy-tool-output.js'
+import { firstLineOf, toolFailureText } from './tool-failure-text.js'
 import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 import { settledElapsed } from './units.js'
@@ -30,6 +33,8 @@ export interface ToolEndStart {
 	readonly command?: string
 	readonly web?: WebActivity
 	readonly activity?: 'exploration'
+	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
+	readonly proposed?: ProposedChange
 }
 
 /** One row to add, in the order of `pushMessage`'s arguments that matter. */
@@ -54,18 +59,36 @@ export interface ToolEndContext {
 	readonly elapsedMs?: number
 	/** Whether the model's plan has items, so a task listing refreshes the block instead of a row. */
 	readonly hasPlan: boolean
+	/** The working folder, to find where a refused edit would have landed. */
+	readonly cwd?: string
 }
+
+/** Tools headed under another name: an edit is an `Update`. */
+const DISPLAY_NAMES: Readonly<Record<string, string>> = { edit: 'Update' }
 
 /**
  * A call's label: the tool name title-cased, then its most identifying
  * argument, as `Bash(ls -la)` or `Read(file.ts)`. A bare tool name in a
- * transcript of forty calls says nothing about which one this was.
+ * transcript of forty calls says nothing about which one this was. An edit
+ * reads `Update(file.ts)`.
  */
 export function formatToolCall(toolName: string, summary: string, standalone = false): string {
 	if (standalone) return summary
 	const words = toolName.replace(/[_-]+/g, ' ')
-	const display = words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words
+	const display =
+		DISPLAY_NAMES[toolName.toLowerCase()] ??
+		(words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words)
 	return summary.length > 0 ? `${display}(${summary})` : display
+}
+
+/** A failure line without the interpreter's error name (`Error: `, `TypeError: `) in front of the sentence. */
+export function withoutErrorName(text: string): string {
+	return text.replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+}
+
+/** An error message drawn as the tool wrote it: error colour, ten lines, then the fold. */
+function failureBody(lines: readonly string[], folded?: readonly string[]): ShellOutput {
+	return { stdout: [], stderr: lines, failed: true, byLine: true, ...(folded ? { folded } : {}) }
 }
 
 /** The words a call is headed with when its start was never seen. */
@@ -165,7 +188,9 @@ export function toolEndRows(
 	}
 	if (event.declined) {
 		// The person's own No: neither a failure nor a mystery. The model's
-		// refusal text is for the model and is not shown.
+		// refusal text is for the model and is not shown. A refused edit or
+		// write shows what it would have changed, dimmed.
+		const refused = proposedBody(start?.proposed, ctx.cwd)
 		return rows([
 			{
 				role: 'tool',
@@ -173,7 +198,12 @@ export function toolEndRows(
 				glyph: '●',
 				glyphColor: theme.text.muted,
 			},
-			{ role: 'tool', content: declinedLine(event.declined.note), glyph: '⎿' },
+			{
+				role: 'tool',
+				content: declinedLine(event.declined.note),
+				glyph: '⎿',
+				...(refused ? { detail: refused.rows, diff: refused.diff } : {}),
+			},
 		])
 	}
 	if (event.cancelled) {
@@ -207,6 +237,38 @@ export function toolEndRows(
 				glyphColor: theme.accent.assistant,
 			},
 			{ role: 'tool', content: WORKFLOW_BACKGROUND_NOTE, glyph: '⎿' },
+		])
+	}
+	if (event.isError && event.toolName === WORKFLOW_TOOL_NAME && event.output !== undefined) {
+		// A script that could not run: the first line of its error, after the
+		// failure mark, in the error colour. Nothing is folded behind ctrl+o.
+		const said = [`✘ ${firstLineOf(event.output)}`]
+		return rows([
+			{
+				role: 'tool',
+				content: headOf(event, start),
+				glyph: '●',
+				glyphColor: theme.status.error,
+				detail: said,
+				shell: failureBody(said),
+			},
+		])
+	}
+	if (event.isError && event.toolName.toLowerCase() === 'agent') {
+		// A failed agent call: the error text it produced, in the error colour,
+		// ten lines and then how many more ctrl+o shows.
+		const text = toolFailureText(event.output, false)
+		const full = toolFailureText(event.output, true).split('\n')
+		const lines = text.split('\n')
+		return rows([
+			{
+				role: 'tool',
+				content: headOf(event, start),
+				glyph: '●',
+				glyphColor: theme.status.error,
+				detail: full,
+				shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
+			},
 		])
 	}
 	const catalogue =
@@ -287,7 +349,11 @@ export function toolEndRows(
 	) {
 		list.push({
 			role: 'tool',
-			content: event.isError ? (event.plainFailure ?? `failed: ${event.summary}`) : event.summary,
+			content: event.isError
+				? (event.plainFailure ?? `failed: ${withoutErrorName(event.summary)}`)
+				: event.diff?.summary
+					? spansText(event.diff.summary)
+					: event.summary,
 			glyph: '⎿',
 			detail: event.detail,
 			...(event.diff ? { diff: event.diff } : {}),

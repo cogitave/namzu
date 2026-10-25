@@ -346,7 +346,7 @@ describe('the conversation', () => {
 		await waitUntil(screen, () => everything(screen).includes('Running in the background'))
 		const all = everything(screen)
 		expect(all).toMatch(/● Workflow\(Scan, then fix\)/)
-		expect(all).toMatch(/⎿ Running in the background \(↓ to manage\)/)
+		expect(all).toMatch(/⎿ {2}Running in the background \(↓ to manage\)/)
 		expect(all).not.toContain('wrun00001')
 		expect(all).not.toContain('started in the background as')
 	})
@@ -418,7 +418,7 @@ describe('the conversation', () => {
 		flows.set([ended])
 		flows.end(ended)
 		await waitUntil(screen, () =>
-			/✓ Workflow audit finished · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
+			/● Workflow audit finished · 20s · 3 agents · 1\.5k tokens/.test(everything(screen)),
 		)
 	})
 
@@ -427,7 +427,7 @@ describe('the conversation', () => {
 		flows.end(run({ status: 'stopped', endedAt: NOW }))
 		await waitUntil(screen, () => /● Workflow audit stopped/.test(everything(screen)))
 		flows.end(run({ name: 'build', status: 'failed', endedAt: NOW, error: 'it threw' }))
-		await waitUntil(screen, () => /✗ Workflow build failed/.test(everything(screen)))
+		await waitUntil(screen, () => /● Workflow build failed/.test(everything(screen)))
 	})
 
 	it('does not write a launch receipt or a completion row for the run`s agents', async () => {
@@ -541,16 +541,44 @@ describe('/workflows', () => {
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('Workflows'))
-		expect(text(screen)).toMatch(/1\. audit\s+running · 1\/3 agents/)
-		expect(text(screen)).toMatch(/2\. nightly\s+completed · 1\/1 agent · 900 tokens · 1h ago/)
+		expect(text(screen)).toMatch(/1\. audit\s+running · .*1\/3 agents/)
+		expect(text(screen)).toMatch(/2\. nightly\s+finished · .*1 agent · 900 tokens · 1h ago/)
 		screen.press('\x1b[B')
 		await waitUntil(screen, () => /›2\. nightly/.test(text(screen)))
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('nightly'))
 		await waitUntil(screen, () => text(screen).includes('Phases'))
+		// The detail carries its own key line: no footer row (the model name) above it.
+		expect(screen.viewport().some((row) => /^\s*model\s*$/.test(row))).toBe(false)
 		expect(text(screen)).toContain('1/1 agent')
 		expect(text(screen)).toContain('· finished')
 		expect(text(screen)).not.toContain('x to stop')
+	})
+})
+
+describe('a finished run with a failed agent in the list', () => {
+	it('counts the agents that finished over all of them and leaves the failure to the status word', async () => {
+		const flaky = run({
+			runId: 'wflaky001',
+			name: 'flaky',
+			status: 'failed',
+			startedAt: NOW - 3_600_000,
+			endedAt: NOW - 3_500_000,
+			agents: [
+				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
+				agentView(2, 'failed', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW - 3_500_000 }),
+				agentView(3, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
+			],
+		})
+		flows.set([])
+		flows.setHistory([flaky])
+		const screen = await start()
+		screen.press('/workflows')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('Workflows'))
+		expect(text(screen)).toMatch(/1\. flaky\s+failed · .*2\/3 agents/)
+		expect(text(screen)).not.toContain('1 failed')
 	})
 })
 
@@ -561,10 +589,10 @@ describe('a slash command is shown as typed', () => {
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(screen, () => everything(screen).includes('No usage reported yet'))
-		expect(everything(screen)).toMatch(/› \/cost\n+\s*⎿ No usage reported yet/)
+		expect(everything(screen)).toMatch(/› \/cost\n+\s*⎿ {2}No usage reported yet/)
 	})
 
-	it('shows /workflow <task> as typed and sends the rewritten sentence to the model only', async () => {
+	it('has no /workflow command: it is answered as an unknown command and nothing is sent', async () => {
 		const sent: string[] = []
 		sendOverride.current = async function* (messages) {
 			sent.push(String(messages.at(-1)?.content))
@@ -574,10 +602,8 @@ describe('a slash command is shown as typed', () => {
 		screen.press('/workflow audit the repo')
 		await screen.waitForRender()
 		screen.press('\r')
-		await waitUntil(screen, () => sent.length === 1)
-		expect(sent[0]).toBe('Use a workflow for this: audit the repo')
-		expect(everything(screen)).toContain('› /workflow audit the repo')
-		expect(everything(screen)).not.toContain('Use a workflow for this')
+		await waitUntil(screen, () => everything(screen).includes('Unknown command: /workflow'))
+		expect(sent).toEqual([])
 	})
 })
 

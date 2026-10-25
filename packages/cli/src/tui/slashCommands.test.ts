@@ -375,6 +375,15 @@ describe('runSlash', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('Unknown command')
 	})
 
+	it('has /workflows but no /workflow command', () => {
+		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
+		expect(names).toContain('workflows')
+		expect(names).not.toContain('workflow')
+		const r = runSlash('/workflow audit', ctx)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') expect(r.content).toContain('Unknown command: /workflow.')
+	})
+
 	it('/help opens a finite chooser over every registered command', () => {
 		const r = runSlash('/help', ctx)
 		expect(r?.kind).toBe('command-picker')
@@ -884,6 +893,18 @@ describe('/effort', () => {
 })
 
 describe('/hypermode', () => {
+	it('describes the independent workflow switch in /help, not a pinned effort', () => {
+		const result = runSlash('/help hypermode', context())
+		expect(result?.kind).toBe('message')
+		if (result?.kind !== 'message') return
+		expect(result.content).toContain('never changes effort')
+		expect(result.content).toContain('workflow tool')
+		expect(result.content).not.toMatch(/xhigh|pins|delegat/i)
+		// The tool is listed either way; only the model's permission changes.
+		expect(result.content).toContain('still listed')
+		expect(result.content).not.toMatch(/the tool is offered|off, it is not|allowed to use/i)
+	})
+
 	it('toggles with no argument', () => {
 		expect(runSlash('/hypermode', context())).toEqual({ kind: 'hypermode', enabled: 'toggle' })
 	})
@@ -1306,6 +1327,38 @@ describe('/context', () => {
 		expect(r.content).toContain('Tool results cleared: 4')
 		expect(r.content).toContain('Messages shortened: 2')
 		expect(r.content).toContain('freeing about 2.4k tokens')
+	})
+
+	it('leaves the "freeing about" clause out when no reclaimed size is known', () => {
+		const r = runSlash(
+			'/context',
+			context({
+				usage: {
+					totalTokens: 50_000,
+					cost: cost(0),
+					context: {
+						tokens: 7_000,
+						windowTokens: 14_000,
+						measured: true,
+						windowAssumed: false,
+					},
+				},
+				compaction: {
+					strategy: 'salience',
+					softTarget: 0.5,
+					triggerThreshold: 0.7,
+					passes: 1,
+					clearedResults: 0,
+					stubbedNarrations: 0,
+					summaries: 1,
+					reclaimedTokens: 0,
+				},
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('Summarised 1 time.')
+		expect(r.content).not.toContain('freeing')
 	})
 })
 

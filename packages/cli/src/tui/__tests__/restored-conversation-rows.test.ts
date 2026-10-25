@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { journalOf, rememberJournal } from '../../integrations/sessions/journal-trail.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { projectConversation } from '../App.js'
+import { doneClock } from '../agent-transcript-rows.js'
 import { type AgentEvent, builtinToolPresenter, toAgentEvent } from '../agent.js'
 import { numberDetailRows, trailFromRecords, withSavedAgentRows } from '../restored-rows.js'
 import { type ToolRow, formatToolCall, toolEndRows } from '../tool-end-rows.js'
@@ -62,6 +63,7 @@ function liveRows(events: readonly SessionEvent[]): readonly ToolRow[] {
 					: formatToolCall(start.toolName, start.summary, start.standalone),
 				...(start.detail ? { detail: start.detail } : {}),
 				...(start.command ? { command: start.command } : {}),
+				...(start.proposed ? { proposed: start.proposed } : {}),
 				...(start.web ? { web: start.web } : {}),
 				...(start.activity ? { activity: start.activity } : {}),
 			},
@@ -144,15 +146,15 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 			['user', 'tidy up'],
 			['⎿', 'Read a.ts'],
 			['⎿', 'Searched for foo'],
-			['●', 'Edit(a.ts)'],
+			['●', 'Update(a.ts)'],
 			['⎿', 'Edited a.ts'],
 			['●', 'Write(n.txt)'],
-			['⎿', 'Created n.txt +2'],
+			['⎿', 'Wrote 2 lines to n.txt'],
 			['●', 'Bash(echo hi)'],
 			['assistant', 'Done.'],
 		])
 		// The edit keeps its diff body, the command its cell, the read its output behind Ctrl+O.
-		expect(rows.find((row) => row.content === 'Edit(a.ts)')?.detail).toEqual([
+		expect(rows.find((row) => row.content === 'Update(a.ts)')?.detail).toEqual([
 			'- x',
 			'- y',
 			'+ x',
@@ -199,6 +201,64 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		expect(tools.map((row) => row.content)).toContain('Edited a.ts')
 	})
 
+	it('draws a journaled edit with its counts and hunks exactly as the live run did', () => {
+		const hunks = [
+			{
+				oldStart: 3,
+				oldLines: 2,
+				newStart: 3,
+				newLines: 3,
+				lines: [' keep', '-one', '+two', '+three'],
+			},
+		]
+		const facts = {
+			kind: 'edit',
+			path: '/p/a.ts',
+			replacements: 1,
+			added: 2,
+			removed: 1,
+			hunks,
+		} as const
+		const messages = withIds([
+			createUserMessage('edit it'),
+			createAssistantMessage(null, [
+				call('e', 'edit', { path: '/p/a.ts', old_string: 'one', new_string: 'two\nthree' }),
+			]),
+			createToolMessage('Edited /p/a.ts: 1 replacement(s) (+2 -1)', 'e'),
+		])
+		const events = [
+			executing('e', 'edit', { path: '/p/a.ts', old_string: 'one', new_string: 'two\nthree' }),
+			completed('e', 'edit', 'Edited /p/a.ts: 1 replacement(s) (+2 -1)', { facts, durationMs: 5 }),
+		]
+		const records = [
+			...events.map((event, index) => asRecord(event, index + 1)),
+			...messageRecords(messages),
+		]
+		const rows = projectConversation(messages, ids(), [], { trail: trailFromRecords(records) })
+		const tools = rows.filter((row) => row.role === 'tool')
+		expect(plain(tools)).toEqual([...liveRows(events)])
+		expect(tools[0]?.content).toBe('Update(/p/a.ts)')
+		expect(tools[1]?.content).toBe('Added 2 lines, removed 1 line')
+		expect(tools[1]?.diff?.hunks).toEqual(hunks)
+		expect(tools[1]?.detail).toEqual([' 3  keep', ' 4 -one', ' 4 +two', ' 5 +three'])
+	})
+
+	it('keeps the counts of an edit in a conversation saved without its journal', () => {
+		const messages = [
+			createUserMessage('edit it'),
+			createAssistantMessage(null, [
+				call('e', 'edit', { path: 'a.ts', old_string: 'one', new_string: 'two\nthree' }),
+			]),
+			createToolMessage('Edited /p/a.ts: 1 replacement(s) (+2 -1)', 'e'),
+		]
+		const rows = projectConversation(messages, ids())
+		const tools = rows.filter((row) => row.role === 'tool')
+		expect(tools.map((row) => row.content)).toEqual([
+			'Update(a.ts)',
+			'Added 2 lines, removed 1 line',
+		])
+	})
+
 	it('shows a failed call and a call that never reported a result', () => {
 		const messages = [
 			createUserMessage('go'),
@@ -234,11 +294,9 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 			createToolMessage('could not start', 'bad', true),
 		]
 		const rows = projectConversation(messages, ids())
-		expect(rows.map((row) => row.content)).toEqual([
-			'delegate',
-			'Agent(Fail)',
-			'failed: could not start',
-		])
+		expect(rows.map((row) => row.content)).toEqual(['delegate', 'Agent(Fail)'])
+		// The failed launch's error text hangs under the call, as the tool wrote it.
+		expect(rows[1]?.shell?.stderr).toEqual(['Error: could not start'])
 	})
 })
 
@@ -278,7 +336,12 @@ describe('a resumed conversation closes and interrupts its turns as the live run
 	it('ends a turn that took a while with its Worked-for line', () => {
 		const trail = trailFromRecords(turnRecords(base, {}, 46))
 		const rows = projectConversation(base, ids(), [], { trail })
-		expect(rows.map((row) => row.content)).toEqual(['slow one', 'Finished.', 'Worked for 46s'])
+		const endedAt = Date.parse('2026-10-24T10:00:00.000Z') + 46 * 1000
+		expect(rows.map((row) => row.content)).toEqual([
+			'slow one',
+			'Finished.',
+			`Worked for 46s · done ${doneClock(new Date(endedAt))}`,
+		])
 		expect(rows.at(-1)?.glyph).toBe('✻')
 	})
 

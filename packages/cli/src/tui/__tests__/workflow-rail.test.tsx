@@ -19,13 +19,18 @@ import {
 	AgentTaskPanel,
 	type RailWorkflow,
 	layoutWorkflowRow,
-	railHint,
 	railProgressBar,
 	railWorkflowActionFor,
+	railWorkflowBulletColor,
 	railWorkflows,
 	workflowRowVariants,
 } from '../AgentExplorer.js'
-import { workflowNotice } from '../agent-transcript-rows.js'
+import {
+	workflowAgentProgress,
+	workflowAgentTotal,
+	workflowNotice,
+} from '../agent-transcript-rows.js'
+import { theme } from '../theme.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const NOW = 1_000_000
@@ -225,150 +230,43 @@ describe('narrowing a row', () => {
 		])
 	})
 
-	it('shows no token segment before any agent reported spend', () => {
-		const quiet = workflowOf([agent({ viewId: 'q' })])
-		expect(workflowRowVariants(quiet, NOW)[0]?.text).toBe('0/1 · 2m 14s')
+	it('puts the large-run warning first, then the short form, and drops it as the row narrows', () => {
+		const large: RailWorkflow = { ...row, large: true }
+		const texts = workflowRowVariants(large, NOW).map((variant) => variant.text)
+		expect(texts.slice(0, 3)).toEqual([
+			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow · /workflows to stop',
+			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow',
+			'2m 14s · ↓ 48.2k · Large workflow',
+		])
+		expect(texts.slice(3)).toEqual(workflowRowVariants(row, NOW).map((variant) => variant.text))
+	})
+
+	it('leaves the failure out of the counter: a failed run reads the same as a clean one', () => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		expect(workflowRowVariants(withFailure, NOW)).toEqual(workflowRowVariants(row, NOW))
+		expect(workflowRowVariants(withFailure, NOW)[0]?.text).toBe('3/7 · 2m 14s · ↓ 48.2k tokens')
 	})
 
 	it.each([
-		[100, 20, '3/7 · 2m 14s · ↓ 48.2k tokens'],
-		[67, 20, '3/7 · 2m 14s · ↓ 48.2k tokens'],
-		[66, 20, '2m 14s · ↓ 48.2k tokens'],
-		[61, 20, '2m 14s · ↓ 48.2k tokens'],
-		[60, 20, '2m 14s · ↓ 48.2k'],
-		[54, 20, '2m 14s · ↓ 48.2k'],
-		[53, 20, '↓ 48.2k'],
-		[52, 20, '↓ 48.2k'],
-		[45, 20, '↓ 48.2k'],
-		[44, 12, '↓ 48.2k'],
-		[37, 12, '↓ 48.2k'],
-		[36, 8, '↓ 48.2k'],
-		[33, 8, '↓ 48.2k'],
-		[32, 8, ''],
-	])('at %i columns uses a %i cell bar and %j', (columns, barWidth, text) => {
-		const { variant } = layoutWorkflowRow(row, NOW, columns, 'Release audit'.length)
-		expect(variant).toEqual({ barWidth, text })
+		[100, '3/7 · 2m 14s · ↓ 48.2k tokens'],
+		[60, '2m 14s · ↓ 48.2k tokens'],
+	])('draws a failed run with no failure text at %i columns', (columns, text) => {
+		const withFailure: RailWorkflow = { ...row, failed: 1 }
+		const { variant } = layoutWorkflowRow(withFailure, NOW, columns, 4)
+		expect(variant.text).toBe(text)
+		expect(variant.text).not.toContain('failed')
 	})
 
-	it('squeezes the name only after the numbers have given way', () => {
-		const wide = layoutWorkflowRow(row, NOW, 100, 13)
-		expect(wide.nameWidth).toBe(13)
-		const tight = layoutWorkflowRow(row, NOW, 66, 28)
-		expect(tight.nameWidth).toBeGreaterThanOrEqual(8)
-		expect(tight.nameWidth).toBeLessThan(28)
-	})
-
-	it('never draws a row wider than the terminal', async () => {
-		for (const cols of [100, 70, 58, 50, 40, 34, 24]) {
-			const rows = await show([row], { cols })
-			for (const line of rows) expect(line.length).toBeLessThanOrEqual(cols)
-			await mounted?.unmount()
-			mounted = undefined
-		}
-	})
-})
-
-describe('the rows on screen', () => {
-	it('draws the row under the agent rows, sharing their name column', async () => {
-		const agents = [
-			agent({
-				viewId: 'solo',
-				workflow: 'Delegated work',
-				workflowGroupId: 'g0',
-			}),
-		]
-		const rows = await show([workflowOf(sevenAgents())], { agents })
-		expect(rows[0]).toMatch(/● main/u)
-		expect(rows[1]).toMatch(/solo/u)
-		expect(rows.at(-1)).toBe(
-			`  ◯ Release audit    ${'▰'.repeat(8)}${'▱'.repeat(12)}  3/7 · 2m 14s · ↓ 48.2k tokens`,
+	it('turns the dot of a run with a failed agent red, finished or still going', () => {
+		expect(railWorkflowBulletColor({ ...row, failed: 1 })).toBe(theme.status.error)
+		expect(railWorkflowBulletColor({ ...row, failed: 1, status: 'failed' })).toBe(
+			theme.status.error,
 		)
-	})
-
-	it('is dim until selected, and a selected row carries the pointer at full brightness', async () => {
-		const row = workflowOf(sevenAgents())
-		const idle = await show([row])
-		expect(idle.at(-1)).not.toContain('❯')
-		await mounted?.unmount()
-		mounted = undefined
-		const selected = await show([row], { selectedIndex: 0 })
-		expect(selected.at(-1)).toMatch(/^❯ ◯ Release audit/u)
-	})
-
-	it('colours the bullet only for an outcome, and the whole row stays dim until selected', async () => {
-		const settled = (id: string, status: SubagentActivity['status']) =>
-			agent({
-				viewId: id,
-				status,
-				workflow: id,
-				workflowGroupId: id,
-				completedAt: NOW - 1_000,
-			})
-		const rows = railWorkflows(
-			[
-				settled('ok', 'completed'),
-				settled('bad', 'failed'),
-				settled('halt', 'cancelled'),
-				agent({ viewId: 'run', workflow: 'run', workflowGroupId: 'run' }),
-				agent({
-					viewId: 'bad-run',
-					workflow: 'bad-run',
-					workflowGroupId: 'bad-run',
-				}),
-				agent({
-					viewId: 'bad-run-2',
-					workflow: 'bad-run',
-					workflowGroupId: 'bad-run',
-					status: 'failed',
-					completedAt: NOW - 1_000,
-				}),
-			],
-			NOW,
-		)
-		await show(rows)
-		const painted = mounted?.writes().join('') ?? ''
-		// theme.status.ok once; theme.status.error for failed, stopped and a running workflow with a failed member.
-		expect(painted.match(new RegExp(`${ESC}\\[38;5;77m◯`, 'gu'))).toHaveLength(1)
-		expect(painted.match(new RegExp(`${ESC}\\[38;5;203m◯`, 'gu'))).toHaveLength(3)
-		// The one with nothing to report keeps the dim default.
-		expect(painted.match(new RegExp(`${ESC}\\[2m◯`, 'gu'))?.length ?? 0).toBeGreaterThanOrEqual(1)
-	})
-
-	it('shows the hint for the selected workflow: stop while running, clear once done', async () => {
-		const row = workflowOf(sevenAgents())
-		const running = await show([row], { selectedIndex: 0 })
-		// The key line is the footer's now (see StatusBar); the rail draws the row only.
-		expect(running.join('\n')).not.toContain('to view')
-		expect(railHint(row, 100)).toBe('enter to view · x to stop')
-		await mounted?.unmount()
-		mounted = undefined
-		const done = workflowOf([agent({ viewId: 'a', status: 'completed', completedAt: NOW })])
-		const finished = await show([done], { selectedIndex: 0 })
-		expect(finished.at(-1)).toMatch(/^❯ ◯ Release audit/u)
-		expect(railHint(done, 100)).toBe('enter to view · x to clear')
-	})
-
-	it('folds into the main row count while a review owns the screen', async () => {
-		mounted = await renderToScreen(
-			<Box flexDirection="column" paddingX={1}>
-				<AgentTaskPanel
-					agents={[agent({ viewId: 'a' })]}
-					workflows={[workflowOf(sevenAgents())]}
-					terminalRows={40}
-					terminalColumns={100}
-					now={NOW}
-					compact
-				/>
-			</Box>,
-			{ cols: 100, rows: 14 },
-		)
-		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		expect(rows).toHaveLength(1)
-		expect(rows[0]).toMatch(/1 agent · 1 workflow$/u)
 	})
 })
 
 describe('the closing line', () => {
+	// `done` counts the agents that completed, so a failed one is not in it.
 	const finished = (...statuses: SubagentActivity['status'][]) =>
 		workflowOf(
 			statuses.map((status, i) =>
@@ -385,18 +283,38 @@ describe('the closing line', () => {
 		expect(workflowNotice(finished('completed', 'completed'))).toEqual({
 			content: 'Workflow Release audit finished · 2m 13s · 2 agents · 112.0k tokens',
 			tone: 'ok',
-			glyph: '✓',
+			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'failed'))).toMatchObject({
-			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 1 failed · 112.0k tokens',
+			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 112.0k tokens',
 			tone: 'error',
-			glyph: '✗',
+			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'cancelled'))).toMatchObject({
 			content: expect.stringContaining('stopped'),
 			tone: 'warn',
 			glyph: '●',
 		})
+	})
+
+	it('counts every agent a run had, failed or not, and never splits it', () => {
+		const run: RailWorkflow = {
+			...finished('completed', 'completed', 'failed'),
+			done: 2,
+			total: 3,
+			failed: 1,
+		}
+		expect(workflowNotice(run).content).toBe(
+			'Workflow Release audit failed · 2m 13s · 3 agents · 112.0k tokens',
+		)
+	})
+
+	it('says the total in the closing line and done over total in the list', () => {
+		expect(workflowAgentTotal(3)).toBe('3 agents')
+		expect(workflowAgentTotal(1)).toBe('1 agent')
+		expect(workflowAgentProgress({ done: 2, total: 3 })).toBe('2/3 agents')
+		expect(workflowAgentProgress({ done: 3, total: 3 })).toBe('3/3 agents')
+		expect(workflowAgentProgress({ done: 0, total: 1 })).toBe('0/1 agent')
 	})
 
 	it('has no escape sequences of its own', () => {

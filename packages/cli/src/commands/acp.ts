@@ -1078,6 +1078,8 @@ export function createCliAcpRuntime(
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
+					// The words the person sent: a target such as +500k is read from these only.
+					typedInput: prompt,
 					currentPermissionMode: () => turnMode,
 					onAutoModeLimit: () => {
 						turnMode = 'prompt'

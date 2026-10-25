@@ -3,7 +3,7 @@ import { Box, Text } from 'ink'
 import { formatSize } from './person-terms.js'
 
 import { permissionReviewRows } from './permission-review.js'
-import { END_WORDS, type EndOutcome, SYSTEM_ROW_GLYPH } from './system-rows.js'
+import { END_WORDS, type EndOutcome, SYSTEM_ROW_GLYPH, endOutcome } from './system-rows.js'
 import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -49,17 +49,9 @@ function elapsed(job: BackgroundJob, now: number): string {
 /** The row words: running, then the shared finished, failed or stopped. */
 function jobMeta(job: BackgroundJob): 'running' | EndOutcome {
 	if (job.status === 'running') return 'running'
-	if (job.status === 'killed') return 'stopped'
+	if (endOutcome(job.status) === 'stopped') return 'stopped'
 	return job.exitCode === 0 ? 'finished' : 'failed'
 }
-
-/** One dot for every state; the colour and the word say which. */
-const META_ICON = {
-	running: SYSTEM_ROW_GLYPH,
-	finished: SYSTEM_ROW_GLYPH,
-	failed: SYSTEM_ROW_GLYPH,
-	stopped: SYSTEM_ROW_GLYPH,
-} as const
 
 function metaColor(meta: ReturnType<typeof jobMeta>): string {
 	switch (meta) {
@@ -218,7 +210,7 @@ export function BackgroundJobsPanel({
 						return (
 							<Text key={job.id} wrap="truncate-end">
 								<Text color={theme.accent.user}>{focused ? '❯ ' : '  '}</Text>
-								<Text color={metaColor(meta)}>{META_ICON[meta]} </Text>
+								<Text color={metaColor(meta)}>{SYSTEM_ROW_GLYPH} </Text>
 								<Text color={focused ? theme.accent.user : theme.text.secondary}>
 									{truncateChoiceText(oneLine(jobLabel(job)), room)}
 								</Text>

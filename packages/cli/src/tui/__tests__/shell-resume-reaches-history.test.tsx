@@ -150,6 +150,8 @@ describe('the shell resume handoff inside App', () => {
 			)
 			expect(startConversation).not.toHaveBeenCalled()
 			expect(screen.scrollback().join('\n')).toContain('remember the blue door')
+			// The closing row wears the same dot as the one the /resume picker writes.
+			expect(screen.scrollback().join('\n')).toMatch(/● Resumed: remember the blue door/)
 
 			screen.press('continue from there')
 			await screen.waitForRender()

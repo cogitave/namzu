@@ -29,6 +29,7 @@ import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
+import type { DiffInfo } from './diff-view.js'
 import type { ShellOutput } from './shell-cell.js'
 import type { TaskOperation } from './task-activity.js'
 
@@ -59,10 +60,11 @@ export interface TranscriptMessage {
 	/** Collapsible body under the line (tool diff / output). */
 	readonly detail?: readonly string[]
 	/**
-	 * `detail` is a diff (see `diff-rows.ts`): rows are coloured by their
-	 * markers, and the body shows its first `preview` rows before the fold.
+	 * `detail` is the plain text of a change to a file; this is what draws it
+	 * (see `diff-view.ts`): the hunks, whether the person refused it, and how
+	 * many rows show before the fold.
 	 */
-	readonly diff?: { readonly preview: number }
+	readonly diff?: DiffInfo
 	/**
 	 * Stable reference identifying an expandable body for Ctrl+O.
 	 *
@@ -166,6 +168,8 @@ export interface TuiContext {
 	readonly skills?: SkillsConfig
 	/** See `NamzuCliConfig.composerTriggers`. Only the interactive terminal reads it. */
 	readonly composerTriggers?: ComposerTriggersConfig
+	/** See `NamzuCliConfig.hypermode`: the conversation starts with hypermode on. */
+	readonly hypermode?: boolean
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
 	/** See `NamzuCliConfig.smallModel`. */

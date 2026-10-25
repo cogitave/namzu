@@ -252,7 +252,7 @@ script — or from a model's own shell call — writes the job inert
 
 Asking in words in the TUI composer ("schedule this", "run it every day",
 "bunu her sabah çalıştır") only offers a [composer trigger](composer-triggers.md)
-— `✧ schedule? · alt+w: the agent proposes a job; you confirm it on screen` —
+— `Schedule? · alt+w: the agent proposes a job; you confirm it on screen` —
 because such words usually describe the code being written. Armed with Alt+W,
 it asks the model to propose a job with the `schedule` tool, which ends on the
 same confirmation; it never asks for a session loop.
@@ -749,6 +749,12 @@ says this is the local time already looked up, not to be fetched with `date`.
 The rest of the prompt carries the date only, and a run with no shell used to
 guess the time in UTC. A parked run continued from the TUI is told the time
 again, as it is then: an answer can come days later.
+
+With `hypermode: true` in the user or project config, the run is also told in
+its request that hypermode is on. A scheduled run cannot start a workflow (no
+one is there to review a script), so the note says to delegate substantial
+work to parallel agents with the `Agent` tool; see
+[Slash commands](slash-commands.md#hypermode).
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
 `blocked-config`, `interrupted`, `approval-expired`, `check-failed`

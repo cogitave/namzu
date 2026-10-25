@@ -48,6 +48,7 @@ import { parseBlock, scanBlocks } from './markdownParser.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
 import type { TranscriptMessage } from './types.js'
+import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
 /** Rows kept clear between the redrawable tail and the terminal boundary. */
 export const LIVE_WINDOW_SAFETY_ROWS = 6
@@ -94,7 +95,12 @@ export interface LiveWindow {
  * content is indented by the two-column glyph gutter it renders beside, so a
  * long line is measured against the width it actually has.
  */
-function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean): string[] {
+function messageLines(
+	message: TranscriptMessage,
+	hasPrev: boolean,
+	raw: boolean,
+	columns?: number,
+): string[] {
 	const content = terminalDisplayText(message.content)
 	const meta = message.meta ? terminalDisplayText(message.meta) : ''
 	if (raw) {
@@ -107,11 +113,17 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean
 				: []),
 		]
 	}
+	// A long message the person sent is echoed by its two ends and a note.
+	const cut = message.role === 'user' ? cutUserText(content) : content
+	const shown =
+		typeof cut === 'string'
+			? cut
+			: `${cut.head}\n${hiddenTextRule(hiddenTextNote(cut), 20)}\n${cut.tail}`
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
 		...(message.activity === 'exploration' ? ['Explored'] : []),
-		`  ${content}${meta ? ` · ${meta}` : ''}`,
-		...renderedDetailLines(message),
+		`  ${shown}${meta ? ` · ${meta}` : ''}`,
+		...renderedDetailLines(message, columns),
 	]
 }
 
@@ -130,9 +142,10 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean
 export function transcriptLines(
 	messages: readonly TranscriptMessage[],
 	raw = false,
+	columns?: number,
 ): readonly string[] {
 	const finalized = messages.filter((m) => !m.pending)
-	return finalized.flatMap((message, i) => messageLines(message, i > 0, raw))
+	return finalized.flatMap((message, i) => messageLines(message, i > 0, raw, columns))
 }
 
 /**
@@ -236,7 +249,7 @@ function messageHeight(
 ): number {
 	if (!raw && message.statusRows) return statusPanelLayout(message.statusRows, columns).height + 1
 	return (
-		estimateRenderedLines(messageLines(message, hasPrev, raw), columns) +
+		estimateRenderedLines(messageLines(message, hasPrev, raw, columns ?? 80), columns) +
 		ROW_HEIGHT_ALLOWANCE +
 		markdownHeightAllowance(message, raw, columns)
 	)

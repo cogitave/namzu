@@ -43,10 +43,10 @@ export type TriggerableCommand = '/skills save'
 
 export type TriggerEffect =
 	/**
-	 * Request-only context for the turn, and optionally an effort for it:
-	 * `hypermode`, the level `/hypermode` pins (`xhigh`, or the nearest below).
+	 * Request-only context for the turn. It never sets an effort: only the
+	 * max-effort trigger does.
 	 */
-	| { readonly kind: 'turn-context'; readonly text: ContextTextId; readonly effort?: 'hypermode' }
+	| { readonly kind: 'turn-context'; readonly text: ContextTextId }
 	/** The model's highest published effort for this turn only (max effort). */
 	| { readonly kind: 'turn-effort'; readonly effort: 'highest' }
 	/** A command run once after the turn the message lands in, when that turn did work. */
@@ -123,7 +123,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 				],
 			],
 		},
-		effect: { kind: 'turn-context', text: 'hypermode', effort: 'hypermode' },
+		effect: { kind: 'turn-context', text: 'hypermode' },
 		scope: 'turn',
 		arming: COMPOSER_TRIGGER_DEFAULTS.hypermode,
 	},
@@ -131,7 +131,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 		id: 'workflow',
 		label: 'workflow',
 		// The bare word, matched like `hypermode` (no Turkish phrase: `iş`
-		// folds onto `is`, which the fold test forbids; `/workflow` works in any language): a request edge, not talk
+		// folds onto `is`, which the fold test forbids): a request edge, not talk
 		// about workflows. It offers the `workflow` tool for this message; the
 		// script is still shown for approval before anything starts.
 		keywords: ['workflow', 'workflows'],

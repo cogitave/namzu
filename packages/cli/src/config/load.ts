@@ -32,6 +32,7 @@ import { parse as yamlParse } from 'yaml'
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { isWorkflowSizeGuideline } from '../integrations/workflows/size.js'
 import { isFormatName } from '../output/index.js'
 import {
 	type BrowserSiteLevel,
@@ -725,6 +726,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	hypermode: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	// Shape only. Per-entry validation belongs to `compilePermissions`, which
 	// reports a bad effect or an unusable pattern as a diagnostic the user
 	// sees; dropping those entries here would silence it.
@@ -1165,13 +1170,22 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
 		for (const key of Object.keys(v)) {
+			const value = (v as Record<string, unknown>)[key]
+			if (key === 'sizeGuideline') {
+				if (!isWorkflowSizeGuideline(value))
+					return invalidConfigValue(
+						context,
+						[key],
+						'must be one of unrestricted, small, medium or large',
+					)
+				continue
+			}
 			if (key !== 'maxConcurrency' && key !== 'maxAgents')
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a workflow setting (maxConcurrency, maxAgents)',
+					'is not a workflow setting (maxConcurrency, maxAgents, sizeGuideline)',
 				)
-			const value = (v as Record<string, unknown>)[key]
 			if (
 				typeof value !== 'number' ||
 				!Number.isSafeInteger(value) ||
@@ -1742,6 +1756,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Runs a command with the operator's authority, like `hooks`: a file
 	// decision, never a variable a shell profile could carry invisibly.
 	statusLine: undefined,
+	// Changes what the model is told on every turn; a file decision, never a variable a shell profile could carry invisibly.
+	hypermode: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',

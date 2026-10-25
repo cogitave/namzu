@@ -1,19 +1,21 @@
 /**
  * The words the tag row says, at every width.
  *
- * Meaning is carried by words, never by colour or glyph alone: `✦` marks an
- * armed trigger and `✧` anything else, but the state is also always a word
+ * Meaning is carried by words, never by a glyph (a
+ * detected keyword by highlighting it in the input and a plain notice, with no
+ * symbol): an armed trigger says what it does, and any other state is a word
  * or a mark — `?` for a suggestion, `(off)` for one dropped with Alt+W,
- * `unavailable …` for one that cannot apply. Both glyphs are one cell wide
- * and neither is an emoji. One row at every width; the text shortens by
- * steps before it is cut.
+ * `unavailable …` for one that cannot apply. The row is sentence case. One row
+ * at every width; the text shortens by steps before it is cut.
  */
 
 import type { Detection, TriggerHit } from './detect.js'
 import type { TriggerId } from './registry.js'
 
-export const ARMED_MARK = '✦'
-export const OTHER_MARK = '✧'
+/** A trigger's name starting a row: `save as skill` reads `Save as skill`. */
+function cap(label: string): string {
+	return label.charAt(0).toUpperCase() + label.slice(1)
+}
 
 export interface TagCopyContext {
 	/** Columns the row may use. */
@@ -22,8 +24,6 @@ export interface TagCopyContext {
 	readonly turnActive: boolean
 	/** The model's highest published effort level, when it publishes a menu (max effort). */
 	readonly highestEffort: string | undefined
-	/** The level hypermode pins on this model (`xhigh`, or the nearest below it). */
-	readonly hypermodeEffort: string | undefined
 	/** No paste chips and no attachments: a trigger-only message may run its command. */
 	readonly standaloneAllowed: boolean
 }
@@ -37,7 +37,7 @@ const TURN_SCOPED: ReadonlySet<TriggerId> = new Set([
 ])
 
 export function tagRow(detection: Detection, context: TagCopyContext): string | null {
-	if (detection.paused) return fit(`${OTHER_MARK} triggers paused: draft too long`, context.columns)
+	if (detection.paused) return fit('Triggers paused: draft too long', context.columns)
 	const hits = detection.hits
 	if (hits.length === 0) return null
 	const [only] = hits
@@ -50,15 +50,13 @@ function single(hit: TriggerHit, detection: Detection, context: TagCopyContext):
 	switch (hit.state) {
 		case 'suggested':
 			if (hit.id === 'schedule' && columns >= 80)
-				return `${OTHER_MARK} schedule? · alt+w: the agent proposes a job; you confirm it on screen`
-			return columns >= 40
-				? `${OTHER_MARK} ${hit.label}? · alt+w arms`
-				: `${OTHER_MARK} ${hit.label}?`
+				return 'Schedule? · alt+w: the agent proposes a job; you confirm it on screen'
+			return columns >= 40 ? `${cap(hit.label)}? · alt+w arms` : `${cap(hit.label)}?`
 		case 'dropped':
-			if (columns >= 60) return `${OTHER_MARK} ${hit.label} (off) · alt+w restores`
-			return `${OTHER_MARK} ${hit.label} (off)`
+			if (columns >= 60) return `${cap(hit.label)} (off) · alt+w restores`
+			return `${cap(hit.label)} (off)`
 		case 'unavailable':
-			return `${OTHER_MARK} ${hit.label} · ${hit.reason ?? 'unavailable'}`
+			return `${cap(hit.label)} · ${hit.reason ?? 'unavailable'}`
 		case 'armed':
 			return armed(hit, detection, context)
 	}
@@ -66,10 +64,10 @@ function single(hit: TriggerHit, detection: Detection, context: TagCopyContext):
 
 function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): string {
 	const { columns, turnActive } = context
-	const label = `${ARMED_MARK} ${hit.label}`
+	const label = `${cap(hit.label)}`
 	if (columns < 40) return label
-	const pinned = hit.id === 'hypermode' ? context.hypermodeEffort : context.highestEffort
-	const effort = pinned ? `effort ${pinned}` : undefined
+	const effort =
+		hit.id === 'max-effort' && context.highestEffort ? `effort ${context.highestEffort}` : undefined
 	const detail = ((): { full: string; short: string; tiny?: string } => {
 		if (turnActive && TURN_SCOPED.has(hit.id))
 			return {
@@ -84,9 +82,9 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 						short: 'add the task',
 					}
 				return {
-					full: `this reply: ${effort ? `${effort}, ` : ''}delegate to parallel agents`,
-					short: `this reply${effort ? `, ${effort}` : ''}`,
-					...(effort ? { tiny: effort } : {}),
+					full: 'this reply: offers workflows, effort unchanged',
+					short: 'this reply: workflows',
+					tiny: 'workflows',
 				}
 			case 'workflow':
 				if (detection.onlyTriggers)
@@ -95,8 +93,8 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 						short: 'add the task',
 					}
 				return {
-					full: 'this turn, offers the workflow tool',
-					short: 'this turn, offers the tool',
+					full: 'this turn, opts into the workflow tool',
+					short: 'this turn, opts into the tool',
 				}
 			case 'save-skill':
 				if (detection.onlyTriggers && context.standaloneAllowed)
@@ -134,7 +132,7 @@ function armed(hit: TriggerHit, detection: Detection, context: TagCopyContext): 
 }
 
 function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
-	const { columns, hypermodeEffort } = context
+	const { columns } = context
 	const armedCount = hits.filter((hit) => hit.state === 'armed').length
 	const offCount = hits.filter((hit) => hit.state === 'dropped').length
 	const key = armedCount > 0 ? 'alt+w drop' : offCount > 0 ? 'alt+w restores' : 'alt+w arms'
@@ -148,22 +146,19 @@ function several(hits: readonly TriggerHit[], context: TagCopyContext): string {
 		]
 			.filter(Boolean)
 			.join(' · ')
-		const mark = armedCount > 0 ? ARMED_MARK : OTHER_MARK
-		return columns >= 40 ? `${mark} ${counts} · alt+w` : `${mark} ${counts}`
+		return columns >= 40 ? `${cap(counts)} · alt+w` : cap(counts)
 	}
-	const parts = hits.map((hit) => {
+	const parts = hits.map((hit, index) => {
+		const name = index === 0 ? cap(hit.label) : hit.label
 		switch (hit.state) {
 			case 'armed':
-				// The effort pin is said wherever hypermode is armed.
-				return hit.id === 'hypermode' && hypermodeEffort
-					? `${ARMED_MARK} hypermode (effort ${hypermodeEffort})`
-					: `${ARMED_MARK} ${hit.label}`
+				return hit.id === 'hypermode' ? `${name} (workflows)` : name
 			case 'suggested':
-				return `${OTHER_MARK} ${hit.label}?`
+				return `${name}?`
 			case 'dropped':
-				return `${OTHER_MARK} ${hit.label} (off)`
+				return `${name} (off)`
 			case 'unavailable':
-				return `${OTHER_MARK} ${hit.label} (unavailable)`
+				return `${name} (unavailable)`
 		}
 	})
 	return `${parts.join(' · ')} · ${columns >= 80 ? key : 'alt+w'}`
@@ -178,8 +173,8 @@ function fit(text: string, columns: number): string {
 
 /**
  * The line under the operator's row in the transcript, naming what the
- * message carried in a sentence: `Hypermode is on for this reply (effort
- * xhigh).` Undefined when nothing applies.
+ * message carried in a sentence: `Hypermode is on for this reply: Namzu may
+ * use workflows.` Undefined when nothing applies.
  */
 export function transcriptTagLine(
 	ids: readonly TriggerId[],
@@ -193,7 +188,7 @@ export function transcriptTagLine(
 	const parts = ids.flatMap((id) => {
 		switch (id) {
 			case 'hypermode':
-				return context.steered ? [] : [`Hypermode is on for this reply${effort}.`]
+				return context.steered ? [] : ['Hypermode is on for this reply: Namzu may use workflows.']
 			case 'workflow':
 				return context.steered ? [] : ['Workflow is on for this reply.']
 			case 'save-skill':

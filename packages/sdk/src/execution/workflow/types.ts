@@ -232,9 +232,9 @@ export interface WorkflowJournal {
 }
 
 export interface WorkflowLimits {
-	/** Agents running at once. Default `min(8, cpus - 2)`, at least 1; at most 16. */
+	/** Agents running at once. Default `min(16, cpus - 2)`, at least 2; at most 16. */
 	readonly maxConcurrency?: number
-	/** Agents one run may start. Default 200; at most 1000. */
+	/** Agents one run may start. Default 1000; at most 1000. */
 	readonly maxAgents?: number
 	/** UTF-8 script size. Default 256 KiB. */
 	readonly maxSourceBytes?: number
@@ -242,7 +242,7 @@ export interface WorkflowLimits {
 	readonly memoryLimitBytes?: number
 	/** One value crossing the bridge, either way. Default 1 MiB. */
 	readonly maxValueBytes?: number
-	/** Stop admitting new agents once this many tokens are spent. Default: none. */
+	/** Stop admitting new agents once this many tokens are spent; also the script's `budget.total`. Default: none. */
 	readonly tokenBudget?: number
 	/** Wall clock for the whole run. Default 6 hours. */
 	readonly maxDurationMs?: number

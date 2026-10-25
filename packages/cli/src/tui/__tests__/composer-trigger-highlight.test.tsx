@@ -26,7 +26,6 @@ const TRIGGERS: ComposerTriggerSettings = {
 		scheduleTool: true,
 	},
 	highestEffort: 'max',
-	hypermodeEffort: 'xhigh',
 }
 
 // The test terminal is a colour TTY; the Vitest process itself usually is
@@ -90,7 +89,7 @@ describe('the tag row', () => {
 	it('sits above the input and stays one row at 40 columns', async () => {
 		const mounted = await typed('hypermode fix it', 40)
 		const rows = mounted.viewport()
-		const tag = rows.findIndex((row) => row.includes('✦ hypermode'))
+		const tag = rows.findIndex((row) => row.includes('Hypermode'))
 		const input = rows.findIndex((row) => row.includes('fix it'))
 		expect(tag).toBeGreaterThanOrEqual(0)
 		expect(input).toBe(tag + 1)
@@ -99,17 +98,17 @@ describe('the tag row', () => {
 	it('says its state in words where colour is refused', async () => {
 		vi.stubEnv('NO_COLOR', '1')
 		const mounted = await typed('what is hypermode?')
-		expect(mounted.viewport().join('\n')).toContain('✧ hypermode? · alt+w arms')
+		expect(mounted.viewport().join('\n')).toContain('Hypermode? · alt+w arms')
 	})
 
 	it('drops and restores with Alt+W, and Backspace after the keyword drops it first', async () => {
 		const mounted = await typed('hypermode fix it')
 		mounted.press('\u001bw')
 		await mounted.waitForRender()
-		expect(mounted.viewport().join('\n')).toContain('✧ hypermode (off) · alt+w restores')
+		expect(mounted.viewport().join('\n')).toContain('Hypermode (off) · alt+w restores')
 		mounted.press('\u001bw')
 		await mounted.waitForRender()
-		expect(mounted.viewport().join('\n')).toContain('✦ hypermode · this reply')
+		expect(mounted.viewport().join('\n')).toContain('Hypermode · this reply')
 
 		await mounted.unmount()
 		const again = await typed('hypermode')
@@ -117,7 +116,7 @@ describe('the tag row', () => {
 		await again.waitForRender()
 		const text = again.viewport().join('\n')
 		// Dropped, and not one character deleted.
-		expect(text).toContain('✧ hypermode (off)')
+		expect(text).toContain('Hypermode (off)')
 		expect(text).toContain('hypermode▏')
 	})
 })

@@ -105,8 +105,18 @@ const sendOverride: {
 function prepareChildMessageBridge(scope?: SessionScope): Partial<AgentSession> {
 	childMessageBridge.scope = scope
 	childMessageBridge.onCreated?.()
-	if (!childMessageBridge.current) return {}
+	const completion: Partial<AgentSession> = {
+		onSubagentCompletion: (listener) => {
+			childMessageBridge.onCompletion = listener
+			return () => {
+				if (childMessageBridge.onCompletion === listener)
+					childMessageBridge.onCompletion = undefined
+			}
+		},
+	}
+	if (!childMessageBridge.current) return completion
 	return {
+		...completion,
 		messageSubagent: childMessageBridge.current,
 		onSubagentReport: (listener) => {
 			childMessageBridge.onReport = listener
@@ -128,6 +138,7 @@ const childMessageBridge: {
 	scope?: SessionScope
 	onReport?: Parameters<NonNullable<AgentSession['onSubagentReport']>>[0]
 	onMessage?: Parameters<NonNullable<AgentSession['onSubagentMessage']>>[0] | undefined
+	onCompletion?: Parameters<NonNullable<AgentSession['onSubagentCompletion']>>[0] | undefined
 } = vi.hoisted(() => ({}))
 /**
  * What this session's finished children left on disk, as the replay reads it.
@@ -375,6 +386,7 @@ beforeEach(() => {
 	delete childMessageBridge.onCreated
 	delete childMessageBridge.onReport
 	childMessageBridge.onMessage = undefined
+	childMessageBridge.onCompletion = undefined
 	delete childMessageBridge.scope
 	savedChildren.current = []
 	savedChildren.reads = 0
@@ -1050,7 +1062,7 @@ describe('Ctrl+T', () => {
 			// itself settles later, when the closing line is written.
 			await waitUntil(
 				screen,
-				() => /✻ Worked for \S+ · 4 agents/u.test(painted(screen)),
+				() => /✻ Worked for \S+ · done [^·]+ · 4 agents/u.test(painted(screen)),
 				'real parent query did not settle',
 			)
 			expect(painted(screen)).toContain('parent completed')
@@ -1068,7 +1080,7 @@ describe('Ctrl+T', () => {
 			).toHaveLength(1)
 			expect(painted(screen)).not.toMatch(/Launched 4 agents/u)
 			// The turn delegated, so it closes with one line saying so.
-			expect(painted(screen)).toMatch(/✻ Worked for \S+ · 4 agents/u)
+			expect(painted(screen)).toMatch(/✻ Worked for \S+ · done [^·]+ · 4 agents/u)
 		} finally {
 			releaseChildren()
 			delete sendOverride.current
@@ -1256,7 +1268,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x0b')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('Press ctrl+x ctrl+k again to stop 2 background agents'),
+			() => painted(screen).includes('Press ctrl+x ctrl+k again to stop background agents'),
 			'the first press did not ask for a second',
 		)
 		expect(stoppedChildren).toEqual([])
@@ -1264,10 +1276,32 @@ describe('Ctrl+T', () => {
 		screen.press('\x0b')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('2 background agents stopped'),
+			() => painted(screen).includes('All background agents stopped'),
 			'the second press did not report the stop',
 		)
 		expect(stoppedChildren.sort()).toEqual(['bg-1', 'bg-2'])
+		// Once they report as stopped, the one row above is all the conversation says.
+		activity.set([
+			agent({
+				viewId: 'bg-1',
+				description: 'First child',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+			}),
+			agent({
+				viewId: 'bg-2',
+				description: 'Second child',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+			}),
+			agent({ viewId: 'fg-1', description: 'Waited child' }),
+		])
+		await screen.waitForRender()
+		await screen.waitForRender()
+		expect(painted(screen).match(/All background agents stopped/gu)).toHaveLength(1)
+		expect(painted(screen)).not.toContain('was stopped by user')
 	})
 
 	it('says so when ctrl+x ctrl+k finds no background agent', async () => {
@@ -1333,6 +1367,35 @@ describe('Ctrl+T', () => {
 			)
 		} finally {
 			release()
+			delete sendOverride.current
+		}
+	})
+
+	it('writes the launch receipt before the reply that follows the launch, not after it', async () => {
+		activity.set([
+			agent({ viewId: 'bg-a', description: 'Index the docs', background: true }),
+			agent({ viewId: 'bg-b', description: 'Audit the config', background: true }),
+		])
+		// The reply arrives at once, well inside the receipt's settle window.
+		sendOverride.current = async function* () {
+			yield { kind: 'delta', text: 'Two agents are working.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		try {
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 40 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+			await submit(screen, 'go')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Two agents are working.'),
+				'the reply did not arrive',
+			)
+			const all = screen.scrollback().join('\n')
+			const receipt = all.indexOf('2 background agents launched')
+			expect(receipt).toBeGreaterThanOrEqual(0)
+			expect(receipt).toBeLessThan(all.indexOf('Two agents are working.'))
+		} finally {
 			delete sendOverride.current
 		}
 	})
@@ -2076,8 +2139,8 @@ describe('Ctrl+T', () => {
 			let frame = screen.viewport().join('\n')
 			// The header names the list; a count here would read as phases done.
 			expect(frame).not.toMatch(/Phases · \d/)
-			expect(frame).toContain('8/8 agents')
-			expect(frame).toMatch(/✘\s+Inspect\s+8\/8/)
+			expect(frame).toContain('0/8 agents')
+			expect(frame).toMatch(/✘\s+Inspect\s+0\/8/)
 			expect(frame).not.toContain('First agent')
 			screen.press('\r')
 			await waitUntil(
@@ -2891,8 +2954,8 @@ describe('agent explorer projection', () => {
 		)
 		try {
 			// Still working: the phase keeps its number. Settled with a stop: ✘.
-			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+1\/2/)
-			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+2\/2/)
+			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+0\/2/)
+			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+1\/2/)
 		} finally {
 			cockpit.unmount()
 		}
@@ -3192,8 +3255,10 @@ describe('agent completion presentation', () => {
 					expect(output).not.toContain('Agent result:')
 					// The answer rides on the completion row, collapsed; Ctrl+O opens it.
 					expect(output).not.toContain('full report from child')
-					// The hint follows the sender in parentheses, after a space.
-					expect(output).toMatch(/› Message from @\S+ \(ctrl\+o to expand\)/u)
+					// One row per completion: the hint follows the time in parentheses, and
+					// there is no separate `Message from` row.
+					expect(output).toMatch(/● Agent "[^"]+" finished · \S+ \(ctrl\+o to expand\)/u)
+					expect(output).not.toContain('Message from @')
 					expect(output).not.toContain('· (ctrl+o')
 					screen.press('\x0f')
 					await waitUntil(
@@ -4152,5 +4217,386 @@ describe('viewing an agent', () => {
 			() => /◯ busy\s+Busy one\s+\S+(?: \S+)* · 2 queued/u.test(screen.viewport().join('\n')),
 			'no queued count',
 		)
+	})
+})
+
+describe('background agents outlive the turn', () => {
+	/** A turn that answers at once, while one background agent it started keeps running. */
+	async function answerOverBackgroundAgent(screen: Screen) {
+		sendOverride.current = async function* () {
+			// Started after the turn began, so this turn closes over it.
+			activity.set([
+				agent({
+					viewId: 'bg-1',
+					description: 'Slow lookup',
+					background: true,
+					startedAt: Date.now() + 60_000,
+				}),
+			])
+			yield { kind: 'delta', text: 'Started the lookup.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'look it up')
+	}
+
+	it('ends the turn, names what it waits for, and writes the closing line when the agent ends', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await answerOverBackgroundAgent(screen)
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the waiting line never appeared',
+		)
+		// The turn is over: no spinner, and the composer takes a new message.
+		expect(screen.viewport().join('\n')).not.toContain('esc to interrupt')
+		expect(painted(screen)).not.toContain('Worked for')
+
+		activity.set([
+			agent({
+				viewId: 'bg-1',
+				description: 'Slow lookup',
+				background: true,
+				status: 'completed',
+				startedAt: Date.now() + 60_000,
+				completedAt: Date.now() + 61_000,
+			}),
+		])
+		await waitUntil(
+			screen,
+			() => /Worked for .* 1 agent/u.test(painted(screen)),
+			'the closing line never appeared',
+		)
+		expect(screen.viewport().join('\n')).not.toContain('Waiting for 1 background agent')
+	})
+
+	it('stops the background agents with the first Ctrl+C of an idle composer, and does not exit', async () => {
+		stoppedChildren.length = 0
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await answerOverBackgroundAgent(screen)
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the waiting line never appeared',
+		)
+		screen.press('\x03')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('All background agents stopped'),
+			'the stop was not announced',
+		)
+		expect(stoppedChildren).toEqual(['bg-1'])
+		expect(painted(screen)).not.toContain('again to exit')
+	})
+
+	it('asks the person when a background agent needs approval after its turn has ended', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		let ask: ((request: never) => Promise<{ kind: string }>) | undefined
+		sendOverride.current = async function* (_messages, opts) {
+			ask = opts?.onPermission as never
+			activity.set([
+				agent({
+					viewId: 'bg-1',
+					description: 'Slow lookup',
+					background: true,
+					startedAt: Date.now() + 60_000,
+				}),
+			])
+			yield { kind: 'delta', text: 'Started the lookup.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'look it up')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the turn did not end over the agent',
+		)
+		// The turn is over; the agent it launched now wants to write a file.
+		const answer = ask?.({
+			toolCalls: [
+				{
+					id: 'c1',
+					name: 'write',
+					input: { path: 'notes.txt', content: 'hi' },
+					isDestructive: true,
+				},
+			],
+		} as never)
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Do you want to write this file?'),
+			'the question never reached the screen',
+		)
+		let decided = false
+		void answer?.then(() => {
+			decided = true
+		})
+		// A key inside the prompt's settle window decides nothing; keep answering.
+		await waitUntil(
+			screen,
+			() => {
+				if (!decided) screen.press('y')
+				return decided
+			},
+			'the answer never reached the agent',
+		)
+		await expect(answer).resolves.toMatchObject({ kind: 'approve' })
+		expect(painted(screen)).not.toContain('Turn is no longer active')
+	})
+
+	it('hands the conversation back after a late approval so the finished agent still wakes it', async () => {
+		const seen: string[] = []
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(screen, () => childMessageBridge.onCompletion !== undefined, 'no listener')
+		let ask: ((request: never) => Promise<{ kind: string }>) | undefined
+		sendOverride.current = async function* (messages, opts) {
+			if (ask !== undefined) {
+				seen.push(JSON.stringify(messages))
+				yield { kind: 'delta', text: 'Noted the finished agent.\n\n' }
+				yield { kind: 'done', stopReason: 'end_turn' }
+				return
+			}
+			ask = opts?.onPermission as never
+			activity.set([
+				agent({
+					viewId: 'bg-1',
+					description: 'Slow writer',
+					background: true,
+					startedAt: Date.now() + 60_000,
+				}),
+			])
+			yield { kind: 'delta', text: 'Started the writer.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'write it')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the turn did not end over the agent',
+		)
+		const answer = ask?.({
+			toolCalls: [
+				{
+					id: 'c1',
+					name: 'write',
+					input: { path: 'notes.txt', content: 'hi' },
+					isDestructive: true,
+				},
+			],
+		} as never)
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Do you want to write this file?'),
+			'the question never reached the screen',
+		)
+		let decided = false
+		void answer?.then(() => {
+			decided = true
+		})
+		await waitUntil(
+			screen,
+			() => {
+				if (!decided) screen.press('y')
+				return decided
+			},
+			'the answer never reached the agent',
+		)
+		await screen.waitForRender()
+		await screen.waitForRender()
+		// Nobody is working: the conversation is not parked on a running turn.
+		expect(screen.viewport().join('\n')).not.toContain('esc to interrupt')
+		childMessageBridge.onCompletion?.({
+			parentSessionId: childMessageBridge.scope?.sessionId as string,
+			taskId: 'task-writer',
+			agentId: 'general-purpose',
+			description: 'Slow writer',
+			state: 'completed',
+			text: 'RESULT-WRITER',
+		})
+		await waitUntil(screen, () => seen.length > 0, 'the finished agent never woke the model')
+		expect(seen[0]).toContain('RESULT-WRITER')
+		await waitUntil(screen, () => painted(screen).includes('Noted the finished agent.'), 'no reply')
+	})
+
+	it('shows a late agent prompt during another turn without answering that turn’s own prompt', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		const asks: Array<(request: never) => Promise<{ kind: string }>> = []
+		let release: (() => void) | undefined
+		sendOverride.current = async function* (_messages, opts) {
+			asks.push(opts?.onPermission as never)
+			if (asks.length === 1) {
+				activity.set([
+					agent({
+						viewId: 'bg-1',
+						description: 'Slow writer',
+						background: true,
+						startedAt: Date.now() + 60_000,
+					}),
+				])
+				yield { kind: 'delta', text: 'First turn.\n\n' }
+				yield { kind: 'done', stopReason: 'end_turn' }
+				return
+			}
+			yield { kind: 'delta', text: 'Second turn working.\n\n' }
+			await new Promise<void>((resolve) => {
+				release = resolve
+			})
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		await submit(screen, 'one')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the first turn did not end over the agent',
+		)
+		await submit(screen, 'two')
+		await waitUntil(screen, () => release !== undefined, 'the second turn did not start')
+		const request = (path: string) =>
+			({
+				toolCalls: [
+					{ id: path, name: 'write', input: { path, content: 'x' }, isDestructive: true },
+				],
+			}) as never
+		// The earlier turn's agent asks while the later turn runs, and so does the later turn.
+		const late = asks[0]?.(request('late.txt'))
+		const own = asks[1]?.(request('own.txt'))
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('late.txt'),
+			'the late prompt never reached the screen',
+		)
+		let lateDecision: string | undefined
+		let ownDecision: string | undefined
+		void late?.then((d) => {
+			lateDecision = d.kind
+		})
+		void own?.then((d) => {
+			ownDecision = d.kind
+		})
+		await waitUntil(
+			screen,
+			() => {
+				if (lateDecision === undefined) screen.press('y')
+				return lateDecision !== undefined
+			},
+			'the answer never reached the late agent',
+		)
+		expect(lateDecision).toBe('approve')
+		// The running turn's own prompt is still waiting for its own answer.
+		expect(ownDecision).toBeUndefined()
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('own.txt'),
+			'the running turn’s prompt never came up',
+		)
+		await waitUntil(
+			screen,
+			() => {
+				if (ownDecision === undefined) screen.press('n')
+				return ownDecision !== undefined
+			},
+			'the answer never reached the running turn',
+		)
+		expect(ownDecision).toBe('reject')
+		release?.()
+	})
+
+	it('leaves one row for an idle Ctrl+C stop: no per-agent rows and no closing line', async () => {
+		stoppedChildren.length = 0
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await answerOverBackgroundAgent(screen)
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Waiting for 1 background agent to finish'),
+			'the waiting line never appeared',
+		)
+		screen.press('\x03')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('All background agents stopped'),
+			'the stop was not announced',
+		)
+		// The agent now reports as stopped by the operator.
+		activity.set([
+			agent({
+				viewId: 'bg-1',
+				description: 'Slow lookup',
+				background: true,
+				status: 'cancelled',
+				stoppedBy: 'user',
+				startedAt: Date.now() + 60_000,
+				completedAt: Date.now() + 61_000,
+			}),
+		])
+		await screen.waitForRender()
+		await screen.waitForRender()
+		const text = painted(screen)
+		expect(text.match(/All background agents stopped/gu)).toHaveLength(1)
+		expect(text).not.toContain('was stopped by user')
+		expect(text).not.toContain('Worked for')
+		expect(screen.viewport().join('\n')).not.toContain('Waiting for 1 background agent')
+	})
+
+	it('wakes an idle conversation once for everything that ended meanwhile', async () => {
+		const seen: string[] = []
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(screen, () => childMessageBridge.onCompletion !== undefined, 'no listener')
+		sendOverride.current = async function* (messages) {
+			seen.push(JSON.stringify(messages))
+			yield { kind: 'delta', text: 'Noted.\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const parentSessionId = childMessageBridge.scope?.sessionId as string
+		for (const name of ['first', 'second']) {
+			childMessageBridge.onCompletion?.({
+				parentSessionId,
+				taskId: `task-${name}`,
+				agentId: 'general-purpose',
+				description: name,
+				state: 'completed',
+				text: `RESULT-${name.toUpperCase()}`,
+			})
+		}
+		await waitUntil(screen, () => seen.length > 0, 'the conversation did not wake')
+		await waitUntil(screen, () => painted(screen).includes('Noted.'), 'no reply')
+		expect(seen).toHaveLength(1)
+		expect(seen[0]).toContain('RESULT-FIRST')
+		expect(seen[0]).toContain('RESULT-SECOND')
+	})
+
+	it('does not wake the model for an agent the operator stopped', async () => {
+		const seen: string[] = []
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => childMessageBridge.onCompletion !== undefined, 'no listener')
+		sendOverride.current = async function* (messages) {
+			seen.push(JSON.stringify(messages))
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		childMessageBridge.onCompletion?.({
+			parentSessionId: childMessageBridge.scope?.sessionId as string,
+			taskId: 'task-stopped',
+			agentId: 'general-purpose',
+			description: 'stopped',
+			state: 'cancelled',
+			stoppedBy: 'user',
+			text: 'SHOULD-NOT-BE-SENT',
+		})
+		await screen.waitForRender()
+		await screen.waitForRender()
+		expect(seen).toEqual([])
 	})
 })

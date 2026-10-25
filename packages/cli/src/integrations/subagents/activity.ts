@@ -4,7 +4,7 @@ import {
 	genericLabel,
 	isTerminalAgentTaskState,
 } from '@namzu/sdk'
-import { plainAgentFailure } from './failure-text.js'
+import { stepTaskOnly } from './workflow-assignment.js'
 
 const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
@@ -81,6 +81,8 @@ export type SubagentTranscriptRow =
 			 * render as before.
 			 */
 			readonly direction?: SubagentMessageDirection
+			/** The agent's own error message, verbatim: drawn as an `Error` section in the error colour. */
+			readonly failure?: true
 	  }
 
 export interface SubagentActivity {
@@ -174,6 +176,8 @@ export interface SubagentActivity {
 	 */
 	readonly workflowRunId?: string
 	readonly workflowAgentIndex?: number
+	/** Why the agent failed, as the agent's own error message said it. Absent unless it failed with one. */
+	readonly error?: string
 }
 
 /**
@@ -466,7 +470,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			...(input.background ? { background: true } : {}),
-			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
+			prompt: bounded(stepTaskOnly(input.prompt), MAX_PROMPT_CODE_UNITS),
 			batchId,
 			...(input.toolUseId
 				? { toolUseId: bounded(input.toolUseId, MAX_IDENTITY_LABEL_CODE_UNITS) }
@@ -530,13 +534,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				if (!owned) return
 				const cancelled = cancellationLike(error)
 				owned.status = cancelled ? 'cancelled' : 'failed'
+				// A stop nobody recorded is the operator's (Esc or Ctrl+C aborting the
+				// parent's wait), so every stop reads "stopped by user".
+				if (cancelled && !owned.stoppedBy) owned.stoppedBy = 'user'
 				owned.completedAt = Date.now()
 				owned.latestActivity = terminalLabel(owned.status)
-				pushRow(owned, {
-					id: `${owned.viewId}:failure`,
-					kind: 'system',
-					text: bounded(plainAgentFailure(errorMessage(error)), MAX_ROW_CODE_UNITS),
-				})
+				pushFailure(owned, `${owned.viewId}:failure`, errorMessage(error))
 				owned.closed = true
 				this.prune()
 				this.notifyNow()
@@ -763,6 +766,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			startedAt: record.startedAt,
 			...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
 			...(record.latestActivity ? { latestActivity: record.latestActivity } : {}),
+			...(failureOf(record) !== undefined ? { error: failureOf(record) as string } : {}),
 			transcript: Object.freeze(record.rows.map((row) => Object.freeze({ ...row }))),
 		})
 	}
@@ -1104,28 +1108,40 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			record.status = 'failed'
 			record.completedAt = Date.now()
 			record.latestActivity = 'Failed'
-			pushRow(record, {
-				id: `${record.viewId}:agent-failed`,
-				kind: 'system',
-				text: bounded(plainAgentFailure(event.error), MAX_ROW_CODE_UNITS),
-			})
+			pushFailure(record, `${record.viewId}:agent-failed`, event.error)
 			return
 		case 'agent_canceled':
 			record.status = 'cancelled'
+			// A stop nobody recorded is the operator's (Esc or Ctrl+C), so every
+			// stop reads "stopped by user".
+			if (!record.stoppedBy) record.stoppedBy = 'user'
 			record.completedAt = Date.now()
 			record.latestActivity = 'Cancelled'
 			return
 		case 'turn_failed':
 			record.latestActivity = 'Failed'
-			pushRow(record, {
-				id: `${record.viewId}:turn-failed`,
-				kind: 'system',
-				text: bounded(plainAgentFailure(event.error), MAX_ROW_CODE_UNITS),
-			})
+			pushFailure(record, `${record.viewId}:turn-failed`, event.error)
 			return
 		default:
 			return
 	}
+}
+
+/** The row that carries an agent's error message, as the agent said it. Nothing is added for an empty message. */
+function pushFailure(record: MutableActivity, id: string, error: string): void {
+	const text = error.trim()
+	if (text === '') return
+	pushRow(record, { id, kind: 'system', text: bounded(text, MAX_ROW_CODE_UNITS), failure: true })
+}
+
+/** The error of a failed agent: its latest failure row's text. */
+function failureOf(record: MutableActivity): string | undefined {
+	if (record.status !== 'failed') return undefined
+	for (let index = record.rows.length - 1; index >= 0; index -= 1) {
+		const row = record.rows[index]
+		if (row?.kind === 'system' && row.failure) return row.text
+	}
+	return undefined
 }
 
 function pushRow(record: MutableActivity, row: SubagentTranscriptRow): void {

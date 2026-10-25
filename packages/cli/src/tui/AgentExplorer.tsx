@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useState } from 'react'
 import stringWidth from 'string-width'
 
 import {
@@ -10,8 +10,15 @@ import {
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import {
+	LARGE_WORKFLOW_WARNING,
+	LARGE_WORKFLOW_WARNING_SHORT,
+	type WorkflowSizeGuideline,
+	isLargeRun,
+} from '../integrations/workflows/size.js'
+import {
 	type WorkflowRunStatus,
 	type WorkflowRunView,
+	countAgents,
 	isWorkflowRunAgent,
 } from '../integrations/workflows/view.js'
 import { fitHints } from './key-hints.js'
@@ -267,6 +274,15 @@ export interface RailWorkflow {
 	readonly agents: readonly SubagentActivity[]
 	/** The `workflow` tool's run this row stands for; absent for a group of labelled `Agent` calls. */
 	readonly runId?: string
+	/** The run is big enough to warn about (see `isLargeRun`); only set while it runs. */
+	readonly large?: true
+}
+
+/** What the rail needs to decide whether a running workflow is a large one. */
+export interface LargeRunSettings {
+	readonly hypermode: boolean
+	readonly configuredGuideline?: WorkflowSizeGuideline
+	readonly env?: Readonly<Record<string, string | undefined>>
 }
 
 const WORKFLOW_FOCUS_PREFIX = 'workflow:'
@@ -287,11 +303,12 @@ export function railWorkflows(
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
 	runs: readonly WorkflowRunView[] = [],
+	large?: LargeRunSettings,
 ): readonly RailWorkflow[] {
 	return [
 		...groupWorkflows(agents, now, dismissed, true),
 		...visibleRuns(runs, now, AGENT_RAIL_FINISHED_LINGER_MS, dismissed).map((run) =>
-			runRailWorkflow(run, agents),
+			runRailWorkflow(run, agents, large),
 		),
 	].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
 }
@@ -300,9 +317,25 @@ export function railWorkflows(
 export function runRailWorkflow(
 	run: WorkflowRunView,
 	agents: readonly SubagentActivity[],
+	large?: LargeRunSettings,
 ): RailWorkflow {
 	const facts = runRailFacts(run)
+	const counts = countAgents(run)
+	const isLarge =
+		large !== undefined &&
+		run.status === 'running' &&
+		isLargeRun({
+			scheduledAgents: counts.total,
+			startedAgents: counts.total - counts.queued,
+			totalTokens: facts.tokens ?? 0,
+			hypermode: large.hypermode,
+			...(large.configuredGuideline !== undefined
+				? { configuredGuideline: large.configuredGuideline }
+				: {}),
+			...(large.env !== undefined ? { env: large.env } : {}),
+		})
 	return {
+		...(isLarge ? { large: true as const } : {}),
 		id: run.groupId,
 		focusId: `${WORKFLOW_FOCUS_PREFIX}${run.groupId}`,
 		name: run.name,
@@ -367,7 +400,7 @@ function groupWorkflows(
 			name: members[0]?.workflow ?? DEFAULT_AGENT_WORKFLOW,
 			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
 			...(endedAt !== undefined ? { endedAt } : {}),
-			done: settled.length,
+			done: members.filter((agent) => agent.status === 'completed').length,
 			total: members.length,
 			...(spent !== undefined ? { tokens: spent } : {}),
 			failed,
@@ -394,7 +427,7 @@ export function railWorkflowActionFor(workflow: RailWorkflow): 'stop' | 'clear' 
  * failed or was stopped — and already red while it runs once a member has
  * failed. A running workflow with nothing wrong keeps the dim default.
  */
-function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
+export function railWorkflowBulletColor(workflow: RailWorkflow): string | undefined {
 	if (workflow.status === 'completed') return theme.status.ok
 	if (workflow.status === 'failed' || workflow.status === 'stopped') return theme.status.error
 	return workflow.failed > 0 ? theme.status.error : undefined
@@ -426,13 +459,35 @@ export function workflowRowVariants(
 	now: number,
 ): readonly WorkflowRowVariant[] {
 	const count = `${workflow.done}/${workflow.total}`
+	// The counter is the agents that finished over every agent; a failure turns
+	// the row's dot red and is counted in the detail, not beside the counter.
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
 	const join = (parts: readonly (string | undefined)[]): string =>
 		parts.filter((part): part is string => part !== undefined).join(' · ')
 	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
+	const warned: WorkflowRowVariant[] = workflow.large
+		? [
+				{
+					barWidth: wide,
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
+				},
+				{
+					barWidth: wide,
+					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
+				},
+				{
+					barWidth: wide,
+					text: join([elapsed, spent && `↓ ${spent}`, LARGE_WORKFLOW_WARNING_SHORT]),
+				},
+			]
+		: []
 	const variants: WorkflowRowVariant[] = [
-		{ barWidth: wide, text: join([count, elapsed, spent && `↓ ${spent} tokens`]) },
+		...warned,
+		{
+			barWidth: wide,
+			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
+		},
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
 		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
 		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
@@ -526,11 +581,6 @@ function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean):
 	return label ? `${label} · ${status}` : status
 }
 
-/** Whether every listed agent is the same kind, so a type column would only repeat itself. */
-export function railSharesType(agents: readonly SubagentActivity[]): boolean {
-	return agents.length > 1 && agents.every((agent) => agent.agentId === agents[0]?.agentId)
-}
-
 /** Cells the `↓ N more` row and the pointer share with a row's first slot. */
 const RAIL_POINTER_CELLS = 2
 
@@ -584,9 +634,8 @@ export function AgentTaskPanel({
 	// One name column for agent and workflow rows alike: as wide as the longest
 	// name on screen (never past the cap), so the second column starts right
 	// after it instead of at a fixed tab.
-	// Every agent the same kind and no workflow row: the type would only repeat
-	// itself on each line, so the column goes and the description takes the room.
-	const hideType = workflows.length === 0 && railSharesType(agents)
+	// One label rule for every row: the type column is always there, so a row
+	// reads the same whatever its neighbours are doing.
 	const nameWidth = Math.min(
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
@@ -681,19 +730,17 @@ export function AgentTaskPanel({
 										{viewed ? '●' : '◯'}
 									</Text>
 								</Box>
-								{hideType ? null : (
-									<Box width={nameWidth} flexShrink={0}>
-										<Text
-											bold={bright}
-											dimColor={!bright}
-											color={theme.text.primary}
-											wrap="truncate-end"
-										>
-											{terminalDisplayText(oneLine(agent.agentId))}
-										</Text>
-									</Box>
-								)}
-								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={hideType ? 0 : 2}>
+								<Box width={nameWidth} flexShrink={0}>
+									<Text
+										bold={bright}
+										dimColor={!bright}
+										color={theme.text.primary}
+										wrap="truncate-end"
+									>
+										{terminalDisplayText(oneLine(agent.agentId))}
+									</Text>
+								</Box>
+								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
 									<Text
 										bold={bright}
 										dimColor={!bright}
@@ -1010,16 +1057,24 @@ export function phaseOutcome(phase: Pick<AgentPhase, 'agents'>): PhaseOutcome {
 }
 
 /** The phase list's `done/total`: settled agents over every agent seen in it. */
-export function phaseCount(phase: Pick<AgentPhase, 'agents'>): string {
+export function phaseCount(
+	phase: Pick<AgentPhase, 'agents'>,
+	/** The run the phase belongs to was stopped: a phase where nothing finished says so. */
+	runStopped = false,
+): string {
 	if (phase.agents.length === 0) return ''
-	// In a workflow run only an agent that completed counts; one that was skipped,
-	// failed or stopped has not done its work.
-	const counted = phase.agents.filter((agent) =>
-		agent.workflowRunId !== undefined
-			? agent.status === 'completed'
-			: isTerminalStatus(agent.status),
-	).length
+	// Only an agent that completed counts; one that was skipped, failed or
+	// stopped has not done its work.
+	const counted = phase.agents.filter((agent) => agent.status === 'completed').length
+	if (runStopped && counted === 0 && phase.agents.every((agent) => isTerminalStatus(agent.status)))
+		return 'stopped'
 	return `${counted}/${phase.agents.length}`
+}
+
+/** The red tail after a phase's counter: ` · 2 failed`, empty when none failed. */
+export function phaseFailedTail(phase: Pick<AgentPhase, 'agents'>): string {
+	const failed = phase.agents.filter((agent) => agent.status === 'failed').length
+	return failed > 0 ? ` · ${failed} failed` : ''
 }
 
 /**
@@ -1129,6 +1184,12 @@ function BorderSegment({
 	)
 }
 
+/** ` — <error>` in the error colour after a failed agent's row, the agent's own message on one line. */
+function agentErrorTail(agent: Pick<SubagentActivity, 'status' | 'error'>): ReactNode {
+	if (agent.status !== 'failed' || agent.error === undefined) return null
+	return <Text color={theme.status.error}> — {oneLine(agent.error)}</Text>
+}
+
 /** What an agent row says after its label: model, spend, and how it ended. */
 function agentDetailMeta(agent: SubagentActivity, columns: number): string {
 	return [
@@ -1174,9 +1235,8 @@ export function WorkflowDetail({
 	const pageSize = workflowDetailPageSize(terminalRows)
 	const phase = phases[selectedPhaseIndex]
 	const isRun = workflow.runId !== undefined
-	const settled = workflow.agents.filter((agent) =>
-		isRun ? agent.status === 'completed' : isTerminalStatus(agent.status),
-	).length
+	// Only an agent that completed counts as done; a failed or stopped one does not.
+	const settled = workflow.agents.filter((agent) => agent.status === 'completed').length
 	const running = isRun
 		? workflow.runStatus === 'running'
 		: workflow.agents.some((agent) => !isTerminalStatus(agent.status))
@@ -1193,9 +1253,7 @@ export function WorkflowDetail({
 	const title = named
 		? oneLine(workflow.name)
 		: `${total} agent${total === 1 ? '' : 's'} · ${live} running`
-	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${
-		ended && total > 0 ? ` · ${endedWord(workflow)}` : ''
-	}`
+	const stats = `${settled}/${total} ${total === 1 ? 'agent' : 'agents'} · ${elapsed}${ended && total > 0 ? ` · ${endedWord(workflow)}` : ''}`
 	const selectedAgent = phase?.agents[selectedAgentIndex]
 	const canStop =
 		level === 1
@@ -1221,8 +1279,20 @@ export function WorkflowDetail({
 	)
 	const agents = phase?.agents ?? []
 	const agentsTitle = phase
-		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`
+		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'} · ${agents.filter((agent) => agent.status === 'completed').length} done`
 		: ''
+	// The phase's failures follow its count, in the error colour.
+	const agentsFailed = agents.filter((agent) => agent.status === 'failed').length
+	const failedTail = agentsFailed > 0 ? ` · ${agentsFailed} failed` : ''
+	const titleWithFailed = (text: string): ReactNode => {
+		if (failedTail === '' || !text.endsWith(failedTail)) return text
+		return (
+			<>
+				{text.slice(0, text.length - failedTail.length)}
+				<Text color={theme.status.error}>{failedTail}</Text>
+			</>
+		)
+	}
 	const phaseWindow = selectionWindow(phases, selectedPhaseIndex, pageSize)
 	const agentWindow = selectionWindow(agents, selectedAgentIndex, pageSize)
 	const emptyNote =
@@ -1253,7 +1323,13 @@ export function WorkflowDetail({
 		22,
 		Math.max(6, ...phases.map((item) => stringWidth(oneLine(phaseTitle(item))))),
 	)
-	const countCells = Math.max(3, ...phases.map((item) => phaseCount(item).length))
+	const countCells = Math.max(
+		3,
+		...phases.map(
+			(item) =>
+				phaseCount(item, workflow.runStatus === 'stopped').length + phaseFailedTail(item).length,
+		),
+	)
 	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
 	const rightInner = boxWidth - 3 - leftInner
 	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
@@ -1324,7 +1400,7 @@ export function WorkflowDetail({
 				{header}
 				<Box paddingX={1}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{level === 1 || !phase ? 'Phases' : agentsTitle}
+						{level === 1 || !phase ? 'Phases' : titleWithFailed(`${agentsTitle}${failedTail}`)}
 					</Text>
 				</Box>
 				<Box flexDirection="column" height={pageSize} flexShrink={0} paddingX={1}>
@@ -1353,7 +1429,10 @@ export function WorkflowDetail({
 												</Text>
 											</Box>
 											<Box flexShrink={0} marginLeft={1}>
-												<Text color={theme.text.muted}>{phaseCount(item)}</Text>
+												<Text color={theme.text.muted}>
+													{phaseCount(item, workflow.runStatus === 'stopped')}
+													<Text color={theme.status.error}>{phaseFailedTail(item)}</Text>
+												</Text>
 											</Box>
 										</Box>
 										{active
@@ -1388,6 +1467,7 @@ export function WorkflowDetail({
 												wrap="truncate-end"
 											>
 												{agentDetailLabel(agent)}
+												{agentErrorTail(agent)}
 											</Text>
 										</Box>
 										<Box flexShrink={0} marginLeft={1}>
@@ -1425,7 +1505,7 @@ export function WorkflowDetail({
 	const detailRows = showDetail ? detailLines.length + 1 : 0
 	const border = theme.border.default
 	const leftTitle = ' Phases '
-	const rightTitle = ` ${truncateChoiceText(agentsTitle, Math.max(1, rightInner - 4))} `
+	const rightTitle = ` ${truncateChoiceText(`${agentsTitle}${failedTail}`, Math.max(1, rightInner - 4))} `
 	const rows = Array.from({ length: pageSize }, (_, row) => row)
 	return (
 		<Box flexDirection="column" marginTop={1} marginLeft={-1} marginRight={-1} width={columns}>
@@ -1438,7 +1518,8 @@ export function WorkflowDetail({
 					</Text>
 					<Text color={border}>{'─'.repeat(Math.max(0, leftInner - stringWidth(leftTitle)))}┬</Text>
 					<Text color={theme.text.primary} bold>
-						{rightTitle}
+						{' '}
+						{titleWithFailed(rightTitle.slice(1, rightTitle.length - 1))}{' '}
 					</Text>
 					<Text color={border}>
 						{'─'.repeat(Math.max(0, rightInner - stringWidth(rightTitle)))}╮
@@ -1477,7 +1558,11 @@ export function WorkflowDetail({
 										{padEndCells(oneLine(phaseTitle(item)), leftTitleCells)}
 									</Text>{' '}
 									<Text color={theme.text.muted}>
-										{padStartCells(phaseCount(item), countCells)}
+										{padStartCells(
+											phaseCount(item, workflow.runStatus === 'stopped'),
+											countCells - phaseFailedTail(item).length,
+										)}
+										<Text color={theme.status.error}>{phaseFailedTail(item)}</Text>
 									</Text>
 								</Text>
 							) : null}
@@ -1486,10 +1571,12 @@ export function WorkflowDetail({
 						<Box width={rightInner} flexShrink={0}>
 							{agent && agentGlyph ? (
 								<>
-									<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
-									<Text> </Text>
-									<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
-									<Text> </Text>
+									<Box width={2} flexShrink={0}>
+										<Text color={theme.accent.assistant}>{agentActive ? '❯' : ' '}</Text>
+									</Box>
+									<Box width={2} flexShrink={0}>
+										<Text color={agentGlyph.color}>{agentGlyph.text}</Text>
+									</Box>
 									<Box width={labelCells + 3} flexShrink={0}>
 										<Text
 											color={agentActive ? theme.accent.assistant : theme.text.primary}
@@ -1503,6 +1590,7 @@ export function WorkflowDetail({
 									<Box flexGrow={1} flexShrink={1} minWidth={0}>
 										<Text color={theme.text.muted} wrap="truncate-end">
 											{agentDetailMeta(agent, columns)}
+											{agentErrorTail(agent)}
 										</Text>
 									</Box>
 									<Box flexShrink={0} marginLeft={1}>
@@ -1850,7 +1938,7 @@ export function AgentTranscript({
 								</Text>
 							</Box>
 							<Box flexGrow={1} minWidth={0}>
-								<Text color={lineColor(line)} wrap="truncate-end">
+								<Text color={lineColor(line)} bold={line.heading === true} wrap="truncate-end">
 									{line.text}
 								</Text>
 							</Box>
@@ -1935,7 +2023,11 @@ export function AgentView({
 							</Text>
 						</Box>
 						<Box flexGrow={1} minWidth={0}>
-							<Text color={lineColor(line)} bold={isOperatorLine(line)} wrap="truncate-end">
+							<Text
+								color={lineColor(line)}
+								bold={isOperatorLine(line) || line.heading === true}
+								wrap="truncate-end"
+							>
 								{line.text}
 							</Text>
 						</Box>
@@ -2023,6 +2115,8 @@ export interface AgentTranscriptLine {
 	readonly id: string
 	readonly text: string
 	readonly continuation: boolean
+	/** The `Error` heading of a failure section. */
+	readonly heading?: true
 	readonly source: 'prompt' | SubagentActivity['transcript'][number]
 }
 
@@ -2050,10 +2144,14 @@ export function agentTranscriptRows(
 	const lines: AgentTranscriptLine[] = []
 	for (const source of sources) {
 		let sourceLine = 0
+		const failure =
+			source.source !== 'prompt' && source.source.kind === 'system' && source.source.failure
+		let logicalIndex = 0
 		for (const logical of terminalDisplayText(source.text).split('\n')) {
+			const heading = failure === true && logicalIndex++ === 1
 			let text = ''
 			let cells = 0
-			let continuation = sourceLine > 0
+			let continuation = sourceLine > 0 || failure === true
 			for (const { segment: point } of graphemes.segment(expandTabs(logical))) {
 				const pointCells = stringWidth(point)
 				while (text.length > 0 && cells + pointCells > width) {
@@ -2067,6 +2165,7 @@ export function agentTranscriptRows(
 						id: `${source.id}:${sourceLine++}`,
 						text: text.slice(0, split),
 						continuation,
+						...(heading ? { heading: true as const } : {}),
 						source: source.source,
 					})
 					text = rest
@@ -2080,6 +2179,7 @@ export function agentTranscriptRows(
 				id: `${source.id}:${sourceLine++}`,
 				text,
 				continuation,
+				...(heading ? { heading: true as const } : {}),
 				source: source.source,
 			})
 		}
@@ -2237,6 +2337,8 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
 	if (row.kind === 'system' && row.direction === 'to-child') return `queued from main: ${row.text}`
+	// A failure is its own section: a blank line, the heading, the whole message.
+	if (row.kind === 'system' && row.failure) return `\nError\n${row.text}`
 	// What you typed to the agent reads as your own row.
 	if (row.kind === 'system' && row.direction === 'operator-to-child') return row.text
 	return row.text
@@ -2249,7 +2351,7 @@ function lineColor(line: AgentTranscriptLine): string {
 
 function rowColor(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return theme.text.primary
-	if (row.kind === 'system') return theme.text.muted
+	if (row.kind === 'system') return row.failure ? theme.status.error : theme.text.muted
 	return row.status === 'failed' ? theme.status.error : theme.text.secondary
 }
 

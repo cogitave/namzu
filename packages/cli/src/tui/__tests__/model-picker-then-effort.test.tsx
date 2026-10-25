@@ -164,7 +164,7 @@ async function chooseNextModel(screen: Screen) {
 /**
  * The stops of the effort slider, read off its label row: one word per level
  * before the `┆`, and after it the hypermode stop, whose label is several
- * words (`high + hypermode (workflows)`).
+ * words (`hypermode (workflows)`).
  */
 function stops(row: string): Array<{ readonly label: string; readonly start: number }> {
 	const cells = [...row]
@@ -204,13 +204,12 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await chooseNextModel(screen)
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
 	// The hypermode stop always trails the model's own levels, after a `┆` —
-	// a session setting offered here, never a level the model published. It
-	// names the level it pins.
+	// a session setting offered here, never a level the model published.
 	expect(choices(screen), screen.viewport().join('\n')).toEqual([
 		'default',
 		'medium',
 		'xhigh',
-		'xhigh + hypermode (workflows)',
+		'hypermode (workflows)',
 	])
 	expect(caretStop(screen)).toBe('default')
 	expect(closeOld).toHaveBeenCalledTimes(1)
@@ -226,7 +225,7 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await shows(screen, 'Type a message')
 	await submit(screen, '/effort')
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
-	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'xhigh + hypermode (workflows)'])
+	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'hypermode (workflows)'])
 	await press(screen, '1')
 	await shows(screen, 'Reasoning: provider default.')
 	await submit(screen, 'Use the provider default now')
@@ -239,7 +238,7 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	const screen = await open()
 	await submit(screen, '/effort')
 	await shows(screen, 'Select Reasoning Level')
-	expect(choices(screen)).toEqual(['default', 'low', 'high', 'high + hypermode (workflows)'])
+	expect(choices(screen)).toEqual(['default', 'low', 'high', 'hypermode (workflows)'])
 	await press(screen, '\x1b[D')
 	expect(caretStop(screen)).toBe('default')
 	await press(screen, '\x1b[C')
@@ -248,9 +247,9 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	await press(screen, '\x1b[B')
 	expect(caretStop(screen)).toBe('high')
 	for (let i = 0; i < 4; i++) await press(screen, '\x1b[C')
-	expect(caretStop(screen)).toBe('high + hypermode (workflows)')
+	expect(caretStop(screen)).toBe('hypermode (workflows)')
 	// The one-line description under the stop says what it does and that it is off.
-	expect(screen.viewport().join('\n')).toContain('Off · delegates to parallel agents by default')
+	expect(screen.viewport().join('\n')).toContain('Off · workflows on every substantial task')
 	expect(screen.viewport().join('\n')).toContain('←/→ adjust')
 	await press(screen, '\r')
 	await shows(screen, 'Type a message')
@@ -259,7 +258,31 @@ it('moves the slider with ←/→, clamps at both ends, and applies hypermode as
 	expect(viewport.find((row) => row.includes('shift+tab'))).not.toContain('hypermode')
 })
 
-it('names xhigh on the hypermode stop when the model publishes max too', async () => {
+it('flips hypermode with Tab from any stop and leaves the effort alone', async () => {
+	const screen = await open()
+	await submit(screen, '/effort high')
+	await shows(screen, 'Reasoning: high (this conversation).')
+	await submit(screen, '/effort')
+	await shows(screen, 'Select Reasoning Level')
+	expect(screen.viewport().join('\n')).toContain('tab hypermode')
+	await press(screen, '\t')
+	await shows(screen, 'Type a message')
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).toContain('Hypermode is on for this conversation')
+	expect(text).toContain('Effort stays high.')
+	expect(screen.viewport().find((row) => /^\s*─+ hypermode ─\s*$/u.test(row))).toBeDefined()
+})
+
+it('opens the effort chooser after a model pick even while hypermode is on', async () => {
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await shows(screen, 'Hypermode is on for this conversation')
+	await chooseNextModel(screen)
+	await shows(screen, `Select Reasoning Level for ${NEXT}`)
+	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'hypermode (workflows)'])
+})
+
+it('names no level on the hypermode stop, whatever the model publishes', async () => {
 	candidateLevels = ['low', 'medium', 'high', 'xhigh', 'max']
 	const screen = await open()
 	await chooseNextModel(screen)
@@ -271,7 +294,7 @@ it('names xhigh on the hypermode stop when the model publishes max too', async (
 		'high',
 		'xhigh',
 		'max',
-		'xhigh + hypermode (workflows)',
+		'hypermode (workflows)',
 	])
 })
 
@@ -281,7 +304,7 @@ it('keeps the vertical list on a terminal too narrow for the slider', async () =
 	await shows(screen, 'Select Reasoning Level')
 	const text = screen.viewport().join('\n')
 	expect(text).not.toContain('▲')
-	expect(text).toMatch(/\d\.\s+high \+ hypermode \(workflows\)/u)
+	expect(text).toMatch(/\d\.\s+hypermode \(workflows\)/u)
 })
 
 it('keeps the selected model with provider-default effort when the effort menu is cancelled', async () => {
@@ -333,7 +356,7 @@ it('does not show a late effort menu after model construction is cancelled', asy
 })
 
 it.each([
-	{ action: 'chosen', input: '\r', effort: 'xhigh' },
+	{ action: 'chosen', input: '3', effort: 'xhigh' },
 	{ action: 'cancelled', input: '\x1b', effort: undefined },
 ])(
 	'holds a failed turn queue until the replacement effort is $action',
@@ -355,7 +378,6 @@ it.each([
 		await shows(screen, `Select Reasoning Level for ${NEXT}`)
 		await screen.waitForRender()
 		expect(sent).toHaveLength(1)
-		await press(screen, '\x1b[F')
 		await press(screen, input)
 		await until(screen, () => sent.length === 2, 'Effort choice did not release queued prompt')
 		expect(sent.map((request) => request.model)).toEqual([OLD, NEXT])

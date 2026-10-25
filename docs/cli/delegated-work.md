@@ -26,10 +26,51 @@ are renewed when needed, with concurrent renewals serialized; borrowed keychain
 credentials remain owner-refreshed. A removed or still-expired credential stops
 client construction instead of reusing the token captured at startup.
 
-The `Agent` tool normally waits for its result. Set `run_in_background: true`
-to receive the task UUID after launch and continue independent work. A queued
-task is waiting for capacity; the receipt does not claim it has started or
-completed.
+In the terminal the `Agent` tool runs in the background by default: it returns
+the task UUID after launch and the model carries on, and it is told it will be
+notified when the agent ends, so it neither sleeps nor polls. The model sets
+`run_in_background: false` only when its very next step depends on the result;
+that call waits for the result as before. There is no timer that moves a waiting
+agent to the background. Headless hosts (`-p`, ACP, scheduled runs, an SDK
+caller) keep the old default: the tool waits unless `run_in_background: true`
+is set. A queued task is waiting for capacity; the receipt does not claim it has
+started or completed.
+
+### The turn does not wait for background agents
+
+A turn ends when the model has answered, even though background agents it
+started are still running; the composer is free at once, and what you type is a
+new message, not a correction to the turn. Until the agents end, one dim line
+under the answer says what is pending:
+
+```
+✻ Waiting for 2 background agents to finish
+```
+
+(`and 1 dynamic workflow` joins it when a workflow is running too.) A blank row
+separates it from the line above. When the last one ends the line becomes the
+turn's closing line, `✻ Worked for 3m 12s · done 3:45 PM · 2 agents`, with the
+wait counted and the clock time the work ended right after the duration.
+
+Each agent that ends after its turn is over wakes the model. Everything that
+ended while the conversation was idle goes to the model in **one** message and
+produces **one** reply; one that ends while a reply is streaming is handed over
+at the reply's next request. An agent you stopped yourself is not news and does
+not wake the model.
+
+- **Esc** interrupts only the model's reply. It never stops a background agent.
+- **Ctrl+C** with a reply running interrupts the reply and leaves the agents
+  alone. With nothing running it stops every background agent, says `All
+  background agents stopped` and tells the model once (`Background agent "X"
+  was stopped by the user.`); that one row is all the conversation gets for the
+  stop: no `was stopped by user` row per agent and no `Worked for` line
+  splitting it. The exit reminder only appears when no agent is left. In an agent's own view it stops only that agent and returns to the main
+  conversation.
+- Closing the conversation or the terminal stops the agents, as before.
+
+Foreground agents (`run_in_background: false`) keep their old behaviour: the
+call waits, Esc and Ctrl+C stop them with the reply, and the result comes back
+inline.
 
 Set `workspace: "worktree"` on an `Agent` call to give that child a separate
 Git checkout. The default, `workspace: "shared"`, uses the parent's working
@@ -222,16 +263,20 @@ untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
-transcript, `● 2 background agents launched (↓ to manage)` (or `Launched 2
-agents`, without the manage hint, for a batch that includes an agent the turn waits on) with each agent's description beneath it,
-always below the text of the response that launched them, and each observed
-agent completion adds two rows, whether or not the model calls `wait_for_task`:
-`› Message from @<type> (ctrl+o to expand)` with its answer collapsed (Ctrl+O
-opens it, in place while the row is live and in the output viewer once it has
-settled into history), then `● Agent "<description>" finished · 1m 4s` (or
-`failed: <reason> · 3s`, or `was stopped by user · 1s`, `was stopped by Namzu ·
-1s` when the conversation's own agent cancelled it, or `was stopped · 1s`) with
-no token count and no repeat of the result. Only an agent that runs on its own
+transcript, `● 2 background agents launched (↓ to manage)` with each agent's
+description beneath it, always below the text of the response that launched
+them. A batch that includes an agent the turn waits on is a live group while it
+runs, `Running 3 agents…` with one block per agent (`description · 4 tool uses ·
+12.1k tokens` over `⎿ <last tool>`, or `Initializing…`), and writes its receipt,
+`3 agents finished`, when the last member ends; the manage hint is only for an
+all-background batch. Each observed agent completion adds **one** row, whether or
+not the model calls `wait_for_task`: `● Agent "<description>" finished · 1m 4s
+(ctrl+o to expand)` with the agent's answer behind Ctrl+O (in place while the row
+is live and in the output viewer once it has settled into history), or
+`failed: <reason> · 3s`, `was stopped by user · 1s`, `was stopped by Namzu · 1s`
+when the conversation's own agent cancelled it, or `was stopped · 1s`, with no
+token count and no repeat of the result. The separate `Message from @<type>` row
+now belongs only to a running agent's own `send_message`. Only an agent that runs on its own
 (a background launch, one whose wait was released, one a later message resumed)
 reports this way; an agent the parent waited on hands its result back inline
 and leaves the tool's own result instead, `● <type> (<description>)` over
@@ -241,7 +286,7 @@ Their launch writes a single `● Workflow <name>` line with
 `⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
 receipt or completion row, and the workflow closes with one line
 (`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens`). A turn that
-launched agents ends with `✻ Worked for <time> · <N> agents`, adding the tokens
+launched agents ends with `✻ Worked for <time> · done <clock> · <N> agents`, adding the tokens
 the agents spent when any reported them and `<N> failed` when one failed; it
 never counts phases, which appear only in a workflow's detail view. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
@@ -260,14 +305,22 @@ while the next launch is decided. That row names no key, since the dialog holds
 
 `ctrl+x ctrl+k` stops the running background agents from the composer or the
 rail. With none running it says `No background agents running`; the first
-press says `Press ctrl+x ctrl+k again to stop N background agents` and waits
-3 seconds; the second stops them and says `N background agents stopped`. Agents
+press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer for
+3 seconds (it is not a transcript row); the second stops them and leaves
+`All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
 
-A failed agent's row says one plain sentence with a next step, for example
-`The provider was too busy for this agent. Wait a moment, then message the agent
-to try again.`, never the provider's name, status line or raw body (those follow
-only under `--debug`). An agent that fails again with the same reason after a
+A failed agent shows the error text the agent produced, verbatim and in the
+error colour, in three places. In the conversation the failed `Agent` call shows
+it under the call as `Error: <text>` (a text that already starts with `Error: `
+or `Cancelled: ` is shown as it is, an input-validation error is shortened to
+`Invalid tool parameters` until expanded, and a call with no text says `Tool
+execution failed`): the first 10 lines, then a dim `… +N lines (ctrl+o to
+expand)` (counted in the text's own lines; each line is wrapped to the width at
+word boundaries), and every line when expanded. In the agent's own view the error is a
+section of its own: a blank line, a bold `Error` heading and the whole message,
+wrapped. In a workflow's agent list the agent's row ends with ` — <error>` on
+one line. An agent that fails again with the same reason after a
 message reads `failed again`. Messaging a finished agent keeps its row where it
 was, with the time and spend it had, and writes `Continuing with a new task.`
 in its own transcript.
@@ -278,8 +331,8 @@ background agents and the agents' notices print after it.
 
 The rail lists running agents, plus a failed or stopped one for 30 seconds (a
 background agent that completed leaves at once), five at a time, one row each
-(type, description, time and spend; the type column is left out when every row
-is the same type). A running background agent's live label sits beside its clock: every 30 seconds, when it has done something new
+(type, description, time and spend; every row has the type column, however many
+agents there are or what the others are doing). A running background agent's live label sits beside its clock: every 30 seconds, when it has done something new
 and has at least three messages, it is asked once on its own model, with no
 tools, for a three-to-five-word present-tense label naming the file or function,
 in the predominant language of what the agent has been doing (there is no
@@ -303,12 +356,22 @@ and a single agent on the agents; Esc or ← goes back up a level. A workflow
 whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
-Completion reaches the parent as a task notification. `wait_for_task` retrieves
-the result without launching duplicate work. Background work keeps the same
-parent authority, shared tree budget, capacity limit and cancellation boundary.
-It is not a detached service: cancelling or releasing the parent turn cancels its
-remaining children. A normal parent query waits for owned children before final
-settlement, but can perform other tools and handle operator input meanwhile.
+Completion reaches the model as a task notification. `wait_for_task` retrieves
+the result without launching duplicate work, also in a later turn than the one
+that launched the agent, and `send_message`, `cancel_agent` and `agent_task_list`
+see a background agent that a finished turn left running. Background work keeps
+the same parent authority, shared tree budget and capacity limit. In the terminal
+a background agent outlives the turn that started it and is stopped by you (Ctrl+C
+when idle, `ctrl+x ctrl+k`, `x` on its rail row) or by closing the conversation;
+a turn that ends or is interrupted does not cancel it. A foreground agent whose
+wait you released by typing is treated the same way: it keeps running, and its
+end is reported once, like a background agent. If a background agent needs
+approval after its turn has ended (to write a file, say), the question appears
+on screen under the mode you have now and your answer reaches that agent, whether the conversation is idle or another turn is running (that turn's own questions are kept apart and wait for their own answer); once answered the composer is free again, so the agent's end still wakes the model; only a
+stopped turn, another conversation or a closing app refuses it. Foreground agents and
+headless hosts keep the original rule: releasing the parent turn cancels the
+children it still owns, and a normal parent query waits for them before final
+settlement while handling operator input meanwhile.
 
 Workflow and phase labels describe the display; they do not establish execution
 dependencies. Only delegate work that can proceed independently. The CLI's

@@ -4,9 +4,11 @@
  * and namzu spins up a fresh sub-agent with that role at runtime, no
  * pre-registered definition needed. Omit `role` for a general-purpose one.
  * The call waits for a final result unless background execution is requested
- * or operator input releases the wait.
- * The child then stays owned by the parent turn, and its completion reaches the
- * same query's inbox. Headless callers also support explicit background work.
+ * or operator input releases the wait. With `backgroundByDefault` (an operator
+ * is watching) background is the default and the turn ends without waiting: the
+ * child outlives the turn, and its end is reported through
+ * `onBackgroundCompletion`. Otherwise the child stays owned by the parent turn
+ * and its completion reaches the same query's inbox.
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
@@ -21,6 +23,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { formatChildOperatorAdmission } from './operator-journal.js'
+import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
 
 import {
 	type ActorRef,
@@ -78,6 +81,7 @@ import {
 	createUserMessage,
 	defineTool,
 	filtered,
+	formatCompletionNotification,
 	generateSummaryId,
 	isTerminalAgentTaskState,
 	isTrustedReadOnly,
@@ -131,9 +135,7 @@ export const NARRATION_TOOL_NAME = 'narrate_work'
  */
 const MAX_NARRATION_INPUT_CODE_UNITS = MAX_NARRATION_CODE_UNITS * 2
 
-/** Opens every workflow agent's prompt: the step is the job, so a note about authority cannot read as a reason to skip it. */
-export const WORKFLOW_STEP_ASSIGNMENT =
-	'This step is your assigned job. The person who started this workflow approved the script that gives it to you, so carry it out and report what you found or did; do not decline it or skip it.'
+export { WORKFLOW_STEP_ASSIGNMENT }
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 /**
@@ -243,6 +245,15 @@ interface ChildLaunchHooks {
 }
 
 export interface SubagentRuntimeOptions {
+	/**
+	 * An operator is watching and the turn must not wait for its agents: `Agent`
+	 * runs in the background unless the call says `run_in_background: false`, a
+	 * turn ends when the model has answered while background agents run on, and
+	 * each one that ends later is reported through
+	 * {@link SubagentRuntime.onBackgroundCompletion}. Headless callers leave it
+	 * off and keep the turn waiting for what it launched.
+	 */
+	readonly backgroundByDefault?: boolean
 	/**
 	 * Tools every child gets beside its roster, whatever that roster was
 	 * narrowed to. Set by the runtime itself, never by a host: a file's
@@ -412,6 +423,20 @@ export interface SubagentMessageReceipt {
 	readonly auditWarning?: string
 }
 
+/** A background agent that ended after the turn that launched it was over. */
+export interface SubagentCompletion {
+	readonly parentSessionId: string
+	readonly taskId: string
+	readonly viewId?: string
+	readonly agentId: string
+	readonly description: string
+	readonly state: 'completed' | 'failed' | 'cancelled'
+	/** Who stopped it, when it was stopped: the operator's own stop is not news. */
+	readonly stoppedBy?: 'user' | 'parent'
+	/** The result as the model reads it: the same envelope a task notification carries. */
+	readonly text: string
+}
+
 /** A message a running child sent to the main conversation. */
 export interface SubagentMessage {
 	readonly parentSessionId: string
@@ -429,11 +454,21 @@ export interface SubagentRuntime {
 	 * cannot show or deliver it never promises a child it will.
 	 */
 	onChildMessage(listener: (message: SubagentMessage) => void): () => void
+	/**
+	 * Hear a background agent that ends after its turn did. While the turn that
+	 * launched it is still running, the turn's own inbox delivers the result and
+	 * nothing is said here. Only with `backgroundByDefault`.
+	 */
+	onBackgroundCompletion(listener: (completion: SubagentCompletion) => void): () => void
 	/** One immutable scheduler context per actual parent turn. */
 	gatewayForTurn(turnId: TurnId): Promise<TaskScheduler>
 	/** The same inbox the parent query drains after a delegation yields. */
 	completionInboxForTurn(turnId: TurnId): Promise<CompletionInbox>
-	/** Release a settled parent turn's bookkeeping and cancel children it still owns. */
+	/**
+	 * Release a settled parent turn's bookkeeping. Children it still owns are
+	 * cancelled, except background ones under `backgroundByDefault`: those keep
+	 * running until they end or the session closes.
+	 */
 	releaseTurn(turnId: TurnId): Promise<void>
 	/**
 	 * Where requests beside the conversation (a title, the answer `web_fetch`
@@ -564,6 +599,7 @@ export async function createSubagentRuntime(
 	input: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
 	const childMessageListeners = new Set<(message: SubagentMessage) => void>()
+	const backgroundCompletionListeners = new Set<(completion: SubagentCompletion) => void>()
 	const opts: SubagentRuntimeOptions = {
 		...input,
 		childExtraTools: () =>
@@ -625,6 +661,9 @@ export async function createSubagentRuntime(
 		readonly completionInbox: CompletionInbox
 		/** The turn's token ledger: what its children, and their labels, spend from. */
 		readonly budget: SessionTokenBudget
+		readonly parentSessionId: string
+		/** Set when the turn ended with background agents still running; they outlive it. */
+		retired: boolean
 		close(): void
 	}
 	interface SessionRuntime {
@@ -845,12 +884,16 @@ export async function createSubagentRuntime(
 					await refreshLimits(lease.shared, current)
 					assertOwned()
 				})
-				const completionInbox = new CompletionInbox()
+				const completionInbox = new CompletionInbox(undefined, {
+					holdsTurnOpen: opts.backgroundByDefault !== true,
+				})
 				completionInbox.attach(gateway)
 				const runtime: ParentRuntime = {
 					gateway,
 					completionInbox,
 					budget,
+					parentSessionId: String(parent.sessionId),
+					retired: false,
 					close() {
 						if (released) return
 						released = true
@@ -961,11 +1004,92 @@ export async function createSubagentRuntime(
 			const oldest = releasedTurns.values().next().value
 			if (oldest !== undefined) releasedTurns.delete(oldest)
 		}
+		// Withdrawn at once, so an admission still loading its parent metadata is
+		// refused; a turn that keeps background agents running is put back below.
 		parents.delete(turnId)
-		await pending.then(
-			(runtime) => runtime.close(),
-			() => undefined,
-		)
+		const runtime = await pending.catch(() => undefined)
+		if (runtime === undefined) return
+		if (runtime.retired) {
+			parents.set(turnId, pending)
+			return
+		}
+		if (!closed && opts.backgroundByDefault === true && retireWithRunningTasks(turnId, runtime)) {
+			parents.set(turnId, pending)
+			return
+		}
+		runtime.close()
+	}
+	/**
+	 * Keep a released turn's gateway alive while background agents it launched
+	 * are still running, and report each one that ends. Returns false when
+	 * nothing is running (the caller closes the turn as usual).
+	 */
+	const retireWithRunningTasks = (turnId: TurnId, runtime: ParentRuntime): boolean => {
+		const running = runtime.gateway
+			.listTasks()
+			.filter((task) => !isTerminalAgentTaskState(task.state))
+		// What finished between the turn's last look and now was never delivered.
+		const unheard = runtime.completionInbox.drain()
+		for (const handle of unheard) reportBackgroundCompletion(turnId, runtime, handle)
+		if (running.length === 0) return false
+		runtime.retired = true
+		let remaining = running.length
+		for (const task of running) {
+			runtime.gateway
+				.waitForTask(task.taskId)
+				.then(
+					(handle) => reportBackgroundCompletion(turnId, runtime, handle),
+					() => undefined,
+				)
+				.finally(() => {
+					remaining -= 1
+					if (remaining > 0 || parents.get(turnId) === undefined) return
+					parents.delete(turnId)
+					runtime.close()
+				})
+		}
+		return true
+	}
+	const reportBackgroundCompletion = (
+		turnId: TurnId,
+		runtime: ParentRuntime,
+		handle: TaskHandle,
+	): void => {
+		if (closed || backgroundCompletionListeners.size === 0) return
+		if (!isTerminalAgentTaskState(handle.state)) return
+		runtime.completionInbox.claim(handle.taskId)
+		const shown = activity.getSnapshot().find((entry) => entry.taskId === String(handle.taskId))
+		const completion: SubagentCompletion = {
+			parentSessionId: runtime.parentSessionId,
+			taskId: String(handle.taskId),
+			...(shown ? { viewId: shown.viewId } : {}),
+			agentId: shown?.agentId ?? String(handle.agentId),
+			description: shown?.description ?? String(handle.agentId),
+			state:
+				handle.state === 'completed'
+					? 'completed'
+					: handle.state === 'canceled'
+						? 'cancelled'
+						: 'failed',
+			...(shown?.stoppedBy ? { stoppedBy: shown.stoppedBy } : {}),
+			text: formatCompletionNotification([handle]),
+		}
+		for (const listener of [...backgroundCompletionListeners]) listener(completion)
+	}
+	/**
+	 * The gateway that owns a task: this turn's, or that of an earlier turn whose
+	 * background agent is still running. A later turn answers a notification about
+	 * work an earlier one launched, so a task id must resolve across them.
+	 */
+	const gatewayHolding = async (taskId: TaskId, turnId: TurnId): Promise<TaskScheduler> => {
+		const own = await gatewayForTurn(turnId)
+		if (own.getTask(taskId)) return own
+		for (const [otherId, pending] of parents) {
+			if (otherId === turnId) continue
+			const runtime = await pending.catch(() => undefined)
+			if (runtime?.retired && runtime.gateway.getTask(taskId)) return runtime.gateway
+		}
+		return own
 	}
 	const completionInboxForTurn = async (turnId: TurnId): Promise<CompletionInbox> => {
 		await gatewayForTurn(turnId)
@@ -1269,8 +1393,12 @@ export async function createSubagentRuntime(
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
-			'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
-			'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
+			opts.backgroundByDefault === true
+				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so do not sleep, poll or check on its progress; continue with other work or answer the user instead. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.'
+				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
+			opts.backgroundByDefault === true
+				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
+				: 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Set `workspace: "worktree"` when the child needs its own Git checkout. It starts from this checkout\'s committed HEAD; uncommitted parent changes are absent. The checkout and its edits remain after the child ends, so report its path and branch to the operator.',
@@ -1299,7 +1427,9 @@ export async function createSubagentRuntime(
 				run_in_background: {
 					type: 'boolean',
 					description:
-						'Return after launch so the parent can continue independent work. Defaults to false.',
+						opts.backgroundByDefault === true
+							? "Agents run in the background by default; you will be notified when one completes. Set to false only when your very next action depends on this agent's result and nothing else could usefully happen while it runs; otherwise leave it in the background so the user can hand you other work."
+							: 'Return after launch so the parent can continue independent work. Defaults to false.',
 				},
 				workspace: {
 					type: 'string',
@@ -1381,8 +1511,10 @@ export async function createSubagentRuntime(
 		concurrencySafe: true,
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
-			const { description, run_in_background } = input as AgentCallInput
-			const { outcome, agentId } = await launchChild(input as AgentCallInput, context)
+			const call = input as AgentCallInput
+			const run_in_background = call.run_in_background ?? opts.backgroundByDefault === true
+			const { description } = call
+			const { outcome, agentId } = await launchChild({ ...call, run_in_background }, context)
 			if (outcome.kind === 'yielded') {
 				const progress =
 					outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
@@ -1539,7 +1671,14 @@ export async function createSubagentRuntime(
 				}
 			}
 			const gateway = await gatewayForTurn(context.turnId)
-			const tasks = gateway.listTasks()
+			const tasks = [...gateway.listTasks()]
+			// Background agents an earlier turn left running are still this
+			// conversation's work, and the model may be asked about them now.
+			for (const [otherId, pending] of parents) {
+				if (otherId === context.turnId) continue
+				const runtime = await pending.catch(() => undefined)
+				if (runtime?.retired) tasks.push(...runtime.gateway.listTasks())
+			}
 			const snapshot = activity.getSnapshot()
 			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
 			const shown = tasks.slice(-40).map((task) => ({
@@ -1589,7 +1728,7 @@ export async function createSubagentRuntime(
 		concurrencySafe: true,
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
-			const gateway = await gatewayForTurn(context.turnId)
+			let gateway = await gatewayForTurn(context.turnId)
 			let taskId: TaskId
 			const asked = (input as { task_id: string }).task_id
 			if (typeof asked === 'string' && /^w[0-9a-z]{8}$/.test(asked.trim())) {
@@ -1611,6 +1750,7 @@ export async function createSubagentRuntime(
 					error: 'task_id must be a task UUID returned by Agent or a task notification.',
 				}
 			}
+			gateway = await gatewayHolding(taskId, context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
 				return {
@@ -1684,7 +1824,7 @@ export async function createSubagentRuntime(
 					error: 'Message must not be blank.',
 				}
 			const taskId = asTaskId(task_id)
-			const gateway = await gatewayForTurn(context.turnId)
+			const gateway = await gatewayHolding(taskId, context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
 				return {
@@ -1755,7 +1895,7 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const taskId = asTaskId((input as { task_id: string }).task_id)
-			const gateway = await gatewayForTurn(context.turnId)
+			const gateway = await gatewayHolding(taskId, context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
 				return {
@@ -2163,6 +2303,12 @@ export async function createSubagentRuntime(
 			childMessageListeners.add(listener)
 			return () => {
 				childMessageListeners.delete(listener)
+			}
+		},
+		onBackgroundCompletion(listener) {
+			backgroundCompletionListeners.add(listener)
+			return () => {
+				backgroundCompletionListeners.delete(listener)
 			}
 		},
 		cancelAgentTool,

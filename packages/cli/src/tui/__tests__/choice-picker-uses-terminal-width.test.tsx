@@ -114,12 +114,13 @@ it('honors the parent width inside a padded 40-column App region', async () => {
 		{ cols: 40, rows: 14 },
 	)
 	const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-	expect(rows).toHaveLength(9)
+	// The long description wraps under its label (two lines) instead of being cut.
+	expect(rows).toHaveLength(10)
 	expect(rows.join('\n')).toContain('[current] [default]')
 	expect(rows.join('\n')).toContain('enter apply')
 	expect(
 		rows.every(
-			(row) => (row.startsWith(' ') && row.endsWith('│')) || row.endsWith('┐') || row.endsWith('┘'),
+			(row) => (row.startsWith(' ') && row.endsWith('│')) || row.endsWith('╮') || row.endsWith('╯'),
 		),
 	).toBe(true)
 })
@@ -165,4 +166,54 @@ it('shows a subtitle under the title and replaces the standard key hints when as
 	expect(viewport).toContain('1 running, 2 finished')
 	expect(viewport).toContain('enter to view · x to stop · esc to close')
 	expect(viewport).not.toContain('enter apply')
+})
+
+it('draws the frame with rounded corners like the workflow detail', async () => {
+	mounted = await renderToScreen(
+		<ChoicePicker
+			title="Workflows"
+			options={[{ label: 'audit', description: 'finished' }]}
+			selected={0}
+		/>,
+		{ cols: 80, rows: 10 },
+	)
+	const rows = mounted.viewport().filter((row) => row.trim().length > 0)
+	expect(rows[0]).toMatch(/^╭─+╮$/)
+	expect(rows.at(-1)).toMatch(/^╰─+╯$/)
+})
+
+it('wraps a description under its label at 60 columns instead of cutting it', async () => {
+	const description =
+		'Find and message other live terminals in this project and carry the reply back'
+	mounted = await renderToScreen(
+		<ChoicePicker
+			title="Choose a command"
+			options={[{ label: '/peers', description }]}
+			selected={0}
+		/>,
+		{ cols: 60, rows: 14 },
+	)
+	const shown = mounted.viewport().join('\n')
+	expect(shown).not.toContain('…')
+	expect(shown.replace(/[│\s]+/g, ' ')).toContain(description)
+})
+
+it('drops whole parts of a workflow row at 60 columns, never half a duration', async () => {
+	mounted = await renderToScreen(
+		<ChoicePicker
+			title="Workflows"
+			options={[
+				{
+					label: 'audit',
+					description: 'finished · 14s · 3/3 agents · 45 tokens · just now',
+				},
+			]}
+			selected={0}
+			columns={30}
+		/>,
+		{ cols: 60, rows: 14 },
+	)
+	const shown = mounted.viewport().join('\n')
+	expect(shown).toMatch(/finished · 14s/)
+	expect(shown).not.toMatch(/1…/)
 })

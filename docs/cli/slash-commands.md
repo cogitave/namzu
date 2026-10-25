@@ -18,9 +18,8 @@ explain why they cannot run and are checked again when selected.
 
 A command that answers on the spot is shown as typed (`› /cost`) with its
 answer hung under it (`⎿`), so a readout in the scrollback says which command
-it answers. A command that composes a message for the model, such as
-`/workflow <task>`, also shows what you typed; only the model receives the
-rewritten sentence. The `/help` list shows each description up to its first
+it answers. A command that composes a message for the model also shows what you typed;
+only the model receives the rewritten sentence. The `/help` list shows each description up to its first
 clause, so no line ends mid-sentence.
 
 | Command | What it does |
@@ -53,7 +52,7 @@ clause, so no line ends mid-sentence.
 | `/context` | Show how full the context is (`Context: 54k of 128k used (42%)`, "about" when it is an estimate) and whether older messages were summarised; `/context details` adds where the measurement comes from, thresholds and cleanup counters. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
-| `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines (three lines of context, a gutter of line numbers). |
+| `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines, drawn like an edit's result (line-number gutter, full-width green and red rows, changed words highlighted, three lines of context). |
 | `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
@@ -61,7 +60,7 @@ clause, so no line ends mid-sentence.
 | `/status` | Show model, permissions, workspace and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
-| `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to `xhigh` (or the highest level below it the model publishes), and independent work delegated to parallel agents by default. |
+| `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
@@ -71,7 +70,6 @@ clause, so no line ends mid-sentence.
 | `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 | `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript. See [Workflows in the CLI](workflows.md). |
-| `/workflow <what to do>` | Ask for a workflow: the model is offered the `workflow` tool for this message, writes a script that runs many agents in phases, and you approve it before anything starts. |
 
 ## Command-specific help
 
@@ -163,9 +161,37 @@ picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.
 
 For one message only, start or end that message with the word `hypermode`
-(`hypermode fix the flaky test`): that turn gets the hypermode effort and the
-delegation request, the next one neither, and the session setting is not
-touched. See [Composer triggers](composer-triggers.md).
+(`hypermode fix the flaky test`): that turn is opted into the `workflow` tool
+and the effort is left as it is, the next message is not, and the session
+setting is not touched. See [Composer triggers](composer-triggers.md).
+
+Hypermode never changes the reasoning effort, turning it on or off, with the
+keyword or without. Choosing an effort
+level never turns hypermode off either. `/hypermode on`
+answers `Hypermode is on for this conversation: Namzu will use workflows for
+substantial tasks. Effort stays high.` and `/hypermode off` answers
+`Hypermode is off: workflows are offered only when you ask for one. Effort
+stays high.` (`Effort stays at the model default.` when none was chosen; the
+sentence is left out for a model that publishes no effort levels).
+Choosing an effort level, in `/effort` or the picker, never touches the mode.
+
+What the model is told. The `workflow` tool is in the tool list on every turn of
+a terminal that can run one, with its opt-in rule in the tool text and a stable
+note in the system prompt (the operator's keyword, hypermode on, the operator's
+own words, a named saved workflow; anything else uses `Agent`).
+While hypermode is on, a short hidden reminder (never the cached system prompt, never shown
+as something you typed) says so: in full on the first message after it was
+turned on, again sparsely after ten of your messages, and once when it ends;
+the reminders are kept in the conversation, so a resumed conversation does not
+hear the full text again. The end reminder reads (`Hypermode is off: the workflow tool's standard opt-in rule
+applies again.`). A run that cannot start a workflow (a scheduled run) is told
+to delegate substantial work to parallel agents with the `Agent` tool instead.
+
+Start with it on: set `hypermode: true` in the user or project config
+(see [Composer triggers](composer-triggers.md) for the config layers). The terminal starts every conversation
+with the mode on (`/hypermode off` ends it for that conversation only), and
+`namzu exec`, `exec --json` and scheduled runs tell the model it is on. No
+environment variable sets it.
 
 The mode was called orchestrate mode before; `/orchestrate` still works, prints
 `/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode;
@@ -179,46 +205,33 @@ is a left-to-right slider:
 ```text
   Faster                                                          Smarter
   ───▲────────────────────────────────────┆──────────────────────────────
-  default   low   medium   high   xhigh   ┆ xhigh + hypermode (workflows)
-                                   Off · delegates to parallel agents by default
+  default   low   medium   high   xhigh   ┆ hypermode (workflows)
+                                   Off · workflows on every substantial task
 ```
 
 The stops are `default`, the model's published levels from low to high, and
-then the hypermode stop after a `┆`, in violet. Its label names the level the
-mode pins, then the mode — `xhigh + hypermode (workflows)` for a model that
-publishes `xhigh` (a menu that goes on to `max` included), and
-`high + hypermode (workflows)` for one whose menu stops at `high`
-— and beneath it, whole, its one-line description with whether it is on:
-`Off · delegates to parallel agents by default`. On a terminal where the
-description would run past the right edge it moves left to end inside it. The
-`▲` marks the stop Enter applies; the current setting's
-label is green. ←/→ move it and stop at the ends; ↑/↓ do the same; a digit
-selects a stop directly; Home and End jump to the ends; Enter applies; Esc goes
-back. On the highest level and on the hypermode stop a line says they spend the most
-tokens and time; it wraps rather than being cut, and its rows are kept blank on
-the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
-vertical list, with the same label and description as its own row below a rule. There is no
-separate key for "this session only": the setting already lasts only for the
-session. Turning the mode on pins reasoning effort to `xhigh`, or, on a
-model that does not publish `xhigh`, to the highest level it publishes below
-`xhigh` — never to `max` or `ultra`, which cost more than delegating work
-needs (only a menu made entirely of levels above `xhigh` gets its lowest
-one) — and strengthens the delegation guidance for future
-turns in this session, from "delegate genuinely independent work" toward
-delegating by default; this widens prompt guidance only, and mounts no
-roster and starts no delegation by itself. Turning it off puts back the effort
-that was in force before it was turned on (`Hypermode is off — effort back to
-low.`), unless you chose another level while it was on, which then stays. When the current model or a usable
-fallback publishes no exact effort menu, the mode still turns on and still
-strengthens delegation guidance, but pins nothing, and says so. The status
-line reads the level and the mode together, for example `effort high ·
-hypermode`, and `hypermode` alone when no level is pinned — never a
-fabricated sixth effort value. Like effort, the mode is in-memory and
-per-session; it is not saved to preferences. A model switch resets an
-explicit effort override to the new model's default as it always has, but
-while the mode is on it re-pins to the level the mode pins on the *new*
-model instead, and the interactive effort chooser that otherwise follows a
-standalone `/model` pick does not reopen on top of that automatic re-pin.
+then the hypermode stop after a `┆`, in violet. Beneath it, whole, its
+one-line description with whether it is on: `Off · workflows on every
+substantial task`. On a terminal where the description would run past the
+right edge it moves left to end inside it. The `▲` marks the stop Enter
+applies; the current setting's label is green. ←/→ move it and stop at the
+ends; ↑/↓ do the same; a digit selects a stop directly; Home and End jump to
+the ends; Enter applies; **Tab flips hypermode from any stop** and leaves the
+effort alone; Esc goes back. On the highest level and on the hypermode stop a
+line says they spend the most tokens and time; it wraps rather than being cut,
+and its rows are kept blank on the other stops so the picker does not change
+height as the caret moves. A narrower terminal, or a menu too long for one
+row, gets the vertical list, with the same label and description as its own
+row below a rule (Tab works there too). There is no separate key for "this
+session only": the setting already lasts only for the session.
+
+While the mode is on, the footer's effort item says so: `effort high ·
+Hypermode on` (just `Hypermode on` when no effort was chosen), and the
+composer's upper rule names `hypermode` as before. Like effort, the mode is
+in-memory and per-session; it is not saved to preferences. A model switch
+resets an explicit effort override to the new model's default as it always has;
+hypermode stays on across it, and the interactive effort chooser that follows a
+standalone `/model` pick opens whether or not the mode is on.
 
 You can also ask for a change within a larger conversation request, for example
 “gpt-5.6-luna’ya geç”. In response to an explicit request, the interactive

@@ -240,6 +240,7 @@ import {
 	runRailWorkflow,
 	settledWorkflows,
 } from './AgentExplorer.js'
+import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
 import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
@@ -275,12 +276,13 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
-import { STOP_ALL_CONFIRM_MS, stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
+import { stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
 	childMessageNotice,
 	childMessageRow,
 	failureReason,
 	settleLine,
+	workflowAgentProgress,
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import {
@@ -299,6 +301,13 @@ import {
 	describeProviderModels,
 	probeAgentSession,
 } from './agent.js'
+import {
+	backgroundWaitLine,
+	isRunning,
+	liveGroups,
+	pendingBackgroundAgents,
+	stoppedByUserNote,
+} from './background-agents.js'
 import {
 	describeCapabilityNotice,
 	describeHistoryRepairNotice,
@@ -328,10 +337,11 @@ import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
 	HYPERMODE,
+	HYPERMODE_ROW_LABEL,
 	HYPERMODE_SUMMARY,
 	ORCHESTRATE_ALIAS_NOTICE,
-	hypermodeEffort,
-	hypermodeStopLabel,
+	hypermodeOffMessage,
+	hypermodeOnMessage,
 } from './hypermode.js'
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
@@ -406,6 +416,7 @@ import {
 	SYSTEM_ROW_GLYPH,
 	type SystemLevel,
 	clipboardSentNotice,
+	endWord,
 	goalRoundHeadline,
 	interruptionRow,
 	systemRowStyle,
@@ -429,6 +440,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { typedInputOf } from './typed-input.js'
 import { formatCompactCount } from './units.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
@@ -439,6 +451,8 @@ import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import type { QueuedHintCount } from './composer-hints.js'
+import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
@@ -450,6 +464,7 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
+import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import {
 	type RestoreOptions,
 	agentCompletionRows,
@@ -525,6 +540,14 @@ export interface AppProps {
 	 * as `/exit` does". The conversation's lease is already given back by then.
 	 */
 	readonly terminationExit?: { current: (() => void) | null }
+	/**
+	 * The launcher turns this on: an empty first prompt suggests an example
+	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
+	 * for the plain placeholder keep waiting for it.
+	 */
+	readonly examplePrompts?: boolean
+	/** Where the queued-messages hint's count is kept; the launcher gives the user-level file. */
+	readonly queuedHintCount?: QueuedHintCount
 }
 
 type PendingPermission = ScreenPermissionRequest & {
@@ -935,6 +958,7 @@ export function projectConversation(
 	const writer = createRestoredTurnWriter(messages, nextId, {
 		presenter: restore?.presenter ?? builtinToolPresenter(),
 		...(restore?.trail ? { trail: restore.trail } : {}),
+		...(restore?.cwd ? { cwd: restore.cwd } : {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -1048,6 +1072,8 @@ type RunningTool = ActiveTool & {
 	readonly web?: WebActivity
 	/** A shell call's full command; its presence is what draws the call as a command cell. */
 	readonly command?: string
+	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
+	readonly proposed?: ProposedChange
 	/** The last few output lines the call has reported, oldest first. */
 	readonly tail?: readonly string[]
 }
@@ -1212,6 +1238,8 @@ export function App({
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
+	examplePrompts = false,
+	queuedHintCount,
 }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
@@ -1419,8 +1447,10 @@ export function App({
 	// A session setting layered above effort, not a level a provider publishes
 	// — see docs/cli/slash-commands.md's /effort section. In-memory and
 	// per-session like reasoningEffort above; no preferences file involved.
-	const [hypermode, setHypermodeState] = useState(false)
-	const hypermodeRef = useRef(false)
+	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
+	// for this conversation only.
+	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
+	const hypermodeRef = useRef(initialCtx.hypermode === true)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
 	const setHypermode = useCallback((next: boolean) => {
 		hypermodeRef.current = next
@@ -1437,6 +1467,10 @@ export function App({
 	/** Git-admitted file paths cached once per successful session hydration. */
 	const [mentionCandidates, setMentionCandidates] = useState<readonly string[]>([])
 	const mentionLoadOwnerRef = useRef<object | null>(null)
+	/** A frequently edited file of this repository, for the first prompt's example. */
+	const [exampleFile, setExampleFile] = useState<string | undefined>(undefined)
+	/** Which example to show; chosen once per launch so it does not change while the operator reads it. */
+	const exampleSeedRef = useRef(Math.random())
 	// What compaction has done this session, summed over passes; `/context`
 	// prints it. Reset with the session, never by a pass that declined.
 	const [compactionTally, setCompactionTally] = useState({
@@ -1856,6 +1890,8 @@ export function App({
 	const railChordRef = useRef(false)
 	/** The first press of the stop-all chord is waiting for its second (3 s). */
 	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const stopAllNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const [stopAllNotice, setStopAllNotice] = useState<string | null>(null)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -2843,6 +2879,7 @@ export function App({
 		[],
 	)
 
+	const flushLaunchReceiptsRef = useRef<() => void>(() => {})
 	const pushMessage = useCallback(
 		(
 			role: TranscriptMessage['role'],
@@ -2857,6 +2894,10 @@ export function App({
 			shell?: ShellOutput,
 			diff?: TranscriptMessage['diff'],
 		) => {
+			// A reply's text belongs after the receipt of the agents its turn
+			// launched, so a receipt still waiting out its settle window is
+			// written before the first word of a reply.
+			if (role === 'assistant') flushLaunchReceiptsRef.current()
 			// One mapping for every system row: a caller that names no glyph gets
 			// the dim notice dot, so no producer can bypass `systemRowStyle`.
 			const noticeStyle =
@@ -2964,6 +3005,45 @@ export function App({
 		[pushMessage],
 	)
 	/**
+	 * Stopping background agents is the operator's act, so the model is told once,
+	 * with its next turn and without waking it: one note for however many.
+	 */
+	const tellModelAgentsStopped = useCallback((stopped: readonly SubagentActivity[]) => {
+		const note = stoppedByUserNote(stopped.map((agent) => agent.description || agent.agentId))
+		if (note === undefined) return
+		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+			context: note,
+			label: note,
+			kind: 'advisory',
+		})
+	}, [])
+	/**
+	 * The operator stops every background agent still going: the model is told
+	 * once, the conversation gets the one row that says so, and nothing else is
+	 * written for the stop. The agents' own end rows and the turn's closing line
+	 * would only repeat it (or split it), so they are marked as already said.
+	 */
+	const stopBackgroundAgentsByOperator = useCallback(
+		(stopped: readonly SubagentActivity[], notice: string) => {
+			tellModelAgentsStopped(stopped)
+			for (const agent of stopped) {
+				reportedAgentsRef.current.add(agent.viewId)
+				session?.stopSubagent?.(agent.viewId)
+			}
+			const wait = closingWaitRef.current
+			if (wait !== null) closingWaitRef.current = { ...wait, silent: true }
+			pushMessage(
+				'system',
+				notice,
+				false,
+				systemRowStyle('error').glyph,
+				undefined,
+				systemRowStyle('error').color,
+			)
+		},
+		[pushMessage, session, tellModelAgentsStopped],
+	)
+	/**
 	 * The stop-all chord (ctrl+x ctrl+k), from the composer or the rail: nothing
 	 * running says so, the first press arms a 3 s confirm, the second stops every
 	 * background agent still going and says how many.
@@ -2976,17 +3056,28 @@ export function App({
 			clearTimeout(stopAllArmedRef.current)
 			stopAllArmedRef.current = null
 		}
-		if (step.kind === 'arm') {
-			const timer = setTimeout(() => {
-				stopAllArmedRef.current = null
-			}, STOP_ALL_CONFIRM_MS)
-			timer.unref?.()
-			stopAllArmedRef.current = timer
-		} else if (step.kind === 'stop') {
-			for (const agent of running) session?.stopSubagent?.(agent.viewId)
+		if (stopAllNoticeTimerRef.current !== null) {
+			clearTimeout(stopAllNoticeTimerRef.current)
+			stopAllNoticeTimerRef.current = null
 		}
-		pushMessage('system', step.notice)
-	}, [pushMessage, session])
+		if (step.kind === 'stop') {
+			setStopAllNotice(null)
+			stopBackgroundAgentsByOperator(running, step.notice)
+			return
+		}
+		// "Nothing running" and "press again" are footer feedback that times out
+		// (2 s and 3 s), never a
+		// transcript row.
+		setStopAllNotice(step.notice)
+		const timer = setTimeout(() => {
+			if (step.kind === 'arm') stopAllArmedRef.current = null
+			stopAllNoticeTimerRef.current = null
+			setStopAllNotice(null)
+		}, step.footerMs)
+		timer.unref?.()
+		if (step.kind === 'arm') stopAllArmedRef.current = timer
+		else stopAllNoticeTimerRef.current = timer
+	}, [stopBackgroundAgentsByOperator])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -3035,6 +3126,61 @@ export function App({
 			setNoticeVersion((version) => version + 1)
 		})
 	}, [session, pushMessage])
+	// A background agent that ends after the turn that launched it was over: the
+	// model hears it with the next turn, or an idle session wakes for it. Every
+	// agent that ended meanwhile joins the one wake (they share `childMessagesRef`,
+	// which the wake empties into a single message). The operator's own stop is
+	// not news; the stop key tells the model once, itself.
+	useEffect(
+		() =>
+			session?.onSubagentCompletion?.((completion) => {
+				if (
+					previousSessionRef.current !== session ||
+					scopeRef.current?.sessionId !== completion.parentSessionId ||
+					completion.stoppedBy === 'user'
+				)
+					return
+				childMessagesRef.current.set(++childMessageIdRef.current, completion.text)
+				setNoticeVersion((version) => version + 1)
+			}),
+		[session],
+	)
+	/**
+	 * A turn that ended over background agents still running. Its closing line is
+	 * written when they end, with the wait counted; until then one dim line names
+	 * what is pending.
+	 */
+	const closingWaitRef = useRef<{
+		readonly since: number
+		readonly pausedMs: number
+		readonly lastEndedAt: number
+		/** The operator stopped the agents: the wait ends without a line of its own. */
+		readonly silent?: boolean
+	} | null>(null)
+	const [closingWaitVersion, setClosingWaitVersion] = useState(0)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the version is what moves; the ref holds the wait.
+	useEffect(() => {
+		closingWaitRef.current = null
+		setClosingWaitVersion((version) => version + 1)
+	}, [session])
+	// The agents ended: write the closing line the turn was holding, with the
+	// wait counted. Only between turns, so it never lands inside a streaming reply.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the version moves with the ref.
+	useEffect(() => {
+		const wait = closingWaitRef.current
+		if (wait === null || state !== 'idle') return
+		const mine = subagents.filter(
+			(agent) =>
+				agent.replayed !== true && !isWorkflowRunAgent(agent) && agent.startedAt >= wait.since,
+		)
+		if (pendingBackgroundAgents(mine, isWorkflowRunAgent).length > 0) return
+		if (workflowRuns.some((run) => run.status === 'running')) return
+		closingWaitRef.current = null
+		setClosingWaitVersion((version) => version + 1)
+		if (wait.silent === true) return
+		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
+		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, theme.text.muted)
+	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
 	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
 	const queueSelectionRef = useRef<number | null>(null)
@@ -3348,10 +3494,80 @@ export function App({
 		reportedWorkflowLinesRef.current.clear()
 		batchSeenAtRef.current.clear()
 	}, [session])
+	// A labelled workflow gets one group line however many batches it spans.
+	const claimReceipt = useCallback((members: readonly SubagentActivity[]): boolean => {
+		const first = members[0]
+		if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
+		if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
+		reportedWorkflowLinesRef.current.add(first.workflowGroupId)
+		return true
+	}, [])
+	/**
+	 * Writes the receipt of every batch that is whole. `force` skips the settle
+	 * window (a reply is about to print under it); a batch whose `Agent` call is
+	 * still starting is never written. Returns the delay after which to look
+	 * again, when a batch is still settling.
+	 */
+	const writeLaunchReceipts = useCallback(
+		(
+			agents: readonly SubagentActivity[],
+			tools: readonly RunningTool[],
+			force: boolean,
+		): number | undefined => {
+			const current = session?.subagents?.getSnapshot() ?? []
+			const now = Date.now()
+			const batches = new Map<string, SubagentActivity[]>()
+			for (const agent of agents) {
+				if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
+				if (!current.some((item) => item.viewId === agent.viewId)) continue
+				const key = JSON.stringify([agent.workflowId, agent.batchId])
+				const members = batches.get(key) ?? []
+				members.push(agent)
+				batches.set(key, members)
+			}
+			const launching = tools.some(
+				(tool) =>
+					tool.toolName.toLowerCase() === 'agent' &&
+					!agents.some(
+						(agent) =>
+							agent.toolUseId === tool.id &&
+							(tool.turnId === undefined || agent.workflowId === tool.turnId),
+					),
+			)
+			let retryIn: number | undefined
+			for (const [key, members] of batches) {
+				if (reportedBatchesRef.current.has(key)) continue
+				// Re-stamped when the batch grows: the settle window runs from its newest member.
+				const previous = batchSeenAtRef.current.get(key)
+				const stamp =
+					previous !== undefined && previous.count === members.length ? previous.at : now
+				if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
+				// A batch the turn waits on is a live group while it runs and writes its
+				// one finished receipt when every member has ended.
+				if (members.some((agent) => agent.background !== true) && members.some(isRunning)) continue
+				const settledMember = members.some((agent) =>
+					['completed', 'failed', 'cancelled'].includes(agent.status),
+				)
+				const waited = now - stamp
+				if (!settledMember && (launching || (!force && waited < RECEIPT_SETTLE_MS))) {
+					retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
+					continue
+				}
+				reportedBatchesRef.current.add(key)
+				if (!claimReceipt(members)) continue
+				pushRow(agentLaunchRow(members))
+			}
+			return retryIn
+		},
+		[claimReceipt, pushRow, session],
+	)
+	flushLaunchReceiptsRef.current = () => {
+		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
+	}
 	useEffect(() => {
 		void receiptTick
 		const current = session?.subagents?.getSnapshot() ?? []
-		const now = Date.now()
+		const retryIn = writeLaunchReceipts(subagents, activeTools, false)
 		const batches = new Map<string, SubagentActivity[]>()
 		for (const agent of subagents) {
 			if (agent.replayed || agent.resumed || isWorkflowRunAgent(agent)) continue
@@ -3360,42 +3576,6 @@ export function App({
 			const members = batches.get(key) ?? []
 			members.push(agent)
 			batches.set(key, members)
-		}
-		const launching = activeTools.some(
-			(tool) =>
-				tool.toolName.toLowerCase() === 'agent' &&
-				!subagents.some(
-					(agent) =>
-						agent.toolUseId === tool.id &&
-						(tool.turnId === undefined || agent.workflowId === tool.turnId),
-				),
-		)
-		let retryIn: number | undefined
-		// A labelled workflow gets one group line however many batches it spans.
-		const claimReceipt = (members: readonly SubagentActivity[]): boolean => {
-			const first = members[0]
-			if (!first || first.workflow === DEFAULT_AGENT_WORKFLOW) return true
-			if (reportedWorkflowLinesRef.current.has(first.workflowGroupId)) return false
-			reportedWorkflowLinesRef.current.add(first.workflowGroupId)
-			return true
-		}
-		for (const [key, members] of batches) {
-			if (reportedBatchesRef.current.has(key)) continue
-			// Re-stamped when the batch grows: the settle window runs from its newest member.
-			const previous = batchSeenAtRef.current.get(key)
-			const stamp = previous !== undefined && previous.count === members.length ? previous.at : now
-			if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
-			const settledMember = members.some((agent) =>
-				['completed', 'failed', 'cancelled'].includes(agent.status),
-			)
-			const waited = now - stamp
-			if (!settledMember && (launching || waited < RECEIPT_SETTLE_MS)) {
-				retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
-				continue
-			}
-			reportedBatchesRef.current.add(key)
-			if (!claimReceipt(members)) continue
-			pushRow(agentLaunchRow(members))
 		}
 		for (const agent of subagents) {
 			if (isWorkflowRunAgent(agent)) continue
@@ -3416,7 +3596,17 @@ export function App({
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
 			// Its receipt first, even if that means writing it alone.
 			const key = JSON.stringify([agent.workflowId, agent.batchId])
-			if (!agent.replayed && !agent.resumed && !reportedBatchesRef.current.has(key)) {
+			const batchMembers = batches.get(key) ?? [agent]
+			// A batch the turn waits on writes its one receipt when every member has
+			// ended (the receipt loop above); each member still says how it ended now.
+			const batchStillLive =
+				batchMembers.some((member) => member.background !== true) && batchMembers.some(isRunning)
+			if (
+				!agent.replayed &&
+				!agent.resumed &&
+				!batchStillLive &&
+				!reportedBatchesRef.current.has(key)
+			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
 					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
@@ -3431,7 +3621,7 @@ export function App({
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushRow, session, receiptTick])
+	}, [subagents, activeTools, pushRow, session, receiptTick, writeLaunchReceipts, claimReceipt])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -3663,22 +3853,12 @@ export function App({
 	/**
 	 * Turn the session's hypermode on or off.
 	 *
-	 * On: pins effort to the model's highest published level (last entry of
-	 * `reasoningEffortLevels`, which every provider publishes low-to-high) and
-	 * strengthens delegation guidance for future turns via `SendOptions.hypermode`
-	 * — see `applyReasoningEffort` above for the mirrored guard shape. When the
-	 * model publishes no exact menu, effort is left alone and the notice says
-	 * so explicitly rather than silently doing nothing.
+	 * An independent switch: it never changes the reasoning effort, and the
+	 * message says so ("Effort stays X"). While it is on, `SendOptions.hypermode`
+	 * tells the model, in request-only context, to use the `workflow` tool for
+	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
+	 * above for the mirrored guard shape.
 	 */
-	/**
-	 * The effort in force before hypermode pinned the highest level, and the
-	 * level it pinned. Turning the mode off puts the effort back — unless the
-	 * operator chose another level meanwhile, which then stays.
-	 */
-	const hypermodePinRef = useRef<{
-		readonly before: ReasoningEffort | undefined
-		readonly pinned: ReasoningEffort
-	} | null>(null)
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -3713,71 +3893,14 @@ export function App({
 			const newlyEnabled = enabled && !hypermodeRef.current
 			setHypermode(enabled)
 			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
-			if (!enabled) {
-				const pin = hypermodePinRef.current
-				hypermodePinRef.current = null
-				if (pin && reasoningEffortRef.current === pin.pinned) {
-					setReasoningEffort(pin.before)
-					pushMessage(
-						'system',
-						`Hypermode is off. Effort is back to ${pin.before ?? 'the provider default'}.`,
-					)
-					return
-				}
-				pushMessage('system', 'Hypermode is off.')
-				return
-			}
-			const pinNow = (): boolean => {
-				const pinned = hypermodeEffort(session.reasoningEffortLevels)
-				if (pinned === undefined) return false
-				// Turning it on twice keeps the effort from before the first time.
-				if (!hypermodePinRef.current)
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-				else hypermodePinRef.current = { ...hypermodePinRef.current, pinned }
-				setReasoningEffort(pinned)
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: ${pinned} effort, and Namzu will split big tasks across agents.`,
-				)
-				return true
-			}
-			if (pinNow()) return
-			if (
-				session.reasoningSettled !== undefined &&
-				session.reasoningEffortLevels === undefined &&
-				// Only a listing that has not answered yet is "still loading"; one that
-				// answered with no levels has said so already, and /effort agrees.
-				reasoningListedRef.current !== session
-			) {
-				// The model's effort menu is still loading: say so, and pin when it lands
-				// unless the mode was switched off or the session replaced meanwhile.
-				pushMessage(
-					'system',
-					`Hypermode is on for this conversation: Namzu will split big tasks across agents. Effort is set once ${session.modelSummary ?? 'the model'}'s settings finish loading.`,
-				)
-				void session.reasoningSettled.then(() => {
-					if (appLifetime.signal.aborted || previousSessionRef.current !== session) return
-					if (!hypermodeRef.current || hypermodePinRef.current !== null) return
-					const pinned = hypermodeEffort(session.reasoningEffortLevels)
-					if (pinned === undefined) return
-					hypermodePinRef.current = {
-						before: reasoningEffortRef.current,
-						pinned,
-					}
-					setReasoningEffort(pinned)
-					pushMessage('system', `Effort set to ${pinned} for hypermode.`)
-				})
-				return
-			}
+			const effort = reasoningEffortRef.current
+			const hasLevels = (session.reasoningEffortLevels?.length ?? 0) > 0
 			pushMessage(
 				'system',
-				`Hypermode is on for this conversation: Namzu will split big tasks across agents. ${session.modelSummary ?? 'This model'} has no effort levels to choose from, so effort stays as it is.`,
+				enabled ? hypermodeOnMessage(effort, hasLevels) : hypermodeOffMessage(effort, hasLevels),
 			)
 		},
-		[appLifetime, hasUnsettledTurn, pushMessage, session, setHypermode, setReasoningEffort, state],
+		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
 
 	const stepReasoningEffort = useCallback(
@@ -4769,6 +4892,7 @@ export function App({
 			setMessages([
 				...projectConversation(restored, nextId, [], {
 					trail: trailFromRecords(journalOf(restored)),
+					cwd: ctxRef.current.cwd,
 				}),
 				...(resumedTitle
 					? [
@@ -4776,6 +4900,8 @@ export function App({
 								id: nextId(),
 								role: 'system' as const,
 								content: `Resumed: ${displayConversationTitle(resumedTitle)}`,
+								glyph: systemRowStyle('notice').glyph,
+								glyphColor: systemRowStyle('notice').color,
 							},
 						]
 					: []),
@@ -5036,15 +5162,9 @@ export function App({
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
 			// above, so they leave the current session selection untouched. Hypermode
-			// mode survives the switch: re-pin to the new model's highest published
-			// level instead of clearing, exactly as it pinned when first turned on.
-			if (signal !== undefined) {
-				const repinned = hypermodeRef.current ? hypermodeEffort(s.reasoningEffortLevels) : undefined
-				// A new model starts at its own default; that is what turning
-				// hypermode off returns to now.
-				hypermodePinRef.current = repinned ? { before: undefined, pinned: repinned } : null
-				setReasoningEffort(repinned)
-			}
+			// does not depend on effort, so it survives the switch as it is, and the
+			// new model starts at its own default effort.
+			if (signal !== undefined) setReasoningEffort(undefined)
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -5066,28 +5186,9 @@ export function App({
 							`--effort ${launchEffort} is not offered by ${primaryProvider(prefs).model ?? primaryProvider(prefs).id}; using the provider default.`,
 						)
 				}
-				// A model switch under hypermode cleared the pin above; with the levels
-				// final, pin the new model's highest level, unless the operator turned
-				// the mode off or chose an effort while the list was loading.
-				if (
-					signal !== undefined &&
-					hypermodeRef.current &&
-					hypermodePinRef.current === null &&
-					reasoningEffortRef.current === undefined
-				) {
-					const repin = hypermodeEffort(s.reasoningEffortLevels)
-					if (repin !== undefined) {
-						hypermodePinRef.current = { before: undefined, pinned: repin }
-						setReasoningEffort(repin)
-					}
-				}
-				// Hypermode already re-pinned effort above; reopening this picker
-				// would ask the operator to redo a choice the mode just made for them.
-				if (
-					!hypermodeRef.current &&
-					options.chooseReasoningEffort &&
-					s.reasoningEffortLevels?.length
-				) {
+				// Hypermode is independent of effort, so the picker a model change
+				// asks for opens whether or not it is on.
+				if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
 					setSelectedChoice(0)
@@ -5115,6 +5216,10 @@ export function App({
 				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
 			})
+			if (examplePrompts)
+				void frequentlyModifiedFile(activeCtx.cwd, appLifetime.signal).then((file) => {
+					if (!appLifetime.signal.aborted) setExampleFile(file)
+				})
 			setCurrentProvider(primaryProvider(prefs).id)
 			// Failed and superseded provider choices returned above. A usable
 			// provider change can recover a failed turn's dependent queue, but a
@@ -6475,6 +6580,7 @@ export function App({
 			setPhase('ready')
 			const restored = projectConversation(msgs, nextId, [], {
 				trail: trailFromRecords(journalOf(msgs)),
+				cwd: ctxRef.current.cwd,
 			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
@@ -7229,7 +7335,9 @@ export function App({
 					: null
 
 				resetTranscript()
-				setMessages(projectConversation(forked.messages, nextId, readablePrefix))
+				setMessages(
+					projectConversation(forked.messages, nextId, readablePrefix, { cwd: ctxRef.current.cwd }),
+				)
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
@@ -7766,6 +7874,7 @@ export function App({
 						startedAt: Date.now(),
 						detail: event.detail,
 						...(event.command ? { command: event.command } : {}),
+						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
@@ -7876,6 +7985,7 @@ export function App({
 					const built = toolEndRows(event, done, {
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
+						cwd: ctxRef.current.cwd,
 					})
 					if (built.kind === 'task-block') {
 						writeTaskBlock(st, null, tasksRef.current)
@@ -8067,14 +8177,25 @@ export function App({
 						// A turn that delegated always says what its agents came to; one
 						// that did not closes with its time only when it finished, since
 						// a stop or a cancellation has already said how it ended.
+						const pausedMs = pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)
+						// Background agents still running: the turn is over, its closing line
+						// waits for them (`Waiting for N background agents to finish` until
+						// they end), and counts the wait.
+						if (
+							pendingBackgroundAgents(delegated, isWorkflowRunAgent).length > 0 &&
+							(st.completed || st.outcome === 'completed')
+						) {
+							const earlier = closingWaitRef.current
+							closingWaitRef.current = {
+								since: earlier?.since ?? since,
+								pausedMs: (earlier?.pausedMs ?? 0) + pausedMs,
+								lastEndedAt: Date.now(),
+							}
+							setClosingWaitVersion((version) => version + 1)
+						}
 						const closing =
-							delegated.length > 0 || st.completed
-								? settleLine(
-										Date.now() -
-											since -
-											(pauseClockRef.current.total(Date.now()) - (st.pausedAtStart ?? 0)),
-										delegated,
-									)
+							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
+								? settleLine(Date.now() - since - pausedMs, delegated, new Date())
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -8357,7 +8478,7 @@ export function App({
 				pushMessage(
 					'user',
 					// What the operator typed: a command that composes the model's
-					// message (`/workflow <task>`) shows the command, not the rewrite.
+					// message shows the command, not the rewrite.
 					prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
 					false,
 					undefined,
@@ -8635,14 +8756,30 @@ export function App({
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
-			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
-				if (!stillHere() || activeTurnTokenRef.current !== turnToken || ac.signal.aborted) {
-					return Promise.resolve({
-						kind: 'reject',
-						feedback: 'Turn is no longer active.',
-					})
+			//
+			// A background agent this turn launched outlives it and keeps asking
+			// through this same callback, so a turn that has merely ended (or been
+			// followed by another) still answers: only a stopped turn, another
+			// conversation or a closing app refuse.
+			const askPermission = async (req: PermissionRequest): Promise<PermissionDecision> => {
+				if (!stillHere() || ac.signal.aborted || appLifetime.signal.aborted) {
+					return { kind: 'reject', feedback: 'Turn is no longer active.' }
 				}
-				return onPermission(req)
+				const decision = await onPermission(req)
+				// An agent can ask after its turn has ended. Answering puts the screen
+				// in the working state for the resumed provider call, and no turn is
+				// left whose end would put the input back: with none running, hand the
+				// conversation back so the agent's finish can wake it.
+				if (
+					stillHere() &&
+					!appLifetime.signal.aborted &&
+					activeTurnTokenRef.current === null &&
+					!abortRef.current &&
+					!permissionResolveRef.current
+				) {
+					setState('idle')
+				}
+				return decision
 			}
 			// A goal round is a turn of a durable conversation: its round is recorded
 			// on the turn (`origin.kind: 'goal-round'`), and a conversation that is
@@ -8703,6 +8840,7 @@ export function App({
 					if (prompt.kind === 'human' && destination) {
 						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
 					}
+					const typedInput = typedInputOf(prompt)
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						turnId,
@@ -8710,6 +8848,8 @@ export function App({
 							protocol: 'cli',
 							kind: goalRound ? 'goal-round' : 'prompt',
 						},
+						// Only the person's own words can set a token target.
+						...(typedInput !== undefined ? { typedInput } : {}),
 						// The TUI never resumes a turn whose process is gone; the next
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
@@ -9457,7 +9597,7 @@ export function App({
 					return
 				}
 				pushMessage('user', value)
-				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
+				const rowId = pushMessage('tool', `Running ${escaped}`, true, SYSTEM_ROW_GLYPH)
 				void runShellEscape(escaped, { cwd: ctx.cwd }).then((result) => {
 					operatorShellRef.current.push(describeShellEscapeForModel(escaped, result))
 					const ok = result.exitCode === 0 && !result.timedOut
@@ -9470,8 +9610,8 @@ export function App({
 										...m,
 										content: describeShellEscape(escaped, result),
 										pending: false,
-										glyph: ok ? '✓' : '✗',
-										...(ok ? {} : { glyphColor: theme.status.error }),
+										glyph: SYSTEM_ROW_GLYPH,
+										glyphColor: ok ? theme.status.ok : theme.status.error,
 										...(detail ? { detail } : {}),
 									}
 								: m,
@@ -9645,7 +9785,7 @@ export function App({
 								if (runs.length === 0) {
 									pushMessage(
 										'system',
-										'No workflows in this conversation. Ask for one with /workflow <what to do>.',
+										'No workflows in this conversation. Start or end a message with the word workflow to ask for one.',
 									)
 									return
 								}
@@ -10643,6 +10783,9 @@ export function App({
 						return
 					}
 					case 'compact': {
+						// The command as typed first, so the result below it says what it answers
+						// and both stay where /compact ran.
+						pushMessage('system', dispatch.trim(), false, '›', undefined, theme.accent.user)
 						if (!session) {
 							pushMessage('system', 'Nothing to summarise yet.')
 							return
@@ -10690,10 +10833,10 @@ export function App({
 									(m) => m.role === 'user' || m.role === 'assistant',
 								).length
 
-								// The summary belongs before the surviving turns. `<Static>` only
-								// emits items beyond the index it has already printed, so prepending
-								// into the mounted transcript makes the summary invisible. Remount
-								// the projection just as `/resume` does when it replaces the log.
+								// The turns that survive stay in order, then the command and its
+								// result where /compact ran. Rows dropped from the front are already
+								// printed by `<Static>`, so remount the projection just as `/resume`
+								// does when it replaces the log.
 								resetTranscript()
 								setMessages((prev) => {
 									const kept = keepRecentRows(prev, keptTurns)
@@ -10711,7 +10854,7 @@ export function App({
 										// Numbered after the rows that stay, so Ctrl+O can name it.
 										detailRef: Math.max(0, ...kept.map((m) => m.detailRef ?? 0)) + 1,
 									}
-									return [summaryRow, ...kept]
+									return [...kept, summaryRow]
 								})
 								// /context counts a manual pass like an automatic one.
 								setCompactionTally((tally) => ({
@@ -12537,6 +12680,12 @@ export function App({
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
+				if (key.tab && picker.kind === 'reasoning-effort') {
+					// Tab flips hypermode at whatever effort is highlighted, like the
+					// hypermode row does on Enter; the effort itself is left alone.
+					applyChoiceSelection(picker.options.length - 1)
+					return
+				}
 				if (key.downArrow) {
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
@@ -12725,6 +12874,13 @@ export function App({
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
 				if (interruptWithRow(false)) return
+				// Nothing is running in the conversation: Ctrl+C ends the background
+				// agents first, once, and says so. Exit arms only when none is left.
+				const stoppable = stoppableBackgroundAgents(railRowsRef.current)
+				if (stoppable.length > 0) {
+					stopBackgroundAgentsByOperator(stoppable, stopAllStep(stoppable.length, true).notice)
+					return
+				}
 				armExit('Ctrl-C')
 			}
 		},
@@ -12739,7 +12895,25 @@ export function App({
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId)
 	railRowsRef.current = liveSubagents
-	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns)
+	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
+		hypermode,
+		...(ctxRef.current.workflow?.sizeGuideline !== undefined
+			? { configuredGuideline: ctxRef.current.workflow.sizeGuideline }
+			: {}),
+		env: process.env,
+	})
+	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent)
+	const closingWait = closingWaitRef.current
+	const backgroundWaitText =
+		closingWait !== null && state === 'idle'
+			? backgroundWaitLine(
+					pendingBackgroundAgents(
+						subagents.filter((agent) => agent.startedAt >= closingWait.since),
+						isWorkflowRunAgent,
+					).length,
+					workflowRuns.filter((run) => run.status === 'running').length,
+				)
+			: undefined
 	railWorkflowsRef.current = liveWorkflows
 	const representedSubagentTools = new Set(
 		subagents
@@ -12836,25 +13010,44 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
+	// A question or a picker owns the screen: the footer is not drawn under it,
+	// so a dialog never shows a half footer (the model alone, or a mode label
+	// without its cycle hint). Only a transient notice, such as the press-again
+	// to exit line, still needs the footer row.
+	const dialogShowing =
+		permission !== null ||
+		scheduleReviewPrompt !== null ||
+		saveSkillPrompt !== null ||
+		planPrompt !== null ||
+		questionDialog !== null ||
+		textPrompt !== null ||
+		choicePicker !== null ||
+		copyPicker !== null ||
+		phase === 'resume' ||
+		phase === 'unarchive' ||
+		phase === 'edit' ||
+		phase === 'picker'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
-		: conversationMutation === 'fork'
-			? 'forking conversation — input is paused'
-			: conversationMutation === 'edit'
-				? 'branching before prompt — input is paused'
-				: conversationMutation === 'archive'
-					? 'archiving conversation — input is paused'
-					: conversationMutation === 'new'
-						? 'starting a fresh conversation — input is paused'
-						: compacting
-							? 'compacting conversation — input is paused'
-							: boxOwnsKeys
-								? undefined
-								: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
-									? 'enter continue · esc stop'
-									: goalStatus && phase === 'ready' && state === 'idle'
-										? undefined
-										: hintForPhase(phase, state, composerHasDraft)
+		: stopAllNotice
+			? stopAllNotice
+			: conversationMutation === 'fork'
+				? 'forking conversation — input is paused'
+				: conversationMutation === 'edit'
+					? 'branching before prompt — input is paused'
+					: conversationMutation === 'archive'
+						? 'archiving conversation — input is paused'
+						: conversationMutation === 'new'
+							? 'starting a fresh conversation — input is paused'
+							: compacting
+								? 'compacting conversation — input is paused'
+								: boxOwnsKeys
+									? undefined
+									: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
+										? 'enter continue · esc stop'
+										: goalStatus && phase === 'ready' && state === 'idle'
+											? undefined
+											: hintForPhase(phase, state, composerHasDraft)
 	const permissionSource = reviewSource(permission, scopeRef.current?.sessionId)
 	const permissionOwner = permissionSource
 		? subagents.find((agent) => agent.sessionId === permissionSource)
@@ -12866,7 +13059,6 @@ export function App({
 		: undefined
 	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
-	const hypermodeLevel = hypermodeEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
 		? {
 				registry: composerTriggerRegistry,
@@ -12880,7 +13072,6 @@ export function App({
 					scheduleTool: true,
 				},
 				...(highestEffort ? { highestEffort } : {}),
-				...(hypermodeLevel ? { hypermodeEffort: hypermodeLevel } : {}),
 			}
 		: undefined
 	// True exactly when the phase ternary below renders its final branch — the
@@ -13092,6 +13283,18 @@ export function App({
 								}
 							/>
 						) : null}
+						{agentSurface === null &&
+						outputViewer === null &&
+						!scrollOpen &&
+						jobSurface === null &&
+						permission === null &&
+						scheduleReviewPrompt === null ? (
+							<BackgroundAgentRows
+								groups={backgroundGroups}
+								waitLine={backgroundWaitText}
+								glyph={CLOSING_GLYPH}
+							/>
+						) : null}
 						{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
@@ -13289,7 +13492,13 @@ export function App({
 									? {
 											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
 										}
-									: {})}
+									: examplePrompts &&
+											history.length === 0 &&
+											!messages.some((message) => message.role === 'user')
+										? {
+												placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
+											}
+										: {})}
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={
@@ -13338,6 +13547,7 @@ export function App({
 								onOpenAgents={() => void openAgentCockpit()}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
+								queuedHintCount={queuedHintCount}
 								queuedEdit={{
 									available: queued.some(isRecallableHumanPrompt),
 									selected: queueSelection !== null,
@@ -13378,7 +13588,11 @@ export function App({
 				)}
 				{/* The tool-output viewer carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
-				{phase === 'trust' || outputViewer !== null ? null : (
+				{/* The workflow detail (the cockpit) carries its own key line as well. */}
+				{phase === 'trust' ||
+				outputViewer !== null ||
+				agentSurface?.kind === 'cockpit' ||
+				(dialogShowing && !exitHint && !stopAllNotice) ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
@@ -13387,6 +13601,7 @@ export function App({
 								: (session?.modelSummary ?? null)
 						}
 						effort={reasoningEffort}
+						hypermode={hypermode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}
@@ -13659,12 +13874,14 @@ function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
 function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const counts = countAgents(run)
 	const tokens = runTokens(run)
+	// The word a finished run wears in the transcript, and the duration straight
+	// after it, so a narrow row drops the tail rather than a number.
 	const columns = [
-		run.status,
-		`${counts.done}/${counts.total} agent${counts.total === 1 ? '' : 's'}`,
+		run.status === 'running' ? 'running' : endWord(run.status),
+		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
+		workflowAgentProgress(counts),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
-		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 	]
 	return { label: run.name, description: columns.join(' · ') }
 }
@@ -13861,7 +14078,7 @@ function reasoningEffortPicker(
 				// Below a rule, visually apart from the levels above: a session
 				// setting, not a sixth level the provider published. The label
 				// names the level it pins, then the mode.
-				label: hypermodeStopLabel(hypermodeEffort(levels)),
+				label: HYPERMODE_ROW_LABEL,
 				description: `${hypermodeOn ? 'On' : 'Off'} · ${HYPERMODE_SUMMARY}`,
 				current: hypermodeOn,
 				ruleBefore: true,

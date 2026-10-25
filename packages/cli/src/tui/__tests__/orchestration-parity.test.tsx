@@ -26,6 +26,7 @@ import {
 	agentNotice,
 	childMessageNotice,
 	childMessageRow,
+	doneClock,
 	failureReason,
 	launchReceipt,
 	reportsAsNotification,
@@ -281,6 +282,21 @@ describe('settle line', () => {
 		expect(settleLine(2_999, [])).toBeUndefined()
 	})
 
+	it('says when the turn ended, right after how long it took', () => {
+		const at = new Date(2026, 9, 24, 15, 45)
+		const clock = doneClock(at)
+		expect(clock).toMatch(/3:45/u)
+		expect(settleLine(46_000, [], at)).toBe(`Worked for 46s · done ${clock}`)
+		expect(
+			settleLine(
+				38_200,
+				['a', 'b'].map((viewId) => agent({ viewId })),
+				at,
+			),
+		).toBe(`Worked for 38s · done ${clock} · 2 agents`)
+		expect(settleLine(2_000, [], at)).toBeUndefined()
+	})
+
 	it('closes a phased workflow with spend and failures, never its phases', () => {
 		const phased = [
 			agent({ viewId: 'a', phase: 'Phase 1', phaseId: 'p1', tokens: 9_000, status: 'completed' }),
@@ -457,7 +473,7 @@ describe('the waiting line', () => {
 })
 
 describe('the effort slider', () => {
-	const labels = ['default', 'low', 'medium', 'high', 'xhigh', 'max', 'max + hypermode (workflows)']
+	const labels = ['default', 'low', 'medium', 'high', 'xhigh', 'max', 'hypermode (workflows)']
 	const options = labels.map((label, index) => ({
 		label,
 		description: index === 6 ? 'Off · delegates to parallel agents by default' : '',
@@ -479,7 +495,7 @@ describe('the effort slider', () => {
 			'xhigh',
 			'max',
 			'ultra',
-			'ultra + hypermode (workflows)',
+			'hypermode (workflows)',
 		]
 		expect(effortSliderLayout(eight, 60)).toBeUndefined()
 		expect(effortSliderLayout(eight, 100)).toBeDefined()
@@ -487,7 +503,7 @@ describe('the effort slider', () => {
 
 	it.each([
 		{ selected: 3, stop: 'high' },
-		{ selected: 6, stop: 'max + hypermode (workflows)' },
+		{ selected: 6, stop: 'hypermode (workflows)' },
 	])('puts the caret under the $stop stop', async ({ selected, stop }) => {
 		const layout = effortSliderLayout(labels, 98)
 		if (!layout) throw new Error('fixture must fit')
@@ -534,7 +550,7 @@ describe('the effort slider', () => {
 			)
 			const rows = mounted.viewport()
 			const text = rows.join('\n')
-			expect(text).toContain('max + hypermode (workflows)')
+			expect(text).toContain('hypermode (workflows)')
 			expect(text).toContain('Off · delegates to parallel agents by default')
 			expect(rows.every((row) => stringWidth(row.trimEnd()) <= 78)).toBe(true)
 			if (selected === 6) {
@@ -561,7 +577,7 @@ describe('the effort slider', () => {
 		)
 		expect(mounted.writes().join('')).toMatch(
 			// biome-ignore lint/suspicious/noControlCharactersInRegex: matches the escape character that starts a terminal control sequence, on purpose.
-			/\u001b\[38;5;141m[^\u001b]*max \+ hypermode \(workflows\)/u,
+			/\u001b\[38;5;141m[^\u001b]*hypermode \(workflows\)/u,
 		)
 	})
 })

@@ -14,7 +14,8 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
-import { diffBodyFromFacts } from './diff-rows.js'
+import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
+import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
@@ -233,7 +234,6 @@ import { type CapabilityProbe, probeCapabilities } from '../context/capabilities
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_HYPERMODE_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
@@ -342,6 +342,7 @@ import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
 import {
 	type DelegatedModel,
+	type SubagentCompletion,
 	type SubagentMessage,
 	type SubagentMessageReceipt,
 	type SubagentRuntime,
@@ -354,8 +355,14 @@ import {
 import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
-import { workflowOffered, workflowRefusal } from '../integrations/workflows/offering.js'
+import { workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
+import {
+	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+	parseTokenTarget,
+	workflowSizeAdvice,
+	workflowTokenCeiling,
+} from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
@@ -386,7 +393,7 @@ import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
 import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
-import { createCliReminderSource } from '../reminders/index.js'
+import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
@@ -432,6 +439,8 @@ export type AgentEvent =
 			readonly web?: WebActivity
 			/** A shell call's full command line, kept with its line breaks for the cell header. */
 			readonly command?: string
+			/** What an edit or write asked for, kept to draw if the person refuses it. */
+			readonly proposed?: ProposedChange
 			/**
 			 * The tool declares this call read-only. Absent means it changes
 			 * something, or the tool did not say. Read by the TUI's skill
@@ -506,7 +515,7 @@ export type AgentEvent =
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
 			/** `detail` is the change to a file as diff rows; see `diff-rows.ts`. */
-			readonly diff?: { readonly preview: number }
+			readonly diff?: DiffInfo
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
@@ -865,17 +874,20 @@ export interface SendOptions {
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
-	 * Strengthen delegation guidance toward delegating by default for this
-	 * turn, for a session whose hypermode (`/hypermode`) is on.
-	 * Default `false`; appends `NAMZU_HYPERMODE_DOCTRINE` after the
-	 * delegation doctrine and never on its own. Display/prompt-only — creates
-	 * no roster and starts no delegation by itself.
+	 * The session's hypermode (`/hypermode`, or the `hypermode` config key) is
+	 * on for this turn. Default `false`. It tells the model, in a hidden
+	 * reminder kept in the conversation, to use the `workflow` tool for
+	 * substantive work: in full the first time, sparsely every few messages, and
+	 * once when it ends (`hypermodeReminders`); a resumed conversation reads
+	 * what was already said from its own history. It changes no effort, no tool list and no
+	 * permission; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
 	/**
-	 * Offer the `workflow` tool for this turn because the operator's message
-	 * armed the `workflow` composer trigger. Default `false`; the bare word in
-	 * a message offers nothing by itself.
+	 * The operator's message armed the `workflow` composer trigger. Default
+	 * `false`. The `workflow` tool is listed on every turn that can run one;
+	 * this only records the opt-in, which the trigger's request-only text
+	 * (`hostContext`) says to the model.
 	 */
 	readonly workflow?: boolean
 	/**
@@ -932,6 +944,13 @@ export interface SendOptions {
 	 * kernel mints one, and the session learns it from the turn's first event.
 	 */
 	readonly turnId?: TurnId
+	/**
+	 * What the person typed to start this turn, when a keystroke did: the one
+	 * text a "+500k" token target may come from. Absent for a turn that
+	 * nothing was typed for (a wake-up after a job ended, a peer's mail, a goal
+	 * round), whose user-role message is written by the host, not by the person.
+	 */
+	readonly typedInput?: string
 	/** Why this turn exists (a prompt, a goal round, a resident step), recorded on `turn_started`. */
 	readonly origin?: Origin
 	/** Exact durable admission that makes goal tools visible for this one turn. */
@@ -1345,6 +1364,8 @@ export interface AgentSession {
 	 * the message; a child has that tool only while somebody listens.
 	 */
 	readonly onSubagentMessage?: (listener: (message: SubagentMessage) => void) => () => void
+	/** A background agent that ended after the turn that launched it was over. */
+	readonly onSubagentCompletion?: (listener: (completion: SubagentCompletion) => void) => () => void
 	readonly messageSubagent?: (
 		viewId: string,
 		message: string,
@@ -3276,6 +3297,9 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<TurnId, SessionScope>()
 	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
+	// The token target ("+500k") the person typed for a turn: the ceiling a
+	// workflow started in it sees as `budget.total`.
+	const workflowTokenTargets = new Map<TurnId, number>()
 	// A resumed turn that runs on another model than the session's (a
 	// scheduled job's): its children inherit that model, not the session's.
 	const delegationModels = new Map<TurnId, DelegatedModel>()
@@ -3431,6 +3455,9 @@ export async function createAgentSession(
 		}
 		const sub = await createSubagentRuntime({
 			cwd,
+			// An operator is watching: agents run in the background by default and
+			// the turn ends without waiting for them.
+			...(options.askUser ? { backgroundByDefault: true } : {}),
 			worktreeStateRoot: paths.home,
 			model,
 			tokenBudget: options.limits?.tokenBudget,
@@ -3723,11 +3750,17 @@ export async function createAgentSession(
 					},
 				}
 			},
+			sizeAdvice: workflowSizeAdvice(
+				options.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+				options.workflow?.sizeGuideline !== undefined,
+			),
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
+				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
+				const { sizeGuideline: _advice, ...caps } = options.workflow ?? {}
 				return {
-					...(budget !== undefined && budget > 0 ? { tokenBudget: budget } : {}),
-					...options.workflow,
+					...(ceiling !== undefined ? { tokenBudget: ceiling } : {}),
+					...caps,
 				}
 			},
 			onEnd: (end) => {
@@ -4938,6 +4971,8 @@ export async function createAgentSession(
 					},
 					onSubagentMessage: (listener: (message: SubagentMessage) => void) =>
 						subagentRuntime?.onChildMessage(listener) ?? (() => {}),
+					onSubagentCompletion: (listener: (completion: SubagentCompletion) => void) =>
+						subagentRuntime?.onBackgroundCompletion(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {
@@ -5269,6 +5304,8 @@ export async function createAgentSession(
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
 						delegationLimits.set(turnId, turnLimits)
+						const typedTarget = parseTokenTarget(opts?.typedInput ?? '')
+						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)
 						delegatedWorkflowAuth.set(turnId, {
 							interactive: opts?.workflowReview?.onPermission !== undefined,
 							mode: () => modeControl.current(),
@@ -5446,17 +5483,13 @@ export async function createAgentSession(
 								render: () => invocationContext,
 							})
 						}
-						// The `workflow` tool is offered only when the operator asked for
-						// orchestration, so an ordinary turn never carries its schema.
+						// The `workflow` tool is listed on every turn of a host that can run
+						// one, and the model is gated by wording: its description and
+						// `WORKFLOW_DOCTRINE` say when it may be called (the operator's
+						// keyword, hypermode on, their own words). A tool list
+						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
-							workflowHost !== undefined &&
-							opts?.workflowReview !== undefined &&
-							!residentContext &&
-							workflowOffered({
-								hypermode: opts?.hypermode === true,
-								workflow: opts?.workflow === true,
-								userText: lastUserText(messages),
-							})
+							workflowHost !== undefined && opts?.workflowReview !== undefined && !residentContext
 						if (workflowOffer && workflowHost) {
 							runToolsets = [...runToolsets, toolset('workflow', [workflowHost.tool])]
 							if (runManager !== manager) runManager.dispose()
@@ -5498,7 +5531,6 @@ export async function createAgentSession(
 								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
-								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
 								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
@@ -5552,18 +5584,39 @@ export async function createAgentSession(
 						}
 						claimTurn(turnId)
 						const turnTaskStore = selectTaskStore(turnScope)
-						const reminderSource = options.reminders
-							? createCliReminderSource({
-									mode: () => modeControl.current(),
-									...(planPath
-										? {
-												planPath: () => planPath,
-												canAsk: Boolean(options.askUser && subagentRuntime),
-											}
-										: {}),
-									tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
-								})
-							: undefined
+						// The standing hypermode is told to the model through the same
+						// channel, so what was said is read back from the conversation.
+						// A host without the other reminders still gets this one while the
+						// mode is on.
+						// A conversation that was told "on" is still owed the exit text
+						// when the mode is off now, whatever the host feeds otherwise.
+						const turnHypermode =
+							!residentContext && (opts?.hypermode === true || hypermodeExitOwed(messages))
+						const reminderSource =
+							options.reminders || turnHypermode
+								? createCliReminderSource({
+										mode: () => modeControl.current(),
+										...(options.reminders
+											? {
+													...(planPath
+														? {
+																planPath: () => planPath,
+																canAsk: Boolean(options.askUser && subagentRuntime),
+															}
+														: {}),
+													tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
+												}
+											: {}),
+										...(residentContext
+											? {}
+											: {
+													hypermode: () => ({
+														on: opts?.hypermode === true,
+														toolListed: workflowOffer,
+													}),
+												}),
+									})
+								: undefined
 						// An ephemeral session keeps its whole turn in memory: a fresh
 						// log per send, opened with the `session_started` a turn follows.
 						// A durable one appends to `<session-id>.jsonl`, created first
@@ -5742,6 +5795,7 @@ export async function createAgentSession(
 							delegatedInputWaiters.delete(turnId)
 							delegationScopes.delete(turnId)
 							delegationLimits.delete(turnId)
+							workflowTokenTargets.delete(turnId)
 							delegatedWorkflowAuth.delete(turnId)
 							await subagentRuntime?.releaseTurn(turnId)
 						}
@@ -7261,6 +7315,10 @@ export function toAgentEvent(
 					const web = webActivityFromInput(event.toolName, event.input)
 					return web ? { web } : {}
 				})(),
+				...(() => {
+					const proposed = proposedFromInput(event.toolName, event.input)
+					return proposed ? { proposed } : {}
+				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
 		case 'tool_input_completed':
@@ -7326,7 +7384,7 @@ export function toAgentEvent(
 					: undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
-			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts)
+			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
 			const detail =
 				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
@@ -7376,7 +7434,7 @@ export function toAgentEvent(
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
-				...(diffBody ? { diff: { preview: diffBody.preview } } : {}),
+				...(diffBody ? { diff: diffBody.diff } : {}),
 				...(() => {
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}

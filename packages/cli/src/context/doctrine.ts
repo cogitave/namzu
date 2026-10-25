@@ -11,9 +11,9 @@
  * reaches which reader: the working doctrine goes to the parent and to every
  * delegated sub-agent; the delegation doctrine, which names `task_create` and
  * `Agent`, goes to the parent only; the plan-mode text only while the session
- * is in `plan` mode; the hypermode text only for a turn sent while the
- * session's hypermode (`/hypermode`) is on, and never without the
- * delegation doctrine it strengthens.
+ * is in `plan` mode. The hypermode text is not part of the system prompt: it
+ * travels as request-only context (`tui/hypermode.ts`), so switching the mode
+ * does not change the cached prefix.
  *
  * These are joined as raw strings into the system prompt rather than
  * registered as the kernel's contribution, because the CLI's prompt is one
@@ -23,7 +23,6 @@
 
 export {
 	CODING_AGENT_DELEGATION_DOCTRINE as NAMZU_DELEGATION_DOCTRINE,
-	CODING_AGENT_HYPERMODE_DOCTRINE as NAMZU_HYPERMODE_DOCTRINE,
 	CODING_AGENT_WORKING_DOCTRINE as NAMZU_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE as NAMZU_PLAN_MODE_DOCTRINE,
 } from '@namzu/sdk'

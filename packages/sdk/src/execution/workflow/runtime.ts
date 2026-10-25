@@ -46,6 +46,12 @@ const AGENT_CALL_KEYS = new Set([
 	'effort',
 ])
 
+/** The row title of an agent the script did not label: the first 60 characters of its prompt, whitespace squeezed. */
+export function defaultAgentLabel(prompt: string, index: number): string {
+	const label = prompt.slice(0, 60).replace(/\s+/g, ' ').trim()
+	return label.length > 0 ? label : `Agent ${index}`
+}
+
 function integer(name: string, value: number, min: number, max: number): number {
 	if (!Number.isSafeInteger(value) || value < min || value > max) {
 		throw new RangeError(`${name} must be an integer between ${min} and ${max}.`)
@@ -54,10 +60,10 @@ function integer(name: string, value: number, min: number, max: number): number 
 }
 
 export function resolveWorkflowLimits(limits: WorkflowLimits = {}): WorkflowResolvedLimits {
-	const defaultConcurrency = Math.min(8, Math.max(1, cpus().length - 2))
+	const defaultConcurrency = Math.min(16, Math.max(2, cpus().length - 2))
 	return {
 		maxConcurrency: integer('maxConcurrency', limits.maxConcurrency ?? defaultConcurrency, 1, 16),
-		maxAgents: integer('maxAgents', limits.maxAgents ?? 200, 1, 1000),
+		maxAgents: integer('maxAgents', limits.maxAgents ?? 1000, 1, 1000),
 		maxSourceBytes: integer(
 			'maxSourceBytes',
 			limits.maxSourceBytes ?? 256 * 1024,
@@ -502,7 +508,7 @@ export class WorkflowRuntime {
 			const queuedAt = now()
 			const agent: AgentRecord = {
 				index,
-				label: call.label || `Agent ${index}`,
+				label: call.label || defaultAgentLabel(call.prompt, index),
 				prompt: call.prompt,
 				...(phase ? { phaseIndex: phase.index, phaseTitle: phase.title } : {}),
 				...(call.agentType !== undefined ? { agentType: call.agentType } : {}),

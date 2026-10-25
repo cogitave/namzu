@@ -3,7 +3,13 @@ import { Box, Text, useWindowSize } from 'ink'
 import { choicePickerWindowSize } from './choice-selection.js'
 import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
-import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
+import {
+	capChoiceLines,
+	choiceDisplayWidth,
+	truncateAtSeparator,
+	truncateChoiceText,
+	wrapChoiceText,
+} from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
 export interface ChoicePickerOption {
@@ -39,6 +45,9 @@ export interface ChoicePickerProps {
 	readonly searchPlaceholder?: string
 }
 
+/** The most lines a description takes when it wraps under its label. */
+const STACKED_DESCRIPTION_LINES = 2
+
 /** Finite command chooser; App owns keys and applies the selected authority. */
 export function ChoicePicker({
 	busy = false,
@@ -63,7 +72,18 @@ export function ChoicePicker({
 		Boolean(option.selectedDescription || option.disabledReason),
 	)
 	const hasRule = options.some((option) => option.ruleBefore)
+	// Below 70 columns a description sits under its label and wraps (two lines
+	// at most) rather than being cut mid-sentence.
+	const stackedDescription = (option: ChoicePickerOption): readonly string[] =>
+		capChoiceLines(
+			wrapChoiceText(option.disabledReason ?? option.description, Math.max(1, columns - 4 - 4)),
+			STACKED_DESCRIPTION_LINES,
+			Math.max(1, columns - 4 - 4),
+		)
 	const pageSize = choicePickerWindowSize({
+		rowHeight: stacked
+			? 1 + Math.max(1, ...options.map((option) => stackedDescription(option).length))
+			: 1,
 		rows: terminal.rows,
 		columns,
 		searchable: query !== undefined,
@@ -119,12 +139,7 @@ export function ChoicePicker({
 					contentWidth,
 				)
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="single"
-			borderColor={theme.border.default}
-			paddingX={1}
-		>
+		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.default} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.assistant} bold>
 					{truncateChoiceText(title, contentWidth - choiceDisplayWidth(count) - 1)}
@@ -190,14 +205,19 @@ export function ChoicePicker({
 							{!stacked ? (
 								<Box paddingLeft={1} flexGrow={1} minWidth={0}>
 									<Text color={theme.text.muted}>
-										{truncateChoiceText(description, descriptionWidth)}
+										{truncateAtSeparator(description, descriptionWidth)}
 									</Text>
 								</Box>
 							) : null}
 						</Box>
 						{stacked ? (
-							<Box paddingLeft={4}>
-								<Text color={theme.text.muted}>{truncateChoiceText(description, rowWidth)}</Text>
+							<Box paddingLeft={4} flexDirection="column">
+								{stackedDescription(option).map((line, lineIndex) => (
+									// biome-ignore lint/suspicious/noArrayIndexKey: a wrapped line has no identity beyond its position.
+									<Text key={`l-${lineIndex}`} color={theme.text.muted}>
+										{line}
+									</Text>
+								))}
 							</Box>
 						) : null}
 					</Box>

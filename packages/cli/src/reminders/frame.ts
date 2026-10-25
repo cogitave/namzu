@@ -9,7 +9,13 @@ import { isReminderMessage } from '@namzu/sdk'
  * it has already sent: the conversation is the only record, so a resumed or
  * compacted conversation needs no counter of its own.
  */
-export type ReminderKind = 'plan-mode' | 'plan-reentry' | 'plan-exit' | 'task-nudge'
+export type ReminderKind =
+	| 'plan-mode'
+	| 'plan-reentry'
+	| 'plan-exit'
+	| 'task-nudge'
+	| 'hypermode-on'
+	| 'hypermode-exit'
 
 const TAG = /^<system-reminder kind="([a-z-]+)"(?: form="([a-z]+)")?>/
 
@@ -27,7 +33,9 @@ export function reminderKindOf(message: Message): ReminderKind | undefined {
 	return kind === 'plan-mode' ||
 		kind === 'plan-reentry' ||
 		kind === 'plan-exit' ||
-		kind === 'task-nudge'
+		kind === 'task-nudge' ||
+		kind === 'hypermode-on' ||
+		kind === 'hypermode-exit'
 		? kind
 		: undefined
 }
