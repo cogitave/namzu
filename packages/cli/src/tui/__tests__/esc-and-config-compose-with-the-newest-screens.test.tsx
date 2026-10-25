@@ -115,7 +115,9 @@ describe('Esc', () => {
 		harness.stdin.write('half-typed')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('half-typed'))
 		harness.stdin.write(CTRL_O)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'))
+		await vi.waitFor(() =>
+			expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'),
+		)
 
 		harness.stdin.write(ESC)
 		await vi.waitFor(() =>
@@ -136,7 +138,9 @@ describe('Esc', () => {
 		await send(harness, 'go')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('first words'))
 		harness.stdin.write(CTRL_O)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'))
+		await vi.waitFor(() =>
+			expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'),
+		)
 		harness.stdin.write(ESC)
 		await vi.waitFor(() =>
 			expect(harness.lastFrame() ?? '').not.toContain('Showing detailed transcript'),

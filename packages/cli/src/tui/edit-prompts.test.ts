@@ -35,7 +35,13 @@ describe('editable prompt projection', () => {
 		const transcript: TranscriptMessage[] = [
 			row('u1', 'first @a'),
 			{ id: 'g', role: 'tool', content: 'Read 2 files', glyph: ' ', activity: 'exploration' },
-			{ id: 'a1', role: 'tool', content: 'Agent "x" finished', glyph: '●', activity: 'agent-result' },
+			{
+				id: 'a1',
+				role: 'tool',
+				content: 'Agent "x" finished',
+				glyph: '●',
+				activity: 'agent-result',
+			},
 			{ id: 'n', role: 'system', content: 'Conversation compacted' },
 			{ id: 'r', role: 'system', content: 'where things stand', kind: 'recap' },
 			{ ...row('sh', '!ls'), kind: 'shell' },
