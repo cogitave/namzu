@@ -370,6 +370,39 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		}
 	})
 
+	it('does not reach a running agent of another session through its retired turn', async () => {
+		const world = await conversation({ holdFirstChild: true })
+		try {
+			const taskId = await launch(world, true)
+			await world.started.promise
+			await world.endTurn(world.turn1)
+			const stranger = await world.parent.addForeignTurn()
+			const strangerContext = world.contextFor(stranger)
+
+			for (const tool of [
+				world.runtime.waitForTaskTool,
+				world.runtime.cancelAgentTool,
+				world.runtime.sendMessageTool,
+			]) {
+				const foreign = await tool.execute({ task_id: taskId, message: 'FOREIGN' }, strangerContext)
+				expect(foreign.success).toBe(false)
+				expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
+				expect(foreign.error).not.toContain(`Running agents: ${taskId}`)
+			}
+			const listed = await world.runtime.agentTaskListTool.execute({}, strangerContext)
+			expect(JSON.parse(listed.output).tasks).toEqual([])
+			// The agent was neither cancelled nor messaged: its own conversation still reaches it.
+			const sent = await world.runtime.sendMessageTool.execute(
+				{ task_id: taskId, message: 'OWN' },
+				world.context2,
+			)
+			expect(sent.success).toBe(true)
+			expect(JSON.stringify(world.requests)).not.toContain('FOREIGN')
+		} finally {
+			await world.finish()
+		}
+	})
+
 	it('stops the running agents of a closed conversation and reaches nothing afterwards', async () => {
 		const world = await conversation({ holdFirstChild: true })
 		const taskId = await launch(world, true)

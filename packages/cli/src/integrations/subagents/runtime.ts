@@ -1101,19 +1101,27 @@ export async function createSubagentRuntime(
 		}
 		for (const listener of [...backgroundCompletionListeners]) listener(completion)
 	}
+	/** The gateways of other turns of the caller's conversation that outlive their turn. */
+	const retiredGateways = async (turnId: TurnId): Promise<TaskScheduler[]> => {
+		const sessionId = String((await resolveParent(turnId)).sessionId)
+		const found: TaskScheduler[] = []
+		for (const [otherId, pending] of parents) {
+			if (otherId === turnId) continue
+			const runtime = await pending.catch(() => undefined)
+			if (runtime?.retired && runtime.parentSessionId === sessionId) found.push(runtime.gateway)
+		}
+		return found
+	}
 	/**
-	 * The gateway that owns a task: this turn's, or that of an earlier turn whose
-	 * background agent is still running. A later turn answers a notification about
-	 * work an earlier one launched, so a task id must resolve across them.
+	 * The gateway that owns a task: this turn's, or that of an earlier turn of the
+	 * same conversation whose background agent is still running. A later turn
+	 * answers a notification about work an earlier one launched, so a task id
+	 * must resolve across them, and never across conversations.
 	 */
 	const gatewayHolding = async (taskId: TaskId, turnId: TurnId): Promise<TaskScheduler> => {
 		const own = await gatewayForTurn(turnId)
 		if (own.getTask(taskId)) return own
-		for (const [otherId, pending] of parents) {
-			if (otherId === turnId) continue
-			const runtime = await pending.catch(() => undefined)
-			if (runtime?.retired && runtime.gateway.getTask(taskId)) return runtime.gateway
-		}
+		for (const gateway of await retiredGateways(turnId)) if (gateway.getTask(taskId)) return gateway
 		return own
 	}
 	/**
@@ -1767,11 +1775,8 @@ export async function createSubagentRuntime(
 			const tasks = [...gateway.listTasks()]
 			// Background agents an earlier turn left running are still this
 			// conversation's work, and the model may be asked about them now.
-			for (const [otherId, pending] of parents) {
-				if (otherId === context.turnId) continue
-				const runtime = await pending.catch(() => undefined)
-				if (runtime?.retired) tasks.push(...runtime.gateway.listTasks())
-			}
+			for (const retired of await retiredGateways(context.turnId))
+				tasks.push(...retired.listTasks())
 			// Agents of earlier turns that have ended are still this conversation's
 			// work. They come first, so the newest launches survive the cap.
 			const parentKey = sessionKey(await resolveParent(context.turnId))
