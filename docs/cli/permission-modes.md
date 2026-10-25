@@ -117,6 +117,12 @@ permissions:
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 
+## Large calls
+
+A large write, edit or command is asked about, not refused. The prompt shows the input in a page of rows; PgUp, PgDn, Home and End move through the rest, and `d` switches between the readable view and the exact input. Approving binds exactly the input that was shown: if it changed after the prompt opened, the call is refused instead of run.
+
+A single value over 200 thousand characters is not shown. The prompt says "Too large to show in full. Approving runs it once and is not remembered." in place of that value, the exact view shows a short placeholder, and only **Yes** and **No** are offered: no "switch to accept edits" and no "don't ask again". A whole batch is capped at 1 MiB of review text; past that the remaining values are replaced the same way. A workflow's script is read whole up to 640 KiB. Input that cannot be written as plain JSON (a function, a cycle, an object with accessors) is still refused. Desktop and ACP never had a size limit and are unchanged.
+
 ## Sub-agents
 
 A sub-agent has no mode of its own. It borrows the handler of the turn that started it, so each of its calls is decided in that turn's mode as it is when the call is made: a child runs in `bypass` only while its parent does, an `accept-edits` or `auto` parent is not widened by anything the child does, and Shift+Tab back to `prompt` reaches a child that is already running. An agent file names a model and tools, never a mode.

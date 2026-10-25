@@ -22,6 +22,8 @@ import type { PermissionToolCall } from './agent.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
+	WITHHELD_NOTICE,
+	type WithheldCall,
 	permissionReviewPageRows,
 	permissionReviewRows,
 } from './permission-review.js'
@@ -66,6 +68,11 @@ export interface PermissionOverlayProps {
 	 * it, as the session names its provider.
 	 */
 	readonly screenConsent?: { readonly provider: string | null }
+	/**
+	 * Calls whose input is too large to show in full. Each gets a notice, and
+	 * the prompt offers only the answers that apply once.
+	 */
+	readonly withheld?: readonly WithheldCall[]
 }
 
 /** What the box says when the question is whether to share the screen. */
@@ -276,6 +283,8 @@ export interface PermissionAnswerOptions {
 	readonly commandArguments?: ReadonlyMap<string, string>
 	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
 	readonly rememberWhere?: string
+	/** The review leaves part of this batch out, so only a one-time yes is offered. */
+	readonly withheld?: boolean
 }
 
 /**
@@ -309,7 +318,7 @@ export function permissionAnswers(
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
 	const reject = agents ? 'Do not start' : 'No, and tell Namzu what to do differently (esc)'
-	const extra = options.batchOnly ? undefined : extraAnswer(toolCalls, options)
+	const extra = options.batchOnly || options.withheld ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
 		...(extra ? [extra] : []),
@@ -394,6 +403,7 @@ export function PermissionOverlay({
 	rememberWhere,
 	siteNotes = [],
 	screenConsent,
+	withheld = [],
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -416,6 +426,7 @@ export function PermissionOverlay({
 	const choices = permissionChoices(toolCalls, {
 		batchOnly,
 		screenConsent: sharing,
+		withheld: withheld.length > 0,
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
 		...(rememberWhere ? { rememberWhere } : {}),
@@ -467,6 +478,15 @@ export function PermissionOverlay({
 			{escalationNotes.map((note) => (
 				<Text key={note} color={theme.status.error}>
 					{terminalDisplayText(note)}
+				</Text>
+			))}
+			{withheld.map((call) => (
+				<Text key={`withheld-${call.index}`} color={theme.text.muted}>
+					{terminalDisplayText(
+						withheld.length > 1 || toolCalls.length > 1
+							? `${call.index + 1}. ${call.name}: ${WITHHELD_NOTICE}`
+							: WITHHELD_NOTICE,
+					)}
 				</Text>
 			))}
 			{siteNotes.map((note) => (
