@@ -86,7 +86,7 @@ describe('at 140 columns', () => {
 		expect(header).toBeGreaterThan(0)
 		expect(screen[header - 1]).toMatch(/^─+$/u)
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \d+(?:[dhm] \d+)*[dhms]?\s*$/u)
-		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents ─+╮/u)
+		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents · 2 done ─+╮/u)
 		expect(text).toMatch(
 			/│ ❯ ✔ Read\s+2\/2 │ {2}✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u,
 		)

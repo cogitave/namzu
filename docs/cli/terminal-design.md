@@ -446,7 +446,7 @@ When the model launches labelled agents the conversation gets one group line,
 instead of a launch row per agent, and no completion rows for them. When a
 workflow is over it leaves one line in the conversation, above the
 turn's `✻ Worked for …` line: `✓ Workflow Release audit completed · 4m02s · 7
-agents · 112.0k tokens` (dim), `✗ … failed · … · 1 failed …` (red) or `■ …
+agents · 112.0k tokens` (dim), `✗ … failed · … · 3 agents …` (red) or `■ …
 stopped …` (yellow). "Over" means the parent turn that ran it has ended and
 every member has settled, so a later phase that starts long after the previous
 one finished does not produce a second line; the line is written once per

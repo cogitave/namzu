@@ -80,7 +80,6 @@ export function formatToolCall(toolName: string, summary: string, standalone = f
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
-/** The words a call is headed with when its start was never seen. */
 /** What the person reads when a workflow script stopped with an error. */
 const SCRIPT_STOPPED = 'The workflow script stopped with an error.'
 
@@ -89,6 +88,7 @@ export function withoutErrorName(text: string): string {
 	return text.replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
 }
 
+/** The words a call is headed with when its start was never seen. */
 function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
 }

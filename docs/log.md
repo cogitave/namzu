@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-25
+
+- **Update** [Workflows in the CLI](cli/workflows.md): a finished run's agent count is said per place instead of one form everywhere: the closing line gives the total (`3 agents`), the detail header, the `/workflows` list and the rail row give `done/total`, and a failure shows as the rail's red bullet and as a red `· N failed` after a phase's agent count, not beside the counter. `.changeset/tui-r5b-counts.md` (`@namzu/cli` patch).
+
 ## 2026-10-24
 
 - **Update** [Delegated work](cli/delegated-work.md): a background agent's late approval no longer leaves the conversation on `Working` forever (answering it hands the composer back, so the agent's end wakes the model and the launch turn gets its `Worked for` line); an agent that fails for an unrecognised reason reads one plain sentence with a next step instead of mentioning `--debug`. `.changeset/tui-r5-agents.md` (`@namzu/cli` patch).
