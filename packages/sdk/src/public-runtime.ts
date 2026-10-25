@@ -404,6 +404,8 @@ export type {
 // session between turns.
 export { abandonTurn } from './runtime/query/abandon-turn.js'
 export type { AbandonTurnOptions, SessionLocatorOptions } from './runtime/query/abandon-turn.js'
+export { CacheClock } from './runtime/cache-clock.js'
+export type { CacheClockState } from './runtime/cache-clock.js'
 export { compactSession, compactSessionRange } from './runtime/query/compact-session.js'
 export type {
 	CompactSessionParams,

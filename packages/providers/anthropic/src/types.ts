@@ -45,6 +45,13 @@ export interface AnthropicConfig {
 	 * `x-api-key`.
 	 */
 	authToken?: string
+	/**
+	 * How long the prompt cache lives: `'5m'` (the default, and the service's
+	 * own) or `'1h'`. A call can override it with `cacheControl.ttl`. The longer
+	 * lifetime costs more per cache write, so it is a cost decision. Every
+	 * breakpoint in a request carries the same lifetime.
+	 */
+	promptCacheTtl?: '5m' | '1h'
 }
 
 export interface AnthropicProviderConfig extends AnthropicConfig {

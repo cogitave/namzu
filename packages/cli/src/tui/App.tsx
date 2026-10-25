@@ -475,6 +475,7 @@ import { withWorkflowRuns } from './workflow-runs.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
+import { IDLE_COMPACTION_NOTICE } from '../integrations/compaction/idle-compaction.js'
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
@@ -559,6 +560,7 @@ import {
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { updateAmbient } from './update-notice.js'
+import { useIdleCompaction } from './use-idle-compaction.js'
 import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { useNotifications } from './useNotifications.js'
@@ -8368,6 +8370,10 @@ function AppBody({
 					// waits on background agents, and their notices print above it.
 					closeAssistant()
 					st.lastUsage = event
+					// What the cache and context look like after this call; the idle
+					// compactor decides from it when the turn is over.
+					idleCompaction.compactor.recordCall(event.cache)
+					idleCompaction.contextTokens.current = event.contextTokens
 					setUsage({
 						totalTokens: event.totalTokens,
 						...(event.budget ? { budget: event.budget } : {}),
@@ -9488,6 +9494,7 @@ function AppBody({
 					if (ownsTurn) {
 						idleNotifierRef.current?.turnSettled()
 						awayRecapRef.current?.turnSettled()
+						idleCompaction.compactor.turnSettled()
 					}
 					if (
 						ownsTurn &&
@@ -11638,6 +11645,7 @@ function AppBody({
 	}
 	useEffect(() => {
 		if (state !== 'idle') idleNotifierRef.current?.turnStarted()
+		if (state !== 'idle') idleCompaction.compactor.requestStarted()
 	}, [state])
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a change in either list is the signal; the notifier reads the live values itself.
 	useEffect(() => {
@@ -11712,6 +11720,57 @@ function AppBody({
 		awayRecapRef.current?.refresh()
 	}, [recapOn])
 	useEffect(() => () => awayRecapRef.current?.dispose(), [])
+	// Compacting a large conversation nobody is using before its one-hour prompt
+	// cache lapses (`compaction.idleCompaction`). The decision lives in
+	// `IdleCompactor`; this supplies what the screen knows and shows the result.
+	const idleCompaction = useIdleCompaction({
+		conversationKey: () =>
+			`${scopeRef.current?.sessionId ?? ''}|${session?.providerSummary ?? ''}|${session?.modelSummary ?? ''}`,
+		settings: () => session?.idleCompaction,
+		lastInteractionAt: () => lastKeyAtRef.current,
+		isTurnRunning: () => abortRef.current !== null || compactingRef.current,
+		isDialogOpen: () => idleStateRef.current.dialogOpen,
+		hasPendingWake: () =>
+			queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+		hasBackgroundWork: () => {
+			const live = idleStateRef.current.session
+			return (
+				(live?.jobs?.().some((job) => job.status === 'running') ?? false) ||
+				(live?.subagents
+					?.getSnapshot()
+					.some((agent) => ['starting', 'queued', 'working'].includes(agent.status)) ??
+					false)
+			)
+		},
+		compact: async () => {
+			const live = idleStateRef.current.session
+			if (!live || compactingRef.current) return false
+			compactingRef.current = true
+			setCompacting(true)
+			try {
+				const result = await live.compact(modelHistoryRef.current, undefined, 'idle')
+				if (!result) return false
+				modelHistoryRef.current = [...result.messages]
+				// The size of the new context is not known until the next reply.
+				idleCompaction.contextTokens.current = undefined
+				const keptTurns = result.messages.filter(
+					(m) => m.role === 'user' || m.role === 'assistant',
+				).length
+				resetTranscript()
+				setMessages((prev) => keepRecentRows(prev, keptTurns))
+				pushSystem('notice', IDLE_COMPACTION_NOTICE)
+				setCompactionTally((tally) => ({
+					...tally,
+					passes: tally.passes + 1,
+					summaries: tally.summaries + 1,
+				}))
+				return true
+			} finally {
+				compactingRef.current = false
+				setCompacting(false)
+			}
+		},
+	})
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.
 	const awaitingPerson =

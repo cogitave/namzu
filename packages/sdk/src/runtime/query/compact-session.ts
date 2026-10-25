@@ -15,13 +15,19 @@ import { type SessionLocatorOptions, locateSessionLog, withSessionLease } from '
 /** A compaction a host asks for between turns. */
 export interface CompactSessionParams extends Omit<CompactNowInput, 'messages' | 'onShed'> {
 	readonly sessionId: SessionId
+	/**
+	 * Who asked. `'manual'` (the default) is a person's request; `'idle'` is a
+	 * host compacting a conversation nobody is using before its prompt cache
+	 * lapses. Recorded on the `compaction` record.
+	 */
+	readonly trigger?: 'manual' | 'idle'
 	/** Where to find the session's log, and the lease to append under. */
 	readonly locator?: SessionLocatorOptions
 }
 
 /**
  * Compact a session outside any turn. Reads the session's context from its
- * log, compacts it, and appends a `compaction{ trigger: 'manual' }` record
+ * log, compacts it, and appends a `compaction{ trigger }` record (`'manual'` unless the host says `'idle'`)
  * with no `turnId`: the messages the pass kept are named by id, the summary
  * is recorded in full, and the shed messages stay in the log for audit.
  *
@@ -31,7 +37,7 @@ export interface CompactSessionParams extends Omit<CompactNowInput, 'messages' |
 export async function compactSession(
 	params: CompactSessionParams,
 ): Promise<CompactionResult | null> {
-	const { sessionId, locator = {}, ...input } = params
+	const { sessionId, locator = {}, trigger = 'manual', ...input } = params
 	const log = await locateSessionLog(sessionId, locator)
 	return withSessionLease(log, locator.lease, async (lease) => {
 		const active = await log.activeTurn({ lease })
@@ -56,7 +62,7 @@ export async function compactSession(
 			type: 'compaction',
 			compactionId: generateMessageId(),
 			strategy: input.config.strategy,
-			trigger: 'manual',
+			trigger,
 			replacesSeqRange: [1, head.pointer.seq],
 			summary,
 			keptMessageIds,

@@ -58,6 +58,7 @@ describe('@namzu/anthropic', () => {
 				supportsDocuments: true,
 				supportsToolResultImages: true,
 				supportsToolResultDocuments: false,
+				cacheTtl: ['5m', '1h'],
 			})
 		})
 

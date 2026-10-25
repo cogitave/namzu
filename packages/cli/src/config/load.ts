@@ -827,6 +827,9 @@ const CONFIG_READERS: ConfigReaders = {
 			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
 			consolidate?: unknown
+			idleCompaction?: unknown
+			idleCompactionMinTokens?: unknown
+			promptCacheTtl?: unknown
 		}
 		for (const key of Object.keys(v)) {
 			if (
@@ -836,7 +839,10 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'recallEvidence' &&
 				key !== 'resolveEvidenceQueries' &&
 				key !== 'retainedToolPreviewChars' &&
-				key !== 'deduplicateObservations'
+				key !== 'deduplicateObservations' &&
+				key !== 'idleCompaction' &&
+				key !== 'idleCompactionMinTokens' &&
+				key !== 'promptCacheTtl'
 			) {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
 			}
@@ -853,6 +859,24 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['resolveEvidenceQueries'], 'must be true or false')
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
+		}
+		if (raw.idleCompaction !== undefined && typeof raw.idleCompaction !== 'boolean') {
+			return invalidConfigValue(context, ['idleCompaction'], 'must be true or false')
+		}
+		if (
+			raw.idleCompactionMinTokens !== undefined &&
+			(typeof raw.idleCompactionMinTokens !== 'number' ||
+				!Number.isInteger(raw.idleCompactionMinTokens) ||
+				raw.idleCompactionMinTokens <= 0)
+		) {
+			return invalidConfigValue(context, ['idleCompactionMinTokens'], 'must be a positive integer')
+		}
+		if (
+			raw.promptCacheTtl !== undefined &&
+			raw.promptCacheTtl !== '5m' &&
+			raw.promptCacheTtl !== '1h'
+		) {
+			return invalidConfigValue(context, ['promptCacheTtl'], 'must be `5m` or `1h`')
 		}
 		if (
 			raw.retainedToolPreviewChars !== undefined &&
@@ -897,6 +921,11 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.deduplicateObservations !== undefined
 				? { deduplicateObservations: raw.deduplicateObservations }
 				: {}),
+			...(raw.idleCompaction !== undefined ? { idleCompaction: raw.idleCompaction } : {}),
+			...(raw.idleCompactionMinTokens !== undefined
+				? { idleCompactionMinTokens: raw.idleCompactionMinTokens }
+				: {}),
+			...(raw.promptCacheTtl !== undefined ? { promptCacheTtl: raw.promptCacheTtl } : {}),
 		} as CompactionCliConfig
 	},
 	additionalDirectories: (v, context) => {
