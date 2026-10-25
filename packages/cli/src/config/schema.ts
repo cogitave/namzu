@@ -46,6 +46,12 @@ export interface TuiConfig {
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
+	/**
+	 * The one-line recap shown when a person returns to the terminal after a few
+	 * minutes away. Absent or `true` means on; only `false` turns it off. The
+	 * `NAMZU_RECAP` variable overrides this either way.
+	 */
+	readonly recap?: boolean
 }
 
 /** Where the CLI may discover executable plugin bundles. */

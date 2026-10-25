@@ -1441,7 +1441,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits|triggers]'),
+			content: expect.stringContaining('/config [sources|limits|triggers|recap]'),
 		})
 	})
 
@@ -1463,6 +1463,23 @@ describe('/config entry', () => {
 			kind: 'message',
 			content: 'Usage: /config triggers [on|off|list]',
 		})
+	})
+})
+
+describe('/config recap and /recap', () => {
+	it('reads /config recap on|off|list, and lists by default', () => {
+		const ctx = context()
+		expect(runSlash('/config recap off', ctx)).toEqual({ kind: 'recap-setting', setting: 'off' })
+		expect(runSlash('/config recap ON', ctx)).toEqual({ kind: 'recap-setting', setting: 'on' })
+		expect(runSlash('/config recap', ctx)).toEqual({ kind: 'recap-setting', setting: 'list' })
+		expect(runSlash('/config recap maybe', ctx)).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /config recap [on|off|list]',
+		})
+	})
+
+	it('/recap asks for a recap now', () => {
+		expect(runSlash('/recap', context())).toEqual({ kind: 'recap-now' })
 	})
 })
 

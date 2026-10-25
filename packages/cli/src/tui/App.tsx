@@ -125,6 +125,7 @@ import {
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
+import { generateRecap } from '../integrations/sessions/recap.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -450,6 +451,7 @@ import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoi
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
+import { AwayRecap } from './away-recap.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
@@ -465,6 +467,13 @@ import {
 	permissionReviewRows,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
+import {
+	describeRecapSetting,
+	recapEnabled,
+	recapWaitMs,
+	setRecapSetting,
+} from './recap-setting.js'
+import { recapRows, recapTurns } from './recap-turns.js'
 import {
 	type RestoreOptions,
 	agentCompletionRows,
@@ -501,14 +510,18 @@ import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import {
 	RESET_TERMINAL_TITLE_SEQUENCE,
 	setTerminalTitleSequence,
 	terminalTitleEnabled,
 	terminalTitleText,
+	titleAnimates,
+	underMultiplexer,
 } from './terminal-title.js'
 import { theme } from './theme.js'
+import { useTitleFrame } from './title-frame.js'
 import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import {
 	PAUSED_TURN_LINES,
@@ -3275,6 +3288,12 @@ export function App({
 		[composerTriggerSettings],
 	)
 	const composerTriggersOn = composerTriggersOverride ?? composerTriggerSettings.enabled
+	/** `/config recap on|off` in this session, over whatever the config files and environment say. */
+	const [recapOverride, setRecapOverride] = useState<boolean | undefined>()
+	const recapOn =
+		recapOverride ?? recapEnabled({ env: process.env, tui: initialCtx.tui, interactive: true })
+	const recapOnRef = useRef(recapOn)
+	recapOnRef.current = recapOn
 	/**
 	 * Whether the model can run `skill-creator` here, which save-as-skill
 	 * needs. Read once for the tag row; read again when a turn starts and when
@@ -6936,6 +6955,9 @@ export function App({
 		const sessionId = scopeRef.current?.sessionId
 		if (sessionId === namesSessionRef.current) return
 		namesSessionRef.current = sessionId
+		// A different conversation: nothing about the old one's countdown applies.
+		awayRecapRef.current?.reset()
+		manualRecapRef.current?.abort()
 		setConversationNames({})
 		const sessions = sessionsRef.current
 		if (!sessionId || !sessions || !conversationMaterializedRef.current) return
@@ -6951,9 +6973,17 @@ export function App({
 
 	// The terminal's own title: the conversation's name, with a glyph that says
 	// whether a turn is running. Reset on exit so the shell's title comes back.
+	// The glyph moves only while a turn is working with the terminal in view; a
+	// permission wait and a terminal multiplexer show the idle glyph.
+	const terminalFocused = useTerminalFocused()
+	const titleWorking = state === 'thinking' || state === 'tool'
+	const titleFrame = useTitleFrame(
+		titleAnimates({ working: titleWorking, focused: terminalFocused, env: process.env }),
+	)
 	const terminalTitle = terminalTitleText({
 		...conversationNames,
-		busy: state !== 'idle',
+		busy: titleWorking && !underMultiplexer(process.env),
+		frame: titleFrame,
 	})
 	// Only the terminal this process is attached to has a title of ours to set; an
 	// embedding that renders to another stream (a test harness, a pane) is left alone.
@@ -8838,6 +8868,7 @@ export function App({
 					// is left alone and still refuses the message.
 					await closeStoppedReply()
 					if (prompt.kind === 'human' && destination) {
+						recapTurnRef.current = { sessionId: destination, turnId }
 						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
 					}
 					const typedInput = typedInputOf(prompt)
@@ -9105,7 +9136,10 @@ export function App({
 					setState('idle')
 					// The turn is over whether or not it is announced: from here a minute of
 					// quiet is what the idle notice measures.
-					if (ownsTurn) idleNotifierRef.current?.turnSettled()
+					if (ownsTurn) {
+						idleNotifierRef.current?.turnSettled()
+						awayRecapRef.current?.turnSettled()
+					}
 					if (
 						ownsTurn &&
 						!ac.signal.aborted &&
@@ -9924,6 +9958,13 @@ export function App({
 								description: composerTriggersOn
 									? 'On · hypermode and save-as-skill words act for their message. Select to turn off.'
 									: 'Off · words in a message are only words. Select to turn on.',
+							},
+							{
+								name: `config recap ${recapOn ? 'off' : 'on'}`,
+								label: 'Session recap',
+								description: recapOn
+									? 'On · a one-line recap when you return after a few minutes away. Select to turn off.'
+									: 'Off · no recap on return. Select to turn on.',
 							},
 							{
 								name: 'config sources',
@@ -10918,6 +10959,51 @@ export function App({
 						pushMessage('system', setComposerTriggers(on, cascade))
 						return
 					}
+					case 'recap-setting': {
+						if (slash.setting === 'list') {
+							pushMessage(
+								'system',
+								describeRecapSetting({
+									enabledNow: recapOn,
+									env: process.env,
+									tui: ctx.tui,
+								}),
+							)
+							return
+						}
+						const on = slash.setting === 'on'
+						setRecapOverride(on)
+						pushMessage('system', setRecapSetting(on))
+						return
+					}
+					case 'recap-now': {
+						if (meta.source === 'operator-loop') {
+							pushSystem('notice', '/recap only runs when you ask for it yourself in this session.')
+							return
+						}
+						const turns = recapTurns(messagesLiveRef.current)
+						if (!turns.some((turn) => turn.role === 'assistant')) {
+							pushSystem('notice', 'Nothing to recap yet — send a message first.')
+							return
+						}
+						manualRecapRef.current?.abort()
+						const controller = new AbortController()
+						manualRecapRef.current = controller
+						const generation = conversationGenRef.current
+						void writeRecap(controller.signal).then((text) => {
+							if (manualRecapRef.current === controller) manualRecapRef.current = null
+							if (conversationGenRef.current !== generation) return
+							if (controller.signal.aborted) {
+								pushSystem('notice', 'Recap cancelled.')
+								return
+							}
+							pushSystem(
+								text === undefined ? 'warning' : 'notice',
+								text ?? "Couldn't generate a recap. Run with --debug for details.",
+							)
+						})
+						return
+					}
 					case 'hypermode': {
 						if (slash.via === 'orchestrate') pushMessage('system', ORCHESTRATE_ALIAS_NOTICE)
 						const enabled = slash.enabled === 'toggle' ? !hypermodeRef.current : slash.enabled
@@ -11111,6 +11197,74 @@ export function App({
 		idleNotifierRef.current?.backgroundChanged()
 	}, [backgroundJobs, subagents])
 	useEffect(() => () => idleNotifierRef.current?.dispose(), [])
+	// The away recap (`./away-recap.ts`): one line, written by the small model,
+	// when the person comes back after being away from the terminal.
+	const messagesLiveRef = useRef(messages)
+	messagesLiveRef.current = messages
+	const composerHasDraftRef = useRef(composerHasDraft)
+	composerHasDraftRef.current = composerHasDraft
+	const recapTurnRef = useRef<{ readonly sessionId: SessionId; readonly turnId: TurnId } | null>(
+		null,
+	)
+	const manualRecapRef = useRef<AbortController | null>(null)
+	const pushRecap = useCallback(
+		(text: string) => {
+			const id = nextId()
+			setMessages((previous) => [
+				...previous,
+				{ id, role: 'system', content: text, kind: 'recap' as const },
+			])
+		},
+		[nextId],
+	)
+	/** The recap text for the open conversation, or `undefined` when it cannot be had. */
+	const writeRecap = useCallback(async (signal: AbortSignal): Promise<string | undefined> => {
+		const sideModel = idleStateRef.current.session?.sideModel
+		const sessionId = scopeRef.current?.sessionId
+		if (!sideModel || !sessionId) return undefined
+		// The spend is counted on the conversation's latest turn; a conversation
+		// resumed in this launch with no turn yet gets a fresh one to count on.
+		const turn = recapTurnRef.current
+		return generateRecap({
+			sideModel,
+			sessionId,
+			turnId: turn?.sessionId === sessionId ? turn.turnId : generateTurnId(),
+			turns: recapTurns(messagesLiveRef.current),
+			signal,
+		})
+	}, [])
+	const awayRecapRef = useRef<AwayRecap | null>(null)
+	if (awayRecapRef.current === null) {
+		awayRecapRef.current = new AwayRecap({
+			now: Date.now,
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			focus: terminalFocus,
+			enabled: () => recapOnRef.current,
+			isTurnRunning: () => abortRef.current !== null,
+			draftPresent: () => composerHasDraftRef.current,
+			backgroundWorkPending: () =>
+				idleStateRef.current.session?.subagents
+					?.getSnapshot()
+					.some((agent) => ['starting', 'queued', 'working'].includes(agent.status)) ?? false,
+			loopScheduled: () => (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			rows: () => recapRows(messagesLiveRef.current),
+			generate: (signal) => writeRecap(signal),
+			append: pushRecap,
+			waitMs: recapWaitMs(process.env),
+		})
+	}
+	useEffect(() => {
+		if (state !== 'idle') {
+			awayRecapRef.current?.turnStarted()
+			manualRecapRef.current?.abort()
+		}
+	}, [state])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the setting is the signal; the recap reads the live value itself.
+	useEffect(() => {
+		awayRecapRef.current?.refresh()
+	}, [recapOn])
+	useEffect(() => () => awayRecapRef.current?.dispose(), [])
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.
 	const awaitingPerson =
@@ -11885,6 +12039,7 @@ export function App({
 	useInput(
 		(input, key) => {
 			lastKeyAtRef.current = Date.now()
+			terminalFocus.noteInput()
 			if (outputViewer !== null || (scrollOpen && permission === null)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
