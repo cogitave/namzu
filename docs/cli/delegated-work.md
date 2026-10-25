@@ -271,8 +271,7 @@ runs, `Running 3 agents…` with one block per agent (`description · 4 tool use
 `3 agents finished`, when the last member ends; the manage hint is only for an
 all-background batch. Each observed agent completion adds **one** row, whether or
 not the model calls `wait_for_task`: `● Agent "<description>" finished · 1m 4s
-(ctrl+o to expand)` with the agent's answer behind Ctrl+O (in place while the row
-is live and in the output viewer once it has settled into history), or
+(ctrl+o to expand)` with the agent's answer behind Ctrl+O (the detailed transcript), or
 `failed: <reason>` (no duration), `was stopped by user · 1s`, `was stopped by Namzu · 1s`
 when the conversation's own agent cancelled it, or `was stopped · 1s`, with no
 token count and no repeat of the result. The separate `Message from @<type>` row

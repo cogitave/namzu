@@ -94,9 +94,14 @@ export interface TranscriptMessage {
 	readonly detailRef?: number
 	/**
 	 * Print the complete retained body, without clipping or omission markers.
-	 * Ctrl+O toggles this on live rows; a settled body is reprinted in a new row.
+	 * The detailed transcript screen (Ctrl+O) draws every row this way.
 	 */
 	readonly detailExpanded?: boolean
+	/**
+	 * What the model reasoned before this row. Kept so the detailed transcript
+	 * screen can draw it; no other view shows it.
+	 */
+	readonly thinking?: string
 	/**
 	 * A shell call's output, drawn as the command cell: this row is the header
 	 * (`content`) and the `⎿` result under it, elided to a preview until

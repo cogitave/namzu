@@ -265,7 +265,7 @@ told once through the kernel's own notice. See [Slash commands](slash-commands.m
 
 Below the footer — not between it and the frame — comes whatever panel owns
 the rest of the screen while agents are live: the automatic delegated-work
-rail, the agent cockpit, a child transcript, or the tool-output viewer, each
+rail, the agent cockpit, a child transcript, or the detailed transcript, each
 in the same relative order they already had among themselves. The footer's
 own row is fixed relative to the frame above it, never to whichever of those
 panels follows, so it always reads immediately under the input regardless of
@@ -531,10 +531,8 @@ live state belongs to the rail.
   duration; the sentence is the error's own text on one line, and
   `Unknown error` stands when nothing says why) or `was stopped by user · 1s`, `was stopped by Namzu ·
   1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
-  `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the answer
-  in place while the row is still in the live region; once it has settled into
-  history, the press after the live bodies are open shows the newest settled body
-  in the output viewer, where ←/→ reach the others. The result is not repeated in
+  `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the detailed
+  transcript, where the answer is shown whole. The result is not repeated in
   the line and it carries no token count; an agent resumed by a later message
   writes the row again when it ends again. Only an agent that runs on its own
   writes it: a background launch, one whose wait was released (the operator wrote
@@ -740,7 +738,7 @@ them. This keeps final diagnostics visible without joining nonadjacent lines
 silently. Each visible line is shortened to 240 characters (never through an emoji), and Ctrl+O is
 advertised whenever text is hidden, in one wording everywhere (tool output, the shell cell, an agent's
 answer): `… +N lines (ctrl+o to expand)`, with `(~N KB)` after it once at least 1,000 characters are
-hidden, and `line` for exactly one. Ctrl+O opens the retained body; `/raw` also
+hidden, and `line` for exactly one. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
@@ -1033,7 +1031,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 
   The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window shows its gap as "… +80 lines", counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence.
 - **The permission, question and plan dialogs share one verb set.** `enter confirm`, `esc cancel` (it declines the batch and the agent carries on; in the plan dialog it keeps planning), `ctrl+c stop` (it also ends the reply), `y / n answer`, `d input` / `d script` / `d instructions` for the details toggle, and `←→ questions`, `space toggle` in the question dialog. The earlier `esc decline`, `esc skip`, `esc keep planning`, `enter choose`, `enter ok` and `ctrl+c stop the reply` are gone, so one key reads the same on every dialog. A duration under a second that a row does show (the workflow, web and agent lines) reads `420ms` rather than `0s`; a tool row says nothing for a call under a second; live counters keep whole seconds.
-- **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and no footer is drawn while a box is open. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the tool-output viewer, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
+- **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and no footer is drawn while a box is open. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
 - **A list that does not fit says so.** When the provider list is cut to the terminal's height it draws a quiet `↓ 3 more` under the last row it shows and `↑ 2 more` above the first, counted in rows; the lines come out of the height budget, so the box is still no taller than the screen, and the row under the cursor stays in view as it moves.
 - **A startup that stopped on a file the person can fix** is the sentence alone, with no dot in front of it and no second block. "Startup stopped / Resolve the error above, then restart Namzu." appears only under an error that does not say what to do itself (a `ConfigLoadError` with `complete` set already ends with "Fix it, then start Namzu again."). The footer under a screen with no composer (this one, the pickers, the trust prompt) names the folder and any active mode but not `shift+tab to cycle`, which is the composer's key.
 - **No Node warnings on screen.** `warning-filter.ts` is the first import of `bin.ts`. It drops Node's `ExperimentalWarning: SQLite is an experimental feature and might change at any time` (printed on Node 22 when the session index opens `node:sqlite`) and nothing else: the type and the sentence must both match, so every other warning still prints. `exec`, the scheduler and the desktop host start from the same `bin.ts`.
@@ -1046,9 +1044,9 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **Provider setup (`s`) never prints what a program printed.** The probe's output is read for a version number (`versionFromProbe` skips warnings) and the row says "Installed · version 0.46.0", "Not installed" or "Couldn’t check Codex. Details: --debug"; an install shows "Installing Codex… This can take a minute." and, if it fails, "Couldn’t install Codex. Details: --debug". The raw lines appear only with `--debug`. `setup-text.ts` holds the wording.
 - **Folders in a sentence** are written with `~` for home, and when the line is short of room `displayPath` cuts the middle and keeps the first segment and the last folder whole ("~/…/packages/cli"). Every such path, the footer's included, is spelled with the platform's separator (`homePath` and `displayPath` are the one helper: `~\Work\clients\leaf-folder` on Windows, `~/Work/clients/leaf-folder` elsewhere). The folder trust prompt fits its path to the box's real content width (the terminal minus the app's inset, the border and the padding, `boxedContentWidth`), so the path draws one row from 40 columns up, its title and two sentences break evenly with no stray word on a line of its own ("files", "exit" alone), and the two choices share a row only when both fit.
 - **The startup header and `/status` write the folder the same way**: from `~` or, when it does not fit, its last folders cut on a separator (`…/hygiene-live/run/proj`), never clipped from the left in the middle of a name. The bypass warning under the header and the bypass question printed before the screen opens wrap on words, with one constant indent on continuation rows, at the terminal's width.
-- **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted) and the extra directories the folder adds to the workspace, then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The `ctrl+o` viewer hides the stale mode footer while open; clipping of long descriptions below about 90 columns and the viewer opening over the previous readout are not addressed here.
+- **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own `namzu.config.json` and `namzu.config.local.json` without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted) and the extra directories the folder adds to the workspace, then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The detailed transcript hides the stale mode footer while open; clipping of long descriptions below about 90 columns is not addressed here.
 - **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
-- **The tool-output viewer (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above their boxes; both carry their own key line.
+- **The detailed transcript (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above them; both carry their own key line.
 - **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.
 - **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`, and that is the only row it leaves: the stopped agents write no row of their own and the waiting line ends without a closing line. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
 - **`/compact` leaves its echo and result where it ran**: the turns that stay, then `› /compact`, then `✻ Compacted (ctrl+o to see full summary)`. `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.
@@ -1160,7 +1158,7 @@ reconstructs its normal-buffer transcript on either width change, preserving
 conversation messages, the draft and the selected agent. This costs one history
 replay per width change; ordinary streaming and animation frames remain
 incremental. A height reduction also rebuilds the transcript. An open retained
-tool-output viewer stays open through a resize.
+detailed transcript stays open through a resize.
 
 On Windows, a program run as the desktop's embedded interpreter on a pseudo-console
 is not seen to receive Node's console-layout notification, the only thing that makes
@@ -1284,17 +1282,34 @@ parts that can still be completed. Shared coding guidance uses proportional
 verification and defers concurrency guarantees to runtime metadata.
 
 
-Ctrl+O does not reprint an old result into scrollback. When an expansion cannot
-fit the live region, a bounded output viewer owns that region instead. A body
-that has settled into history keeps its Ctrl+O hint, because a settled row is
-never repainted, so the key keeps reaching it: the first press opens the live
-bodies in place, and the next one, while a settled body sits above them, folds
-them again and opens the viewer on the newest settled body. With nothing
-settled to open, the second press only folds them. It
-paginates physical rows, preserves retained text, and supports left/right output
-navigation. Closing it restores the composer draft. Incoming approvals close the
-viewer so permission input stays reachable. This changes only presentation, not
-model history or tool execution. Existing static scrollback is not erased.
+### The detailed transcript (Ctrl+O)
+
+Ctrl+O replaces the composer, status row and activity line with the conversation drawn in full, and
+Ctrl+O, Esc, `q` or Ctrl+C returns to the composer with the draft as it was. Nothing is written to
+scrollback by opening or closing it, so a settled row is never reprinted: the screen is a box in the
+live region (never the alternate screen) as tall as the terminal less a footer.
+
+- Every row is drawn expanded: tool bodies and shell output whole, a command whole, a diff whole, an
+  agent's answer whole, a compaction's counts and summary. No `(ctrl+o to expand)` hint is drawn on
+  it, because every hint elsewhere points here.
+- The model's thinking is kept on the row that followed it and drawn only here, dim italic under the
+  mark `∵` (the assistant mark stays `∴`).
+- Only the last 30 rows show. When older ones exist the first row reads `ctrl+e to show N previous
+  messages` (N bold); Ctrl+E shows all of them and the row reads `ctrl+e to hide N previous
+  messages`.
+- The newest row is at the bottom and the screen keeps following the reply that is streaming. `↑`/`↓`,
+  `j`/`k`, `PgUp`/`PgDn`, space, `b`, `Ctrl+U`/`Ctrl+D`, `Ctrl+F`/`Ctrl+B`, `g`/`G` and Home/End move
+  through what is taller than the terminal.
+- The footer is one dim row under a rule: `Showing detailed transcript · ctrl+o to toggle · ctrl+e to
+  show all` (`to collapse` after Ctrl+E), `verbose` at the right edge. A permission request, plan,
+  question or review that arrives behind the screen is not drawn over it: the footer starts with
+  `dialog waiting · ` in the warning colour, and the request appears when the screen closes.
+- It does not build search, previous/next prompt, the print-to-scrollback or open-in-editor keys, or a
+  help panel.
+
+The PageUp scroll view from the composer is a separate feature and is unchanged. The per-row
+expansion and the tool-output viewer no longer exist. This changes only presentation, not model
+history or tool execution. Existing static scrollback is not erased.
 
 Screen regressions use the existing `@xterm/headless` emulator with production
 Ink rendering to exercise repeated opening/closing, pagination and scrollback
