@@ -2139,8 +2139,8 @@ describe('Ctrl+T', () => {
 			let frame = screen.viewport().join('\n')
 			// The header names the list; a count here would read as phases done.
 			expect(frame).not.toMatch(/Phases · \d/)
-			expect(frame).toContain('8/8 agents')
-			expect(frame).toMatch(/✘\s+Inspect\s+8\/8/)
+			expect(frame).toContain('0/8 agents')
+			expect(frame).toMatch(/✘\s+Inspect\s+0\/8/)
 			expect(frame).not.toContain('First agent')
 			screen.press('\r')
 			await waitUntil(
@@ -2954,8 +2954,8 @@ describe('agent explorer projection', () => {
 		)
 		try {
 			// Still working: the phase keeps its number. Settled with a stop: ✘.
-			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+1\/2/)
-			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+2\/2/)
+			expect(cockpit.lastFrame()).toMatch(/❯ 1\s+Agents\s+0\/2/)
+			expect(cockpit.lastFrame()).toMatch(/✘\s+Agents\s+1\/2/)
 		} finally {
 			cockpit.unmount()
 		}

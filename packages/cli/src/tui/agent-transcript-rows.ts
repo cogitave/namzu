@@ -257,21 +257,20 @@ export function agentNotice(
 }
 
 /**
- * The agent count of a workflow, said the same way in the transcript, the
- * detail and the `/workflows` list: `3 agents` while every agent finished,
- * otherwise `2/3 agents` with `1 failed` beside it.
+ * The agent count of a finished workflow's closing line: how many agents it
+ * ran, `3 agents`, whether or not some failed. Failures show in the detail,
+ * the rail's red dot and the status word, not in this count.
  */
-export function workflowAgentCount(counts: {
+export function workflowAgentTotal(total: number): string {
+	return `${total} ${total === 1 ? 'agent' : 'agents'}`
+}
+
+/** A `/workflows` row's count: the agents that finished over all of them, `2/3 agents`. */
+export function workflowAgentProgress(counts: {
 	readonly done: number
 	readonly total: number
-	readonly failed: number
-}): string[] {
-	const noun = counts.total === 1 ? 'agent' : 'agents'
-	const whole = counts.done === counts.total && counts.failed === 0
-	return [
-		whole ? `${counts.total} ${noun}` : `${counts.done}/${counts.total} ${noun}`,
-		...(counts.failed > 0 ? [`${counts.failed} failed`] : []),
-	]
+}): string {
+	return `${counts.done}/${counts.total} ${counts.total === 1 ? 'agent' : 'agents'}`
 }
 
 export interface WorkflowNotice {
@@ -292,7 +291,7 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	const parts = [
 		`Workflow ${oneLine(workflow.name)} ${word}`,
 		elapsed,
-		...workflowAgentCount(workflow),
+		...(workflow.total > 0 ? [workflowAgentTotal(workflow.total)] : []),
 		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
 	]
 	return {

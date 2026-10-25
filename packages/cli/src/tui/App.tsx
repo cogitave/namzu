@@ -282,7 +282,7 @@ import {
 	childMessageRow,
 	failureReason,
 	settleLine,
-	workflowAgentCount,
+	workflowAgentProgress,
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import {
@@ -13878,7 +13878,7 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const columns = [
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
-		...workflowAgentCount(counts),
+		workflowAgentProgress(counts),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]

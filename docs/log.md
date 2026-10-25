@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-25
+
+- **Update** [Workflows in the CLI](cli/workflows.md): a finished run's agent count is said per place instead of one form everywhere: the closing line gives the total (`3 agents`), the detail header, the `/workflows` list and the rail row give `done/total`, and a failure shows as the rail's red bullet and as a red `· N failed` after a phase's agent count, not beside the counter. `.changeset/tui-r5b-counts.md` (`@namzu/cli` patch).
+
 ## 2026-10-24
 
 - **Update** Reworded comments and pages so each states its rule directly.
