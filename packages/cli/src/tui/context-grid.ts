@@ -269,7 +269,7 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 			level: advice.level,
 			title: `${name} ${known ? 'results using' : 'using'} ${shareText(tokens, window)}`,
 			detail: advice.detail,
-			savings: Math.round(tokens * advice.saves),
+			savings: Math.floor(tokens * advice.saves),
 		})
 	}
 	const readResults = breakdown.messageBreakdown.toolResultsByType.read ?? 0
@@ -286,7 +286,7 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 			level: 'info',
 			title: `File reads using ${shareText(readResults, window)}`,
 			detail: 'Refer to earlier reads instead of reading again, and read only the lines you need.',
-			savings: Math.round(readResults * 0.3),
+			savings: Math.floor(readResults * 0.3),
 		})
 	}
 	const memory = breakdown.categories.find((c) => c.id === 'memory')?.tokens ?? 0
@@ -302,7 +302,7 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 			level: 'info',
 			title: `Memory files using ${shareText(memory, window)}`,
 			detail: `Largest: ${largest.join(', ')}. Run /memory to review and trim old entries.`,
-			savings: Math.round(memory * 0.3),
+			savings: Math.floor(memory * 0.3),
 		})
 	}
 	if (!autoCompact && breakdown.percentage >= 50 && breakdown.percentage < SUGGEST_FULL_PERCENT) {
@@ -377,8 +377,8 @@ export function buildContextView(input: BuildViewInput): ContextView {
 					label: 'Auto-compact window: ',
 					value:
 						input.windowSource === 'default'
-							? `${window.toLocaleString('en-US')} tokens (default for an unrecognized model)`
-							: `${window.toLocaleString('en-US')} tokens`,
+							? `${formatTokens(window)} tokens (default for an unrecognized model)`
+							: `${formatTokens(window)} tokens`,
 				}
 			: undefined
 	const cells = buildGridCells(breakdown.categories, window, input.terminalColumns)
@@ -393,7 +393,7 @@ export function buildContextView(input: BuildViewInput): ContextView {
 	if (input.model) lines.push(input.model)
 	lines.push(usage, '', 'Estimated usage by category')
 	for (const line of legend) lines.push(`${line.glyph} ${line.name}: ${line.value}`)
-	if (windowNote) lines.push(`${windowNote.label}${windowNote.value}`)
+	if (windowNote) lines.push('', `${windowNote.label}${windowNote.value}`)
 	for (const section of input.sections) {
 		lines.push('', `${section.title} · ${section.hint}`)
 		for (const group of section.groups) {

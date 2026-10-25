@@ -130,7 +130,7 @@ describe('the legend and header', () => {
 			autoCompact: true,
 			contextTokens: 1_000,
 		})
-		expect(view(set, { windowSource: 'config' }).windowNote?.value).toBe('200,000 tokens')
+		expect(view(set, { windowSource: 'config' }).windowNote?.value).toBe('200k tokens')
 		expect(buildLegend(set).at(-1)?.name).toBe('Autocompact buffer')
 		expect(view(set, { windowSource: 'default' }).windowNote?.value).toContain(
 			'default for an unrecognized model',
