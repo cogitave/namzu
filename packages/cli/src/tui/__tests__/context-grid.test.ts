@@ -160,10 +160,10 @@ describe('the legend and header', () => {
 			contextTokens: 120_000,
 		})
 		expect(view(over).overLimit).toBe(
-			'Context exceeds the 100,000-token limit by 20,000 tokens — run /compact to continue.',
+			'Context exceeds the 100k-token limit by 20k tokens — run /compact or /clear to continue.',
 		)
 		expect(view(over, { windowSource: 'config' }).overLimit).toContain(
-			'past the 100,000-token compaction window',
+			'20k tokens past the 100k-token compaction window',
 		)
 	})
 })
@@ -196,7 +196,7 @@ describe('advice', () => {
 	})
 
 	it('flags a tool at 15% of the window and 10,000 tokens, not below either', () => {
-		expect(titles(messagesWith({ bash: 15_000 }, 20))[0]).toContain('Shell results using')
+		expect(titles(messagesWith({ bash: 15_000 }, 20))[0]).toContain('bash results using')
 		expect(titles(messagesWith({ bash: 14_999 }, 20))).toEqual([])
 		const small = { ...messagesWith({ bash: 9_999 }, 20), windowTokens: 50_000 }
 		expect(titles(small)).toEqual([])
@@ -221,6 +221,33 @@ describe('advice', () => {
 		expect(titles(withReads(50_000))[0]).toContain('File reads using')
 		expect(titles(withReads(49_999))).toEqual([])
 		expect(titles(withReads(9_999))).toEqual([])
+	})
+
+	it('still flags file reads when another tool fired but the read tool alone is under 15%', () => {
+		const big = analyzeContextUsage({
+			windowTokens: 1_000_000,
+			windowSource: 'auto',
+			autoCompact: true,
+			contextTokens: 400_000,
+		})
+		const mixed = {
+			...big,
+			messageBreakdown: {
+				toolCallsByType: {},
+				toolResultsByType: { bash: 200_000, read: 60_000 },
+				assistantTokens: 0,
+				userTokens: 0,
+			},
+		}
+		expect(titles(mixed)).toEqual([
+			'bash results using 200k tokens (20%)',
+			'File reads using 60k tokens (6%)',
+		])
+		const readHeavy = {
+			...mixed,
+			messageBreakdown: { ...mixed.messageBreakdown, toolResultsByType: { read: 150_000 } },
+		}
+		expect(titles(readHeavy)).toEqual(['read results using 150k tokens (15%)'])
 	})
 
 	it('flags memory files at 5% and 5,000 tokens, naming the largest three', () => {
@@ -256,7 +283,7 @@ describe('advice', () => {
 		const breakdown = messagesWith({ read: 30_000, bash: 20_000 }, 85)
 		const out = buildSuggestions({ breakdown, autoCompact: true, memoryFiles: [] })
 		expect(out.map((s) => s.level)).toEqual(['warning', 'warning', 'info'])
-		expect(out[0]?.title).toContain('Shell')
+		expect(out[0]?.title).toContain('bash')
 		expect(out[1]?.title).toBe('Context is 85% full')
 	})
 
@@ -276,6 +303,6 @@ describe('advice', () => {
 			autoCompact: false,
 			memoryFiles: [],
 		})
-		expect(out.map((s) => s.title)).toEqual(['Auto-compact is off'])
+		expect(out.map((s) => s.title)).toEqual(['Autocompact is disabled'])
 	})
 })

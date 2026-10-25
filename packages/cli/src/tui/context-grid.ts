@@ -254,30 +254,31 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 			savings: 0,
 		})
 	}
-	let toolFired = false
 	for (const [name, sizes] of byTool(breakdown.messageBreakdown)) {
 		const tokens = sizes.calls + sizes.results
 		const percent = share(tokens, window)
 		if (percent < SUGGEST_TOOL_SHARE_PERCENT || tokens < SUGGEST_TOOL_MIN_TOKENS) continue
 		const known = KNOWN_TOOL_ADVICE[name]
 		if (!known && percent < OTHER_TOOL_SHARE_PERCENT) continue
-		toolFired = true
 		const advice = known ?? {
 			level: 'info' as const,
 			detail: 'This tool is using a large part of the context.',
 			saves: 0.2,
-			noun: name,
 		}
 		out.push({
 			level: advice.level,
-			title: `${advice.noun} ${known ? 'results using' : 'using'} ${shareText(tokens, window)}`,
+			title: `${name} ${known ? 'results using' : 'using'} ${shareText(tokens, window)}`,
 			detail: advice.detail,
 			savings: Math.round(tokens * advice.saves),
 		})
 	}
 	const readResults = breakdown.messageBreakdown.toolResultsByType.read ?? 0
+	const readSizes = byTool(breakdown.messageBreakdown).get('read')
+	const readTotal = (readSizes?.calls ?? 0) + (readSizes?.results ?? 0)
+	const readToolFired =
+		share(readTotal, window) >= SUGGEST_TOOL_SHARE_PERCENT && readTotal >= SUGGEST_TOOL_MIN_TOKENS
 	if (
-		!toolFired &&
+		!readToolFired &&
 		share(readResults, window) >= SUGGEST_READ_SHARE_PERCENT &&
 		readResults >= SUGGEST_TOOL_MIN_TOKENS
 	) {
@@ -307,7 +308,7 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 	if (!autoCompact && breakdown.percentage >= 50 && breakdown.percentage < SUGGEST_FULL_PERCENT) {
 		out.push({
 			level: 'info',
-			title: 'Auto-compact is off',
+			title: 'Autocompact is disabled',
 			detail: 'Without it the conversation will run out of room. Run /compact when it gets full.',
 			savings: 0,
 		})
@@ -319,29 +320,25 @@ export function buildSuggestions(input: SuggestionInput): ContextSuggestion[] {
 
 const KNOWN_TOOL_ADVICE: Record<
 	string,
-	{ level: 'warning' | 'info'; noun: string; detail: string; saves: number }
+	{ level: 'warning' | 'info'; detail: string; saves: number }
 > = {
 	bash: {
 		level: 'warning',
-		noun: 'Shell',
 		detail: 'Pipe output through head, tail or grep, and read files with offsets rather than cat.',
 		saves: 0.5,
 	},
 	read: {
 		level: 'info',
-		noun: 'Read',
 		detail: 'Read only the lines you need, and avoid reading the same file again.',
 		saves: 0.3,
 	},
 	grep: {
 		level: 'info',
-		noun: 'Search',
 		detail: 'Use narrower patterns or a file filter, and glob to find files.',
 		saves: 0.3,
 	},
 	web_fetch: {
 		level: 'info',
-		noun: 'Web page',
 		detail: 'Pages can be very large. Ask for only the part you need.',
 		saves: 0.4,
 	},
@@ -367,11 +364,11 @@ export function buildContextView(input: BuildViewInput): ContextView {
 	const usage = `${approx}${formatTokens(breakdown.totalTokens)}/${formatTokens(window)} tokens (${breakdown.percentage}%)`
 	let overLimit: string | undefined
 	if (breakdown.overflowTokens > 0) {
-		const over = breakdown.overflowTokens.toLocaleString('en-US')
-		const raw = window.toLocaleString('en-US')
+		const over = formatTokens(breakdown.overflowTokens)
+		const raw = formatTokens(window)
 		overLimit =
 			input.windowSource === 'auto'
-				? `Context exceeds the ${raw}-token limit by ${over} tokens — run /compact to continue.`
+				? `Context exceeds the ${raw}-token limit by ${over} tokens — run /compact or /clear to continue.`
 				: `Context is ${over} tokens past the ${raw}-token compaction window — run /compact to reduce usage.`
 	}
 	const windowNote =
