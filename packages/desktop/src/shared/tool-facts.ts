@@ -18,6 +18,10 @@ const FAILURE_REASONS: readonly ToolFailureReason[] = [
 	'unknown_tool',
 	'timed_out',
 	'invalid_input',
+	'not_read',
+	'changed_on_disk',
+	'text_not_found',
+	'not_unique',
 ]
 const WRITE_OPERATIONS = ['created', 'updated', 'unchanged', 'wrote'] as const
 const MAX_TEXT = 2_000
