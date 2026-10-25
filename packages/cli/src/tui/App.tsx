@@ -329,7 +329,7 @@ import {
 	compactionSummaryLines,
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
-import { contextMeter } from './context-meter.js'
+import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
@@ -454,6 +454,8 @@ import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './bro
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
+import { updateAmbient } from './update-notice.js'
+import { useNotifications } from './useNotifications.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import { PauseClock } from './pause-clock.js'
@@ -648,6 +650,8 @@ const FREE_TEXT_ANSWER = '__free_text__'
  * It cannot collide with a view id or a `workflow:` focus id.
  */
 const SHELLS_FOCUS = 'shells'
+/** The stop-all chord's armed notice; the second press removes it. */
+const STOP_ALL_CONFIRM_KEY = 'kill-agents-confirm'
 
 type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
 	readonly title: string
@@ -1890,8 +1894,6 @@ export function App({
 	const railChordRef = useRef(false)
 	/** The first press of the stop-all chord is waiting for its second (3 s). */
 	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const stopAllNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-	const [stopAllNotice, setStopAllNotice] = useState<string | null>(null)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -2626,6 +2628,27 @@ export function App({
 	 */
 	const [exitHint, setExitHint] = useState<'Ctrl-C' | 'Ctrl-D' | null>(null)
 	const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	/** The footer's notice slot: one passing notice at a time, see notifications.ts. */
+	const notices = useNotifications()
+	/** A compaction hides the context meter until the next turn starts. */
+	const [contextHidden, setContextHidden] = useState(false)
+	const contextTokens = usage?.context?.tokens
+	const contextWindow = usage?.context?.windowTokens
+	const addNotice = notices.add
+	const removeNotice = notices.remove
+	useEffect(() => {
+		const meter =
+			contextHidden || contextTokens === undefined || contextWindow === undefined
+				? null
+				: contextMeter({
+						tokens: contextTokens,
+						windowTokens: contextWindow,
+						// The CLI's strategies (structured, salience) both summarise on their own.
+						autoCompact: true,
+					})
+		if (meter) addNotice(contextNotice(meter))
+		else removeNotice(CONTEXT_NOTICE_KEY)
+	}, [contextHidden, contextTokens, contextWindow, addNotice, removeNotice])
 	const armExit = useCallback(
 		(keyName: 'Ctrl-C' | 'Ctrl-D') => {
 			if (exitArmedRef.current === keyName) {
@@ -3056,28 +3079,29 @@ export function App({
 			clearTimeout(stopAllArmedRef.current)
 			stopAllArmedRef.current = null
 		}
-		if (stopAllNoticeTimerRef.current !== null) {
-			clearTimeout(stopAllNoticeTimerRef.current)
-			stopAllNoticeTimerRef.current = null
-		}
+		notices.remove(STOP_ALL_CONFIRM_KEY)
 		if (step.kind === 'stop') {
-			setStopAllNotice(null)
 			stopBackgroundAgentsByOperator(running, step.notice)
 			return
 		}
 		// "Nothing running" and "press again" are footer feedback that times out
 		// (2 s and 3 s), never a
 		// transcript row.
-		setStopAllNotice(step.notice)
-		const timer = setTimeout(() => {
-			if (step.kind === 'arm') stopAllArmedRef.current = null
-			stopAllNoticeTimerRef.current = null
-			setStopAllNotice(null)
-		}, step.footerMs)
-		timer.unref?.()
-		if (step.kind === 'arm') stopAllArmedRef.current = timer
-		else stopAllNoticeTimerRef.current = timer
-	}, [stopBackgroundAgentsByOperator])
+		notices.add({
+			key: step.kind === 'arm' ? STOP_ALL_CONFIRM_KEY : 'kill-agents-none',
+			text: step.notice,
+			priority: 'immediate',
+			timeoutMs: step.footerMs,
+		})
+		if (step.kind === 'arm') {
+			// The second press is only a confirmation inside this window.
+			const timer = setTimeout(() => {
+				stopAllArmedRef.current = null
+			}, step.footerMs)
+			timer.unref?.()
+			stopAllArmedRef.current = timer
+		}
+	}, [stopBackgroundAgentsByOperator, notices])
 	useEffect(
 		() =>
 			session?.onSubagentReport?.((report) => {
@@ -8080,6 +8104,7 @@ export function App({
 					// shows as a live "Compacting conversation…" line meanwhile.
 					setSummarising(event.compacting === true)
 					if (event.row === 'compacted') {
+						setContextHidden(true)
 						pushMessage(
 							'system',
 							event.text,
@@ -8286,6 +8311,7 @@ export function App({
 				return
 			}
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
+			setContextHidden(false)
 			const { text: promptText } = prompt
 			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
@@ -10862,6 +10888,7 @@ export function App({
 									passes: tally.passes + 1,
 									summaries: tally.summaries + 1,
 								}))
+								setContextHidden(true)
 							} catch (err) {
 								pushSystem('error', explainFailure(err, 'Couldn’t summarise the conversation.'))
 							} finally {
@@ -11711,15 +11738,16 @@ export function App({
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
 	const updateCheckedRef = useRef(false)
+	const [updateNotice, setUpdateNotice] = useState<ReturnType<typeof updateAmbient> | null>(null)
 	useEffect(() => {
 		if (phase !== 'ready' || updateCheckedRef.current) return
 		updateCheckedRef.current = true
 		void checkUpdates(ctx.version).then((ups) => {
 			if (ups.length === 0) return
-			const lines = ups.map((u) => `  • ${u.name} ${u.current} → ${u.latest}  (${u.how})`)
-			pushMessage('system', `Update available:\n${lines.join('\n')}`)
+			const first = ups[0]
+			if (first) setUpdateNotice(updateAmbient(first))
 		})
-	}, [phase, ctx.version, pushMessage])
+	}, [phase, ctx.version])
 
 	const hydrateFromPicker = useCallback(
 		async (
@@ -13026,10 +13054,16 @@ export function App({
 		phase === 'unarchive' ||
 		phase === 'edit' ||
 		phase === 'picker'
+	// What the footer's right end says, in order: the exit reminder, an
+	// immediate notice (it covers the pause and phase hints for its few
+	// seconds), the pause and phase hints, then a lower-priority notice (the
+	// context meter) in the StatusBar's own order behind them.
+	const currentNotice = notices.current
+	const noticeIsImmediate = currentNotice?.priority === 'immediate'
 	const statusHint = exitHint
 		? `Press ${exitHint} again to exit`
-		: stopAllNotice
-			? stopAllNotice
+		: noticeIsImmediate
+			? undefined
 			: conversationMutation === 'fork'
 				? 'forking conversation — input is paused'
 				: conversationMutation === 'edit'
@@ -13534,6 +13568,8 @@ export function App({
 								}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
+								onFooterNotice={notices.add}
+								onFooterNoticeRemove={notices.remove}
 								onStepReasoningEffort={stepReasoningEffort}
 								onExternalEdit={requestExternalEditor}
 								onEditPrevious={openPromptEditor}
@@ -13591,7 +13627,7 @@ export function App({
 				{phase === 'trust' ||
 				outputViewer !== null ||
 				agentSurface?.kind === 'cockpit' ||
-				(dialogShowing && !exitHint && !stopAllNotice) ? null : (
+				(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
 						model={
@@ -13605,6 +13641,15 @@ export function App({
 						state={state}
 						hint={statusHint}
 						hintDim={exitHint !== null}
+						notice={
+							currentNotice && (noticeIsImmediate || !boxOwnsKeys)
+								? {
+										text: currentNotice.text,
+										...(currentNotice.tone ? { tone: currentNotice.tone } : {}),
+									}
+								: null
+						}
+						ambient={updateNotice}
 						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
@@ -13621,16 +13666,6 @@ export function App({
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
-						contextMeter={
-							usage?.context
-								? contextMeter({
-										tokens: usage.context.tokens,
-										windowTokens: usage.context.windowTokens,
-										// The CLI's strategies (structured, salience) both summarise on their own.
-										autoCompact: true,
-									})
-								: null
-						}
 					/>
 				)}
 				{/* The parent's commentary, between the footer line and the rail:

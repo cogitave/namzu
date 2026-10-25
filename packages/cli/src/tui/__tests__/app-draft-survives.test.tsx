@@ -366,6 +366,14 @@ describe('esc while a turn is running', () => {
 		// statement about the composer rather than about the machine's load.
 		await frameShows(() => said(harness), 'throwaway', 'the keystrokes never reached the composer')
 
+		// Two presses: the first only offers the clear (the footer says so), the
+		// second, inside the 800 ms window, does it.
+		harness.stdin.write('\x1B')
+		await frameShows(
+			harness.lastFrame,
+			'Esc again to clear',
+			'the first Esc never offered the clear',
+		)
 		harness.stdin.write('\x1B')
 		// An empty composer draws the placeholder again, in the same render that
 		// drops the text — so the placeholder returning is the completion to wait

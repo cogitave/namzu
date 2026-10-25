@@ -5,12 +5,12 @@
  * permissions on`, colored by mode, with its cycle key while it fits), the
  * pull request for the branch (`PR #592`, underlined, colored by review
  * state), the background-shell pill (`2 shells`), the reasoning effort when
- * the operator has set one, the context meter (`12% until auto-compact`) once
- * the window is within 20,000 tokens of its summary point, then the hints: `esc to interrupt` while a turn
+ * the operator has set one, then the hints: `esc to interrupt` while a turn
  * runs, `← 2 agents` when the empty composer's left arrow opens them, and
  * `↓ to manage` when the empty composer's down arrow reaches the shells or
- * the agents rail. Right-aligned: an interaction hint or a durable goal when
- * either is active, else the model identity, which is Namzu's own addition
+ * the agents rail. Right-aligned: an interaction hint, else the notice that is
+ * up (the context meter, `Esc again to clear`), else a durable goal, else a
+ * standing item such as the update pointer, else the model identity, which is Namzu's own addition
  * and the first thing to go when the row is narrow. The right side owns its
  * columns first so a long mode label cannot erase the key that exits a
  * prompt. The folder is not here; the header names it.
@@ -19,9 +19,9 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { PermissionMode } from '../permissions/mode.js'
-import type { ContextMeter } from './context-meter.js'
 import { HYPERMODE_FOOTER_NOTE } from './hypermode.js'
 import { fitHintText } from './key-hints.js'
+import type { NoticeTone } from './notifications.js'
 import type { PrFooterState, PrReview } from './pr-status.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
@@ -39,6 +39,21 @@ export interface StatusBarProps {
 	readonly hint?: string
 	/** Draw the hint dim (a passing notice such as the exit reminder) rather than in the state's colour. */
 	readonly hintDim?: boolean
+	/**
+	 * The notice that is up (`notifications.ts`): it takes the right end when no
+	 * hint claims it, ahead of the goal and the model, and is dim unless it names
+	 * a tone. It does not stand in for the hint line, so `esc to interrupt` stays.
+	 */
+	readonly notice?: { readonly text: string; readonly tone?: NoticeTone } | null
+	/**
+	 * A standing item for the right end, shown while no hint, notice or goal
+	 * claims it and before the model: `strong` is the part of `text` drawn bold.
+	 */
+	readonly ambient?: {
+		readonly text: string
+		readonly tone: NoticeTone
+		readonly strong?: string
+	} | null
 	/**
 	 * A dialog or picker owns the keyboard and prints its own keys. One rule
 	 * for every such screen: the footer keeps the mode and its facts, and names
@@ -67,8 +82,6 @@ export interface StatusBarProps {
 	readonly shellCount?: number
 	/** Monitors that are watching now; counted apart from shells in the same pill. */
 	readonly monitorCount?: number
-	/** The context meter from `context-meter.ts`; omitted or null while there is room to spare. */
-	readonly contextMeter?: ContextMeter | null
 	/** The pull request for the current branch, from `pr-status.ts`. */
 	readonly pr?: PrFooterState
 	/** Whether the terminal understands OSC 8 links; the PR number is plain text without it. */
@@ -174,7 +187,8 @@ export function StatusBar({
 	canManage = false,
 	shellsSelected = false,
 	railHint,
-	contextMeter,
+	notice,
+	ambient,
 }: StatusBarProps) {
 	const terminal = useWindowSize()
 	const activeMode =
@@ -202,6 +216,8 @@ export function StatusBar({
 		effort: effort ?? null,
 		hypermode,
 		hint,
+		notice: notice?.text ?? null,
+		ambient: ambient?.text ?? null,
 		goal,
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
@@ -219,7 +235,6 @@ export function StatusBar({
 				? CYCLE_SUFFIX
 				: null,
 		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
-		context: contextMeter?.text ?? null,
 		shells: backgroundPill(shellCount, monitorCount),
 		agents: runningText(agentCount, workflowCount),
 		manage:
@@ -273,16 +288,6 @@ export function StatusBar({
 			</Text>,
 		)
 	}
-	if (layout.context) {
-		parts.push(
-			<Text
-				key="context"
-				color={contextMeter?.tone === 'error' ? theme.status.error : theme.text.muted}
-			>
-				{layout.context}
-			</Text>,
-		)
-	}
 	if (layout.interrupt) {
 		parts.push(
 			<Text key="interrupt" color={theme.text.muted}>
@@ -325,14 +330,22 @@ export function StatusBar({
 				{layout.right.kind === 'text' ? (
 					<Text
 						color={
-							layout.right.isGoal
+							layout.right.source === 'goal'
 								? theme.accent.system
-								: hintDim
-									? theme.text.muted
-									: colorForState(state)
+								: layout.right.source === 'notice'
+									? toneColor(notice?.tone)
+									: layout.right.source === 'ambient'
+										? toneColor(ambient?.tone)
+										: hintDim
+											? theme.text.muted
+											: colorForState(state)
 						}
 					>
-						{layout.right.text}
+						{layout.right.source === 'ambient' ? (
+							<StrongText text={layout.right.text} strong={ambient?.strong} />
+						) : (
+							layout.right.text
+						)}
 					</Text>
 				) : layout.right.model ? (
 					<Text color={theme.text.primary} bold>
@@ -361,6 +374,31 @@ function PrLabel({
 	)
 }
 
+/** A notice with no tone is dim. */
+function toneColor(tone: NoticeTone | undefined): string {
+	return tone === 'error'
+		? theme.status.error
+		: tone === 'warn'
+			? theme.status.warn
+			: theme.text.muted
+}
+
+/** `text` with its `strong` part bold (when the whole part survived the fitting). */
+function StrongText({
+	text,
+	strong,
+}: { readonly text: string; readonly strong: string | undefined }) {
+	const at = strong ? text.indexOf(strong) : -1
+	if (!strong || at < 0) return <>{text}</>
+	return (
+		<>
+			{text.slice(0, at)}
+			<Text bold>{strong}</Text>
+			{text.slice(at + strong.length)}
+		</>
+	)
+}
+
 function colorForState(state: StatusBarProps['state']): string {
 	switch (state) {
 		case 'idle':
@@ -380,12 +418,16 @@ export interface StatusLineLayout {
 	readonly shells: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
-	readonly context: string | null
 	readonly agents: string | null
 	readonly manage: string | null
 	readonly gap: string
 	readonly right:
-		| { readonly kind: 'text'; readonly text: string; readonly isGoal: boolean }
+		| {
+				readonly kind: 'text'
+				readonly text: string
+				/** Which input claimed the right end, so the row can colour it. */
+				readonly source: 'hint' | 'notice' | 'goal' | 'ambient'
+		  }
 		| { readonly kind: 'model'; readonly model: string | null }
 }
 
@@ -399,7 +441,7 @@ export interface StatusLineLayout {
  * right end: `↓ to manage` (which
  * first shrinks to `↓ agents`, the only way to the agents rail, and goes after
  * the cycle key), `← N agents`, `esc to interrupt`, then the cycle key (hidden
- * first once a task is running), the context meter, the
+ * first once a task is running), the
  * effort label, the shell pill, the pull request item; after that the quiet reminder goes, then the mode
  * truncates, and last of all it goes. A line too wide for its room loses
  * whole items, never half of one, except the mode, which is the state itself.
@@ -411,22 +453,33 @@ export function fitStatusLine(input: {
 	readonly effort?: string | null
 	readonly hypermode?: boolean
 	readonly hint?: string | undefined
+	/** The notice that is up; ahead of the goal, behind a hint. */
+	readonly notice?: string | null | undefined
+	/** A standing item; behind the goal, ahead of the model. */
+	readonly ambient?: string | null | undefined
 	readonly goal?: string | null | undefined
 	readonly modeLabel: string
 	readonly cycleSuffix?: string | null
 	readonly interrupt?: string | null
-	readonly context?: string | null
 	readonly shells?: string | null
 	readonly agents?: string | null
 	readonly manage?: string | null
 	readonly pr?: { readonly prefix: string | null; readonly label: string } | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
-	const isGoal = Boolean(input.goal) && !input.hint
+	const source: 'hint' | 'notice' | 'goal' | 'ambient' | null = input.hint
+		? 'hint'
+		: input.notice
+			? 'notice'
+			: input.goal
+				? 'goal'
+				: input.ambient
+					? 'ambient'
+					: null
 	// `hint` can arrive as '' (no hint right now, as opposed to none ever
 	// wired up) — `??` does not treat that as absent, and an empty string
 	// would otherwise win the slot a model needs to fall through to.
-	let rightText: string | null = input.hint || input.goal || null
+	let rightText: string | null = input.hint || input.notice || input.goal || input.ambient || null
 	// A line too wide for its room loses whole hints, never half of one.
 	if (rightText !== null) rightText = fitHintText(rightText, columns)
 
@@ -447,7 +500,6 @@ export function fitStatusLine(input: {
 		[input.effort ? `effort ${input.effort}` : null, input.hypermode ? HYPERMODE_FOOTER_NOTE : null]
 			.filter((part): part is string => part !== null)
 			.join(' · ') || null
-	let context: string | null = input.context ?? null
 
 	const parts = (): string[] =>
 		[
@@ -455,7 +507,6 @@ export function fitStatusLine(input: {
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
 			effort,
-			context,
 			interrupt,
 			agents,
 			manage,
@@ -476,9 +527,8 @@ export function fitStatusLine(input: {
 	if (over()) interrupt = null
 	if (over()) cycleSuffix = null
 	// Only now does the pointer to the agents go: the mode's own cycle hint and the
-	// other hints leave first, the context, effort, shells and pull request after.
+	// other hints leave first, the effort, shells and pull request after.
 	if (over()) manage = null
-	if (over()) context = null
 	if (over()) effort = null
 	if (over()) shells = null
 	if (over()) pr = null
@@ -505,13 +555,12 @@ export function fitStatusLine(input: {
 		shells,
 		pr,
 		effort,
-		context,
 		agents,
 		manage,
 		gap,
 		right:
 			rightText !== null
-				? { kind: 'text', text: rightText, isGoal }
+				? { kind: 'text', text: rightText, source: source ?? 'hint' }
 				: { kind: 'model', model: modelLabel },
 	}
 }
