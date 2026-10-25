@@ -123,6 +123,8 @@ export type SlashAction =
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
+	/** `/config tips on|off`: the spinner tips' switch, written to the user config. */
+	| { kind: 'spinner-tips'; on: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -717,14 +719,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
 				'/config triggers [on|off|list]',
+				'/config tips [on|off]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
+				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
 			],
 		},
 		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'settings-picker' }
 			if (args[0] === 'limits') return turnLimitsAction(args.slice(1))
+			if (args[0] === 'tips') {
+				const setting = (args[1] ?? '').toLowerCase()
+				if (args.length === 2 && (setting === 'on' || setting === 'off'))
+					return { kind: 'spinner-tips', on: setting === 'on' }
+				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off]' }
+			}
 			if (args[0] === 'triggers') {
 				const setting = (args[1] ?? 'list').toLowerCase()
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
@@ -741,7 +751,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers]',
+						: 'Usage: /config [sources|limits|triggers|tips]',
 			}
 		},
 	},

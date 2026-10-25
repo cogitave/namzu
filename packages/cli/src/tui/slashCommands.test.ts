@@ -1434,6 +1434,18 @@ describe('/abandon', () => {
 	})
 })
 
+describe('/config tips', () => {
+	it('switches the spinner tips on or off and refuses anything else', () => {
+		expect(runSlash('/config tips off', context())).toEqual({ kind: 'spinner-tips', on: false })
+		expect(runSlash('/config tips ON', context())).toEqual({ kind: 'spinner-tips', on: true })
+		expect(runSlash('/config tips', context())).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /config tips [on|off]',
+		})
+		expect(runSlash('/config tips maybe', context())).toMatchObject({ kind: 'message' })
+	})
+})
+
 describe('/config entry', () => {
 	it('opens settings and exposes source details without a model turn', () => {
 		const ctx = context()
@@ -1441,7 +1453,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits|triggers]'),
+			content: expect.stringContaining('/config [sources|limits|triggers|tips]'),
 		})
 	})
 

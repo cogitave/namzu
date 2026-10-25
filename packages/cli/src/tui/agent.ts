@@ -701,6 +701,8 @@ export type AgentEvent =
 			readonly taskId: string
 			readonly subject: string
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
+			/** Ids of the tasks this one waits on, when the store reported any. */
+			readonly blockedBy?: readonly string[]
 			/** The task left the plan; the checklist drops it. */
 			readonly removed?: true
 	  }
@@ -7523,6 +7525,7 @@ export function toAgentEvent(
 				taskId: String(event.taskId),
 				subject: event.subject,
 				status: event.status,
+				...(event.blockedBy ? { blockedBy: event.blockedBy.map(String) } : {}),
 				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':

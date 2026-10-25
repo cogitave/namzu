@@ -1624,7 +1624,13 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 	tui: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
+		const raw = v as {
+			notifications?: unknown
+			notificationMethod?: unknown
+			spinnerTips?: unknown
+		}
+		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
+			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -1663,6 +1669,7 @@ const CONFIG_READERS: ConfigReaders = {
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
+			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 		}
 	},
 }

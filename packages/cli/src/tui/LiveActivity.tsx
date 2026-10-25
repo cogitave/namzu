@@ -81,6 +81,14 @@ export interface LiveActivityProps {
 	 * (`Compacting conversation…`). The spinner and the clock stay.
 	 */
 	readonly activityLabel?: string
+	/**
+	 * A dim `Tip:` line under the working row. Hidden while a retry notice or a
+	 * compaction is on the row, when the plan's `nextTask` line shows instead,
+	 * and in the compact layout, which has no room for it.
+	 */
+	readonly tip?: string
+	/** The plan's next task, as the whole `Next: …` line. Wins over `tip`. */
+	readonly nextTask?: string
 }
 
 /** Redraws once a second while a retry is being waited out, so its countdown moves. */
@@ -118,6 +126,8 @@ export function LiveActivity({
 	waitingForYou = false,
 	waitNotice = null,
 	activityLabel,
+	tip,
+	nextTask,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -248,6 +258,17 @@ export function LiveActivity({
 		</Box>
 	) : null
 
+	const hintLine =
+		compacting || waitNotice ? undefined : (nextTask ?? (tip ? `Tip: ${tip}` : undefined))
+	const hintRow =
+		hintLine === undefined ? null : (
+			<Box paddingLeft={2}>
+				<Text color={theme.text.muted} wrap={nextTask ? 'truncate-end' : 'wrap'}>
+					{terminalDisplayText(hintLine)}
+				</Text>
+			</Box>
+		)
+
 	if (compact) {
 		const current = activeTools[0]
 		return (
@@ -301,6 +322,7 @@ export function LiveActivity({
 					</Text>
 				) : null}
 			</Box>
+			{hintRow}
 			{waitingRow}
 			{noticeRow}
 			{visibleTools.map((t, index) => {

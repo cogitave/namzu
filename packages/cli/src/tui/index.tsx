@@ -17,6 +17,7 @@ import {
 	formatTuiExitSummary,
 } from './exit-summary.js'
 import { fileQueuedHintCount } from './hint-counts.js'
+import { fileTipHistory } from './tip-history.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
@@ -40,6 +41,9 @@ export async function launchTui(
 	// buffers instead of writing. A crash flushes that bounded buffer; a clean
 	// exit discards it and prints only the concise conversation handoff below.
 	const logs = installTuiLogSink(ctx.logging)
+	// One start of the interactive terminal; the tips' cooldowns count these.
+	const tipHistory = fileTipHistory()
+	tipHistory.recordLaunch()
 	let exitSummary: TuiExitSummary | null = null
 	// Take over the terminal: clear the screen + scrollback and home the
 	// cursor so namzu opens on a clean canvas
@@ -70,6 +74,7 @@ export async function launchTui(
 			terminationExit,
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
+			tipHistory,
 		}),
 		{
 			stdout: process.stdout,

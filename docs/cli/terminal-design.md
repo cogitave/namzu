@@ -1194,6 +1194,16 @@ line of the command cannot pass for a field of the prompt or another call. A
 carriage return, and every other control or invisible character, is spelled
 out as `\u{....}`; `d` shows the exact input.
 
+## Tips and the next task under the working row
+
+While a reply runs, one dim line sits under the `Working` row.
+
+- **`Next: <task>`** when the model's plan has a pending task: the first pending task whose blockers are all finished, else the first pending one. It is one row, cut with an ellipsis at the terminal's width. It is not a tip and shows whatever the tips setting says.
+- **`Tip: <text>`** otherwise, a short pointer to a Namzu command or setting you have not used yet. It is chosen once, when a reply ends, and stays the same for the whole next reply, so a launch's first reply shows none. Each tip has a cooldown counted in launches (terminal starts), not turns, kept in `~/.namzu/tip-history.json` with how often each command has run; the tip that has gone unshown the longest wins, then its priority, then its place in the list. A tip appears only while its condition holds (for example `/goal` until you have used it, or the status line while none is set).
+- Both rows give way to the retry notice and to the `Compacting conversation…` row, and the compact layout on a very short terminal leaves them out.
+
+Turn tips off with `tui.spinnerTips: false` in `~/.namzu/config.yaml`, with `/config tips off` (or the **Tips** row of `/config`), and back on with `/config tips on`. Only an explicit `false` turns them off. Only the interactive terminal shows tips; `exec`, `drain`, ACP and scheduled runs never do.
+
 ## Task continuity in the CLI prompt
 
 The CLI identity describes Namzu as an agent kernel with a TypeScript SDK and
