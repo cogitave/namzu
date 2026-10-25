@@ -294,7 +294,7 @@ it('offers only a one-time yes for an input past the review limit', async () => 
 	await waitUntil(screen, () => screen.viewport().join('\n').includes('Too large to show in full'))
 	const shown = screen.viewport().join('\n')
 	expect(shown).toContain('Approving runs it once and is not remembered.')
-	expect(shown).toContain('200001 characters not shown')
+	expect(shown).toContain('about 200k characters not shown')
 	expect(shown).not.toContain('3. ')
 
 	// Neither the third row's number nor the allow-all key answers anything.

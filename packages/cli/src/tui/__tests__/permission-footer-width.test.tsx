@@ -26,11 +26,12 @@ it('keeps the key to the exact input in the hint line at 60 columns', async () =
 	)
 	try {
 		await screen.waitForRender()
-		const hint = screen.viewport().find((row) => row.includes('select'))
+		const hint = screen.viewport().find((row) => row.includes('enter confirm'))
 		expect(hint).toBeDefined()
 		expect(hint).toContain('d input')
 		expect(hint).toContain('enter confirm')
 		expect(hint).toContain('y / n')
+		expect(hint).toContain('esc cancel')
 	} finally {
 		await screen.unmount()
 	}

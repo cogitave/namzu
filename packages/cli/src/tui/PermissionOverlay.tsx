@@ -542,7 +542,9 @@ export function PermissionOverlay({
 					    their hint is gone. */}
 					{fitHints(
 						[
-							{ text: '↑↓ select', rank: 5 },
+							// The arrow keys are the first of the answer keys to go: enter and y / n
+							// still answer, and the list shows which row is selected.
+							{ text: '↑↓ select', rank: 4 },
 							{ text: 'enter confirm', rank: 5 },
 							{
 								text: 'y / n answer',
@@ -551,7 +553,7 @@ export function PermissionOverlay({
 								// width it is the only key that shows what will run.
 								rank: scriptView ? 4 : 5,
 							},
-							{ text: 'esc cancel', short: 'esc', rank: 5 },
+							{ text: 'esc cancel', rank: 5 },
 							{
 								text: 'ctrl+c stop',
 								rank: scriptView ? 3 : 4,
