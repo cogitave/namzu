@@ -22,7 +22,7 @@ interface OpenGroup {
 export interface ReadSearchGroupControls {
 	/** A read, search, listing or connector call started: open the group or add to it. */
 	readonly start: (memberKey: string, op: FoldOp) => void
-	/** A member ended and succeeded: keep its text in the group. False when it is not a member of an open group. */
+	/** A member ended, whether it worked or failed: keep its text in the group. False when it is not a member of an open group. */
 	readonly finish: (memberKey: string, section: readonly string[]) => boolean
 	/** Settle the open group into its past-tense line. Does nothing when none is open. */
 	readonly close: () => void
@@ -80,12 +80,19 @@ export function useReadSearchGroup(
 		[nextId, setMessages],
 	)
 
-	const finish = useCallback((memberKey: string, section: readonly string[]) => {
-		const open = openRef.current
-		if (!open?.members.has(memberKey)) return false
-		open.detail = joinSections(open.detail, section)
-		return true
-	}, [])
+	const finish = useCallback(
+		(memberKey: string, section: readonly string[]) => {
+			const open = openRef.current
+			if (!open?.members.has(memberKey)) return false
+			open.detail = joinSections(open.detail, section)
+			// The detailed transcript shows an open group whole, so what each call
+			// has returned so far is kept on the row, not only once it settles.
+			const { id, detail } = open
+			setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, detail } : m)))
+			return true
+		},
+		[setMessages],
+	)
 
 	const close = useCallback(() => {
 		const open = openRef.current

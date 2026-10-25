@@ -110,6 +110,18 @@ export function visibleHint(state: GroupState, now: number): string | undefined 
 	return state.hintShown
 }
 
+/**
+ * The rows of the hint under a live group, for the height estimate: the longest
+ * of the hint on screen and the one held for its interval, so the estimate is
+ * right whichever shows.
+ */
+export function hintRows(state: GroupState): readonly string[] {
+	const lines = (text: string | undefined) => (text === undefined ? [] : text.split('\n'))
+	const shown = lines(state.hintShown)
+	const held = lines(state.hintQueued)
+	return held.join('\n').length > shown.join('\n').length ? held : shown
+}
+
 /** Two groups that sat next to each other, as one. Hints belong to a live run and are dropped. */
 export function mergeGroups(a: GroupState, b: GroupState): GroupState {
 	return {

@@ -2853,10 +2853,7 @@ function AppBody({
 	// /clear-screen, /resume).
 	//
 	// The block numbering resets with it and needs no separate step: the numbers
-	// live on the rows, so emptying `messages` takes them with it. A number that
-	// outlived the row it named would resolve `/expand 3` to output the operator
-	// can no longer see anywhere, which is the failure this surface is being
-	// cleaned of, one layer up.
+	// live on the rows, so emptying `messages` takes them with it.
 	const resetTranscript = useCallback(
 		(options: { preserveTranscriptScreen?: boolean } = {}) => {
 			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
@@ -3054,11 +3051,8 @@ function AppBody({
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
-								// prints no hint. Numbering every body instead would leave gaps
-								// the operator can see nothing of, make bare `/expand` reprint a
-								// two-line body while the truncated one above it stayed hidden,
-								// and let the out-of-range message quote a count that includes
-								// blocks no hint ever named.
+								// prints no hint. Numbering every body instead would count blocks
+								// no hint ever named.
 								//
 								// Derived from `prev` rather than a counter, so the number is a
 								// fact about the transcript rather than a second record of it.
@@ -14225,7 +14219,7 @@ function AppBody({
 				    frame is hidden by a full-screen surface below, directly below
 				    where it would be) — see docs/cli/terminal-design.md#the-composer-footer.
 				    Every panel that can follow (the agent rail, the cockpit, a child
-				    transcript, the tool-output viewer) renders after this line, not
+				    transcript, the detailed transcript) renders after this line, not
 				    before it. */}
 				{/* The trust screen already names the folder and its own keys; a footer
 				    under it would print the same path and advertise a cycle key that
@@ -14236,7 +14230,7 @@ function AppBody({
 				statusLineText === undefined ? null : (
 					<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
 				)}
-				{/* The tool-output viewer carries its own key line; the mode footer above
+				{/* The detailed transcript carries its own key line; the mode footer above
 				    its box was a stale row from the composer it replaced. */}
 				{/* The workflow detail (the cockpit) carries its own key line as well. */}
 				{phase === 'trust' ||

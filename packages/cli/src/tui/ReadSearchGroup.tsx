@@ -50,6 +50,8 @@ export function ReadSearchGroup({
 	const segments = groupSegments(state, live)
 	const hint = live ? visibleHint(state, now()) : undefined
 	const hintLines = hint ? hint.split('\n').map(terminalDisplayText) : []
+	// The detailed transcript is where the hint points: it never points at itself.
+	const shownHint = message.detailExpanded ? undefined : live ? EXPAND_HINT : message.meta
 	const tone = live ? theme.text.secondary : theme.text.muted
 	const blink = motion ? Math.floor(frame / 2) % 2 === 0 : true
 	return (
@@ -66,9 +68,7 @@ export function ReadSearchGroup({
 								{segment.text}
 							</Text>
 						))}
-						{live || message.meta ? (
-							<Text color={theme.text.muted}> {live ? EXPAND_HINT : message.meta}</Text>
-						) : null}
+						{shownHint ? <Text color={theme.text.muted}> {shownHint}</Text> : null}
 					</Text>
 				</Box>
 			</Box>
@@ -80,9 +80,11 @@ export function ReadSearchGroup({
 							<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
 								<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
 							</Box>
-							<Text color={theme.text.muted} wrap="truncate-end">
-								{line}
-							</Text>
+							<Box flexGrow={1}>
+								<Text color={theme.text.muted} wrap="wrap">
+									{line}
+								</Text>
+							</Box>
 						</Box>
 					))}
 				</Box>

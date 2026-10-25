@@ -757,7 +757,7 @@ function renderedDiffLines(
 
 function detailLineColor(line: string): string {
 	if (line.startsWith('+')) return theme.status.ok
-	if (line.startsWith('-')) return theme.status.error
+	if (line.startsWith('-') || line.startsWith('Error: ')) return theme.status.error
 	return theme.text.muted
 }
 

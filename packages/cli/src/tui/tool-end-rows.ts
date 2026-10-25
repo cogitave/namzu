@@ -186,6 +186,24 @@ export function toolEndRows(
 			},
 		])
 	}
+	if (event.isError && !event.declined && !event.cancelled && fold) {
+		// A look that failed stays in its counted line with the others; the line
+		// shows no error, and the detailed transcript shows the call with its error.
+		const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		return rows([
+			{
+				role: 'tool',
+				content: groupText(state, false),
+				detail: [start?.label ?? headOf(event, start), ...toolFailureText(said, true).split('\n')],
+				glyph: ' ',
+				glyphColor: tokenColor('text.muted'),
+				meta: EXPAND_HINT,
+				activity: 'exploration',
+				group: state,
+			},
+		])
+	}
 	const web = event.web ?? start?.web
 	if (web && !event.isError) {
 		// Two rows, the call and what it came to, drawn as `web` activity:

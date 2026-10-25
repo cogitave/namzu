@@ -6,14 +6,11 @@
  *
  * Every finalized row used to go straight into `<Static>`, which prints a row
  * once and never redraws it. That kept per-frame work bounded, and it also made
- * changing a row that is already on screen impossible by construction: an
- * expand key could not reopen a collapsed body, so expansion had to become a
- * command that appends a second copy of the output further down.
+ * changing a row that is already on screen impossible by construction.
  *
  * A small window of the most recent rows is kept live instead. Inside it a row
- * can be redrawn in place, so expansion works where an operator actually looks;
- * `/expand <n>` remains the way to reach anything older, and the hint under a
- * collapsed body already degrades correctly when a row has no number.
+ * can be redrawn in place, so a new theme or a finished call repaints where an
+ * operator actually looks; the detailed transcript shows everything, however old.
  *
  * ## Why the window is bounded by HEIGHT, not by a count of rows
  *
@@ -45,8 +42,10 @@ import { checklistBlockRows, checklistLine } from './Checklist.js'
 import { renderedDetailLines } from './Transcript.js'
 import { tableHeight } from './markdown-table.js'
 import { parseBlock, scanBlocks } from './markdownParser.js'
+import { hintRows } from './read-search-group.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
@@ -119,9 +118,15 @@ function messageLines(
 		typeof cut === 'string'
 			? cut
 			: `${cut.head}\n${hiddenTextRule(hiddenTextNote(cut), 20)}\n${cut.tail}`
+	// An open group is one line with the hint to expand it, and under it the
+	// latest target, hung from a five-column gutter.
+	const open = message.group !== undefined && message.pending === true
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
-		`  ${shown}${meta ? ` · ${meta}` : ''}`,
+		`  ${shown}${meta ? ` · ${meta}` : ''}${open ? ` ${EXPAND_HINT}` : ''}`,
+		...(open && message.group
+			? hintRows(message.group).map((line) => `     ${terminalDisplayText(line)}`)
+			: []),
 		...renderedDetailLines(message, columns),
 	]
 }
@@ -132,8 +137,8 @@ function messageLines(
  *
  * Exported so the wiring is testable rather than only typecheckable. The caller
  * once counted each row's `content` alone, which made a six-line collapsed tool
- * body look like one line. `/expand` makes that acute: a row whose substance is
- * a two-hundred-line body must not be admitted to a small redrawable viewport.
+ * body look like one line: a row whose substance is a two-hundred-line body
+ * must not be admitted to a small redrawable viewport.
  *
  * A pending row is excluded because it is not in the static log yet; the
  * pending content is already part of the live region outside this window.

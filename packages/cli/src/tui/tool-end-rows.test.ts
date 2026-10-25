@@ -53,10 +53,26 @@ it('a shell look and a connector call fold the same way, under their own headlin
 	expect(mcp.kind === 'rows' ? mcp.rows[0]?.content : '').toBe('Called docs')
 })
 
-it('a failed or refused look stays a row of its own', () => {
+it('a failed look stays in its counted line, with its error behind the detailed transcript', () => {
 	const start = { label: 'Read(a.ts)', fold: { kind: 'read', key: 'a.ts' } } as const
-	const failed = toolEndRows(end({ isError: true, summary: 'no such file' }), start, {
+	const failed = toolEndRows(end({ isError: true, summary: 'no such file', output: undefined }), start, {
 		hasPlan: false,
 	})
-	expect(failed.kind === 'rows' ? failed.rows.some((row) => row.group) : true).toBe(false)
+	expect(failed.kind).toBe('rows')
+	const row = failed.kind === 'rows' ? failed.rows[0] : undefined
+	// Counted like a look that worked, with no error text on the line itself.
+	expect(row?.content).toBe('Read 1 file')
+	expect(row?.group?.readKeys).toEqual(['a.ts'])
+	expect(row?.meta).toBe('(ctrl+o to expand)')
+	expect(row?.detail).toEqual(['Read(a.ts)', 'Error: no such file'])
+})
+
+it('a refused look is still a row of its own', () => {
+	const start = { label: 'Read(a.ts)', fold: { kind: 'read', key: 'a.ts' } } as const
+	const refused = toolEndRows(
+		end({ isError: true, summary: 'no', declined: { note: 'No' } } as never),
+		start,
+		{ hasPlan: false },
+	)
+	expect(refused.kind === 'rows' ? refused.rows.some((row) => row.group) : true).toBe(false)
 })
