@@ -33,6 +33,7 @@ clause, so no line ends mid-sentence.
 | `/archive` | Archive this conversation and exit after confirmation. |
 | `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
+| `/rewind`, `/undo`, `/checkpoint` | Open the rewind dialog (the same as Esc Esc on an empty message): pick an earlier prompt, then restore the files, the conversation, or both to the point before it, or summarize around it. See [File checkpoints](file-checkpoints.md#rewind). `/restore` is separate: it lists and restores file turns by number. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy, leaving the original unchanged. |
 | `/worktree` | List or create [managed Git worktrees](worktrees.md), copy this settled conversation into a new checkout, or print how to open one. |
@@ -369,7 +370,7 @@ terminals place descriptions below labels.
 
 ## Keys that are not commands
 
-- **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
+- **Esc Esc** on an empty composer, the second press within 800 ms of the first (the first shows nothing), opens the [rewind dialog](file-checkpoints.md#rewind). To edit an earlier prompt, pick it and choose Restore conversation: that forks the conversation before the prompt and reopens it for editing; the original conversation is left where it was. With text in the composer, Esc clears it instead.
 - **Enter** during a turn steers a message into that turn at its next model boundary. **Tab** queues a message for a later turn. Both wait as `❯` rows above the composer's upper rule, with the message text and attachment count; a Tab-queued row says `after this reply`. **Ctrl+X Ctrl+S** sends them now (see the Esc line).
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit.

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: File checkpoints
-description: How the interactive session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn — what is covered, what is not, and how it pairs with Esc Esc.
+description: How the interactive session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn — what is covered, what is not, and how the rewind dialog (Esc Esc, /rewind) offers it.
 resource: packages/cli/src/checkpoints/store.ts
 tags: [cli, files, safety]
 status: stable
@@ -25,6 +25,17 @@ A restore is refused while a turn is running.
 - **Covered**: files under the working directory changed by the session's own `edit` and `write` tools on the host. A restore writes through a temporary file and a rename, so an interrupted restore leaves the old file or the restored one, and the file's permission bits come back with its content. A checkpoint of an edit that failed without changing the file is dropped, so it never lists a file the turn did not touch.
 - **Not covered**: a shell command's writes (`bash`, a `!` line), a sub-agent's writes, files outside the working directory (a symlink is followed first, so a link that leads out of the project is outside; one that stays inside is restored through, and the link is kept), files over 8 MB, and edits made inside a sandbox (the path there is not the host file of the same name, so nothing is recorded and a restore never touches the host). `/restore` with no number lists what it can put back, then names each path that is not covered and why; a tree that also changed through a shell is restored for the tool writes only.
 
-## With Esc Esc
+## Rewind
 
-Esc Esc on an empty composer forks the conversation before an earlier prompt and reopens it. It does not touch files. To go back in both — the conversation and the tree — use `/restore N` for the files, then Esc Esc for the prompt.
+Esc Esc on an empty composer (the second press within 800 ms of the first; the first shows nothing), and `/rewind` with its aliases `/undo` and `/checkpoint`, open the rewind dialog. It is refused while a reply is running or queued, and in a Pal conversation.
+
+**The list.** The prompts you typed, oldest first, then `(current)`, the present; the dialog opens on `(current)` and choosing it closes the dialog. With file history on, a dim second line under each prompt says what putting the files back to before it would change: `main.ts +3 -1`, `4 files changed +9 -2`, or `No code changes`; `⚠ No code restore` means the history holds changes that cannot be tied to a prompt. The counts are worked out newest first from the saved copies, within one second in all, at most a megabyte per file side and 500 edits per file; past that, or for a binary file, the line shows the file names without `+ -`. Without file history the header reads `Restore and fork the conversation to the point before…` and there are no second lines.
+
+**The options.** Enter on a prompt shows what it was sent with and how long ago, then, in order: `Restore code and conversation`, `Restore conversation`, `Restore code` (only when files would change; the first of these is focused, otherwise `Restore conversation`), `Summarize from here`, `Summarize up to here` (each takes optional context typed on the row, which tells the summary what to keep) and `Never mind`. Two dim lines follow the focused option: what happens to the conversation (`The conversation will be forked.`, `The conversation will be unchanged.`, or what is summarized) and what happens to the code (`The code will be restored +3 -1 in main.ts.`, or `The code will be unchanged.`). A warning notes that edits made by hand or by a shell command are not covered. Esc goes back to the list.
+
+- **Restore code** puts the files back with the same drift-checked plan as `/restore N`, starting at the first turn that began at or after the prompt and covering every later turn. A file you changed since stays as it is and is reported. The conversation is untouched.
+- **Restore conversation** continues from before the prompt in a new conversation holding everything ahead of it, with the prompt back in the composer; the original stays unchanged and in `/resume`. Files are untouched.
+- **Restore code and conversation** does the code first, then the conversation. If the code step fails, the conversation is not changed and the failure is shown in the dialog, which stays open.
+- **Summarize from here** replaces the prompt and everything after it with a summary and puts the prompt back in the composer. **Summarize up to here** replaces everything before the prompt with a summary and leaves the prompt and what follows as they are. Both use the model and are recorded in the conversation log like `/compact`.
+
+Which turns come at or after a prompt is known because each turn's manifest records the position of the prompt that began it (`promptOrdinal`). A turn from before that was recorded, or whose position no longer matches its prompt (after a compaction or summary shortened the history), is matched by the words of its prompt; one that cannot be placed either way is left out and its prompts show `⚠ No code restore`.
