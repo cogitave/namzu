@@ -542,7 +542,17 @@ success.
 Use `agent_task_list({history: true})` to inspect the snapshot and
 `agent_task_list({history: true, task_id: "<UUID>"})` to read one saved result.
 The normal tool call still lists live tasks owned by the current session.
-Historical access grants no cancellation, messaging or execution authority.
+Reading the history grants no authority by itself. To continue a saved agent,
+`send_message` to its session UUID from `agent_task_list({history: true})`
+("Resuming agent …"): its saved history and settings are read back from disk, it
+runs again under the current turn's limits and review channel, and it appears on
+the rail like any resumed agent, with its duration counted from the resume. Only
+a finished agent whose saved record is complete can be continued. One that ended
+without recording an end (`unresolved`), one you stopped, one that ran in an
+isolated worktree or with a role, one saved by an older version, and one whose
+agent type no longer exists answer "Not sent. Agent … was saved by an earlier run
+but cannot be resumed …", or the stopped text, and send nothing. `wait_for_task`
+and `cancel_agent` take the same UUID once the agent has been resumed.
 
 `unresolved` means the parent never recorded an end. It does not prove that the
 child is still running, failed, or had no effects: a process that died mid-turn

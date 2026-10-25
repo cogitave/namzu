@@ -36,7 +36,7 @@ the model. A live terminal id is separate from its durable conversation id;
 resuming another conversation does not redirect that conversation's queued mail.
 
 This is different from the existing `send_message` tool, which addresses a
-child task of the current conversation, from any of its turns. Peer messaging cannot spawn,
+child task of the current conversation, from any of its turns, including one saved by an earlier run of the program. Peer messaging cannot spawn,
 restart, cancel or change another terminal's permissions.
 
 ## Delivery and authority

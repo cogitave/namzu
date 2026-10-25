@@ -83,6 +83,7 @@ import {
 	filtered,
 	formatCompletionNotification,
 	generateSummaryId,
+	generateTaskId,
 	isTerminalAgentTaskState,
 	isTrustedReadOnly,
 	mcpJsonSchemaToZod,
@@ -772,6 +773,9 @@ export async function createSubagentRuntime(
 				workspaceRegistry,
 				capacity: new DefaultCapacityValidator(store),
 				topicManager: new TopicManager({ topicStore, sessionStore: store }),
+				// The layout the children's logs are written in, which is also where a
+				// later run of the program finds them again.
+				...(opts.paths ? { paths: opts.paths } : {}),
 			},
 		)
 		return {
@@ -1327,31 +1331,13 @@ export async function createSubagentRuntime(
 			// and a role must not be a way to hand a read-only child a `write`
 			// tool. Over a file-defined agent the role is appended to the
 			// file's prompt rather than replacing it.
-			agentId = `dyn-${++dynCounter}`
-			registry.register(
-				buildDefinition(
-					agentId,
-					`Dynamic specialist: ${agentId}`,
-					fileAgent
-						? `${fileAgent.prompt}\n\n${persona}`
-						: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
-					opts,
-					fileAgent
-						? fileAgentTools(fileAgent, opts)
-						: explore
-							? () =>
-									opts
-										.buildTools()
-										.map((ts) =>
-											filtered(ts, (tool) =>
-												isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
-											),
-										)
-							: opts.buildTools,
-					selection?.model ?? fileAgent?.model ?? parentModel,
-					selection,
-				),
-			)
+			agentId = registerSpecialist({
+				fileAgent,
+				explore,
+				persona,
+				selection,
+				model: selection?.model ?? fileAgent?.model ?? parentModel,
+			})
 		}
 		const seed = {
 			agentId,
@@ -1457,6 +1443,23 @@ export async function createSubagentRuntime(
 				create: {
 					agentId,
 					prompt,
+					// What a later run of the program needs to rebuild this agent from its
+					// saved files. A role is free text that is not saved, so an agent that
+					// has one cannot be rebuilt.
+					...(persona.length === 0
+						? {
+								continuationProfile: {
+									agent: fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT),
+									...(selection
+										? {
+												provider: selection.provider,
+												model: selection.model,
+												...(selection.effort ? { effort: selection.effort } : {}),
+											}
+										: {}),
+								},
+							}
+						: {}),
 					workingDirectory: opts.cwd,
 					workspace:
 						workspace === 'worktree'
@@ -1508,6 +1511,45 @@ export async function createSubagentRuntime(
 		}
 	}
 
+	/**
+	 * Register a per-call specialist: a type's roster and prompt, a role on top,
+	 * and the model the call chose. Returns its registry id.
+	 */
+	const registerSpecialist = (input: {
+		readonly fileAgent: AgentFileDefinition | undefined
+		readonly explore: boolean
+		readonly persona: string
+		readonly selection: DelegatedModel | undefined
+		readonly model: string
+	}): string => {
+		const { fileAgent, explore, persona, selection } = input
+		const id = `dyn-${++dynCounter}`
+		registry.register(
+			buildDefinition(
+				id,
+				`Dynamic specialist: ${id}`,
+				fileAgent
+					? `${fileAgent.prompt}\n\n${persona}`
+					: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
+				opts,
+				fileAgent
+					? fileAgentTools(fileAgent, opts)
+					: explore
+						? () =>
+								opts
+									.buildTools()
+									.map((ts) =>
+										filtered(ts, (tool) =>
+											isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
+										),
+									)
+						: opts.buildTools,
+				input.model,
+				selection,
+			),
+		)
+		return id
+	}
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
@@ -1919,6 +1961,127 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	/** Said when a saved agent has nothing readable left to continue from. */
+	const cannotResume = (childId: string): string =>
+		`Not sent. Agent ${childId} was saved by an earlier run but cannot be resumed: what it needs was not kept, or no longer reads. Start a new agent if the work is still needed.`
+	const restoring = new Map<string, Promise<{ viewId: string } | { error: string } | undefined>>()
+	/**
+	 * An agent saved by an earlier run of the program, made reachable again: its
+	 * saved files are read back and checked by the SDK, the right to continue it
+	 * is rebuilt on this turn's gateway, and it joins the conversation's agents
+	 * as a finished one, which `messageChild` then resumes under this turn's
+	 * limits and review channel. `undefined` when the id is not a saved agent.
+	 */
+	const restoreSavedAgent = (
+		childId: TaskId,
+		context: ToolContext,
+	): Promise<{ viewId: string } | { error: string } | undefined> => {
+		const key = String(childId)
+		const running = restoring.get(key)
+		if (running) return running
+		const work = (async () => {
+			if (!opts.savedAgents) return undefined
+			const parent = await resolveParent(context.turnId)
+			let saved: Awaited<ReturnType<ReturnType<NonNullable<typeof opts.savedAgents>>['read']>>
+			try {
+				saved = await opts.savedAgents(parent.sessionId).read(key)
+			} catch {
+				return undefined
+			}
+			if (saved.status === 'cancelled')
+				return {
+					error: `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
+				}
+			if (saved.status === 'unresolved') return { error: cannotResume(key) }
+			const gateway = await gatewayForTurn(context.turnId)
+			let chosen:
+				| { agentId: string; dynamic: boolean; profile: Readonly<Record<string, string>> }
+				| undefined
+			const restored = await gateway.restoreChild?.({
+				childSessionId: saved.sessionId,
+				workingDirectory: opts.cwd,
+				agentFor: (profile) => {
+					const base = profile.agent
+					if (base === undefined || !agentTypeIds.includes(base)) return undefined
+					if (profile.provider && profile.model) {
+						const fileAgent = fileAgents.get(base)
+						const id = registerSpecialist({
+							fileAgent,
+							explore: base === EXPLORE_SUBAGENT,
+							persona: '',
+							selection: {
+								provider: profile.provider,
+								model: profile.model,
+								...(profile.effort ? { effort: profile.effort as ReasoningEffort } : {}),
+							},
+							model: profile.model,
+						})
+						chosen = { agentId: id, dynamic: true, profile }
+						return id
+					}
+					chosen = { agentId: base, dynamic: false, profile }
+					return base
+				},
+			})
+			const kept = chosen as typeof chosen
+			if (!restored || restored.status !== 'restored' || !kept) {
+				if (kept?.dynamic) registry.unregister(kept.agentId)
+				return {
+					error:
+						restored?.status === 'refused' && restored.reason === 'stopped'
+							? `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`
+							: cannotResume(key),
+				}
+			}
+			const seed = {
+				agentId: kept.profile.agent ?? kept.agentId,
+				...(kept.profile.model ? { model: kept.profile.model } : {}),
+				description: saved.description,
+				background: true,
+				prompt: '',
+				workflowId: String(context.turnId),
+			}
+			const tracker = activity.begin(seed)
+			const handle: TaskHandle = {
+				taskId: generateTaskId(),
+				agentId: kept.agentId,
+				state: saved.status === 'completed' ? 'completed' : 'failed',
+				createdAt: Date.parse(saved.spawnedAt) || Date.now(),
+				completedAt: Date.now(),
+				childSessionId: saved.sessionId,
+			}
+			tracker.settle(handle)
+			conversations.set(tracker.viewId, {
+				parentKey: sessionKey(parent),
+				agentId: kept.agentId,
+				dynamic: kept.dynamic,
+				seed,
+				config: {
+					...(kept.profile.model
+						? {
+								model: kept.profile.model,
+								...(kept.profile.effort ? { effort: kept.profile.effort as ReasoningEffort } : {}),
+							}
+						: {}),
+					...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+					...(context.toolResultGuardrails
+						? { toolResultGuardrails: context.toolResultGuardrails }
+						: {}),
+				},
+				workspace: 'shared',
+				gateway,
+				task: handle,
+				turnId: context.turnId,
+				busy: false,
+			})
+			taskViews.set(String(handle.taskId), tracker.viewId)
+			taskViews.set(key, tracker.viewId)
+			return { viewId: tracker.viewId }
+		})().finally(() => restoring.delete(key))
+		restoring.set(key, work)
+		return work
+	}
+
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
@@ -1958,7 +2121,14 @@ export async function createSubagentRuntime(
 					error: 'Message must not be blank.',
 				}
 			const taskId = parseTaskId(task_id)
-			const found = taskId ? await resolveTask(taskId, context.turnId) : undefined
+			let found = taskId ? await resolveTask(taskId, context.turnId) : undefined
+			if (taskId && !found) {
+				// An agent saved by an earlier run of the program is read back from disk.
+				const restoredAgent = await restoreSavedAgent(taskId, context)
+				if (restoredAgent && 'error' in restoredAgent)
+					return { success: false, output: '', error: restoredAgent.error }
+				if (restoredAgent) found = await resolveTask(taskId, context.turnId)
+			}
 			if (!taskId || !found) {
 				return {
 					success: false,
