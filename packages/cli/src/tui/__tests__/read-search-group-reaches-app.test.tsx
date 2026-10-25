@@ -27,6 +27,7 @@ type Step =
 			readonly input: unknown
 			readonly result: string
 			readonly isError?: boolean
+			readonly facts?: unknown
 	  }
 
 /** What the scripted model does next turn; set by each test before it sends. */
@@ -131,6 +132,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 							toolName: step.toolName,
 							result: step.result,
 							isError: step.isError ?? false,
+							...(step.facts !== undefined ? { facts: step.facts } : {}),
 						},
 					]) {
 						const mapped = actual.toAgentEvent(event as unknown as SessionEvent, presenter)
@@ -235,4 +237,52 @@ it('keeps a failed look in the line, with its error behind the detailed transcri
 	expect(shown).toContain('FIRST evidence')
 	expect(shown).toContain('Error: no such file')
 	expect(shown).not.toContain('(ctrl+o to expand)')
+})
+
+it('counts a shell search that found nothing as a search, and the detailed transcript says so', async () => {
+	script = [
+		{ toolName: 'read', input: { path: 'one.ts' }, result: 'FIRST evidence' },
+		{
+			toolName: 'bash',
+			input: { command: 'grep -rn needle src' },
+			result: '(no output)',
+			facts: { kind: 'command', exitCode: 1, exitNote: 'No matches found' },
+		},
+		{ text: 'Done.' },
+	]
+	const screen = await send('look')
+	await waitUntil(screen, () => everything(screen).includes('Done.'))
+	const text = screen.scrollback().join('\n')
+	expect(text).toContain('Searched for 1 pattern, read 1 file (ctrl+o to expand)')
+	expect(text).not.toContain('Exit code')
+	expect(text).not.toContain('Error:')
+	screen.press('\x0f')
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Showing detailed transcript'),
+	)
+	const shown = screen.viewport().join('\n')
+	expect(shown).toContain('No matches found')
+	expect(shown).not.toContain('Error:')
+})
+
+it('still shows a real shell failure as an error in the detailed transcript', async () => {
+	script = [
+		{
+			toolName: 'bash',
+			input: { command: 'grep -rn needle /nope' },
+			result: 'grep: /nope: No such file or directory',
+			isError: true,
+			facts: { kind: 'command', exitCode: 2 },
+		},
+		{ text: 'Done.' },
+	]
+	const screen = await send('look')
+	await waitUntil(screen, () => everything(screen).includes('Done.'))
+	screen.press('\x0f')
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Showing detailed transcript'),
+	)
+	const shown = screen.viewport().join('\n')
+	expect(shown).toContain('No such file or directory')
+	expect(shown).toMatch(/Error|Exit code 2/)
 })

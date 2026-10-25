@@ -170,10 +170,15 @@ export function toolEndRows(
 	const fold = foldOf(start)
 	if (!event.isError && !event.declined && fold) {
 		// Preserve the result, including the summary removed from detail by the adapter.
-		const output =
+		const raw =
 			event.output !== undefined
 				? event.output.split('\n')
 				: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
+		// A command that answered with its status and printed nothing reads as
+		// that answer in the detailed transcript, not as "(no output)".
+		const answer = event.shell?.note
+		const output =
+			answer !== undefined && raw.join('').trim().toLowerCase() === '(no output)' ? [answer] : raw
 		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
 		const headline = event.headline ?? start?.label ?? headOf(event, start)
 		return rows([
