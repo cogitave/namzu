@@ -352,9 +352,11 @@ export function permissionSentence(boundary: ExecutionBoundary, stable = false):
 /** The boundary, and the way past it, in the words the model acts on. */
 function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 	if (!boundary.sandbox) {
-		const outside = boundary.interactive
-			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
-			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
+		const outside = boundary.delegated
+			? 'A path anywhere else is refused, or decided by the session that started you, and you cannot approve it yourself. If you needed a directory, name it in your summary.'
+			: boundary.interactive
+				? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+				: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
 			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary, stable)}`,
 			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
@@ -379,7 +381,11 @@ function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 		: ' It does not confine the file system here, so commands can still see files outside the working directory.'
 	return [
 		`Shell commands run in a sandbox (${environment}${enforced.length > 0 ? `, enforcing ${enforced.join(', ')}` : ', enforcing nothing on this platform'}).${files}${network} The file tools reach only the working directory and the added directories.`,
-		`To reach another directory, ask the user to add it with \`/add-dir <path>\` (the next turn binds it). ${escapeRoute}`,
+		`${
+			boundary.delegated
+				? 'To reach another directory, name it in your summary; the session that started you decides whether to add it.'
+				: 'To reach another directory, ask the user to add it with `/add-dir <path>` (the next turn binds it).'
+		} ${escapeRoute}`,
 	]
 }
 

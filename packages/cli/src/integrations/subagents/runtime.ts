@@ -2546,9 +2546,9 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 			attributes: { agent: completed.agentId, task: completed.taskId },
 			provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
 		},
-		`${stopNote}${resultText || '(sub-agent returned no text)'}`,
+		resultText || '(sub-agent returned no text)',
 	)
-	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}`
+	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}${stopNote ? `\n\n${stopNote.trimEnd()}` : ''}`
 	return {
 		success: succeeded,
 		output,

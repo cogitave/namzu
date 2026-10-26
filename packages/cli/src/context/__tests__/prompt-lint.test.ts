@@ -185,7 +185,7 @@ describe('the assembled prompts', () => {
 		expect(SUBAGENT_PROMPT).not.toMatch(/do not ask the parent questions/i)
 		// One home for the rule: the inherited text no longer sends a child to a person.
 		expect(SUBAGENT_PROMPT).not.toMatch(
-			/stop and ask|Reserve blocking questions|Ask for clarification/,
+			/stop and ask|Reserve blocking questions|Ask for clarification|check in only when/,
 		)
 		expect(SUBAGENT_PROMPT).not.toContain('tell the user the command')
 	})

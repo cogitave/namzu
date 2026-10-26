@@ -136,6 +136,8 @@ describe('what the permission sentence says per mode', () => {
 		expect(text).toContain('follow the permission mode of the session that started you')
 		expect(text).toContain('You have no one to ask yourself')
 		expect(text).not.toContain('may ask the user')
+		expect(text).not.toContain('/add-dir')
+		expect(text).toContain('name it in your summary')
 	})
 
 	it('says each mode in its own words', () => {

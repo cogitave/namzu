@@ -48,6 +48,10 @@ const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
 		"stop and ask rather than stashing, committing or discarding somebody else's work.",
 		"leave them alone: do not stash, commit or discard somebody else's work.",
 	],
+	[
+		'make the routine judgment calls yourself and check in only when different readings would produce materially different work.',
+		'make the routine judgment calls yourself, and where different readings would produce materially different work, take the most conservative one and state it.',
+	],
 	['without asking: not', 'unless the task says so: not'],
 	[
 		'stop and tell the user the command to set one; do not invent one.',

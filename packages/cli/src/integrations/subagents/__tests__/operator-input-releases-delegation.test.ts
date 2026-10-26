@@ -588,6 +588,10 @@ describe('operator input releases delegation waits without cancelling children',
 			expect(result.output).not.toContain('status: completed')
 			expect(result.output).toContain('token_budget')
 			expect(result.output).toContain('does not establish task completion')
+			// Namzu's own note sits after the child's marked block, not inside it.
+			expect(result.output.indexOf('does not establish task completion')).toBeGreaterThan(
+				result.output.lastIndexOf('</namzu-untrusted'),
+			)
 			expect(result.output).toContain('Partial finding from the child.')
 			expect(runtime.activity.getSnapshot().at(-1)?.status).toBe('failed')
 			const listing = await runtime.agentTaskListTool.execute(
