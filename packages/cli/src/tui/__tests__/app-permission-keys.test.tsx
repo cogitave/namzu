@@ -650,8 +650,9 @@ describe('/permissions session mode', () => {
 
 		settle()
 		stdin.write('y')
-		await decisionSettles()
-		expect(toolExecutions).toBe(1)
+		// The previous test's turn can still answer after it was torn down, and that
+		// answer lands in `decisions` too: wait for this prompt's own approval.
+		await vi.waitFor(() => expect(toolExecutions).toBe(1))
 
 		await tick(120)
 		stdin.write('/permissions')
@@ -681,7 +682,7 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).toContain('2 of 2')
+		expect(lastFrame()).not.toMatch(/\d of \d/)
 		expect(lastFrame()).toContain('from another agent')
 		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')

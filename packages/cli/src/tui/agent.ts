@@ -5734,9 +5734,6 @@ export async function createAgentSession(
 								approvalPolicyName: modeControl.initialName,
 								onApprovalPolicy: (box) => modeControl.attach(box),
 								reviewAllowedCalls: modeControl.reviewAllowedCalls,
-								...(opts?.perCallReview && opts.onPermission && !opts.reviewHold
-									? { perCallReview: opts.perCallReview }
-									: {}),
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
@@ -6823,6 +6820,11 @@ async function* runTurn({
 			// Plan mode is stricter than the rules: a batch a rule allows still
 			// reaches the handler, which refuses the change.
 			...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
+			// Asking about one call at a time needs a person to ask: a held or
+			// unattended turn reviews its batches as a unit.
+			...(opts?.perCallReview && opts.onPermission && !opts.reviewHold
+				? { perCallReview: opts.perCallReview }
+				: {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),
