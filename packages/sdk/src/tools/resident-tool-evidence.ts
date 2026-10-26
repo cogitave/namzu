@@ -3,7 +3,11 @@ import type { ResidentToolEvidenceSource } from '../manager/resident/tool-eviden
 import type { ToolContext, ToolDefinition } from '../types/tool/index.js'
 import { defineTool } from './defineTool.js'
 
-/** @experimental The host must authorize each executing turn before returning its bound source. */
+/**
+ * @experimental The host must authorize each executing turn before returning its bound source.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export function buildResidentToolEvidenceTools(
 	resolveSource: (context: ToolContext) => ResidentToolEvidenceSource,
 ): ToolDefinition[] {

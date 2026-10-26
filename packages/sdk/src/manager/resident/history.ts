@@ -6,7 +6,11 @@ const SCAN_BYTES = 8 * 1024 * 1024
 const SCAN_REVISIONS = 32
 const TEXT_PAGE_CHARS = 6_000
 
-/** @experimental Host-bound historical scope; the upper revision never advances implicitly. */
+/**
+ * @experimental Host-bound historical scope; the upper revision never advances implicitly.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryScope {
 	readonly tenantId: string
 	readonly agentKey: string
@@ -14,13 +18,21 @@ export interface ResidentHistoryScope {
 	readonly throughRevision: number
 }
 
-/** @experimental Revision plus part identifies retained text within one pursuit. */
+/**
+ * @experimental Revision plus part identifies retained text within one pursuit.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryAddress {
 	readonly revision: number
 	readonly part: number
 }
 
-/** @experimental Summary or accepted wake input from a settled historical step. */
+/**
+ * @experimental Summary or accepted wake input from a settled historical step.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryMatch extends ResidentHistoryAddress {
 	readonly step: number
 	readonly claimId: string
@@ -30,7 +42,11 @@ export interface ResidentHistoryMatch extends ResidentHistoryAddress {
 	readonly matchingParts: readonly number[]
 }
 
-/** @experimental Empty query browses recent steps; cursor is the next inclusive revision. */
+/**
+ * @experimental Empty query browses recent steps; cursor is the next inclusive revision.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistorySearchOptions {
 	/** Optional per-call ceiling, 1 byte–8 MiB. Defaults to 8 MiB. */
 	readonly maxReadBytes?: number
@@ -39,7 +55,11 @@ export interface ResidentHistorySearchOptions {
 	readonly limit?: number
 }
 
-/** @experimental Counts describe this page, not the whole history. */
+/**
+ * @experimental Counts describe this page, not the whole history.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistorySearchResult {
 	readonly matches: readonly ResidentHistoryMatch[]
 	readonly nextCursor: number | null
@@ -49,14 +69,22 @@ export interface ResidentHistorySearchResult {
 	readonly incomplete: boolean
 }
 
-/** @experimental Use the returned nextOffset to continue exact Unicode-safe text. */
+/**
+ * @experimental Use the returned nextOffset to continue exact Unicode-safe text.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryReadOptions extends ResidentHistoryAddress {
 	readonly offset?: number
 	/** Optional per-call ceiling, 1 byte–8 MiB. Defaults to 8 MiB. */
 	readonly maxReadBytes?: number
 }
 
-/** @experimental A recorded claim remains historical evidence, not proof of current validity. */
+/**
+ * @experimental A recorded claim remains historical evidence, not proof of current validity.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryText extends ResidentHistoryAddress {
 	readonly step: number
 	readonly claimId: string
@@ -69,7 +97,11 @@ export interface ResidentHistoryText extends ResidentHistoryAddress {
 	readonly nextOffset: number | null
 }
 
-/** @experimental Null with unavailable revisions means unreadable evidence, not proven absence. */
+/**
+ * @experimental Null with unavailable revisions means unreadable evidence, not proven absence.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistoryReadResult {
 	readonly entry: ResidentHistoryText | null
 	readonly scannedRevisions: number
@@ -77,7 +109,11 @@ export interface ResidentHistoryReadResult {
 	readonly unavailableRevisions: readonly number[]
 }
 
-/** @experimental A backend must enforce its bound scope and bounded reads. */
+/**
+ * @experimental A backend must enforce its bound scope and bounded reads.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHistorySource {
 	readonly scope: ResidentHistoryScope
 	search(

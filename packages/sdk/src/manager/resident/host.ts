@@ -11,7 +11,11 @@ import { type ResidentStep, stepResident } from './loop.js'
 import { type ResidentMessageInput, residentMessageInputSchema } from './outbox.js'
 import { ResidentConflictError, type ResidentDecision, residentDecisionSchema } from './store.js'
 
-/** @experimental Host result describes execution, not external-effect rollback. */
+/**
+ * @experimental Host result describes execution, not external-effect rollback.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHostResult {
 	readonly status: 'idle' | 'paused' | 'unresolved' | 'cancelled' | 'limit' | 'contended'
 	readonly stepsSettled: number
@@ -19,7 +23,11 @@ export interface ResidentHostResult {
 	readonly selection?: ResidentSelection
 }
 
-/** @experimental Explicit authorization to drive a finite number of background steps. */
+/**
+ * @experimental Explicit authorization to drive a finite number of background steps.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHostRunOptions {
 	readonly signal: AbortSignal
 	readonly maxSteps: number
@@ -29,40 +37,64 @@ export interface ResidentHostRunOptions {
 	readonly keepAlive?: boolean
 }
 
-/** @experimental Immutable context from the agenda snapshot that authorized this admission. */
+/**
+ * @experimental Immutable context from the agenda snapshot that authorized this admission.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepContext {
 	readonly agendaRevision: number
 	readonly learning?: LearningState
 }
 
-/** @experimental A developer callback may bind a different SDK turn for each pursuit. */
+/**
+ * @experimental A developer callback may bind a different SDK turn for each pursuit.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentPursuitStep = (
 	pursuit: ResidentPursuit,
 	signal: AbortSignal,
 ) => ReturnType<ResidentStep>
 
-/** @experimental Context-aware callback; existing two-argument steps remain assignable. */
+/**
+ * @experimental Context-aware callback; existing two-argument steps remain assignable.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentContextualStep = (
 	pursuit: ResidentPursuit,
 	signal: AbortSignal,
 	context: ResidentStepContext,
 ) => ReturnType<ResidentStep>
 
-/** @experimental Inspect actual outcomes and resource receipts independently of model prose. */
+/**
+ * @experimental Inspect actual outcomes and resource receipts independently of model prose.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentObserver = (
 	pursuit: ResidentPursuit,
 	decision: ResidentDecision,
 	signal: AbortSignal,
 ) => Promise<ResidentObservation>
 
-/** @experimental Host validates content and destination; null means no communication. */
+/**
+ * @experimental Host validates content and destination; null means no communication.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentMessageFactory = (
 	pursuit: ResidentPursuit,
 	decision: ResidentDecision,
 	signal: AbortSignal,
 ) => Promise<ResidentMessageInput | null>
 
-/** @experimental Opt-in local selection, observed settlement and atomic outbound intent. */
+/**
+ * @experimental Opt-in local selection, observed settlement and atomic outbound intent.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentHostOptions {
 	readonly select?: ResidentSelector
 	readonly observe?: ResidentObserver
@@ -75,6 +107,8 @@ export interface ResidentHostOptions {
  * @experimental Local driver for one durable agenda. Shared agenda admission
  * prevents overlapping pursuits across processes. Notifications are local;
  * opt-in keepAlive also rereads durable state on bounded idle timers.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export class ResidentHost {
 	private controller: AbortController | undefined

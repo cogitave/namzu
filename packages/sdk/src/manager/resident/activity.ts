@@ -2,14 +2,22 @@ import { z } from 'zod'
 import type { ResidentAgendaState } from './agenda.js'
 import { ResidentHistoryPageLimit, type ResidentHistoryReadBudget } from './history-disk.js'
 
-/** @experimental An immutable upper boundary; new work requires a new source. */
+/**
+ * @experimental An immutable upper boundary; new work requires a new source.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentActivityScope {
 	readonly tenantId: string
 	readonly agentKey: string
 	readonly throughRevision: number
 }
 
-/** @experimental Admission is authority to inspect an attempt, not proof that it executed. */
+/**
+ * @experimental Admission is authority to inspect an attempt, not proof that it executed.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentAdmission {
 	readonly revision: number
 	readonly pursuitRevision: number
@@ -19,7 +27,11 @@ export interface ResidentAdmission {
 	readonly objective: string
 }
 
-/** @experimental Settlement is an agenda decision, not proof of verification or delivery. */
+/**
+ * @experimental Settlement is an agenda decision, not proof of verification or delivery.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentSettlement {
 	readonly revision: number
 	readonly pursuitId: string
@@ -27,14 +39,22 @@ export interface ResidentSettlement {
 	readonly outcome: 'wait' | 'complete' | 'blocked'
 }
 
-/** @experimental Forward pages; cursor is the next revision to inspect, initially 1. */
+/**
+ * @experimental Forward pages; cursor is the next revision to inspect, initially 1.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentActivityOptions {
 	readonly cursor?: number
 	readonly maxRevisions?: number
 	readonly maxReadBytes?: number
 }
 
-/** @experimental Gaps stay explicit; counts cover only the scanned revision range. */
+/**
+ * @experimental Gaps stay explicit; counts cover only the scanned revision range.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentActivityPage {
 	readonly scope: ResidentActivityScope
 	readonly fromRevision: number
@@ -47,7 +67,11 @@ export interface ResidentActivityPage {
 	readonly archivedPursuits: readonly string[]
 }
 
-/** @experimental A backend must enforce scope, cancellation and read bounds. */
+/**
+ * @experimental A backend must enforce scope, cancellation and read bounds.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentActivitySource {
 	readonly scope: ResidentActivityScope
 	read(options?: ResidentActivityOptions, signal?: AbortSignal): Promise<ResidentActivityPage>

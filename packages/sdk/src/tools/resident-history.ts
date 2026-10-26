@@ -8,6 +8,8 @@ import { defineTool } from './defineTool.js'
  * Read-only tools over an explicitly authorized historical source. The host
  * resolves and checks the executing turn's scope; models choose no paths,
  * tenant, resident, pursuit or upper-history boundary.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function buildResidentHistoryTools(
 	resolveSource: (context: ToolContext) => ResidentHistorySource,

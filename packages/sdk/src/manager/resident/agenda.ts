@@ -136,7 +136,11 @@ const agendaSchema = z
 			})
 	})
 
-/** @experimental One pursuit shares its agent's identity, but has its own lifecycle. */
+/**
+ * @experimental One pursuit shares its agent's identity, but has its own lifecycle.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentPursuit {
 	readonly id: string
 	readonly state: ResidentState
@@ -146,7 +150,11 @@ export interface ResidentPursuit {
 	readonly retiredChildren?: number
 }
 
-/** @experimental Bounded shared admission record; at most one pursuit may be running. */
+/**
+ * @experimental Bounded shared admission record; at most one pursuit may be running.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentAgendaState {
 	readonly tenantId: string
 	readonly agentKey: string
@@ -161,26 +169,42 @@ export interface ResidentAgendaState {
 	readonly learning?: LearningState
 }
 
-/** @experimental Explicit terminal entries to retire from active capacity together. */
+/**
+ * @experimental Explicit terminal entries to retire from active capacity together.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveRequest {
 	readonly pursuitIds?: readonly string[]
 	readonly messageIds?: readonly string[]
 }
 
-/** @experimental A committed removal, whose immutable predecessor preserves the full records. */
+/**
+ * @experimental A committed removal, whose immutable predecessor preserves the full records.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveEntry {
 	readonly revision: number
 	readonly pursuits: readonly ResidentPursuit[]
 	readonly messages: readonly ResidentOutboxMessage[]
 }
 
-/** @experimental Pages count archive events; each event contains at most 32 pursuits and 128 messages. */
+/**
+ * @experimental Pages count archive events; each event contains at most 32 pursuits and 128 messages.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchivePage {
 	readonly entries: readonly ResidentArchiveEntry[]
 	readonly nextBeforeRevision: number | null
 }
 
-/** @experimental The cursor is the next archive-event revision returned by a previous page. */
+/**
+ * @experimental The cursor is the next archive-event revision returned by a previous page.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveListOptions {
 	readonly beforeRevision?: number
 	/** Number of archive events to inspect; defaults to 8 and cannot exceed 32. */
@@ -204,7 +228,11 @@ const archiveRequestSchema = z.object({
 	messageIds: z.array(z.string().uuid()).max(128).default([]),
 })
 
-/** @experimental Atomic whole-agent admission plus independently addressable pursuits. */
+/**
+ * @experimental Atomic whole-agent admission plus independently addressable pursuits.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentAgendaStore {
 	read(): Promise<ResidentAgendaState | null>
 	create(identity: string): Promise<ResidentAgendaState>
@@ -251,6 +279,8 @@ export interface ResidentAgendaStore {
  * @experimental One immutable revision contains identity, pause state and all
  * pursuits. Admission therefore serializes this agent even across processes
  * choosing different pursuits. Trusted local filesystems only; no lease expiry.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export class DiskResidentAgenda implements ResidentAgendaStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentAgendaState>(

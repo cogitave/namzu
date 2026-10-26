@@ -34,7 +34,11 @@ Use permitted reads and analysis. Do not change files, persistent memory or exte
 const HISTORY_GUIDANCE = `## Resident recall
 When the saved summary lacks an earlier decision or accepted input, use search_resident_history, then read_resident_history for exact retained text. Search without a query to browse recent steps. Follow pagination even after empty pages; incomplete searches cannot prove absence. Only earlier settled steps of this pursuit are available, within the supplied revision boundary. Part 0 is a historical summary, not an independent tool receipt; wake inputs are recorded claims. Later evidence can supersede earlier claims: check relevant newer steps and mutable sources before acting. Do not repeat an effect to recover its output. These tools do not restore unrecorded tool transcripts.`
 
-/** @experimental Host-selected context for one admitted resident step. */
+/**
+ * @experimental Host-selected context for one admitted resident step.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepPromptOptions {
 	readonly state: ResidentState
 	/** The host-approved learning snapshot bound to this admission. */
@@ -64,6 +68,8 @@ export interface ResidentStepPromptOptions {
  *
  * Project instructions and authorization remain on their existing host/runtime
  * paths. These contributions neither load project files nor authorize work.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContributions(
 	options: ResidentStepPromptOptions,

@@ -5,13 +5,21 @@ import type { ToolContext, ToolDefinition } from '../types/tool/index.js'
 import type { PromptContribution } from './contributions.js'
 import { type ResidentStepPromptOptions, createResidentStepContributions } from './resident-step.js'
 
-/** @experimental One admission's context and read-only access to its evaluated guidance. */
+/**
+ * @experimental One admission's context and read-only access to its evaluated guidance.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepContextBundle {
 	readonly contributions: readonly PromptContribution[]
 	readonly tools: readonly ToolDefinition[]
 }
 
-/** @experimental The host must reject reads from runs outside the admitted scope. */
+/**
+ * @experimental The host must reject reads from runs outside the admitted scope.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
 	readonly authorizeLearningRead: (context: ToolContext) => boolean
 }
@@ -20,6 +28,8 @@ export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
  * @experimental List guidance descriptions first; disclose complete bodies only
  * when requested. Selection is local to this admission, never persisted as a
  * preference or inferred from keywords. Mount both returned tools and context.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContext(
 	options: ResidentStepContextOptions,
