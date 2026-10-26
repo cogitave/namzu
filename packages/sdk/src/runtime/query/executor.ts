@@ -1577,11 +1577,22 @@ export class ToolExecutor {
 		const inFlight = new Set<ReviewUnit>()
 		let cursor = 0
 		let failure: { readonly error: unknown } | undefined
+		// Once the turn has ended, a refusal is written only after every call
+		// before it has settled, so the transcript lists the calls in the order the
+		// model wrote them: the declined call before the ones refused unasked.
+		const settledUnits = new Map<number, Promise<void>>()
 		const refusedAfterEnd =
 			'An earlier call in this batch was refused and the turn was stopped, so this call was not run.'
 		await new Promise<void>((resolve) => {
 			const start = (unit: ReviewUnit): void => {
 				inFlight.add(unit)
+				let settledUnit!: () => void
+				settledUnits.set(
+					unit.index,
+					new Promise<void>((done) => {
+						settledUnit = done
+					}),
+				)
 				void (async () => {
 					try {
 						let admission: CallAdmission
@@ -1600,6 +1611,11 @@ export class ToolExecutor {
 							const refusal = admission.run
 								? { reason: refusedAfterEnd }
 								: { reason: admission.reason, declined: admission.declined }
+							if (review.ended.aborted) {
+								await Promise.all(
+									[...settledUnits].filter(([index]) => index < unit.index).map(([, done]) => done),
+								)
+							}
 							results[unit.index] = await this.recordDenial(
 								unit.toolCall,
 								refusal.reason,
@@ -1610,6 +1626,7 @@ export class ToolExecutor {
 					} catch (error) {
 						failure ??= { error }
 					} finally {
+						settledUnit()
 						inFlight.delete(unit)
 						pump()
 					}

@@ -75,6 +75,8 @@ interface Harness {
 	readonly questions: OpenQuestion[]
 	readonly started: string[]
 	readonly finished: string[]
+	/** The calls whose result was announced, in the order it was announced. */
+	readonly announced: string[]
 	readonly signals: Map<string, AbortSignal>
 	readonly audits: Array<{
 		outcome: string
@@ -107,6 +109,7 @@ function harness(
 	const questions: OpenQuestion[] = []
 	const started: string[] = []
 	const finished: string[] = []
+	const announced: string[] = []
 	const signals = new Map<string, AbortSignal>()
 	const audits: Harness['audits'] = []
 	const events: Harness['events'] = []
@@ -169,7 +172,9 @@ function harness(
 			trackToolCalls: true,
 			trackLlmTurns: true,
 		}),
-		async () => {},
+		async (event: { type: string; toolUseId?: string }) => {
+			if (event.type === 'tool_completed' && event.toolUseId) announced.push(event.toolUseId)
+		},
 		log,
 	)
 	if (options.escalations) {
@@ -250,6 +255,7 @@ function harness(
 		questions,
 		started,
 		finished,
+		announced,
 		signals,
 		audits,
 		events,
@@ -426,6 +432,8 @@ describe('per-call review: execute while asking', () => {
 		expectEveryCallAnswered(h.messages, resp)
 		expect(toolText(h.messages, 'b1')).toContain('turn was stopped')
 		expect(toolText(h.messages, 'r3')).toContain('turn was stopped')
+		// Results are announced in the model's order: the declined call, then the ones not asked.
+		expect(h.announced.filter((id) => id !== 'r1')).toEqual(['r2', 'r3', 'b1'])
 	})
 
 	it('treats an answer that does not name the call as a refusal, never an approval', async () => {
@@ -609,6 +617,58 @@ describe('per-call review: re-checks while questions are open', () => {
 		h.finish('r2')
 		await running
 		expect(h.started.sort()).toEqual(['r1', 'r2'])
+	})
+
+	it('questions that open together open in the order the model wrote the calls', async () => {
+		const slow = deferred()
+		const h = harness({
+			perCallReview: {
+				// The first call's own check takes the longest; it must still be shown first.
+				neverCover: async (summary) => {
+					if (summary.id === 'r1') await slow.promise
+					else if (summary.id === 'r2') await settleWork()
+					return false
+				},
+			},
+		})
+		const resp = responseOf(call('r1', 'read'), call('r2', 'grep'), call('r3', 'read'))
+		const running = drive(h.ctx, resp)
+		await settleWork()
+		expect(h.questions).toHaveLength(0)
+		slow.resolve()
+		await h.untilQuestions(3)
+		expect(h.questions.map((q) => q.request.toolCalls[0]?.id)).toEqual(['r1', 'r2', 'r3'])
+		for (const q of h.questions) q.answer(approve)
+		for (const id of ['r1', 'r2', 'r3']) {
+			await h.untilStarted(id)
+			h.finish(id)
+		}
+		await running
+	})
+
+	it('a call that waits for its turn is checked against the rules as they are then', async () => {
+		let allowed = false
+		const h = harness({ perCallReview: {}, gateDecision: () => (allowed ? 'allow' : 'review') })
+		const resp = responseOf(call('b1', 'bash'), call('b2', 'bash'))
+		const running = drive(h.ctx, resp)
+
+		await h.untilQuestions(1)
+		// The answer to the first remembers a rule that covers the second.
+		allowed = true
+		h.questions[0]?.answer(approve)
+		await h.untilStarted('b1')
+		h.finish('b1')
+		await h.untilStarted('b2')
+		h.finish('b2')
+		const outcome = await running
+		expect(outcome.decision).toBe('executed')
+		expect(h.questions).toHaveLength(1)
+		expect(h.audits).toContainEqual(
+			expect.objectContaining({
+				outcome: 'approved',
+				reason: expect.stringContaining('without being shown'),
+			}),
+		)
 	})
 
 	it('an approval that remembers a grant covers an open question for the same tool', async () => {

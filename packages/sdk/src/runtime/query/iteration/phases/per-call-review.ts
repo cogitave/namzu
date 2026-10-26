@@ -140,6 +140,12 @@ export class PerCallReview implements ReviewedExecution {
 	#checking: Promise<void> | undefined
 	#checkAgain = false
 	#unsubscribe: (() => void) | undefined
+	/**
+	 * The end of the line of calls waiting to open their question. Questions open
+	 * one after another in the order the calls were admitted, which is the order
+	 * the model wrote them, whatever each call's own checks take to finish.
+	 */
+	#line: Promise<void> = Promise.resolve()
 
 	constructor(deps: PerCallReviewDeps) {
 		this.#deps = deps
@@ -205,12 +211,23 @@ export class PerCallReview implements ReviewedExecution {
 
 	/** Answers the executor: may this call start. */
 	async admit(call: ToolCall): Promise<CallAdmission> {
-		const verdict = await this.#decide(call)
-		if (!verdict.run) this.#refused += 1
-		return verdict
+		// Taken synchronously, so the place in line is the order of the asking.
+		const before = this.#line
+		let leave!: () => void
+		this.#line = new Promise<void>((resolve) => {
+			leave = resolve
+		})
+		try {
+			const verdict = await this.#decide(call, before, leave)
+			if (!verdict.run) this.#refused += 1
+			return verdict
+		} finally {
+			leave()
+		}
 	}
 
-	async #decide(call: ToolCall): Promise<CallAdmission> {
+	async #decide(call: ToolCall, before: Promise<void>, leave: () => void): Promise<CallAdmission> {
+		await before
 		if (this.ended.aborted) return { run: false, reason: REFUSED_WITH_THE_TURN }
 		if (this.#approvedTogether.has(call.id)) return { run: true }
 		const summary = this.#deps.summaries().find((candidate) => candidate.id === call.id)
@@ -223,7 +240,19 @@ export class PerCallReview implements ReviewedExecution {
 				: { run: false, reason: UNANSWERED_CALL }
 		}
 		if (this.#skipsAsk(summary)) return { run: true }
-		const interpreted = await this.#ask([summary])
+		// A call that waited for its turn is checked against the rules, grants and
+		// mode as they are now: an earlier answer may have remembered a rule that
+		// covers it, and nobody is asked about what is already settled.
+		if (await this.#coveredNow(summary)) {
+			await this.#deps.ctx.recorder.recordAudit({
+				what: { action: 'tool_call', tool: summary.name },
+				outcome: 'approved',
+				reason:
+					'a rule, an earlier approval or the permission mode changed while this call waited for its turn and now covers it; it was approved without being shown',
+			})
+			return { run: true }
+		}
+		const interpreted = await this.#ask([summary], leave)
 		this.#noteEnd(interpreted)
 		const verdict = interpreted.verdicts.get(summary.id) ?? {
 			run: false,
@@ -333,7 +362,7 @@ export class PerCallReview implements ReviewedExecution {
 	}
 
 	/** One request to the handler about `calls`, and what its answer means for each. */
-	async #ask(calls: readonly ToolCallSummary[]): Promise<Interpreted> {
+	async #ask(calls: readonly ToolCallSummary[], opened?: () => void): Promise<Interpreted> {
 		const { ctx, iteration } = this.#deps
 		const checkpoint = await ctx.checkpointMgr.create(ctx.recorder, iteration)
 		await ctx.emitEvent({
@@ -350,7 +379,7 @@ export class PerCallReview implements ReviewedExecution {
 		this.#open.add(asked)
 		let decision: HITLResumeDecision
 		try {
-			decision = await awaitDecisionDurably(
+			const answer = awaitDecisionDurably(
 				ctx,
 				checkpoint,
 				{
@@ -371,6 +400,9 @@ export class PerCallReview implements ReviewedExecution {
 					},
 				},
 			)
+			// The handler has been given the question: the next call may open its own.
+			opened?.()
+			decision = await answer
 		} finally {
 			this.#open.delete(asked)
 		}
