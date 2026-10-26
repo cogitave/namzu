@@ -164,4 +164,8 @@ missing, because trimming can happen later and a gap cannot be recovered.
 `CompactNowInput.instructions` (and `CompactSessionParams.instructions`) carries
 what the person asked the summary to keep. It is added to the verifier model's
 prompt, and naming it runs that step even when `llmVerification` is off.
+The text sits in a labelled block closed only by a per-request marker
+(`<namzu-operator-request-<marker>>`), after a line that says it is the
+operator's request, to count as important information and to read as a
+description of what to keep, not a command to the verifier.
 Blank text is ignored; it is cut to 2,000 characters.
