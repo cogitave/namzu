@@ -92,9 +92,9 @@ short the script is; `d` ("d read the whole script") shows every line of it
 verbatim under the heading "Workflow script", never the raw prepared input;
 `d` again collapses it; the full view scrolls with PgUp, PgDn, Home and End.
 The script may be as large as the runtime accepts (256 KiB, with `args` up to
-64 KiB): the 8 000-byte limit that refuses an oversized batch of ordinary tool
-calls does not apply to a workflow review, because the script is one bounded
-value read in a pager. Long `args` are clipped in the collapsed view and whole
+64 KiB): the 200 thousand character limit that withholds a large value of an
+ordinary tool call does not apply to a workflow review, because the script is
+one bounded value read in a pager. Long `args` are clipped in the collapsed view and whole
 under `d`. A script whose `meta` cannot be read is still shown, with the reason.
 
 | Situation | What happens |

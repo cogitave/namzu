@@ -34,7 +34,7 @@ import {
 	viewToLines,
 	viewToSummary,
 } from './agent.js'
-import { MAX_PERMISSION_REVIEW_BYTES } from './permission-review.js'
+import { MAX_REVIEW_VALUE_CHARS } from './permission-review.js'
 
 const turnId = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as TurnId
 const sessionId = '02b19846-c793-4e21-9c6e-21962a7d2de5' as SessionId
@@ -757,7 +757,7 @@ describe('the interactive permission review', () => {
 	})
 
 	it('does not truncate a large exact input before handing it to a non-terminal reviewer', async () => {
-		const input = { command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES + 1) }
+		const input = { command: 'x'.repeat(MAX_REVIEW_VALUE_CHARS + 1) }
 		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(async () => ({
 			kind: 'approve',
 		}))

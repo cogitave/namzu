@@ -2,6 +2,7 @@ import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import { type TurnRecorder, readFoldedHistory } from '../../manager/session/turn-recorder.js'
 import type { CheckpointScope, SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import type { SessionLog } from '../../store/session-log/index.js'
+import { restoreSpilledRequestInputs } from '../../store/session-log/spilled-input.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -148,7 +149,11 @@ export async function readParks(
 				decisionId: r.decisionId,
 				turnId: r.turnId as TurnId,
 				checkpointId: r.checkpointId,
-				request: r.request as unknown as HITLDecisionRequest,
+				// A call input too large for a line was spilled; put it back.
+				request: (await restoreSpilledRequestInputs(
+					structuredClone(r.request) as unknown as HITLDecisionRequest & { toolCalls?: unknown },
+					(ref) => log.readSpill(ref),
+				)) as HITLDecisionRequest,
 				parkedAt: Date.parse(r.ts),
 				...(r.deadlineAt !== undefined ? { deadlineAt: Date.parse(r.deadlineAt) } : {}),
 			})

@@ -65,6 +65,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	COMPACTION_RECOVERY_NOTE,
 	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
 	type CodeAnalysisProvider,
@@ -4839,6 +4840,8 @@ export async function createAgentSession(
 					model,
 					signal,
 					...(instructions ? { instructions } : {}),
+					// Only a host that mounts the conversation tools points the summary at them.
+					...(options.conversationSessions ? { recoveryNote: COMPACTION_RECOVERY_NOTE } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`

@@ -1,5 +1,11 @@
 # Changelog
 
+## 53.1.0
+
+### Minor Changes
+
+- f225fb7: A tool call whose input is too large for one session-log record no longer ends the turn. The large `input` of a `tool_review_requested`, `decision_requested`, `tool_executing` or `tool_input_completed` record is now written to `tool-results/` and the record holds `{ "$spilledInput": <spill reference>, "preview": … }` in its place; a resumed turn reads the parked request's inputs back whole. A reader that walks the log itself and wants the full input of such a record reads the referenced spill (`SessionLog.readSpill`). Nothing to do for hosts that use the runtime.
+
 ## 53.0.0
 
 ### Major Changes
@@ -14,7 +20,7 @@
 
 ### Patch Changes
 
-- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from ` ⎿ ` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
+- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from `⎿` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
 
 ## 52.7.0
 
