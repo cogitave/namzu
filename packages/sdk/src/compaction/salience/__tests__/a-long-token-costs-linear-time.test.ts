@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import * as tokenizer from '../tokenize.js'
-import { scoreMessages } from '../score.js'
-import { tokenize } from '../tokenize.js'
 import type { Message } from '../../../types/message/index.js'
+import { scoreMessages } from '../score.js'
+import * as tokenizer from '../tokenize.js'
+import { tokenize } from '../tokenize.js'
 
 describe('a very long unbroken token', () => {
 	it('is tokenized without backtracking over its capitals', () => {
