@@ -247,3 +247,7 @@ passed both rounds (8/10 to 10/10) while preserving all 16 unrelated trials. A
 scripted counterexample with aggregate improvement and one collateral loss was
 rejected. This closes an acceptance-coverage gap; representative task selection,
 long-term interference and recursive improvement remain unproven.
+
+## Open owner decision: learning without a resident
+
+`namzu learn` still activates into an agent's saved guidance, so it needs a resident, and it does not read the conversation observations that `namzu learning --sessions` lists. Separating the two needs a standing activation target that is not a resident agent. Not decided; no work started.

@@ -138,7 +138,38 @@ describe('session learning feed', () => {
 	})
 })
 
+describe('retention for any session id', () => {
+	it('prunes by the recorded time even when the id carries no clock', async () => {
+		const day = 86_400_000
+		const nowMs = Date.UTC(2026, 9, 26)
+		const old = nowMs - (RETENTION_DAYS + 1) * day
+		const plain = '3f2b8c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f'
+		const { feed, reader, paths, tenantId, projectId } = setup(() => old, plain)
+		feed.observe({ kind: 'done', turnId: TURN, stopReason: 'timeout' })
+		await feed.flush()
+		expect(await reader().observations()).toHaveLength(1)
+		const next = createSessionLearningFeed({
+			paths,
+			tenantId,
+			projectId,
+			sessionId: idAt(nowMs),
+			now: () => nowMs,
+		})
+		next.observe({ kind: 'done', turnId: TURN, stopReason: 'timeout' })
+		await next.flush()
+		expect((await reader().observations()).map((r) => r.sessionId)).toEqual([idAt(nowMs)])
+	})
+})
+
 describe('helpers', () => {
+	it('masks key=value secrets, bearer credentials and absolute paths', () => {
+		const text = redactSummary(
+			'failed: password=hunter2 key: abc123 Bearer sk-1 at /etc/app/conf.json',
+			'/home/x',
+		)
+		expect(text).not.toMatch(/hunter2|abc123|sk-1|\/etc/)
+		expect(text).toContain('[path]')
+	})
 	it('reads the time out of a version-7 id only', () => {
 		expect(uuidTime(idAt(1_700_000_000_000))).toBe(1_700_000_000_000)
 		expect(uuidTime('3f2b8c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f')).toBeNull()

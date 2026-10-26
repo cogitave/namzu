@@ -328,6 +328,7 @@ import { type ConversationContext, ensureSessionStarted } from '../integrations/
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
@@ -2489,7 +2490,8 @@ export async function createAgentSession(
 		options.learningObservations === true && !options.ephemeral
 			? createSessionLearningFeed({
 					paths,
-					tenantId: scope.tenantId,
+					// The installation's own tenant, so `namzu learning --sessions` finds it again.
+					tenantId: readIdentity(paths.home)?.tenantId ?? scope.tenantId,
 					projectId,
 					sessionId: String(scope.sessionId),
 				})

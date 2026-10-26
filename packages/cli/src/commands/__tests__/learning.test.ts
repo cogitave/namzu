@@ -325,3 +325,41 @@ it('`namzu learn` and `namzu learning` behave as their resident aliases', async 
 	expect(viaTop.printed).toEqual(viaResident.printed)
 	expect((viaTop.printed[0]?.cycles as unknown[]).length).toBe(1)
 })
+
+it('lists what conversations kept without a resident', async () => {
+	const { openSessions } = await import('../../integrations/sessions/store.js')
+	const { createSessionLearningFeed } = await import('../../integrations/learning/session-feed.js')
+	const { loadIdentity } = await import('../../integrations/state/identity.js')
+	const { SessionPaths } = await import('@namzu/sdk')
+	const sessions = await openSessions(cwd)
+	const paths = new SessionPaths({ home: sessions.root, slug: sessions.slug })
+	const stamp = Date.now().toString(16).padStart(12, '0')
+	const id = `${stamp.slice(0, 8)}-${stamp.slice(8)}-7def-8123-456789abcdef`
+	const feed = createSessionLearningFeed({
+		paths,
+		tenantId: loadIdentity(sessions.root).tenantId,
+		projectId: sessions.projectId,
+		sessionId: id,
+	})
+	feed.observe({ kind: 'done', turnId: id, stopReason: 'timeout' })
+	await feed.flush()
+	const printed: Record<string, unknown>[] = []
+	const run = (args: string[]) =>
+		learningCommand.handler({
+			ctx: {
+				config: {},
+				formatter: {
+					name: 'json',
+					print: (value) => printed.push(value as Record<string, unknown>),
+					info: () => {},
+					error: () => {},
+				},
+			} as CommandContext,
+			rawArgs: [...args, '--cwd', cwd],
+		})
+	expect(await run(['--sessions'])).toBe(0)
+	expect((printed[0]?.observations as unknown[]).length).toBe(1)
+	expect(String(printed[0]?.text)).toContain('stop:timeout')
+	expect(await run(['--sessions', '--after', '1'])).toBe(0)
+	expect(printed[1]?.text).toBe('No conversation observations recorded.')
+})

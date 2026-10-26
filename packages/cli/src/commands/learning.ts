@@ -6,11 +6,13 @@ import {
 	type LearningCycleOptions,
 	type LearningCycleSummary,
 	type LearningDiscoveryOptions,
+	type LearningObservationRecord,
 	runStoredLearningCycle,
 	runStoredLearningFromObservations,
 } from '@namzu/sdk'
 import { Command } from 'commander'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { sessionLearningStore } from '../integrations/learning/session-store.js'
 import { residentLearningStore } from '../integrations/resident/learning-storage.js'
 import { lookupResident } from '../integrations/resident/storage.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -68,6 +70,19 @@ export function learningSummary(row: LearningCycleSummary): string {
 	].join('\n')
 }
 
+function observationText(observations: readonly LearningObservationRecord[]): string {
+	return observations
+		.map((o) =>
+			[
+				`${o.ordinal} · ${line(o.skillName)} · ${o.outcome}${o.usageComplete ? '' : ' · usage unresolved'}`,
+				`  ${line(o.taskKey)} · ${line(o.evaluatorRevision)}`,
+				`  ${preview(o.evidence.reason)}`,
+				`  ${o.attemptedCycleId ? `Experiment: ${o.attemptedCycleId}` : 'No experiment claimed'}`,
+			].join('\n'),
+		)
+		.join('\n\n')
+}
+
 /** Explicit host modules follow the existing eval command's executable-suite convention. */
 export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): Promise<number> {
 	const execute = rawArgs[0] === 'learn'
@@ -82,7 +97,11 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 	else
 		parser
 			.option('--events')
-			.option('--observations', 'Inspect host-scored learning observations')
+			.option('--observations', "Inspect a resident's host-scored learning observations")
+			.option(
+				'--sessions',
+				'Inspect the failures conversations in this folder kept (no resident needed)',
+			)
 			.option('--after <sequence>', '', integer)
 			.option('--before <ordinal>', '', integer)
 			.option('--limit <count>', '', integer)
@@ -98,6 +117,7 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 		trust?: boolean
 		events?: boolean
 		observations?: boolean
+		sessions?: boolean
 		after?: number
 		before?: number
 		limit?: number
@@ -111,6 +131,24 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 	const interrupt = () =>
 		controller.abort(new Error('Learning experiment interrupted by the operator.'))
 	try {
+		if (!execute && flags.sessions) {
+			if (parser.args[0] || flags.events || flags.before !== undefined || flags.observations)
+				throw new Error(
+					'--sessions uses --after and --limit, without a cycle ID, --events, --before or --observations.',
+				)
+			const store = await sessionLearningStore(target.cwd)
+			const observations = store
+				? await store.observations({ after: flags.after, limit: flags.limit })
+				: []
+			ctx.formatter.print({
+				text: observations.length
+					? observationText(observations)
+					: 'No conversation observations recorded.',
+				observations,
+				nextAfter: observations.at(-1)?.ordinal ?? flags.after ?? 0,
+			})
+			return 0
+		}
 		const resident = await lookupResident(target.cwd, flags.agent)
 		if (!resident) {
 			ctx.formatter.print({
@@ -132,16 +170,7 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 					: []
 				ctx.formatter.print({
 					text: observations.length
-						? observations
-								.map((o) =>
-									[
-										`${o.ordinal} · ${line(o.skillName)} · ${o.outcome}${o.usageComplete ? '' : ' · usage unresolved'}`,
-										`  ${line(o.taskKey)} · ${line(o.evaluatorRevision)}`,
-										`  ${preview(o.evidence.reason)}`,
-										`  ${o.attemptedCycleId ? `Experiment: ${o.attemptedCycleId}` : 'No experiment claimed'}`,
-									].join('\n'),
-								)
-								.join('\n\n')
+						? observationText(observations)
 						: 'No learning observations recorded.',
 					observations,
 					nextAfter: observations.at(-1)?.ordinal ?? flags.after ?? 0,

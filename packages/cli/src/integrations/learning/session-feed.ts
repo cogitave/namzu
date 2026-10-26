@@ -24,8 +24,10 @@ import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 export const RETENTION_DAYS = 30
 
 /** One standing target: guidance for how conversations are run in this project. */
-const SKILL = 'session-guidance'
-const AGENT_KEY = 'sessions'
+export const SESSION_SKILL = 'session-guidance'
+export const SESSION_AGENT_KEY = 'sessions'
+const SKILL = SESSION_SKILL
+const AGENT_KEY = SESSION_AGENT_KEY
 const DAY_MS = 86_400_000
 
 /** The events this module reads; the conversation's own event stream satisfies it. */
@@ -71,7 +73,12 @@ export interface SessionLearningFeed {
 	flush(): Promise<void>
 }
 
-/** Plain, short and free of paths and long secrets-looking tokens. */
+/**
+ * A short masked excerpt of a failure message: home folders, absolute paths,
+ * links, email addresses, `key=value` secrets, bearer credentials and long
+ * token-like strings are replaced. Other words in the message are kept, so it
+ * is an excerpt, not a guarantee that no sensitive word survives.
+ */
 export function redactSummary(text: string, home = homedir()): string {
 	let value = Array.from(text)
 		.map((c) => (/[\p{Cc}\p{Cf}]/u.test(c) ? ' ' : c))
@@ -80,6 +87,12 @@ export function redactSummary(text: string, home = homedir()): string {
 	value = value
 		.replace(/\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b/g, '[email]')
 		.replace(/https?:\/\/\S+/g, '[link]')
+		.replace(/\b(Bearer|Basic)\s+\S+/gi, '$1 [redacted]')
+		.replace(
+			/\b([\w.-]*(?:pass(?:word|wd)?|secret|token|key|auth|credential)[\w.-]*)\s*[=:]\s*\S+/gi,
+			'$1=[redacted]',
+		)
+		.replace(/(^|[\s("'=])\/(?:[\w.@~+-]+\/)+[\w.@~+-]*/g, '$1[path]')
 		.replace(/[A-Za-z0-9_\-+/=]{24,}/g, '[redacted]')
 		.replace(/\s+/g, ' ')
 		.trim()
@@ -101,6 +114,16 @@ export function uuidTime(id: string): number | null {
 	if (hex.length !== 32 || hex[12] !== '7') return null
 	const time = Number.parseInt(hex.slice(0, 12), 16)
 	return Number.isFinite(time) ? time : null
+}
+
+/** When the record was written: its own stamp, else the session id's clock, else unknown. */
+export function observedTime(record: { trace: string; sessionId: string }): number | null {
+	const stamped = /^Recorded at (\S+?)\. /.exec(record.trace)
+	if (stamped) {
+		const at = Date.parse(stamped[1] as string)
+		if (Number.isFinite(at)) return at
+	}
+	return uuidTime(record.sessionId)
 }
 
 interface Classified {
@@ -217,15 +240,16 @@ export function createSessionLearningFeed(
 				source: `session:${options.sessionId}`,
 				reason: found.reason,
 			},
-			trace: `Conversation ${options.sessionId}, turn ${turnId}. ${found.reason}`,
+			trace: `Recorded at ${new Date(now()).toISOString()}. Conversation ${options.sessionId}, turn ${turnId}. ${found.reason}`,
 		}
 		await target.observe(observation)
 		if (!pruned) {
 			pruned = true
 			const cutoff = now() - RETENTION_DAYS * DAY_MS
 			await target.pruneObservations((record) => {
-				const made = uuidTime(record.sessionId)
-				return made !== null && made < cutoff
+				const made = observedTime(record)
+				// An age that cannot be shown is not kept: the promise is 30 days.
+				return made === null || made < cutoff
 			})
 		}
 	}
