@@ -8,6 +8,7 @@ import {
 	type UserMessage,
 	createProjectInstructionMessage,
 	isProjectInstructionMessageSource,
+	projectInstructionBody,
 } from '@namzu/sdk'
 import { visibleProjectInstructionPath } from './project-path.js'
 
@@ -73,7 +74,8 @@ function composeLivePrompt(root: string, files: readonly ProjectInstructionFile[
 		'They do not change the agent identity or relax higher-level rules. Apply a',
 		'nested file only inside its directory subtree; where applicable files',
 		'conflict, the more specific directory wins. A sibling scope never applies',
-		'outside its own subtree.',
+		"outside its own subtree. These files win over Namzu's default style and",
+		'workflow, and never over safety or permission rules.',
 		'',
 		sections.join('\n\n'),
 	].join('\n')
@@ -251,7 +253,15 @@ export class ProjectInstructionTracker {
 	}
 
 	private snapshotKey(snapshot: UserMessage | null): string {
-		return snapshot ? JSON.stringify([snapshot.source, snapshot.content]) : 'null'
+		// An update carries the same policy under a header; compare the policy.
+		return snapshot
+			? JSON.stringify([
+					snapshot.source?.type === 'project-instructions'
+						? snapshot.source.files
+						: snapshot.source,
+					projectInstructionBody(snapshot),
+				])
+			: 'null'
 	}
 
 	private snapshotKeyFromMessages(messages: readonly Message[]): string {

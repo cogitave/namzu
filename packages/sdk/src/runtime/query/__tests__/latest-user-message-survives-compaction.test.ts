@@ -493,7 +493,9 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	})
 	expect(observed).toEqual(['NEW_QUEUED_OPERATOR_TASK', 'NEW_QUEUED_OPERATOR_TASK'])
 	expect(JSON.stringify(queuedProvider.requests[0]?.messages)).toContain('NEW_QUEUED_OPERATOR_TASK')
-	const recallMessage = queuedProvider.requests[0]?.messages.at(-1)
+	const recallMessage = queuedProvider.requests[0]?.messages.find(
+		(message) => typeof message.content === 'string' && message.content.includes('NEW_TASK_RECALL'),
+	)
 	expect(recallMessage?.role).toBe('user')
 	if (recallMessage?.role !== 'user') throw new Error('Expected request-only recall context')
 	expect(recallMessage?.source).toMatchObject({ type: 'runtime-context', kind: 'step-context' })
@@ -617,7 +619,10 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 	expect(signals).toHaveLength(2)
 	expect(signals[0]).toBe(signals[1])
 	const request = provider.requests[0]?.messages
-	const recallContext = request?.at(-1)
+	const recallContext = request?.find(
+		(message) =>
+			message.role === 'user' && message.content?.includes('Retrieved project memory') === true,
+	)
 	expect(recallContext?.role).toBe('user')
 	expect(recallContext?.content).toContain('Retrieved project memory')
 	const system = request
@@ -668,7 +673,7 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 	expect(budgets[1]).toEqual({ windowTokens: 8_192, remainingTokens: 0 })
 })
 
-it('keeps tool-attached steering as current intent after its tool result is compacted away', async () => {
+it('keeps steering sent during a tool batch as current intent after the batch is compacted away', async () => {
 	const store = new InMemoryMemoryStore()
 	await store.create({
 		title: 'Billing',
@@ -739,9 +744,19 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	)
 	expect(result.status).toBe('completed')
 	expect(provider.requests).toHaveLength(2)
-	expect(provider.requests[0]?.messages.at(-1)?.content).toContain('BILLING_MEMORY')
-	expect(provider.requests[1]?.messages.at(-1)?.content).toContain('DEPLOYMENT_MEMORY')
-	expect(provider.requests[1]?.messages.at(-1)?.content).not.toContain('BILLING_MEMORY')
+	const recalled = (index: number) =>
+		provider.requests[index]?.messages
+			.filter(
+				(m) =>
+					m.role === 'user' &&
+					m.source?.type === 'runtime-context' &&
+					m.source.kind === 'step-context',
+			)
+			.map((m) => m.content)
+			.join('\n')
+	expect(recalled(0)).toContain('BILLING_MEMORY')
+	expect(recalled(1)).toContain('DEPLOYMENT_MEMORY')
+	expect(recalled(1)).not.toContain('BILLING_MEMORY')
 	expect(events.some((event) => event.type === 'compaction_shed')).toBe(true)
 	expect(provider.requests[1]?.messages.some((message) => message.role === 'tool')).toBe(false)
 	const checkpoint = (await turnCheckpoints({ ...scope, turnId: result.id, sessionLog })).at(-1)
@@ -750,7 +765,9 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	expect(
 		context.messages.some(
 			(message) =>
-				message.role === 'tool' &&
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				message.source.kind === 'steering' &&
 				typeof message.content === 'string' &&
 				message.content.includes('Investigate deployment'),
 		),

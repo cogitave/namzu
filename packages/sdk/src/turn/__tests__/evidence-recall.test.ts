@@ -721,7 +721,7 @@ describe('ephemeral scoped evidence recall', () => {
 			copies.map((item) => item.scope.turnId),
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
-		expect(result?.context).toContain('repetition is not corroboration')
+		expect(result?.context).toContain('does not corroborate old output')
 		expect(result?.context).toContain('seq orders events only within one turn')
 	})
 

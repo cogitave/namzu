@@ -32,6 +32,13 @@ function isSubstantive(sentence: string): boolean {
 	)
 }
 
+/** A sentence that only says the assistant glanced at the code carries nothing to carry forward. */
+function isLowSignalNote(sentence: string): boolean {
+	return /^(?:we|i)(?: have|'ve)? (?:looked|taken a look|had a look) at (?:the |this )?(?:code|files?|repo(?:sitory)?|project)\.?$/i.test(
+		sentence,
+	)
+}
+
 function isExplicitAssistantDecision(sentence: string): boolean {
 	return /^(?:(?:the|my|our) decision is\b|decision\s*:|(?:i|we)(?: have|'ve)? (?:decided|chose|chosen)\b)/i.test(
 		sentence,
@@ -200,7 +207,7 @@ export function extractFromAssistantMessage(
 	if (!content || !content.trim()) return
 
 	const sentences = splitSentences(content)
-	const substantive = sentences.filter(isSubstantive)
+	const substantive = sentences.filter((s) => isSubstantive(s) && !isLowSignalNote(s))
 	const selected = substantive.slice(0, config.maxSentencesPerTurn)
 
 	for (const sentence of selected) {

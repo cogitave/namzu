@@ -25,7 +25,7 @@ export function guidelineAgents(guideline: WorkflowSizeGuideline): number | unde
 }
 
 /**
- * The advisory paragraph appended to the tool description, or '' for
+ * The advisory paragraph for the system prompt's workflow section, or '' for
  * `unrestricted`. `configured` is false when the guideline is the default.
  */
 export function workflowSizeAdvice(guideline: WorkflowSizeGuideline, configured: boolean): string {
@@ -38,6 +38,20 @@ export function workflowSizeAdvice(guideline: WorkflowSizeGuideline, configured:
 		? ''
 		: ' The person can raise or remove it with workflow.sizeGuideline in the configuration.'
 	return `${head} ${guideline}, so keep workflows under ${agents} agents. This is a guideline, not a hard limit: follow it unless the person's prompt calls for a different scale.${tail}`
+}
+
+/**
+ * The advice for a session's configured guideline (or the default). It rides
+ * in the system prompt beside the workflow doctrine, not in the tool
+ * description, so a changed setting never rewrites the tool definitions.
+ */
+export function sessionWorkflowSizeAdvice(
+	config: { readonly sizeGuideline?: WorkflowSizeGuideline | undefined } | undefined,
+): string {
+	return workflowSizeAdvice(
+		config?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
+		config?.sizeGuideline !== undefined,
+	)
 }
 
 const SUFFIX = { k: 1e3, m: 1e6, b: 1e9 } as const

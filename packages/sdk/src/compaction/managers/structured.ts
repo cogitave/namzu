@@ -1,4 +1,5 @@
 import type { CompactionConfig } from '../../config/runtime.js'
+import { isOperatorUserMessage } from '../../runtime/query/steering.js'
 import type { Message } from '../../types/message/index.js'
 import { findSafeTrimIndex } from '../dangling.js'
 import {
@@ -47,6 +48,7 @@ export class StructuredCompactionManager implements ConversationManager {
 		let isFirstUserMessage = true
 		for (const message of messages) {
 			if (message.role === 'user') {
+				if (!isOperatorUserMessage(message)) continue
 				extractFromUserMessage(stateManager, message.content, isFirstUserMessage)
 				isFirstUserMessage = false
 			} else if (message.role === 'assistant' && message.content) {
@@ -126,6 +128,7 @@ export class StructuredCompactionManager implements ConversationManager {
 		let isFirstUserMessage = true
 		for (const message of messages) {
 			if (message.role === 'user') {
+				if (!isOperatorUserMessage(message)) continue
 				extractFromUserMessage(stateManager, message.content, isFirstUserMessage)
 				isFirstUserMessage = false
 			} else if (message.role === 'assistant' && message.content) {

@@ -243,17 +243,12 @@ import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.j
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
-	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_PLAN_FILE_DOCTRINE,
-	NAMZU_PLAN_MODE_DOCTRINE,
-	NAMZU_WORKING_DOCTRINE,
-} from '../context/doctrine.js'
-import {
 	type ExecutionBoundary,
 	composeEnvironmentPrompt,
 	detectWsl,
 	readEnvironmentFacts,
 } from '../context/environment.js'
+import { AGENT_LAUNCH_TOOL, FOREGROUND_BASH_DESCRIPTION } from '../context/identity.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
 	type ResolvedSandbox,
@@ -261,6 +256,11 @@ import {
 	resolveSandbox,
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
+import {
+	DEFERRED_TOOL_GUIDANCE,
+	composeSessionSystemPrompt,
+	sessionPromptInput,
+} from '../context/system-prompt.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
@@ -323,7 +323,6 @@ import { activeZenCatalogue, isOfferableModel } from '../integrations/providers/
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
-	CONVERSATION_EVIDENCE_GUIDANCE,
 	buildConversationReadTool,
 	buildConversationSearchTool,
 	releaseConversationEvidence,
@@ -362,15 +361,13 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
-import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
-	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
 	parseTokenTarget,
-	workflowSizeAdvice,
+	sessionWorkflowSizeAdvice,
 	workflowTokenCeiling,
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
@@ -1134,6 +1131,12 @@ export interface ResumePausedParams {
 	 * note the model read it as final and ended the turn.
 	 */
 	readonly systemNote?: string
+	/**
+	 * Standing words for the resumed turn's system prompt, as
+	 * `SendOptions.extraSystem` is to a new turn's: the operator's active
+	 * skills. A turn that paused and resumed keeps them.
+	 */
+	readonly extraSystem?: string
 }
 
 /** Where `model: auto` sent a turn: shown beside "Auto" so the choice is visible. */
@@ -1974,8 +1977,11 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
-const DEFERRED_TOOL_GUIDANCE =
-	'Before using a tool listed under deferred_tools, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+export { DEFERRED_TOOL_GUIDANCE }
+
+/** True when any toolset sent to a turn defers a tool behind `search_tools`. */
+const anyDeferred = (toolsets: readonly Toolset[]): boolean =>
+	toolsets.some((ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0)
 
 /**
  * Everything `ts` contributes defaults to `deferred` except the names in
@@ -1995,29 +2001,6 @@ function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Too
 		deferred(filtered(ts, (tool) => !eagerNames.has(tool.name))),
 	]
 }
-
-// namzu's own identity. Injected as system context so the agent presents as
-// namzu, and nothing else, whatever identity the credential path needs
-// on the wire. Some OAuth token types require a fixed prefix block before
-// they will authorize; that requirement lives in the credential layer and
-// is invisible from here, which is where it belongs — an identity a token
-// demands is not an identity the agent has.
-const NAMZU_IDENTITY = [
-	'You are Namzu, the assistant in the Namzu CLI. Namzu is an agent kernel exposed through a TypeScript SDK; this terminal application is one interface to it.',
-	'You are built on the @namzu/sdk and act through tools (bash, read, write, edit, glob, grep).',
-	'Your name is namzu. When asked who or what you are, identify yourself as namzu.',
-	'You may be powered by an underlying model from any provider; that model is an',
-	'implementation detail of how you run, not who you are. Never present yourself as',
-	'the model, as the assistant product that model ships under, or as any other agent.',
-	'',
-	'Ground action claims in successful tool results from this conversation. Clearly distinguish completed earlier work from actions performed in the current turn:',
-	'- Never say you ran a command, wrote/edited a file, delegated to a sub-agent, or researched something unless the corresponding tool call actually ran and returned.',
-	'- Never invent file paths, command output, URLs, research findings, or results. If you announce an action ("running…", "delegating…"), you MUST immediately make the tool call — do not narrate an action and then skip it.',
-	'- Bash calls are serialized because they may mutate the same workspace. Never claim two Bash calls ran in parallel unless one command itself produced timestamped proof of overlap. Delegate genuinely independent work through the Agent tool instead.',
-	'- If a capability or tool is unavailable, explain the limitation and continue independent work that remains possible. Use an available alternative only when it actually supports the task; never fabricate a result or bypass a refusal.',
-	'- When you delegate with the `Agent` tool, report only what the sub-agent actually returned in its tool result; if it wrote files, verify with a tool before claiming paths.',
-	'- A reply from a tool that delegates to ANOTHER agent (a connector that runs another agent, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
-].join('\n')
 
 const NAMZU_BROWSER_DESKTOP_ROUTING =
 	'When the user means an already open desktop browser window (their own, not the Namzu-managed profile), use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
@@ -2055,8 +2038,7 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 	}
 	return {
 		...tool,
-		description:
-			'Executes one shell command in the foreground and returns stdout/stderr. Calls are serialized because shell commands may mutate the same workspace. Use the Agent tool for genuinely independent parallel work.',
+		description: FOREGROUND_BASH_DESCRIPTION,
 		inputSchema: fullSchema.omit({ run_in_background: true }),
 		modelInputSchema: {
 			type: 'object',
@@ -2907,7 +2889,7 @@ export async function createAgentSession(
 	// Whether the last send had somebody to answer a prompt. A child's
 	// environment is composed outside any send, so it reads this.
 	let lastSendInteractive = false
-	const boundaryFor = (interactive: boolean): ExecutionBoundary => ({
+	const boundaryFor = (interactive: boolean, mode?: PermissionMode): ExecutionBoundary => ({
 		...(sandbox.provider && sandbox.environment
 			? {
 					sandbox: {
@@ -2925,6 +2907,7 @@ export async function createAgentSession(
 						? 'unattended'
 						: 'refused',
 		interactive,
+		...(mode ? { mode } : {}),
 	})
 	// Always built: the executor hands it to the tools only where it is
 	// safe — on the host, or inside a sandbox that can start a detached
@@ -3581,7 +3564,7 @@ export async function createAgentSession(
 			readEnvironment: async (childCwd) =>
 				composeEnvironmentPrompt({
 					...(await readEnvironmentFacts(childCwd)),
-					boundary: boundaryFor(lastSendInteractive),
+					boundary: { ...boundaryFor(lastSendInteractive), delegated: true },
 					...(wsl ? { wsl } : {}),
 				}),
 			// Each child has its own provider instance, never the parent's fallback cursor.
@@ -3820,10 +3803,6 @@ export async function createAgentSession(
 					},
 				}
 			},
-			sizeAdvice: workflowSizeAdvice(
-				options.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
-				options.workflow?.sizeGuideline !== undefined,
-			),
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
 				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
@@ -3986,7 +3965,16 @@ export async function createAgentSession(
 		// handler above routes by the question, not by the turn, and no durable
 		// park recorder is supplied.
 		toolsets.push(
-			toolset('ask-user-question', [buildAskUserQuestionTool({ resumeHandler: parkQuestion })]),
+			toolset('ask-user-question', [
+				buildAskUserQuestionTool({
+					resumeHandler: parkQuestion,
+					// Only where the plan-approval tool is mounted (below), so the
+					// description never names a tool the model does not have.
+					...(options.planApproval && !options.ephemeral
+						? { planApprovalTool: EXIT_PLAN_MODE_TOOL_NAME }
+						: {}),
+				}),
+			]),
 		)
 	}
 	// `exit_plan_mode`, where somebody can approve. The tool is per session; who
@@ -4535,8 +4523,10 @@ export async function createAgentSession(
 		reviewHold,
 		model: pinned,
 		systemNote,
+		extraSystem,
 	}: ResumeDurableParams & {
 		readonly systemNote?: string
+		readonly extraSystem?: string
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
@@ -4572,21 +4562,37 @@ export async function createAgentSession(
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
 			})
-			const systemPrompt =
-				[
-					NAMZU_IDENTITY,
-					NAMZU_WORKING_DOCTRINE,
-					browserDesktopRouting,
-					NAMZU_DELEGATION_DOCTRINE,
-					palPromptBlock(),
-					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-					memoryGuidance,
-					environmentPrompt,
-					systemNote,
-					turnSkills.overflowNote,
-				]
-					.filter((s): s is string => Boolean(s))
-					.join('\n\n') || undefined
+			const resumePlanPath =
+				options.planApproval && !options.ephemeral
+					? paths.planFile({ sessionId: entry.sessionId })
+					: undefined
+			const systemPrompt = composeSessionSystemPrompt(
+				sessionPromptInput(
+					{
+						browserDesktopRouting,
+						palBlock: palPromptBlock(),
+						environment: environmentPrompt,
+						withheldTools: options.withheldTools,
+						memoryGuidance,
+						conversationSessions: options.conversationSessions,
+						toolLoading: options.toolLoading,
+						anyToolDeferred: anyDeferred(sessionToolsets),
+						planPath: resumePlanPath,
+						skillsOverflowNote: turnSkills.overflowNote,
+						workflowSizeAdvice: sessionWorkflowSizeAdvice(options.workflow),
+					},
+					{
+						resident: false,
+						// A resumed turn runs over the session's toolset, which has no
+						// workflow tool: it is added per send, for a turn that carries a
+						// review channel.
+						workflowOffered: false,
+						permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
+						extraSystem,
+						systemNote,
+					},
+				),
+			)
 			lastSystemPromptText = systemPrompt
 
 			if (delegatedResumeHandlers.has(entry.turnId)) {
@@ -4803,6 +4809,7 @@ export async function createAgentSession(
 		reviewHold,
 		model: pinned,
 		systemNote,
+		extraSystem,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -4831,6 +4838,7 @@ export async function createAgentSession(
 			...(reviewHold ? { reviewHold } : {}),
 			...(pinned ? { model: pinned } : {}),
 			...(systemNote ? { systemNote } : {}),
+			...(extraSystem ? { extraSystem } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
@@ -5530,12 +5538,23 @@ export async function createAgentSession(
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
 						])
-						const environmentPrompt = composeEnvironmentPrompt({
-							...environmentFacts,
-							additionalDirectories: [...directories],
-							boundary: boundaryFor(opts?.onPermission !== undefined),
-							...(wsl ? { wsl } : {}),
-						})
+						// The date, the branch and the permission mode change under a
+						// running session, so a step with a prompt of its own (not the
+						// resident one) leaves them out of the cached prefix and gets
+						// them as reminders. A resident step keeps them in its dynamic block.
+						const stableEnvironment = !opts?.residentContext
+						const environmentPrompt = composeEnvironmentPrompt(
+							{
+								...environmentFacts,
+								additionalDirectories: [...directories],
+								boundary: boundaryFor(
+									opts?.onPermission !== undefined,
+									stableEnvironment ? undefined : initialMode,
+								),
+								...(wsl ? { wsl } : {}),
+							},
+							{ stable: stableEnvironment },
+						)
 						// The repository as it stood when THIS turn began, through the
 						// SDK's `context` placement — request-only context after the
 						// history that never enters it. An observation, not an
@@ -5647,7 +5666,7 @@ export async function createAgentSession(
 						}
 						// The `workflow` tool is listed on every turn of a host that can run
 						// one, and the model is gated by wording: its description and
-						// `WORKFLOW_DOCTRINE` say when it may be called (the operator's
+						// the workflow doctrine say when it may be called (the operator's
 						// keyword, hypermode on, their own words). A tool list
 						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
@@ -5682,45 +5701,31 @@ export async function createAgentSession(
 								messages: () => [],
 							})
 						}
-						const systemPrompt =
-							[
-								NAMZU_IDENTITY,
-								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
-								browserDesktopRouting,
-								// Advice on delegating, for a session that has the Agent tool:
-								// a scheduled run whose job withholds it would only be told how
-								// to use a tool it was not sent.
-								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
-									? undefined
-									: NAMZU_DELEGATION_DOCTRINE,
-								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
-								residentContext ? undefined : palPromptBlock(),
-								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-								residentContext ? undefined : memoryGuidance,
-								// Whenever anything is deferred, not only under
-								// `toolLoading: 'deferred'`: a deferred tool the model was
-								// never told how to load is a tool it does not have.
-								options.toolLoading === 'deferred' ||
-								runToolsets.some(
-									(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
-								)
-									? DEFERRED_TOOL_GUIDANCE
-									: undefined,
-								// Present only while the turn runs under `plan`. A mode change
-								// is rare, so the cached prefix it re-keys is a price paid once
-								// per switch rather than once per turn.
-								!residentContext && opts?.permissionMode === 'plan'
-									? planPath
-										? NAMZU_PLAN_FILE_DOCTRINE
-										: NAMZU_PLAN_MODE_DOCTRINE
-									: undefined,
-								residentContext ? undefined : environmentPrompt,
-								residentContext ? undefined : opts?.extraSystem,
-								residentContext ? undefined : opts?.systemNote,
-								turnSkills.overflowNote,
-							]
-								.filter((s): s is string => Boolean(s))
-								.join('\n\n') || undefined
+						const systemPrompt = composeSessionSystemPrompt(
+							sessionPromptInput(
+								{
+									browserDesktopRouting,
+									palBlock: palPromptBlock(),
+									environment: environmentPrompt,
+									withheldTools: options.withheldTools,
+									memoryGuidance,
+									conversationSessions: options.conversationSessions,
+									toolLoading: options.toolLoading,
+									anyToolDeferred: anyDeferred(runToolsets),
+									planPath,
+									skillsOverflowNote: turnSkills.overflowNote,
+									workflowSizeAdvice: sessionWorkflowSizeAdvice(options.workflow),
+								},
+								{
+									resident: Boolean(residentContext),
+									workflowOffered: workflowOffer,
+									planInReminders: planPath !== undefined && !residentContext,
+									permissionMode: opts?.permissionMode,
+									extraSystem: opts?.extraSystem,
+									systemNote: opts?.systemNote,
+								},
+							),
+						)
 						lastSystemPromptText = systemPrompt
 						await announceSessionStart()
 						checkpoints.beginTurn(lastUserText(messages), turnId, {
@@ -5758,11 +5763,21 @@ export async function createAgentSession(
 						// when the mode is off now, whatever the host feeds otherwise.
 						const turnHypermode =
 							!residentContext && (opts?.hypermode === true || hypermodeExitOwed(messages))
+						// Plan mode's instructions are the plan-mode reminder, sent
+						// whenever this turn has a plan file, so the cached system prompt
+						// does not change when the mode is toggled.
+						const planInReminders = planPath !== undefined && !residentContext
 						const reminderSource =
-							options.reminders || turnHypermode
+							options.reminders || turnHypermode || stableEnvironment
 								? createCliReminderSource({
 										mode: () => modeControl.current(),
-										...(options.reminders
+										...(stableEnvironment
+											? {
+													environment: () => environmentFacts,
+													interactive: opts?.onPermission !== undefined,
+												}
+											: {}),
+										...(options.reminders || planInReminders
 											? {
 													...(planPath
 														? {
@@ -5770,8 +5785,10 @@ export async function createAgentSession(
 																canAsk: Boolean(options.askUser && subagentRuntime),
 															}
 														: {}),
-													tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
 												}
+											: {}),
+										...(options.reminders
+											? { tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }) }
 											: {}),
 										...(residentContext
 											? {}
@@ -5885,6 +5902,10 @@ export async function createAgentSession(
 								],
 								taskStore: turnTaskStore,
 								...(reminderSource ? { reminders: reminderSource } : {}),
+								// The mode reminders already tell the model about a mode
+								// change, once, after the history; the kernel's own notice
+								// would say it a second time.
+								...(stableEnvironment ? { announceApprovalPolicyChange: false } : {}),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
@@ -6787,6 +6808,8 @@ interface TurnParams {
 	readonly taskStore: TaskStore
 	/** Hidden reminders for each model request; see `AgentSessionOptions.reminders`. */
 	readonly reminders?: ReminderSource
+	/** Whether the kernel also tells the model about a mode change; see `QueryParams`. */
+	readonly announceApprovalPolicyChange?: boolean
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
@@ -6858,6 +6881,7 @@ async function* runTurn({
 	reviewAllowedCalls,
 	taskStore,
 	reminders,
+	announceApprovalPolicyChange,
 	systemPrompt,
 	messages,
 	projectInstructionContext,
@@ -6964,6 +6988,7 @@ async function* runTurn({
 			projectInstructionContext,
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
+			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
@@ -7234,7 +7259,7 @@ export const isPromptExempt: (
 const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(['save_memory', 'update_memory'])
 
 /** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
-export const AGENT_LAUNCH_TOOL = 'Agent'
+export { AGENT_LAUNCH_TOOL }
 
 /**
  * A tool `query()` mounts for itself every turn it needs one — never part of

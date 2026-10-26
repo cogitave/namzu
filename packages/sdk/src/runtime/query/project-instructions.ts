@@ -126,10 +126,31 @@ function assertsProjectInstructionMessage(message: UserMessage): asserts message
 }
 
 /**
- * Keep only the latest structurally valid project snapshot, at its own
- * chronological position. Invalid tagged provenance refuses before a provider
- * can be called; an untrusted persisted object cannot acquire policy status by
- * spelling one discriminator.
+ * The line that opens a changed copy of the project instructions. The copy is
+ * complete, so the model can drop the earlier one outright.
+ */
+export const PROJECT_INSTRUCTION_UPDATE_HEADER =
+	'Updated project instructions. These replace the project instructions given earlier in this conversation in full; a rule that appears only in the earlier copy no longer applies.\n\n'
+
+function isUpdate(message: UserMessage): boolean {
+	return message.source?.type === 'project-instructions' && message.source.update === true
+}
+
+/** The policy text of a snapshot, without the header an update carries. */
+export function projectInstructionBody(message: UserMessage): string {
+	const content = typeof message.content === 'string' ? message.content : ''
+	return isUpdate(message) && content.startsWith(PROJECT_INSTRUCTION_UPDATE_HEADER)
+		? content.slice(PROJECT_INSTRUCTION_UPDATE_HEADER.length)
+		: content
+}
+
+/**
+ * Keep the project policy a request needs, each at its own chronological
+ * position. A plain snapshot supersedes every earlier one. A changed copy
+ * (`source.update`) supersedes the copies before it but leaves the first one
+ * in place, so the request keeps its shape up to the change. Invalid tagged
+ * provenance refuses before a provider can be called; an untrusted persisted
+ * object cannot acquire policy status by spelling one discriminator.
  */
 export function collapseProjectInstructionSnapshots(messages: readonly Message[]): Message[] {
 	let latest = -1
@@ -140,9 +161,21 @@ export function collapseProjectInstructionSnapshots(messages: readonly Message[]
 		latest = index
 	}
 	if (latest < 0) return [...messages]
+	const latestMessage = messages[latest] as UserMessage
+	// The base is the earliest copy, kept only while the latest is an update of it.
+	let base = -1
+	if (isUpdate(latestMessage)) {
+		for (let index = 0; index < latest; index += 1) {
+			const message = messages[index]
+			if (message && isProjectInstructionMessage(message)) {
+				base = index
+				break
+			}
+		}
+	}
 	return messages.flatMap((message, index) => {
 		if (message.role === 'user' && message.source?.type === 'project-instructions') {
-			return index === latest
+			return index === latest || index === base
 				? [message.retain === true ? message : { ...message, retain: true }]
 				: []
 		}
@@ -150,9 +183,42 @@ export function collapseProjectInstructionSnapshots(messages: readonly Message[]
 	})
 }
 
+function canonical(message: UserMessage): unknown {
+	// Through JSON, as the durable record went: an explicitly undefined field and
+	// a missing one are the same message.
+	return JSON.parse(
+		JSON.stringify({
+			content: projectInstructionBody(message),
+			attachments: message.attachments,
+			source: message.source ? { ...message.source, update: undefined } : message.source,
+			cacheHint: message.cacheHint,
+		}),
+	)
+}
+
+/** Whether two snapshots say the same thing, ignoring ids, timestamps and `retain`. */
+export function sameProjectInstructionSnapshot(a: UserMessage, b: UserMessage): boolean {
+	return isDeepStrictEqual(canonical(a), canonical(b))
+}
+
+/** The latest project-instruction snapshot in `messages`, if there is one. */
+export function latestProjectInstructionSnapshot(
+	messages: readonly Message[],
+): UserMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index]
+		if (message && isProjectInstructionMessage(message)) return message
+	}
+	return undefined
+}
+
 /**
  * Replace project policy without mutating the caller's history.
  *
+ * The first copy a conversation holds keeps its place. A changed snapshot is
+ * sent as a complete update at the tail (`source.update`), which replaces the
+ * earlier updates and tells the model it supersedes the first copy; the
+ * request is unchanged up to the update, so a provider's cache still covers it.
  * Runtime updates append after the finalized tool batch. A host seeding a new
  * human turn uses `before-latest-user`, so the policy is context for that
  * request rather than a reply after it.
@@ -161,53 +227,68 @@ export function replaceProjectInstructionSnapshot(
 	messages: readonly Message[],
 	snapshot: UserMessage | null,
 	placement: 'append' | 'before-latest-user' = 'append',
+	/** Messages the conversation already holds ahead of `messages`; read for the first copy, never changed. */
+	held: readonly Message[] = [],
 ): Message[] {
 	if (snapshot) assertsProjectInstructionMessage(snapshot)
 	// Validate every tagged predecessor before removing it. A host-authoritative
 	// replacement must not turn malformed persisted provenance into a silent
 	// success merely because the bad record happens to be superseded.
 	const validated = collapseProjectInstructionSnapshots(messages)
-	let current: UserMessage | undefined
-	for (let index = validated.length - 1; index >= 0; index -= 1) {
-		const message = validated[index]
-		if (message && isProjectInstructionMessage(message)) {
-			current = message
-			break
-		}
-	}
+	const all = collapseProjectInstructionSnapshots([...held, ...messages])
+	const current = latestProjectInstructionSnapshot(all)
 	if (
 		snapshot !== null &&
 		current !== undefined &&
-		isDeepStrictEqual(
-			{
-				content: current.content,
-				attachments: current.attachments,
-				source: current.source,
-				cacheHint: current.cacheHint,
-			},
-			{
-				content: snapshot.content,
-				attachments: snapshot.attachments,
-				source: snapshot.source,
-				cacheHint: snapshot.cacheHint,
-			},
-		)
+		sameProjectInstructionSnapshot(current, snapshot)
 	) {
 		return validated
 	}
 	if (snapshot === null && current === undefined) return validated
-	const without = validated.filter(
-		(message) => !(message.role === 'user' && message.source?.type === 'project-instructions'),
-	)
+	const isPolicy = (message: Message): boolean =>
+		message.role === 'user' && message.source?.type === 'project-instructions'
+	const without = validated.filter((message) => !isPolicy(message))
 	if (!snapshot) return without
-	const retained = snapshot.retain === true ? snapshot : { ...snapshot, retain: true }
-	if (placement === 'append') return [...without, retained]
-	let insertion = without.length
-	for (let index = without.length - 1; index >= 0; index -= 1) {
-		if (without[index]?.role === 'user') {
-			insertion = index
-			break
+	const place = (list: readonly Message[], message: UserMessage): Message[] => {
+		if (placement === 'append') return [...list, message]
+		let insertion = list.length
+		for (let index = list.length - 1; index >= 0; index -= 1) {
+			if (list[index]?.role === 'user') {
+				insertion = index
+				break
+			}
 		}
+		return [...list.slice(0, insertion), message, ...list.slice(insertion)]
 	}
-	return [...without.slice(0, insertion), retained, ...without.slice(insertion)]
+	const base = all.find(
+		(message): message is UserMessage => isProjectInstructionMessage(message) && !isUpdate(message),
+	)
+	const body = projectInstructionBody(snapshot)
+	if (base === undefined) {
+		const first: UserMessage =
+			snapshot.retain === true && !isUpdate(snapshot)
+				? snapshot
+				: {
+						...snapshot,
+						content: body,
+						source: {
+							type: 'project-instructions',
+							files: snapshot.source.files,
+						},
+						retain: true,
+					}
+		return place(without, first)
+	}
+	const update: UserMessage = {
+		...snapshot,
+		content: PROJECT_INSTRUCTION_UPDATE_HEADER + body,
+		source: {
+			type: 'project-instructions',
+			files: snapshot.source.files,
+			update: true,
+		},
+		retain: true,
+	}
+	const kept = validated.filter((message) => !isPolicy(message) || message === base)
+	return place(kept, update)
 }

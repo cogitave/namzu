@@ -140,6 +140,9 @@ IDs. Replacing a registry, skill body or host contract under an existing name
 cannot silently reuse old instructions. Full-prompt cache validation renders
 once per lookup; it does not skip local rendering on a cache hit. Dynamic,
 turn and context content do not invalidate the segmented static prefix.
+`PromptBuilder.build()` is the static segment, the separator and the dynamic
+segment exactly as a request sends them (it is derived from `buildSegmented`),
+so the whole-prompt validation covers what the model reads.
 
 Both contributions capture text when the factory is called. Later mutation of
 the supplied objects cannot change an admitted invocation's context. Create

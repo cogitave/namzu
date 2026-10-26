@@ -315,7 +315,7 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 	return defineTool({
 		name: SKILL_TOOL_NAME,
 		description:
-			'Lists model-invocable skills when called without a name, or loads one skill by its exact listed name. Long lists and bodies return an opaque continuation cursor; keep calling in the same mode with that cursor until no continuation remains. The manifest carries only names and descriptions.',
+			'Lists model-invocable skills when called without a name, or loads one skill by its exact listed name. Long lists and bodies return an opaque continuation cursor; keep calling in the same mode with that cursor until no continuation remains. The manifest carries only names and descriptions. Returns the list of skills, or the instructions of the named skill.',
 		inputSchema,
 		category: 'analysis',
 		permissions: [],

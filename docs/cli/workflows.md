@@ -293,8 +293,10 @@ in force ("Agents: up to 4 at a time, 300 in all"). The turn's token budget
 
 `sizeGuideline` is `small` (fewer than 5 agents), `medium` (fewer than 10, the
 default), `large` (fewer than 50) or `unrestricted`. Except for `unrestricted`
-it adds one paragraph to the `workflow` tool's description saying so; it is
-advice, never a limit, and the paragraph is fixed when the session starts. A
+it adds one paragraph to the system prompt, right after the workflow rules, saying
+so (the `workflow` tool's description does not carry it, so changing the setting never
+rewrites the tool definitions); it is advice, never a limit, and the paragraph is fixed
+when the session starts. A
 running workflow that schedules more than 25 agents (or the guideline's count,
 when you set one), spends more than 1.5 million tokens, or is on course to (the
 average of the agents that started, or 70 000 each before any has, times the

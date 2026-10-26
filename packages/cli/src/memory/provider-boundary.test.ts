@@ -656,12 +656,6 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 		residentEvidenceRecall: () => ({ model: 'narrow' }),
 	})
 	const store = new MarkdownMemoryStore({ directory: state.paths.memoryDir() })
-	await store.create({
-		title: 'cedargraph model selection',
-		summary: 'cedargraph recall fixture',
-		content: 'NARROW_MODEL_RECALLED_CLAIM belongs to cedargraph.',
-		description: 'cedargraph recall fixture',
-	})
 	for (let index = 0; index < 20; index++) {
 		await store.create({
 			title: `Switch item ${index}`,
@@ -670,6 +664,14 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 			description: `SWITCH_INDEX_${index}_${'x'.repeat(80)}`,
 		})
 	}
+	// Created last so the index lists it first: the fixture is about the window the
+	// selected model leaves, and must not depend on how many older rows fit in it.
+	await store.create({
+		title: 'cedargraph model selection',
+		summary: 'cedargraph recall fixture',
+		content: 'NARROW_MODEL_RECALLED_CLAIM belongs to cedargraph.',
+		description: 'cedargraph recall fixture',
+	})
 	const result = await send(
 		session,
 		`Inspect the selected window. ${'history '.repeat(historyWords)} cedargraph`,

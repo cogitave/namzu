@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Message } from '../types/message/index.js'
+import { escapeNoticeFrame, readOperatorNotice } from '../types/message/notice-frame.js'
 import type { PrepareStepContext } from '../types/session/prepare-step.js'
 import { evidenceTokenKey, evidenceTokens } from '../utils/evidence-tokens.js'
 
@@ -147,6 +148,21 @@ function operator(message: Message): boolean {
 	)
 }
 
+/**
+ * The operator's message sent while a tool ran is in the conversation inside a
+ * notice frame, while the turn remembers it as the plain text. Same message.
+ */
+function isFramedCopyOf(message: Message, current: Message): boolean {
+	return (
+		message.role === 'user' &&
+		message.source?.type === 'runtime-context' &&
+		message.source.kind === 'steering' &&
+		typeof message.content === 'string' &&
+		typeof current.content === 'string' &&
+		readOperatorNotice(message.content) === escapeNoticeFrame(current.content)
+	)
+}
+
 /** Bounded visible references, including one labelled summary; no tools or policy. */
 function historyOf(messages: readonly Message[], query: string, current?: Message): QueryMessage[] {
 	const history: QueryMessage[] = []
@@ -162,7 +178,9 @@ function historyOf(messages: readonly Message[], query: string, current?: Messag
 		// steering). Equal text from an older turn is not that input's boundary.
 		if (
 			message &&
-			(current ? message === current : operator(message) && message.content === query)
+			(current
+				? message === current || isFramedCopyOf(message, current)
+				: operator(message) && message.content === query)
 		) {
 			boundary = position
 			break

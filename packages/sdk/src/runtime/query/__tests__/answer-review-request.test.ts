@@ -88,9 +88,17 @@ it.each(['prose', 'tool', 'native'] as const)(
 						m.source.kind === 'step-context',
 				),
 			).toBe(false)
-			expect(context.requestMessages?.at(-1)?.content).toContain(
-				`Request-only reference: ${expected}`,
+			// Just before the operator's message on the first request; after the
+			// history once the model has answered and been sent back.
+			const asked = context.requestMessages?.findIndex(
+				(m) => m.role === 'user' && m.source === undefined,
 			)
+			expect(asked).toBeGreaterThan(0)
+			expect(
+				context.requestMessages?.[
+					context.iteration === 1 ? (asked ?? 0) - 1 : -1 + (context.requestMessages?.length ?? 0)
+				]?.content,
+			).toContain(`Request-only reference: ${expected}`)
 			requests.push(context.requestMessages ?? [])
 			const code = mode === 'prose' ? value : z.object({ code: z.string() }).parse(value).code
 			return code === expected
@@ -111,7 +119,11 @@ it.each(['prose', 'tool', 'native'] as const)(
 		})
 		expect(result.stopReason, JSON.stringify(result.lastError)).toBe('end_turn')
 		expect(review).toHaveBeenCalledTimes(2)
-		expect(requests[0]?.at(-1)?.content).toContain('Request-only reference: A17')
+		const justBeforeRequest = (request: readonly Message[] | undefined) => {
+			const asked = request?.findIndex((m) => m.role === 'user' && m.source === undefined) ?? -1
+			return request?.[asked - 1]?.content
+		}
+		expect(justBeforeRequest(requests[0])).toContain('Request-only reference: A17')
 		expect(requests[1]?.at(-1)?.content).toContain('Request-only reference: B42')
 		if (mode !== 'prose') expect(result.structuredOutput).toEqual({ code: 'B42' })
 		expect(JSON.stringify(result.messages)).not.toContain('Request-only reference:')

@@ -53,13 +53,13 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'The replacement string. Self-budget this payload under 12000 characters before calling.',
+				'The replacement string. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		newStr: z
 			.string()
 			.optional()
 			.describe(
-				'Alias for new_string. Also used as inserted content when insertLine is provided. Self-budget this payload under 12000 characters before calling.',
+				'Alias for new_string. Also used as inserted content when insertLine is provided. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		insertLine: z
 			.union([z.coerce.number().int().min(0), z.string().min(1)])
@@ -204,7 +204,7 @@ const modelInputSchema: Record<string, unknown> = {
 		new_string: {
 			type: 'string',
 			description:
-				'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+				'Exact replacement text. May be empty to delete old_string. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 		},
 		insertLine: {
 			// The union the execution schema already accepts, stated so a
@@ -428,7 +428,7 @@ function refusedEdit(result: EditApplyFailure, path: string) {
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to ONE file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,

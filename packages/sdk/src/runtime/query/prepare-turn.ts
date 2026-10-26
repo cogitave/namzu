@@ -53,7 +53,9 @@ import {
 	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
 	isProjectInstructionMessage,
+	latestProjectInstructionSnapshot,
 	replaceProjectInstructionSnapshot,
+	sameProjectInstructionSnapshot,
 } from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
 import { resolveMaxRequestRichContentBytes } from './request-rich-content.js'
@@ -640,11 +642,26 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				// be erased merely because cancellation arrived before this catch ran.
 				if (!preparationSignal.aborted || error !== preparationSignal.reason) throw error
 			}
-			if (snapshot !== undefined) {
+			// The snapshot a conversation already holds stays where it is. Moving an
+			// unchanged copy to this turn's front would rewrite everything after its
+			// old position on every request, so the provider's cache would reuse
+			// almost none of the history. Only a changed snapshot is sent again, at
+			// the tail just before the new message, and it replaces the old copy.
+			const standing = latestProjectInstructionSnapshot([
+				...history.map((entry) => entry.message),
+				...resolvedInitialMessages,
+			])
+			const unchanged =
+				snapshot !== undefined &&
+				snapshot !== null &&
+				standing !== undefined &&
+				sameProjectInstructionSnapshot(standing, snapshot)
+			if (snapshot !== undefined && !unchanged) {
 				resolvedInitialMessages = replaceProjectInstructionSnapshot(
 					resolvedInitialMessages,
 					snapshot,
 					'before-latest-user',
+					history.map((entry) => entry.message),
 				)
 			}
 		}
