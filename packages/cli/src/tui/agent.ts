@@ -5371,12 +5371,23 @@ export async function createAgentSession(
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
 						])
-						const environmentPrompt = composeEnvironmentPrompt({
-							...environmentFacts,
-							additionalDirectories: [...directories],
-							boundary: boundaryFor(opts?.onPermission !== undefined, initialMode),
-							...(wsl ? { wsl } : {}),
-						})
+						// The date, the branch and the permission mode change under a
+						// running session, so a step with a prompt of its own (not the
+						// resident one) leaves them out of the cached prefix and gets
+						// them as reminders. A resident step keeps them in its dynamic block.
+						const stableEnvironment = !opts?.residentContext
+						const environmentPrompt = composeEnvironmentPrompt(
+							{
+								...environmentFacts,
+								additionalDirectories: [...directories],
+								boundary: boundaryFor(
+									opts?.onPermission !== undefined,
+									stableEnvironment ? undefined : initialMode,
+								),
+								...(wsl ? { wsl } : {}),
+							},
+							{ stable: stableEnvironment },
+						)
 						// The repository as it stood when THIS turn began, through the
 						// SDK's `context` placement — request-only context after the
 						// history that never enters it. An observation, not an
@@ -5585,9 +5596,10 @@ export async function createAgentSession(
 						// does not change when the mode is toggled.
 						const planInReminders = planPath !== undefined && !residentContext
 						const reminderSource =
-							options.reminders || turnHypermode || planInReminders
+							options.reminders || turnHypermode || stableEnvironment
 								? createCliReminderSource({
 										mode: () => modeControl.current(),
+										...(stableEnvironment ? { environment: () => environmentFacts } : {}),
 										...(options.reminders || planInReminders
 											? {
 													...(planPath

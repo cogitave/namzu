@@ -10,6 +10,7 @@ import {
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../doctrine.js'
+import { composeEnvironmentPrompt } from '../environment.js'
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from '../identity.js'
 import {
 	DEFERRED_TOOL_GUIDANCE,
@@ -129,6 +130,17 @@ describe('the session system prompt', () => {
 		const auto = fromFacts()
 		const plan = fromFacts({}, { permissionMode: 'plan' })
 		expect(plan.replace(`${NAMZU_PLAN_MODE_DOCTRINE}\n\n`, '')).toBe(auto)
+	})
+
+	it('leaves the whole system prompt byte-identical across a new day and a checkout', () => {
+		const environmentOn = (today: string, branch: string) =>
+			composeEnvironmentPrompt(
+				{ today, branch, isRepository: true, boundary: { escape: 'ask', interactive: true } },
+				{ stable: true },
+			)
+		const monday = fromFacts({ environment: environmentOn('2026-10-26', 'main') })
+		expect(fromFacts({ environment: environmentOn('2026-10-27', 'main') })).toBe(monday)
+		expect(fromFacts({ environment: environmentOn('2026-10-26', 'fix/x') })).toBe(monday)
 	})
 
 	it('leaves the prefix byte-identical when plan mode toggles and the plan-mode reminder carries the file doctrine', () => {

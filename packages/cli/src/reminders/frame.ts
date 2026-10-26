@@ -16,6 +16,25 @@ export type ReminderKind =
 	| 'task-nudge'
 	| 'hypermode-on'
 	| 'hypermode-exit'
+	| 'environment'
+	| 'mode-auto'
+	| 'mode-accept-edits'
+	| 'mode-bypass'
+	| 'mode-exit'
+
+const KINDS: ReadonlySet<string> = new Set<ReminderKind>([
+	'plan-mode',
+	'plan-reentry',
+	'plan-exit',
+	'task-nudge',
+	'hypermode-on',
+	'hypermode-exit',
+	'environment',
+	'mode-auto',
+	'mode-accept-edits',
+	'mode-bypass',
+	'mode-exit',
+])
 
 const TAG = /^<system-reminder kind="([a-z-]+)"(?: form="([a-z]+)")?>/
 
@@ -30,14 +49,7 @@ export function frameReminder(kind: ReminderKind, text: string, form?: 'full' | 
 export function reminderKindOf(message: Message): ReminderKind | undefined {
 	if (!isReminderMessage(message) || typeof message.content !== 'string') return undefined
 	const kind = TAG.exec(message.content)?.[1]
-	return kind === 'plan-mode' ||
-		kind === 'plan-reentry' ||
-		kind === 'plan-exit' ||
-		kind === 'task-nudge' ||
-		kind === 'hypermode-on' ||
-		kind === 'hypermode-exit'
-		? kind
-		: undefined
+	return kind !== undefined && KINDS.has(kind) ? (kind as ReminderKind) : undefined
 }
 
 /**

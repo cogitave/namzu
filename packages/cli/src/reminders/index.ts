@@ -2,11 +2,16 @@ import { existsSync } from 'node:fs'
 
 import type { ReminderSource, Task } from '@namzu/sdk'
 
+import type { EnvironmentFacts } from '../context/environment.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { environmentReminders } from './environment.js'
 import { hypermodeReminders } from './hypermode.js'
+import { modeReminders } from './mode.js'
 import { planModeReminders } from './plan-mode.js'
 import { taskNudge } from './task-nudge.js'
 
+export { environmentReminders } from './environment.js'
+export { modeReminders } from './mode.js'
 export { frameReminder, reminderKindOf } from './frame.js'
 export { HYPERMODE_REMINDER_EVERY, hypermodeExitOwed, hypermodeReminders } from './hypermode.js'
 export { planModeReminders } from './plan-mode.js'
@@ -23,18 +28,33 @@ export interface CliReminderOptions {
 	readonly tasks?: () => Promise<readonly Pick<Task, 'id' | 'status' | 'subject'>[]>
 	/** Whether hypermode is on, and whether the `workflow` tool is listed; absent means no hypermode reminders. */
 	readonly hypermode?: () => { readonly on: boolean; readonly toolListed: boolean }
+	/**
+	 * The date and working directory as this turn read them; absent means the
+	 * system prompt carries them and no environment reminder is sent.
+	 */
+	readonly environment?: () => Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>
+	/** Whether a person answers permission prompts; absent means no mode announcements. */
+	readonly interactive?: boolean
 	/** Whether the plan file exists; defaults to the filesystem. */
 	readonly planExists?: (path: string) => boolean
 }
 
 /**
- * The reminders this terminal feeds a turn: plan mode's, hypermode's, then the task nudge.
+ * The reminders this terminal feeds a turn: the date and mode notices, plan mode's, hypermode's, then the task nudge.
  * Both read the conversation they are handed, so there is nothing to carry
  * between requests.
  */
 export function createCliReminderSource(options: CliReminderOptions): ReminderSource {
 	return async ({ messages }) => {
 		const out: string[] = []
+		if (options.environment) {
+			out.push(...environmentReminders({ messages, facts: options.environment() }))
+		}
+		if (options.interactive !== undefined) {
+			out.push(
+				...modeReminders({ messages, mode: options.mode(), interactive: options.interactive }),
+			)
+		}
 		if (options.planPath) {
 			const planPath = options.planPath()
 			out.push(

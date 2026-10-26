@@ -25,6 +25,12 @@
  * rarely, so those two are cheap to carry — and `git status` is one tool call
  * away for an agent that actually needs it, which is the right place to pay.
  *
+ * In the interactive terminal the date and branch no longer ride in the
+ * system prompt at all (`stable` below): they arrive as an environment reminder,
+ * said once and again only when they change, so even that once-a-day re-key is
+ * gone. The paragraph above explains why they were cheap enough to carry; the
+ * reminder makes them free.
+ *
  * Read fresh each turn for the same reason the branch is worth having at all: a
  * session that crosses midnight, or in which the agent checks out a branch
  * itself, must not keep asserting what was true when it started. Because the
@@ -253,7 +259,22 @@ export async function readEnvironmentFacts(
 	}
 }
 
-export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
+/** How {@link composeEnvironmentPrompt} is read. */
+export interface EnvironmentPromptOptions {
+	/**
+	 * Leave out what changes while a session runs: the date, the branch and
+	 * the permission mode's wording. The text then belongs in the cached
+	 * prefix, because nothing in it is re-keyed by a new day, a checkout or a
+	 * mode switch. Those facts ride in reminders instead (see
+	 * `reminders/environment.ts` and `reminders/mode.ts`).
+	 */
+	readonly stable?: boolean
+}
+
+/** The date and branch sentences, the facts that change under a running session. */
+export function environmentFactLines(
+	facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>,
+): string[] {
 	const lines = [`Today's date is ${facts.today}.`]
 	if (!facts.isRepository) {
 		lines.push('The working directory is not a git repository.')
@@ -264,16 +285,27 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 	} else {
 		lines.push(`The working directory is a git repository on branch \`${facts.branch}\`.`)
 	}
+	return lines
+}
+
+export function composeEnvironmentPrompt(
+	facts: EnvironmentFacts,
+	options: EnvironmentPromptOptions = {},
+): string {
+	const stable = options.stable === true
+	const lines = stable ? [] : environmentFactLines(facts)
 	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
 		)
 	}
-	if (facts.boundary) lines.push(...boundaryLines(facts.boundary))
+	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
-	lines.push(
-		'These are facts about right now. Prefer them over any date or branch you would otherwise assume.',
-	)
+	if (!stable) {
+		lines.push(
+			'These are facts about right now. Prefer them over any date or branch you would otherwise assume.',
+		)
+	}
 	return `## Environment\n\n${lines.join('\n')}`
 }
 
@@ -282,7 +314,10 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
  * more than the mode does: the safety rules that no mode relaxes are named as
  * such, so a mode that stops asking is not read as one that stops checking.
  */
-function permissionSentence(boundary: ExecutionBoundary): string {
+export function permissionSentence(boundary: ExecutionBoundary, stable = false): string {
+	if (stable) {
+		return 'Shell commands and file changes go through the permission settings. Whether the user is asked first depends on the permission mode; you are told when it is anything but the usual one, and when it ends.'
+	}
 	const noOneAsks = boundary.interactive
 		? ''
 		: ' Nobody is at the terminal, so a call that would ask is refused.'
@@ -307,13 +342,13 @@ function permissionSentence(boundary: ExecutionBoundary): string {
 }
 
 /** The boundary, and the way past it, in the words the model acts on. */
-function boundaryLines(boundary: ExecutionBoundary): string[] {
+function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 	if (!boundary.sandbox) {
 		const outside = boundary.interactive
 			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
 			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
-			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary)}`,
+			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary, stable)}`,
 			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
 		]
 	}
