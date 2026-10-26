@@ -49,7 +49,9 @@ const WORD = /[\p{L}\p{N}_$][\p{L}\p{N}_$.\-/\\:]*/gu
 function splitIdentifier(raw: string): string[] {
 	const parts = raw
 		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+		// Lookaround keeps this linear: a capturing `([A-Z]+)([A-Z][a-z])` backtracks
+		// quadratically on a long run of capitals that never reaches a lower-case letter.
+		.replace(/(?<=[A-Z])(?=[A-Z][a-z])/g, ' ')
 		.split(/[_\s]+/)
 		.filter((p) => p.length > 0)
 	return parts.length > 1 ? parts : []

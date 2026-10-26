@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-26
+
+- **Update** [Manual compaction](sdk/manual-compaction.md): the salience scorer tokenizes each message once and splits identifiers in linear time, so a message with a very long run of capitals no longer stalls the next request. A review record for a batch of very large tool inputs keeps an excerpt of each instead of exceeding the record cap. `.changeset/fast-long-token-scoring.md` (`@namzu/sdk` patch).
+
 ## 2026-10-25
 
 - **Update** [Slash commands](cli/slash-commands.md), [Workflows](cli/workflows.md), [Composer triggers](cli/composer-triggers.md): the `/workflow <task>` command is removed; a workflow is asked for with the word `workflow` in a message or with hypermode on, and `/workflows` is unchanged. `.changeset/remove-workflow-command.md` (`@namzu/cli` major).
