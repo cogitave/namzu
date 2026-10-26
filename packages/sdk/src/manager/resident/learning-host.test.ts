@@ -2,10 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import { projectLearning } from '../../learning/skill.js'
 import { generateTenantId } from '../../utils/id.js'
 import { DiskResidentAgenda } from './agenda.js'
 import { ResidentHost } from './host.js'
-import { projectResidentLearning } from './learning.js'
 import { ResidentConflictError } from './store.js'
 
 const roots: string[] = []
@@ -47,9 +47,7 @@ it('projects a corrected persistent profile only at the next authorized admissio
 	const step = vi.fn(async (pursuit, _signal, context) => {
 		expect(pursuit.state.identity).toBe('Original host mandate')
 		expect(Object.isFrozen(context.learning)).toBe(true)
-		projected.push(
-			projectResidentLearning(context.learning, { maxChars: 2_000, skillNames: [] }).text,
-		)
+		projected.push(projectLearning(context.learning, { maxChars: 2_000, skillNames: [] }).text)
 		return { kind: 'wait' as const, summary: 'Saved the previous step', wakeAt: null }
 	})
 	await new ResidentHost(f.agenda, step, { learning: true }).run({ signal, maxSteps: 1 })

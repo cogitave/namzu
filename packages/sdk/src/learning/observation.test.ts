@@ -4,17 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { generateProjectId, generateTenantId } from '../../utils/id.js'
-import { DiskResidentAgenda } from './agenda.js'
-import type { ResidentLearningObservation } from './learning-observation.js'
+import { DiskResidentAgenda } from '../manager/resident/agenda.js'
+import { generateProjectId, generateTenantId } from '../utils/id.js'
+import type { LearningObservation } from './observation.js'
+import { hashLearningSkill } from './skill.js'
 import {
-	RESIDENT_LEARNING_STORE_VERSION,
-	type ResidentLearningDiscoveryOptions,
-	ResidentLearningStoreVersionError,
-	SqliteResidentLearningStore,
-	runStoredResidentLearningFromObservations,
-} from './learning-store.js'
-import { hashResidentSkill } from './learning.js'
+	LEARNING_STORE_VERSION,
+	type LearningDiscoveryOptions,
+	LearningStoreVersionError,
+	SqliteLearningStore,
+	runStoredLearningFromObservations,
+} from './store.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -26,9 +26,7 @@ const target = {
 	evaluatorRevision: 'muse-low/source-evaluator-v1',
 	baselineRevision: 'none',
 }
-function observation(
-	overrides: Partial<ResidentLearningObservation> = {},
-): ResidentLearningObservation {
+function observation(overrides: Partial<LearningObservation> = {}): LearningObservation {
 	return {
 		...target,
 		sessionId: randomUUID(),
@@ -58,7 +56,7 @@ async function fixture() {
 		artifactsPath: join(root, 'artifacts'),
 		scope,
 	}
-	const store = new SqliteResidentLearningStore(storage)
+	const store = new SqliteLearningStore(storage)
 	const agenda = new DiskResidentAgenda(join(root, 'agenda'), scope)
 	await agenda.create('Use retained observations to improve source selection.')
 	const generate = vi.fn(async () => {
@@ -67,7 +65,7 @@ async function fixture() {
 	const evaluate = vi.fn(async () => {
 		throw new Error('Unexpected evaluation.')
 	})
-	const options: ResidentLearningDiscoveryOptions = {
+	const options: LearningDiscoveryOptions = {
 		agenda,
 		evaluators: [target],
 		signal: new AbortController().signal,
@@ -88,7 +86,7 @@ describe('resident learning observations and admission', () => {
 		await expect(f.store.observe({ ...a, outcome: 'passed' })).rejects.toThrow('different content')
 		await f.store.observe(observation({ taskKey: 'task-b' }))
 		const bytes = readFileSync(f.storage.databasePath)
-		const reader = new SqliteResidentLearningStore({ ...f.storage, readOnly: true })
+		const reader = new SqliteLearningStore({ ...f.storage, readOnly: true })
 		const first = (await reader.observations({ limit: 1 }))[0]
 		if (!first) throw new Error('Missing observation.')
 		expect(first).toMatchObject({ ...a, attemptedCycleId: null })
@@ -107,7 +105,7 @@ describe('resident learning observations and admission', () => {
 			{ usageComplete: false },
 			{ evaluatorRevision: 'other-model' },
 			{ baselineRevision: 'a'.repeat(64) },
-		] as Partial<ResidentLearningObservation>[])
+		] as Partial<LearningObservation>[])
 			await f.store.observe(observation(overrides))
 		expect(await f.store.selectObservation([target])).toBeNull()
 		const failed = observation({ taskKey: 'eligible' })
@@ -131,7 +129,7 @@ describe('resident learning observations and admission', () => {
 		const f = await fixture()
 		const input = observation()
 		await f.store.observe(input)
-		const result = await runStoredResidentLearningFromObservations(f.store, f.options)
+		const result = await runStoredLearningFromObservations(f.store, f.options)
 		if (!result.cycle) throw new Error('Missing admitted cycle.')
 		expect(result.cycle).toMatchObject({
 			status: 'failed',
@@ -145,11 +143,11 @@ describe('resident learning observations and admission', () => {
 			}),
 		)
 		expect(f.evaluate).not.toHaveBeenCalled()
-		const reopened = new SqliteResidentLearningStore(f.storage)
+		const reopened = new SqliteLearningStore(f.storage)
 		await reopened.observe(observation()) // a different run of the same task is not new learning work
 		const records = await reopened.observations()
 		expect(records.every((r) => r.attemptedCycleId === result.cycle?.cycleId)).toBe(true)
-		expect(await runStoredResidentLearningFromObservations(reopened, f.options)).toEqual({
+		expect(await runStoredLearningFromObservations(reopened, f.options)).toEqual({
 			observation: null,
 			cycle: null,
 		})
@@ -160,10 +158,10 @@ describe('resident learning observations and admission', () => {
 	it('two concurrent hosts cannot both execute the same task', async () => {
 		const f = await fixture()
 		await f.store.observe(observation())
-		const second = new SqliteResidentLearningStore(f.storage)
+		const second = new SqliteLearningStore(f.storage)
 		const results = await Promise.all([
-			runStoredResidentLearningFromObservations(f.store, f.options),
-			runStoredResidentLearningFromObservations(second, f.options),
+			runStoredLearningFromObservations(f.store, f.options),
+			runStoredLearningFromObservations(second, f.options),
 		])
 		expect(f.generate).toHaveBeenCalledTimes(1)
 		expect((await f.store.observations())[0]?.attemptedCycleId).not.toBeNull()
@@ -178,7 +176,7 @@ describe('resident learning observations and admission', () => {
 			await f.store.observe(observation({ outcome: 'passed' }))
 			return selected
 		})
-		const result = await runStoredResidentLearningFromObservations(f.store, f.options)
+		const result = await runStoredLearningFromObservations(f.store, f.options)
 		expect(result.cycle?.status).toBe('failed')
 		expect(f.generate).not.toHaveBeenCalled()
 		expect((await f.store.observations()).every((o) => o.attemptedCycleId === null)).toBe(true)
@@ -194,7 +192,7 @@ describe('resident learning observations and admission', () => {
 			if (++calls === 1) return state
 			if (!state) throw new Error('Missing agenda.')
 			const skill = { name: target.skillName, description: 'Changed', body: 'New baseline' }
-			const hash = hashResidentSkill(skill)
+			const hash = hashLearningSkill(skill)
 			const evidence = observation().evidence
 			return {
 				...state,
@@ -219,7 +217,7 @@ describe('resident learning observations and admission', () => {
 				},
 			}
 		})
-		const result = await runStoredResidentLearningFromObservations(f.store, f.options)
+		const result = await runStoredLearningFromObservations(f.store, f.options)
 		expect(result.cycle?.reason).toContain('current learning baseline')
 		expect(f.generate).not.toHaveBeenCalled()
 		expect((await f.store.observations())[0]?.attemptedCycleId).toBeNull()
@@ -232,7 +230,7 @@ describe('resident learning observations and admission', () => {
 			{ ...f.storage.scope, projectId: generateProjectId() },
 			{ ...f.storage.scope, agentKey: 'other' },
 		]) {
-			const other = new SqliteResidentLearningStore({ ...f.storage, scope })
+			const other = new SqliteLearningStore({ ...f.storage, scope })
 			expect(await other.observations()).toEqual([])
 			expect(await other.selectObservation([target])).toBeNull()
 		}
@@ -267,12 +265,12 @@ describe('resident learning observations and admission', () => {
 			db.exec(`PRAGMA user_version=${version};`)
 			db.close()
 			const before = readFileSync(f.storage.databasePath)
-			const reader = new SqliteResidentLearningStore({ ...f.storage, readOnly: true })
-			await expect(reader.observations()).rejects.toBeInstanceOf(ResidentLearningStoreVersionError)
+			const reader = new SqliteLearningStore({ ...f.storage, readOnly: true })
+			await expect(reader.observations()).rejects.toBeInstanceOf(LearningStoreVersionError)
 			await expect(f.store.observe(observation())).rejects.toMatchObject({
-				name: 'ResidentLearningStoreVersionError',
+				name: 'LearningStoreVersionError',
 				found: version,
-				expected: RESIDENT_LEARNING_STORE_VERSION,
+				expected: LEARNING_STORE_VERSION,
 			})
 			expect(readFileSync(f.storage.databasePath)).toEqual(before)
 		},
@@ -280,12 +278,12 @@ describe('resident learning observations and admission', () => {
 	it('does not invoke generation with no eligible work or cancelled authorization', async () => {
 		const f = await fixture()
 		await f.store.observe(observation({ outcome: 'execution-error' }))
-		expect(await runStoredResidentLearningFromObservations(f.store, f.options)).toEqual({
+		expect(await runStoredLearningFromObservations(f.store, f.options)).toEqual({
 			observation: null,
 			cycle: null,
 		})
 		await expect(
-			runStoredResidentLearningFromObservations(f.store, {
+			runStoredLearningFromObservations(f.store, {
 				...f.options,
 				signal: AbortSignal.abort(),
 			}),

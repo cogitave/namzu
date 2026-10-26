@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type ResidentLearningState, hashResidentSkill } from '../../manager/resident/learning.js'
+import { type LearningState, hashLearningSkill } from '../../learning/skill.js'
 import type { ResidentState } from '../../manager/resident/store.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { generateSessionId, generateTurnId } from '../../utils/id.js'
@@ -23,14 +23,14 @@ function state(overrides: Partial<ResidentState> = {}): ResidentState {
 	}
 }
 
-function learning(): ResidentLearningState {
+function learning(): LearningState {
 	const evidence = { key: 'approved-1', source: 'host:test', reason: 'Approved fixture guidance.' }
 	const candidate = {
 		name: 'checked-identifiers',
 		description: 'Retain exact evidence identifiers.',
 		body: 'Keep exact receipt identifiers and distinguish reported evidence from fresh observations.',
 	}
-	const hash = hashResidentSkill(candidate)
+	const hash = hashLearningSkill(candidate)
 	return {
 		revision: 1,
 		identity: { text: 'An assistant that checks source evidence.', evidence },
@@ -92,7 +92,7 @@ describe('resident guidance disclosure', () => {
 			description: 'EXPLORER DESCRIPTION',
 			body: 'EXPLORER BODY',
 		}
-		const hash = hashResidentSkill(candidate)
+		const hash = hashLearningSkill(candidate)
 		const policy = {
 			...candidate,
 			hash,
@@ -144,7 +144,7 @@ describe('resident guidance disclosure', () => {
 		const input = options()
 		const skill = input.learning.skills[0]!
 		const candidate = { ...skill, sources: [{ key: 'host:source', revision: 'v1' }] }
-		const hash = hashResidentSkill(candidate)
+		const hash = hashLearningSkill(candidate)
 		input.learning = {
 			...input.learning,
 			skills: [
@@ -197,7 +197,7 @@ describe('resident guidance disclosure', () => {
 					description: '"\\\n😀'.repeat(100),
 					body: `INSTRUCTION_START${'b'.repeat(3900)}`,
 				}
-				const hash = hashResidentSkill(candidate)
+				const hash = hashLearningSkill(candidate)
 				return { ...candidate, hash, verification: { ...base.verification, candidateHash: hash } }
 			}),
 		}

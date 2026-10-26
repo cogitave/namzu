@@ -607,29 +607,29 @@ export type {
 	ResidentContextualStep,
 } from './manager/resident/host.js'
 export type {
-	ResidentLearningEvidence,
-	ResidentSkillCandidate,
-	ResidentLearnedSkill,
-	ResidentLearningState,
-	ResidentProfileUpdate,
-	ResidentSkillEvaluation,
-	ResidentLearningProjectionOptions,
-	ResidentLearningSource,
-	ResidentLearningProjection,
-} from './manager/resident/learning.js'
+	LearningEvidence,
+	LearningSkillCandidate,
+	LearnedSkill,
+	LearningState,
+	LearningProfileUpdate,
+	LearningSkillEvaluation,
+	LearningProjectionOptions,
+	LearningSource,
+	LearningProjection,
+} from './learning/skill.js'
 export type {
-	ResidentLearningStage,
-	ResidentLearningReceipt,
-	ResidentLearningConsumption,
-	ResidentLearningCycleEvent,
-	ResidentLearningCycleContext,
-	ResidentLearningGenerationContext,
-	ResidentLearningExplorationContext,
-	ResidentLearningExploration,
-	ResidentLearningEvaluationContext,
-	ResidentLearningCycleOptions,
-	ResidentLearningCycleResult,
-} from './manager/resident/learning-cycle.js'
+	LearningStage,
+	LearningReceipt,
+	LearningConsumption,
+	LearningCycleEvent,
+	LearningCycleContext,
+	LearningGenerationContext,
+	LearningExplorationContext,
+	LearningExploration,
+	LearningEvaluationContext,
+	LearningCycleOptions,
+	LearningCycleResult,
+} from './learning/cycle.js'
 
 export type {
 	ResidentArchiveRequest,
@@ -678,18 +678,18 @@ export type {
 } from './turn/json-claim-verifier.js'
 
 export type {
-	SqliteResidentLearningStoreOptions,
-	ResidentLearningArtifact,
-	ResidentLearningRecordedUsage,
-	ResidentLearningCycleSummary,
-	ResidentLearningDiscoveryOptions,
-	ResidentLearningDiscoveryResult,
-} from './manager/resident/learning-store.js'
+	SqliteLearningStoreOptions,
+	LearningArtifact,
+	LearningRecordedUsage,
+	LearningCycleSummary,
+	LearningDiscoveryOptions,
+	LearningDiscoveryResult,
+} from './learning/store.js'
 export type {
-	ResidentLearningObservation,
-	ResidentLearningObservationRecord,
-	ResidentLearningTarget,
-} from './manager/resident/learning-observation.js'
+	LearningObservation,
+	LearningObservationRecord,
+	LearningTarget,
+} from './learning/observation.js'
 
 // ─── sessions, turns and the session log: paths and log lines ────────────
 // The session types themselves come through `./types/session/index.js` above.
@@ -818,3 +818,36 @@ export type {
 } from './pals/activity/subscription-policy.js'
 export type { PalActivitySubscriptionRunnerOptions } from './pals/activity/subscriptions.js'
 export type { PalActivityCausalityOptions } from './pals/activity/causality.js'
+
+// Deprecated resident-prefixed names, kept until the next major.
+export type {
+	ResidentLearningEvidence,
+	ResidentSkillCandidate,
+	ResidentLearnedSkill,
+	ResidentLearningState,
+	ResidentProfileUpdate,
+	ResidentSkillEvaluation,
+	ResidentLearningProjectionOptions,
+	ResidentLearningSource,
+	ResidentLearningProjection,
+	ResidentLearningStage,
+	ResidentLearningReceipt,
+	ResidentLearningConsumption,
+	ResidentLearningCycleEvent,
+	ResidentLearningCycleContext,
+	ResidentLearningGenerationContext,
+	ResidentLearningExplorationContext,
+	ResidentLearningExploration,
+	ResidentLearningEvaluationContext,
+	ResidentLearningCycleOptions,
+	ResidentLearningCycleResult,
+	SqliteResidentLearningStoreOptions,
+	ResidentLearningArtifact,
+	ResidentLearningRecordedUsage,
+	ResidentLearningCycleSummary,
+	ResidentLearningDiscoveryOptions,
+	ResidentLearningDiscoveryResult,
+	ResidentLearningObservation,
+	ResidentLearningObservationRecord,
+	ResidentLearningTarget,
+} from './learning/deprecated.js'

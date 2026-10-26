@@ -4,9 +4,9 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { generateProjectId, generateTenantId } from '../../utils/id.js'
-import { SqliteResidentLearningStore } from './learning-store.js'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
+import { generateProjectId, generateTenantId } from '../utils/id.js'
+import { SqliteLearningStore } from './store.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -27,7 +27,7 @@ function fixture() {
 	}
 	return {
 		options,
-		store: new SqliteResidentLearningStore(options),
+		store: new SqliteLearningStore(options),
 		cycleId: randomUUID(),
 	}
 }
@@ -57,12 +57,12 @@ it('two processes competing for one sequence cannot overwrite each other', async
 		kind: 'started',
 		data: { tenantId: f.options.scope.tenantId, agentKey: 'default' },
 	})
-	const module = new URL('../../../dist/manager/resident/learning-store.js', import.meta.url).href
+	const module = new URL('../../dist/manager/resident/learning-store.js', import.meta.url).href
 	const contenders = await Promise.all(
 		['first', 'second'].map((marker) =>
 			child(`
-import { SqliteResidentLearningStore } from ${JSON.stringify(module)};
-const store = new SqliteResidentLearningStore(${JSON.stringify(f.options)});
+import { SqliteLearningStore } from ${JSON.stringify(module)};
+const store = new SqliteLearningStore(${JSON.stringify(f.options)});
 try { await store.append({cycleId:${JSON.stringify(f.cycleId)},sequence:2,kind:'stage-started',stage:'generate',data:{marker:${JSON.stringify(marker)}}});console.log('committed'); }
 catch(error) {console.error(error.message);process.exitCode=3;}
 `),
@@ -124,7 +124,7 @@ it('separate processes claim a learning task once and reopening does not replay 
 	await f.store.observe(observation)
 	const selected = await f.store.selectObservation([observation])
 	if (!selected) throw new Error('Missing selected observation.')
-	const module = new URL('../../../dist/manager/resident/learning-store.js', import.meta.url).href
+	const module = new URL('../../dist/manager/resident/learning-store.js', import.meta.url).href
 	const events = [0, 1].map(() => ({
 		cycleId: randomUUID(),
 		sequence: 1,
@@ -141,15 +141,15 @@ it('separate processes claim a learning task once and reopening does not replay 
 	const contenders = await Promise.all(
 		events.map((event) =>
 			child(`
-import { SqliteResidentLearningStore } from ${JSON.stringify(module)};
-const store = new SqliteResidentLearningStore(${JSON.stringify(f.options)});
+import { SqliteLearningStore } from ${JSON.stringify(module)};
+const store = new SqliteLearningStore(${JSON.stringify(f.options)});
 try {await store.append(${JSON.stringify(event)});console.log('claimed');}
 catch(error){console.error(error.message);process.exitCode=3;}
 `),
 		),
 	)
 	expect(contenders.map((r) => r.code).sort(), JSON.stringify(contenders)).toEqual([0, 3])
-	const reopened = new SqliteResidentLearningStore(f.options)
+	const reopened = new SqliteLearningStore(f.options)
 	expect(await reopened.list()).toHaveLength(1)
 	expect((await reopened.list())[0]).toMatchObject({ status: 'running', result: null })
 	expect(await reopened.selectObservation([observation])).toBeNull()

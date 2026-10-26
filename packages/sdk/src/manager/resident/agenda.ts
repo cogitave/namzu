@@ -20,6 +20,19 @@ import {
 	wakeResidentState,
 } from './store.js'
 
+import {
+	type LearningEvidence,
+	type LearningProfileUpdate,
+	type LearningSkillCandidate,
+	type LearningSkillEvaluation,
+	type LearningState,
+	freezeLearning,
+	learningEvidenceSchema,
+	learningSchema,
+	promoteLearningSkill,
+	restoreLearningSkill,
+	reviseLearningProfile,
+} from '../../learning/skill.js'
 import { type ResidentActivitySource, createResidentActivitySource } from './activity.js'
 import { readResidentHistoryRecord } from './history-disk.js'
 import { type ResidentHistorySource, createResidentHistorySource } from './history.js'
@@ -31,19 +44,6 @@ import {
 	residentFeedbackSchema,
 	residentObservationSchema,
 } from './initiative.js'
-import {
-	type ResidentLearningEvidence,
-	type ResidentLearningState,
-	type ResidentProfileUpdate,
-	type ResidentSkillCandidate,
-	type ResidentSkillEvaluation,
-	freezeResidentLearning,
-	promoteResidentSkill,
-	residentLearningEvidenceSchema,
-	residentLearningSchema,
-	restoreResidentSkill,
-	reviseResidentProfile,
-} from './learning.js'
 import {
 	type ResidentDeliveryOutcome,
 	type ResidentMessageInput,
@@ -74,7 +74,7 @@ const agendaSchema = z
 		paused: z.boolean(),
 		pauseGeneration: z.number().int().nonnegative().safe().optional(),
 		archiveHead: z.number().int().min(2).safe().optional(),
-		learning: residentLearningSchema.optional(),
+		learning: learningSchema.optional(),
 		outbox: z.array(residentOutboxMessageSchema).max(128).optional(),
 		pursuits: z
 			.array(
@@ -158,7 +158,7 @@ export interface ResidentAgendaState {
 	readonly pursuits: readonly ResidentPursuit[]
 	readonly outbox?: readonly ResidentOutboxMessage[]
 	readonly archiveHead?: number
-	readonly learning?: ResidentLearningState
+	readonly learning?: LearningState
 }
 
 /** @experimental Explicit terminal entries to retire from active capacity together. */
@@ -284,7 +284,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 			throw new Error('Agenda does not match the bound tenant and agent.')
 		return Object.freeze({
 			...agenda,
-			...(agenda.learning ? { learning: freezeResidentLearning(agenda.learning) } : {}),
+			...(agenda.learning ? { learning: freezeLearning(agenda.learning) } : {}),
 			...(agenda.outbox
 				? { outbox: Object.freeze(agenda.outbox.map((message) => Object.freeze(message))) }
 				: {}),
@@ -596,7 +596,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 
 	private async learn(
 		expected: ResidentAgendaState,
-		learning: ResidentLearningState,
+		learning: LearningState,
 	): Promise<ResidentAgendaState> {
 		return this.change(expected, (state) => {
 			if (state.pursuits.some((pursuit) => pursuit.state.phase === 'running'))
@@ -609,22 +609,22 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 	/** Append a host-evidenced correction only while pursuit admission is idle. */
 	async updateProfile(
 		expected: ResidentAgendaState,
-		input: ResidentProfileUpdate,
+		input: LearningProfileUpdate,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const learning = reviseResidentProfile(snapshot.learning, input)
+		const learning = reviseLearningProfile(snapshot.learning, input)
 		return this.learn(snapshot, learning)
 	}
 
 	/** Bind evaluated guidance to the current learning version and an idle agenda. */
 	async promoteSkill(
 		expected: ResidentAgendaState,
-		candidate: ResidentSkillCandidate,
-		evaluation: ResidentSkillEvaluation,
-		evidence: ResidentLearningEvidence,
+		candidate: LearningSkillCandidate,
+		evaluation: LearningSkillEvaluation,
+		evidence: LearningEvidence,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const learning = promoteResidentSkill(snapshot.learning, candidate, evaluation, evidence)
+		const learning = promoteLearningSkill(snapshot.learning, candidate, evaluation, evidence)
 		return this.learn(snapshot, learning)
 	}
 
@@ -633,17 +633,17 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		expected: ResidentAgendaState,
 		name: string,
 		fromRevision: number,
-		evidence: ResidentLearningEvidence,
+		evidence: LearningEvidence,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const checkedEvidence = residentLearningEvidenceSchema.parse(evidence)
+		const checkedEvidence = learningEvidenceSchema.parse(evidence)
 		z.number().int().positive().safe().max(snapshot.revision).parse(fromRevision)
 		z.string()
 			.regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
 			.parse(name)
 		const historical = await this.readRevision(fromRevision)
 		if (!historical) throw new Error('Resident skill rollback revision is missing.')
-		const learning = restoreResidentSkill(
+		const learning = restoreLearningSkill(
 			snapshot.learning,
 			historical.learning,
 			name,

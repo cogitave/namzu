@@ -1629,11 +1629,8 @@ export { validateResidentProposal } from './manager/resident/proposal.js'
 export { deliverResidentMessage } from './manager/resident/outbox.js'
 export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
 
-export {
-	hashResidentSkill,
-	projectResidentLearning,
-} from './manager/resident/learning.js'
-export { runResidentLearningCycle } from './manager/resident/learning-cycle.js'
+export { hashLearningSkill, projectLearning } from './learning/skill.js'
+export { runLearningCycle } from './learning/cycle.js'
 
 export {
 	createSessionEvidenceSource,
@@ -1649,10 +1646,18 @@ export { createResidentToolEvidenceSource } from './manager/resident/tool-eviden
 export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
 
 export {
+	SqliteLearningStore,
+	runStoredLearningCycle,
+	runStoredLearningFromObservations,
+} from './learning/store.js'
+export {
 	SqliteResidentLearningStore,
+	hashResidentSkill,
+	projectResidentLearning,
+	runResidentLearningCycle,
 	runStoredResidentLearningCycle,
 	runStoredResidentLearningFromObservations,
-} from './manager/resident/learning-store.js'
+} from './learning/deprecated.js'
 
 // ─── sessions, turns and the session log ─────────────────────────────────
 //

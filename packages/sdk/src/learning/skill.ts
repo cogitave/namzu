@@ -3,27 +3,27 @@ import { z } from 'zod'
 import {
 	type HarnessProtectionPlan,
 	normalizeHarnessProtection,
-} from '../../eval/harness-protection.js'
+} from '../eval/harness-protection.js'
 import {
 	type HarnessVerificationBatch,
 	reviewHarnessCandidate,
-} from '../../eval/harness-verification.js'
+} from '../eval/harness-verification.js'
 
 const label = z.string().trim().min(1).max(256)
 const name = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
 const digest = z.string().regex(/^[a-f0-9]{64}$/)
-export const residentLearningEvidenceSchema = z.object({
+export const learningEvidenceSchema = z.object({
 	key: label,
 	source: label,
 	reason: z.string().trim().min(1).max(1_000),
 })
 
 /** @experimental Host provenance for a correction, evaluated activation or rollback. */
-export type ResidentLearningEvidence = Readonly<z.infer<typeof residentLearningEvidenceSchema>>
+export type LearningEvidence = Readonly<z.infer<typeof learningEvidenceSchema>>
 
 const sourceSchema = z.object({ key: label, revision: label })
 /** @experimental Host-owned source identity and revision; neither is a model assertion. */
-export type ResidentLearningSource = Readonly<z.infer<typeof sourceSchema>>
+export type LearningSource = Readonly<z.infer<typeof sourceSchema>>
 
 const sourcesSchema = z
 	.array(sourceSchema)
@@ -46,12 +46,12 @@ const candidateSchema = z.object({
 })
 
 /** @experimental Instructional guidance only; never executable assets or tool permissions. */
-export type ResidentSkillCandidate = Readonly<Omit<z.infer<typeof candidateSchema>, 'sources'>> & {
-	readonly sources?: readonly ResidentLearningSource[]
+export type LearningSkillCandidate = Readonly<Omit<z.infer<typeof candidateSchema>, 'sources'>> & {
+	readonly sources?: readonly LearningSource[]
 }
 
 /** Internal canonical snapshot, including immutable source bindings. */
-export function normalizeResidentSkill(input: ResidentSkillCandidate): ResidentSkillCandidate {
+export function normalizeLearningSkill(input: LearningSkillCandidate): LearningSkillCandidate {
 	const candidate = candidateSchema.parse(input)
 	return Object.freeze({
 		...candidate,
@@ -63,7 +63,7 @@ export function normalizeResidentSkill(input: ResidentSkillCandidate): ResidentS
 
 const learnedSkillSchema = candidateSchema.extend({
 	hash: digest,
-	evidence: residentLearningEvidenceSchema,
+	evidence: learningEvidenceSchema,
 	verification: z.object({
 		baselineHash: z.union([digest, z.literal('none')]),
 		candidateHash: digest,
@@ -82,17 +82,17 @@ const learnedSkillSchema = candidateSchema.extend({
 })
 
 /** @experimental Immutable evaluated content and evidence identity. */
-export type ResidentLearnedSkill = Readonly<Omit<z.infer<typeof learnedSkillSchema>, 'sources'>> & {
-	readonly sources?: readonly ResidentLearningSource[]
+export type LearnedSkill = Readonly<Omit<z.infer<typeof learnedSkillSchema>, 'sources'>> & {
+	readonly sources?: readonly LearningSource[]
 }
 
-export const residentLearningSchema = z
+export const learningSchema = z
 	.object({
 		revision: z.number().int().positive().safe(),
 		identity: z
 			.object({
 				text: z.string().trim().min(1).max(4_000),
-				evidence: residentLearningEvidenceSchema,
+				evidence: learningEvidenceSchema,
 			})
 			.optional(),
 		preferences: z
@@ -100,12 +100,12 @@ export const residentLearningSchema = z
 				z.object({
 					key: name,
 					value: z.string().trim().min(1).max(1_000),
-					evidence: residentLearningEvidenceSchema,
+					evidence: learningEvidenceSchema,
 				}),
 			)
 			.max(32),
 		skills: z.array(learnedSkillSchema).max(16),
-		lastChange: residentLearningEvidenceSchema,
+		lastChange: learningEvidenceSchema,
 	})
 	.superRefine((state, context) => {
 		if (
@@ -113,7 +113,7 @@ export const residentLearningSchema = z
 			new Set(state.skills.map((s) => s.name)).size !== state.skills.length ||
 			state.skills.some(
 				(skill) =>
-					skill.hash !== hashResidentSkill(skill) ||
+					skill.hash !== hashLearningSkill(skill) ||
 					skill.verification.candidateHash !== skill.hash,
 			)
 		)
@@ -124,31 +124,31 @@ export const residentLearningSchema = z
 	})
 
 /** @experimental Versioned behavioral overlay; the original resident mandate remains unchanged. */
-export interface ResidentLearningState {
+export interface LearningState {
 	readonly revision: number
-	readonly identity?: { readonly text: string; readonly evidence: ResidentLearningEvidence }
+	readonly identity?: { readonly text: string; readonly evidence: LearningEvidence }
 	readonly preferences: readonly {
 		readonly key: string
 		readonly value: string
-		readonly evidence: ResidentLearningEvidence
+		readonly evidence: LearningEvidence
 	}[]
-	readonly skills: readonly ResidentLearnedSkill[]
-	readonly lastChange: ResidentLearningEvidence
+	readonly skills: readonly LearnedSkill[]
+	readonly lastChange: LearningEvidence
 }
 
 /** @experimental Corrections name the current preference evidence they supersede. */
-export interface ResidentProfileUpdate {
+export interface LearningProfileUpdate {
 	readonly identity?: string
 	readonly preferences?: readonly {
 		readonly key: string
 		readonly value: string
 		readonly supersedes: string | null
 	}[]
-	readonly evidence: ResidentLearningEvidence
+	readonly evidence: LearningEvidence
 }
 
 /** @experimental Recorded paired runs; hosts own execution, scoring and independent attribution. */
-export interface ResidentSkillEvaluation {
+export interface LearningSkillEvaluation {
 	/** Host-owned task selection fixed before generating the candidate. */
 	readonly protection: HarnessProtectionPlan
 	readonly verification: HarnessVerificationBatch
@@ -156,8 +156,8 @@ export interface ResidentSkillEvaluation {
 }
 
 /** Internal immutable snapshot used by storage and admitted context. */
-export function freezeResidentLearning(input: ResidentLearningState): ResidentLearningState {
-	const state = residentLearningSchema.parse(input)
+export function freezeLearning(input: LearningState): LearningState {
+	const state = learningSchema.parse(input)
 	return Object.freeze({
 		...state,
 		...(state.identity
@@ -193,10 +193,10 @@ export function freezeResidentLearning(input: ResidentLearningState): ResidentLe
 }
 
 function evidenceFor(
-	current: ResidentLearningState | undefined,
-	input: ResidentLearningEvidence,
-): ResidentLearningEvidence {
-	const evidence = residentLearningEvidenceSchema.parse(input)
+	current: LearningState | undefined,
+	input: LearningEvidence,
+): LearningEvidence {
+	const evidence = learningEvidenceSchema.parse(input)
 	const used = [
 		current?.lastChange,
 		current?.identity?.evidence,
@@ -208,11 +208,8 @@ function evidenceFor(
 	return evidence
 }
 
-function base(
-	current: ResidentLearningState | undefined,
-	evidence: ResidentLearningEvidence,
-): ResidentLearningState {
-	const checked = current ? freezeResidentLearning(current) : undefined
+function base(current: LearningState | undefined, evidence: LearningEvidence): LearningState {
+	const checked = current ? freezeLearning(current) : undefined
 	return {
 		...checked,
 		revision: (checked?.revision ?? 0) + 1,
@@ -223,10 +220,10 @@ function base(
 }
 
 /** Internal pure profile transition; storage owns exact agenda CAS and idle admission. */
-export function reviseResidentProfile(
-	current: ResidentLearningState | undefined,
-	input: ResidentProfileUpdate,
-): ResidentLearningState {
+export function reviseLearningProfile(
+	current: LearningState | undefined,
+	input: LearningProfileUpdate,
+): LearningState {
 	const checked = z
 		.object({
 			identity: z.string().trim().min(1).max(4_000).optional(),
@@ -240,7 +237,7 @@ export function reviseResidentProfile(
 				)
 				.max(32)
 				.optional(),
-			evidence: residentLearningEvidenceSchema,
+			evidence: learningEvidenceSchema,
 		})
 		.parse(input)
 	if (checked.identity === undefined && !checked.preferences?.length)
@@ -262,7 +259,7 @@ export function reviseResidentProfile(
 		if (index < 0) preferences.push(updated)
 		else preferences[index] = updated
 	}
-	return freezeResidentLearning({
+	return freezeLearning({
 		...next,
 		preferences,
 		...(checked.identity !== undefined ? { identity: { text: checked.identity, evidence } } : {}),
@@ -270,7 +267,7 @@ export function reviseResidentProfile(
 }
 
 /** @experimental Bind evaluation to normalized content and any declared source dependencies. */
-export function hashResidentSkill(input: ResidentSkillCandidate): string {
+export function hashLearningSkill(input: LearningSkillCandidate): string {
 	const candidate = candidateSchema.parse(input)
 	return createHash('sha256')
 		.update(
@@ -286,15 +283,15 @@ export function hashResidentSkill(input: ResidentSkillCandidate): string {
 }
 
 /** Internal pure activation; reuse the kernel's conservative two-round verification gate. */
-export function promoteResidentSkill(
-	current: ResidentLearningState | undefined,
-	input: ResidentSkillCandidate,
-	evaluation: ResidentSkillEvaluation,
-	inputEvidence: ResidentLearningEvidence,
-): ResidentLearningState {
+export function promoteLearningSkill(
+	current: LearningState | undefined,
+	input: LearningSkillCandidate,
+	evaluation: LearningSkillEvaluation,
+	inputEvidence: LearningEvidence,
+): LearningState {
 	const protection = normalizeHarnessProtection(evaluation.protection)
 	const candidate = candidateSchema.parse(input)
-	const hash = hashResidentSkill(candidate)
+	const hash = hashLearningSkill(candidate)
 	const baseline = current?.skills.find((s) => s.name === candidate.name)
 	if (baseline && (baseline.purpose ?? 'task') !== (candidate.purpose ?? 'task'))
 		throw new Error('A skill cannot change learning purpose; use a distinct skill name.')
@@ -326,7 +323,7 @@ export function promoteResidentSkill(
 	)
 	if (review.decision !== 'accept')
 		throw new Error(`Resident skill promotion ${review.decision}: ${review.reason}`)
-	const skill: ResidentLearnedSkill = {
+	const skill: LearnedSkill = {
 		...candidate,
 		hash,
 		evidence,
@@ -346,44 +343,44 @@ export function promoteResidentSkill(
 		},
 	}
 	const next = base(current, evidence)
-	return freezeResidentLearning({
+	return freezeLearning({
 		...next,
 		skills: [...next.skills.filter((s) => s.name !== candidate.name), skill],
 	})
 }
 
 /** Internal rollback appends a new learning version while preserving current profile values. */
-export function restoreResidentSkill(
-	current: ResidentLearningState | undefined,
-	historical: ResidentLearningState | undefined,
+export function restoreLearningSkill(
+	current: LearningState | undefined,
+	historical: LearningState | undefined,
 	skillName: string,
-	inputEvidence: ResidentLearningEvidence,
-): ResidentLearningState {
+	inputEvidence: LearningEvidence,
+): LearningState {
 	name.parse(skillName)
 	if (!current?.skills.some((s) => s.name === skillName))
 		throw new Error('No active resident skill to roll back.')
 	const next = base(current, evidenceFor(current, inputEvidence))
 	const previous = historical
-		? freezeResidentLearning(historical).skills.find((s) => s.name === skillName)
+		? freezeLearning(historical).skills.find((s) => s.name === skillName)
 		: undefined
-	return freezeResidentLearning({
+	return freezeLearning({
 		...next,
 		skills: [...next.skills.filter((s) => s.name !== skillName), ...(previous ? [previous] : [])],
 	})
 }
 
 /** @experimental Exact skill selection and a character cap, independent of provider token budgets. */
-export interface ResidentLearningProjectionOptions {
+export interface LearningProjectionOptions {
 	readonly maxChars: number
 	readonly skillNames: readonly string[]
 	/** Defaults to task guidance. Exploration policies never enter ordinary task context. */
 	readonly purpose?: 'task' | 'exploration'
 	/** Fresh host observations for this projection; absent/mismatched dependencies withhold guidance. */
-	readonly sources?: readonly ResidentLearningSource[]
+	readonly sources?: readonly LearningSource[]
 }
 
 /** @experimental Omitted entries are counted; no partial skill instruction is emitted. */
-export interface ResidentLearningProjection {
+export interface LearningProjection {
 	readonly text: string
 	readonly revision: number | null
 	readonly includedSkills: readonly string[]
@@ -396,10 +393,10 @@ export interface ResidentLearningProjection {
 }
 
 /** @experimental Bounded context data; never registers tools, loads files or executes a skill. */
-export function projectResidentLearning(
-	current: ResidentLearningState | undefined,
-	options: ResidentLearningProjectionOptions,
-): ResidentLearningProjection {
+export function projectLearning(
+	current: LearningState | undefined,
+	options: LearningProjectionOptions,
+): LearningProjection {
 	if (!Number.isSafeInteger(options.maxChars) || options.maxChars < 0 || options.maxChars > 64_000)
 		throw new TypeError('Resident learning context requires maxChars between 0 and 64000.')
 	const selected = z.array(name).max(16).parse(options.skillNames)
@@ -420,10 +417,10 @@ export function projectResidentLearning(
 			omitted: selected.length,
 			withheldSkills: Object.freeze([]),
 		})
-	const state = freezeResidentLearning(current)
+	const state = freezeLearning(current)
 	const pieces: string[] = []
 	const includedSkills: string[] = []
-	const withheldSkills: ResidentLearningProjection['withheldSkills'][number][] = []
+	const withheldSkills: LearningProjection['withheldSkills'][number][] = []
 	let omitted = 0
 	let length = 0
 	const add = (value: unknown): boolean => {

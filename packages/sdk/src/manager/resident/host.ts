@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import { type LearningState, freezeLearning } from '../../learning/skill.js'
 import type { ResidentAgendaState, ResidentAgendaStore, ResidentPursuit } from './agenda.js'
 import {
 	type ResidentObservation,
@@ -6,7 +7,6 @@ import {
 	type ResidentSelector,
 	residentObservationSchema,
 } from './initiative.js'
-import { type ResidentLearningState, freezeResidentLearning } from './learning.js'
 import { type ResidentStep, stepResident } from './loop.js'
 import { type ResidentMessageInput, residentMessageInputSchema } from './outbox.js'
 import { ResidentConflictError, type ResidentDecision, residentDecisionSchema } from './store.js'
@@ -32,7 +32,7 @@ export interface ResidentHostRunOptions {
 /** @experimental Immutable context from the agenda snapshot that authorized this admission. */
 export interface ResidentStepContext {
 	readonly agendaRevision: number
-	readonly learning?: ResidentLearningState
+	readonly learning?: LearningState
 }
 
 /** @experimental A developer callback may bind a different SDK turn for each pursuit. */
@@ -239,7 +239,7 @@ export class ResidentHost {
 					const context: ResidentStepContext = Object.freeze({
 						agendaRevision: state.revision,
 						...(this.options.learning && state.learning
-							? { learning: freezeResidentLearning(state.learning) }
+							? { learning: freezeLearning(state.learning) }
 							: {}),
 					})
 					const execution =

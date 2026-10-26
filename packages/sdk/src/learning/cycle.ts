@@ -3,25 +3,25 @@ import { z } from 'zod'
 import {
 	type HarnessProtectionPlan,
 	normalizeHarnessProtection,
-} from '../../eval/harness-protection.js'
+} from '../eval/harness-protection.js'
 import {
 	type HarnessReview,
 	type HarnessVerificationBatch,
 	reviewHarnessCandidate,
-} from '../../eval/harness-verification.js'
-import type { DiskResidentAgenda } from './agenda.js'
+} from '../eval/harness-verification.js'
+import type { DiskResidentAgenda } from '../manager/resident/agenda.js'
+import { ResidentConflictError } from '../manager/resident/store.js'
 import {
-	type ResidentLearningEvidence,
-	type ResidentSkillCandidate,
-	hashResidentSkill,
-	normalizeResidentSkill,
-	promoteResidentSkill,
-	residentLearningEvidenceSchema,
-} from './learning.js'
-import { ResidentConflictError } from './store.js'
+	type LearningEvidence,
+	type LearningSkillCandidate,
+	hashLearningSkill,
+	learningEvidenceSchema,
+	normalizeLearningSkill,
+	promoteLearningSkill,
+} from './skill.js'
 
 /** @experimental One explicitly requested experiment; callbacks own inference and evaluation. */
-export type ResidentLearningStage = 'explore' | 'generate' | 'verification' | 'confirmation'
+export type LearningStage = 'explore' | 'generate' | 'verification' | 'confirmation'
 
 const receiptSchema = z.object({
 	/** The session and turn of the execution this usage belongs to; one receipt per turn. */
@@ -32,10 +32,10 @@ const receiptSchema = z.object({
 })
 
 /** @experimental One non-overlapping execution's usage, including its retries. Null is unknown. */
-export type ResidentLearningReceipt = Readonly<z.infer<typeof receiptSchema>>
+export type LearningReceipt = Readonly<z.infer<typeof receiptSchema>>
 
 /** @experimental Recorded values are lower bounds when a receipt or stage is incomplete. */
-export interface ResidentLearningConsumption {
+export interface LearningConsumption {
 	readonly tokens: number
 	readonly costUsd: number
 	readonly receipts: number
@@ -45,7 +45,7 @@ export interface ResidentLearningConsumption {
 }
 
 /** @experimental Append in sequence to host-owned durable storage before acknowledging. */
-export interface ResidentLearningCycleEvent {
+export interface LearningCycleEvent {
 	readonly cycleId: string
 	readonly sequence: number
 	readonly kind:
@@ -58,80 +58,80 @@ export interface ResidentLearningCycleEvent {
 		| 'evaluation'
 		| 'activation-requested'
 		| 'finished'
-	readonly stage?: ResidentLearningStage
+	readonly stage?: LearningStage
 	readonly data: Readonly<Record<string, unknown>>
 }
 
 /** @experimental Use this stage's signal for every owned execution; await every usage append. */
-export interface ResidentLearningCycleContext {
+export interface LearningCycleContext {
 	readonly cycleId: string
-	readonly stage: ResidentLearningStage
+	readonly stage: LearningStage
 	readonly signal: AbortSignal
 	/** Planning allowance, not a reservation or a cap on a callback's in-flight work. */
 	readonly remainingUnits: number
-	recordUsage(receipt: ResidentLearningReceipt): Promise<void>
+	recordUsage(receipt: LearningReceipt): Promise<void>
 }
 
 /** @experimental Original failure and active baseline; never contains confirmation tasks. */
-export interface ResidentLearningExplorationContext extends ResidentLearningCycleContext {
+export interface LearningExplorationContext extends LearningCycleContext {
 	readonly skillName: string
 	/** Admitted by the host before generation; cannot be changed by a candidate. */
 	readonly purpose?: 'task' | 'exploration'
-	readonly failure: Readonly<{ evidence: ResidentLearningEvidence; trace: string }>
-	readonly baseline: ResidentSkillCandidate | null
+	readonly failure: Readonly<{ evidence: LearningEvidence; trace: string }>
+	readonly baseline: LearningSkillCandidate | null
 }
 
 /** @experimental Host-retained environment observations, not a model's claim of success. */
-export interface ResidentLearningExploration {
-	readonly evidence: ResidentLearningEvidence
+export interface LearningExploration {
+	readonly evidence: LearningEvidence
 	readonly trace: string
 }
 
 /** @experimental Generation sees completed exploration, never held-out evaluation cases. */
-export interface ResidentLearningGenerationContext extends ResidentLearningExplorationContext {
-	readonly exploration?: Readonly<ResidentLearningExploration>
+export interface LearningGenerationContext extends LearningExplorationContext {
+	readonly exploration?: Readonly<LearningExploration>
 }
 
 /** @experimental The host supplies independently scored, retained traces for these exact revisions. */
-export interface ResidentLearningEvaluationContext extends ResidentLearningCycleContext {
-	readonly baseline: ResidentSkillCandidate | null
-	readonly candidate: ResidentSkillCandidate
+export interface LearningEvaluationContext extends LearningCycleContext {
+	readonly baseline: LearningSkillCandidate | null
+	readonly candidate: LearningSkillCandidate
 	readonly baselineRevision: string
 	readonly candidateRevision: string
 }
 
 /** @experimental No provider, default background loop or executable-code activation is installed. */
-export interface ResidentLearningCycleOptions {
+export interface LearningCycleOptions {
 	/** Omitted means task guidance. Explicitly select exploration to improve an explorer policy. */
 	readonly purpose?: 'task' | 'exploration'
 	/** Fixed before generation; both rounds must preserve every named task. */
 	readonly protection: HarnessProtectionPlan
 	readonly agenda: Pick<DiskResidentAgenda, 'read' | 'promoteSkill'>
 	readonly skillName: string
-	readonly failure: { readonly evidence: ResidentLearningEvidence; readonly trace: string }
+	readonly failure: { readonly evidence: LearningEvidence; readonly trace: string }
 	readonly parentCycleId?: string
 	readonly signal: AbortSignal
 	/** Stops subsequent stages/activation after observed excess; callbacks enforce in-flight limits. */
 	readonly resources: { readonly unit: 'tokens' | 'usd'; readonly maxUnits: number }
-	readonly record: (event: ResidentLearningCycleEvent) => Promise<void>
+	readonly record: (event: LearningCycleEvent) => Promise<void>
 	/** Optional active tool exploration before synthesis; the host retains actual observations. */
-	readonly explore?: (context: ResidentLearningExplorationContext) => Promise<{
-		readonly observations: ResidentLearningExploration
+	readonly explore?: (context: LearningExplorationContext) => Promise<{
+		readonly observations: LearningExploration
 		readonly usageComplete: boolean
 	}>
-	readonly generate: (context: ResidentLearningGenerationContext) => Promise<{
-		readonly candidate: ResidentSkillCandidate
+	readonly generate: (context: LearningGenerationContext) => Promise<{
+		readonly candidate: LearningSkillCandidate
 		/** All executions, including failures and side calls, have supplied receipts. */
 		readonly usageComplete: boolean
 	}>
-	readonly evaluate: (context: ResidentLearningEvaluationContext) => Promise<{
+	readonly evaluate: (context: LearningEvaluationContext) => Promise<{
 		readonly batch: HarnessVerificationBatch
 		readonly usageComplete: boolean
 	}>
 }
 
 /** @experimental An ambiguous activation must be inspected, never automatically replayed. */
-export interface ResidentLearningCycleResult {
+export interface LearningCycleResult {
 	readonly cycleId: string
 	readonly status:
 		| 'activated'
@@ -142,12 +142,12 @@ export interface ResidentLearningCycleResult {
 		| 'failed'
 		| 'activation-unknown'
 	readonly reason: string
-	readonly candidate?: ResidentSkillCandidate
+	readonly candidate?: LearningSkillCandidate
 	readonly candidateRevision?: string
 	readonly baselineRevision?: string
 	readonly agendaRevision?: number
 	readonly review?: HarnessReview
-	readonly consumption: ResidentLearningConsumption
+	readonly consumption: LearningConsumption
 	readonly auditComplete: boolean
 }
 
@@ -156,9 +156,9 @@ export interface ResidentLearningCycleResult {
  * activate through the existing exact-revision transaction. No internal inference
  * loop, retry or model-generated success claim replaces the host's evaluator.
  */
-export async function runResidentLearningCycle(
-	options: ResidentLearningCycleOptions,
-): Promise<ResidentLearningCycleResult> {
+export async function runLearningCycle(
+	options: LearningCycleOptions,
+): Promise<LearningCycleResult> {
 	const protection = normalizeHarnessProtection(options.protection)
 	const purpose = z.enum(['task', 'exploration']).parse(options.purpose ?? 'task')
 	const purposeContext = options.purpose === undefined ? {} : { purpose }
@@ -167,7 +167,7 @@ export async function runResidentLearningCycle(
 		.regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
 		.parse(options.skillName)
 	const failure = Object.freeze({
-		evidence: Object.freeze(residentLearningEvidenceSchema.parse(options.failure.evidence)),
+		evidence: Object.freeze(learningEvidenceSchema.parse(options.failure.evidence)),
 		trace: z.string().trim().min(1).max(32_000).parse(options.failure.trace),
 	})
 	const resources = z
@@ -176,18 +176,18 @@ export async function runResidentLearningCycle(
 	const parentCycleId =
 		options.parentCycleId === undefined ? undefined : z.string().uuid().parse(options.parentCycleId)
 	const cycleId = randomUUID()
-	const receipts = new Map<string, ResidentLearningReceipt>()
+	const receipts = new Map<string, LearningReceipt>()
 	let sequence = 0
 	let pending = Promise.resolve()
 	let auditComplete = true
 	let unfinishedStages = 0
-	let candidate: ResidentSkillCandidate | undefined
+	let candidate: LearningSkillCandidate | undefined
 	let candidateRevision: string | undefined
 	let baselineRevision: string | undefined
 	let review: HarnessReview | undefined
 	let activatedRevision: number | undefined
 	let activationRequested = false
-	const usage = (): ResidentLearningConsumption => ({
+	const usage = (): LearningConsumption => ({
 		tokens: [...receipts.values()].reduce((n, r) => n + (r.tokens ?? 0), 0),
 		costUsd: [...receipts.values()].reduce((n, r) => n + (r.costUsd ?? 0), 0),
 		receipts: receipts.size,
@@ -196,9 +196,9 @@ export async function runResidentLearningCycle(
 		unfinishedStages,
 	})
 	const append = (
-		kind: ResidentLearningCycleEvent['kind'],
+		kind: LearningCycleEvent['kind'],
 		data: Record<string, unknown>,
-		stage?: ResidentLearningStage,
+		stage?: LearningStage,
 	) => {
 		const event = Object.freeze({
 			cycleId,
@@ -215,10 +215,7 @@ export async function runResidentLearningCycle(
 			})
 		return pending
 	}
-	const result = (
-		status: ResidentLearningCycleResult['status'],
-		reason: string,
-	): ResidentLearningCycleResult => ({
+	const result = (status: LearningCycleResult['status'], reason: string): LearningCycleResult => ({
 		cycleId,
 		status,
 		reason,
@@ -245,7 +242,7 @@ export async function runResidentLearningCycle(
 			return 'The recorded resource allowance is exhausted before the next stage.'
 		return null
 	}
-	const execute = async (): Promise<ResidentLearningCycleResult> => {
+	const execute = async (): Promise<LearningCycleResult> => {
 		options.signal.throwIfAborted()
 		const snapshot = structuredClone(await options.agenda.read())
 		if (!snapshot) throw new Error('No resident agenda exists for this learning cycle.')
@@ -256,8 +253,8 @@ export async function runResidentLearningCycle(
 			throw new Error(
 				'The active skill has a different learning purpose; use a distinct skill name.',
 			)
-		const baseline = current ? normalizeResidentSkill(current) : null
-		baselineRevision = baseline ? hashResidentSkill(baseline) : 'none'
+		const baseline = current ? normalizeLearningSkill(current) : null
+		baselineRevision = baseline ? hashLearningSkill(baseline) : 'none'
 		await append('started', {
 			tenantId: snapshot.tenantId,
 			agentKey: snapshot.agentKey,
@@ -284,8 +281,8 @@ export async function runResidentLearningCycle(
 				throw new ResidentConflictError()
 		}
 		const stage = async <T extends { usageComplete: boolean }>(
-			name: ResidentLearningStage,
-			callback: (context: ResidentLearningCycleContext) => Promise<T>,
+			name: LearningStage,
+			callback: (context: LearningCycleContext) => Promise<T>,
 		): Promise<T> => {
 			await check()
 			await append('stage-started', {}, name)
@@ -296,7 +293,7 @@ export async function runResidentLearningCycle(
 			const before = receipts.size
 			try {
 				const measured = usage()
-				const context: ResidentLearningCycleContext = Object.freeze({
+				const context: LearningCycleContext = Object.freeze({
 					cycleId,
 					stage: name,
 					signal: options.signal,
@@ -304,7 +301,7 @@ export async function runResidentLearningCycle(
 						0,
 						resources.maxUnits - (resources.unit === 'tokens' ? measured.tokens : measured.costUsd),
 					),
-					recordUsage: async (input: ResidentLearningReceipt) => {
+					recordUsage: async (input: LearningReceipt) => {
 						try {
 							if (!open) throw new Error('A closed learning stage cannot record new usage.')
 							const receipt = Object.freeze(receiptSchema.parse(input))
@@ -344,16 +341,14 @@ export async function runResidentLearningCycle(
 				open = false
 			}
 		}
-		let exploration: Readonly<ResidentLearningExploration> | undefined
+		let exploration: Readonly<LearningExploration> | undefined
 		if (options.explore) {
 			const explore = options.explore
 			const observed = await stage('explore', (context) =>
 				explore(Object.freeze({ ...context, skillName, ...purposeContext, failure, baseline })),
 			)
 			exploration = Object.freeze({
-				evidence: Object.freeze(
-					residentLearningEvidenceSchema.parse(observed.observations.evidence),
-				),
+				evidence: Object.freeze(learningEvidenceSchema.parse(observed.observations.evidence)),
 				trace: z.string().trim().min(1).max(32_000).parse(observed.observations.trace),
 			})
 			await append(
@@ -379,8 +374,8 @@ export async function runResidentLearningCycle(
 				}),
 			),
 		)
-		candidateRevision = hashResidentSkill(generated.candidate)
-		candidate = normalizeResidentSkill(generated.candidate)
+		candidateRevision = hashLearningSkill(generated.candidate)
+		candidate = normalizeLearningSkill(generated.candidate)
 		if ((candidate.purpose ?? 'task') !== purpose)
 			throw new Error('Generated skill purpose does not match the host-admitted learning purpose.')
 		if (candidate.name !== skillName)
@@ -396,7 +391,7 @@ export async function runResidentLearningCycle(
 					Object.freeze({
 						...context,
 						baseline,
-						candidate: candidate as ResidentSkillCandidate,
+						candidate: candidate as LearningSkillCandidate,
 						baselineRevision: baselineRevision as string,
 						candidateRevision: candidateRevision as string,
 					}),
@@ -446,14 +441,14 @@ export async function runResidentLearningCycle(
 		if (review.decision !== 'accept')
 			return result(review.decision === 'reject' ? 'rejected' : 'inconclusive', review.reason)
 		await check()
-		const evidence: ResidentLearningEvidence = {
+		const evidence: LearningEvidence = {
 			key: cycleId,
 			source: `resident-learning-cycle:${cycleId}`,
 			reason: `Paired verification and fresh confirmation of guidance derived from evidence ${failure.evidence.key}.`,
 		}
 		// Validate all existing activation contracts before entering the ambiguous
 		// commit interval. The store repeats this against its atomic snapshot.
-		promoteResidentSkill(
+		promoteLearningSkill(
 			snapshot.learning,
 			candidate,
 			{ verification, confirmation, protection },
@@ -475,7 +470,7 @@ export async function runResidentLearningCycle(
 		activatedRevision = updated.revision
 		return result('activated', 'Evaluated guidance was committed for subsequent admissions.')
 	}
-	let outcome: ResidentLearningCycleResult
+	let outcome: LearningCycleResult
 	try {
 		outcome = await execute()
 	} catch (error) {

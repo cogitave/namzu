@@ -15,22 +15,22 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
-import type { ProjectId, TenantId } from '../../types/ids/index.js'
-import { asProjectId, asTenantId } from '../../utils/id.js'
+import type { ProjectId, TenantId } from '../types/ids/index.js'
+import { asProjectId, asTenantId } from '../utils/id.js'
 import {
-	type ResidentLearningCycleEvent,
-	type ResidentLearningCycleOptions,
-	type ResidentLearningCycleResult,
-	runResidentLearningCycle,
-} from './learning-cycle.js'
+	type LearningCycleEvent,
+	type LearningCycleOptions,
+	type LearningCycleResult,
+	runLearningCycle,
+} from './cycle.js'
 import {
-	type ResidentLearningObservation,
-	type ResidentLearningObservationRecord,
-	type ResidentLearningTarget,
+	type LearningObservation,
+	type LearningObservationRecord,
+	type LearningTarget,
 	learningObservationSchema,
 	learningTargetSchema,
-} from './learning-observation.js'
-import { hashResidentSkill } from './learning.js'
+} from './observation.js'
+import { hashLearningSkill } from './skill.js'
 
 const uuid = z
 	.string()
@@ -104,25 +104,25 @@ CREATE TABLE usage_receipts (
  * and receipts by a turn id; a database at either (or any other version) is
  * refused, never migrated — its rows name executions that no longer exist.
  */
-export const RESIDENT_LEARNING_STORE_VERSION = 3
+export const LEARNING_STORE_VERSION = 3
 
 /** A learning database this version of the store does not read. */
-export class ResidentLearningStoreVersionError extends Error {
-	override readonly name = 'ResidentLearningStoreVersionError'
+export class LearningStoreVersionError extends Error {
+	override readonly name = 'LearningStoreVersionError'
 	readonly found: number
 	readonly expected: number
 
 	constructor(databasePath: string, found: number) {
 		super(
-			`Learning database ${databasePath} is at schema version ${found}; this store reads version ${RESIDENT_LEARNING_STORE_VERSION} only. Databases before version 3 are not read: move the file aside and start a new learning database.`,
+			`Learning database ${databasePath} is at schema version ${found}; this store reads version ${LEARNING_STORE_VERSION} only. Databases before version 3 are not read: move the file aside and start a new learning database.`,
 		)
 		this.found = found
-		this.expected = RESIDENT_LEARNING_STORE_VERSION
+		this.expected = LEARNING_STORE_VERSION
 	}
 }
 
 /** @experimental Private parent directories and backup policy remain host responsibilities. */
-export interface SqliteResidentLearningStoreOptions {
+export interface SqliteLearningStoreOptions {
 	readonly databasePath: string
 	readonly artifactsPath: string
 	readonly scope: {
@@ -134,14 +134,14 @@ export interface SqliteResidentLearningStoreOptions {
 }
 
 /** @experimental A content-addressed immutable JSON artifact, scoped through its owning cycle. */
-export interface ResidentLearningArtifact {
+export interface LearningArtifact {
 	readonly name: string
 	readonly hash: string
 	readonly bytes: number
 }
 
 /** @experimental Recorded lower bounds; absence of a final result means completeness is unknown. */
-export interface ResidentLearningRecordedUsage {
+export interface LearningRecordedUsage {
 	readonly tokens: number
 	readonly costUsd: number
 	readonly receipts: number
@@ -150,18 +150,18 @@ export interface ResidentLearningRecordedUsage {
 }
 
 /** @experimental Running/pending records require inspection; neither implies a live executor. */
-export interface ResidentLearningCycleSummary {
+export interface LearningCycleSummary {
 	readonly cycleId: string
 	readonly ordinal: number
 	readonly parentCycleId: string | null
 	readonly skillName: string | null
-	readonly status: ResidentLearningCycleResult['status'] | 'running' | 'activation-pending'
+	readonly status: LearningCycleResult['status'] | 'running' | 'activation-pending'
 	readonly sequence: number
 	readonly startedAt: number
 	readonly updatedAt: number
 	readonly candidateRevision: string | null
-	readonly result: ResidentLearningCycleResult | null
-	readonly recordedUsage: ResidentLearningRecordedUsage
+	readonly result: LearningCycleResult | null
+	readonly recordedUsage: LearningRecordedUsage
 }
 
 type CycleRow = {
@@ -172,7 +172,7 @@ type CycleRow = {
 	agent_key: string
 	parent_id: string | null
 	skill_name: string | null
-	status: ResidentLearningCycleSummary['status']
+	status: LearningCycleSummary['status']
 	sequence: number
 	started_at: number
 	updated_at: number
@@ -185,7 +185,7 @@ type CycleRow = {
 	unknown_costs: number
 }
 
-const summary = (row: CycleRow): ResidentLearningCycleSummary => ({
+const summary = (row: CycleRow): LearningCycleSummary => ({
 	cycleId: row.id,
 	ordinal: row.ordinal,
 	parentCycleId: row.parent_id,
@@ -211,13 +211,13 @@ const summary = (row: CycleRow): ResidentLearningCycleSummary => ({
  * No database transaction spans an await, model request or artifact write. JSONL
  * exports are observations, never a second writable authority or a replay queue.
  */
-export class SqliteResidentLearningStore {
+export class SqliteLearningStore {
 	readonly databasePath: string
 	readonly artifactsPath: string
-	private readonly scope: SqliteResidentLearningStoreOptions['scope']
+	private readonly scope: SqliteLearningStoreOptions['scope']
 	private readonly readOnly: boolean
 
-	constructor(options: SqliteResidentLearningStoreOptions) {
+	constructor(options: SqliteLearningStoreOptions) {
 		this.databasePath = resolve(options.databasePath)
 		this.artifactsPath = resolve(options.artifactsPath)
 		this.scope = Object.freeze({
@@ -238,7 +238,7 @@ export class SqliteResidentLearningStore {
 			Database = (createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite'))
 				.DatabaseSync
 		} catch (error) {
-			throw new Error('SqliteResidentLearningStore requires Node.js 22.13 or newer.', {
+			throw new Error('SqliteLearningStore requires Node.js 22.13 or newer.', {
 				cause: error,
 			})
 		}
@@ -260,12 +260,12 @@ export class SqliteResidentLearningStore {
 					)
 						throw new Error('Refusing to initialize a nonempty learning database.')
 					db.exec(
-						`${SCHEMA} ${OBSERVATIONS_SCHEMA} PRAGMA user_version = ${RESIDENT_LEARNING_STORE_VERSION};`,
+						`${SCHEMA} ${OBSERVATIONS_SCHEMA} PRAGMA user_version = ${LEARNING_STORE_VERSION};`,
 					)
 				} else if (version === 0)
 					throw new Error('Learning database is not initialized; open it for writing first.')
-				else if (version !== RESIDENT_LEARNING_STORE_VERSION)
-					throw new ResidentLearningStoreVersionError(this.databasePath, version)
+				else if (version !== LEARNING_STORE_VERSION)
+					throw new LearningStoreVersionError(this.databasePath, version)
 				const value = operation(db)
 				db.exec('COMMIT')
 				return value
@@ -291,7 +291,7 @@ export class SqliteResidentLearningStore {
 	}
 
 	/** Immutable, idempotent observations. Regrading requires a different evaluator revision. */
-	async observe(input: ResidentLearningObservation): Promise<void> {
+	async observe(input: LearningObservation): Promise<void> {
 		const value = learningObservationSchema.parse(input)
 		const body = JSON.stringify(value)
 		this.use(true, (db) => {
@@ -335,7 +335,7 @@ export class SqliteResidentLearningStore {
 		ordinal: number
 		body: string
 		attemptedCycleId: string | null
-	}): ResidentLearningObservationRecord {
+	}): LearningObservationRecord {
 		const value = learningObservationSchema.parse(JSON.parse(row.body))
 		return Object.freeze({
 			...value,
@@ -348,7 +348,7 @@ export class SqliteResidentLearningStore {
 	/** Ordered inspection; summaries are host observations, not inferred task completion. */
 	async observations(
 		options: { readonly after?: number; readonly limit?: number } = {},
-	): Promise<readonly ResidentLearningObservationRecord[]> {
+	): Promise<readonly LearningObservationRecord[]> {
 		const after = z
 			.number()
 			.int()
@@ -377,8 +377,8 @@ export class SqliteResidentLearningStore {
 
 	/** Oldest eligible unattempted task across current targets; no model call or claim is made. */
 	async selectObservation(
-		input: readonly ResidentLearningTarget[],
-	): Promise<ResidentLearningObservationRecord | null> {
+		input: readonly LearningTarget[],
+	): Promise<LearningObservationRecord | null> {
 		const targets = z.array(learningTargetSchema).min(1).max(16).parse(input)
 		if (new Set(targets.map((t) => t.skillName)).size !== targets.length)
 			throw new Error('Learning selection requires one current evaluator per skill.')
@@ -410,7 +410,7 @@ export class SqliteResidentLearningStore {
 		})
 	}
 
-	private claimObservation(db: DatabaseSync, event: ResidentLearningCycleEvent): void {
+	private claimObservation(db: DatabaseSync, event: LearningCycleEvent): void {
 		if (event.kind !== 'started' || event.data.observation === undefined) return
 		const selected = z
 			.object({ ordinal: z.number().int().positive().safe() })
@@ -444,7 +444,7 @@ export class SqliteResidentLearningStore {
 	}
 
 	/** Identical event retries are idempotent. Different content at the same sequence is refused. */
-	async append(input: ResidentLearningCycleEvent): Promise<void> {
+	async append(input: LearningCycleEvent): Promise<void> {
 		const event = z
 			.object({
 				cycleId: uuid,
@@ -557,7 +557,7 @@ export class SqliteResidentLearningStore {
 					.parse(event.data.candidateRevision)
 			if (event.kind === 'activation-requested') status = 'activation-pending'
 			if (event.kind === 'finished') {
-				const value = event.data.result as ResidentLearningCycleResult
+				const value = event.data.result as LearningCycleResult
 				if (!value || uuid.parse(value.cycleId) !== event.cycleId)
 					throw new Error('Learning result identity differs from its journal.')
 				status = z
@@ -593,7 +593,7 @@ export class SqliteResidentLearningStore {
 		})
 	}
 
-	async get(cycleId: string): Promise<ResidentLearningCycleSummary | null> {
+	async get(cycleId: string): Promise<LearningCycleSummary | null> {
 		const id = uuid.parse(cycleId)
 		return this.use(false, (db) => {
 			const row = this.owned(db, id)
@@ -603,7 +603,7 @@ export class SqliteResidentLearningStore {
 
 	async list(
 		options: { readonly before?: number; readonly limit?: number } = {},
-	): Promise<readonly ResidentLearningCycleSummary[]> {
+	): Promise<readonly LearningCycleSummary[]> {
 		const limit = z
 			.number()
 			.int()
@@ -636,7 +636,7 @@ export class SqliteResidentLearningStore {
 	async events(
 		cycleId: string,
 		options: { readonly after?: number; readonly limit?: number } = {},
-	): Promise<readonly ResidentLearningCycleEvent[]> {
+	): Promise<readonly LearningCycleEvent[]> {
 		const id = uuid.parse(cycleId)
 		const after = z
 			.number()
@@ -661,22 +661,18 @@ export class SqliteResidentLearningStore {
 		})
 	}
 
-	async artifacts(cycleId: string): Promise<readonly ResidentLearningArtifact[]> {
+	async artifacts(cycleId: string): Promise<readonly LearningArtifact[]> {
 		const id = uuid.parse(cycleId)
 		return this.use(false, (db) => {
 			if (!this.owned(db, id)) return []
 			return db
 				.prepare('SELECT name, hash, bytes FROM artifacts WHERE cycle_id = ? ORDER BY name')
-				.all(id) as unknown as ResidentLearningArtifact[]
+				.all(id) as unknown as LearningArtifact[]
 		})
 	}
 
 	/** Complete immutable bytes precede the reference; an interrupted publication may leave an unreferenced blob. */
-	async putArtifact(
-		cycleId: string,
-		name: string,
-		value: unknown,
-	): Promise<ResidentLearningArtifact> {
+	async putArtifact(cycleId: string, name: string, value: unknown): Promise<LearningArtifact> {
 		if (this.readOnly) throw new Error('Learning database is read-only.')
 		const id = uuid.parse(cycleId)
 		z.string()
@@ -775,11 +771,11 @@ export class SqliteResidentLearningStore {
 }
 
 /** @experimental Supply normal host callbacks; the store retains journal events and full paired batches. */
-export async function runStoredResidentLearningCycle(
-	store: SqliteResidentLearningStore,
-	options: Omit<ResidentLearningCycleOptions, 'record'>,
-): Promise<ResidentLearningCycleResult> {
-	return runResidentLearningCycle({
+export async function runStoredLearningCycle(
+	store: SqliteLearningStore,
+	options: Omit<LearningCycleOptions, 'record'>,
+): Promise<LearningCycleResult> {
+	return runLearningCycle({
 		...options,
 		record: (event) => store.append(event),
 		evaluate: async (context) => {
@@ -791,15 +787,15 @@ export async function runStoredResidentLearningCycle(
 }
 
 /** @experimental Host authorizes evaluators; the SDK selects a retained failure against the active skill. */
-export interface ResidentLearningDiscoveryOptions
-	extends Omit<ResidentLearningCycleOptions, 'record' | 'failure' | 'skillName'> {
+export interface LearningDiscoveryOptions
+	extends Omit<LearningCycleOptions, 'record' | 'failure' | 'skillName'> {
 	readonly evaluators: readonly { readonly skillName: string; readonly evaluatorRevision: string }[]
 }
 
 /** @experimental Null cycle means no eligible work. A failed claimed cycle is never silently replayed. */
-export interface ResidentLearningDiscoveryResult {
-	readonly observation: ResidentLearningObservationRecord | null
-	readonly cycle: ResidentLearningCycleResult | null
+export interface LearningDiscoveryResult {
+	readonly observation: LearningObservationRecord | null
+	readonly cycle: LearningCycleResult | null
 }
 
 /**
@@ -808,22 +804,22 @@ export interface ResidentLearningDiscoveryResult {
  * Claim and start are one SQLite transaction; concurrent selectors cannot run
  * the same task/evaluator/baseline twice, even after a crash or reopened process.
  */
-export async function runStoredResidentLearningFromObservations(
-	store: SqliteResidentLearningStore,
-	options: ResidentLearningDiscoveryOptions,
-): Promise<ResidentLearningDiscoveryResult> {
+export async function runStoredLearningFromObservations(
+	store: SqliteLearningStore,
+	options: LearningDiscoveryOptions,
+): Promise<LearningDiscoveryResult> {
 	options.signal.throwIfAborted()
 	const agenda = await options.agenda.read()
 	if (!agenda || agenda.paused || agenda.pursuits.some((p) => p.state.phase === 'running'))
 		throw new Error('Learning discovery requires an unpaused agenda without running pursuits.')
 	const targets = options.evaluators.map((target) => {
 		const skill = agenda.learning?.skills.find((s) => s.name === target.skillName)
-		return { ...target, baselineRevision: skill ? hashResidentSkill(skill) : 'none' }
+		return { ...target, baselineRevision: skill ? hashLearningSkill(skill) : 'none' }
 	})
 	const observation = await store.selectObservation(targets)
 	options.signal.throwIfAborted()
 	if (!observation) return { observation: null, cycle: null }
-	const cycle = await runResidentLearningCycle({
+	const cycle = await runLearningCycle({
 		...options,
 		skillName: observation.skillName,
 		failure: { evidence: observation.evidence, trace: observation.trace },

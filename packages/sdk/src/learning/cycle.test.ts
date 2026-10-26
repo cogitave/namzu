@@ -3,17 +3,17 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { HarnessTrial, HarnessVerificationBatch } from '../../eval/harness-verification.js'
-import { generateTenantId } from '../../utils/id.js'
-import { DiskResidentAgenda } from './agenda.js'
-import { ResidentHost } from './host.js'
+import type { HarnessTrial, HarnessVerificationBatch } from '../eval/harness-verification.js'
+import { DiskResidentAgenda } from '../manager/resident/agenda.js'
+import { ResidentHost } from '../manager/resident/host.js'
+import { generateTenantId } from '../utils/id.js'
 import {
-	type ResidentLearningCycleEvent,
-	type ResidentLearningCycleOptions,
-	type ResidentLearningEvaluationContext,
-	runResidentLearningCycle,
-} from './learning-cycle.js'
-import { hashResidentSkill, projectResidentLearning } from './learning.js'
+	type LearningCycleEvent,
+	type LearningCycleOptions,
+	type LearningEvaluationContext,
+	runLearningCycle,
+} from './cycle.js'
+import { hashLearningSkill, projectLearning } from './skill.js'
 
 /** Every receipt in this file belongs to one session; the turn is what varies. */
 const RECEIPT_SESSION = randomUUID()
@@ -34,7 +34,7 @@ const evidence = {
 }
 
 function batch(
-	context: ResidentLearningEvaluationContext,
+	context: LearningEvaluationContext,
 	mode: 'better' | 'regress' | 'equal' = 'better',
 ): HarnessVerificationBatch {
 	const trials = (side: string): HarnessTrial[] =>
@@ -104,10 +104,10 @@ async function fixture() {
 	const scope = { tenantId: generateTenantId(), agentKey: 'learning-test' }
 	const agenda = new DiskResidentAgenda(root, scope)
 	const initial = await agenda.create('Inspect sources and learn only evaluated guidance.')
-	const events: ResidentLearningCycleEvent[] = []
+	const events: LearningCycleEvent[] = []
 	const stages: string[] = []
 	const controller = new AbortController()
-	const options: ResidentLearningCycleOptions = {
+	const options: LearningCycleOptions = {
 		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
 		agenda,
 		skillName: skill.name,
@@ -144,7 +144,7 @@ async function fixture() {
 describe('resident learning cycle', () => {
 	it('admits and retains an exploration policy without projecting it as task guidance', async () => {
 		const f = await fixture()
-		const result = await runResidentLearningCycle({
+		const result = await runLearningCycle({
 			...f.options,
 			purpose: 'exploration',
 			generate: async (context) => {
@@ -157,17 +157,16 @@ describe('resident learning cycle', () => {
 		expect(f.events.find((e) => e.kind === 'started')?.data.purpose).toBe('exploration')
 		const learning = (await f.agenda.read())?.learning
 		expect(
-			projectResidentLearning(learning, { maxChars: 4000, skillNames: [skill.name] })
-				.includedSkills,
+			projectLearning(learning, { maxChars: 4000, skillNames: [skill.name] }).includedSkills,
 		).toEqual([])
 		expect(
-			projectResidentLearning(learning, {
+			projectLearning(learning, {
 				maxChars: 4000,
 				skillNames: [skill.name],
 				purpose: 'exploration',
 			}).includedSkills,
 		).toEqual([skill.name])
-		const attempted = await runResidentLearningCycle(f.options)
+		const attempted = await runLearningCycle(f.options)
 		expect(attempted.status).toBe('failed')
 		expect(attempted.reason).toContain('purpose')
 	})
@@ -175,7 +174,7 @@ describe('resident learning cycle', () => {
 		'cannot redirect the host-admitted %s purpose during generation',
 		async (purpose) => {
 			const f = await fixture()
-			const result = await runResidentLearningCycle({
+			const result = await runLearningCycle({
 				...f.options,
 				purpose,
 				generate: async (context) => {
@@ -197,7 +196,7 @@ describe('resident learning cycle', () => {
 	it('retains independent exploration before generation without disclosing evaluation tasks', async () => {
 		const f = await fixture()
 		const observations = { evidence, trace: 'tool probe(input=7) returned 21' }
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			explore: async (context) => {
 				expect(context).not.toHaveProperty('protection')
@@ -239,7 +238,7 @@ describe('resident learning cycle', () => {
 		'stops before generation when exploration usage is %s',
 		async (kind) => {
 			const f = await fixture()
-			const result = await runResidentLearningCycle({
+			const result = await runLearningCycle({
 				...f.options,
 				explore: async (context) => {
 					if (kind !== 'missing')
@@ -265,7 +264,7 @@ describe('resident learning cycle', () => {
 		'refuses missing or oversized exploration instead of trusting a summary',
 		async (trace) => {
 			const f = await fixture()
-			const result = await runResidentLearningCycle({
+			const result = await runLearningCycle({
 				...f.options,
 				explore: async (context) => {
 					await context.recordUsage({
@@ -284,7 +283,7 @@ describe('resident learning cycle', () => {
 	it('does not synthesize after cancellation or evidence-journal failure', async () => {
 		for (const cancel of [true, false]) {
 			const f = await fixture()
-			const outcome = await runResidentLearningCycle({
+			const outcome = await runLearningCycle({
 				...f.options,
 				explore: async (context) => {
 					await context.recordUsage({
@@ -308,15 +307,15 @@ describe('resident learning cycle', () => {
 	it('validates protection before inference and does not expose or allow generation to replace it', async () => {
 		const f = await fixture()
 		await expect(
-			runResidentLearningCycle({
+			runLearningCycle({
 				...f.options,
-				protection: undefined as unknown as ResidentLearningCycleOptions['protection'],
+				protection: undefined as unknown as LearningCycleOptions['protection'],
 			}),
 		).rejects.toThrow()
 		expect(f.stages).toEqual([])
 		expect(f.events).toEqual([])
 		const protection = { verification: ['verification-1'], confirmation: ['confirmation-1'] }
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			protection,
 			generate: async (context) => {
@@ -354,7 +353,7 @@ describe('resident learning cycle', () => {
 	})
 	it('stops before confirmation when a required protection task is omitted, despite positive evidence', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			protection: { verification: ['not-evaluated'], confirmation: ['confirmation-1'] },
 		})
@@ -365,7 +364,7 @@ describe('resident learning cycle', () => {
 	})
 	it('never activates when fresh confirmation loses a protected baseline success', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				const evaluated = await f.options.evaluate(context)
@@ -388,7 +387,7 @@ describe('resident learning cycle', () => {
 		const f = await fixture()
 		const sources = [{ key: 'host:policy', revision: 'version-one' }]
 		const candidate = { ...skill, sources }
-		const first = await runResidentLearningCycle({
+		const first = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				await context.recordUsage({
@@ -409,7 +408,7 @@ describe('resident learning cycle', () => {
 		expect(
 			(await snapshot(new DiskResidentAgenda(f.root, f.scope))).learning?.skills[0]?.sources,
 		).toEqual(sources)
-		const second = await runResidentLearningCycle({
+		const second = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				expect(context.baseline?.sources).toEqual(sources)
@@ -428,10 +427,10 @@ describe('resident learning cycle', () => {
 	it('generates, verifies, confirms and atomically activates exact guidance; reopening and rollback reach admitted context', async () => {
 		const f = await fixture()
 		const parentCycleId = randomUUID()
-		const outcome = await runResidentLearningCycle({ ...f.options, parentCycleId })
+		const outcome = await runLearningCycle({ ...f.options, parentCycleId })
 		expect(outcome).toMatchObject({
 			status: 'activated',
-			candidateRevision: hashResidentSkill(skill),
+			candidateRevision: hashLearningSkill(skill),
 			consumption: { tokens: 45, costUsd: 0, receipts: 3, unknownCosts: 3, unfinishedStages: 0 },
 			auditComplete: true,
 		})
@@ -452,7 +451,7 @@ describe('resident learning cycle', () => {
 			reopened,
 			async (_p, _s, context) => {
 				projections.push([
-					...projectResidentLearning(context.learning, { maxChars: 4000, skillNames: [skill.name] })
+					...projectLearning(context.learning, { maxChars: 4000, skillNames: [skill.name] })
 						.includedSkills,
 				])
 				return { kind: 'complete', summary: 'Observed admitted skill.' }
@@ -473,7 +472,7 @@ describe('resident learning cycle', () => {
 		'does not spend a confirmation round on %s evidence',
 		async (mode) => {
 			const f = await fixture()
-			const outcome = await runResidentLearningCycle({
+			const outcome = await runLearningCycle({
 				...f.options,
 				evaluate: async (context) => {
 					f.stages.push(context.stage)
@@ -494,7 +493,7 @@ describe('resident learning cycle', () => {
 
 	it('retains usage and rejects regressing confirmation', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				await context.recordUsage({
@@ -515,7 +514,7 @@ describe('resident learning cycle', () => {
 
 	it('requires fresh confirmation conditions and identities', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				await context.recordUsage({
@@ -535,7 +534,7 @@ describe('resident learning cycle', () => {
 		'stops on unknown %s without inferring free work',
 		async (unit) => {
 			const f = await fixture()
-			const outcome = await runResidentLearningCycle({
+			const outcome = await runLearningCycle({
 				...f.options,
 				resources: { unit, maxUnits: 100 },
 				generate: async (context) => {
@@ -556,7 +555,7 @@ describe('resident learning cycle', () => {
 
 	it('stops subsequent stages after exceeding the recorded allowance', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			resources: { unit: 'tokens', maxUnits: 4 },
 		})
@@ -566,7 +565,7 @@ describe('resident learning cycle', () => {
 
 	it('retains partial consumption when an evaluation throws', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				await context.recordUsage({
@@ -588,7 +587,7 @@ describe('resident learning cycle', () => {
 			data: {
 				result: {
 					status: 'failed',
-					candidateRevision: hashResidentSkill(skill),
+					candidateRevision: hashLearningSkill(skill),
 					consumption: { tokens: 13, unfinishedStages: 1 },
 				},
 			},
@@ -598,7 +597,7 @@ describe('resident learning cycle', () => {
 
 	it('does not accept a stage that claims completeness without receipts', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async () => ({ candidate: skill, usageComplete: true }),
 		})
@@ -608,7 +607,7 @@ describe('resident learning cycle', () => {
 	it('detects a duplicate UUID alias across stages without double-counting', async () => {
 		const f = await fixture()
 		const id = randomUUID()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				await context.recordUsage({
@@ -637,7 +636,7 @@ describe('resident learning cycle', () => {
 
 	it('cancels after an uncooperative generator returns without evaluating or promoting', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				await context.recordUsage({
@@ -656,7 +655,7 @@ describe('resident learning cycle', () => {
 
 	it('stops before another expensive callback when the agenda changed', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				const value = await f.options.generate(context)
@@ -671,7 +670,7 @@ describe('resident learning cycle', () => {
 
 	it('does not misreport committed activation when the terminal journal append fails', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			record: async (event) => {
 				if (event.kind === 'finished') throw new Error('Disk full after commit.')
@@ -684,7 +683,7 @@ describe('resident learning cycle', () => {
 
 	it('does not run inference if the initial journal append fails', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			record: async () => {
 				throw new Error('No durable journal.')
@@ -696,7 +695,7 @@ describe('resident learning cycle', () => {
 
 	it('reports an unknown activation when a store commits and loses the response', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			agenda: {
 				read: () => f.agenda.read(),
@@ -712,7 +711,7 @@ describe('resident learning cycle', () => {
 
 	it('rejects mismatched evaluated content before promotion', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				const value = await f.options.evaluate(context)
@@ -725,7 +724,7 @@ describe('resident learning cycle', () => {
 
 	it('stops when a callback catches a rejected usage receipt', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				const receipt = {
@@ -745,7 +744,7 @@ describe('resident learning cycle', () => {
 
 	it('rejects inconsistent trial success before attempting a commit', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
 				const value = await f.options.evaluate(context)
@@ -763,14 +762,14 @@ describe('resident learning cycle', () => {
 	it('does not generate while the agenda is paused', async () => {
 		const f = await fixture()
 		await f.agenda.setPaused(f.initial, true)
-		const outcome = await runResidentLearningCycle(f.options)
+		const outcome = await runLearningCycle(f.options)
 		expect(outcome.status).toBe('failed')
 		expect(f.stages).toEqual([])
 	})
 
 	it('does not admit more work with zero remaining recorded allowance', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			resources: { unit: 'tokens', maxUnits: 5 },
 		})
@@ -780,7 +779,7 @@ describe('resident learning cycle', () => {
 
 	it('observes cancellation during journal IO before calling the generator', async () => {
 		const f = await fixture()
-		const outcome = await runResidentLearningCycle({
+		const outcome = await runLearningCycle({
 			...f.options,
 			record: async (event) => {
 				await f.options.record(event)
