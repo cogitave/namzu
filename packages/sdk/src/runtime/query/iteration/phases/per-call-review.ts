@@ -282,6 +282,8 @@ export class PerCallReview implements ReviewedExecution {
 	async #coveredNow(call: ToolCallSummary): Promise<boolean> {
 		if (PerCallReview.#alwaysAsked(call) || this.#deps.gateDenied.has(call.id)) return false
 		const { ctx } = this.#deps
+		// The host's veto comes before every approval path, the turn's own included.
+		if (await this.#vetoed(ctx.perCallReview?.neverCover, call)) return false
 		if (!this.#deps.reviewAllowed()) {
 			if (this.#deps.evaluateGate(call) === 'allow') return true
 			if (ctx.toolGrants?.covers(call)) return true
@@ -294,10 +296,23 @@ export class PerCallReview implements ReviewedExecution {
 		}
 	}
 
+	/** A host predicate that throws vetoes: a failure is never a yes. */
+	async #vetoed(
+		veto: ((call: ToolCallSummary) => boolean | Promise<boolean>) | undefined,
+		call: ToolCallSummary,
+	): Promise<boolean> {
+		if (!veto) return false
+		try {
+			return (await veto(call)) !== false
+		} catch {
+			return true
+		}
+	}
+
 	/** Whether the turn's own rules and earlier approvals let this call run unasked. */
 	#skipsAsk(call: ToolCallSummary): boolean {
 		if (this.#deps.reviewAllowed()) return false
-		if (call.authorization?.decision === 'allow') return true
+		if (call.authorization?.decision === 'allow') return !PerCallReview.#alwaysAsked(call)
 		return !PerCallReview.#alwaysAsked(call) && this.#deps.ctx.toolGrants?.covers(call) === true
 	}
 

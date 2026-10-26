@@ -202,12 +202,20 @@ export interface PerCallReviewConfig {
 	readonly onRulesChanged?: (listener: () => void) => () => void
 	/**
 	 * Whether the host's current rules and mode now let this call run without
-	 * asking. Consulted on each change, for each waiting call. Answer `false`
-	 * for a call whose exact input was not shown in full. Absent, only the
+	 * asking. Consulted on each change, for each waiting call. Use
+	 * `neverCover` for a call whose exact input was not shown in full. Absent, only the
 	 * turn's own authorization rules and approvals granted earlier in the turn
 	 * are re-checked.
 	 */
 	readonly covers?: (call: ToolCallSummary) => boolean | Promise<boolean>
+	/**
+	 * Calls a re-check must never approve, whatever the turn's rules, its
+	 * remembered approvals or `covers` say: answer `true` for a call whose exact
+	 * input was not shown in full, or that is too large to show. It is asked
+	 * first, for each waiting call, and a `true` (or a failure) keeps the
+	 * question open. It does not stop a call from being asked about up front.
+	 */
+	readonly neverCover?: (call: ToolCallSummary) => boolean | Promise<boolean>
 	/**
 	 * The calls (by id) that must be asked about together, in one request, before
 	 * any call of the batch starts: a question about the whole batch rather than

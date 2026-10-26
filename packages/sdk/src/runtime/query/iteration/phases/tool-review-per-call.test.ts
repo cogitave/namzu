@@ -100,6 +100,7 @@ function harness(
 		escalations?: Record<string, ToolCallSummary['escalation']>
 		toolGrants?: ToolGrantSet
 		reviewAllowed?: () => boolean
+		gateDecision?: () => 'allow' | 'review'
 	} = {},
 ): Harness {
 	const messages: Message[] = []
@@ -227,6 +228,16 @@ function harness(
 		...(options.perCallReview ? { perCallReview: options.perCallReview } : {}),
 		...(options.toolGrants ? { toolGrants: options.toolGrants } : {}),
 		...(options.reviewAllowed ? { reviewAllowedCalls: options.reviewAllowed } : {}),
+		...(options.gateDecision
+			? {
+					verificationGate: {
+						evaluate: () => ({
+							decision: options.gateDecision?.(),
+							matchedRule: null,
+						}),
+					},
+				}
+			: {}),
 	} as unknown as IterationContext
 	const setStopReason = vi.fn()
 	const markCancelled = vi.fn()
@@ -615,6 +626,79 @@ describe('per-call review: re-checks while questions are open', () => {
 		const outcome = await running
 		expect(outcome.decision).toBe('executed')
 		expect(h.started.sort()).toEqual(['r1', 'r2'])
+	})
+
+	it('a host veto keeps a call open that a rule, a grant or covers would approve', async () => {
+		const withheld = new Set(['r2'])
+		const never = (summary: ToolCallSummary) => withheld.has(summary.id)
+
+		// A rule now allows both calls; the host marks r2 as not shown in full.
+		const rules = withRules()
+		let ruleAllows = false
+		const viaRule = harness({
+			perCallReview: { ...rules.config, neverCover: never },
+			gateDecision: () => (ruleAllows ? 'allow' : 'review'),
+		})
+		const running = drive(viaRule.ctx, responseOf(call('r1', 'read'), call('r2', 'grep')))
+		await viaRule.untilQuestions(2)
+		ruleAllows = true
+		rules.changed()
+		await viaRule.untilStarted('r1')
+		await settleWork()
+		expect(viaRule.questions[0]?.context?.signal?.aborted).toBe(true)
+		expect(viaRule.questions[1]?.context?.signal?.aborted).toBe(false)
+		expect(viaRule.started).toEqual(['r1'])
+		viaRule.questions[1]?.answer(approve)
+		await viaRule.untilStarted('r2')
+		viaRule.finish('r1')
+		viaRule.finish('r2')
+		await running
+
+		// A remembered approval covers the tool; the veto still holds for r4.
+		const grants = new ToolGrantSet()
+		const viaGrant = harness({
+			perCallReview: { neverCover: (summary) => summary.id === 'r4' },
+			toolGrants: grants,
+		})
+		const second = drive(
+			viaGrant.ctx,
+			responseOf(call('r3', 'read'), call('r4', 'read'), call('r5', 'read')),
+		)
+		await viaGrant.untilQuestions(3)
+		viaGrant.questions[0]?.answer({
+			action: 'approve_tools',
+			remember: ['read'],
+		})
+		await viaGrant.untilStarted('r5')
+		expect(viaGrant.questions[1]?.context?.signal?.aborted).toBe(false)
+		expect(viaGrant.questions[2]?.context?.signal?.aborted).toBe(true)
+		viaGrant.questions[1]?.answer(approve)
+		await viaGrant.untilStarted('r4')
+		for (const id of ['r3', 'r4', 'r5']) viaGrant.finish(id)
+		await second
+
+		// covers says yes and the veto says no: the veto wins; a failing veto is a no.
+		const viaCovers = harness({
+			perCallReview: {
+				...rules.config,
+				covers: () => true,
+				neverCover: (summary) => {
+					if (summary.id === 'r7') throw new Error('veto failed')
+					return summary.id === 'r6'
+				},
+			},
+		})
+		const third = drive(viaCovers.ctx, responseOf(call('r6', 'read'), call('r7', 'grep')))
+		await viaCovers.untilQuestions(2)
+		rules.changed()
+		await settleWork()
+		expect(viaCovers.questions.every((q) => q.context?.signal?.aborted === false)).toBe(true)
+		viaCovers.questions[0]?.answer(approve)
+		viaCovers.questions[1]?.answer(approve)
+		await viaCovers.untilStarted('r7')
+		viaCovers.finish('r6')
+		viaCovers.finish('r7')
+		await third
 	})
 
 	it('a mode stricter than the rules keeps a rule-covered question open', async () => {
