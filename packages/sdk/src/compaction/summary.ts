@@ -25,10 +25,24 @@ export function isCompactionMessage(content: string | null | undefined): boolean
 	return typeof content === 'string' && content.startsWith(COMPACTION_HEADER)
 }
 
-/** The summary, as the system message that replaces what it summarises. */
-export function buildCompactionMessage(body: string): Message {
+/**
+ * The line that tells the model where exact earlier text can still be had. A
+ * host that mounts `search_conversation` and `read_conversation` adds it to
+ * every summary; a host without them adds nothing, because a pointer to a tool
+ * that is not there is worse than none.
+ */
+export const COMPACTION_RECOVERY_NOTE =
+	'Earlier output was cut from this summary. To get exact earlier text, call search_conversation, then read_conversation.'
+
+/**
+ * The summary, as the system message that replaces what it summarises.
+ * `recoveryNote` is appended as its own paragraph.
+ */
+export function buildCompactionMessage(body: string, recoveryNote?: string): Message {
 	return {
-		...createSystemMessage(`${COMPACTION_HEADER}\n\n${body}`),
+		...createSystemMessage(
+			`${COMPACTION_HEADER}\n\n${body}${recoveryNote ? `\n\n${recoveryNote}` : ''}`,
+		),
 		source: { type: 'compaction-summary' },
 	}
 }

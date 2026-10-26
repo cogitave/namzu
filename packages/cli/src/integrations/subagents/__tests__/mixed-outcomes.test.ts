@@ -8,7 +8,6 @@ import {
 	ProviderError,
 	type Toolset,
 	defineTool,
-	generateTurnId,
 	isTerminalAgentTaskState,
 	mcpJsonSchemaToZod,
 	toolset,
@@ -23,7 +22,8 @@ it.each(['tool', 'provider'])(
 	async (boundary) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-mixed-agents-'))
 		const parent = await subagentParentFixture(cwd)
-		const foreign = generateTurnId()
+		// A turn of another conversation, which must not reach these agents.
+		const foreign = await parent.addForeignTurn()
 		const releases: Array<() => void> = []
 		const requests: ChatCompletionParams[][] = [[], [], []]
 		let created = 0
@@ -31,8 +31,7 @@ it.each(['tool', 'provider'])(
 		const runtime = await createSubagentRuntime({
 			cwd,
 			model: 'mock',
-			resolveParent: (turnId) =>
-				parent.resolveParent(turnId === foreign ? parent.scope.turnId : turnId),
+			resolveParent: parent.resolveParent,
 			buildTools: (): readonly Toolset[] => [
 				toolset('test', [
 					defineTool({

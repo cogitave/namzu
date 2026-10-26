@@ -1,5 +1,24 @@
 # Changelog
 
+## 53.2.0
+
+### Minor Changes
+
+- 30654df: Adds `SessionEvidenceOffsetError`, thrown by a session text evidence source's `read` when the byte offset falls inside a multi-byte character (`code: 'inside_character'`) or beyond the text (`code: 'past_end'`), with `totalBytes` and the `scannedBytes` the failed read was charged. Both used to be plain `Error`s with the same messages, so a caller could not tell a bad position from an integrity or ownership refusal. The messages are unchanged and the class extends `Error`, so existing handlers keep working.
+- 30654df: A tool output that was cut now says one thing about how to get the rest, wherever the model meets it. The saved-file line is followed by a sentence that names only the tools the turn has: `read` (open the file, `offset`/`limit`) and, when both are mounted, `search_conversation` then `read_conversation`. The cleared-result placeholder keeps that sentence instead of its own advice, and every compaction summary of a conversation with those tools ends with a pointer to them. The built-in `read` tool now opens a regular `.txt` file in the session's own retained-output directory without a prompt (no symbolic link, no second hard link, read-only), so the pointer is true; `ToolContext.retainedOutputDirectory` is new and optional, and `CompactNowInput.recoveryNote` and `COMPACTION_RECOVERY_NOTE` are new exports. The conversation guidance no longer tells the model not to use `read`. Nothing is removed; a host that mounts neither tool still gets the neutral wording.
+- 5e9539a: A delegated child saved by an earlier process can now be continued. Pass `continuationProfile` (up to 16 short string entries, never a secret) to `createTask` when launching the child; it is written to the child's `meta.json`. In a later process, call the new optional `TaskScheduler.restoreChild({ childSessionId, workingDirectory, agentFor })`, which checks the saved log and meta under the invoking parent and re-creates the continuation that `createTask({ resumeSessionId })` needs, then continue the child with that call. It answers `{ status: 'refused', reason }` for a child with no profile, an isolated workspace, an unfinished turn, or one that was cancelled. Nothing changes for callers that do not use it; `ChildSessionMeta` gains an optional `continuation` field and `AgentManagerContract` an optional `restoreChildConversation`.
+
+### Patch Changes
+
+- 30654df: An evidence address or cursor from a session log no longer stops working as soon as the log grows. The seal used to include the log file's size and times, so every tool call of a running conversation voided the address a search had just returned, and `read_conversation` after `search_conversation`, or a second page by `nextCursor`, answered "could not be read". The seal now binds the file's identity, and the read still checks the record's offset, length and digest. A log that was rewritten or replaced is still refused. Nothing to do on upgrade.
+- 30654df: A conversation search address or cursor now stays valid when the next tool call reads it, even though that call is anchored at a later record. Previously every `read_conversation` after a `search_conversation` in a running turn was refused as changed. A seq past the end of the conversation is also answered at once on the live backend, naming the highest retained seq. Nothing to change in callers.
+
+## 53.1.0
+
+### Minor Changes
+
+- f225fb7: A tool call whose input is too large for one session-log record no longer ends the turn. The large `input` of a `tool_review_requested`, `decision_requested`, `tool_executing` or `tool_input_completed` record is now written to `tool-results/` and the record holds `{ "$spilledInput": <spill reference>, "preview": … }` in its place; a resumed turn reads the parked request's inputs back whole. A reader that walks the log itself and wants the full input of such a record reads the referenced spill (`SessionLog.readSpill`). Nothing to do for hosts that use the runtime.
+
 ## 53.0.0
 
 ### Major Changes
@@ -14,7 +33,7 @@
 
 ### Patch Changes
 
-- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from ` ⎿ ` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
+- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from `⎿` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
 
 ## 52.7.0
 

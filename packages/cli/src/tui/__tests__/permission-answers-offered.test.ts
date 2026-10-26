@@ -127,3 +127,13 @@ describe('the remembered-allow answer', () => {
 		expect(kinds([bash('npm test')], { screenConsent: true })).toEqual(['approve', 'reject'])
 	})
 })
+
+describe('a call the review could not show in full', () => {
+	it('offers only a one-time yes and a no, even where a wider answer would apply', () => {
+		expect(kinds([edit], { withheld: true })).toEqual(['approve', 'reject'])
+		expect(kinds([bash('npm test')], { withheld: true })).toEqual(['approve', 'reject'])
+		// The same calls do get the wider answer when nothing is withheld.
+		expect(kinds([edit])).toContain('approve-edits')
+		expect(kinds([bash('npm test')])).toContain('approve-rule')
+	})
+})

@@ -63,6 +63,11 @@ export interface CompactNowInput extends CompactionVerificationOptions {
 	 * a no-op. The callback owns persistence and must not mutate the messages.
 	 */
 	readonly onShed?: (messages: readonly Message[]) => void | Promise<void>
+	/**
+	 * A paragraph added to the end of the summary, for a host that can point the
+	 * model at the originals ({@link COMPACTION_RECOVERY_NOTE}). Absent adds none.
+	 */
+	readonly recoveryNote?: string
 }
 
 async function publishManualCompaction(
@@ -100,12 +105,13 @@ function splice(
 	summaryBody: string,
 	retainedOlder: readonly Message[],
 	recentMessages: readonly Message[],
+	recoveryNote?: string,
 ): { messages: Message[]; summary: Message } {
 	// A host-triggered pass has no turn-scoped WorkingStateManager to carry the
 	// summary into a later query. Pin this summary itself: until a future turn
 	// has rebuilt equivalent state, this message is the only surviving record
 	// of what the pass removed.
-	const summary = { ...buildCompactionMessage(summaryBody), retain: true }
+	const summary = { ...buildCompactionMessage(summaryBody, recoveryNote), retain: true }
 	return { messages: [...preservedSystem, summary, ...retainedOlder, ...recentMessages], summary }
 }
 
@@ -205,7 +211,13 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		},
 	)
 
-	const { messages, summary } = splice(preservedSystem, body, retainedOlder, plan.recentMessages)
+	const { messages, summary } = splice(
+		preservedSystem,
+		body,
+		retainedOlder,
+		plan.recentMessages,
+		input.recoveryNote,
+	)
 	return publishManualCompaction(input, {
 		messages,
 		shed: input.messages.length - messages.length,
@@ -294,7 +306,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 
 	// Same cross-run ownership as compactNow: a selected region has been
 	// replaced outside a turn, so its only surviving account is pinned.
-	const summary = { ...buildCompactionMessage(body), retain: true }
+	const summary = { ...buildCompactionMessage(body, input.recoveryNote), retain: true }
 	const out = [...messages.slice(0, start), summary, ...retainedSelected, ...messages.slice(end)]
 
 	// Checked after the splice, not only before it. The edges being

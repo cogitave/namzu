@@ -99,6 +99,12 @@ until it fits. A replacement is the first 2,000 characters and the path where th
 now, or the path it already had). Results that are not text alone (rich content, structured output) and tools
 with `selfLimitingOutput` are not replaced and not counted.
 
+A replacement and a spilled result carry the saved-file line and one sentence on how to read more, which names only
+the tools the turn has: `read` when it is mounted (it opens the file in the session's own retained-output directory
+without a prompt, as a regular `.txt` file that is not a link, in the usual line windows), and the conversation tools
+when both are mounted. `ToolContext.retainedOutputDirectory` carries that directory; `read` refuses anything else
+outside its roots as before.
+
 The replacement is written into the result when the batch settles, before the result becomes a history
 message, so it is what every later request carries. Nothing is decided again on a later turn, so a
 prompt-cache prefix over it stays valid. The `tool_completed` event keeps the result as the tool returned it.

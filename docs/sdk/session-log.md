@@ -93,7 +93,12 @@ canonicalised (`recordSha256`, `parseSessionLogLine`,
 at most 4 MiB (`SESSION_RECORD_MAX_BYTES`). Message bodies, compaction summaries
 and completed-result text above that threshold can spill to `tool-results/`;
 the spill file and its manifest are on disk before the record that points at
-them. Other fields still have to fit inside the record. By default, opt-in
+them. A tool call's input is spilled the same way when its record would not
+fit a line: `tool_review_requested`, `decision_requested`, `tool_executing` and
+`tool_input_completed` keep `{ "$spilledInput": <spill reference>, "preview": … }`
+in place of each large `input`, largest first and only as many as it takes. A
+resumed turn reads the spilled inputs of its parked request back whole. Other
+fields still have to fit inside the record. By default, opt-in
 [`tool_completed.structuredResultJson`](structured-output-review.md#retaining-structured-tool-results)
 and `turn_completed.settlement.structuredOutput` are inline. The ceiling includes
 escaping and metadata; an oversized record is refused, not silently truncated.
