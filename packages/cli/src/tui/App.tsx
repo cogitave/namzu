@@ -6151,6 +6151,8 @@ export function App({
 								permissionMode: permissionModeRef.current,
 								currentPermissionMode: () => permissionModeRef.current,
 								onAutoModeLimit: handleAutoModeLimit,
+								// The skills the operator has on, as a new turn carries them.
+								extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 								...(resume?.handoffReason
 									? {
 											systemNote: handoffContinuationNote(resume.handoffReason),
@@ -6193,6 +6195,7 @@ export function App({
 			return true
 		},
 		[
+			activeSkills,
 			advanceQueueContinuation,
 			detected,
 			finalizeMessage,

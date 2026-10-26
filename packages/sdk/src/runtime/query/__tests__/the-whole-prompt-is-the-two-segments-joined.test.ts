@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
@@ -44,6 +45,32 @@ describe('the whole prompt and the segments a request sends', () => {
 		cache.getSystemPrompt(inputWith('TWO'))
 
 		expect(cache.configHash).not.toBe(first)
+	})
+
+	it('computes the hash over the same text the segments send, in the order they are sent', () => {
+		const input = inputWith('DYNAMIC FACTS')
+		const cache = new PromptCache({ projectId: 'p' as ProjectId, agentId: 'a' })
+		const prompt = cache.getSystemPrompt(input)
+		const { static: staticText, dynamic } = new PromptBuilder(input).buildSegmented()
+
+		expect(prompt).toBe(`${staticText}\n\n---\n\n${dynamic}`)
+		const hashOf = (text: string) =>
+			createHash('sha256')
+				.update(
+					JSON.stringify([
+						'a',
+						text,
+						[
+							['rules', 'static'],
+							['facts', 'dynamic'],
+						],
+					]),
+				)
+				.digest('hex')
+				.slice(0, 16)
+		expect(cache.configHash).toBe(hashOf(`${staticText}\n\n---\n\n${dynamic}`))
+		// The same words with the two segments swapped are a different request.
+		expect(cache.configHash).not.toBe(hashOf(`${dynamic}\n\n---\n\n${staticText}`))
 	})
 
 	it('keeps the static segment byte-identical across two turns that differ only in dynamic text', () => {

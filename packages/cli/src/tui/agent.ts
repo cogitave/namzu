@@ -239,7 +239,6 @@ import {
 	readEnvironmentFacts,
 } from '../context/environment.js'
 import { AGENT_LAUNCH_TOOL, FOREGROUND_BASH_DESCRIPTION } from '../context/identity.js'
-import { DEFERRED_TOOL_GUIDANCE, composeSessionSystemPrompt } from '../context/system-prompt.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
 	type ResolvedSandbox,
@@ -247,6 +246,11 @@ import {
 	resolveSandbox,
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
+import {
+	DEFERRED_TOOL_GUIDANCE,
+	composeSessionSystemPrompt,
+	sessionPromptInput,
+} from '../context/system-prompt.js'
 import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
@@ -309,7 +313,6 @@ import { activeZenCatalogue, isOfferableModel } from '../integrations/providers/
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
-	CONVERSATION_EVIDENCE_GUIDANCE,
 	buildConversationReadTool,
 	buildConversationSearchTool,
 	releaseConversationEvidence,
@@ -1098,6 +1101,12 @@ export interface ResumePausedParams {
 	 * note the model read it as final and ended the turn.
 	 */
 	readonly systemNote?: string
+	/**
+	 * Standing words for the resumed turn's system prompt, as
+	 * `SendOptions.extraSystem` is to a new turn's: the operator's active
+	 * skills. A turn that paused and resumed keeps them.
+	 */
+	readonly extraSystem?: string
 }
 
 /** Where `model: auto` sent a turn: shown beside "Auto" so the choice is visible. */
@@ -4430,8 +4439,10 @@ export async function createAgentSession(
 		reviewHold,
 		model: pinned,
 		systemNote,
+		extraSystem,
 	}: ResumeDurableParams & {
 		readonly systemNote?: string
+		readonly extraSystem?: string
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
@@ -4471,25 +4482,31 @@ export async function createAgentSession(
 				options.planApproval && !options.ephemeral
 					? paths.planFile({ sessionId: entry.sessionId })
 					: undefined
-			const systemPrompt = composeSessionSystemPrompt({
-				resident: false,
-				browserDesktopRouting,
-				palBlock: palPromptBlock(),
-				environment: environmentPrompt,
-				delegationAvailable: !options.withheldTools?.includes(AGENT_LAUNCH_TOOL),
-				// A resumed turn runs over the session's toolset, which has no
-				// workflow tool: it is added per send, for a turn that carries a
-				// review channel.
-				workflowOffered: false,
-				conversationEvidence: options.conversationSessions
-					? CONVERSATION_EVIDENCE_GUIDANCE
-					: undefined,
-				toolsDeferred: options.toolLoading === 'deferred' || anyDeferred(sessionToolsets),
-				permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
-				planPath: resumePlanPath,
-				systemNote,
-				skillsOverflowNote: turnSkills.overflowNote,
-			})
+			const systemPrompt = composeSessionSystemPrompt(
+				sessionPromptInput(
+					{
+						browserDesktopRouting,
+						palBlock: palPromptBlock(),
+						environment: environmentPrompt,
+						withheldTools: options.withheldTools,
+						conversationSessions: options.conversationSessions,
+						toolLoading: options.toolLoading,
+						anyToolDeferred: anyDeferred(sessionToolsets),
+						planPath: resumePlanPath,
+						skillsOverflowNote: turnSkills.overflowNote,
+					},
+					{
+						resident: false,
+						// A resumed turn runs over the session's toolset, which has no
+						// workflow tool: it is added per send, for a turn that carries a
+						// review channel.
+						workflowOffered: false,
+						permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
+						extraSystem,
+						systemNote,
+					},
+				),
+			)
 
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
@@ -4705,6 +4722,7 @@ export async function createAgentSession(
 		reviewHold,
 		model: pinned,
 		systemNote,
+		extraSystem,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -4733,6 +4751,7 @@ export async function createAgentSession(
 			...(reviewHold ? { reviewHold } : {}),
 			...(pinned ? { model: pinned } : {}),
 			...(systemNote ? { systemNote } : {}),
+			...(extraSystem ? { extraSystem } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
@@ -5504,23 +5523,28 @@ export async function createAgentSession(
 								messages: () => [],
 							})
 						}
-						const systemPrompt = composeSessionSystemPrompt({
-							resident: Boolean(residentContext),
-							browserDesktopRouting,
-							palBlock: palPromptBlock(),
-							environment: environmentPrompt,
-							delegationAvailable: !options.withheldTools?.includes(AGENT_LAUNCH_TOOL),
-							workflowOffered: workflowOffer,
-							conversationEvidence: options.conversationSessions
-								? CONVERSATION_EVIDENCE_GUIDANCE
-								: undefined,
-							toolsDeferred: options.toolLoading === 'deferred' || anyDeferred(runToolsets),
-							permissionMode: opts?.permissionMode,
-							planPath,
-							extraSystem: opts?.extraSystem,
-							systemNote: opts?.systemNote,
-							skillsOverflowNote: turnSkills.overflowNote,
-						})
+						const systemPrompt = composeSessionSystemPrompt(
+							sessionPromptInput(
+								{
+									browserDesktopRouting,
+									palBlock: palPromptBlock(),
+									environment: environmentPrompt,
+									withheldTools: options.withheldTools,
+									conversationSessions: options.conversationSessions,
+									toolLoading: options.toolLoading,
+									anyToolDeferred: anyDeferred(runToolsets),
+									planPath,
+									skillsOverflowNote: turnSkills.overflowNote,
+								},
+								{
+									resident: Boolean(residentContext),
+									workflowOffered: workflowOffer,
+									permissionMode: opts?.permissionMode,
+									extraSystem: opts?.extraSystem,
+									systemNote: opts?.systemNote,
+								},
+							),
+						)
 						await announceSessionStart()
 						checkpoints.beginTurn(lastUserText(messages), turnId)
 						if (opts?.goalRound) {

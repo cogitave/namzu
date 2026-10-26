@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
 import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -9,11 +10,14 @@ import {
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../doctrine.js'
-import { NAMZU_IDENTITY } from '../identity.js'
+import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from '../identity.js'
 import {
 	DEFERRED_TOOL_GUIDANCE,
+	type SessionPromptFacts,
 	type SessionPromptInput,
+	type SessionPromptTurn,
 	composeSessionSystemPrompt,
+	sessionPromptInput,
 } from '../system-prompt.js'
 
 const state: SessionPromptInput = {
@@ -34,19 +38,97 @@ const compose = (over: Partial<SessionPromptInput> = {}) =>
 	composeSessionSystemPrompt({ ...state, ...over }) ?? ''
 
 describe('the session system prompt', () => {
-	it('is the same text for a new turn and a resumed turn that hold the same state', () => {
-		// Both paths in `tui/agent.ts` call this function with the facts they hold;
-		// identical facts must give identical bytes.
-		expect(compose()).toBe(compose({ resident: false }))
+	// What both assembly sites in `tui/agent.ts` hand over: the same facts, and
+	// the few things that belong to the turn.
+	const facts: SessionPromptFacts = {
+		browserDesktopRouting: 'ROUTING',
+		palBlock: 'PALS',
+		environment: 'ENVIRONMENT',
+		conversationSessions: {},
+		anyToolDeferred: true,
+		skillsOverflowNote: 'OVERFLOW',
+	}
+	const newTurn: SessionPromptTurn = {
+		resident: false,
+		workflowOffered: false,
+		permissionMode: 'auto',
+		extraSystem: 'SKILLS',
+		systemNote: 'NOTE',
+	}
+	const fromFacts = (f: Partial<SessionPromptFacts> = {}, t: Partial<SessionPromptTurn> = {}) =>
+		composeSessionSystemPrompt(sessionPromptInput({ ...facts, ...f }, { ...newTurn, ...t })) ?? ''
+
+	it('is the same text for a new turn and a resumed turn that hold the same facts', () => {
+		// The resumed turn differs from a new one only in the workflow tool it is
+		// not offered; give the new turn the same toolset and the bytes match.
+		const resumed = fromFacts()
+		expect(fromFacts({}, { workflowOffered: false })).toBe(resumed)
+		expect(resumed).toContain('SKILLS')
+		expect(resumed).toContain('NOTE')
 	})
 
-	it('keeps its static prefix byte-stable from one turn to the next', () => {
-		const first = compose()
-		const second = compose()
-		expect(second).toBe(first)
-		// A mode change only appends one section; nothing before it moves.
-		const planned = compose({ permissionMode: 'plan' })
-		expect(planned.startsWith(first.slice(0, first.indexOf('ENVIRONMENT')))).toBe(true)
+	it('differs from a new turn that is offered the workflow tool by exactly that rule', () => {
+		const resumed = fromFacts()
+		const offered = fromFacts({}, { workflowOffered: true })
+		expect(offered).toContain(WORKFLOW_DOCTRINE)
+		expect(offered.replace(`${WORKFLOW_DOCTRINE}\n\n`, '')).toBe(resumed)
+	})
+
+	it.each([
+		[
+			'the Agent tool is withheld',
+			{ withheldTools: [AGENT_LAUNCH_TOOL] },
+			NAMZU_DELEGATION_DOCTRINE,
+		],
+		['nothing is deferred', { anyToolDeferred: false }, DEFERRED_TOOL_GUIDANCE],
+		[
+			'there are no conversation sessions',
+			{ conversationSessions: undefined },
+			CONVERSATION_EVIDENCE_GUIDANCE,
+		],
+	] as const)('drops one section when %s, and only that section', (_name, change, gone) => {
+		const full = fromFacts()
+		const less = fromFacts(change)
+		expect(full).toContain(gone)
+		expect(less).not.toContain(gone)
+		expect(less.length).toBeLessThan(full.length)
+		expect(full.replace(gone, '').replace(/\n{3,}/g, '\n\n')).toBe(less)
+	})
+
+	it('treats deferred tool loading as deferred even when no tool is marked', () => {
+		expect(fromFacts({ toolLoading: 'deferred', anyToolDeferred: false })).toContain(
+			DEFERRED_TOOL_GUIDANCE,
+		)
+	})
+
+	it('keeps the prefix before the first per-turn section identical across turns that differ in them', () => {
+		const one = fromFacts(
+			{ environment: 'ENVIRONMENT one' },
+			{ extraSystem: 'SKILLS one', systemNote: 'NOTE one' },
+		)
+		const two = fromFacts(
+			{ environment: 'ENVIRONMENT two' },
+			{ extraSystem: 'SKILLS two', systemNote: undefined },
+		)
+		const stable = fromFacts(
+			{ environment: undefined, skillsOverflowNote: undefined },
+			{
+				extraSystem: undefined,
+				systemNote: undefined,
+			},
+		)
+		expect(one).not.toBe(two)
+		expect(one.startsWith(stable)).toBe(true)
+		expect(two.startsWith(stable)).toBe(true)
+		expect(one.slice(0, one.indexOf('ENVIRONMENT'))).toBe(two.slice(0, two.indexOf('ENVIRONMENT')))
+	})
+
+	it('adds the plan doctrine to the prefix as one section when plan mode starts, and moves nothing else', () => {
+		// The doctrine sits in the cached prefix, so a mode switch re-keys it
+		// once; this pins that it is the only thing that switch changes.
+		const auto = fromFacts()
+		const plan = fromFacts({}, { permissionMode: 'plan' })
+		expect(plan.replace(`${NAMZU_PLAN_MODE_DOCTRINE}\n\n`, '')).toBe(auto)
 	})
 
 	it('gives a resumed turn the deferred-tool guidance, plan doctrine and note', () => {
