@@ -8,4 +8,3 @@ Add themes and a reduced-motion setting to the terminal UI. The default is uncha
 - `/config theme [name]` does the same as `/theme`. Rows already on screen are redrawn in the new theme, and every new surface (the detailed transcript, the rewind dialog, tips and notices) draws through the theme colours.
 - New config keys `tui.theme` and `tui.reducedMotion` in your user config. A project file cannot set them and its values are ignored, so a repository cannot restyle your terminal.
 - `tui.reducedMotion: true` (or `/config motion on`) stops the working line's moving highlight, the composer's pulse, the open read/search line's blinking dot and the tab title's busy glyph.
-- The `tui` config block now merges key by key across your config files, so a later file that sets only `notifications` no longer drops an earlier file's `notificationMethod`. If you relied on a later file replacing the whole block, list every key you want in that file.

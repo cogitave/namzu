@@ -1312,6 +1312,11 @@ Ctrl+O, Esc, `q` or Ctrl+C returns to the composer with the draft as it was. Not
 scrollback by opening or closing it, so a settled row is never reprinted: the screen is a box in the
 live region (never the alternate screen) as tall as the terminal less a footer.
 
+Ctrl+O always shows the conversation you are in (the parent one), because that is the only place a
+`(ctrl+o to expand)` hint is drawn. It does nothing while the PageUp scroll view is open (leave that
+first with End or Esc), and in the agents cockpit or a child agent's own transcript, which draw
+their own rows and carry no such hint.
+
 - Every row is drawn expanded: tool bodies and shell output whole, a command whole, a diff whole, an
   agent's answer whole, a compaction's counts and summary. A counted line of reads and searches, open
   or settled, shows each of its calls with its result, and a call that failed shows its error in the
