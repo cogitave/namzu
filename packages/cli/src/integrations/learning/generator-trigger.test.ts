@@ -174,6 +174,44 @@ describe('background learning', () => {
 		expect(seen).toEqual([ran])
 	})
 
+	it('tells the host once for a cycle, however many turns end within the interval', async () => {
+		const seen: unknown[] = []
+		const ran = {
+			status: 'ran',
+			cycle: { status: 'activated' },
+			proposal: null,
+			tokens: 3,
+		} as never
+		const { bg, advance } = setup({ run: async () => ran, onOutcome: (o) => seen.push(o) })
+		for (let i = 0; i < 4; i++) {
+			bg.turnStarted()
+			bg.turnEnded()
+			advance(1_000)
+			await Promise.resolve()
+		}
+		await idle(bg)
+		expect(seen).toHaveLength(1)
+	})
+
+	it('never calls the model while the setting is off', async () => {
+		let calls = 0
+		const { bg, runs } = setup({
+			settings: resolveGeneratorSettings({ enabled: false }),
+			learning: {
+				model: async () => {
+					calls++
+					return reply
+				},
+				route: async () => 'p/m',
+			},
+		})
+		bg.turnStarted()
+		bg.turnEnded()
+		await idle(bg)
+		expect(runs).toHaveLength(0)
+		expect(calls).toBe(0)
+	})
+
 	it('swallows a failing check so the conversation never sees it', async () => {
 		const { bg } = setup({
 			run: async () => {

@@ -5074,7 +5074,22 @@ export function App({
 							learningObservations: activeCtx.learningObservations !== false,
 							// Learn by itself in the background of this conversation, unless the
 							// config key turned it off.
-							backgroundLearning: { config: activeCtx.learningGenerator },
+							backgroundLearning: {
+								config: activeCtx.learningGenerator,
+								// One dim row when a revision was activated; the cycle never
+								// asks, and the row names how to undo it.
+								onLearned: (line) =>
+									setMessages((prev) => [
+										...prev,
+										{
+											id: nextId(),
+											role: 'system' as const,
+											content: line,
+											glyph: systemRowStyle('notice').glyph,
+											glyphColor: systemRowStyle('notice').color,
+										},
+									]),
+							},
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.

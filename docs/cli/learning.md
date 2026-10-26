@@ -140,6 +140,16 @@ at 300,000 tokens per local day; a call whose usage cannot be measured ends the
 cycle as inconclusive instead of counting as free. `namzu learn` runs the same
 cycle on request and keeps the daily limit.
 
+**What you see.** When a cycle activates a revision, one dim row appears in
+the conversation, once: `Namzu learned something for this folder: <one line>
+Undo with \`namzu learn --undo\`.` A cycle that is rejected or inconclusive
+changes nothing and shows nothing. Activation needs no confirmation, because
+the editable surface is guidance text only and every activation is kept by its
+exact revision, so `namzu learn --undo` always restores the one before. Anything
+off that surface is refused and never activated. The model can also save a
+durable lesson itself during a turn with its memory tool (`save_memory`),
+without being asked.
+
 **Where it is kept and how to undo it.** The guidance and its history are in the
 folder's `learning/guidance` state, the observations and the cycle journal in
 `learning/`, the experience library in `learning/experience.sqlite`, and the

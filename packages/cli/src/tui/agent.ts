@@ -272,6 +272,7 @@ import {
 	createLearningLedger,
 	createSideLearningModel,
 } from '../integrations/learning/learning-model.js'
+import { describeLearned } from '../integrations/learning/learned-notice.js'
 import { readProjectGuidance } from '../integrations/learning/project-guidance.js'
 import {
 	createSessionLearningFeed,
@@ -2188,7 +2189,11 @@ export interface AgentSessionOptions {
 	 * means the default (on). Ignored for an ephemeral session or when
 	 * observations are not kept.
 	 */
-	readonly backgroundLearning?: { readonly config: LearningGeneratorConfig | undefined }
+	readonly backgroundLearning?: {
+		readonly config: LearningGeneratorConfig | undefined
+		/** One plain line, told once per activated revision, for the host to show. */
+		readonly onLearned?: (line: string) => void
+	}
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
@@ -5923,6 +5928,10 @@ export async function createAgentSession(
 			openTarget: () => openLearningTarget(paths, tenantId, projectId),
 			learning,
 			flushObservations: () => learningFeed.flush(),
+			onOutcome: (outcome) => {
+				const line = describeLearned(outcome)
+				if (line) background.onLearned?.(line)
+			},
 		}),
 	)
 }

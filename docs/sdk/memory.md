@@ -328,8 +328,10 @@ operations available to the model.
 The `save_memory` description tells the model what belongs in a memory: what is
 true now and cannot be worked out from the code, git history or files; for
 `feedback` and `project` memories, the rule first, then a `Why:` line and a
-`How to apply:` line; `[[name]]` links to related memories; and an update
-instead of a duplicate.
+`How to apply:` line; `[[name]]` links to related memories; an update
+instead of a duplicate; and that the model saves one itself, without waiting to
+be asked, when it learns something durable (a correction, a rule about how to
+work here, a hard-won fix).
 
 Saving through the tool records `metadata.source: 'agent-memory'` and the
 calling `sessionId` and `turnId`; updates preserve that creation metadata and

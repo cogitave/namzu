@@ -11,6 +11,7 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 		name: 'save_memory',
 		description: [
 			'Save a new memory for future sessions: something true now that a later session could not work out from the code, the git history or the files themselves. Do not save what those already say.',
+			'Save one yourself, without waiting to be asked, when you learn something durable that later sessions would otherwise relearn the hard way: a correction the user gave, a rule about how to work here, or a fix that took effort to find.',
 			'Choose a type: user (who the user is and how they like to work), feedback (a rule the user gave about how to work), project (a fact or decision about the work), reference (where to look for something).',
 			'For feedback and project memories, write the rule or fact first, then a line starting "Why:" and a line starting "How to apply:".',
 			'Link a related memory by writing [[its-name]] in the content.',
