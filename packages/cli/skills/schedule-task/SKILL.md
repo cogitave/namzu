@@ -268,8 +268,9 @@ alone:
   post) as the user gave them.
 
 Example: "Check the files in this folder. If any file is older than a week, write
-the list with names and dates to `reports/stale.md`, replacing the file. If the command fails, stop and
-report its error. Do not install or change anything."
+the list with names and dates to `reports/stale.md`, replacing the file. If a
+file cannot be read, stop and report the error. Do not install or change
+anything."
 
 ## 5. Propose, then confirm
 

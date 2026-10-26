@@ -267,7 +267,9 @@ async function createSession(
 describe('computer use session reachability', () => {
 	it('routes an existing browser window to computer_use only when both tools are ready', async () => {
 		const both = await createSession(true, 'anthropic', true)
-		for await (const _ of both.send([{ role: 'user', content: 'my open browser window' } as never])) {
+		for await (const _ of both.send([
+			{ role: 'user', content: 'my open browser window' } as never,
+		])) {
 			// drain into the mocked query boundary
 		}
 		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))

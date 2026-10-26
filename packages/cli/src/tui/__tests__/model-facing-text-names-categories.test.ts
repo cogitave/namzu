@@ -121,7 +121,11 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 	}),
 }))
 
-/** Consumer products, apps, sites and brands that must not appear as examples. */
+/**
+ * Consumer products, apps, sites and brands that must not appear as examples.
+ * Chrome and Edge are left out on purpose: they are real browser-engine
+ * identifiers the browser package legitimately speaks, not examples.
+ */
 const CONSUMER_NAMES = [
 	'Brave',
 	'Firefox',
