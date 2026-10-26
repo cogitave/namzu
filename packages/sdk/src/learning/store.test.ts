@@ -313,3 +313,32 @@ describe('SQLite resident learning journal', () => {
 		expect(readFileSync(f.options.databasePath)).toEqual(before)
 	})
 })
+
+describe('pruning observations', () => {
+	const observation = (turn: string, taskKey: string) => ({
+		skillName: 'inspect',
+		evaluatorRevision: 'rev-1',
+		baselineRevision: 'none' as const,
+		sessionId: randomUUID(),
+		turnId: turn,
+		taskKey,
+		outcome: 'failed' as const,
+		usageComplete: true,
+		evidence: { key: 'k', source: 'host', reason: 'It failed.' },
+		trace: 'trace',
+	})
+
+	it('drops the unclaimed observations the host chooses and keeps the rest', async () => {
+		const { store } = fixture()
+		await store.observe(observation(randomUUID(), 'old'))
+		await store.observe(observation(randomUUID(), 'new'))
+		const removed = await store.pruneObservations((record) => record.taskKey === 'old')
+		expect(removed).toBe(1)
+		expect((await store.observations()).map((o) => o.taskKey)).toEqual(['new'])
+	})
+
+	it('is a no-op on a store that was never written', async () => {
+		const { store } = fixture()
+		expect(await store.pruneObservations(() => true)).toBe(0)
+	})
+})

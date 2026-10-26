@@ -375,6 +375,40 @@ export class SqliteLearningStore {
 		})
 	}
 
+	/**
+	 * Drop unclaimed observations the host no longer wants to keep (retention). An
+	 * observation a cycle has claimed is never dropped, so no experiment loses its
+	 * source. Returns how many were removed; the store keeps no clock, so the host
+	 * decides from the record (for example the age of its session).
+	 */
+	async pruneObservations(
+		shouldDrop: (record: LearningObservationRecord) => boolean,
+	): Promise<number> {
+		if (this.readOnly) throw new Error('Learning database is read-only.')
+		if (!existsSync(this.databasePath)) return 0
+		const doomed: number[] = []
+		for (let after = 0; ; ) {
+			const page = await this.observations({ after, limit: 100 })
+			if (page.length === 0) break
+			for (const record of page)
+				if (record.attemptedCycleId === null && shouldDrop(record)) doomed.push(record.ordinal)
+			after = page[page.length - 1]?.ordinal ?? after
+		}
+		if (doomed.length === 0) return 0
+		return this.use(true, (db) => {
+			const remove = db.prepare(
+				'DELETE FROM observations WHERE ordinal=? AND tenant_id=? AND project_id=? AND agent_key=?',
+			)
+			let removed = 0
+			for (const ordinal of doomed)
+				removed += Number(
+					remove.run(ordinal, this.scope.tenantId, this.scope.projectId, this.scope.agentKey)
+						.changes,
+				)
+			return removed
+		})
+	}
+
 	/** Oldest eligible unattempted task across current targets; no model call or claim is made. */
 	async selectObservation(
 		input: readonly LearningTarget[],
