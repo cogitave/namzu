@@ -195,7 +195,6 @@ export function createSessionLearningFeed(
 
 	const write = async (event: FeedEvent): Promise<void> => {
 		const found = classify(event)
-		console.error('DBG', event.kind, !!found)
 		if (!found) return
 		const turnId = found.turnId ?? derivedTurnId(options.sessionId, found.evaluator, ordinal++)
 		const identity = `${turnId}:${found.evaluator}`
