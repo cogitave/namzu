@@ -10,6 +10,7 @@
  */
 
 import * as sdk from '@namzu/sdk'
+import { createRuntimeContextMessage, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
@@ -17,6 +18,9 @@ import { EXPLORE_PROMPT, SUBAGENT_PROMPT } from '../../integrations/subagents/ru
 import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
 import { WORKFLOW_TOOL_NAME } from '../../integrations/workflows/offering.js'
 import { EXIT_PLAN_MODE_TOOL_NAME } from '../../plan/approval.js'
+import { hypermodeReminders } from '../../reminders/hypermode.js'
+import { modeReminders } from '../../reminders/mode.js'
+import { planModeReminders } from '../../reminders/plan-mode.js'
 import { DEFERRED_TOOL_GUIDANCE } from '../../tui/agent.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -47,6 +51,7 @@ const NOT_A_SDK_TOOL = new Set<string>([
 	AGENT_LAUNCH_TOOL,
 	WORKFLOW_TOOL_NAME,
 	EXIT_PLAN_MODE_TOOL_NAME,
+	'ask_user_question',
 	'task_create',
 	'task_update',
 	'search_tools',
@@ -149,6 +154,11 @@ describe('the assembled prompts', () => {
 		)
 	})
 
+	it('calls Namzu an AI kernel', () => {
+		expect(NAMZU_IDENTITY).toContain('Namzu is an AI kernel exposed through a TypeScript SDK')
+		for (const [, text] of assembled()) expect(text).not.toMatch(/agent kernel/i)
+	})
+
 	it('points at the shell tool by its real name', () => {
 		expect(NAMZU_IDENTITY).toContain(`\`${sdk.BashTool.name}\``)
 		expect(NAMZU_IDENTITY).not.toContain('bash.run')
@@ -172,5 +182,119 @@ describe('the assembled prompts', () => {
 		expect(at).toBeGreaterThan(SUBAGENT_PROMPT.indexOf(NAMZU_WORKING_DOCTRINE))
 		expect(SUBAGENT_PROMPT.slice(at)).toMatch(/name the blocker or the assumption/)
 		expect(SUBAGENT_PROMPT).not.toMatch(/do not ask the parent questions/i)
+	})
+})
+
+/**
+ * The reminders are model-facing text too, and a prompt-level reminder reaches
+ * a model at the edge of its context, where emphasis is easiest to overdo. Each
+ * is read here the way the model reads it: framed, in the words a person set.
+ */
+describe('the reminder texts', () => {
+	const PLAN = '/home/u/.namzu/plans/plan.md'
+
+	function reminders(): ReadonlyArray<readonly [string, string]> {
+		const out: Array<readonly [string, string]> = []
+		for (const planExists of [false, true]) {
+			for (const canAsk of [false, true]) {
+				const input = {
+					messages: [createUserMessage('go')],
+					mode: 'plan',
+					planPath: PLAN,
+					planExists,
+					canAsk,
+				}
+				for (const text of planModeReminders(input))
+					out.push([`plan full (${planExists}, ${canAsk})`, text])
+				// The short form, the exit note and the re-entry note.
+				const first = planModeReminders(input)
+				const history = [
+					createUserMessage('one'),
+					...first.map((text) => createRuntimeContextMessage(text, 'reminder')),
+					createUserMessage('two'),
+				]
+				for (const text of planModeReminders({ ...input, messages: history, mode: 'prompt' }))
+					out.push([`plan exit (${planExists}, ${canAsk})`, text])
+				const exited = [
+					...history,
+					...planModeReminders({ ...input, messages: history, mode: 'prompt' }).map((text) =>
+						createRuntimeContextMessage(text, 'reminder'),
+					),
+				]
+				for (const text of planModeReminders({ ...input, messages: exited, planExists: true }))
+					out.push([`plan re-entry (${canAsk})`, text])
+			}
+		}
+		const sparseSource = [createUserMessage('go')]
+		for (let turn = 0; turn < 6; turn++) {
+			for (const text of planModeReminders({
+				messages: sparseSource,
+				mode: 'plan',
+				planPath: PLAN,
+				planExists: false,
+				canAsk: true,
+			}))
+				sparseSource.push(createRuntimeContextMessage(text, 'reminder'))
+			sparseSource.push(createUserMessage(`turn ${turn}`))
+		}
+		for (const text of planModeReminders({
+			messages: sparseSource,
+			mode: 'plan',
+			planPath: PLAN,
+			planExists: false,
+			canAsk: true,
+		}))
+			out.push(['plan sparse', text])
+		for (const mode of ['auto', 'accept-edits', 'bypass'] as const) {
+			for (const text of modeReminders({ messages: [], mode, interactive: true }))
+				out.push([`mode ${mode}`, text])
+		}
+		for (const toolListed of [false, true]) {
+			for (const text of hypermodeReminders({ messages: [], on: true, toolListed }))
+				out.push([`hypermode (${toolListed})`, text])
+		}
+		return out
+	}
+
+	const known = new Set([...sdkToolNames(), ...NOT_A_SDK_TOOL])
+
+	it('has reminders to read', () => {
+		expect(reminders().length).toBeGreaterThan(10)
+	})
+
+	it.each(reminders())('%s: never tells anyone to start over', (_name, text) => {
+		expect(text).not.toMatch(
+			/start (over|fresh|a new (session|conversation|chat))|\/new\b|\/clear\b/i,
+		)
+	})
+
+	it.each(reminders())('%s: uses ordinary emphasis, with no capitals stacks', (_name, text) => {
+		// A word of four or more capital letters is shouting; the tag attributes are lowercase.
+		expect(text.match(/\b[A-Z]{4,}\b/g) ?? []).toEqual([])
+	})
+
+	it.each(reminders())('%s: ranks nothing above every other instruction', (_name, text) => {
+		// Project rules never outrank the safety and permission rules, so a reminder
+		// that claims to beat every instruction contradicts the order the prompt sets.
+		expect(text).not.toMatch(/overrides? (every|all) other|above (every|all) other|no matter what/i)
+	})
+
+	it.each(reminders())('%s: every tool it names is in backticks and mounted', (_name, text) => {
+		const named = [...text.matchAll(/\b(exit_plan_mode|ask_user_question)\b/g)].map((m) => m[1])
+		for (const name of named) expect(text).toContain(`\`${name}\``)
+		const tokens = [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1] ?? '')
+		expect(tokens.filter((t) => TOOL_SHAPED.test(t) && !known.has(t))).toEqual([])
+	})
+
+	it('gives the plan reminder its reason', () => {
+		const [full] = planModeReminders({
+			messages: [createUserMessage('go')],
+			mode: 'plan',
+			planPath: PLAN,
+			planExists: false,
+			canAsk: true,
+		})
+		expect(full).toContain('so the user can review the plan before anything changes')
+		expect(full).toContain('cannot be answered in the approval screen')
 	})
 })

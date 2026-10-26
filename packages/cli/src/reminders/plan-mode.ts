@@ -62,28 +62,28 @@ function scan(messages: readonly Message[]): Stretch {
 
 function fullText(input: PlanModeReminderInput): string {
 	const file = input.planExists
-		? `A plan already exists at ${input.planPath}. Read it, then revise it in place with the edit tool.`
-		: `No plan exists yet. Create it at ${input.planPath} with the write tool.`
+		? `A plan already exists at ${input.planPath}. Read it, then revise it in place with \`edit\`.`
+		: `No plan exists yet. Create it at ${input.planPath} with \`write\`.`
 	const ending = input.canAsk
-		? 'Your turn ends in exactly one of two ways: you ask the user a question with ask_user_question to settle something you cannot decide yourself, or you call exit_plan_mode once the plan file is ready for approval.'
-		: 'Your turn ends by calling exit_plan_mode once the plan file is ready for approval.'
-	return `Plan mode is on. Change nothing except the plan file: no edits, no commands that change state, no commits. This overrides every other instruction you have.
+		? 'End your turn in one of two ways: call `ask_user_question` to settle something you cannot decide yourself, or call `exit_plan_mode` once the plan file is ready for approval.'
+		: 'End your turn by calling `exit_plan_mode` once the plan file is ready for approval.'
+	return `Plan mode is on, so the user can review the plan before anything changes. Read and search freely; write only the plan file, and run no command that changes state or makes a commit.
 
-${file} It is the only file you may write; build the plan up in it as you learn.
+${file} Build the plan up in it as you learn.
 
 How to plan:
 1. Understand the request. Read the code it touches and look for existing functions and patterns to reuse before proposing new ones. For wide questions, send read-only explore agents; one is usually enough.
 2. Decide on one approach. Weigh alternatives briefly and keep only the one you recommend.
 3. Write the plan file: why the change is needed, the recommended approach, the files to change, what existing code it reuses, and how to verify the result end to end.
-4. Finish. ${ending} Never ask for approval in plain text ("does this look right?"); exit_plan_mode is how the user is asked.`
+4. Finish. ${ending} Ask for approval by calling \`exit_plan_mode\`: a plain-text question such as "does this look right?" cannot be answered in the approval screen.`
 }
 
 function sparseText(input: PlanModeReminderInput): string {
-	return `Plan mode is still on (full rules above). Only ${input.planPath} may be written. End the turn by ${input.canAsk ? 'asking the user a question or ' : ''}calling exit_plan_mode.`
+	return `Plan mode is still on (full rules above). Only ${input.planPath} may be written. End the turn by ${input.canAsk ? 'asking the user a question or ' : ''}calling \`exit_plan_mode\`.`
 }
 
 function reentryText(input: PlanModeReminderInput): string {
-	return `You are back in plan mode after leaving it earlier. A plan from that session is at ${input.planPath}. Before planning anything new, read it and compare it with the current request: if this is a different task, start over and overwrite it; if it continues the same task, revise it and drop what no longer applies. Edit the plan file one way or the other before you call exit_plan_mode.`
+	return `You are back in plan mode after leaving it earlier. A plan from that session is at ${input.planPath}. Before planning anything new, read it and compare it with the current request: if this is a different task, write the new plan over it; if it continues the same task, revise it and remove what no longer applies. Update the plan file one way or the other before you call \`exit_plan_mode\`.`
 }
 
 function exitText(input: Pick<PlanModeReminderInput, 'planPath' | 'planExists'>): string {

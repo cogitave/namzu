@@ -1196,7 +1196,7 @@ out as `\u{....}`; `d` shows the exact input.
 
 ## Task continuity in the CLI prompt
 
-The CLI identity describes Namzu as an agent kernel with a TypeScript SDK and
+The CLI identity describes Namzu as an AI kernel with a TypeScript SDK and
 the CLI as one interface. Completed prior-turn tool actions remain usable
 evidence; the identity does not require a fresh action just to report earlier
 work. It still forbids invented actions and distinguishes current execution

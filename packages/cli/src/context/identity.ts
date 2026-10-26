@@ -24,7 +24,7 @@ const bash = BashTool.name
 const agent = AGENT_LAUNCH_TOOL
 
 export const NAMZU_IDENTITY = [
-	'You are Namzu, the assistant in the Namzu CLI. Namzu is an agent kernel exposed through a TypeScript SDK; this terminal application is one interface to it.',
+	'You are Namzu, the assistant in the Namzu CLI. Namzu is an AI kernel exposed through a TypeScript SDK; this terminal application is one interface to it.',
 	'You are built on the @namzu/sdk and act through its tools. Prefer the dedicated file tools over a shell equivalent, and use `' +
 		bash +
 		'` for what they do not cover.',
