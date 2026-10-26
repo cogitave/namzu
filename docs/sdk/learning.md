@@ -21,6 +21,7 @@ say resident.
 | One experiment | `cycle.ts` | `runLearningCycle`, `LearningCycleOptions`, `LearningCycleResult` |
 | Durable records | `store.ts` | `SqliteLearningStore`, `runStoredLearningCycle`, `runStoredLearningFromObservations` |
 | Experience library and edit ledger | `experience.ts`, `experience-store.ts` | `SqliteLearningExperienceStore`, `LearningExperienceEntry`, `normalizeLearningExperience`, `selectLearningExperience` |
+| Built-in generator, one surface | `generator.ts` | `proposeLearningCandidate`, `resolveLearningSurface`, `learningExperienceFromCycle`, `LearningModel` |
 | Host-scored observations | `observation.ts` | `LearningObservation`, `LearningObservationRecord`, `LearningTarget` |
 
 Behaviour is unchanged by the move. The cycle still needs a host that supplies
@@ -123,6 +124,50 @@ shapes). Both walk every string the entry holds, including components, the
 evaluator revision, the artefact name and the evidence, and throw
 `LearningLeakError` without repeating the text. Retrieval scans again, so an
 entry recorded under a looser guard is not served to a generator.
+
+## Built-in generator
+
+`proposeLearningCandidate` is the first generator Namzu ships: one step on one
+surface. It does not run a cycle and does not judge anything. The host passes
+the observations of a domain, the earlier cycles of the same domain and
+evaluator (from the experience library), the active skill, a `leakGuard` and a
+`LearningModel`, which is one function from a request to `{ text, tokens,
+costUsd }`. The host picks the model and counts the spend; the SDK never
+opens a provider for it.
+
+What it does, in order:
+
+1. Scans the observations, the earlier cycles and the baseline through the leak
+   tripwire. A hit throws `LearningLeakError` before any model call.
+2. Asks the model for one revision of the skill (`description`, `body` and a
+   list of `edits`, each naming the `component` it touches). The prompt puts the
+   data first inside tags that carry a fresh random marker, states what to do
+   and why, and names no other product or vendor. The skill keeps its name.
+3. Checks the answer against the editable surface. Every edit's component must
+   be on the surface, and the wording must stay clear of the safety floor
+   (permission review, protected paths, the always-refused command patterns,
+   the learning code) and must not tell a reader to start over. A problem is
+   reported back to the model once, naming the part that failed; a second
+   failure returns `{ status: 'refused', offSurface }`. The refusal names the
+   parts, never the text.
+4. Returns `{ status: 'proposed', candidate, edits }`. Each model call is
+   offered to `recordUsage` as one receipt, so the cycle counts it.
+
+The surface is an allowlist. `resolveLearningSurface()` returns the instruction
+skill and nothing else. Naming a safety-floor component
+(`LEARNING_FLOOR_COMPONENTS`) or an unknown kind throws; no configuration makes
+the floor editable.
+
+`learningExperienceFromCycle` turns a finished cycle into the experience entry
+the next proposal reads. An activated cycle is `adopted` and its edit `helped`;
+a rejected one is `rejected`, with the edit `hurt` when the review found a
+regression and `no observed effect` otherwise. Inconclusive, failed and
+cancelled cycles leave nothing. With several edits the verdicts become
+`confounded`, as the library already rules.
+
+The candidate then goes through `runLearningCycle` unchanged: paired
+verification, the protection plan, a fresh confirmation round and activation by
+exact revision. `@experimental`, like the rest of the module.
 
 ## Old names
 

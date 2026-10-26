@@ -1632,6 +1632,13 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 export { hashLearningSkill, projectLearning } from './learning/skill.js'
 export { runLearningCycle } from './learning/cycle.js'
 export {
+	LEARNING_FLOOR_COMPONENTS,
+	LEARNING_SURFACE_KINDS,
+	learningExperienceFromCycle,
+	proposeLearningCandidate,
+	resolveLearningSurface,
+} from './learning/generator.js'
+export {
 	LEARNING_CONFIDENCE_LEVELS,
 	LEARNING_EDIT_VERDICTS,
 	normalizeLearningExperience,

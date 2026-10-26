@@ -632,6 +632,17 @@ export type {
 } from './learning/cycle.js'
 
 export type {
+	LearningModel,
+	LearningModelReply,
+	LearningModelRequest,
+	LearningProposal,
+	LearningProposeOptions,
+	LearningProposedEdit,
+	LearningSurface,
+	LearningSurfaceKind,
+} from './learning/generator.js'
+
+export type {
 	LearningConfidence,
 	LearningEditRow,
 	LearningEditVerdict,
