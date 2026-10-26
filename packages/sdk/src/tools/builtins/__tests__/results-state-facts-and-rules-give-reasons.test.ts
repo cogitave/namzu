@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { CODING_AGENT_WORKING_DOCTRINE as NAMZU_WORKING_DOCTRINE } from '../../../prompt/coding-agent-doctrine.js'
+import { describeWithheldEnv, movedToBackgroundMessage } from '../bash.js'
 import { EditTool } from '../edit.js'
 import { WriteFileTool } from '../write-file.js'
-import { describeWithheldEnv, movedToBackgroundMessage } from '../bash.js'
 
 /**
  * A tool result carries what happened. How to use the tool next lives in the
