@@ -43,6 +43,6 @@ the time.
 `@namzu/anthropic` and `@namzu/bedrock` take `promptCacheTtl: '5m' | '1h'`
 (default `'5m'`). Every breakpoint in a request carries the same lifetime, and
 `cacheControl.ttl` overrides it for one call. The longer lifetime costs more per
-cache write. Bedrock sends `'1h'` only for Claude 4.5 and later models; any other
+cache write. Bedrock sends `'1h'` only for models that support the longer lifetime; any other
 model keeps the default. The CLI setting is `promptCacheTtl`, described in
 [Context and compaction](../cli/context-and-compaction.md).
