@@ -57,7 +57,8 @@ export const execCommand = lazyCommand(
 export const residentCommand = lazyCommand(
 	{
 		name: 'resident',
-		description: 'Manage persistent work and explicitly authorized resident runners (experimental)',
+		description:
+			'Deprecated: persistent resident work, removed in the next major release (namzu learn stays)',
 		passThrough: true,
 	},
 	async () => (await import('./resident.js')).residentCommand,

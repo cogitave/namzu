@@ -119,12 +119,19 @@ async function closeAdmission(resident: CliResident, initial: ResidentAgendaStat
 	}
 }
 
+/** The single line every `namzu resident` action prints before it does anything. */
+export const RESIDENT_DEPRECATION =
+	'namzu resident is deprecated and will be removed in the next major release. Use namzu schedule for recurring work, /goal for work that spans turns, and background agents in the terminal app; namzu learn keeps working.'
+
 export const residentCommand: CommandDef = {
 	name: 'resident',
-	description: 'Manage persistent work and explicitly authorized resident runners (experimental)',
+	description:
+		'Deprecated: persistent resident work, removed in the next major release (namzu learn stays)',
 	passThrough: true,
 	help: [
 		'Usage: namzu resident <action> [options]',
+		'',
+		`Deprecated. ${RESIDENT_DEPRECATION}`,
 		'',
 		'  add <objective>          Save work without starting a model',
 		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
@@ -174,6 +181,7 @@ export const residentCommand: CommandDef = {
 		'  130 for cancellation. A clean run does not mean every pursuit is complete.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrap, rawArgs }) => {
+		bootstrap.formatter.info(RESIDENT_DEPRECATION)
 		if (rawArgs[0] === 'learn' || rawArgs[0] === 'learning')
 			return runLearningCommand({ ctx: bootstrap, rawArgs })
 		let flags: ReturnType<typeof parseResidentFlags>
