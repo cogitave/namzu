@@ -918,7 +918,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 	const acceptEditsAllows = async (tc: ToolCallSummary): Promise<boolean> =>
 		!tc.authorization?.explicitReview &&
 		tc.escalation === undefined &&
-		(!tc.isDestructive || isFileWrite(tc.name)) &&
+		!tc.isDestructive &&
 		tc.requiresApproval !== true &&
 		(ACCEPT_EDITS_TOOLS.has(tc.name) ||
 			exempt(tc.name, tc.input) ||
@@ -1038,7 +1038,15 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// through beside it would be approving something it did not show.
 		if (
 			mode === 'accept-edits' &&
-			(await Promise.all(request.toolCalls.map(acceptEditsAllows))).every(Boolean)
+			(
+				await Promise.all(
+					request.toolCalls.map((tc) =>
+						// The mode covers a write although the flag is set; the classifier
+						// still judges one, so only this branch lifts the flag.
+						acceptEditsAllows(isFileWrite(tc.name) ? { ...tc, isDestructive: false } : tc),
+					),
+				)
+			).every(Boolean)
 		) {
 			return { action: 'approve_tools' }
 		}
