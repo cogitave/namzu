@@ -779,3 +779,22 @@ describe('upload', () => {
 		expect(host.acted).toEqual([])
 	})
 })
+
+describe('the browser descriptions', () => {
+	it('say what the tool does in plain words, with no engine id', () => {
+		const [browser] = createBrowserTools(fakeHost({ engine: 'windows-cdp', headless: false }))
+		expect(browser?.description).toContain('Drives a web browser: open pages')
+		expect(browser?.description).not.toContain('windows-cdp')
+		const [headless] = createBrowserTools(fakeHost({ engine: 'local-chromium', headless: true }))
+		expect(headless?.description).toContain('Drives a web browser with no visible window')
+		expect(headless?.description).not.toContain('local-chromium')
+	})
+
+	it('show one realistic fill_form call on browser_act', () => {
+		const [, act] = createBrowserTools(fakeHost())
+		const sample = /Example, filling two fields: (\{.*\})\./.exec(act?.description ?? '')?.[1]
+		expect(sample).toBeDefined()
+		const parsed = JSON.parse(sample ?? '{}')
+		expect(act?.inputSchema.safeParse(parsed).success).toBe(true)
+	})
+})

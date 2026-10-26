@@ -1069,3 +1069,13 @@ describe('schedule tool: its own confirmation', () => {
 		expect(t.isDestructive?.({ action: 'delete', job: 'x' } as never)).toBe(false)
 	})
 })
+
+describe('the description shows one realistic call', () => {
+	it('carries a sample create call whose JSON parses and passes the tool schema', () => {
+		const t = tool(fakeHost('create').host)
+		const sample = /Example, a weekday-morning agent job: (\{.*\})\./.exec(t.description)?.[1]
+		expect(sample).toBeDefined()
+		const parsed = JSON.parse(sample ?? '{}')
+		expect(t.inputSchema.safeParse(parsed).success).toBe(true)
+	})
+})

@@ -733,3 +733,15 @@ describe('the plan-approval sentence names only a tool the host mounts', () => {
 		expect(tool.description).not.toContain('approve_plan')
 	})
 })
+
+describe('the description shows one realistic call', () => {
+	const resumeHandler: ResumeHandler = async () => ({ action: 'continue' })
+
+	it('carries a sample call whose JSON parses and passes the tool schema', () => {
+		const tool = buildAskUserQuestionTool({ resumeHandler })
+		const sample = /Example call: (\{.*\})\.$/.exec(tool.description)?.[1]
+		expect(sample).toBeDefined()
+		const parsed = JSON.parse(sample ?? '{}')
+		expect(tool.inputSchema.safeParse(parsed).success).toBe(true)
+	})
+})
