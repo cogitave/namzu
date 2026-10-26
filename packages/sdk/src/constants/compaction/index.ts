@@ -23,4 +23,5 @@ export const SECTION_HEADERS = {
 	toolResults: '## Tool Results',
 	failures: '## Errors & Failures',
 	discoveries: '## Discoveries',
+	openItems: '## Open Items and Next Step',
 } as const

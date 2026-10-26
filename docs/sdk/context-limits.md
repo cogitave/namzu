@@ -125,6 +125,21 @@ loop retries that call once with `max_tokens = C - A - 1000`. It does not retry
 when that leaves under 3,000 tokens, or when the new cap is not smaller than
 the one just tried.
 
+## What the summary keeps
+
+The summary is all the next step has, so it keeps what is still open and the
+exact values that step needs. Alongside the sections it already had, it ends
+with `## Open Items and Next Step`: the assistant notes that say what is still
+to do ("I will implement the loader next in src/loader.ts and then add tests"),
+filed apart from the narration so the next step is the last thing read. The
+newest operator request is marked `Latest request:` inside the existing
+`## User Requirements` list rather than repeated. Unresolved errors stay in
+`## Errors & Failures` with their exact text, and a note that only says the
+code was looked at is dropped. The summary check asks the verifier model for
+unresolved errors, bugs and open questions, open items and the next step, and
+the specific names, values and commands that step needs, and to list everything
+missing, because trimming can happen later and a gap cannot be recovered.
+
 ## `compactNow` instructions
 
 `CompactNowInput.instructions` (and `CompactSessionParams.instructions`) carries

@@ -10,16 +10,18 @@ import { serializeState } from './serializer.js'
 
 const VERIFICATION_PROMPT = `You are a context compaction verifier. You are given a structured state summary extracted from a conversation, plus a truncated excerpt of the older conversation that was summarized.
 
-Your job: determine if the structured state captures all important information from the conversation excerpt. Important information includes:
-- The user's original task and any follow-up requirements
+Your job: determine if the structured state captures all important information from the conversation excerpt, because the next step will be taken from the summary alone. Important information includes:
+- The user's original task, the latest request and any follow-up requirements
 - Key decisions made during the conversation
-- Errors encountered and how they were resolved
+- Unresolved errors, bugs and open questions, and how the resolved ones were settled
+- Open items and the step that comes next
+- Specific names, values and commands the next step needs: paths, identifiers, flags, versions and exact error text
 - Files that were read, created, or modified
 - Important discoveries or constraints
 
 If the structured state is complete, respond with exactly: COMPLETE
 
-If something important is missing, respond with a brief bullet list of the missing items (no preamble, just the bullets). Each bullet should be a single concise sentence.`
+If something important is missing, list everything missing, because trimming happens later and a gap cannot be recovered. Respond with a bullet list of the missing items (no preamble, just the bullets). Each bullet should be a single concise sentence.`
 
 function* attachmentExcerpt(
 	attachment: MessageAttachment | Exclude<ToolResultBlock, { type: 'text' }>,
