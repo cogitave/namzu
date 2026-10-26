@@ -963,6 +963,9 @@ export function Composer({
 			if (disabled || hidden) return
 			const normalized = text.replace(/\r\n?/g, '\n')
 			if (normalized.length === 0) return
+			// A paste is input like any other key: it ends both Esc windows.
+			if (editPreviousTimerRef.current) setEditPreviousArmed(false)
+			disarmClear()
 			const position = cursorRef.current
 			setSelectedIndex(0)
 			const inserted = isChipPaste(normalized, terminal.rows ?? 24)

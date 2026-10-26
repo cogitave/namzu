@@ -64,6 +64,22 @@ describe('the window on a typed draft', () => {
 		expect(h.onEditPrevious).not.toHaveBeenCalled()
 	})
 
+	it('is a first press again after a paste, so the pasted text survives', async () => {
+		const h = open()
+		h.stdin.write('x')
+		await settle()
+		h.stdin.write(ESC)
+		await settle()
+		h.stdin.write('\x1b[200~ pasted\x1b[201~')
+		await settle()
+		expect(h.removed, 'the paste took the notice back').toEqual(['escape-again-to-clear'])
+		h.stdin.write(ESC)
+		await settle()
+		expect(h.lastFrame()).toContain('x pasted')
+		expect(h.cleared).toEqual([])
+		expect(h.notices.map((n) => n.text)).toEqual(['Esc again to clear', 'Esc again to clear'])
+	})
+
 	it('never opens the rewind picker, even when deleting the draft empties the box', async () => {
 		const h = open()
 		h.stdin.write('x')
