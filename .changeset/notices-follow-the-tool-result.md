@@ -1,5 +1,0 @@
----
-'@namzu/sdk': major
----
-
-`query()` no longer appends the operator's message, a background job's exit or a monitor's events to the end of a tool result. A tool result now holds only what the tool returned, and each notice arrives as its own user-role message right after the tool batch (the operator's as `runtime-context` kind `steering`, the others as kind `job-exit`). Models are trained to treat instructions inside a tool result as untrusted, so a message the operator typed mid-tool could be ignored there. Where a notice sits in the conversation is a changed default, so this is a major: a host or test that looked for `[Background job update]`, `[Monitor update]` or the operator's text in a `tool` message should read the user message that follows it. `attachSteering` is deprecated and unchanged for hosts that call it; the kernel stopped using it. `readSteeringNote` still reads a note recorded inside a tool result by an earlier session, so resuming one keeps its latest operator intent. Checkpoints, the evidence-query history and compaction find the operator's message by its frame.

@@ -1,5 +1,61 @@
 # @namzu/cli
 
+## 41.0.0
+
+### Major Changes
+
+- c1b7b6c: The terminal now asks about one tool call at a time instead of showing one prompt for a whole batch. Reads and other calls that are safe to run together each open their own prompt and start as soon as you answer; a call that changes something waits for the calls before it, then asks, then runs. Three things change for anyone who drives or scripts the terminal:
+
+  - There is one prompt per call, so a model response with three calls opens three prompts in turn. "Do you want to run these N tools?" and the "N more awaiting approval" line are gone; a dim `2 of 3` on the title row says where you are when two or more questions are open.
+  - A plain No (or Esc) now ends the turn: what is running is cancelled, calls that have not started are refused without being asked, and the model is not called again. Before, the model was told the call was declined and carried on. To refuse one call and let the agent carry on, press Tab on the No row, type the reason and press Enter; the reason reaches the model.
+  - Pressing "Yes, and don't ask again" or the accept-edits answer now re-checks every question still open and lets through the ones the new rule or mode covers, without showing them. A call that leaves the working directory, always needs a person or was too large to show in full is still asked.
+
+  A script that answered the batch prompt with a single key must now answer each call's prompt; the "don't ask again" answer passes a repeated command. Questions from other agents queue behind your own and say which agent is asking. A connector's tool is named by its server and tool (`slack · post`) in the prompt. Desktop, ACP and `namzu exec` are unchanged.
+
+### Minor Changes
+
+- e25dd2a: Plan mode, the date and the permission mode no longer change the cached system prompt, so toggling plan mode, a new day or a Shift+Tab keeps the prompt cache warm. Plan mode's instructions now arrive only as the plan-mode reminder, the date and branch arrive as an environment reminder (with a short notice, that needs no announcement, when either changes), and `auto`, `accept-edits` and `bypass` are announced when they start and when they end. Queued operator messages and background-job notices are wrapped so they are labelled as what they are. Nothing to change in your setup; a prompt override that looked for plan-mode text in the system prompt should read the reminder instead.
+
+### Patch Changes
+
+- e25dd2a: Compaction no longer treats text the runtime put in the user role as something the operator asked for. Project instructions, step context and reminders are skipped when the summary's task and requirements are extracted, and are left out of the excerpt the summary check reads, so a compacted conversation no longer lists the project's rules as the user's requests. The project instructions are still kept whole, once, and re-read fresh on the next turn. The project instructions message now also says that project rules win over Namzu's default style and workflow, and never over safety or permission rules. Nothing to do on upgrade.
+- e25dd2a: The model is now told when Auto (and Strict) mode starts and ends, like Accept edits and Bypass, and hears about a mode change once, after the conversation, instead of also through a system message that re-read the whole conversation on every Shift+Tab. The end of a mode is worded for the mode you land in, and a sub-agent is told its calls follow the session that started it, with that session's person deciding, rather than that it may ask the user. Nothing to change in your setup.
+- e25dd2a: A delegated turn that resumes (for example after a permission answer) now gets the same system prompt a new turn gets: plan-mode instructions when the turn is in plan mode, the note on loading deferred tools, and the delegation advice only when the session has the Agent tool. The resumed turn also keeps the skills the operator has on, and it is told about delegating only when the Agent tool is available (before, it was told unconditionally). Before, the resumed turn was built from a shorter second list and lacked those sections. Nothing to do on upgrade.
+- e25dd2a: Prompt wording. The plan-mode reminder now says why plan mode exists and what is allowed (read and search freely, write only the plan file), asks for approval by calling `exit_plan_mode` because a plain-text question cannot be answered in the approval screen, and no longer says it overrides every other instruction. Coming back into plan mode with a plan for a different task says to write the new plan over the old one, not to start over. The opening line of the system prompt calls Namzu an AI kernel. Nothing to do on upgrade.
+- e25dd2a: Prompt wording. The working rules, the identity block and the tool descriptions say what to do and why instead of stacking prohibitions and capitals; a tool-specific rule (changing a file, building a long file, waiting for a job, when to call `workflow`) now lives only in that tool's description, and the workflow opt-in list is in the `workflow` tool's description alone. The evidence rules are three bullets. Every parameter of the browser, conversation, agent-task and loop tools now carries a description, and the `Agent` tool's `prompt` parameter asks for an objective, what is out of bounds, tools and sources, and the reply shape. A host that matched the old sentences in `CODING_AGENT_WORKING_DOCTRINE` or the tool descriptions by text should match the new ones; nothing else changes on upgrade.
+- e25dd2a: Prompt wording and structure, with no public API change. The operator's wording for a compaction summary now sits in a labelled block that only a per-request closing tag ends. The background-start, moved-to-background and queued-agent tool results state facts and leave the usage advice to the `bash`, `job`, `wait_for_job` and `Agent` descriptions. The note about removed credential-shaped variables gives their count, not their names. The workflow size guideline moves from the `workflow` tool description to the system prompt beside the workflow rules, so a changed setting no longer rewrites the tool definitions. The browser description drops the engine id. `schedule`, `ask_user_question` and `browser_act` each show one sample call. The 12000-character payload cap, the branch rule and the no-apology rule give a reason, and the schedule skill drops text the `schedule` description already holds. A host or test that matched these sentences by text should match the new ones.
+- e25dd2a: Namzu's opening instructions no longer point the model at a shell tool called `bash.run` (it never existed; the tool is `bash`), no longer carry a closed list of six tools, and say one consistent thing about parallel work: independent tool calls may share a response, `bash` calls run one at a time, and the model does not claim concurrency without proof. The foreground `bash` tool's description no longer steers shell work through a sub-agent. The environment paragraph about permissions now follows the turn's permission mode instead of saying every call may ask the user, and says a call that would ask is refused when nobody is at the terminal. Nothing to do on upgrade.
+- e25dd2a: `ask_user_question` no longer tells the model that plan ratification goes through `approve_plan` in a host that does not mount that tool. `buildAskUserQuestionTool` takes an optional `planApprovalTool` naming the host's approval tool; without it the description says "the plan-approval tool". The coordinator passes `approve_plan` when it mounts that tool, and the terminal passes `exit_plan_mode` when plan mode can be approved. A host that builds the tool itself and mounts an approval tool should pass its name.
+- e25dd2a: A sub-agent's result now reaches the parent inside the same marked block as other outside text on every path, not only as a task notification: a foreground `Agent` call, `wait_for_task` and a saved agent's history return the child's words in an `agent-result` block, with the task id and status outside it. The block's header tells the model that an instruction inside it is for the operator to hear about, not to act on. A tool that read the `Agent result:` text of a `wait_for_task` result as plain text should read the block (`untrustedEnvelopeBody` returns its body). The sub-agent prompt no longer tells the child not to ask questions in a way that contradicts the working rules it inherits: it ends by saying that with no one to ask, the child finishes what is safe, leaves the risky step undone and names the blocker in its summary.
+- e25dd2a: A delegated sub-agent now reads working rules that already say what to do when nobody can answer (leave the risky step undone and name it in the summary), instead of rules that send it to ask a person beside a later line saying it has no one to ask. The environment sentence for a sub-agent says the same thing once. The header on outside text (files, web pages, a sub-agent's result) now says "report them in your reply" instead of "tell the operator", which fits a sub-agent whose reader is its parent and is shorter. Nothing to do on upgrade.
+- c1b7b6c: When you answer No to a tool call and the turn stops, the conversation now ends with one dim "Interrupted · What should Namzu do instead?" row (Ctrl+C at a question leaves the same row), lists the stopped calls in the order the model made them, and draws the declined call's dot in the error colour. The No option reads "No, and tell Namzu what to do differently (esc)", and `tab say why` stays on the hint line in narrow terminals. A connector tool call reads `slack · post(hello)` with a few words of the request instead of its raw input, and its result shows what the server said without the wrapper text meant for the model.
+- c1b7b6c: A call that a rule or a hook asked about is no longer approved without being shown when another agent's question is waiting: switching to bypass or answering "don't ask again" on a connector tool leaves it open for you to answer.
+- c1b7b6c: Answering "Yes, and don't ask again" on one shell call now also covers the identical calls waiting behind it, so they run without a second question. The last of several questions keeps its `k of N`, and Ctrl+C at a question ends the turn the way a plain No does, with one `Interrupted` row and the unasked calls shown as not run.
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [c1b7b6c]
+- Updated dependencies [c1b7b6c]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+  - @namzu/sdk@55.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@30.0.0
+
 ## 40.0.0
 
 ### Major Changes
