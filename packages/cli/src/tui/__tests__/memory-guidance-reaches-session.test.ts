@@ -141,11 +141,16 @@ describe('memory guidance wording', () => {
 		for (const text of both) expect(text).not.toMatch(/\b[A-Z]{3,}\b/)
 	})
 
-	it('names no other product or vendor', () => {
+	it('names no product, vendor or other proper noun', () => {
+		// A capitalised word may only open a heading, a sentence or a list item;
+		// anywhere else it would be a name, and examples stay categories.
 		for (const text of both) {
-			expect(text).not.toMatch(
-				/claude|anthropic|openai|chatgpt|gemini|copilot|cursor|codex|llama|mistral/i,
-			)
+			const names = text
+				.split('\n')
+				.flatMap((line) => line.replace(/^(#+|-)\s*/, '').split(/(?<=[.:;?!])\s+/))
+				.flatMap((sentence) => sentence.split(/\s+/).slice(1))
+				.filter((word) => /^[A-Z][a-z]/.test(word))
+			expect(names).toEqual([])
 		}
 	})
 
