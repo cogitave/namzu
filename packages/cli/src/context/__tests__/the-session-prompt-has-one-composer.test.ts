@@ -131,6 +131,14 @@ describe('the session system prompt', () => {
 		expect(plan.replace(`${NAMZU_PLAN_MODE_DOCTRINE}\n\n`, '')).toBe(auto)
 	})
 
+	it('leaves the prefix byte-identical when plan mode toggles and the plan-mode reminder carries the file doctrine', () => {
+		const planFacts = { planPath: '/tmp/plan.md' }
+		const auto = fromFacts(planFacts, { permissionMode: 'auto', planInReminders: true })
+		const plan = fromFacts(planFacts, { permissionMode: 'plan', planInReminders: true })
+		expect(plan).toBe(auto)
+		expect(plan).not.toContain(NAMZU_PLAN_FILE_DOCTRINE)
+	})
+
 	it('gives a resumed turn the deferred-tool guidance, plan doctrine and note', () => {
 		const text = compose({ permissionMode: 'plan', planPath: '/tmp/plan.md' })
 		expect(text).toContain(DEFERRED_TOOL_GUIDANCE)

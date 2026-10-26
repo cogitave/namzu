@@ -5539,6 +5539,7 @@ export async function createAgentSession(
 								{
 									resident: Boolean(residentContext),
 									workflowOffered: workflowOffer,
+									planInReminders: planPath !== undefined && !residentContext,
 									permissionMode: opts?.permissionMode,
 									extraSystem: opts?.extraSystem,
 									systemNote: opts?.systemNote,
@@ -5579,11 +5580,15 @@ export async function createAgentSession(
 						// when the mode is off now, whatever the host feeds otherwise.
 						const turnHypermode =
 							!residentContext && (opts?.hypermode === true || hypermodeExitOwed(messages))
+						// Plan mode's instructions are the plan-mode reminder, sent
+						// whenever this turn has a plan file, so the cached system prompt
+						// does not change when the mode is toggled.
+						const planInReminders = planPath !== undefined && !residentContext
 						const reminderSource =
-							options.reminders || turnHypermode
+							options.reminders || turnHypermode || planInReminders
 								? createCliReminderSource({
 										mode: () => modeControl.current(),
-										...(options.reminders
+										...(options.reminders || planInReminders
 											? {
 													...(planPath
 														? {
@@ -5591,8 +5596,10 @@ export async function createAgentSession(
 																canAsk: Boolean(options.askUser && subagentRuntime),
 															}
 														: {}),
-													tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }),
 												}
+											: {}),
+										...(options.reminders
+											? { tasks: () => turnTaskStore.list({ sessionId: turnScope.sessionId }) }
 											: {}),
 										...(residentContext
 											? {}

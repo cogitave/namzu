@@ -19,7 +19,7 @@
  * | pal block                 | yes          | yes          | no            | no        |
  * | conversation evidence     | if enabled   | if enabled   | if enabled    | no        |
  * | deferred-tool guidance    | if any tool is deferred | same | same | no |
- * | plan doctrine             | under `plan` | under `plan` | no            | no        |
+ * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no | no |
  * | environment               | yes          | yes          | no, it rides in the dynamic block | child reads its own |
  * | extra system / note       | yes          | yes, the same skills prompt and note a turn gets | no | no |
  * | skills overflow note      | yes          | yes          | yes           | no        |
@@ -58,6 +58,8 @@ export interface SessionPromptInput {
 	readonly conversationEvidence?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
+	/** See {@link SessionPromptTurn.planInReminders}. */
+	readonly planInReminders?: boolean
 	readonly permissionMode?: string | undefined
 	/** The plan file path when the session has a plan mode. */
 	readonly planPath?: string | undefined
@@ -85,6 +87,11 @@ export interface SessionPromptTurn {
 	readonly resident: boolean
 	/** A resumed turn runs over the session's toolset, which has no workflow tool. */
 	readonly workflowOffered: boolean
+	/**
+	 * The plan-mode reminder carries the plan file's instructions, so the
+	 * prefix does not hold them (and does not change when the mode does).
+	 */
+	readonly planInReminders?: boolean
 	readonly permissionMode?: string | undefined
 	readonly extraSystem?: string | undefined
 	readonly systemNote?: string | undefined
@@ -108,6 +115,7 @@ export function sessionPromptInput(
 		workflowOffered: turn.workflowOffered,
 		conversationEvidence: facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
+		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
 		planPath: facts.planPath,
 		extraSystem: turn.extraSystem,
@@ -131,9 +139,11 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		// Whenever anything is deferred: a deferred tool the model was never
 		// told how to load is a tool it does not have.
 		input.toolsDeferred ? DEFERRED_TOOL_GUIDANCE : undefined,
-		// Present only while the turn runs under `plan`. A mode change is rare,
-		// so the cached prefix it re-keys is a price paid once per switch.
-		!resident && input.permissionMode === 'plan'
+		// Present only while the turn runs under `plan`, and only where no
+		// plan-mode reminder carries it: with a plan file the reminder is the
+		// single source, so a toggle leaves the cached prefix alone. A turn with
+		// no reminder channel (a resumed one) keeps it here.
+		!resident && input.permissionMode === 'plan' && !(input.planPath && input.planInReminders)
 			? input.planPath
 				? NAMZU_PLAN_FILE_DOCTRINE
 				: NAMZU_PLAN_MODE_DOCTRINE
