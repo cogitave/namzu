@@ -110,8 +110,9 @@ export interface EvidenceAnchor {
  * session log, or one turn of it. Closed by default (no active turn in scope);
  * snapshot mode also reads a session whose turn is running, without assuming
  * its writer is dead. The host owns authorization and the log's directory.
- * Changes to the log invalidate addresses; record and chunk digests detect
- * changed bytes. This is not a hostile filesystem sandbox.
+ * An address names a record by offset, length and digest and survives appends
+ * to the log; a replaced or rewritten log is refused and record and chunk
+ * digests detect changed bytes. This is not a hostile filesystem sandbox.
  */
 export function createSessionTextEvidenceSource(
 	options: SessionEvidenceSourceOptions,
@@ -261,9 +262,18 @@ function createSource(
 			if (!state.closed && consistency === 'closed') {
 				throw new Error('Evidence scope has an active turn; it is not closed.')
 			}
+			// The anchored prefix is verified here and again after the action. It is not
+			// part of the seal: the anchor moves with every record the writer appends, so
+			// binding it would void an address the moment the search call that returned
+			// it is itself recorded.
 			const anchorKey = anchor ? await verifyAnchor(handle, anchor) : undefined
+			// A session log only grows. An address names one record by offset, length and
+			// digest, and a read verifies all three against the bytes, so what must
+			// bind a seal is the file's identity, never its size or times: those change
+			// with every append and would void every address and cursor handed out a
+			// moment earlier, including one a search just returned.
 			const sourceKey = digest(
-				`session-v1:${consistency}:${mode}:${scopeKey}:${anchorKey ?? stamp(before)}`,
+				`session-v1:${consistency}:${mode}:${scopeKey}:${fileIdentity(before)}`,
 			)
 			const seal = evidenceSeal(state.first, sourceKey)
 			const value = await action(handle, size, seal, sourceKey, budget, !state.closed)
@@ -550,6 +560,21 @@ function createSource(
 			})
 		},
 	})
+}
+
+/**
+ * What names the log file across appends: device and inode, plus the creation
+ * time where the filesystem reports no inode (zero), so a replaced file still
+ * changes the identity there.
+ */
+function fileIdentity(stats: {
+	dev: number | bigint
+	ino: number | bigint
+	birthtimeMs: number
+}): string {
+	return Number(stats.ino) === 0
+		? `${stats.dev}:0:${stats.birthtimeMs}`
+		: `${stats.dev}:${stats.ino}`
 }
 
 /** The anchor record must still hold the bytes the writer vouched for. */

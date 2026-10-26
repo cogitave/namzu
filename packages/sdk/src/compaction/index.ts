@@ -71,7 +71,12 @@ export type { ToolResultEditConfig, ToolResultEditOutcome } from './tool-result-
 // can offer, rather than something that only happens when a threshold trips.
 export { compactNow, compactRegion } from './manual.js'
 export type { CompactionResult, CompactNowInput, CompactRegionInput } from './manual.js'
-export { COMPACTION_HEADER, buildCompactionMessage, isCompactionMessage } from './summary.js'
+export {
+	COMPACTION_HEADER,
+	COMPACTION_RECOVERY_NOTE,
+	buildCompactionMessage,
+	isCompactionMessage,
+} from './summary.js'
 
 // The salience-scored working set: every message scored, the least salient
 // evicted first. See `docs/sdk/salience-working-set.md`.

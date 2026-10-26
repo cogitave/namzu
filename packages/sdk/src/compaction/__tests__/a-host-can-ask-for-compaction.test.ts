@@ -13,6 +13,7 @@ import {
 import type { LLMProvider } from '../../types/provider/index.js'
 import { findDanglingMessages } from '../dangling.js'
 import { compactNow, compactRegion } from '../manual.js'
+import { COMPACTION_HEADER, COMPACTION_RECOVERY_NOTE } from '../summary.js'
 
 /**
  * "Compact this conversation" as something a host can ask for.
@@ -60,6 +61,43 @@ function callPair(id: string): Message[] {
 		createToolMessage('output', id),
 	]
 }
+
+describe('a summary a host can point back at the originals', () => {
+	const summaryText = (messages: readonly Message[]): string => {
+		const found = messages.find(
+			(m) => typeof m.content === 'string' && m.content.startsWith(COMPACTION_HEADER),
+		)
+		return String(found?.content)
+	}
+
+	it.each(['whole', 'region'] as const)(
+		'ends a %s summary with the host\u2019s note, and adds nothing without one',
+		async (mode) => {
+			const run = (recoveryNote?: string) =>
+				mode === 'whole'
+					? compactNow({
+							messages: history(8),
+							config: config(),
+							provider: provider(),
+							...(recoveryNote ? { recoveryNote } : {}),
+						})
+					: compactRegion({
+							messages: history(8),
+							config: config(),
+							provider: provider(),
+							start: 1,
+							end: 9,
+							...(recoveryNote ? { recoveryNote } : {}),
+						})
+
+			const withNote = await run(COMPACTION_RECOVERY_NOTE)
+			const without = await run()
+
+			expect(summaryText(withNote!.messages).endsWith(`\n\n${COMPACTION_RECOVERY_NOTE}`)).toBe(true)
+			expect(summaryText(without!.messages)).not.toContain('search_conversation')
+		},
+	)
+})
 
 describe('a host can ask for compaction', () => {
 	it.each(['whole', 'region'] as const)(

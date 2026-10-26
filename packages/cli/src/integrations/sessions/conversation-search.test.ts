@@ -9,7 +9,10 @@ import type {
 	ToolContext,
 	TurnId,
 } from '@namzu/sdk'
+import { createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { recordTurn } from '../../__fixtures__/session-log.js'
 
 /**
  * The search and read tools adapt the SDK's session-log evidence reader to
@@ -296,6 +299,12 @@ describe('search_conversation', () => {
 describe('read_conversation', () => {
 	it('reads the exact text at a searched address, and again after the cache is released', async () => {
 		const { sessions, sessionId } = await fixture()
+		// The stand-in reader answers for seq 7, so the real log must reach it too.
+		await recordTurn(
+			sessions,
+			sessionId,
+			Array.from({ length: 6 }, (_, i) => createUserMessage(`filler ${i}`)),
+		)
 		const text = 'the complete original output'
 		passages = [
 			{ seq: 7, part: 1, source: 'tool_completed', text, toolName: 'bash', isError: false },

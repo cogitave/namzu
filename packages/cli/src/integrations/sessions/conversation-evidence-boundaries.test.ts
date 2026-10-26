@@ -2,16 +2,19 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	SessionEvidenceOffsetError,
 	type SessionId,
 	type SessionTextEvidenceMatch,
 	type SessionTextEvidenceReadResult,
 	type SessionTextEvidenceSearchResult,
 	type SessionTextEvidenceSource,
 	type TurnId,
+	createUserMessage,
 	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 /**
@@ -34,9 +37,12 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 })
 
 const { openSessions, startConversation } = await import('./store.js')
-const { readConversationEvidence, releaseConversationEvidence, searchConversation } = await import(
-	'./conversation-search.js'
-)
+const {
+	buildConversationReadTool,
+	readConversationEvidence,
+	releaseConversationEvidence,
+	searchConversation,
+} = await import('./conversation-search.js')
 const { createConversationEvidenceRecall } = await import('./evidence-recall.js')
 
 type Sessions = Awaited<ReturnType<typeof openSessions>>
@@ -60,6 +66,8 @@ async function fixture(text = 'ORIGINAL') {
 	const sessions = await openSessions(cwd, { stateRoot: home })
 	const sessionId = await startConversation(sessions)
 	owners.push({ sessions, sessionId })
+	// The log holds the records the mocked capture reports, as a real anchor would.
+	await recordTurn(sessions, sessionId, [createUserMessage('question')])
 	const turnId = generateTurnId()
 	const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId }
 	const match: SessionTextEvidenceMatch = {
@@ -353,6 +361,261 @@ describe('a read page is checked before its text is returned', () => {
 	})
 })
 
+describe('a read that cannot continue as asked says what to do next', () => {
+	const toolFor = (f: Awaited<ReturnType<typeof fixture>>) =>
+		buildConversationReadTool(() => ({ sessions: f.sessions, sessionId: f.sessionId }))
+	const contextFor = (f: Awaited<ReturnType<typeof fixture>>) =>
+		({
+			abortSignal: new AbortController().signal,
+			sessionId: f.sessionId,
+			turnId: f.turnId,
+			captureSessionEvidence: async () => ({ scope: f.scope, search: f.search, read: f.read }),
+		}) as never
+
+	it('reads from zero, and says the offset was ignored, when the record has no character index', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) =>
+			options.byteOffset
+				? { ...f.readPage, text: '56789', byteOffset: options.byteOffset }
+				: { ...f.readPage, characterOffset: undefined },
+		)
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 5 },
+			undefined,
+			f.active,
+		)
+
+		expect(page.text).toBe('0123456789')
+		expect(page.note).toMatch(/no character index.*byteOffset 5 was ignored/)
+		expect(f.read.mock.calls.map(([options]) => options.byteOffset)).toEqual([5, 0])
+	})
+
+	it('keeps a page whose offset has a character index free of notes', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) => ({
+			...f.readPage,
+			text: '56789',
+			byteOffset: options.byteOffset ?? 0,
+			characterOffset: 5,
+		}))
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 5 },
+			undefined,
+			f.active,
+		)
+
+		expect(page).toMatchObject({ text: '56789', offset: 5 })
+		expect(page.note).toBeUndefined()
+	})
+
+	it('tells the model to search again when the retained text changed', async () => {
+		const f = await fixture()
+		f.search.mockResolvedValueOnce({
+			...f.searchPage,
+			matches: [],
+			unavailable: ['x'],
+			incomplete: true,
+		})
+
+		const result = await toolFor(f).execute({ seq: 2 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/unavailable or changed.*search_conversation again/)
+	})
+
+	it('tells the model to search again when the address now holds another record', async () => {
+		const f = await fixture()
+		f.read.mockResolvedValue({ ...f.readPage, seq: 3 })
+
+		const result = await toolFor(f).execute({ seq: 2 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(
+			/no longer matches the requested seq and part.*search_conversation/,
+		)
+	})
+
+	it('names the failure only generically when an ownership or integrity check refuses', async () => {
+		const f = await fixture()
+		f.read.mockResolvedValue({
+			...f.readPage,
+			scope: { ...f.scope, sessionId: generateTurnId() },
+			text: 'FOREIGN!',
+		})
+
+		const result = await toolFor(f).execute({ seq: 2 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/could not be read or verified.*search_conversation again/)
+		expect(result.error).not.toMatch(/owner|FOREIGN/)
+	})
+
+	it('recovers only from the reader\u2019s own offset answer, never from an integrity refusal', async () => {
+		const f = await fixture('0123456789')
+		const log = vi.fn()
+		f.read.mockRejectedValue(new Error('Recorded tool evidence changed.'))
+		const context = { ...(contextFor(f) as object), log } as never
+
+		const result = await toolFor(f).execute({ seq: 2, byteOffset: 5 }, context)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/could not be read or verified/)
+		expect(result.error).not.toMatch(/Recorded tool evidence/)
+		expect(f.read).toHaveBeenCalledTimes(1)
+		expect(log).toHaveBeenCalledWith(
+			'warn',
+			expect.stringContaining('Recorded tool evidence changed'),
+		)
+	})
+
+	it('charges every probe of a snapped read once', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) => {
+			if (options.byteOffset === 5)
+				throw new SessionEvidenceOffsetError('inside_character', 'splits', 10, 40)
+			return {
+				...f.readPage,
+				text: '456789',
+				byteOffset: options.byteOffset ?? 0,
+				characterOffset: 4,
+				scannedBytes: 100,
+			}
+		})
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 5 },
+			undefined,
+			f.active,
+		)
+
+		expect(f.read.mock.calls.map(([options]) => options.byteOffset)).toEqual([5, 4])
+		// The lookup search costs 100, the refused probe 40, the kept read 100.
+		expect(page.scannedBytes).toBe(240)
+	})
+
+	it('charges a past-end answer once, not twice', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) => {
+			if (options.byteOffset === 50)
+				throw new SessionEvidenceOffsetError('past_end', 'past', 10, 30)
+			return { ...f.readPage, byteOffset: options.byteOffset ?? 0, scannedBytes: 100 }
+		})
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 50 },
+			undefined,
+			f.active,
+		)
+
+		expect(page).toMatchObject({ text: '', complete: true, scannedBytes: 230 })
+		expect(page.note).toMatch(/past the end of this record \(10 bytes\)/)
+	})
+
+	it('says earlier pages repeat when an expired cursor restarts a read', async () => {
+		const f = await fixture('0123456789')
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, cursor: 'f'.repeat(48) },
+			undefined,
+			f.active,
+		)
+
+		expect(page.note).toMatch(/expired.*earlier pages repeats.*nextCursor continues/)
+	})
+
+	it('names the highest retained seq for a seq far past the end on the live backend too', async () => {
+		const f = await fixture('0123456789')
+		f.search.mockResolvedValue(f.page(null))
+
+		const result = await toolFor(f).execute({ seq: 99999 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/seq 99999 is past the end.*highest retained seq is \d+/)
+		// Answered before any scan, so no cursor is handed out for a record that cannot exist.
+		expect(f.search).not.toHaveBeenCalled()
+	})
+
+	it('names a vanished saved output instead of a generic failure', async () => {
+		const f = await fixture()
+		f.read.mockRejectedValue(Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }))
+
+		const result = await toolFor(f).execute({ seq: 2 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/seq 2 part 0 is no longer on disk.*deleted or pruned/)
+		expect(result.error).not.toMatch(/ENOENT/)
+	})
+
+	it('logs the real cause when a later page fails, and tells the model only that it changed', async () => {
+		const f = await fixture()
+		const log = vi.fn()
+		f.read.mockImplementationOnce(async () => ({
+			...f.readPage,
+			text: 'first',
+			nextByteOffset: 5,
+			totalBytes: 10,
+		}))
+		const first = await toolFor(f).execute({ seq: 2 }, {
+			...(contextFor(f) as object),
+			log,
+		} as never)
+		f.read.mockRejectedValue(new Error('Retained output bytes changed.'))
+
+		const result = await toolFor(f).execute(
+			{ seq: 2, cursor: JSON.parse(first.output).nextCursor },
+			{ ...(contextFor(f) as object), log } as never,
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/changed since the previous page/)
+		expect(result.error).not.toMatch(/bytes changed/)
+		expect(log).toHaveBeenCalledWith(
+			'warn',
+			expect.stringContaining('Retained output bytes changed'),
+		)
+	})
+
+	it('does not retry a later page of a read with another offset', async () => {
+		const f = await fixture()
+		f.read.mockImplementationOnce(async () => ({
+			...f.readPage,
+			text: 'first',
+			nextByteOffset: 5,
+			totalBytes: 10,
+		}))
+		const first = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2 },
+			undefined,
+			f.active,
+		)
+		f.read.mockRejectedValue(new Error('Retained output changed during read.'))
+
+		await expect(
+			readConversationEvidence(
+				f.sessions,
+				f.sessionId,
+				{ seq: 2, cursor: first.nextCursor },
+				undefined,
+				f.active,
+			),
+		).rejects.toThrow(/changed since the previous page.*without a cursor/)
+		expect(f.read).toHaveBeenCalledTimes(2)
+	})
+})
+
 describe('one search call pages its source within bounds', () => {
 	it('follows at most seven internal continuations, even over pages that cost nothing', async () => {
 		const f = await fixture()
@@ -614,15 +877,16 @@ describe('cached addresses and read cursors', () => {
 		expect(second.complete).toBe(true)
 
 		await releaseConversationEvidence(f.sessions, f.sessionId)
-		await expect(
-			readConversationEvidence(
-				f.sessions,
-				f.sessionId,
-				{ seq: 2, cursor: first.nextCursor },
-				undefined,
-				f.active,
-			),
-		).rejects.toThrow('expired or is unavailable')
+		// A forgotten cursor is not a dead end: the read restarts from its address.
+		const restarted = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, cursor: first.nextCursor },
+			undefined,
+			f.active,
+		)
+		expect(restarted).toMatchObject({ text: head, complete: false })
+		expect(restarted.note).toMatch(/cursor had expired/)
 	})
 
 	it('reads a searched address without looking it up, and looks it up again once it expires', async () => {
