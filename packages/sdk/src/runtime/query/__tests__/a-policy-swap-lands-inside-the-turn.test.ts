@@ -325,42 +325,38 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 	})
 })
 
-describe('the model is told, in the slot it already reads', () => {
-	it('carries the notice on the request AFTER the swap, and only that one', async () => {
-		// The model plans around how closely it is watched. A turn that
-		// silently stops asking a human leaves it batching destructive calls
-		// it expects to be reviewed; one that silently starts leaves it
-		// waiting on permission nobody is left to give.
+describe('the model is told once, after the history', () => {
+	type Sent = { role: string; text: string }[]
+
+	async function swapMidTurn(announce?: boolean): Promise<Sent[]> {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-notice-'))
 		dirs.push(workingDirectory)
 		const tools = testToolset(BashTool)
 		let policyBox: SessionApprovalPolicy | undefined
 		let swapped = false
+		const requests: Sent[] = []
 
 		class Capturing extends MockLLMProvider {
-			readonly systemTexts: string[] = []
 			override async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 				const messages = params.messages as { role: string; content: unknown }[]
-				this.systemTexts.push(
-					messages
-						.filter((m) => m.role === 'system' && typeof m.content === 'string')
-						.map((m) => m.content as string)
-						.join('\n'),
+				requests.push(
+					messages.map((m) => ({
+						role: m.role,
+						text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+					})),
 				)
 				yield* super.chatStream(params)
 			}
 		}
 
-		const provider = new Capturing({
-			turns: [
-				{ toolCalls: [{ id: 't1', name: 'bash', args: { command: 'echo a', timeout: 1000 } }] },
-				{ toolCalls: [{ id: 't2', name: 'bash', args: { command: 'echo b', timeout: 1000 } }] },
-				{ text: 'done' },
-			] as never,
-		})
-
 		await drainQuery({
-			provider,
+			provider: new Capturing({
+				turns: [
+					{ toolCalls: [{ id: 't1', name: 'bash', args: { command: 'echo a', timeout: 1000 } }] },
+					{ toolCalls: [{ id: 't2', name: 'bash', args: { command: 'echo b', timeout: 1000 } }] },
+					{ text: 'done' },
+				] as never,
+			}),
 			toolsets: [tools],
 			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
@@ -372,6 +368,7 @@ describe('the model is told, in the slot it already reads', () => {
 			projectId: '1204c15f-ba7e-4eb8-916b-1563d171f792' as ProjectId,
 			tenantId: '0c389376-b0c4-493a-afad-92fe57893ecf' as TenantId,
 			approvalPolicyName: 'operator-tui',
+			...(announce === undefined ? {} : { announceApprovalPolicyChange: announce }),
 			resumeHandler: async () => {
 				if (!swapped) {
 					swapped = true
@@ -386,15 +383,52 @@ describe('the model is told, in the slot it already reads', () => {
 				policyBox = policy
 			},
 		})
+		return requests
+	}
 
-		const mentions = provider.systemTexts.filter((text) => text.includes('Approval policy changed'))
+	const systemOf = (request: Sent) => request.filter((m) => m.role === 'system').map((m) => m.text)
+	const mentioning = (request: Sent) =>
+		request.filter((m) => m.text.includes('Approval policy changed'))
+
+	it('carries the notice on the request AFTER the swap, and only that one', async () => {
+		// The model plans around how closely it is watched. A turn that
+		// silently stops asking a human leaves it batching destructive calls
+		// it expects to be reviewed; one that silently starts leaves it
+		// waiting on permission nobody is left to give.
+		const requests = await swapMidTurn()
+		const carrying = requests.filter((r) => mentioning(r).length > 0)
 		// Exactly once. A notice repeated every iteration reads as
 		// supervision moving again on each turn.
-		expect(mentions).toHaveLength(1)
-		expect(mentions[0]).toContain('from "operator-tui" to "auto-approve"')
-		expect(mentions[0]).toContain('operator stepped away')
+		expect(carrying).toHaveLength(1)
+		const notice = mentioning(carrying[0] as Sent)
+		expect(notice).toHaveLength(1)
+		expect(notice[0]?.text).toContain('from "operator-tui" to "auto-approve"')
+		expect(notice[0]?.text).toContain('operator stepped away')
 	})
 
+	it('puts the notice after the history, never in a system message', async () => {
+		const requests = await swapMidTurn()
+		const request = requests.find((r) => mentioning(r).length > 0) as Sent
+		expect(mentioning(request)[0]?.role).not.toBe('system')
+		expect(systemOf(request).some((t) => t.includes('Approval policy changed'))).toBe(false)
+		// The last message of the request: nothing the conversation holds follows it.
+		expect(request[request.length - 1]?.text).toContain('Approval policy changed')
+	})
+
+	it('leaves the system messages byte-equal across the change', async () => {
+		const requests = await swapMidTurn()
+		const [first, ...rest] = requests.map(systemOf)
+		for (const system of rest) expect(system).toEqual(first)
+	})
+
+	it('says nothing when the host asks to tell the model itself', async () => {
+		const requests = await swapMidTurn(false)
+		expect(requests.length).toBeGreaterThan(1)
+		for (const request of requests) expect(mentioning(request)).toEqual([])
+	})
+})
+
+describe('a turn that did not change policy', () => {
 	it('says nothing to a turn whose policy never moved', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-quiet-'))
 		dirs.push(workingDirectory)

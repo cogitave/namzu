@@ -28,6 +28,8 @@ const policy = createReviewPolicy({ mode: 'accept-edits', prompt, registry })
 
 `policy` is an `ApprovalPolicy` whose `name` is the mode, so a durable log can say which one approved a call. Swap it on a turn's `SessionApprovalPolicy` to change mode without ending the turn. `createReviewHandler` returns only the `ResumeHandler`.
 
+When the policy changes, the model hears it once: the next request carries "Approval policy changed from X to Y" as request-only context after the history (never a system message ahead of it, which would change the prefix every cached request shares). `QueryParams.announceApprovalPolicyChange: false` turns that notice off for a host that already tells the model itself, for example through `reminders`; the `approval_policy_changed` event is recorded either way.
+
 The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can use this exact identifier to attribute concurrent child reviews; tool names or arguments are not ownership evidence. The field is optional for custom prompt callers, but `createReviewHandler` always supplies it.
 
 # The modes

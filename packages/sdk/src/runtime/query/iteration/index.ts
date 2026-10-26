@@ -853,8 +853,8 @@ export class IterationOrchestrator {
 					// there is no length check here — a second guard for the same
 					// case is one more thing to keep in agreement with the first.
 					const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
-					// A supervision change rides the same ephemeral slot, and for
-					// the same reason: it applies to what happens next, not to the
+					// A supervision change is request-only context, and for the
+					// same reason: it applies to what happens next, not to the
 					// run's history. The model plans around how closely it is being
 					// watched — a turn that silently stops asking a human leaves it
 					// batching destructive calls it expects to be reviewed, and one
@@ -887,7 +887,7 @@ export class IterationOrchestrator {
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
-					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
+					const stepPreamble = [step.system, stepSkills, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
 					const requestHistory = stepPreamble
@@ -896,6 +896,10 @@ export class IterationOrchestrator {
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
 					if (contextText) requestHistory.push(stepContextMessage(contextText))
 					if (step.context) requestHistory.push(stepContextMessage(step.context))
+					// After the history, never ahead of it: a system message in front
+					// of the conversation moves the prefix every cached request shares,
+					// and a mode change would re-key the whole conversation.
+					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
