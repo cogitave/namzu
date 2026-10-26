@@ -573,6 +573,26 @@ describe('the answers beyond yes and no', () => {
 		expect(remembered).toEqual([])
 	})
 
+	it('offers accept edits on a new-file write and answers it from Shift+Tab', async () => {
+		requestedToolCalls = [
+			{
+				id: 'call-1',
+				name: 'write',
+				input: { path: 'fresh.txt', content: 'hello' },
+				isDestructive: true,
+			},
+		]
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('2. Yes, and switch to accept edits for this session')
+
+		settle()
+		stdin.write('\u001b[Z')
+		await decisionSettles()
+		expect(decisions).toEqual([{ kind: 'approve' }])
+		await tick(150)
+		expect(lastFrame()).toContain('accept edits on')
+	})
+
 	it('remembers a command by its two-word prefix when asked to', async () => {
 		requestedToolCalls = [
 			{ id: 'call-1', name: 'bash', input: { command: 'npm test' }, isDestructive: false },

@@ -46,10 +46,25 @@ describe('the accept-edits answer', () => {
 		expect(kinds([edit], options)).toEqual(['approve', 'reject'])
 	})
 
-	it('is not offered for a write, which accept-edits mode still asks about', () => {
-		// `write` is always reviewed as destructive (it may overwrite), so the
-		// mode would not stop this prompt from coming back.
-		expect(kinds([{ ...edit, name: 'write', isDestructive: true }])).toEqual(['approve', 'reject'])
+	it('is offered for a write, a new file and a replaced one alike', () => {
+		// `write` is always flagged destructive (its input cannot say whether the
+		// file exists); the mode covers it like any other edit.
+		const write = { ...edit, name: 'write', isDestructive: true }
+		expect(kinds([write])).toEqual(['approve', 'approve-edits', 'reject'])
+		expect(kinds([write, edit])).toEqual(['approve', 'approve-edits', 'reject'])
+	})
+
+	it('stays one-time for a write that is withheld, outside the folder or protected', () => {
+		const write = { ...edit, name: 'write', isDestructive: true }
+		expect(kinds([write], { withheld: true })).toEqual(['approve', 'reject'])
+		expect(kinds([{ ...write, escalation: { outsidePaths: ['/etc/x'] } }])).toEqual([
+			'approve',
+			'reject',
+		])
+		expect(kinds([{ ...write, escalation: { protectedPaths: ['.git/config'] } }])).toEqual([
+			'approve',
+			'reject',
+		])
 	})
 
 	it('is not offered beside a shell call, a destructive write or an outside path', () => {
