@@ -23,6 +23,7 @@ import { modeReminders } from '../../reminders/mode.js'
 import { planModeReminders } from '../../reminders/plan-mode.js'
 import { DEFERRED_TOOL_GUIDANCE } from '../../tui/agent.js'
 import {
+	NAMZU_CHILD_WORKING_DOCTRINE,
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
@@ -179,9 +180,14 @@ describe('the assembled prompts', () => {
 		// it governs the rules above it. It must not forbid questions in a way that
 		// leaves the inherited rules unanswered.
 		const at = SUBAGENT_PROMPT.indexOf('You have no one to ask')
-		expect(at).toBeGreaterThan(SUBAGENT_PROMPT.indexOf(NAMZU_WORKING_DOCTRINE))
+		expect(at).toBeGreaterThan(SUBAGENT_PROMPT.indexOf(NAMZU_CHILD_WORKING_DOCTRINE))
 		expect(SUBAGENT_PROMPT.slice(at)).toMatch(/name the blocker or the assumption/)
 		expect(SUBAGENT_PROMPT).not.toMatch(/do not ask the parent questions/i)
+		// One home for the rule: the inherited text no longer sends a child to a person.
+		expect(SUBAGENT_PROMPT).not.toMatch(
+			/stop and ask|Reserve blocking questions|Ask for clarification/,
+		)
+		expect(SUBAGENT_PROMPT).not.toContain('tell the user the command')
 	})
 })
 

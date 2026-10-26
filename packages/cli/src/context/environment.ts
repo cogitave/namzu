@@ -324,7 +324,7 @@ export function permissionSentence(boundary: ExecutionBoundary, stable = false):
 		return 'Shell commands and file changes go through the permission settings. Whether the user is asked first depends on the permission mode; you are told whenever the mode is anything but the usual one, and when it ends (plan mode has its own notices).'
 	}
 	if (boundary.delegated) {
-		return 'Your shell commands and file changes follow the permission mode of the session that started you. You have no one to ask yourself: when a call is put to a person, the person using that session decides, and a refused call stays refused.'
+		return 'Your shell commands and file changes follow the permission mode of the session that started you. You have no one to ask yourself, and a refused call stays refused.'
 	}
 	const noOneAsks = boundary.interactive
 		? ''

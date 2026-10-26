@@ -21,11 +21,52 @@
  * contribution would land after the environment and memory blocks.
  */
 
+import { CODING_AGENT_WORKING_DOCTRINE as WORKING_DOCTRINE } from '@namzu/sdk'
+
 export {
 	CODING_AGENT_DELEGATION_DOCTRINE as NAMZU_DELEGATION_DOCTRINE,
 	CODING_AGENT_WORKING_DOCTRINE as NAMZU_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE as NAMZU_PLAN_MODE_DOCTRINE,
 } from '@namzu/sdk'
+
+/**
+ * The working rules a delegated sub-agent reads: the same rules, with each
+ * place that sends the reader to a person said as what to do when nobody can
+ * answer. A sub-agent has no one to ask, so a rule that says "ask" would have
+ * two homes beside the statement of what to do instead.
+ */
+const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
+	[
+		'Reserve blocking questions for cases where proceeding under any assumption would be unsafe or would make the work useless if wrong.',
+		'Where proceeding under any assumption would be unsafe or would make the work useless if wrong, leave that step undone and name it in your summary.',
+	],
+	[
+		'Ask for clarification when the intended change is genuinely unspecified; do not ask the user to repeat information already available.',
+		'When the intended change is genuinely unspecified, take the most conservative reading and state it; use information that is already available.',
+	],
+	[
+		"stop and ask rather than stashing, committing or discarding somebody else's work.",
+		"leave them alone: do not stash, commit or discard somebody else's work.",
+	],
+	['without asking: not', 'unless the task says so: not'],
+	[
+		'stop and tell the user the command to set one; do not invent one.',
+		'stop, do not invent one, and name the command that sets one in your summary.',
+	],
+]
+
+function withoutAsking(doctrine: string): string {
+	let out = doctrine
+	for (const [from, to] of NO_ONE_TO_ASK) {
+		if (!out.includes(from)) {
+			throw new Error(`The working rules no longer contain: ${from}`)
+		}
+		out = out.replace(from, to)
+	}
+	return out
+}
+
+export const NAMZU_CHILD_WORKING_DOCTRINE: string = withoutAsking(WORKING_DOCTRINE)
 
 /**
  * Plan mode in a session that has the plan file and `exit_plan_mode` (the

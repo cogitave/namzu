@@ -95,7 +95,7 @@ import {
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import { resolveTurnGuards } from '../../config/turn-guards.js'
-import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
+import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
@@ -146,7 +146,7 @@ export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
  */
 export const EXPLORE_SUBAGENT = EXPLORE_AGENT_ID
 
-export const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('\n')
+export const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_CHILD_WORKING_DOCTRINE].join('\n')
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
@@ -188,11 +188,11 @@ export const SUBAGENT_PROMPT = [
 	// The same working rules the parent sessions under. A delegated task edits the
 	// same repository, and a child that reads a file before editing it while
 	// the parent does not is the same defect in the other direction.
-	NAMZU_WORKING_DOCTRINE,
+	NAMZU_CHILD_WORKING_DOCTRINE,
 	'',
-	// Last, so it governs the ask and stop rules above it: this agent has no one
-	// to ask, and the parent reads its summary, which is where a blocker goes.
-	'You have no one to ask, and your parent cannot answer while you work. Where the working rules above say to ask or stop, finish whatever is safe, leave the risky step undone, and name the blocker or the assumption in your final summary, so your parent can decide.',
+	// Last: this agent has no one to ask, and the parent reads its summary, which
+	// is where a blocker goes. The working rules above already say it per rule.
+	'You have no one to ask, and your parent cannot answer while you work. Finish whatever is safe, leave a risky step undone, and name the blocker or the assumption in your final summary, so your parent can decide.',
 ].join('\n')
 
 export interface SubagentParent {
