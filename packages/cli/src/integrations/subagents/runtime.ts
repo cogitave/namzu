@@ -2022,7 +2022,6 @@ export async function createSubagentRuntime(
 					return base
 				},
 			})
-			require('node:fs').appendFileSync('/tmp/restore-reason.txt', `${JSON.stringify(restored)}\n`)
 			const kept = chosen as typeof chosen
 			if (!restored || restored.status !== 'restored' || !kept) {
 				if (kept?.dynamic) registry.unregister(kept.agentId)
@@ -2031,6 +2030,29 @@ export async function createSubagentRuntime(
 						restored?.status === 'refused' && restored.reason === 'stopped'
 							? `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`
 							: cannotResume(key),
+				}
+			}
+			// The saved profile comes from disk: a model it names must still be
+			// one the current host can resolve, as for a model chosen on a launch.
+			if (kept.dynamic && kept.profile.model) {
+				const stillValid = opts.resolveModel
+					? await opts
+							.resolveModel(
+								{
+									model: kept.profile.model,
+									provider: kept.profile.provider,
+									effort: kept.profile.effort as ReasoningEffort | undefined,
+								},
+								context.abortSignal,
+							)
+							.then(
+								() => true,
+								() => false,
+							)
+					: false
+				if (!stillValid) {
+					registry.unregister(kept.agentId)
+					return { error: cannotResume(key) }
 				}
 			}
 			const seed = {

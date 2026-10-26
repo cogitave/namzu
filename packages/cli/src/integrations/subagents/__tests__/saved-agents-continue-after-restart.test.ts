@@ -27,6 +27,7 @@ async function runProgram(
 	parent: Awaited<ReturnType<typeof subagentParentFixture>>,
 	saved: (id: string) => SavedAgent | undefined,
 	label: string,
+	known: readonly string[] = ['alt-model'],
 ) {
 	const requests: ChatCompletionParams[] = []
 	const handlerTurns: TurnId[] = []
@@ -50,6 +51,10 @@ async function runProgram(
 				request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' }
 		},
 		buildTools: () => [],
+		resolveModel: async (request) => {
+			if (!known.includes(request.model)) throw new Error(`Unknown model ${request.model}`)
+			return { provider: request.provider ?? 'mock', model: request.model }
+		},
 		buildProvider: (): LLMProvider => ({
 			id: 'child',
 			name: 'child',
@@ -163,6 +168,45 @@ describe('an agent saved by an earlier run of the program', () => {
 			expect(after.runtime.activity.getSnapshot()).toEqual([])
 		} finally {
 			await after.runtime.close()
+		}
+	})
+
+	it('is resumed on its saved model while the host still knows it, and not once it does not', async () => {
+		const world = await finishedBeforeRestart({ model: 'alt-model', provider: 'mock' })
+		const resumable = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'AFTER',
+		)
+		try {
+			const sent = await resumable.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AGAIN' },
+				resumable.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.error).toBeUndefined()
+			expect(sent.success).toBe(true)
+		} finally {
+			await resumable.runtime.close()
+		}
+		const refused = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'LATER',
+			[],
+		)
+		try {
+			const sent = await refused.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AGAIN' },
+				refused.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.success).toBe(false)
+			expect(sent.error).toContain('cannot be resumed')
+			expect(refused.requests).toEqual([])
+			expect(refused.runtime.activity.getSnapshot()).toEqual([])
+		} finally {
+			await refused.runtime.close()
 		}
 	})
 
