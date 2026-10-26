@@ -75,7 +75,7 @@ How to plan:
 1. Understand the request. Read the code it touches and look for existing functions and patterns to reuse before proposing new ones. For wide questions, send read-only explore agents; one is usually enough.
 2. Decide on one approach. Weigh alternatives briefly and keep only the one you recommend.
 3. Write the plan file: why the change is needed, the recommended approach, the files to change, what existing code it reuses, and how to verify the result end to end.
-4. Finish. ${ending} Ask for approval by calling \`exit_plan_mode\`: a plain-text question such as "does this look right?" cannot be answered in the approval screen.`
+4. Finish. ${ending} The user approves through that tool only: a plain-text question such as "does this look right?" cannot be answered in the approval screen.`
 }
 
 function sparseText(input: PlanModeReminderInput): string {
