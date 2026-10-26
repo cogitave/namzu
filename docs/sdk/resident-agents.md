@@ -9,7 +9,7 @@ status: deprecated
 
 # Resident agents experiment
 
-> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning (see [learning](learning.md)) keeps working through `namzu learn`, but `runLearningCycle` still takes a resident agenda as its activation target until learning gets its own in the next major release, so the resident agenda store stays in use for learning until then. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 ## Objective and boundary
 

@@ -37,7 +37,7 @@ When the saved summary lacks an earlier decision or accepted input, use search_r
 /**
  * @experimental Host-selected context for one admitted resident step.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentStepPromptOptions {
 	readonly state: ResidentState
@@ -69,7 +69,7 @@ export interface ResidentStepPromptOptions {
  * Project instructions and authorization remain on their existing host/runtime
  * paths. These contributions neither load project files nor authorize work.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContributions(
 	options: ResidentStepPromptOptions,

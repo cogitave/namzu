@@ -5,7 +5,7 @@ import { ResidentHistoryPageLimit, type ResidentHistoryReadBudget } from './hist
 /**
  * @experimental An immutable upper boundary; new work requires a new source.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentActivityScope {
 	readonly tenantId: string
@@ -16,7 +16,7 @@ export interface ResidentActivityScope {
 /**
  * @experimental Admission is authority to inspect an attempt, not proof that it executed.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentAdmission {
 	readonly revision: number
@@ -30,7 +30,7 @@ export interface ResidentAdmission {
 /**
  * @experimental Settlement is an agenda decision, not proof of verification or delivery.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentSettlement {
 	readonly revision: number
@@ -42,7 +42,7 @@ export interface ResidentSettlement {
 /**
  * @experimental Forward pages; cursor is the next revision to inspect, initially 1.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentActivityOptions {
 	readonly cursor?: number
@@ -53,7 +53,7 @@ export interface ResidentActivityOptions {
 /**
  * @experimental Gaps stay explicit; counts cover only the scanned revision range.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentActivityPage {
 	readonly scope: ResidentActivityScope
@@ -70,7 +70,7 @@ export interface ResidentActivityPage {
 /**
  * @experimental A backend must enforce scope, cancellation and read bounds.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentActivitySource {
 	readonly scope: ResidentActivityScope

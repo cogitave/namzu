@@ -14,7 +14,7 @@ export const residentObservationSchema = z.object({
 /**
  * @experimental Host-validated outcome and measured resource use, never model self-confidence.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentObservation = Readonly<z.infer<typeof residentObservationSchema>>
 
@@ -36,7 +36,7 @@ export const residentFeedbackSchema = z.object({
 /**
  * @experimental Last eight observations; best progress and stagnation survive eviction.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentFeedback = Readonly<
 	Omit<z.infer<typeof residentFeedbackSchema>, 'observations'>
@@ -80,7 +80,7 @@ export function freezeResidentFeedback(value: ResidentFeedback): ResidentFeedbac
 /**
  * @experimental Policy units are chosen by the host; scores are heuristics, not probabilities.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentSelectionConfig {
 	readonly progressValue: number
@@ -92,7 +92,7 @@ export interface ResidentSelectionConfig {
 /**
  * @experimental Explainable inputs for a single selection; unknown cost is not zero.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentCandidate {
 	readonly pursuitId: string
@@ -111,7 +111,7 @@ export interface ResidentCandidate {
 /**
  * @experimental Choice is bound to the whole agenda revision used to compute it.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentSelection {
 	readonly agendaRevision: number
@@ -123,7 +123,7 @@ export interface ResidentSelection {
 /**
  * @experimental Pure local selection; perform inference inside budgeted steps, not here.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentSelector = (agenda: ResidentAgendaState, now: number) => ResidentSelection
 
@@ -144,7 +144,7 @@ function meanObservedCost(observations: readonly ResidentObservation[]): number 
  * This is a measured-progress heuristic, not Bayesian value of computation.
  * A finite bootstrap allowance permits delayed payoffs but may stop too early.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentSelector(config: ResidentSelectionConfig): ResidentSelector {
 	const policy = z

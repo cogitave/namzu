@@ -9,7 +9,7 @@ const TEXT_PAGE_CHARS = 6_000
 /**
  * @experimental Host-bound historical scope; the upper revision never advances implicitly.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryScope {
 	readonly tenantId: string
@@ -21,7 +21,7 @@ export interface ResidentHistoryScope {
 /**
  * @experimental Revision plus part identifies retained text within one pursuit.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryAddress {
 	readonly revision: number
@@ -31,7 +31,7 @@ export interface ResidentHistoryAddress {
 /**
  * @experimental Summary or accepted wake input from a settled historical step.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryMatch extends ResidentHistoryAddress {
 	readonly step: number
@@ -45,7 +45,7 @@ export interface ResidentHistoryMatch extends ResidentHistoryAddress {
 /**
  * @experimental Empty query browses recent steps; cursor is the next inclusive revision.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistorySearchOptions {
 	/** Optional per-call ceiling, 1 byte–8 MiB. Defaults to 8 MiB. */
@@ -58,7 +58,7 @@ export interface ResidentHistorySearchOptions {
 /**
  * @experimental Counts describe this page, not the whole history.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistorySearchResult {
 	readonly matches: readonly ResidentHistoryMatch[]
@@ -72,7 +72,7 @@ export interface ResidentHistorySearchResult {
 /**
  * @experimental Use the returned nextOffset to continue exact Unicode-safe text.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryReadOptions extends ResidentHistoryAddress {
 	readonly offset?: number
@@ -83,7 +83,7 @@ export interface ResidentHistoryReadOptions extends ResidentHistoryAddress {
 /**
  * @experimental A recorded claim remains historical evidence, not proof of current validity.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryText extends ResidentHistoryAddress {
 	readonly step: number
@@ -100,7 +100,7 @@ export interface ResidentHistoryText extends ResidentHistoryAddress {
 /**
  * @experimental Null with unavailable revisions means unreadable evidence, not proven absence.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistoryReadResult {
 	readonly entry: ResidentHistoryText | null
@@ -112,7 +112,7 @@ export interface ResidentHistoryReadResult {
 /**
  * @experimental A backend must enforce its bound scope and bounded reads.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentHistorySource {
 	readonly scope: ResidentHistoryScope

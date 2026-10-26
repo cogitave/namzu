@@ -8,7 +8,7 @@ import { type ResidentStepPromptOptions, createResidentStepContributions } from 
 /**
  * @experimental One admission's context and read-only access to its evaluated guidance.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentStepContextBundle {
 	readonly contributions: readonly PromptContribution[]
@@ -18,7 +18,7 @@ export interface ResidentStepContextBundle {
 /**
  * @experimental The host must reject reads from runs outside the admitted scope.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
 	readonly authorizeLearningRead: (context: ToolContext) => boolean
@@ -29,7 +29,7 @@ export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
  * when requested. Selection is local to this admission, never persisted as a
  * preference or inferred from keywords. Mount both returned tools and context.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContext(
 	options: ResidentStepContextOptions,

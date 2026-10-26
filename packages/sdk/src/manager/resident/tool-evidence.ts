@@ -20,7 +20,7 @@ import type {
 /**
  * @experimental Host authority for one pursuit, project and admission boundary.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceScope extends ResidentHistoryScope {
 	readonly projectId: string
@@ -28,7 +28,7 @@ export interface ResidentToolEvidenceScope extends ResidentHistoryScope {
 /**
  * @experimental Identity of an agenda-verified settlement, not a fabricated transcript.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentSettledInvocation = Pick<
 	ResidentHistoryMatch,
@@ -37,7 +37,7 @@ export type ResidentSettledInvocation = Pick<
 /**
  * @experimental Settlement is checked before the host resolves the attempt's invocation.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceOptions {
 	readonly history: ResidentHistorySource
@@ -60,7 +60,7 @@ export interface ResidentToolEvidenceOptions {
 /**
  * @experimental An optional shared ceiling covers history, resolution and turn evidence.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceSearchOptions {
 	readonly query?: string
@@ -79,7 +79,7 @@ export interface ResidentToolEvidenceSearchOptions {
 /**
  * @experimental Tool records from at most one settled invocation per bounded search page.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceSearchResult {
 	readonly scope: ResidentToolEvidenceScope
@@ -98,7 +98,7 @@ export interface ResidentToolEvidenceSearchResult {
 /**
  * @experimental The revision is authorized anew on every read, including after restart.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceReadOptions
 	extends Omit<SessionEvidenceReadOptions, 'maxReadBytes'> {
@@ -109,7 +109,7 @@ export interface ResidentToolEvidenceReadOptions
 /**
  * @experimental Exact invocation text plus the settled claim that authorized access.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceReadResult extends SessionEvidenceReadResult {
 	readonly revision: number
@@ -119,7 +119,7 @@ export interface ResidentToolEvidenceReadResult extends SessionEvidenceReadResul
 /**
  * @experimental A host must bind tool access to the executing turn, not just this source.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentToolEvidenceSource {
 	readonly scope: ResidentToolEvidenceScope
@@ -137,7 +137,7 @@ export interface ResidentToolEvidenceSource {
 /**
  * @experimental Reuses the immutable agenda boundary; it never enumerates arbitrary sessions.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentToolEvidenceSource(
 	options: ResidentToolEvidenceOptions,

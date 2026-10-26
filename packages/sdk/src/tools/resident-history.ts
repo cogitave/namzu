@@ -9,7 +9,7 @@ import { defineTool } from './defineTool.js'
  * resolves and checks the executing turn's scope; models choose no paths,
  * tenant, resident, pursuit or upper-history boundary.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function buildResidentHistoryTools(
 	resolveSource: (context: ToolContext) => ResidentHistorySource,

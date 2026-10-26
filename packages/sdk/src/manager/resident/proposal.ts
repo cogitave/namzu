@@ -30,7 +30,7 @@ export const residentProposalLimitsSchema = z.object({
 /**
  * @experimental An inert subgoal proposal; creating it grants no execution authority.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentProposal {
 	readonly id: string
@@ -45,7 +45,7 @@ export interface ResidentProposal {
 /**
  * @experimental Host-approved routing domains and finite subgoal admission bounds.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentProposalLimits {
 	readonly domains: readonly string[]
@@ -67,7 +67,7 @@ export const residentProposalOriginSchema = z.object({
 /**
  * @experimental Host-admitted ancestry and evidence for a resident subgoal.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentProposalOrigin = Readonly<z.infer<typeof residentProposalOriginSchema>>
 
@@ -76,7 +76,7 @@ export type ResidentProposalOrigin = Readonly<z.infer<typeof residentProposalOri
  * atomically bind this snapshot to admission. Domains are routing metadata;
  * this does not prove an objective fits its domain or authorize any tools.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function validateResidentProposal(
 	agenda: ResidentAgendaState,

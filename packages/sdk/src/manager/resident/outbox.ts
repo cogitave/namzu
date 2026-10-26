@@ -21,7 +21,7 @@ export const residentMessageInputSchema = z.object({
 /**
  * @experimental Host-approved content and an opaque destination route, never credentials.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentMessageInput = Readonly<z.infer<typeof residentMessageInputSchema>>
 
@@ -54,7 +54,7 @@ export const residentOutboxMessageSchema = residentMessageInputSchema
 /**
  * @experimental Acknowledgment proves transport acceptance, not human reading.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentOutboxMessage = Readonly<z.infer<typeof residentOutboxMessageSchema>>
 
@@ -70,14 +70,14 @@ export const residentDeliveryOutcomeSchema = z.discriminatedUnion('kind', [
 /**
  * @experimental Retry only with evidence of non-acceptance; null retryAt ends delivery.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentDeliveryOutcome = Readonly<z.infer<typeof residentDeliveryOutcomeSchema>>
 
 /**
  * @experimental Atomic admission and exact-claim settlement, without automatic claim expiry.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentOutboxStore {
 	read(): Promise<ResidentAgendaState | null>
@@ -96,7 +96,7 @@ export interface ResidentOutboxStore {
 /**
  * @experimental A synchronous host policy, evaluated before claiming and again before sending.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentDeliveryGate = (
 	message: ResidentOutboxMessage,
@@ -112,7 +112,7 @@ export type ResidentDeliveryGate = (
 /**
  * @experimental Bind an authorized route; forward message.id as the stable idempotency key.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentMessageTransport = (
 	message: ResidentOutboxMessage,
@@ -122,7 +122,7 @@ export type ResidentMessageTransport = (
 /**
  * @experimental One dispatch admission, with no model invocation, polling or implicit retries.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export interface ResidentDeliveryOptions {
 	readonly signal: AbortSignal
@@ -133,7 +133,7 @@ export interface ResidentDeliveryOptions {
 /**
  * @experimental An idle result never asserts a message reached its destination.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export type ResidentDeliveryResult =
 	| { readonly status: 'settled'; readonly message: ResidentOutboxMessage }
@@ -256,7 +256,7 @@ function admission(gate: ResidentDeliveryGate, message: ResidentOutboxMessage, n
  * Throws, malformed outcomes and cancellation keep the claim unresolved. Stop
  * old executors and inspect effects before explicit settleMessage reconciliation.
  *
- * @deprecated Residents are deprecated and removed in the next major release. Learning lives in its own module (`runLearningCycle` and the other `Learning*` names); for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export async function deliverResidentMessage(
 	store: ResidentOutboxStore,
