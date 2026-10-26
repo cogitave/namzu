@@ -262,7 +262,11 @@ afterEach(async () => {
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
-	timeoutMs?: number,
+	// Generous on purpose: this waits on a rendered App and the suite shares a
+	// loaded host, so the default one second can lapse with nothing broken (kept under
+	// the 15 s test timeout so a failure names the missing text). A real
+	// hang still ends at this bound.
+	timeoutMs = 12_000,
 ): Promise<void> {
 	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text), timeoutMs)
 }
