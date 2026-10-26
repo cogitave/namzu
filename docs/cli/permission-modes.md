@@ -117,6 +117,16 @@ permissions:
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 
+## Large calls
+
+A large write, edit or command is asked about, not refused. The prompt shows the input in a page of rows; PgUp, PgDn, Home and End move through the rest, and `d` switches between the readable view and the exact input. Approving binds exactly the input that was shown: if it changed after the prompt opened, the call is refused instead of run.
+
+A single value over 200 thousand characters is not shown. The exact view prints a short placeholder in its place (`[about 200k characters not shown]`), and only **Yes** and **No** are offered: no "switch to accept edits" and no "don't ask again". A whole batch is capped at 1 MiB of review text; past that the remaining values are replaced the same way. A tool that has no view of its own (a connected server's tool, for example) is approved once only when its input reads as more than 2,000 units of one line, has more than 10,000 elements, or is nested deeper than 64; its input is still shown whole. A shell command or a file body is held to the 200 thousand character limit alone. A workflow's script is read whole up to 640 KiB. Input that cannot be written as plain JSON (a function, a cycle, an object with accessors) is still refused. Desktop and ACP never had a size limit and are unchanged.
+
+The box carries one notice for the batch, however many calls are marked ("3 of 30 calls are marked below. Approving runs the batch once and is not remembered."). In a batch, each marked call says so beside its number in the list (`2. write · destructive · too large to show`, or `· long input` for a call shown whole), and a lone call is covered by the notice alone. The hint line keeps `d` (the exact input) at narrow widths and gives up `ctrl+c stop` and then the arrow-key hint first.
+
+A call's input can be larger than one line of the session log may be. It is then written beside the log, so a batch of large writes still reaches the prompt, and a turn resumed after a restart gets the same calls back.
+
 ## Sub-agents
 
 A sub-agent has no mode of its own. It borrows the handler of the turn that started it, so each of its calls is decided in that turn's mode as it is when the call is made: a child runs in `bypass` only while its parent does, an `accept-edits` or `auto` parent is not widened by anything the child does, and Shift+Tab back to `prompt` reaches a child that is already running. An agent file names a model and tools, never a mode.

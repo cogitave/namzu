@@ -1,32 +1,40 @@
+import { createHash } from 'node:crypto'
+
 import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
 
 import { formatSpan } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 
 /**
- * Maximum exact permission envelope handed to an interactive reviewer.
- *
- * This is a refusal boundary, not a display truncation boundary. A call above
- * it is not offered for approval and is not executed. Keeping the limit on the
- * complete batch also prevents many individually-small calls from turning one
- * consent prompt into an unbounded allocation.
+ * The most characters (UTF-16 units) of one string the review shows. A string
+ * past it is replaced in the review by a short placeholder, the call is listed
+ * as withheld, and the person can approve it once but not remember the answer.
  */
-export const MAX_PERMISSION_REVIEW_BYTES = 8_000
+export const MAX_REVIEW_VALUE_CHARS = 200_000
 
 /**
- * What a batch of workflow starts may weigh: the script's 256 KiB source limit
- * (the SDK runtime's), its 64 KiB of arguments, and the room JSON escaping
- * takes. The 8 000-byte boundary above exists so many small calls cannot add up
- * to an unbounded prompt; a workflow's script is one value the runtime already
- * bounds, and it is read in a pager, so the review is not what limits it.
+ * The most the review allocates for one batch. Past it the writer does not
+ * refuse: it writes placeholders for what is left, so many individually small
+ * values cannot add up to an unbounded prompt, and the person is still asked.
+ */
+export const REVIEW_ALLOCATION_BYTES = 1024 * 1024
+
+/**
+ * What a batch of workflow starts may weigh per value: the script's 256 KiB
+ * source limit (the SDK runtime's), its 64 KiB of arguments, and the room JSON
+ * escaping takes. The script is one value the runtime already bounds, and it is
+ * read in a pager.
  */
 export const MAX_WORKFLOW_REVIEW_BYTES = 640 * 1024
 
-/** The limit that applies to this batch: workflow starts alone get the larger one. */
-export function permissionReviewLimit(calls: readonly { readonly name: string }[]): number {
+/** The per-value and whole-batch limits that apply to this batch. */
+export function permissionReviewLimits(calls: readonly { readonly name: string }[]): {
+	readonly valueChars: number
+	readonly totalBytes: number
+} {
 	return calls.length > 0 && calls.every((call) => call.name === 'workflow')
-		? MAX_WORKFLOW_REVIEW_BYTES
-		: MAX_PERMISSION_REVIEW_BYTES
+		? { valueChars: MAX_WORKFLOW_REVIEW_BYTES, totalBytes: MAX_WORKFLOW_REVIEW_BYTES }
+		: { valueChars: MAX_REVIEW_VALUE_CHARS, totalBytes: REVIEW_ALLOCATION_BYTES }
 }
 
 /** Physical rows kept visible without crowding a 24-row terminal. */
@@ -49,9 +57,35 @@ export interface PermissionReviewCall {
 	readonly isDestructive: boolean
 }
 
+/** A call that can be approved once but never remembered, because of its input's size. */
+export interface WithheldCall {
+	/** Position in the batch. */
+	readonly index: number
+	readonly name: string
+	/** Characters left out of the review, summed over the call's values. */
+	readonly characters: number
+	/**
+	 * Part of the input is replaced by a placeholder. Otherwise the input is
+	 * shown whole but is long enough that only a one-time yes is offered.
+	 */
+	readonly omitted: boolean
+}
+
 export type PermissionReviewResult =
-	| { readonly ok: true; readonly text: string; readonly bytes: number }
-	| { readonly ok: false; readonly reason: 'too_large' | 'unrepresentable' }
+	| {
+			readonly ok: true
+			readonly text: string
+			readonly bytes: number
+			/** Calls whose review carries a placeholder; approving them is one-time only. */
+			readonly withheld: readonly WithheldCall[]
+			/**
+			 * sha256 of the true batch: the written text, plus a digest of every
+			 * value replaced by a placeholder. Equal hashes mean the input the
+			 * person approved is the input that runs.
+			 */
+			readonly envelopeHash: string
+	  }
+	| { readonly ok: false; readonly reason: 'unrepresentable' }
 
 export interface PermissionReviewSummary {
 	/** Compact agent plan; full prepared arguments remain available in the exact view. */
@@ -78,10 +112,77 @@ interface ReadableCallSummary {
 }
 
 /** Actionable fail-closed feedback for a TUI review that cannot be exact. */
-export function permissionReviewRefusal(reason: 'too_large' | 'unrepresentable'): string {
-	return reason === 'too_large'
-		? `Refused: the complete tool batch exceeds the ${MAX_PERMISSION_REVIEW_BYTES}-byte interactive review limit. Split it into smaller calls or add an explicit allow rule after reviewing the operation another way.`
-		: 'Refused: this tool batch contains input the interactive permission protocol cannot represent exactly. Use JSON-compatible input or add an explicit allow rule after reviewing the operation another way.'
+export function permissionReviewRefusal(_reason: 'unrepresentable'): string {
+	return 'Refused: this tool batch contains input the interactive permission protocol cannot represent exactly. Use JSON-compatible input or add an explicit allow rule after reviewing the operation another way.'
+}
+
+/** What the person is told about a call whose input is too large to show. */
+export const WITHHELD_NOTICE =
+	'Too large to show in full. Approving runs it once and is not remembered.'
+
+/** What the person is told about a call whose input is long but shown whole. */
+export const LONG_INPUT_NOTICE = 'Long input. Approving runs it once and is not remembered.'
+
+/** The marks a withheld call carries beside its number in a batch. */
+export const WITHHELD_MARK = 'too large to show'
+export const LONG_INPUT_MARK = 'long input'
+
+/** The one notice a prompt carries for every withheld call of its batch. */
+export function withheldNotice(withheld: readonly WithheldCall[], total: number): string {
+	if (total <= 1) return withheld[0]?.omitted === false ? LONG_INPUT_NOTICE : WITHHELD_NOTICE
+	return `${withheld.length} of ${total} calls ${withheld.length === 1 ? 'is' : 'are'} marked below. Approving runs the batch once and is not remembered.`
+}
+
+/** `200000` becomes `200k`, `1250000` becomes `1.3M`: a size in plain words, never an exact count. */
+function roughCount(value: number): string {
+	if (value < 1000) return String(value)
+	if (value < 1_000_000) return `${Number((value / 1000).toFixed(1))}k`
+	return `${Number((value / 1_000_000).toFixed(1))}M`
+}
+
+/** The placeholder written in place of a value the review leaves out. */
+export function withheldPlaceholder(characters: number): string {
+	return `[${characters < 1000 ? '' : 'about '}${roughCount(characters)} characters not shown]`
+}
+
+/** A tool with no view of its own is approved once only past these. */
+export const LONG_INPUT_UNITS = 2_000
+export const LONG_INPUT_ELEMENTS = 10_000
+export const LONG_INPUT_DEPTH = 64
+
+/**
+ * Whether an input reads as too long to take in as one line: more than
+ * {@link LONG_INPUT_UNITS} units of compact JSON, more than
+ * {@link LONG_INPUT_ELEMENTS} elements, or nested deeper than
+ * {@link LONG_INPUT_DEPTH}. Stops as soon as one is true, so the cost is
+ * bounded whatever the input.
+ */
+export function isLongInput(input: unknown): boolean {
+	let units = 0
+	let elements = 0
+	const walk = (value: unknown, depth: number): boolean => {
+		if (units > LONG_INPUT_UNITS || elements > LONG_INPUT_ELEMENTS) return true
+		if (typeof value === 'string') {
+			units += value.length + 2
+			return units > LONG_INPUT_UNITS
+		}
+		if (typeof value !== 'object' || value === null) {
+			units += String(value).length
+			return units > LONG_INPUT_UNITS
+		}
+		if (depth >= LONG_INPUT_DEPTH) return true
+		const entries = Array.isArray(value)
+			? value.map((item, index) => [String(index), item] as const)
+			: Object.entries(value)
+		elements += entries.length
+		units += 2 + Math.max(0, entries.length - 1)
+		for (const [key, item] of entries) {
+			if (!Array.isArray(value)) units += key.length + 3
+			if (walk(item, depth + 1)) return true
+		}
+		return units > LONG_INPUT_UNITS || elements > LONG_INPUT_ELEMENTS
+	}
+	return walk(input, 0)
 }
 
 /** One terminal row of the source-preserving permission projection. */
@@ -93,7 +194,6 @@ export interface PermissionReviewRow {
 	readonly continuation: boolean
 }
 
-class ReviewLimitError extends Error {}
 class ReviewShapeError extends Error {}
 
 /**
@@ -109,27 +209,85 @@ class ReviewShapeError extends Error {}
  */
 export function buildPermissionReview(
 	calls: readonly PermissionReviewCall[],
-	maxBytes = permissionReviewLimit(calls),
+	limits: { readonly valueChars: number; readonly totalBytes: number } = permissionReviewLimits(
+		calls,
+	),
 ): PermissionReviewResult {
-	if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+	if (
+		!Number.isSafeInteger(limits.valueChars) ||
+		limits.valueChars < 1 ||
+		!Number.isSafeInteger(limits.totalBytes) ||
+		limits.totalBytes < 1
+	) {
 		return { ok: false, reason: 'unrepresentable' }
 	}
 
 	const chunks: string[] = []
 	let bytes = 0
 	const active = new WeakSet<object>()
+	const hash = createHash('sha256')
+	const withheldChars = new Map<number, number>()
+	const omittedCalls = new Set<number>()
+	let currentCall = 0
+
+	// While `silent`, values are only digested: the review has no room left
+	// for them, but the hash still has to cover what runs.
+	let silent = false
 
 	const append = (chunk: string): void => {
+		hash.update(chunk)
+		if (silent) return
 		bytes += Buffer.byteLength(chunk, 'utf8')
-		if (bytes > maxBytes) throw new ReviewLimitError()
 		chunks.push(chunk)
 	}
 
-	const appendString = (value: string): void => {
-		// JSON escaping only grows a string. Avoid materialising an escaped copy
-		// when the source alone has already crossed the complete-envelope cap.
-		if (Buffer.byteLength(value, 'utf8') > maxBytes - bytes) throw new ReviewLimitError()
+	// The true value is digested, never copied: a withheld value of any size
+	// costs the hash a pass over it and the review a short placeholder.
+	const withhold = (characters: number, digestOf?: string): void => {
+		if (silent) {
+			if (digestOf !== undefined) hash.update(createHash('sha256').update(digestOf).digest('hex'))
+			return
+		}
+		withheldChars.set(currentCall, (withheldChars.get(currentCall) ?? 0) + characters)
+		omittedCalls.add(currentCall)
+		const placeholder = JSON.stringify(withheldPlaceholder(characters))
+		bytes += Buffer.byteLength(placeholder, 'utf8')
+		chunks.push(placeholder)
+		hash.update(
+			`<withheld ${characters} ${digestOf === undefined ? '' : createHash('sha256').update(digestOf).digest('hex')}>`,
+		)
+	}
+
+	const exhausted = (): boolean => !silent && bytes >= limits.totalBytes
+
+	const appendKey = (value: string): void => {
+		// A key is structure, not content: leaving one out would change which
+		// field a value belongs to.
+		if (value.length > limits.valueChars) throw new ReviewShapeError()
 		append(JSON.stringify(value))
+	}
+
+	const appendString = (value: string): void => {
+		if (silent) {
+			withhold(value.length, value)
+			return
+		}
+		if (value.length > limits.valueChars) {
+			withhold(value.length, value)
+			return
+		}
+		// JSON escaping only grows a string. Decide on the source size first so a
+		// value that cannot fit never has an escaped copy built.
+		if (Buffer.byteLength(value, 'utf8') > limits.totalBytes - bytes) {
+			withhold(value.length, value)
+			return
+		}
+		const escaped = JSON.stringify(value)
+		if (Buffer.byteLength(escaped, 'utf8') > limits.totalBytes - bytes) {
+			withhold(value.length, value)
+			return
+		}
+		append(escaped)
 	}
 
 	const write = (value: unknown, indent: number): void => {
@@ -169,15 +327,29 @@ export function buildPermissionReview(
 					)
 				)
 					throw new ReviewShapeError()
-
-				append('[')
-				if (value.length > 0) append('\n')
 				for (let index = 0; index < value.length; index += 1) {
 					const descriptor = descriptors[String(index)]
 					if (!descriptor || !('value' in descriptor) || !descriptor.enumerable)
 						throw new ReviewShapeError()
+				}
+
+				append('[')
+				if (value.length > 0) append('\n')
+				for (let index = 0; index < value.length; index += 1) {
 					append(' '.repeat(indent + 2))
-					write(descriptor.value, indent + 2)
+					if (exhausted()) {
+						// The allocation is spent: the rest of the list is one
+						// placeholder, so the output stays valid and bounded.
+						silent = true
+						for (let rest = index; rest < value.length; rest += 1) {
+							write((descriptors[String(rest)] as PropertyDescriptor).value, indent + 2)
+						}
+						silent = false
+						withhold(value.length - index)
+						append('\n')
+						break
+					}
+					write((descriptors[String(index)] as PropertyDescriptor).value, indent + 2)
 					append(index === value.length - 1 ? '\n' : ',\n')
 				}
 				if (value.length > 0) append(' '.repeat(indent))
@@ -203,7 +375,21 @@ export function buildPermissionReview(
 				const descriptor = descriptors[key]
 				if (!descriptor || !('value' in descriptor)) throw new ReviewShapeError()
 				append(' '.repeat(indent + 2))
-				appendString(key)
+				if (exhausted()) {
+					silent = true
+					for (let rest = index; rest < entries.length; rest += 1) {
+						const restKey = entries[rest] as string
+						hash.update(restKey)
+						write((descriptors[restKey] as PropertyDescriptor).value, indent + 2)
+					}
+					silent = false
+					appendKey('...')
+					append(': ')
+					withhold(entries.length - index)
+					append('\n')
+					break
+				}
+				appendKey(key)
 				append(': ')
 				write(descriptor.value, indent + 2)
 				append(index === entries.length - 1 ? '\n' : ',\n')
@@ -246,18 +432,45 @@ export function buildPermissionReview(
 				isDestructive: isDestructive.value,
 			}
 		})
-		write(
-			{
-				calls: exactCalls,
-			},
-			0,
-		)
-		return { ok: true, text: chunks.join(''), bytes }
-	} catch (error) {
-		return {
-			ok: false,
-			reason: error instanceof ReviewLimitError ? 'too_large' : 'unrepresentable',
+		// The envelope, written by hand so each call knows which one it is.
+		append('{\n')
+		append('  "calls": [')
+		if (exactCalls.length > 0) append('\n')
+		for (let index = 0; index < exactCalls.length; index += 1) {
+			currentCall = index
+			append('    ')
+			write(exactCalls[index], 4)
+			append(index === exactCalls.length - 1 ? '\n' : ',\n')
 		}
+		if (exactCalls.length > 0) append('  ')
+		append(']\n')
+		append('}')
+		// A tool with no view of its own is read as one line of JSON; a line
+		// that long is approved once, though it is shown whole. File and shell
+		// tools have their own views and only the per-value limit above.
+		for (let index = 0; index < exactCalls.length; index += 1) {
+			const call = exactCalls[index] as { name: string; input: unknown }
+			if (!withheldChars.has(index) && !FORMATTED_TOOLS.has(call.name) && isLongInput(call.input)) {
+				withheldChars.set(index, 0)
+			}
+		}
+		const withheld = [...withheldChars.entries()]
+			.sort((a, b) => a[0] - b[0])
+			.map(([index, characters]) => ({
+				index,
+				name: (exactCalls[index] as { name: string }).name,
+				characters,
+				omitted: omittedCalls.has(index),
+			}))
+		return {
+			ok: true,
+			text: chunks.join(''),
+			bytes,
+			withheld,
+			envelopeHash: hash.digest('hex'),
+		}
+	} catch {
+		return { ok: false, reason: 'unrepresentable' }
 	}
 }
 
@@ -297,6 +510,18 @@ export interface PermissionSummaryContext {
 		readonly maxConcurrency: number
 		readonly maxAgents: number
 	}
+	/**
+	 * The calls approved once only because of their size, by position: each
+	 * is marked beside its number, where it appears in the list.
+	 */
+	readonly withheld?: readonly WithheldCall[]
+}
+
+/** ` · too large to show`, or nothing, for the call at `index`. */
+function withheldMark(context: PermissionSummaryContext, index: number): string {
+	const call = context.withheld?.find((item) => item.index === index)
+	if (!call) return ''
+	return ` · ${call.omitted ? WITHHELD_MARK : LONG_INPUT_MARK}`
 }
 
 export function buildPermissionSummary(
@@ -368,11 +593,11 @@ export function buildPermissionSummary(
 	) {
 		const overview = calls.map(
 			(call, index) =>
-				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}`,
+				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}${withheldMark(context, index)}`,
 		)
 		const details = calls.map((call, index) =>
 			[
-				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}`,
+				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}${withheldMark(context, index)}`,
 				...call.readable.lines.map((line) => `   ${line}`),
 			].join('\n'),
 		)
@@ -389,7 +614,7 @@ export function buildPermissionSummary(
 		text: calls
 			.map((call, index) =>
 				[
-					`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
+					`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}${withheldMark(context, index)}`,
 					...call.readable.lines.map((line) => `   ${line}`),
 				].join('\n'),
 			)
@@ -399,7 +624,7 @@ export function buildPermissionSummary(
 					expandedText: calls
 						.map((call, index) =>
 							[
-								`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
+								`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}${withheldMark(context, index)}`,
 								...(call.readable.expandedLines ?? call.readable.lines).map((line) => `   ${line}`),
 							].join('\n'),
 						)

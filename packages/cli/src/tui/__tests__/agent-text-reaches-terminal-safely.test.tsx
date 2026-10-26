@@ -6,7 +6,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession, PermissionRequest } from '../agent.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
-import { MAX_PERMISSION_REVIEW_BYTES, PERMISSION_REVIEW_PAGE_ROWS } from '../permission-review.js'
+import { MAX_REVIEW_VALUE_CHARS, PERMISSION_REVIEW_PAGE_ROWS } from '../permission-review.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -266,23 +266,72 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	})
 })
 
-it('refuses a TUI batch whose complete input cannot fit without truncation', async () => {
-	const input = Object.freeze({ command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES) })
+it('opens the prompt for a 9 000-byte input and approves the object it was shown', async () => {
+	const input = Object.freeze({ command: 'x'.repeat(9000) })
 	activeRequest = permissionRequest(input)
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('a-model'))
-	await submit(screen, 'run an oversized proposed call')
-	await waitUntil(screen, () => permissionDecisions.length === 1)
+	await submit(screen, 'run a large proposed call')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Exact prepared input'))
+	expect(permissionDecisions).toEqual([])
+	expect(screen.viewport().join('\n')).not.toContain('not shown')
 
+	nowMs += APPROVAL_SETTLE_MS + 1
+	screen.press('y')
+	await waitUntil(screen, () => permissionDecisions.length === 1)
+	expect(permissionDecisions).toEqual([{ kind: 'approve' }])
+	expect(activeRequest.toolCalls[0]?.input).toBe(input)
+})
+
+it('offers only a one-time yes for an input past the review limit', async () => {
+	const input = Object.freeze({ command: 'x'.repeat(MAX_REVIEW_VALUE_CHARS + 1) })
+	activeRequest = permissionRequest(input)
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 30 })
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('a-model'))
+	await submit(screen, 'run a huge proposed call')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Too large to show in full'))
+	const shown = screen.viewport().join('\n')
+	expect(shown).toContain('Approving runs it once and is not remembered.')
+	expect(shown).toContain('about 200k characters not shown')
+	expect(shown).not.toContain('3. ')
+
+	// Neither the third row's number nor the allow-all key answers anything.
+	nowMs += APPROVAL_SETTLE_MS + 1
+	screen.press('3')
+	await screen.waitForRender()
+	screen.press('a')
+	await screen.waitForRender()
+	expect(permissionDecisions).toEqual([])
+
+	screen.press('y')
+	await waitUntil(screen, () => permissionDecisions.length === 1)
+	expect(permissionDecisions).toEqual([{ kind: 'approve' }])
+	expect(activeRequest.toolCalls[0]?.input).toBe(input)
+})
+
+it('refuses an approval when the input changed after it was shown', async () => {
+	const input = { command: 'x'.repeat(9000) }
+	activeRequest = {
+		toolCalls: [{ id: 'call-1', name: `bash${BEL}`, input, isDestructive: true }],
+	}
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('a-model'))
+	await submit(screen, 'run a changing proposed call')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Exact prepared input'))
+
+	input.command = 'rm -rf /'
+	nowMs += APPROVAL_SETTLE_MS + 1
+	screen.press('y')
+	await waitUntil(screen, () => permissionDecisions.length === 1)
 	expect(permissionDecisions).toEqual([
 		expect.objectContaining({
 			kind: 'reject',
-			feedback: expect.stringContaining('complete tool batch exceeds'),
+			feedback: expect.stringContaining('changed after it was shown'),
 		}),
 	])
-	expect(screen.viewport().join('\n')).not.toContain('wants to run')
-	expect(activeRequest.toolCalls[0]?.input).toBe(input)
 })
 
 it('keeps the destination visible when the terminal path is not known to support links', async () => {
