@@ -2,6 +2,7 @@
 
 ## 2026-10-26
 
+- **Update** [Memory](cli/memory.md#keeping-memory-during-a-session): a session with the memory tools carries a static `## Memory` section that teaches the model what to save, what to leave out and how to keep the store tidy; the memory tool descriptions state mechanics only. `.changeset/memory-guidance.md` (`@namzu/cli` patch, `@namzu/sdk` patch).
 - **Update** Model-facing wording: the system prompt, tool descriptions and bundled skills name categories, not specific products, sites or models, as examples; a test over the assembled text keeps it so. `.changeset/prompt-generic-examples.md`.
 - **Update** [Manual compaction](sdk/manual-compaction.md): the salience scorer tokenizes each message once and splits identifiers in linear time, so a message with a very long run of capitals no longer stalls the next request. `.changeset/fast-long-token-scoring.md` (`@namzu/sdk` patch).
 - **Update** [Conversation evidence search](cli/conversation-evidence.md): an address or cursor from a running turn's search is accepted by the next tool call's read (the seal no longer binds the moving anchor), and a seq past the end is answered at once on the live backend too. `.changeset/conversation-evidence-address-survives-reanchor.md`.

@@ -128,6 +128,24 @@ text an active memory already holds is not saved again; the terminal names the
 memory that holds it. A session with no provider has no store, and its notes are
 appended to the curated project file as before.
 
+### Keeping memory during a session
+
+A session that mounts the memory tools carries a `## Memory` section in its
+static system prompt, in the stable prefix before the environment block, so it
+never changes the cached prefix. It tells the model to keep memory itself while
+it works. It saves what a later conversation will need: the person's
+preferences and corrections, decisions and the reason for them, a lesson from a
+failure (what went wrong, the cause, what to do instead) and pointers to
+resources outside the repository. It leaves out what the repository or its docs
+already record and what only matters to the current conversation. It also asks
+for one fact per memory with a short one-line description, an update of a
+matching memory instead of a duplicate, the removal of a memory found wrong, a
+save when the person says "remember" and a removal when they say "forget", and
+a check of a recalled memory against the current code before acting on it. A
+session that withholds `save_memory`, and a resident continuation, get no such
+section. The mechanics (types, the `Why:` and `How to apply:` lines, `[[name]]`
+links, revisions) stay in the descriptions of the memory tools.
+
 Every send and resume takes a snapshot of the index and offers it, subject to
 the current request budget, in a request-only user-role `step-context` message under
 `## Stored memories (index)`: one line per active memory you or the model
@@ -143,9 +161,8 @@ request tokens. Your `feedback` and `user`
 memories (notes, `/memory add --type`, hand-written files) come first, then the
 model's, then the rest, by name within each; the order changes only when a
 listed memory does, and the 200-line cap drops `project` and `reference` lines
-before any of yours. The section tells the model to read a memory before relying on it, to
-update rather than duplicate, that memories are point-in-time, and that what
-earlier turns recorded on their own is found with `search_memory`. The index is
+before any of yours. The section points the model to `read_memory` for a listed memory and says that
+what earlier turns recorded on their own is found with `search_memory`. The index is
 rendered from the files at that moment. A memory file the store cannot read
 leaves that turn without the index and shows a notice naming the file; the turn
 still runs.

@@ -369,6 +369,7 @@ import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
+	MEMORY_GUIDANCE,
 	type TypedNoteResult,
 	composeStoredMemoryPrompt,
 	describeCuratedNotesImport,
@@ -4166,6 +4167,14 @@ export async function createAgentSession(
 			? deferExceptToolset(wrapped, EAGER_TOOLS_WHEN_DEFERRED)
 			: [wrapped]
 	})
+	// The memory section is written only for a session that holds the tool
+	// it teaches: a run that withholds `save_memory` would be told to use it.
+	// The answer is fixed at boot, so the prompt prefix stays byte-stable.
+	const memoryGuidance = sessionToolsets.some((ts) =>
+		ts.tools().some((tool) => tool.name === 'save_memory'),
+	)
+		? MEMORY_GUIDANCE
+		: undefined
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
 	// `toolResultScreens`) — never for execution, which `query()` does with
@@ -4501,6 +4510,7 @@ export async function createAgentSession(
 					NAMZU_DELEGATION_DOCTRINE,
 					palPromptBlock(),
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+					memoryGuidance,
 					environmentPrompt,
 					systemNote,
 					turnSkills.overflowNote,
@@ -5537,6 +5547,7 @@ export async function createAgentSession(
 								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+								residentContext ? undefined : memoryGuidance,
 								// Whenever anything is deferred, not only under
 								// `toolLoading: 'deferred'`: a deferred tool the model was
 								// never told how to load is a tool it does not have.

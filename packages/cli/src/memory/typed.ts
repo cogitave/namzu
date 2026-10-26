@@ -105,11 +105,41 @@ export function composeStoredMemoryPrompt(index: RenderedMemoryIndex): string | 
 	return [
 		'## Stored memories (index)',
 		'',
-		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. Correct or archive a wrong one with update_memory rather than saving a second copy. Memories are point-in-time: verify a file, function or flag a memory names against the current code before relying on it. What earlier turns recorded on their own is not listed here; search_memory finds it.',
+		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. What earlier turns recorded on their own is not listed here; search_memory finds it.',
 		'',
 		index.text,
 	].join('\n')
 }
+
+/**
+ * The static prompt section that teaches the model to keep memory itself
+ * while it works. It sits in the stable prefix, so it is one constant string:
+ * nothing per-turn goes into it, and it never re-keys the cached prefix.
+ * Tool mechanics (types, field layout, links, revisions) stay in the memory
+ * tool descriptions; this holds only when to write and how to keep the store
+ * tidy.
+ */
+export const MEMORY_GUIDANCE = [
+	'## Memory',
+	'',
+	'You keep memory yourself while you work. Memories are files that later sessions in this project read, so each one should hold something a later session cannot rebuild from the code, the history or the docs.',
+	'',
+	'Save as the work goes, because a lesson left unwritten is repeated by the next session:',
+	'- what the person prefers or corrects, including an approach they confirmed or rejected, with their reason;',
+	'- a decision and why it was made, or a constraint behind the work;',
+	'- a lesson from a failure: what went wrong, the cause, and what to do instead;',
+	'- a pointer to where something lives outside the repository, such as a tracker, a dashboard or a shared document.',
+	'',
+	'Leave out what the repository or its docs already record, and what matters only to this conversation, such as progress and the current plan (the task list holds those). Leave out secrets such as keys and credentials, since memories are plain files.',
+	'',
+	'Keep the store tidy so it stays useful:',
+	'- Write one fact per memory, with a short name and a short one-line description, because the index shows only that line.',
+	'- Search before saving. When a memory on the topic exists, update it instead of adding a duplicate.',
+	'- When you find a memory is wrong, correct or remove it, so a later session is not misled.',
+	'- When the person asks you to remember something, save it now. When they ask you to forget something, find it and remove it.',
+	'',
+	'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note.',
+].join('\n')
 
 /** What one launch's migration did, for the operator notice. */
 export interface MemoryMigrationReport {
