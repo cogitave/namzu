@@ -55,6 +55,8 @@ describe('what a call can have remembered', () => {
 			bash('cat /etc/hosts', { escalation: { outsidePaths: ['/etc/hosts'] } }),
 		],
 		['a call a rule asked about', bash('npm test', { authorization: { explicitReview: true } })],
+		['a call an ask rule requested', bash('npm test', { authorization: { askRule: true } })],
+		['a call a hook asked about', bash('npm test', { hookPermission: { decision: 'ask' } })],
 		['a call that must always be asked', bash('npm test', { requiresApproval: true })],
 		['a destructive command', bash('rm -rf build', { isDestructive: true })],
 		['a wildcard host', { name: 'web_fetch', input: { url: 'https://*.example.com/' } }],

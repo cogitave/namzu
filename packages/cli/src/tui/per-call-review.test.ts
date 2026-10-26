@@ -59,6 +59,14 @@ describe('what a re-check may approve', () => {
 		expect(bypass.modeCovers({ ...shell, authorization: { explicitReview: true } })).toBe(false)
 	})
 
+	it('never lets a mode cover a call that a rule or a hook asked about', () => {
+		for (const mode of ['bypass', 'accept-edits'] as const) {
+			const covering = review(mode)
+			expect(covering.modeCovers({ ...edit, authorization: { askRule: true } })).toBe(false)
+			expect(covering.modeCovers({ ...edit, hookPermission: { decision: 'ask' } })).toBe(false)
+		}
+	})
+
 	it('lets accept-edits cover a plain edit and nothing else', () => {
 		const accept = review('accept-edits')
 		expect(accept.modeCovers(edit)).toBe(true)

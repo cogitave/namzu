@@ -13,6 +13,7 @@
  */
 
 import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
+import { mustAskPerson } from '../permissions/session-allow.js'
 import type { PermissionDecision, PermissionToolCall } from './agent.js'
 
 /** The person's own words about a refusal are cut at this many characters. */
@@ -96,8 +97,7 @@ export function createTerminalPerCallReview(host: PerCallReviewHost): TerminalPe
 	const listeners = new Set<() => void>()
 	const held = new Map<string, boolean>()
 	const modeCovers = (call: PermissionToolCall): boolean => {
-		if (call.requiresApproval === true || call.authorization?.explicitReview === true) return false
-		if (call.escalation !== undefined) return false
+		if (mustAskPerson(call)) return false
 		switch (host.mode()) {
 			case 'bypass':
 				return true

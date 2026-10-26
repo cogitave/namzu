@@ -773,7 +773,9 @@ export interface PermissionToolCall {
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
 	/** Present when a rule asked for this call; no remembered answer may skip it. */
-	readonly authorization?: { readonly explicitReview?: true }
+	readonly authorization?: { readonly explicitReview?: true; readonly askRule?: true }
+	/** A hook asked for this call; no mode or remembered answer may skip it. */
+	readonly hookPermission?: { readonly decision?: string }
 	/** The tool needs a person's yes on every call. */
 	readonly requiresApproval?: true
 }

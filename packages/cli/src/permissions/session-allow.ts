@@ -49,7 +49,8 @@ export interface AllowableCall {
 	readonly input: unknown
 	readonly isDestructive?: boolean
 	readonly requiresApproval?: boolean
-	readonly authorization?: { readonly explicitReview?: boolean }
+	readonly authorization?: { readonly explicitReview?: boolean; readonly askRule?: boolean }
+	readonly hookPermission?: { readonly decision?: string }
 	readonly escalation?: unknown
 }
 
@@ -67,11 +68,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** A call a rule must never cover: it asks every time, whatever was said before. */
 function alwaysAsked(call: AllowableCall): boolean {
+	return mustAskPerson(call) || call.isDestructive === true
+}
+
+/**
+ * A call that exists to put a question to a person: it crosses the turn's
+ * boundary, its tool needs a yes every time, or a rule or a hook asked for it.
+ * Neither a mode nor a remembered answer may approve it unseen.
+ */
+export function mustAskPerson(call: AllowableCall): boolean {
 	return (
 		call.escalation !== undefined ||
 		call.requiresApproval === true ||
 		call.authorization?.explicitReview === true ||
-		call.isDestructive === true
+		call.authorization?.askRule === true ||
+		call.hookPermission?.decision === 'ask'
 	)
 }
 

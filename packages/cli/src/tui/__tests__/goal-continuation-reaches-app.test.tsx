@@ -552,6 +552,43 @@ it('does not continue a goal after a turn ended by a plain No', async () => {
 	expect(calls).toBe(1)
 }, 30_000)
 
+it('does not continue a goal after the person answers a plain No at a call question', async () => {
+	let calls = 0
+	let answered: unknown
+	sendImplementation = async function* (_messages, options, bound) {
+		calls += 1
+		if (!options?.goalRound) throw new Error('fixture expected goal authority')
+		if (calls === 1) {
+			answered = await options.onPermission?.({
+				toolCalls: [
+					{ id: 'c1', name: 'bash', input: { command: 'npm test' }, isDestructive: false },
+				],
+				perCall: true,
+				signal: new AbortController().signal,
+				turnId: 'turn-1',
+			} as never)
+			yield { kind: 'done', stopReason: 'cancelled' }
+			return
+		}
+		await complete(bound, options.goalRound)
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+
+	const { harness } = await mountedApp('namzu-goal-app-call-no-')
+	await submit(harness, '/goal stop when told no')
+	await until(
+		() => harness.lastFrame()?.includes('enter confirm') === true,
+		'the call question never opened',
+	)
+	harness.stdin.write('n')
+	await until(
+		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
+		'the disarmed goal did not reach the footer',
+	)
+	expect(answered).toMatchObject({ kind: 'reject', endTurn: true })
+	expect(calls).toBe(1)
+}, 30_000)
+
 it('does not let an abnormal automatic goal round pause queued human work', async () => {
 	const goalEntered = deferred()
 	const releaseGoal = deferred()

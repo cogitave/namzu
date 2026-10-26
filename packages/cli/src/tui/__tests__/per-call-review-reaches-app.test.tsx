@@ -385,6 +385,34 @@ describe('a question another agent asks', () => {
 		expect(frameOf(h)).toContain('from another agent')
 	})
 
+	it('stays open for the person when a rule asked about its call, whatever was remembered', async () => {
+		const connector = (
+			id: string,
+			extra: Partial<PermissionToolCall> = {},
+		): PermissionToolCall => ({
+			id,
+			name: 'mcp__files__read',
+			input: { path: 'a' },
+			isDestructive: false,
+			...extra,
+		})
+		calls = [connector('m1')]
+		agentRequests = [
+			{
+				sessionId: 'child-session',
+				toolCalls: [connector('m2', { authorization: { askRule: true } })],
+			} as unknown as PermissionRequest,
+		]
+		const h = await withQuestionsOpen(1)
+		settle()
+		h.stdin.write('2')
+		await vi.waitFor(() => expect(remembered.length).toBe(1))
+		// The other agent's call is shown, not approved by the remembered tool rule.
+		await vi.waitFor(() => expect(frameOf(h)).toContain('from another agent'))
+		await tick(60)
+		expect(agentDecisions).toEqual([])
+	})
+
 	it('does not end the turn when the agent is refused', async () => {
 		calls = []
 		agentRequests = [
