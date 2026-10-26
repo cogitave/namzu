@@ -201,6 +201,8 @@ export interface IterationContext {
 	readonly skillGrants?: SkillGrantSet
 	/** See `QueryParams.reviewAllowedCalls`. Absent: allowed and granted batches skip review. */
 	readonly reviewAllowedCalls?: () => boolean
+	/** See `QueryParams.perCallReview`. Absent: a batch is reviewed as a unit. */
+	readonly perCallReview?: import('../../../../types/hitl/index.js').PerCallReviewConfig
 	/**
 	 * Absent when the host opted out with `repeatCallAdvisory: false`. The
 	 * opt-out is the ABSENCE, not a flag read at every call site, so a code
@@ -316,9 +318,10 @@ export async function awaitDecisionDurably(
 	ctx: IterationContext,
 	checkpoint: { readonly id: CheckpointId },
 	request: Parameters<ResumeHandler>[0],
+	scope?: AskScope,
 ): Promise<HITLResumeDecision> {
 	const delay = ctx.parkRecordDelayMs ?? PARK_RECORD_DELAY_MS
-	const decisionPromise = awaitDecisionOrAbort(ctx, request)
+	const decisionPromise = awaitDecisionOrAbort(ctx, request, scope)
 
 	let settled = false
 	let recorded = false
@@ -423,9 +426,26 @@ export async function awaitDecisionDurably(
  * turns into `setStopReason('cancelled') + markCancelled + stop`. Fails closed:
  * a resume-handler rejection also resolves to `abort` rather than hanging.
  */
+/**
+ * One question among several that are open at once (the per-call review).
+ *
+ * `signal` closes just this question; when it aborts and the turn itself was not
+ * cancelled, `closedAs` says what the question's answer is, so the park is
+ * recorded as what really ended it rather than as a cancelled turn.
+ */
+export interface AskScope {
+	readonly signal: AbortSignal
+	readonly closedAs: () => HITLResumeDecision
+}
+
 /** What a resume handler may read besides the request; see {@link ResumeContext}. */
-function resumeContextOf(ctx: IterationContext): ResumeContext {
-	const signal = ctx.abortController?.signal
+function resumeContextOf(ctx: IterationContext, scope?: AskScope): ResumeContext {
+	const turnSignal = ctx.abortController?.signal
+	const signal = scope
+		? turnSignal
+			? AbortSignal.any([turnSignal, scope.signal])
+			: scope.signal
+		: turnSignal
 	return {
 		transcript: () => ctx.recorder.messages,
 		...(signal ? { signal } : {}),
@@ -435,24 +455,30 @@ function resumeContextOf(ctx: IterationContext): ResumeContext {
 export async function awaitDecisionOrAbort(
 	ctx: IterationContext,
 	request: Parameters<ResumeHandler>[0],
+	scope?: AskScope,
 ): Promise<HITLResumeDecision> {
-	const signal = ctx.abortController?.signal
+	const turnSignal = ctx.abortController?.signal
+	const signal = scope
+		? turnSignal
+			? AbortSignal.any([turnSignal, scope.signal])
+			: scope.signal
+		: turnSignal
 	// No abort signal wired (e.g. a minimal test harness) → behave exactly as a
 	// direct resumeHandler await, no race. In production TurnContextFactory always
 	// provides the controller, so the race below is live.
-	const resumeContext = resumeContextOf(ctx)
+	const resumeContext = resumeContextOf(ctx, scope)
 	if (!signal) return ctx.resumeHandler(request, resumeContext)
-	const abortDecision: HITLResumeDecision = {
-		action: 'abort',
-		reason: 'run aborted while parked for HITL',
-	}
-	if (signal.aborted) return abortDecision
+	const abortedDecision = (): HITLResumeDecision =>
+		scope && !turnSignal?.aborted
+			? scope.closedAs()
+			: { action: 'abort', reason: 'run aborted while parked for HITL' }
+	if (signal.aborted) return abortedDecision()
 	return new Promise<HITLResumeDecision>((resolve) => {
 		let settled = false
 		const onAbort = (): void => {
 			if (settled) return
 			settled = true
-			resolve(abortDecision)
+			resolve(abortedDecision())
 		}
 		signal.addEventListener('abort', onAbort, { once: true })
 		Promise.resolve(ctx.resumeHandler(request, resumeContext)).then(

@@ -275,6 +275,18 @@ describe('a file that is not in the working folder', () => {
 	})
 })
 
+describe('a call that never started because the turn was stopped', () => {
+	it('says so in a sentence, and leaves every other result alone', async () => {
+		const { turnStoppedLine } = await import('./tidy-tool-output.js')
+		expect(
+			turnStoppedLine(
+				'An earlier call in this batch was refused and the turn was stopped, so this call was not run. Wait for the user.',
+			),
+		).toBe('Not run: an earlier call was declined and the turn stopped.')
+		expect(turnStoppedLine('Error: file not found')).toBeUndefined()
+	})
+})
+
 describe('a command that answered with its exit status', () => {
 	const facts = {
 		kind: 'command' as const,

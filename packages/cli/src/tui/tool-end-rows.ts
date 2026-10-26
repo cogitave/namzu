@@ -1,6 +1,7 @@
 import { isBackgroundLaunch } from '../integrations/workflows/notice.js'
 import { WORKFLOW_BACKGROUND_NOTE, WORKFLOW_TOOL_NAME } from '../integrations/workflows/offering.js'
 import type { AgentEvent } from './agent.js'
+import { connectorToolLabel, plainConnectorSummary } from './connector-label.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { type ProposedChange, proposedBody } from './diff-rows.js'
 import { spansText } from './diff-view.js'
@@ -85,6 +86,13 @@ const DISPLAY_NAMES: Readonly<Record<string, string>> = { edit: 'Update' }
  */
 export function formatToolCall(toolName: string, summary: string, standalone = false): string {
 	if (standalone) return summary
+	// A connector's tool reads `slack · post(hello)`: its server and tool, then a few
+	// words of what it was asked, never the wire name or the raw input.
+	if (toolName.startsWith('mcp__')) {
+		const label = connectorToolLabel(toolName)
+		const plain = plainConnectorSummary(summary)
+		return plain.length > 0 ? `${label}(${plain})` : label
+	}
 	const words = toolName.replace(/[_-]+/g, ' ')
 	const display =
 		DISPLAY_NAMES[toolName.toLowerCase()] ??
@@ -285,7 +293,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: tokenColor('text.muted'),
+				glyphColor: tokenColor('status.error'),
 			},
 			{
 				role: 'tool',

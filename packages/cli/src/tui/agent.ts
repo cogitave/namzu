@@ -16,6 +16,7 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
+import { connectorCallSummary } from './connector-label.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
@@ -26,6 +27,7 @@ import {
 	shortToolFailure,
 	tidyCommandOutput,
 	tidyTerminalOutput,
+	turnStoppedLine,
 	unknownToolNotice,
 } from './tidy-tool-output.js'
 import { clipText } from './truncation.js'
@@ -91,6 +93,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type Origin,
+	type PerCallReviewConfig,
 	type PluginLifecycleManager,
 	type PluginNotificationInfo,
 	type PrepareStep,
@@ -193,6 +196,7 @@ import {
 	resumeSession,
 	seedObservationLedger,
 	toolset,
+	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
 	wrapUntrusted,
@@ -790,7 +794,9 @@ export interface PermissionToolCall {
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
 	/** Present when a rule asked for this call; no remembered answer may skip it. */
-	readonly authorization?: { readonly explicitReview?: true }
+	readonly authorization?: { readonly explicitReview?: true; readonly askRule?: true }
+	/** A hook asked for this call; no mode or remembered answer may skip it. */
+	readonly hookPermission?: { readonly decision?: string }
 	/** The tool needs a person's yes on every call. */
 	readonly requiresApproval?: true
 }
@@ -993,6 +999,12 @@ export interface SendOptions {
 	 * can answer; strict mode still refuses and auto mode still approves.
 	 */
 	readonly onPermission?: PermissionFn
+	/**
+	 * Ask about one call at a time while the batch runs (see `PerCallReviewConfig`
+	 * in `@namzu/sdk`). Honoured only with `onPermission`: a turn nobody can ask
+	 * (held, scheduled, headless) reviews its batches as a unit, as before.
+	 */
+	readonly perCallReview?: PerCallReviewConfig
 	/**
 	 * Extra system context to inject for this turn (e.g. active skills).
 	 */
@@ -6968,6 +6980,11 @@ async function* runTurn({
 			// Plan mode is stricter than the rules: a batch a rule allows still
 			// reaches the handler, which refuses the change.
 			...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
+			// Asking about one call at a time needs a person to ask: a held or
+			// unattended turn reviews its batches as a unit.
+			...(opts?.perCallReview && opts.onPermission && !opts.reviewHold
+				? { perCallReview: opts.perCallReview }
+				: {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),
@@ -7465,7 +7482,9 @@ export function toAgentEvent(
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
 					return {
-						summary: pathSummary(viewToSummary(view), event.input, cwd),
+						summary: event.toolName.startsWith('mcp__')
+							? connectorCallSummary(event.input)
+							: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
 							const command =
 								view.kind === 'terminal'
@@ -7537,6 +7556,11 @@ export function toAgentEvent(
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
 		case 'tool_completed': {
+			// A connector's answer reaches the model inside a frame that marks where it
+			// came from; the person reads what the server said, without the frame.
+			const shown = event.toolName.startsWith('mcp__')
+				? (untrustedEnvelopeBody(event.result) ?? event.result)
+				: event.result
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
@@ -7544,7 +7568,7 @@ export function toAgentEvent(
 					{},
 					{
 						success: !event.isError,
-						output: event.result,
+						output: shown,
 					},
 				)
 			// Command output is cleaned for display only; `output` below stays verbatim.
@@ -7558,12 +7582,15 @@ export function toAgentEvent(
 					: undefined
 			const view =
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
-			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
+			const unknownTool = event.isError ? unknownToolNotice(shown) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
+			// A call that never started because the turn was stopped says so in a sentence.
+			const stopped = event.isError ? turnStoppedLine(shown) : undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
 			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
-			const detail = unknownTool || declined ? undefined : (diffBody?.rows ?? viewToLines(view))
+			const detail =
+				unknownTool || declined || stopped ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7575,7 +7602,7 @@ export function toAgentEvent(
 					? resultToLines(view.output)[0]
 					: undefined
 			const summary =
-				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
+				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const short =
@@ -7584,7 +7611,7 @@ export function toAgentEvent(
 					: undefined
 			// Only a short label the tool family earns, or a command's own line, replaces
 			// the tool's message; every other failure shows that message.
-			const plainFailure = short?.text ?? tidy?.failure
+			const plainFailure = stopped ?? short?.text ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -7623,7 +7650,7 @@ export function toAgentEvent(
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}
 					const results =
-						kind === 'search' && !event.isError ? countListedResults(event.result) : undefined
+						kind === 'search' && !event.isError ? countListedResults(shown) : undefined
 					return {
 						web: { kind, ...(results !== undefined ? { results } : {}) },
 					}

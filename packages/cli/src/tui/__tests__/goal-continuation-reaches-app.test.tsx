@@ -235,7 +235,10 @@ async function untilAsync(check: () => Promise<boolean>, why: string): Promise<v
 }
 
 async function submit(
-	harness: { stdin: { write: (value: string) => void }; lastFrame: () => string | undefined },
+	harness: {
+		stdin: { write: (value: string) => void }
+		lastFrame: () => string | undefined
+	},
 	text: string,
 ): Promise<void> {
 	// Durable scope/goal updates can precede the render that enables input.
@@ -522,6 +525,68 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 		'the resumed goal did not complete',
 	)
 	expect(calls).toBe(2)
+}, 30_000)
+
+it('does not continue a goal after a turn ended by a plain No', async () => {
+	let calls = 0
+	sendImplementation = async function* (_messages, options, bound) {
+		calls += 1
+		if (!options?.goalRound) throw new Error('fixture expected goal authority')
+		if (calls === 1) {
+			yield { kind: 'done', stopReason: 'cancelled' }
+			return
+		}
+		await complete(bound, options.goalRound)
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+
+	const { root, harness } = await mountedApp('namzu-goal-app-plain-no-')
+	await submit(harness, '/goal stop when told no')
+	await until(() => calls === 1, 'the first goal round never started')
+	const sessions = await openSessions(root)
+	await until(
+		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
+		'the disarmed goal did not reach the footer',
+	)
+	expect((await sessions.goals.getGoal(scope!.sessionId, sessions.tenantId))?.phase).toBe('active')
+	expect(calls).toBe(1)
+}, 30_000)
+
+it('does not continue a goal after the person answers a plain No at a call question', async () => {
+	let calls = 0
+	let answered: unknown
+	sendImplementation = async function* (_messages, options, bound) {
+		calls += 1
+		if (!options?.goalRound) throw new Error('fixture expected goal authority')
+		if (calls === 1) {
+			answered = await options.onPermission?.({
+				toolCalls: [
+					{ id: 'c1', name: 'bash', input: { command: 'npm test' }, isDestructive: false },
+				],
+				perCall: true,
+				signal: new AbortController().signal,
+				turnId: 'turn-1',
+			} as never)
+			yield { kind: 'done', stopReason: 'cancelled' }
+			return
+		}
+		await complete(bound, options.goalRound)
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+
+	const { harness } = await mountedApp('namzu-goal-app-call-no-')
+	await submit(harness, '/goal stop when told no')
+	await until(
+		() => harness.lastFrame()?.includes('enter confirm') === true,
+		'the call question never opened',
+	)
+	harness.stdin.write('n')
+	await until(
+		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
+		'the disarmed goal did not reach the footer',
+	)
+	expect(answered).toMatchObject({ kind: 'reject', endTurn: true })
+	expect(calls).toBe(1)
 }, 30_000)
 
 it('does not let an abnormal automatic goal round pause queued human work', async () => {

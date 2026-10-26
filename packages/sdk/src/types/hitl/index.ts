@@ -81,6 +81,14 @@ export type HITLResumeDecision =
 			 * from any wrapper a host put around them in `feedback`.
 			 */
 			declined?: ToolCallDeclined
+			/**
+			 * The refusal also ends the turn: every call of the batch is answered
+			 * first (a call that was running is cancelled, a call that never
+			 * started gets the same refusal without being asked), then the turn
+			 * stops as an interrupt does and the model is not called again. Absent,
+			 * a refusal is an answer the model reads and carries on from.
+			 */
+			endTurn?: true
 	  }
 	| {
 			action: 'answer_question'
@@ -124,6 +132,13 @@ export type HITLDecisionRequest =
 			turnId: TurnId
 			checkpointId: CheckpointId
 			toolCalls: ToolCallSummary[]
+			/**
+			 * Set when `toolCalls` is only part of the model's batch: the per-call
+			 * review (see {@link PerCallReviewConfig}) asks about one call, or about
+			 * the few that must be asked together, while the rest of the batch runs.
+			 * Absent, the request names every call of the batch.
+			 */
+			perCall?: true
 	  }
 	| {
 			type: 'iteration_checkpoint'
@@ -156,6 +171,58 @@ export interface ResumeContext {
 	readonly transcript: () => readonly Message[]
 	/** The turn's cancellation signal, when it has one. */
 	readonly signal?: AbortSignal
+}
+
+/**
+ * Opt-in: ask about one call at a time while the batch executes.
+ *
+ * Without it a model response is one batch: every call is reviewed together,
+ * one `tool_review` request names them all, and nothing runs until the whole
+ * verdict is back. With it the turn walks the calls in the model's order.
+ * Calls that are safe to run side by side start together and each opens its own
+ * one-call request; a call that is not safe waits for every earlier call to
+ * finish, then asks, then runs; an approved call starts at once. A refusal
+ * settles every call of the batch and, when it carries `endTurn`, stops the turn.
+ *
+ * Every request the handler sees in this mode carries `perCall: true`. A host
+ * that does not set the option sees exactly the batch requests it always did.
+ */
+export interface PerCallReviewConfig {
+	/**
+	 * Subscribe to "a rule or the permission mode changed". The listener is
+	 * called with no argument; the returned function unsubscribes. Each call
+	 * re-checks every call that is still waiting for an answer.
+	 *
+	 * A re-check only ever approves: a waiting call that the new rules or mode
+	 * cover is let through without being shown, and everything else keeps
+	 * waiting. It never refuses. A call that reaches past the turn's boundary,
+	 * that the tool itself says always needs a person, or that a rule or hook
+	 * asked a person about is never approved by a re-check.
+	 */
+	readonly onRulesChanged?: (listener: () => void) => () => void
+	/**
+	 * Whether the host's current rules and mode now let this call run without
+	 * asking. Consulted on each change, for each waiting call. Use
+	 * `neverCover` for a call whose exact input was not shown in full. Absent, only the
+	 * turn's own authorization rules and approvals granted earlier in the turn
+	 * are re-checked.
+	 */
+	readonly covers?: (call: ToolCallSummary) => boolean | Promise<boolean>
+	/**
+	 * Calls a re-check must never approve, whatever the turn's rules, its
+	 * remembered approvals or `covers` say: answer `true` for a call whose exact
+	 * input was not shown in full, or that is too large to show. It is asked
+	 * first, for each waiting call, and a `true` (or a failure) keeps the
+	 * question open. It does not stop a call from being asked about up front.
+	 */
+	readonly neverCover?: (call: ToolCallSummary) => boolean | Promise<boolean>
+	/**
+	 * The calls (by id) that must be asked about together, in one request, before
+	 * any call of the batch starts: a question about the whole batch rather than
+	 * about one call, such as the first look at the screen. A yes approves those
+	 * calls; a No refuses them. Absent, nothing is asked together.
+	 */
+	readonly askTogether?: (calls: readonly ToolCallSummary[]) => readonly string[]
 }
 
 export type ResumeHandler = (
