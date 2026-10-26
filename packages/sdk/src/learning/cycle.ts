@@ -12,6 +12,13 @@ import {
 import type { DiskResidentAgenda } from '../manager/resident/agenda.js'
 import { ResidentConflictError } from '../manager/resident/store.js'
 import {
+	LearningLeakError,
+	type LearningLeakFinding,
+	type LearningLeakGuard,
+	type LearningLeakSubject,
+	assertNoLearningLeak,
+} from './leak-tripwire.js'
+import {
 	type LearningEvidence,
 	type LearningSkillCandidate,
 	hashLearningSkill,
@@ -110,6 +117,12 @@ export interface LearningCycleOptions {
 	readonly skillName: string
 	readonly failure: { readonly evidence: LearningEvidence; readonly trace: string }
 	readonly parentCycleId?: string
+	/**
+	 * Evaluator-side material to keep out of the evidence and the guidance built
+	 * from it. The built-in markers and secret shapes always apply. A hit refuses
+	 * the cycle as a leak (see `LearningCycleResult.leak`), before anything is built.
+	 */
+	readonly leakGuard?: LearningLeakGuard
 	readonly signal: AbortSignal
 	/** Stops subsequent stages/activation after observed excess; callbacks enforce in-flight limits. */
 	readonly resources: { readonly unit: 'tokens' | 'usd'; readonly maxUnits: number }
@@ -147,6 +160,8 @@ export interface LearningCycleResult {
 	readonly baselineRevision?: string
 	readonly agendaRevision?: number
 	readonly review?: HarnessReview
+	/** Present when the cycle was refused as a leak: where it was seen, never the text. */
+	readonly leak?: readonly LearningLeakFinding[]
 	readonly consumption: LearningConsumption
 	readonly auditComplete: boolean
 }
@@ -187,6 +202,7 @@ export async function runLearningCycle(
 	let review: HarnessReview | undefined
 	let activatedRevision: number | undefined
 	let activationRequested = false
+	let leak: readonly LearningLeakFinding[] | undefined
 	const usage = (): LearningConsumption => ({
 		tokens: [...receipts.values()].reduce((n, r) => n + (r.tokens ?? 0), 0),
 		costUsd: [...receipts.values()].reduce((n, r) => n + (r.costUsd ?? 0), 0),
@@ -222,6 +238,7 @@ export async function runLearningCycle(
 		...(candidate ? { candidate, candidateRevision } : {}),
 		...(baselineRevision ? { baselineRevision } : {}),
 		...(review ? { review } : {}),
+		...(leak ? { leak } : {}),
 		...(activatedRevision !== undefined ? { agendaRevision: activatedRevision } : {}),
 		consumption: usage(),
 		auditComplete,
@@ -244,6 +261,15 @@ export async function runLearningCycle(
 	}
 	const execute = async (): Promise<LearningCycleResult> => {
 		options.signal.throwIfAborted()
+		const guard = (...subjects: LearningLeakSubject[]) =>
+			assertNoLearningLeak(options.leakGuard, subjects)
+		guard(
+			{
+				subject: 'failure.evidence',
+				text: `${failure.evidence.key}\n${failure.evidence.source}\n${failure.evidence.reason}`,
+			},
+			{ subject: 'failure.trace', text: failure.trace },
+		)
 		const snapshot = structuredClone(await options.agenda.read())
 		if (!snapshot) throw new Error('No resident agenda exists for this learning cycle.')
 		if (snapshot.paused || snapshot.pursuits.some((p) => p.state.phase === 'running'))
@@ -351,6 +377,13 @@ export async function runLearningCycle(
 				evidence: Object.freeze(learningEvidenceSchema.parse(observed.observations.evidence)),
 				trace: z.string().trim().min(1).max(32_000).parse(observed.observations.trace),
 			})
+			guard(
+				{
+					subject: 'exploration.evidence',
+					text: `${exploration.evidence.key}\n${exploration.evidence.source}\n${exploration.evidence.reason}`,
+				},
+				{ subject: 'exploration.trace', text: exploration.trace },
+			)
 			await append(
 				'exploration',
 				{
@@ -374,8 +407,19 @@ export async function runLearningCycle(
 				}),
 			),
 		)
+		const built = normalizeLearningSkill(generated.candidate)
+		guard(
+			{ subject: 'candidate.name', text: built.name },
+			{ subject: 'candidate.description', text: built.description },
+			{ subject: 'candidate.body', text: built.body },
+			{
+				subject: 'candidate.sources',
+				text: (built.sources ?? []).map((s) => `${s.key}\n${s.revision}`).join('\n'),
+				paths: (built.sources ?? []).map((s) => s.key),
+			},
+		)
 		candidateRevision = hashLearningSkill(generated.candidate)
-		candidate = normalizeLearningSkill(generated.candidate)
+		candidate = built
 		if ((candidate.purpose ?? 'task') !== purpose)
 			throw new Error('Generated skill purpose does not match the host-admitted learning purpose.')
 		if (candidate.name !== skillName)
@@ -474,6 +518,7 @@ export async function runLearningCycle(
 	try {
 		outcome = await execute()
 	} catch (error) {
+		if (error instanceof LearningLeakError) leak = error.findings
 		outcome = result(
 			error instanceof ResidentConflictError
 				? 'conflict'

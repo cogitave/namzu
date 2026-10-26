@@ -32,6 +32,46 @@ still `@experimental`. The detail pages are [Resident learning cycle](resident-l
 resident because the activation target today is a resident's agenda
 (`LearningCycleOptions.agenda`).
 
+## Leak tripwire
+
+Guidance is built from retained evidence and then judged by an independent
+evaluation. If the evidence, or the guidance built from it, carries what the
+evaluation holds back, the judgement measures nothing. `runLearningCycle`
+therefore checks three things before it builds on them: the failure evidence
+before any stage or journal entry, the exploration observations before
+generation, and the generated candidate (name, description, body, sources)
+before it is hashed, journaled or evaluated.
+
+A hit refuses the cycle with status `failed`, a reason that says it is a leak
+and not a false positive, and `result.leak`, a list of
+`{ kind, subject, rule }`. The matched text is never repeated: not in the
+reason, the result or the journal, and a refused candidate is not returned.
+
+The kinds of evaluator-side material, set per experiment with
+`LearningCycleOptions.leakGuard`:
+
+- `paths`: globs for evaluator-owned locations (`*` stays in a segment, `**`
+  crosses them). Checked on a candidate's source keys and on location-like
+  words inside text.
+- `canaries`: random strings you plant inside evaluator data
+  (`createLearningCanary()`). One sighting is proof, whatever the case,
+  spacing, zero-width characters, base64 or hex dressing.
+- `markers`: extra wording only evaluator output carries.
+- `protectedContents`: verbatim protection-task prompts or expected answers
+  (at least 12 characters; whitespace and case are ignored).
+- `secrets`: literal secret values to keep out.
+
+Built in and always on, with no configuration: wording of a grader or judge
+verdict, an answer key or expected answer, a hidden rubric or held-out test
+cases, and the shapes of private keys, API keys, cloud keys, platform tokens
+and bearer credentials. Evidence that mentions one of these is refused, which
+is the point: such text should not steer guidance.
+
+`scanForLearningLeak` and `assertNoLearningLeak` (throws `LearningLeakError`)
+expose the same check to a host that builds evidence itself. An empty scan is
+not a proof that nothing leaked; the disjoint protection tasks and the
+host-owned evaluator remain the first defence.
+
 ## Old names
 
 Every name that carried `Resident` still works and is the same value or type as

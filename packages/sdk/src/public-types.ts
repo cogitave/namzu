@@ -632,6 +632,13 @@ export type {
 } from './learning/cycle.js'
 
 export type {
+	LearningLeakGuard,
+	LearningLeakKind,
+	LearningLeakFinding,
+	LearningLeakSubject,
+} from './learning/leak-tripwire.js'
+
+export type {
 	ResidentArchiveRequest,
 	ResidentArchiveEntry,
 	ResidentArchivePage,

@@ -1631,6 +1631,12 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 
 export { hashLearningSkill, projectLearning } from './learning/skill.js'
 export { runLearningCycle } from './learning/cycle.js'
+export {
+	LearningLeakError,
+	assertNoLearningLeak,
+	createLearningCanary,
+	scanForLearningLeak,
+} from './learning/leak-tripwire.js'
 
 export {
 	createSessionEvidenceSource,
