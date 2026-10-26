@@ -66,11 +66,11 @@ export async function project(observations = 6) {
 
 export const GOOD_BODY =
 	'When a tool call fails, read the error and change one thing before the next attempt, because identical retries fail the same way. Name the recovery step in a sentence.'
-export const proposalText = (body = GOOD_BODY, component = 'instruction-skill') =>
+export const proposalText = (body = GOOD_BODY, surface = 'instruction-skill') =>
 	JSON.stringify({
 		description: 'How to recover when something fails.',
 		body,
-		edits: [{ component, change: 'Added a recovery rule.' }],
+		edits: [{ surface, change: 'Added a recovery rule.' }],
 	})
 
 const PLAIN_TASKS = /Rename the variable|unit test|linter|plus|colours|RGB/

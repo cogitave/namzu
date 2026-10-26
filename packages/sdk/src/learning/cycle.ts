@@ -107,7 +107,7 @@ export interface LearningEvaluationContext extends LearningCycleContext {
 	readonly candidateRevision: string
 }
 
-/** @experimental No provider, default background loop or executable-code activation is installed. */
+/** @experimental The SDK installs no provider, background loop or executable-code activation; the host supplies them. */
 export interface LearningCycleOptions {
 	/** Omitted means task guidance. Explicitly select exploration to improve an explorer policy. */
 	readonly purpose?: 'task' | 'exploration'

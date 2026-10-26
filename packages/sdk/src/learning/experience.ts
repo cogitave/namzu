@@ -36,7 +36,7 @@ export type LearningConfidence = (typeof LEARNING_CONFIDENCE_LEVELS)[number]
 
 const editSchema = z.object({
 	/** The part of the harness the edit touched, such as `instruction-skill`. */
-	component: label,
+	surface: label,
 	/** What changed, in a sentence. */
 	change: text,
 	verdict: z.enum(LEARNING_EDIT_VERDICTS),

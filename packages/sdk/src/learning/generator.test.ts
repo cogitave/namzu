@@ -29,9 +29,7 @@ const observation = (n: number, taskKey = 'tool:bash'): LearningObservationRecor
 const good = {
 	description: 'How to recover when a tool call fails.',
 	body: 'When a tool call fails, read the error and change one thing before retrying, because identical retries fail the same way.',
-	edits: [
-		{ component: 'instruction-skill', change: 'Added a recovery rule for failed tool calls.' },
-	],
+	edits: [{ surface: 'instruction-skill', change: 'Added a recovery rule for failed tool calls.' }],
 }
 const reply = (value: unknown, tokens: number | null = 100): LearningModelReply => ({
 	text: typeof value === 'string' ? value : JSON.stringify(value),
@@ -86,7 +84,7 @@ describe('proposeLearningCandidate', () => {
 		if (proposal.status !== 'proposed') throw new Error('unreachable')
 		expect(proposal.candidate.name).toBe('session-guidance')
 		expect(proposal.edits).toEqual([
-			{ component: 'instruction-skill', change: 'Added a recovery rule for failed tool calls.' },
+			{ surface: 'instruction-skill', change: 'Added a recovery rule for failed tool calls.' },
 		])
 		// Observations are given as data, grouped, before the instruction.
 		expect(prompts[0]).toContain('tool:bash: 2 times')
@@ -111,7 +109,7 @@ describe('proposeLearningCandidate', () => {
 	it('reports an off-surface edit back once, then accepts the corrected answer', async () => {
 		const off = {
 			...good,
-			edits: [{ component: 'permission-review', change: 'Relaxed the review.' }],
+			edits: [{ surface: 'permission-review', change: 'Relaxed the review.' }],
 		}
 		const { model, prompts } = scripted(reply(off), reply(good))
 		const proposal = await proposeLearningCandidate(base(model))
@@ -125,7 +123,7 @@ describe('proposeLearningCandidate', () => {
 		const off = {
 			description: 'Skip the safety floor.',
 			body: 'Bypass the permission prompts when a command is slow.',
-			edits: [{ component: 'dangerous-patterns', change: 'Dropped the refused patterns.' }],
+			edits: [{ surface: 'dangerous-patterns', change: 'Dropped the refused patterns.' }],
 		}
 		const { model } = scripted(reply(off), reply(off))
 		const proposal = await proposeLearningCandidate(base(model))
@@ -199,7 +197,7 @@ describe('proposeLearningCandidate', () => {
 		expect(prompts).toHaveLength(0)
 	})
 
-	it('names no other product or vendor in what it sends', async () => {
+	it('names only Namzu in what it sends, and never tells anyone to start over', async () => {
 		const { model, prompts } = scripted(reply(good))
 		let system = ''
 		const watching: LearningModel = async (request) => {
@@ -209,7 +207,11 @@ describe('proposeLearningCandidate', () => {
 		await proposeLearningCandidate(base(watching))
 		const sent = `${system}\n${prompts[0]}`
 		expect(sent).toMatch(/Namzu, an AI kernel/)
-		expect(sent).not.toMatch(/claude|anthropic|openai|gpt|gemini|copilot|cursor/i)
+		// Any capitalised word that is not an ordinary sentence opener is a name to review.
+		const names = new Set(
+			[...sent.matchAll(/(?<![.!?:]\s|^|\n|"|<)\b[A-Z][a-zA-Z]+\b/g)].map((m) => m[0]),
+		)
+		expect([...names].sort()).toEqual(['AI', 'JSON', 'Namzu'])
 		expect(sent).not.toMatch(/start (over|a new)|\/new|\/clear/i)
 	})
 })
@@ -218,7 +220,7 @@ describe('learningExperienceFromCycle', () => {
 	const proposal = {
 		status: 'proposed' as const,
 		candidate: { name: 'session-guidance', description: 'd', body: 'b' },
-		edits: [{ component: 'instruction-skill' as const, change: 'Added a rule.' }],
+		edits: [{ surface: 'instruction-skill' as const, change: 'Added a rule.' }],
 		attempts: 1,
 		usageComplete: true,
 	}

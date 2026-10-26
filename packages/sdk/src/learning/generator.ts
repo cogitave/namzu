@@ -82,7 +82,7 @@ export type LearningModel = (request: LearningModelRequest) => Promise<LearningM
 
 /** One change a proposal makes, as the typed edit ledger records it. */
 export interface LearningProposedEdit {
-	readonly component: LearningSurfaceKind
+	readonly surface: LearningSurfaceKind
 	readonly change: string
 }
 
@@ -135,7 +135,7 @@ const replySchema = z.object({
 	edits: z
 		.array(
 			z.object({
-				component: z.string().trim().min(1).max(64),
+				surface: z.string().trim().min(1).max(64),
 				change: z.string().trim().min(1).max(500),
 			}),
 		)
@@ -236,7 +236,7 @@ function buildPrompt(options: LearningProposeOptions, feedback: string | null): 
 			'Write one revision of the guidance for this project.',
 			`The skill name is "${options.skillName}" and stays as it is. The editable parts are: ${surface.kinds.join(', ')}.`,
 			'Keep what already works in the current guidance, add what the observations support, and keep the body under 3,000 characters.',
-			'Reply with one JSON object and nothing else: {"description": "...", "body": "...", "edits": [{"component": "instruction-skill", "change": "one sentence naming what changed"}]}.',
+			'Reply with one JSON object and nothing else: {"description": "...", "body": "...", "edits": [{"surface": "instruction-skill", "change": "one sentence naming what changed"}]}.',
 			...(feedback ? [`Your previous reply could not be used: ${feedback}`] : []),
 		].join('\n'),
 	].join('\n\n')
@@ -304,18 +304,18 @@ export async function proposeLearningCandidate(
 		const problems: string[] = []
 		offSurface = []
 		for (const edit of parsed.edits) {
-			if (!(surface.kinds as readonly string[]).includes(edit.component)) {
-				offSurface.push(edit.component)
+			if (!(surface.kinds as readonly string[]).includes(edit.surface)) {
+				offSurface.push(edit.surface)
 				problems.push(
-					`the edit component "${edit.component}" is outside the editable surface (${surface.kinds.join(', ')})`,
+					`the edit surface "${edit.surface}" is outside the editable surface (${surface.kinds.join(', ')})`,
 				)
 			}
 		}
 		const wording = `${parsed.description}\n${parsed.body}`
-		for (const [component, pattern] of FLOOR_RULES) {
+		for (const [part, pattern] of FLOOR_RULES) {
 			if (pattern.test(wording)) {
-				offSurface.push(component)
-				problems.push(`the guidance would change ${component}, which is never editable`)
+				offSurface.push(part)
+				problems.push(`the guidance would change ${part}, which is never editable`)
 			}
 		}
 		if (START_OVER.test(wording))
@@ -335,7 +335,7 @@ export async function proposeLearningCandidate(
 			status: 'proposed',
 			candidate,
 			edits: parsed.edits.map((edit) => ({
-				component: edit.component as LearningSurfaceKind,
+				surface: edit.surface as LearningSurfaceKind,
 				change: edit.change,
 			})),
 			attempts,

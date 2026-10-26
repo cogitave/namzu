@@ -31,9 +31,7 @@ const input = (over: Partial<LearningExperienceInput> = {}): LearningExperienceI
 	decision: 'adopted',
 	reason: 'Passed paired verification.',
 	candidate,
-	edits: [
-		{ component: 'instruction-skill', change: 'Added a read-first rule.', verdict: 'helped' },
-	],
+	edits: [{ surface: 'instruction-skill', change: 'Added a read-first rule.', verdict: 'helped' }],
 	lessons: [
 		{
 			cue: 'An edit follows a failed match.',
@@ -69,9 +67,9 @@ describe('normalizeLearningExperience', () => {
 		const entry = normalizeLearningExperience(
 			input({
 				edits: [
-					{ component: 'instruction-skill', change: 'Read first.', verdict: 'helped' },
-					{ component: 'tool-guidance', change: 'Prefer search.', verdict: 'hurt' },
-					{ component: 'memory', change: 'Keep notes.', verdict: 'no observed effect' },
+					{ surface: 'instruction-skill', change: 'Read first.', verdict: 'helped' },
+					{ surface: 'tool-guidance', change: 'Prefer search.', verdict: 'hurt' },
+					{ surface: 'memory', change: 'Keep notes.', verdict: 'no observed effect' },
 				],
 			}),
 		)
@@ -82,8 +80,8 @@ describe('normalizeLearningExperience', () => {
 		const entry = normalizeLearningExperience(
 			input({
 				edits: [
-					{ component: 'instruction-skill', change: 'One.', verdict: 'helped' },
-					{ component: 'instruction-skill', change: 'Two.', verdict: 'helped' },
+					{ surface: 'instruction-skill', change: 'One.', verdict: 'helped' },
+					{ surface: 'instruction-skill', change: 'Two.', verdict: 'helped' },
 				],
 				lessons: [],
 			}),
@@ -98,8 +96,8 @@ describe('normalizeLearningExperience', () => {
 		const entry = normalizeLearningExperience(
 			input({
 				edits: [
-					{ component: 'a', change: 'One.', verdict: 'helped' },
-					{ component: 'b', change: 'Two.', verdict: 'helped' },
+					{ surface: 'a', change: 'One.', verdict: 'helped' },
+					{ surface: 'b', change: 'Two.', verdict: 'helped' },
 				],
 				lessons: [bare],
 			}),
@@ -112,12 +110,12 @@ describe('normalizeLearningExperience', () => {
 			input({
 				edits: [
 					{
-						component: 'instruction-skill',
+						surface: 'instruction-skill',
 						change: 'Read first.',
 						verdict: 'helped',
 						isolated: true,
 					},
-					{ component: 'memory', change: 'Keep notes.', verdict: 'helped' },
+					{ surface: 'memory', change: 'Keep notes.', verdict: 'helped' },
 				],
 				lessons: [],
 			}),
@@ -128,12 +126,12 @@ describe('normalizeLearningExperience', () => {
 	it('narrows a lesson that rests on a confounded edit and says why', () => {
 		const edits = [
 			{
-				component: 'instruction-skill',
+				surface: 'instruction-skill',
 				change: 'Read first.',
 				verdict: 'helped' as const,
 				isolated: true,
 			},
-			{ component: 'memory', change: 'Keep notes.', verdict: 'helped' as const },
+			{ surface: 'memory', change: 'Keep notes.', verdict: 'helped' as const },
 		]
 		const lesson = (refs: number[]) => ({
 			cue: 'cue',
@@ -232,7 +230,7 @@ describe('leak coverage and the required guard', () => {
 	const planted: [string, Partial<LearningExperienceInput>][] = [
 		[
 			'edit component',
-			{ edits: [{ component: `c ${canary}`, change: 'Read first.', verdict: 'helped' }] },
+			{ edits: [{ surface: `c ${canary}`, change: 'Read first.', verdict: 'helped' }] },
 		],
 		['evaluatorRevision', { evaluatorRevision: `rev ${canary}` }],
 		['candidate name', { candidate: { ...candidate, name: `n-${canary}` } }],

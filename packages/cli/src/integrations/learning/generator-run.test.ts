@@ -66,7 +66,7 @@ describe('built-in generator cycle', () => {
 		})
 		expect(entry).toMatchObject({ decision: 'adopted', candidate: { body: GOOD_BODY } })
 		expect(entry?.edits).toEqual([
-			{ component: 'instruction-skill', change: 'Added a recovery rule.', verdict: 'helped' },
+			{ surface: 'instruction-skill', change: 'Added a recovery rule.', verdict: 'helped' },
 		])
 		// What it spent is remembered.
 		expect(readGeneratorState(p.dir)).toMatchObject({ dayTokens: 610, lastCycleAt: NOW })
@@ -138,6 +138,30 @@ describe('built-in generator cycle', () => {
 		expect(outcome.cycle.status).not.toBe('activated')
 		expect(outcome.tokens).toBeLessThanOrEqual(250)
 		expect(await readProjectGuidance(p.paths, p.tenantId)).toBeNull()
+	})
+})
+
+describe('a cycle that never reached the model', () => {
+	it('leaves its observations unread, keeps the pause and spends nothing', async () => {
+		const p = await project()
+		const down: LearningModel = async () => {
+			throw new Error('connection refused')
+		}
+		const outcome = await run(p, down)
+		if (outcome.status !== 'ran') throw new Error('expected a cycle')
+		expect(outcome.cycle.status).toBe('failed')
+		expect(readGeneratorState(p.dir)).toMatchObject({
+			lastOrdinal: 0,
+			lastCycleAt: NOW,
+			dayTokens: 0,
+		})
+		// Inside the pause nothing starts; after it, the same observations are tried again.
+		expect(await run(p, scripted().model, { now: () => NOW + 60_000 })).toEqual({
+			status: 'skipped',
+			reason: 'cooldown',
+		})
+		const later = await run(p, scripted().model, { now: () => NOW + 7 * 3_600_000 })
+		expect(later.status).toBe('ran')
 	})
 })
 

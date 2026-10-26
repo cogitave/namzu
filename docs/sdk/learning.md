@@ -95,13 +95,13 @@ content returns the stored entry, with different content is refused):
 - `decision` (`adopted` or `rejected`), the `reason`, and the full artefact as
   proposed with its `candidateRevision`. The artefact is stored whole, never
   summarised.
-- `edits`, the typed ledger: `component`, `change` and a `verdict` of
+- `edits`, the typed ledger: `surface`, `change` and a `verdict` of
   `helped`, `hurt`, `no observed effect` or `confounded`.
 - `lessons`: a `cue` (the shape of the situation), the `lesson`, `evidence`
   references, a `confidence` of `high`, `medium` or `low`, and the reason for it.
 
 Two rules keep the record honest. When a candidate has more than one edit row
-(two rows for the same component count too), the outcome belongs to the whole
+(two rows for the same surface count too), the outcome belongs to the whole
 change, so every row without `isolated: true` (an edit tried alone) is stored as
 `confounded`. `isolated` is trusted from the caller: nothing checks that an
 ablation actually ran. A lesson that cites edits (`edits: [index]`) is capped at
@@ -120,7 +120,7 @@ first. It never crosses a domain, an evaluator revision, or reaches an entry
 at or after the reader's own. `nextOrdinal()` gives the point just after
 everything recorded in this store's scope. `leakGuard` is required on both
 `record` and `retrieve` (pass `{}` to apply only the built-in markers and secret
-shapes). Both walk every string the entry holds, including components, the
+shapes). Both walk every string the entry holds, including the edit surfaces, the
 evaluator revision, the artefact name and the evidence, and throw
 `LearningLeakError` without repeating the text. Retrieval scans again, so an
 entry recorded under a looser guard is not served to a generator.
@@ -140,10 +140,10 @@ What it does, in order:
 1. Scans the observations, the earlier cycles and the baseline through the leak
    tripwire. A hit throws `LearningLeakError` before any model call.
 2. Asks the model for one revision of the skill (`description`, `body` and a
-   list of `edits`, each naming the `component` it touches). The prompt puts the
+   list of `edits`, each naming the `surface` it touches). The prompt puts the
    data first inside tags that carry a fresh random marker, states what to do
    and why, and names no other product or vendor. The skill keeps its name.
-3. Checks the answer against the editable surface. Every edit's component must
+3. Checks the answer against the editable surface. Every edit's `surface` must
    be on the surface, and the wording must stay clear of the safety floor
    (permission review, protected paths, the always-refused command patterns,
    the learning code) and must not tell a reader to start over. A problem is
@@ -154,7 +154,7 @@ What it does, in order:
    offered to `recordUsage` as one receipt, so the cycle counts it.
 
 The surface is an allowlist. `resolveLearningSurface()` returns the instruction
-skill and nothing else. Naming a safety-floor component
+skill and nothing else. Naming a safety-floor part
 (`LEARNING_FLOOR_COMPONENTS`) or an unknown kind throws; no configuration makes
 the floor editable.
 

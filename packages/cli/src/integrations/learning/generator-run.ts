@@ -219,8 +219,12 @@ export async function runGeneratorCycle(options: GeneratorRunOptions): Promise<G
 		}
 		const tokens = cycle.consumption.tokens
 		const spent = readGeneratorState(dir)
+		// A cycle that never reached the model (no connection, a cancel) read nothing:
+		// its observations stay unread. The pause still applies, so it cannot loop.
+		const unread = tokens === 0 && (cycle.status === 'failed' || cycle.status === 'cancelled')
 		writeGeneratorState(dir, {
 			...spent,
+			lastOrdinal: unread ? state.lastOrdinal : spent.lastOrdinal,
 			lastCycleAt: now(),
 			day: localDay(now()),
 			dayTokens: (spent.day === localDay(now()) ? spent.dayTokens : 0) + tokens,
