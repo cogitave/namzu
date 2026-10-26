@@ -1319,60 +1319,6 @@ export function snapshotTurnConfig(config: TurnRecorderConfig['turnConfig']): Tu
 	}
 }
 
-/** Bytes of one call's input a `tool_review_requested` record keeps when the batch is large. */
-const REVIEW_INPUT_RECORD_BYTES = 8 * 1024
-/** Bytes of a whole review batch that stay inline before inputs are cut down. */
-const REVIEW_BATCH_RECORD_BYTES = 1024 * 1024
-
-/**
- * A review record names the calls under review; the full inputs are already
- * on the log (the assistant message and each `tool_input_completed`). A batch
- * of large inputs would otherwise push this one record over the record cap
- * and fail the turn, so past a batch bound each oversized input is replaced
- * by its length and a leading excerpt.
- */
-function boundReviewInputs(draft: Record<string, unknown>): void {
-	const calls = draft.toolCalls
-	if (!Array.isArray(calls)) return
-	const sized = calls.map((call) => JSON.stringify((call as { input?: unknown }).input) ?? '')
-	if (sized.reduce((sum, text) => sum + text.length, 0) <= REVIEW_BATCH_RECORD_BYTES) return
-	calls.forEach((call, index) => {
-		const text = sized[index] as string
-		if (text.length <= REVIEW_INPUT_RECORD_BYTES) return
-		;(call as { input?: unknown }).input = {
-			truncated: true,
-			length: text.length,
-			excerpt: excerptOf(text),
-		}
-	})
-}
-
-/** The leading excerpt of a serialized input, never ending on half a surrogate pair. */
-function excerptOf(text: string): string {
-	let end = REVIEW_INPUT_RECORD_BYTES
-	const last = text.charCodeAt(end - 1)
-	if (last >= 0xd800 && last <= 0xdbff) end--
-	return text.slice(0, end)
-}
-
-/** Bytes of one call's input a `tool_input_completed` or `tool_executing` record keeps inline before it is cut to an excerpt. */
-const INPUT_RECORD_BYTES = 1024 * 1024
-
-/**
- * One call's parsed input can alone exceed the record cap (a single large
- * file body). The assistant message holds it whole and spills it, so the
- * input record keeps its length and a leading excerpt instead.
- */
-function boundCompletedInput(draft: Record<string, unknown>): void {
-	const text = JSON.stringify(draft.input) ?? ''
-	if (text.length <= INPUT_RECORD_BYTES) return
-	draft.input = {
-		truncated: true,
-		length: text.length,
-		excerpt: excerptOf(text),
-	}
-}
-
 /** A live event as a record draft: the payload minus the live-only fields. */
 export function eventDraft(
 	event: SessionEvent,
@@ -1388,9 +1334,6 @@ export function eventDraft(
 		...payload
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
-	if (draft.type === 'tool_review_requested') boundReviewInputs(draft)
-	else if (draft.type === 'tool_input_completed' || draft.type === 'tool_executing')
-		boundCompletedInput(draft)
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]
 }
 
