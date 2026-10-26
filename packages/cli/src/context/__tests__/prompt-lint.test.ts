@@ -162,4 +162,15 @@ describe('the assembled prompts', () => {
 		expect(NAMZU_IDENTITY).not.toMatch(/delegate genuinely independent work/i)
 		expect(NAMZU_IDENTITY).toContain('timestamped proof of overlap')
 	})
+
+	it('tells a sub-agent what to do with the ask and stop rules it inherits, after them', () => {
+		// The working rules say to stop and ask in several places. A sub-agent has
+		// no one to ask, so the prompt says what to do instead, and says it last so
+		// it governs the rules above it. It must not forbid questions in a way that
+		// leaves the inherited rules unanswered.
+		const at = SUBAGENT_PROMPT.indexOf('You have no one to ask')
+		expect(at).toBeGreaterThan(SUBAGENT_PROMPT.indexOf(NAMZU_WORKING_DOCTRINE))
+		expect(SUBAGENT_PROMPT.slice(at)).toMatch(/name the blocker or the assumption/)
+		expect(SUBAGENT_PROMPT).not.toMatch(/do not ask the parent questions/i)
+	})
 })

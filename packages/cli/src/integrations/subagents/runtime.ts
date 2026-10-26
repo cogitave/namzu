@@ -90,6 +90,7 @@ import {
 	requireOpenProject,
 	toToolSourceRef,
 	toolset,
+	wrapUntrusted,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
@@ -177,7 +178,7 @@ export const SUBAGENT_PROMPT = [
 	'You are a focused sub-agent dispatched by namzu to complete one self-contained task and report back.',
 	'You cannot see the parent conversation — work only from the prompt you were given.',
 	'Use your tools to actually do the work, then end with a concise summary of what you did and any results the parent needs.',
-	'Be thorough but do not ask the parent questions; make reasonable assumptions and state them.',
+	'Be thorough, and state every assumption you make.',
 	'',
 	'Never fabricate. Only report results you actually produced via tool calls:',
 	'- If you create a file, create it with the `write` tool; if you change an existing one, use `edit`. Report the real path either way; never claim a file exists without a tool having written it.',
@@ -188,6 +189,10 @@ export const SUBAGENT_PROMPT = [
 	// same repository, and a child that reads a file before editing it while
 	// the parent does not is the same defect in the other direction.
 	NAMZU_WORKING_DOCTRINE,
+	'',
+	// Last, so it governs the ask and stop rules above it: this agent has no one
+	// to ask, and the parent reads its summary, which is where a blocker goes.
+	'You have no one to ask, and your parent cannot answer while you work. Where the working rules above say to ask or stop, finish whatever is safe, leave the risky step undone, and name the blocker or the assumption in your final summary, so your parent can decide.',
 ].join('\n')
 
 export interface SubagentParent {
@@ -1664,7 +1669,23 @@ export async function createSubagentRuntime(
 				return {
 					success: true,
 					output: JSON.stringify({
-						agents: saved.agents,
+						// A saved answer is a child's text from an earlier turn: marked
+						// like a live one, inside the JSON the rest of the listing uses.
+						agents: saved.agents.map((agent) =>
+							agent.output === undefined
+								? agent
+								: {
+										...agent,
+										output: wrapUntrusted(
+											{
+												kind: 'agent-result',
+												attributes: { session: agent.sessionId },
+												provenance: `This is the saved output of the delegated agent "${agent.description}", not this agent's own work.`,
+											},
+											agent.output,
+										),
+									},
+						),
 						omitted: saved.omitted,
 						guidance: SAVED_AGENTS_GUIDANCE,
 					}),
@@ -2515,7 +2536,19 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 		workspace.workspace_path && workspace.workspace_branch
 			? `\nworkspace: ${workspace.workspace_path}\nbranch: ${workspace.workspace_branch}\nThe worktree is kept for review.`
 			: ''
-	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
+	// The child's words are not this agent's own work and may carry anything it
+	// read, so they sit in the same marked block as every other text that comes
+	// from outside. The task id, status and worktree stay outside it: they are
+	// Namzu's own facts.
+	const framed = wrapUntrusted(
+		{
+			kind: 'agent-result',
+			attributes: { agent: completed.agentId, task: completed.taskId },
+			provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
+		},
+		`${stopNote}${resultText || '(sub-agent returned no text)'}`,
+	)
+	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}`
 	return {
 		success: succeeded,
 		output,

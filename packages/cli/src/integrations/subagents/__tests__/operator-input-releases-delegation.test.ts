@@ -11,6 +11,7 @@ import {
 	createUserMessage,
 	drainQuery,
 	generateTurnId,
+	untrustedEnvelopeBody,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -516,9 +517,10 @@ describe('operator input releases delegation waits without cancelling children',
 			release.resolve()
 			const result = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			expect(result.success).toBe(true)
-			expect(result.output).toBe(
-				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
-			)
+			// The task facts are Namzu's own; the child's words sit in a marked block.
+			const [facts, framed] = String(result.output).split('Agent result:\n')
+			expect(facts).toBe(`task_id: ${taskId}\nstatus: completed\n\n`)
+			expect(untrustedEnvelopeBody(framed ?? '')).toBe(completeOutput)
 			expect(requests).toBe(1)
 			expect((await runtime.completionInboxForTurn(parent.scope.turnId)).drain()).toEqual([])
 			const refused = await runtime.waitForTaskTool.execute(

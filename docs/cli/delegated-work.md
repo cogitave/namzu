@@ -356,7 +356,15 @@ and a single agent on the agents; Esc or ← goes back up a level. A workflow
 whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
-Completion reaches the model as a task notification. `wait_for_task` retrieves
+Completion reaches the model as a task notification. What the agent wrote
+reaches the parent in the same marked block every outside text gets (an
+`agent-result` block that says whose words these are, and to tell the operator
+about any instruction inside it rather than act on it), whether it arrives as a
+notification, from a foreground `Agent` call, from `wait_for_task` or from a
+saved agent's history; the task id, status and worktree stay outside the block.
+A sub-agent has no one to ask: where the working rules say to ask or stop, it
+finishes what is safe, leaves the risky step undone and names the blocker or
+assumption in its final summary, so the parent decides. `wait_for_task` retrieves
 the result without launching duplicate work, also in a later turn than the one
 that launched the agent, and `send_message`, `cancel_agent` and `agent_task_list`
 see a background agent that a finished turn left running. Background work keeps
