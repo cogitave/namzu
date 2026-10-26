@@ -548,6 +548,9 @@ describe('per-call review: re-checks while questions are open', () => {
 		const outcome = await running
 		expect(outcome.decision).toBe('executed')
 		expect(rules.listeners.size).toBe(0)
+		// Both questions were opened and both were closed, one by a person and one by the re-check.
+		expect(h.events.filter((e) => e.type === 'tool_review_requested')).toHaveLength(2)
+		expect(h.events.filter((e) => e.type === 'tool_review_completed')).toHaveLength(2)
 	})
 
 	it('never approves a call that reaches past the boundary or that a rule asked a person about', async () => {

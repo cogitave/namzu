@@ -80,6 +80,8 @@ interface OpenAsk {
 	readonly recheckable: boolean
 	/** Why the question was closed from here, when it was. */
 	closedBy?: 'covered' | 'ended'
+	/** The question's answer was taken from the close itself, not from the host. */
+	closedHere?: true
 }
 
 /** What the walk needs from the review phase; keeps this file free of that file's closures. */
@@ -346,17 +348,27 @@ export class PerCallReview implements ReviewedExecution {
 				},
 				{
 					signal: asked.controller.signal,
-					closedAs: () =>
-						asked.closedBy === 'covered'
+					closedAs: () => {
+						asked.closedHere = true
+						return asked.closedBy === 'covered'
 							? { action: 'approve_tools' }
-							: { action: 'reject_tools', feedback: REFUSED_WITH_THE_TURN },
+							: { action: 'reject_tools', feedback: REFUSED_WITH_THE_TURN }
+					},
 				},
 			)
 		} finally {
 			this.#open.delete(asked)
 		}
 
-		if (asked.closedBy === 'covered') {
+		// Only an answer the close itself supplied counts as the close: a person
+		// who answered first has answered, and a re-check that landed a moment
+		// later does not turn their No into a yes.
+		if (asked.closedHere && asked.closedBy === 'covered') {
+			await ctx.emitEvent({
+				type: 'tool_review_completed',
+				turnId: ctx.recorder.turnId,
+				decision: 'approved',
+			})
 			for (const call of calls) {
 				await ctx.recorder.recordAudit({
 					what: { action: 'tool_call', tool: call.name },
@@ -374,7 +386,12 @@ export class PerCallReview implements ReviewedExecution {
 				false,
 			)
 		}
-		if (asked.closedBy === 'ended') {
+		if (asked.closedHere && asked.closedBy === 'ended') {
+			await ctx.emitEvent({
+				type: 'tool_review_completed',
+				turnId: ctx.recorder.turnId,
+				decision: 'rejected',
+			})
 			return {
 				verdicts: new Map(
 					calls.map((call) => [call.id, { run: false, reason: REFUSED_WITH_THE_TURN } as Verdict]),
