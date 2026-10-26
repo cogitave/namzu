@@ -316,6 +316,14 @@ export interface BaseAgentConfig {
 	 * without asking, as they always have.
 	 */
 	reviewAllowedCalls?: () => boolean
+
+	/**
+	 * Ask about one call at a time while the batch runs, in this agent's own
+	 * turn. See {@link import('../hitl/index.js').PerCallReviewConfig}. Opt-in;
+	 * absent, a batch is reviewed as a unit. A delegated child does not inherit
+	 * it.
+	 */
+	perCallReview?: import('../hitl/index.js').PerCallReviewConfig
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>

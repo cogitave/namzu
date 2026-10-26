@@ -568,7 +568,7 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 })
 
 /**
- * Words of `history ` that leave about `target` tokens of an 18,000-token window
+ * Words of `history ` that leave about `target` tokens of an 20,000-token window
  * free for the first request. The fixed tool roster, the system prompt and the
  * runtime blocks all occupy that window, so the padding is derived from what a
  * probe turn measures rather than from a hard-coded size that every new tool
@@ -578,7 +578,7 @@ const TOKENS_PER_HISTORY_WORD = 2
 async function historyWordsLeaving(target: number): Promise<number> {
 	let free = -1
 	const { session } = await makeSession(false, cwd, {
-		compaction: { contextWindowTokens: 18_000, strategy: 'structured' },
+		compaction: { contextWindowTokens: 20_000, strategy: 'structured' },
 		residentEvidenceRecall: ({ contextBudget }) => {
 			free = contextBudget?.remainingTokens ?? -1
 			return undefined
@@ -596,7 +596,7 @@ it('bounds file and index memory under a small, occupied context window', async 
 	const observed: { remaining: number; context: string }[] = []
 	const historyWords = await historyWordsLeaving(800)
 	const { session, state, scope } = await makeSession(false, cwd, {
-		compaction: { contextWindowTokens: 18_000, strategy: 'structured' },
+		compaction: { contextWindowTokens: 20_000, strategy: 'structured' },
 		residentEvidenceRecall: ({ contextBudget, prepared }) => {
 			observed.push({
 				remaining: contextBudget?.remainingTokens ?? -1,
@@ -648,7 +648,7 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 				}),
 		}),
 		{
-			resolveContextWindow: async (model: string) => (model === 'narrow' ? 18_000 : 200_000),
+			resolveContextWindow: async (model: string) => (model === 'narrow' ? 20_000 : 200_000),
 		},
 	)
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)

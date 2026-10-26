@@ -16,6 +16,7 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
+import { connectorCallSummary } from './connector-label.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
@@ -26,6 +27,7 @@ import {
 	shortToolFailure,
 	tidyCommandOutput,
 	tidyTerminalOutput,
+	turnStoppedLine,
 	unknownToolNotice,
 } from './tidy-tool-output.js'
 import { clipText } from './truncation.js'
@@ -91,6 +93,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type Origin,
+	type PerCallReviewConfig,
 	type PluginLifecycleManager,
 	type PluginNotificationInfo,
 	type PrepareStep,
@@ -193,6 +196,7 @@ import {
 	resumeSession,
 	seedObservationLedger,
 	toolset,
+	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
 	wrapUntrusted,
@@ -372,6 +376,7 @@ import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
 	type TypedNoteResult,
+	composeMemoryGuidance,
 	composeStoredMemoryPrompt,
 	describeCuratedNotesImport,
 	describeMemoryMigration,
@@ -786,7 +791,9 @@ export interface PermissionToolCall {
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
 	/** Present when a rule asked for this call; no remembered answer may skip it. */
-	readonly authorization?: { readonly explicitReview?: true }
+	readonly authorization?: { readonly explicitReview?: true; readonly askRule?: true }
+	/** A hook asked for this call; no mode or remembered answer may skip it. */
+	readonly hookPermission?: { readonly decision?: string }
 	/** The tool needs a person's yes on every call. */
 	readonly requiresApproval?: true
 }
@@ -989,6 +996,12 @@ export interface SendOptions {
 	 * can answer; strict mode still refuses and auto mode still approves.
 	 */
 	readonly onPermission?: PermissionFn
+	/**
+	 * Ask about one call at a time while the batch runs (see `PerCallReviewConfig`
+	 * in `@namzu/sdk`). Honoured only with `onPermission`: a turn nobody can ask
+	 * (held, scheduled, headless) reviews its batches as a unit, as before.
+	 */
+	readonly perCallReview?: PerCallReviewConfig
 	/**
 	 * Extra system context to inject for this turn (e.g. active skills).
 	 */
@@ -4210,6 +4223,14 @@ export async function createAgentSession(
 			? deferExceptToolset(wrapped, EAGER_TOOLS_WHEN_DEFERRED)
 			: [wrapped]
 	})
+	// The memory section is written only for a session that holds the tool
+	// it teaches: a run that withholds `save_memory` would be told to use it.
+	// The answer is fixed at boot, so the prompt prefix stays byte-stable.
+	const memoryGuidance = sessionToolsets.some((ts) =>
+		ts.tools().some((tool) => tool.name === 'save_memory'),
+	)
+		? composeMemoryGuidance({ taskList: !withheldTools.has('task_create') })
+		: undefined
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
 	// `toolResultScreens`) — never for execution, which `query()` does with
@@ -4552,6 +4573,7 @@ export async function createAgentSession(
 						palBlock: palPromptBlock(),
 						environment: environmentPrompt,
 						withheldTools: options.withheldTools,
+						memoryGuidance,
 						conversationSessions: options.conversationSessions,
 						toolLoading: options.toolLoading,
 						anyToolDeferred: anyDeferred(sessionToolsets),
@@ -5686,6 +5708,7 @@ export async function createAgentSession(
 									palBlock: palPromptBlock(),
 									environment: environmentPrompt,
 									withheldTools: options.withheldTools,
+									memoryGuidance,
 									conversationSessions: options.conversationSessions,
 									toolLoading: options.toolLoading,
 									anyToolDeferred: anyDeferred(runToolsets),
@@ -6982,6 +7005,11 @@ async function* runTurn({
 			// Plan mode is stricter than the rules: a batch a rule allows still
 			// reaches the handler, which refuses the change.
 			...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
+			// Asking about one call at a time needs a person to ask: a held or
+			// unattended turn reviews its batches as a unit.
+			...(opts?.perCallReview && opts.onPermission && !opts.reviewHold
+				? { perCallReview: opts.perCallReview }
+				: {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),
@@ -7224,6 +7252,12 @@ export const isPromptExempt: (
 	input: unknown,
 ) => boolean = isReviewExempt
 
+/**
+ * The memory tools that write without asking in `prompt` and `accept-edits`.
+ * Their store is namzu's own, under its home; no workspace file is touched.
+ */
+const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(['save_memory', 'update_memory'])
+
 /** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
 export { AGENT_LAUNCH_TOOL }
 
@@ -7289,6 +7323,13 @@ function withRuntimeMountedTools(
  * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
  * no exemption skips.
  *
+ * `save_memory` and `update_memory` are not asked about in `prompt` and
+ * `accept-edits`: they write only to namzu's own memory store under its home,
+ * never to a workspace file, and keeping memory is something the model does as
+ * it works. `delete_memory` declares itself destructive, so it still asks.
+ * `plan`, `strict` and the classifier modes treat them as any other write, and
+ * an `ask` or `deny` rule for either still decides.
+ *
  * `save_skill` (the TUI's alone) is not asked about here either, outside
  * `strict` and `plan`: its own screen shows the whole file and where it goes,
  * and asks in every mode, `auto` included. A second question in front of it
@@ -7310,6 +7351,9 @@ export function reviewExemptionFor(
 		(name === EXIT_PLAN_MODE_TOOL_NAME && manager.has(EXIT_PLAN_MODE_TOOL_NAME)) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
+		((mode === 'prompt' || mode === 'accept-edits') &&
+			MEMORY_WRITE_TOOLS.has(name) &&
+			manager.has(name)) ||
 		(mode !== 'strict' &&
 			mode !== 'plan' &&
 			name === SAVE_SKILL_TOOL_NAME &&
@@ -7463,7 +7507,9 @@ export function toAgentEvent(
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
 					return {
-						summary: pathSummary(viewToSummary(view), event.input, cwd),
+						summary: event.toolName.startsWith('mcp__')
+							? connectorCallSummary(event.input)
+							: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
 							const command =
 								view.kind === 'terminal'
@@ -7535,6 +7581,11 @@ export function toAgentEvent(
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
 		case 'tool_completed': {
+			// A connector's answer reaches the model inside a frame that marks where it
+			// came from; the person reads what the server said, without the frame.
+			const shown = event.toolName.startsWith('mcp__')
+				? (untrustedEnvelopeBody(event.result) ?? event.result)
+				: event.result
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
@@ -7542,7 +7593,7 @@ export function toAgentEvent(
 					{},
 					{
 						success: !event.isError,
-						output: event.result,
+						output: shown,
 					},
 				)
 			// Command output is cleaned for display only; `output` below stays verbatim.
@@ -7556,12 +7607,15 @@ export function toAgentEvent(
 					: undefined
 			const view =
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
-			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
+			const unknownTool = event.isError ? unknownToolNotice(shown) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
+			// A call that never started because the turn was stopped says so in a sentence.
+			const stopped = event.isError ? turnStoppedLine(shown) : undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
 			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
-			const detail = unknownTool || declined ? undefined : (diffBody?.rows ?? viewToLines(view))
+			const detail =
+				unknownTool || declined || stopped ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7573,7 +7627,7 @@ export function toAgentEvent(
 					? resultToLines(view.output)[0]
 					: undefined
 			const summary =
-				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
+				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const short =
@@ -7582,7 +7636,7 @@ export function toAgentEvent(
 					: undefined
 			// Only a short label the tool family earns, or a command's own line, replaces
 			// the tool's message; every other failure shows that message.
-			const plainFailure = short?.text ?? tidy?.failure
+			const plainFailure = stopped ?? short?.text ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -7621,7 +7675,7 @@ export function toAgentEvent(
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}
 					const results =
-						kind === 'search' && !event.isError ? countListedResults(event.result) : undefined
+						kind === 'search' && !event.isError ? countListedResults(shown) : undefined
 					return {
 						web: { kind, ...(results !== undefined ? { results } : {}) },
 					}

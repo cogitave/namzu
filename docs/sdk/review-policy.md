@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The review policy
-description: The seven modes a turn resolves tool review under (including bypass and the classifier-backed classify), which calls skip review, a tool's own unconditional requiresApproval declaration, asking once per session before the screen is shared, and how a host supplies the person to ask.
+description: The seven modes a turn resolves tool review under (including bypass and the classifier-backed classify), which calls skip review, a tool's own unconditional requiresApproval declaration, asking once per session before the screen is shared, asking about one call at a time while the batch runs, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
@@ -130,6 +130,52 @@ A skill loaded earlier in the turn can pre-approve calls through its `allowed-to
 # The first look at the screen
 
 `screenConsent: { sessions: Set<string> }` asks once per session before the model first sees the screen. A call captures the screen when `capturesScreen(name, input)` says so — by default the tool's own `ToolDefinition.capturesScreen` declaration read from `registry` (`defineTool({ capturesScreen })`); `computer_use` declares its screenshots, zooms, window lists, UI snapshots and every action that returns a screenshot afterwards. The first batch in a session holding such a call, and not allowed or denied by a rule, is put to `prompt` with `ToolReviewRequest.screenConsent: true` in `prompt`, `accept-edits` and `plan`, even when every call only reads. A yes adds the session id to `sessions` and answers that batch too; a no refuses it with `SCREEN_CONSENT_DECLINED_FEEDBACK`. `strict` refuses the call unless a rule allowed it, `auto` never asks, and without a `prompt` the batch is refused with `SCREEN_CONSENT_UNATTENDED_REFUSAL`. A host keeps one record across mode switches and turns; a new session id is asked again. Without the option the screen is treated like any other read. So that the first capture reaches the policy at all, the gate's `allow_read_only` rule (`allowReadOnlyTools`) does not allow a call that declares `capturesScreen`: it falls through to review, where the policy asks once or, without a consent record, approves it as the read it is. A custom `ResumeHandler` therefore now sees such calls. An explicit rule for the tool (`allow_by_name`, `permissions: { computer_use: 'allow' }`) still allows them without asking. See [The computer_use tool](computer-actions.md#sharing-the-screen-asked-once-per-session).
+
+# Asking one call at a time
+
+By default a model response is one batch: the policy sees every call together, one `tool_review` request names them all, and nothing runs until the whole answer is back. `perCallReview` (a query option, and `BaseAgentConfig.perCallReview`) turns that into a walk over the calls in the model's order, and is off unless set. A host that does not set it sees the same requests as before.
+
+```ts
+import { createReviewPolicy, type PerCallReviewConfig } from '@namzu/sdk'
+
+const listeners = new Set<() => void>()
+
+const perCallReview: PerCallReviewConfig = {
+  // Told when the host's rules or mode change; every question still open is re-checked.
+  onRulesChanged: (listener) => {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  },
+  // Whether the host's current rules and mode now let this call run without asking.
+  covers: (call) => call.name === 'read',
+  // A call whose exact input was not shown in full is never approved by a re-check.
+  neverCover: (call) => call.input === undefined,
+}
+
+const policy = createReviewPolicy({
+  mode: 'prompt',
+  prompt: async ({ toolCalls, signal }) => {
+    // `signal` aborts when the question stops being open: show nothing more, ignore the answer.
+    return signal?.aborted ? { kind: 'reject' } : { kind: 'approve' }
+  },
+})
+```
+
+Pass `perCallReview` to `query()` (or the agent config) together with `policy.handler` as the `resumeHandler`.
+
+**How a batch is walked.** Calls that are safe to run side by side (the tool's `isConcurrencySafe`) start together, and each opens its own one-call request at once, in the order the model wrote the calls whatever each call's own checks take. A call that waited for its turn is checked against the rules, the grants and `covers` as they are then, before it is asked: a rule remembered by an earlier answer covers a later identical call, which runs without being shown and is audited as approved without being shown. A call that is not safe waits until every earlier call has finished, then asks, then runs, and nothing after it starts before it does. An approved call starts right after its answer. A call the gate allowed, or a grant from earlier in the turn covers, is not asked and starts at its place in the walk. Every request in this mode has `toolCalls` of length one and `perCall: true`, and each opens its own `tool_review_requested` and `tool_review_completed` events.
+
+**Refusing.** A refusal with the person's reason (`reject` with `declined` and `feedback`, no `endTurn`) refuses that call only; the others carry on and the model reads the reason. A refusal with `endTurn: true` (`ToolReviewAnswer`'s `reject`, `reject_tools` as a decision) ends the turn: every call of the batch is answered first. A call that is running is cancelled, a call that has not started is refused without being asked, and the questions still open are closed through their `signal`. The results are announced in the model's order: the refused call first, then the calls that were refused without being asked. The turn then stops with the stop reason `cancelled`, as an interrupt does, and the model is not called again. A host that continues a goal after a turn ends treats it as an interrupt, not a finished round. `endTurn` is also honoured on a batch reviewed as a unit.
+
+**Answers the walk does not accept.** An approval is explicit. A `modify_tools` answer that does not name the call with `approve` refuses it, and a `modify` of the input is refused (editing a call while it is asked about is not offered). `approve_plan`, `reject_plan` and `answer_question` are not answers to a tool question and refuse the call. `pause` refuses that call and ends its park as superseded, so it is not held (the model is told to ask again); to hold a question for another process, review the batch as a unit. An `abort`, or the turn's own cancellation, ends the walk like a refusal with `endTurn`. A call that has no reviewed summary and did not fail preparation is refused.
+
+**Re-checks.** When `onRulesChanged` fires, and after an approval that remembers a grant, each question still open is checked against the turn's rules, the grants and `covers`, after the host's `neverCover` has had its say. A call they now cover is let through without being shown: its request's `signal` aborts, its park is recorded as approved, and the audit trail says the call was approved without being shown. A re-check only ever approves. A call that reaches past the turn's boundary, that its tool says always needs a person, or that a rule or hook asked a person about is never approved by one, and while `reviewAllowedCalls` answers `true` (a mode stricter than the rules) the rules and grants do not count. `neverCover(call)` is asked first and overrides every other way a re-check could approve: answer `true` for a call whose exact input was not shown in full or was too large to show, and it stays open however a rule, a grant or `covers` changes (a `neverCover` that throws counts as `true`).
+
+**Questions about the whole batch.** `askTogether` names calls (by id) whose question is about the batch and not about one call, such as the first look at the screen. They are asked in one request before anything starts. A yes approves them without a second question each; a No refuses them all.
+
+**Workflow and delegated agents.** The option applies to the turn it is set on. A delegated child reviews its own batches as it did before; a host that wants its prompts behind the main session's decides that where it shows them.
+
+**A person's words.** A typed reason is capped and stripped of control characters before it is shown or recorded, and is written to the audit trail as `declined by the person: <reason>`. A gate denial is never recorded that way.
 
 # Escalated calls
 

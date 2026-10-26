@@ -18,6 +18,7 @@
  * | workflow doctrine         | if the workflow tool is offered | no, a resumed turn is not offered it | no | no |
  * | pal block                 | yes          | yes          | no            | no        |
  * | conversation evidence     | if enabled   | if enabled   | if enabled    | no        |
+ * | memory guidance           | if the memory tool is mounted | same | no, resident context carries it | taught in its own prompt, when it holds the tool |
  * | deferred-tool guidance    | if any tool is deferred | same | same | no |
  * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no | no |
  * | environment               | yes          | yes          | no, it rides in the dynamic block | child reads its own |
@@ -58,6 +59,8 @@ export interface SessionPromptInput {
 	/** The session's workflow size guideline, said beside the workflow doctrine; empty for none. */
 	readonly workflowSizeAdvice?: string | undefined
 	readonly conversationEvidence?: string | undefined
+	/** The memory section, present only for a session that holds the tool it teaches. */
+	readonly memoryGuidance?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
 	/** See {@link SessionPromptTurn.planInReminders}. */
@@ -77,6 +80,8 @@ export interface SessionPromptFacts {
 	readonly environment?: string | undefined
 	readonly withheldTools?: readonly string[] | undefined
 	readonly conversationSessions?: unknown
+	/** Written once at session start, so the prefix stays byte-stable. */
+	readonly memoryGuidance?: string | undefined
 	readonly toolLoading?: 'eager' | 'deferred' | undefined
 	/** True when any tool in the toolset this turn sends is deferred. */
 	readonly anyToolDeferred: boolean
@@ -117,6 +122,7 @@ export function sessionPromptInput(
 		delegationAvailable: !facts.withheldTools?.includes(AGENT_LAUNCH_TOOL),
 		workflowOffered: turn.workflowOffered,
 		conversationEvidence: facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+		memoryGuidance: facts.memoryGuidance,
 		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
 		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
@@ -142,6 +148,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 			: undefined,
 		resident ? undefined : input.palBlock,
 		input.conversationEvidence,
+		resident ? undefined : input.memoryGuidance,
 		// Whenever anything is deferred: a deferred tool the model was never
 		// told how to load is a tool it does not have.
 		input.toolsDeferred ? DEFERRED_TOOL_GUIDANCE : undefined,

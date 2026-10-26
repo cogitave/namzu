@@ -15,10 +15,12 @@
 import { basename } from 'node:path'
 
 import { Box, Text } from 'ink'
+import stringWidth from 'string-width'
 
 import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
 import { type SessionAllow, allowsForBatch, describeAllows } from '../permissions/session-allow.js'
 import type { PermissionToolCall } from './agent.js'
+import { connectorToolLabel } from './connector-label.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
@@ -45,9 +47,23 @@ export interface PermissionOverlayProps {
 	readonly reviewOffset?: number
 	/** Which answer the cursor is on. */
 	readonly choice?: PermissionChoice
-	readonly queuedCount?: number
-	/** Host-resolved owner; never inferred from tool arguments. */
-	readonly sourceLabel?: string
+	/**
+	 * Which question this is when two or more are open: `position` of `total`,
+	 * drawn dim and right-aligned on the title row, and dropped when the row has
+	 * no room for it.
+	 */
+	readonly count?: { readonly position: number; readonly total: number }
+	/**
+	 * Who is asking when it is not the person's own conversation, as a short
+	 * phrase (`from the Reviewer agent`). Host-resolved; never inferred from
+	 * tool arguments.
+	 */
+	readonly from?: string
+	/**
+	 * The person is typing why they refuse: the text so far. Absent, the
+	 * answers are shown.
+	 */
+	readonly reason?: string
 	/** Live terminal width. Re-wrapping on resize keeps every suffix reachable. */
 	readonly columns?: number
 	/** Live terminal height; the pager shows as much as the screen has room for. */
@@ -73,6 +89,8 @@ export interface PermissionOverlayProps {
 	 * the prompt offers only the answers that apply once.
 	 */
 	readonly withheld?: readonly WithheldCall[]
+	/** A plain No ends the turn (the person's own conversation, asked one call at a time). */
+	readonly endsTurn?: boolean
 }
 
 /** What the box says when the question is whether to share the screen. */
@@ -185,7 +203,7 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[]): strin
 			case 'workflow':
 				return 'Start a workflow'
 			default:
-				return first.name
+				return connectorToolLabel(first.name)
 		}
 	}
 	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
@@ -216,7 +234,7 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 			case 'workflow':
 				return 'Do you want to start this workflow?'
 			default:
-				return `Do you want to run ${first.name}?`
+				return `Do you want to run ${connectorToolLabel(first.name)}?`
 		}
 	}
 	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
@@ -285,6 +303,8 @@ export interface PermissionAnswerOptions {
 	readonly rememberWhere?: string
 	/** The review leaves part of this batch out, so only a one-time yes is offered. */
 	readonly withheld?: boolean
+	/** A plain No ends the turn, and the answer says so. */
+	readonly endsTurn?: boolean
 }
 
 /**
@@ -393,8 +413,9 @@ export function PermissionOverlay({
 	detailsOpen,
 	reviewOffset = 0,
 	choice = 0,
-	queuedCount = 0,
-	sourceLabel,
+	count,
+	from,
+	reason,
 	columns,
 	rows: terminalRows,
 	batchOnly = false,
@@ -404,8 +425,9 @@ export function PermissionOverlay({
 	siteNotes = [],
 	screenConsent,
 	withheld = [],
+	endsTurn = false,
 }: PermissionOverlayProps) {
-	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
+	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows))
 	const single = toolCalls.length === 1
 	const compact = !detailsOpen && summary.compactText !== undefined
 	const source = detailsOpen
@@ -423,16 +445,47 @@ export function PermissionOverlay({
 	const last = Math.min(rows.length, offset + pageRows)
 	const destructive = toolCalls.some((call) => call.isDestructive)
 	const sharing = screenConsent !== undefined
-	const choices = permissionChoices(toolCalls, {
+	const answerOptions: PermissionAnswerOptions = {
 		batchOnly,
 		screenConsent: sharing,
 		withheld: withheld.length > 0,
+		endsTurn,
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
 		...(rememberWhere ? { rememberWhere } : {}),
-	})
+	}
+	const answers = permissionAnswers(toolCalls, answerOptions)
+	const choices = answers.map((answer) => answer.label)
+	const onRefusal = answers[choice]?.kind === 'reject'
+	const offersEdits = answers.some((answer) => answer.kind === 'approve-edits')
+	const typing = reason !== undefined
 	const escalationNotes = permissionEscalationNotes(toolCalls)
 	const sharingNotes = sharing ? screenConsentNotes(screenConsent.provider) : []
+
+	const titleText = detailsOpen
+		? scriptView
+			? 'Workflow script'
+			: 'Exact prepared input'
+		: sharing
+			? 'Share your screen'
+			: terminalDisplayText(permissionTitle(toolCalls))
+	const destructiveText = destructive
+		? toolCalls.every((call) => call.name === 'write')
+			? summary.text.includes('New file')
+				? ' · new file'
+				: ' · may overwrite'
+			: ' · destructive'
+		: ''
+	const countText = count ? `${count.position} of ${count.total}` : undefined
+	// "k of N" earns its place only while it fits next to the title and who is
+	// asking; it is dropped, not shortened, when it does not.
+	const countFits =
+		countText !== undefined &&
+		stringWidth(`${titleText}${destructiveText}${from ? ` · ${terminalDisplayText(from)}` : ''}`) +
+			1 +
+			stringWidth(countText) <=
+			boxedHintWidth(columns)
+	const shownCount = countFits ? countText : undefined
 
 	return (
 		<Box
@@ -442,34 +495,24 @@ export function PermissionOverlay({
 			paddingX={1}
 			marginTop={1}
 		>
-			<Text>
-				<Text color={theme.status.warn} bold>
-					{detailsOpen
-						? scriptView
-							? 'Workflow script'
-							: 'Exact prepared input'
-						: sharing
-							? 'Share your screen'
-							: terminalDisplayText(permissionTitle(toolCalls))}
-				</Text>
-				{queuedCount > 0 ? (
-					<Text color={theme.text.muted}> · {queuedCount} more awaiting approval</Text>
-				) : null}
-				{destructive ? (
-					<Text color={theme.status.error}>
-						{toolCalls.every((call) => call.name === 'write')
-							? summary.text.includes('New file')
-								? ' · new file'
-								: ' · may overwrite'
-							: ' · destructive'}
+			<Box flexDirection="row">
+				<Box flexShrink={1} flexGrow={1} minWidth={0}>
+					<Text wrap="truncate-end">
+						<Text color={theme.status.warn} bold>
+							{titleText}
+						</Text>
+						{destructive ? <Text color={theme.status.error}>{destructiveText}</Text> : null}
+						{from ? (
+							<Text color={theme.text.muted}>{` · ${terminalDisplayText(from)}`}</Text>
+						) : null}
 					</Text>
+				</Box>
+				{shownCount ? (
+					<Box flexShrink={0} marginLeft={1}>
+						<Text color={theme.text.muted}>{shownCount}</Text>
+					</Box>
 				) : null}
-			</Text>
-			{sourceLabel ? (
-				<Text color={theme.text.secondary} wrap="truncate-end">
-					{terminalDisplayText(sourceLabel)}
-				</Text>
-			) : null}
+			</Box>
 			{sharingNotes.map((note) => (
 				<Text key={note} color={theme.text.primary}>
 					{terminalDisplayText(note)}
@@ -504,35 +547,54 @@ export function PermissionOverlay({
 					rows {first}-{last}/{rows.length} · PgUp/PgDn page · Home/End
 				</Text>
 			) : null}
-			<Box flexDirection="column" paddingTop={1}>
-				{!compact ? (
+			{typing ? (
+				<Box flexDirection="column" paddingTop={1}>
 					<Text color={theme.text.primary} bold>
-						{terminalDisplayText(
-							sharing
-								? 'Let Namzu see your screen for the rest of this conversation?'
-								: permissionQuestion(toolCalls),
-						)}
+						Tell Namzu what to do differently
 					</Text>
-				) : null}
-				{choices.map((label, index) => {
-					const selected = index === choice
-					const marker = `${selected ? '❯ ' : '  '}${index + 1}. `
-					// The marker and the label sit in two columns, so a label that wraps
-					// keeps its indent under its own first word.
-					return (
-						<Box key={label} flexDirection="row">
-							<Box flexShrink={0} width={marker.length}>
-								<Text color={selected ? theme.accent.user : theme.text.secondary}>{marker}</Text>
-							</Box>
-							<Box flexGrow={1} flexShrink={1} minWidth={0}>
-								<Text color={selected ? theme.accent.user : theme.text.secondary} wrap="wrap">
-									{label}
-								</Text>
-							</Box>
+					<Box flexDirection="row">
+						<Box flexShrink={0} width={2}>
+							<Text color={theme.accent.user}>❯ </Text>
 						</Box>
-					)
-				})}
-			</Box>
+						<Box flexGrow={1} flexShrink={1} minWidth={0}>
+							<Text color={theme.text.primary} wrap="wrap">
+								{terminalDisplayText(reason)}
+								<Text color={theme.accent.user}>▌</Text>
+							</Text>
+						</Box>
+					</Box>
+				</Box>
+			) : (
+				<Box flexDirection="column" paddingTop={1}>
+					{!compact ? (
+						<Text color={theme.text.primary} bold>
+							{terminalDisplayText(
+								sharing
+									? 'Let Namzu see your screen for the rest of this conversation?'
+									: permissionQuestion(toolCalls),
+							)}
+						</Text>
+					) : null}
+					{choices.map((label, index) => {
+						const selected = index === choice
+						const marker = `${selected ? '❯ ' : '  '}${index + 1}. `
+						// The marker and the label sit in two columns, so a label that wraps
+						// keeps its indent under its own first word.
+						return (
+							<Box key={label} flexDirection="row">
+								<Box flexShrink={0} width={marker.length}>
+									<Text color={selected ? theme.accent.user : theme.text.secondary}>{marker}</Text>
+								</Box>
+								<Box flexGrow={1} flexShrink={1} minWidth={0}>
+									<Text color={selected ? theme.accent.user : theme.text.secondary} wrap="wrap">
+										{label}
+									</Text>
+								</Box>
+							</Box>
+						)
+					})}
+				</Box>
+			)}
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
 					{/* The answer keys are the last to go: this is the one screen where a
@@ -541,41 +603,52 @@ export function PermissionOverlay({
 					    detail toggle says itself short first. The keys still act when
 					    their hint is gone. */}
 					{fitHints(
-						[
-							// The arrow keys are the first of the answer keys to go: enter and y / n
-							// still answer, and the list shows which row is selected.
-							{ text: '↑↓ select', rank: 4 },
-							{ text: 'enter confirm', rank: 5 },
-							{
-								text: 'y / n answer',
-								short: 'y / n',
-								// The script key outranks it on a workflow review: at a narrow
-								// width it is the only key that shows what will run.
-								rank: scriptView ? 4 : 5,
-							},
-							{ text: 'esc cancel', rank: 5 },
-							{
-								text: 'ctrl+c stop',
-								rank: scriptView ? 3 : 4,
-							},
-							{
-								text: `d ${
-									scriptView
-										? detailsOpen
-											? 'collapse'
-											: 'script'
-										: detailsOpen
-											? 'readable'
-											: compact
-												? 'instructions'
-												: 'view input'
-								}`,
-								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
-								// The only way to the exact input: it outranks the stop hint,
-								// whose key works without being shown.
-								rank: 5,
-							},
-						],
+						typing
+							? [
+									{ text: 'enter send', rank: 5 },
+									{ text: 'esc back', rank: 5 },
+									{ text: 'ctrl+c stop', rank: 4 },
+								]
+							: [
+									// The arrow keys are the first of the answer keys to go: enter and y / n
+									// still answer, and the list shows which row is selected.
+									{ text: '↑↓ select', rank: 3 },
+									{ text: 'enter confirm', rank: 5 },
+									{
+										text: 'y / n answer',
+										short: 'y / n',
+										// The script key outranks it on a workflow review: at a narrow
+										// width it is the only key that shows what will run.
+										rank: scriptView ? 4 : 5,
+									},
+									{ text: 'esc cancel', rank: 5 },
+									...(offersEdits ? [{ text: 'shift+tab accept edits', rank: 3 }] : []),
+									{
+										text: 'ctrl+c stop',
+										rank: scriptView ? 3 : 4,
+									},
+									{
+										text: `d ${
+											scriptView
+												? detailsOpen
+													? 'collapse'
+													: 'script'
+												: detailsOpen
+													? 'readable'
+													: compact
+														? 'instructions'
+														: 'view input'
+										}`,
+										short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
+										// The only way to the exact input: it outranks the stop hint,
+										// whose key works without being shown.
+										rank: 5,
+									},
+									// On the No row the way to give a reason is the one hint that cannot be
+									// guessed, so it outlasts the arrows and the stop key. Last of its rank,
+									// it gives way first, and says less before it does.
+									...(onRefusal ? [{ text: 'tab say why', short: 'tab why', rank: 5 }] : []),
+								],
 						boxedHintWidth(columns),
 					)}
 				</Text>

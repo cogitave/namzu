@@ -2,12 +2,21 @@ import { allowRuleScope } from '../../../../authorization/gate.js'
 import type { AuthorizationGate } from '../../../../authorization/index.js'
 import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
-import type { ToolCallDeclined, ToolCallSummary } from '../../../../types/hitl/index.js'
+import type {
+	HITLResumeDecision,
+	ToolCallDeclined,
+	ToolCallSummary,
+} from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import type { ShellDialect } from '../../../../types/tool/index.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
-import type { PreparedToolBatch, ToolCallDeclines, ToolCallDenials } from '../../executor.js'
+import type {
+	PreparedToolBatch,
+	ReviewedExecution,
+	ToolCallDeclines,
+	ToolCallDenials,
+} from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
 	replaceProjectInstructionSnapshot,
@@ -21,6 +30,7 @@ import {
 	takeSteeringMessage,
 } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
+import { PerCallReview } from './per-call-review.js'
 
 interface VerificationAwareContext extends IterationContext {
 	readonly verificationGate?: AuthorizationGate
@@ -202,7 +212,10 @@ export async function* runToolReview(
 	let declines: ToolCallDeclines | undefined
 
 	/** Executes the batch, answering every call, and appends the results. */
-	const settleBatch = async (denials?: ToolCallDenials): Promise<void> => {
+	const settleBatch = async (
+		denials?: ToolCallDenials,
+		review?: ReviewedExecution,
+	): Promise<void> => {
 		const startedAt = Date.now()
 		const batch = await ctx.toolExecutor.executeBatch(
 			response,
@@ -210,6 +223,7 @@ export async function* runToolReview(
 			undefined,
 			preparedBatch,
 			declines,
+			review,
 		)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
@@ -312,9 +326,10 @@ export async function* runToolReview(
 	/** Stream recorded starts and progress while execution itself remains pending. */
 	const settle = async function* (
 		denials?: ToolCallDenials,
+		review?: ReviewedExecution,
 	): AsyncGenerator<SessionEvent, void, unknown> {
 		if (!ctx.onPendingEvents) {
-			await settleBatch(denials)
+			await settleBatch(denials, review)
 			return
 		}
 		const wakeup = () => {
@@ -329,7 +344,7 @@ export async function* runToolReview(
 		const unsubscribe = ctx.onPendingEvents(() => wake.notify())
 		// Start the captured batch before yielding. Live observation must not
 		// create a new mutation window before execution validates its payload.
-		const execution = settleBatch(denials).then(
+		const execution = settleBatch(denials, review).then(
 			() => {
 				settled = { ok: true }
 				wake.notify()
@@ -718,24 +733,6 @@ export async function* runToolReview(
 		}
 	}
 
-	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, iterationNum)
-
-	await ctx.emitEvent({
-		type: 'tool_review_requested',
-		turnId: ctx.recorder.turnId,
-		toolCalls: toolCallSummaries,
-		iteration: iterationNum,
-	})
-	yield* ctx.drainPending()
-
-	const reviewDecision = await awaitDecisionDurably(ctx, reviewCheckpoint, {
-		type: 'tool_review',
-		sessionId: ctx.recorder.sessionId,
-		turnId: ctx.recorder.turnId,
-		checkpointId: reviewCheckpoint.id,
-		toolCalls: toolCallSummaries,
-	})
-
 	/**
 	 * The escalations this decision lets through, on the record, and the
 	 * escapes it did not confirm, refused.
@@ -749,8 +746,9 @@ export async function* runToolReview(
 	const settleEscalations = async (
 		denials: Map<string, string>,
 		confirmed: readonly string[] | undefined,
+		only?: readonly ToolCallSummary[],
 	): Promise<void> => {
-		for (const tc of escalated()) {
+		for (const tc of only ? only.filter((call) => call.escalation !== undefined) : escalated()) {
 			const denied = denials.get(tc.id)
 			if (denied !== undefined) {
 				// A crossing that was asked about and refused is on the record
@@ -832,6 +830,105 @@ export async function* runToolReview(
 		}
 	}
 
+	/**
+	 * The record of calls approved without anyone being asked: by a skill's
+	 * `allowed-tools`, or by a `pre_tool_use` hook's `allow`. Only a call that
+	 * carried the mark counts: a policy that lists an unmarked id has not been
+	 * given a skill's or a hook's word for it.
+	 */
+	const recordGrantAudits = async (
+		decision: HITLResumeDecision,
+		calls: readonly ToolCallSummary[],
+	): Promise<void> => {
+		if (decision.action !== 'approve_tools') return
+		if (decision.skillGranted) {
+			const listed = new Set(decision.skillGranted)
+			for (const tc of calls) {
+				if (!listed.has(tc.id) || !tc.skillGrant || gateDenied.has(tc.id)) continue
+				await ctx.recorder.recordAudit({
+					what: { action: 'tool_call', tool: tc.name },
+					outcome: 'approved',
+					reason: `pre-approved by the allowed-tools of skill "${tc.skillGrant.skill}" for this turn; nobody was asked`,
+				})
+			}
+		}
+		if (decision.hookGranted) {
+			const listed = new Set(decision.hookGranted)
+			for (const tc of calls) {
+				if (!listed.has(tc.id) || !tc.hookGrant || gateDenied.has(tc.id)) continue
+				await ctx.recorder.recordAudit({
+					what: { action: 'tool_call', tool: tc.name },
+					outcome: 'approved',
+					reason: `pre-approved by a pre_tool_use hook${tc.hookGrant.reason ? ` (${tc.hookGrant.reason})` : ''}; nobody was asked`,
+				})
+			}
+		}
+	}
+
+	// Opt-in: ask about one call at a time while the batch runs. Everything
+	// above has already run on the batch as a whole, because those checks are
+	// about the calls and not about who answers.
+	if (ctx.perCallReview) {
+		const reviewedIds = new Set(toolCallSummaries.map((tc) => tc.id))
+		const walk = new PerCallReview({
+			ctx,
+			iteration: iterationNum,
+			toolCalls,
+			summaries: () => toolCallSummaries,
+			gateDenied,
+			reviewAllowed,
+			unreviewedIds: new Set(
+				preparedBatch ? toolCalls.filter((tc) => !reviewedIds.has(tc.id)).map((tc) => tc.id) : [],
+			),
+			settleEscalations,
+			recordGrantAudits,
+			evaluateGate: (tc) =>
+				ctx.verificationGate?.evaluate({
+					toolName: tc.name,
+					toolInput: tc.input,
+					toolDef: ctx.tools.get(tc.name),
+					...dialectFor(tc.name),
+					...sourceFor(tc.name),
+				}).decision,
+		})
+		try {
+			await walk.askTogetherFirst()
+			const denials = new Map([...gateDenied, ...walk.denials])
+			if (walk.declines.size > 0) declines = walk.declines
+			yield* settle(denials, walk)
+			yield* ctx.drainPending()
+			if (walk.endsTurn) {
+				// Every call is answered by now. The turn stops the way an
+				// interrupt stops it, so nothing downstream reads the stop as a
+				// result the model should react to.
+				ctx.recorder.setStopReason('cancelled')
+				ctx.recorder.markCancelled()
+				return finish('stop')
+			}
+			return finish(denials.size + walk.refusedCount >= toolCalls.length ? 'rejected' : 'executed')
+		} finally {
+			walk.dispose()
+		}
+	}
+
+	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, iterationNum)
+
+	await ctx.emitEvent({
+		type: 'tool_review_requested',
+		turnId: ctx.recorder.turnId,
+		toolCalls: toolCallSummaries,
+		iteration: iterationNum,
+	})
+	yield* ctx.drainPending()
+
+	const reviewDecision = await awaitDecisionDurably(ctx, reviewCheckpoint, {
+		type: 'tool_review',
+		sessionId: ctx.recorder.sessionId,
+		turnId: ctx.recorder.turnId,
+		checkpointId: reviewCheckpoint.id,
+		toolCalls: toolCallSummaries,
+	})
+
 	switch (reviewDecision.action) {
 		case 'reject_tools': {
 			await ctx.emitEvent({
@@ -853,6 +950,12 @@ export async function* runToolReview(
 			await settleEscalations(denials, undefined)
 			yield* settle(denials)
 			yield* ctx.drainPending()
+			if (reviewDecision.endTurn) {
+				// Every call is answered above; the turn then stops as an interrupt does.
+				ctx.recorder.setStopReason('cancelled')
+				ctx.recorder.markCancelled()
+				return finish('stop')
+			}
 			return finish('rejected')
 		}
 
@@ -968,34 +1071,9 @@ export async function* runToolReview(
 			if (reviewDecision.action === 'approve_tools' && reviewDecision.remember) {
 				ctx.toolGrants?.grant(reviewDecision.remember)
 			}
-			// A call nobody was asked about, approved because a skill said so,
-			// is on the record naming that skill. Only a call that carried the
-			// mark counts: a policy that lists an unmarked id has not been
-			// given a skill's word for it.
-			if (reviewDecision.action === 'approve_tools' && reviewDecision.skillGranted) {
-				const listed = new Set(reviewDecision.skillGranted)
-				for (const tc of toolCallSummaries) {
-					if (!listed.has(tc.id) || !tc.skillGrant || gateDenied.has(tc.id)) continue
-					await ctx.recorder.recordAudit({
-						what: { action: 'tool_call', tool: tc.name },
-						outcome: 'approved',
-						reason: `pre-approved by the allowed-tools of skill "${tc.skillGrant.skill}" for this turn; nobody was asked`,
-					})
-				}
-			}
-
-			// The same for a call a hook's `allow` approved.
-			if (reviewDecision.action === 'approve_tools' && reviewDecision.hookGranted) {
-				const listed = new Set(reviewDecision.hookGranted)
-				for (const tc of toolCallSummaries) {
-					if (!listed.has(tc.id) || !tc.hookGrant || gateDenied.has(tc.id)) continue
-					await ctx.recorder.recordAudit({
-						what: { action: 'tool_call', tool: tc.name },
-						outcome: 'approved',
-						reason: `pre-approved by a pre_tool_use hook${tc.hookGrant.reason ? ` (${tc.hookGrant.reason})` : ''}; nobody was asked`,
-					})
-				}
-			}
+			// A call nobody was asked about, approved because a skill or a hook
+			// said so, is on the record naming which.
+			await recordGrantAudits(reviewDecision, toolCallSummaries)
 
 			await ctx.emitEvent({
 				type: 'tool_review_completed',

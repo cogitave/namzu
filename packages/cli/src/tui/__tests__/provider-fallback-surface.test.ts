@@ -112,7 +112,7 @@ describe('a sub-agent resolves its provider independently', () => {
 			cwd: '/tmp',
 			model: 'test-model',
 			buildProvider: () => own,
-			buildTools: () => ({}) as never,
+			buildTools: () => [],
 		})
 
 		const definition = registered.find((d) => typeof d.configBuilder === 'function')

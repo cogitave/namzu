@@ -38,6 +38,8 @@ export interface ActiveTool {
 	readonly command?: string
 	/** The last few output lines the shell call has reported, oldest first. */
 	readonly tail?: readonly string[]
+	/** Asked about or waiting behind another question: drawn quiet, with a static dim dot. */
+	readonly queued?: true
 }
 
 export interface LiveActivityProps {
@@ -161,10 +163,24 @@ export function LiveActivity({
 	})
 	if (!active) return null
 	if (waitingForYou) {
+		// Calls waiting for a yes keep their quiet rows above the question, so a
+		// person sees what each answer is for.
+		const queued = activeTools.filter((tool) => tool.queued === true)
+		const shownQueued = queued.slice(0, MAX_VISIBLE_TOOLS)
 		return (
-			<Box marginTop={1}>
-				<Text color={theme.text.secondary}>Waiting for you</Text>
-				<Text color={theme.text.muted}> · the question below</Text>
+			<Box flexDirection="column" marginTop={1}>
+				<Box>
+					<Text color={theme.text.secondary}>Waiting for you</Text>
+					<Text color={theme.text.muted}> · the question below</Text>
+				</Box>
+				{shownQueued.map((tool) => (
+					<QueuedToolRow key={tool.id} tool={tool} />
+				))}
+				{queued.length > shownQueued.length ? (
+					<Box paddingLeft={2}>
+						<Text color={theme.text.muted}>+{queued.length - shownQueued.length} more waiting</Text>
+					</Box>
+				) : null}
 			</Box>
 		)
 	}
@@ -315,7 +331,7 @@ export function LiveActivity({
 			{waitingRow}
 			{noticeRow}
 			{visibleTools.map((t, index) => {
-				if (t.command !== undefined) {
+				if (t.command !== undefined && !t.queued) {
 					// A shell call reads like its settled row: a dim dot that blinks while
 					// it runs, and `⎿ Running… (12s)` until it prints something.
 					const blink = motion ? Math.floor(tick / 5) % 2 === 0 : true
@@ -346,6 +362,7 @@ export function LiveActivity({
 						</Box>
 					)
 				}
+				if (t.queued) return <QueuedToolRow key={t.id} tool={t} />
 				const percent = t.fraction === undefined ? '' : `${Math.round(t.fraction * 100)}% · `
 				return (
 					<Box key={t.id} flexDirection="column" paddingLeft={2}>
@@ -382,6 +399,33 @@ export function LiveActivity({
 					<Text color={theme.text.muted} wrap="truncate-end">
 						└ thinking{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
 					</Text>
+				</Box>
+			) : null}
+		</Box>
+	)
+}
+
+/**
+ * A call that has not been given its yes: a static dim dot and the call's own
+ * title, and for a shell call a dim `Waiting…` where `Running…` will go.
+ */
+function QueuedToolRow({ tool }: { readonly tool: ActiveTool }) {
+	return (
+		<Box flexDirection="column">
+			<Box flexDirection="row">
+				<Box width={2} flexShrink={0}>
+					<Text color={theme.text.muted}>●</Text>
+				</Box>
+				<Text color={theme.text.secondary} wrap="truncate-end">
+					{terminalDisplayText(tool.label)}
+				</Text>
+			</Box>
+			{tool.command !== undefined ? (
+				<Box paddingLeft={RESULT_GUTTER_INDENT}>
+					<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
+						<Text color={theme.text.muted}>⎿</Text>
+					</Box>
+					<Text color={shellToneColor('dim')}>Waiting…</Text>
 				</Box>
 			) : null}
 		</Box>

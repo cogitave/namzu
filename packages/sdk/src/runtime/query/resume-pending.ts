@@ -76,6 +76,12 @@ export interface PendingResumePlan {
 	/** Calls whose sandbox escape the durable decision confirmed; see `HITLResumeDecision`. */
 	readonly confirmedEscalations?: readonly string[]
 	/**
+	 * The park asked about some calls of the batch (the per-call review), so the
+	 * decision speaks for those and no others. Every other call that has no
+	 * recovered result is not run; see {@link applyPendingResume}.
+	 */
+	readonly partial?: true
+	/**
 	 * Answers to deliver to tools that parked on a question, keyed by the
 	 * asking call's id. Present only on a question resume.
 	 */
@@ -136,6 +142,9 @@ export function planPendingResume(
 	// describe this state and applying it would be consent-by-coincidence.
 	const recordedIds = new Set(pending.request.toolCalls.map((tc) => tc.id))
 	const actualIds = assistant.toolCalls.map((tc) => tc.id)
+	if (pending.request.perCall === true) {
+		return planPartialResume(checkpoint, pending.request.toolCalls, assistant, decision, log)
+	}
 	const mismatched = actualIds.filter((id) => !recordedIds.has(id))
 	if (mismatched.length > 0 || recordedIds.size !== actualIds.length) {
 		log.error('Tool calls in the checkpoint do not match the ones the decision was made about', {
@@ -164,6 +173,118 @@ export function planPendingResume(
 			? { confirmedEscalations: decision.confirmedEscalations }
 			: {}),
 	}
+}
+
+/** What a call is told when it had not run, and nobody had answered it, when the session stopped. */
+export const NOT_RUN_BEFORE_RESTART =
+	'This call had not run when the session stopped, and an earlier approval does not carry over. Ask again if it is still needed.'
+
+/**
+ * Resume a park that asked about some calls of a batch, not all of them.
+ *
+ * The decision speaks for the calls it was shown, and only those: the id check
+ * is that every one of them is still an unanswered call of the batch. Calls
+ * that already ran are answered from the record when the plan is applied, and
+ * a call that had not run and was not asked about is not run: a yes given to
+ * one call is not a yes to another.
+ */
+function planPartialResume(
+	checkpoint: RestoredCheckpoint,
+	shown: readonly ToolCallSummary[],
+	assistant: AssistantMessage,
+	decision: HITLResumeDecision,
+	log: Logger,
+): PendingResumePlan | null {
+	const calls = assistant.toolCalls ?? []
+	const byId = new Map(calls.map((call) => [call.id, call]))
+	const shownCalls = shown.map((summary) => byId.get(summary.id))
+	if (shown.length === 0 || shownCalls.some((call) => call === undefined)) {
+		log.error('The call a decision was made about is not among the unanswered tool calls', {
+			'namzu.checkpoint.id': checkpoint.id,
+			'namzu.runtime.recorded': shown.map((summary) => summary.id),
+			'namzu.runtime.actual': calls.map((call) => call.id),
+		})
+		return null
+	}
+	const asked = shownCalls as ToolCall[]
+	const denials = derivePartialDenials(asked, decision)
+	if (!denials) return null
+	const declines = derivePartialDeclines(asked, decision, shown)
+	return {
+		source: 'decision',
+		checkpointId: checkpoint.id,
+		assistant,
+		response: synthesizeResponse(assistant),
+		denials,
+		...(declines ? { declines } : {}),
+		reviewedCalls: shown,
+		modifiedCallIds: new Set(),
+		partial: true,
+		...((decision.action === 'approve_tools' || decision.action === 'modify_tools') &&
+		decision.confirmedEscalations
+			? { confirmedEscalations: decision.confirmedEscalations }
+			: {}),
+	}
+}
+
+/**
+ * The same reading of a decision the live per-call review makes: nothing the
+ * decision does not name is approved, and an edit is not offered.
+ */
+function derivePartialDenials(
+	asked: readonly ToolCall[],
+	decision: HITLResumeDecision,
+): ToolCallDenials | null {
+	switch (decision.action) {
+		case 'approve_tools':
+		case 'continue':
+			return new Map()
+		case 'reject_tools': {
+			const reason = decision.feedback || DECLINED_TOOL_CALL_FEEDBACK
+			return new Map(asked.map((call) => [call.id, reason]))
+		}
+		case 'modify_tools': {
+			const denials = new Map<string, string>()
+			for (const call of asked) {
+				const mods = decision.modifications.filter((mod) => mod.toolCallId === call.id)
+				if (mods.some((mod) => mod.action === 'deny'))
+					denials.set(call.id, DECLINED_TOOL_CALL_FEEDBACK)
+				else if (!mods.some((mod) => mod.action === 'approve')) {
+					denials.set(
+						call.id,
+						'No answer was given for this call, so it was not run. Ask again if it is still needed.',
+					)
+				}
+			}
+			return denials
+		}
+		default:
+			return null
+	}
+}
+
+function derivePartialDeclines(
+	asked: readonly ToolCall[],
+	decision: HITLResumeDecision,
+	shown: readonly ToolCallSummary[],
+): ToolCallDeclines | undefined {
+	const gateDenied = new Set(
+		shown.filter((call) => call.authorization?.decision === 'deny').map((call) => call.id),
+	)
+	if (decision.action === 'reject_tools' && decision.declined) {
+		const declined = decision.declined
+		const calls = asked.filter((call) => !gateDenied.has(call.id))
+		return calls.length > 0 ? new Map(calls.map((call) => [call.id, declined])) : undefined
+	}
+	if (decision.action === 'modify_tools') {
+		const denied = asked.filter(
+			(call) =>
+				!gateDenied.has(call.id) &&
+				decision.modifications.some((mod) => mod.toolCallId === call.id && mod.action === 'deny'),
+		)
+		if (denied.length > 0) return new Map(denied.map((call) => [call.id, {}]))
+	}
+	return undefined
 }
 
 /**
@@ -431,6 +552,16 @@ export async function applyPendingResume(
 ): Promise<ToolExecutionBatch> {
 	const denials = new Map(plan.denials)
 	const reviewedById = new Map(plan.reviewedCalls?.map((call) => [call.id, call]))
+
+	// A decision about some calls is not a decision about the rest. A call that
+	// already ran is answered from the record (`prior`); one that had not run and
+	// was not asked about is not run, and the model is told so.
+	if (plan.partial) {
+		for (const call of plan.response.message.toolCalls ?? []) {
+			if (prior?.has(call.id) || reviewedById.has(call.id) || denials.has(call.id)) continue
+			denials.set(call.id, NOT_RUN_BEFORE_RESTART)
+		}
+	}
 
 	// A gate denial belongs to the turn, not to the process that first evaluated
 	// it. Restore it before preparation so denied calls do not even reach a
