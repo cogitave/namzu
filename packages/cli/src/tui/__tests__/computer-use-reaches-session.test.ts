@@ -265,9 +265,9 @@ async function createSession(
 }
 
 describe('computer use session reachability', () => {
-	it('routes an existing Brave window to computer_use only when both tools are ready', async () => {
+	it('routes an existing browser window to computer_use only when both tools are ready', async () => {
 		const both = await createSession(true, 'anthropic', true)
-		for await (const _ of both.send([{ role: 'user', content: 'my open Brave window' } as never])) {
+		for await (const _ of both.send([{ role: 'user', content: 'my open browser window' } as never])) {
 			// drain into the mocked query boundary
 		}
 		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))
@@ -278,7 +278,7 @@ describe('computer use session reachability', () => {
 		desktop.failInitialize = true
 		const unavailable = await createSession(true, 'anthropic', true)
 		for await (const _ of unavailable.send([
-			{ role: 'user', content: 'my open Brave window' } as never,
+			{ role: 'user', content: 'my open browser window' } as never,
 		])) {
 			// drain into the mocked query boundary
 		}
@@ -290,7 +290,7 @@ describe('computer use session reachability', () => {
 		desktop.windowDiscovery = false
 		const missingWindowDiscovery = await createSession(true, 'anthropic', true)
 		for await (const _ of missingWindowDiscovery.send([
-			{ role: 'user', content: 'my open Brave window' } as never,
+			{ role: 'user', content: 'my open browser window' } as never,
 		])) {
 			// drain into the mocked query boundary
 		}
@@ -301,7 +301,7 @@ describe('computer use session reachability', () => {
 		desktop.windowMethods = false
 		const missingWindowMethods = await createSession(true, 'anthropic', true)
 		for await (const _ of missingWindowMethods.send([
-			{ role: 'user', content: 'my open Brave window' } as never,
+			{ role: 'user', content: 'my open browser window' } as never,
 		])) {
 			// drain into the mocked query boundary
 		}
@@ -310,7 +310,7 @@ describe('computer use session reachability', () => {
 		querySystemPrompt = ''
 		const browserOnly = await createSession(false, 'anthropic', true)
 		for await (const _ of browserOnly.send([
-			{ role: 'user', content: 'my open Brave window' } as never,
+			{ role: 'user', content: 'my open browser window' } as never,
 		])) {
 			// drain into the mocked query boundary
 		}

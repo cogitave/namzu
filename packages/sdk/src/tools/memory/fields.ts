@@ -9,7 +9,7 @@ export const memoryFieldsSchema = {
 		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
 		.optional()
 		.describe(
-			'Unique kebab-case slug, e.g. "deploys-need-a-changeset"; other memories link to it as [[name]]',
+			'Unique kebab-case slug, e.g. "prefers-short-answers"; other memories link to it as [[name]]',
 		),
 	description: z
 		.string()
