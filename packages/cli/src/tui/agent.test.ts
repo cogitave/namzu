@@ -272,6 +272,8 @@ describe('toAgentEvent', () => {
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
 			command: 'ls -la /tmp',
+			// A listing only looks, so it folds into the counted line.
+			fold: { kind: 'list', hint: '$ ls -la /tmp' },
 		})
 	})
 
@@ -890,7 +892,7 @@ describe('the rows under a tool call', () => {
 				sessionId,
 				turnId,
 				toolUseId,
-				toolName: 'read',
+				toolName: 'stat_file',
 				isError: true,
 				result: 'ENOENT',
 				facts: { kind: 'failure', reason: 'not_found', subject: '/work/proj/missing-file.txt' },
@@ -899,7 +901,25 @@ describe('the rows under a tool call', () => {
 			undefined,
 			'/work/proj',
 		)
-		expect(event).toMatchObject({ plainFailure: 'Couldn’t find missing-file.txt.' })
+		// A tool with no label of its own shows its message, not a sentence.
+		expect((event as { plainFailure?: string }).plainFailure).toBeUndefined()
+	})
+
+	it('reads a call whose arguments did not fit as "Invalid tool parameters", whatever the tool', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'read',
+				isError: true,
+				result: 'Error: Tool "read" was called with no arguments. Required: path',
+				facts: { kind: 'failure', reason: 'invalid_arguments' },
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect((event as { plainFailure?: string }).plainFailure).toBe('Invalid tool parameters')
 	})
 
 	it('renders creation diffs without a phantom final line', () => {

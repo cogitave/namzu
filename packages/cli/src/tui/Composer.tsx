@@ -4,7 +4,7 @@
  *
  * Keys: Enter submits/steers (or runs the highlighted command while the
  * autocomplete dropdown is open), tab completes that command or queues the
- * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
+ * draft, a second Esc clears (the first only offers it) / Esc closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
  * Ctrl+G edits the draft in VISUAL/EDITOR, Alt+Up recalls the latest queued
  * message into an empty composer, Backspace deletes, Alt+W drops or
@@ -26,6 +26,7 @@ import {
 import { fitHints } from './key-hints.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
+import type { Notice } from './notifications.js'
 import {
 	attachmentChip,
 	chipBefore,
@@ -58,6 +59,15 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
+
+/** The footer notice that offers the second Esc. */
+const ESC_CLEAR_KEY = 'escape-again-to-clear'
+/** The second Esc clears inside this window. */
+export const ESC_CLEAR_WINDOW_MS = 800
+/** The notice outlives the window by 200 ms: a press in between only arms again. */
+export const ESC_CLEAR_NOTICE_MS = 1000
+/** A second Esc on an empty composer within this long opens the rewind picker. */
+export const REWIND_DOUBLE_ESC_MS = 800
 
 export interface ComposerProps {
 	readonly disabled?: boolean
@@ -109,11 +119,16 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/** Put a passing notice in the footer's slot / take it back out (`notifications.ts`). */
+	readonly onFooterNotice?: (notice: Notice) => void
+	readonly onFooterNoticeRemove?: (key: string) => void
+	/** The second Esc threw a typed draft away: hand its text over so Up can bring it back. */
+	readonly onClearedDraft?: (text: string) => void
 	/** Step through the active model's published reasoning menu. */
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
 	readonly onExternalEdit?: (seed: string) => Promise<string>
-	/** Empty-composer Esc ×2 asks App to select a durable prompt to edit. */
+	/** Empty-composer Esc ×2 (inside REWIND_DOUBLE_ESC_MS) asks App to open the rewind picker. */
 	readonly onEditPrevious?: () => void
 	/** One-shot prompt restored after App has created a source-preserving fork. */
 	readonly draftToRestore?: ComposerDraft | null
@@ -581,6 +596,9 @@ export function Composer({
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
+	onFooterNotice,
+	onFooterNoticeRemove,
+	onClearedDraft,
 	onStepReasoningEffort,
 	onExternalEdit,
 	onEditPrevious,
@@ -665,7 +683,33 @@ export function Composer({
 		},
 		[],
 	)
-	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
+	// The first Esc on an empty composer arms the rewind picker for a short
+	// window and shows nothing; a second Esc inside it opens the picker.
+	const editPreviousTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const setEditPreviousArmed = useCallback((armed: boolean) => {
+		if (editPreviousTimerRef.current) clearTimeout(editPreviousTimerRef.current)
+		editPreviousTimerRef.current = armed
+			? setTimeout(() => {
+					editPreviousTimerRef.current = null
+				}, REWIND_DOUBLE_ESC_MS)
+			: null
+	}, [])
+	/** The first Esc on a typed draft waits this long for the second, which clears it. */
+	const clearArmRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	/** End the clear window and take its notice down; does nothing when it is not open. */
+	const disarmClear = useCallback(() => {
+		if (clearArmRef.current === null) return
+		clearTimeout(clearArmRef.current)
+		clearArmRef.current = null
+		onFooterNoticeRemove?.(ESC_CLEAR_KEY)
+	}, [onFooterNoticeRemove])
+	useEffect(
+		() => () => {
+			if (editPreviousTimerRef.current) clearTimeout(editPreviousTimerRef.current)
+			if (clearArmRef.current !== null) clearTimeout(clearArmRef.current)
+		},
+		[],
+	)
 	const restoredTokenRef = useRef<number | null>(null)
 	const draftPresenceRef = useRef(false)
 	useEffect(() => {
@@ -843,6 +887,7 @@ export function Composer({
 		clearPastes,
 		replaceAttachments,
 		setBuffer,
+		setEditPreviousArmed,
 		setHistoryIndex,
 		setHistorySearch,
 		setSelectedIndex,
@@ -888,6 +933,7 @@ export function Composer({
 			clearPastes,
 			replaceAttachments,
 			setBuffer,
+			setEditPreviousArmed,
 			setHistoryIndex,
 			setHistorySearch,
 			setSelectedIndex,
@@ -917,6 +963,9 @@ export function Composer({
 			if (disabled || hidden) return
 			const normalized = text.replace(/\r\n?/g, '\n')
 			if (normalized.length === 0) return
+			// A paste is input like any other key: it ends both Esc windows.
+			if (editPreviousTimerRef.current) setEditPreviousArmed(false)
+			disarmClear()
 			const position = cursorRef.current
 			setSelectedIndex(0)
 			const inserted = isChipPaste(normalized, terminal.rows ?? 24)
@@ -1052,7 +1101,12 @@ export function Composer({
 				onStepReasoningEffort('raise')
 				return
 			}
-			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
+			// Any other key ends both Esc windows: a second Esc after typing, deleting or
+			// moving the cursor is a first press again, never the end of the earlier one.
+			if (!key.escape) {
+				if (editPreviousTimerRef.current) setEditPreviousArmed(false)
+				disarmClear()
+			}
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const pastes = pasteStoreRef.current
 				// Chips become the words they stand for; image chips go, the image travels beside.
@@ -1168,13 +1222,36 @@ export function Composer({
 				}
 				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
 				if (empty && onEditPrevious) {
-					if (editPreviousArmed) {
+					if (editPreviousTimerRef.current) {
 						setEditPreviousArmed(false)
 						onEditPrevious()
 					} else setEditPreviousArmed(true)
 					return
 				}
-				reset()
+				if (empty) return
+				// One Esc on a typed draft only says how to clear it: a stray key
+				// should not throw the text away. The second inside the window does.
+				if (clearArmRef.current !== null) {
+					clearTimeout(clearArmRef.current)
+					clearArmRef.current = null
+					onFooterNoticeRemove?.(ESC_CLEAR_KEY)
+					// A cleared draft stays recallable, like a submitted line.
+					const cleared = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+					if (cleared.trim().length > 0) onClearedDraft?.(cleared)
+					reset()
+					return
+				}
+				const timer = setTimeout(() => {
+					clearArmRef.current = null
+				}, ESC_CLEAR_WINDOW_MS)
+				timer.unref?.()
+				clearArmRef.current = timer
+				onFooterNotice?.({
+					key: ESC_CLEAR_KEY,
+					text: 'Esc again to clear',
+					priority: 'immediate',
+					timeoutMs: ESC_CLEAR_NOTICE_MS,
+				})
 				return
 			}
 			if (key.backspace && (key.meta || key.ctrl)) {
@@ -1510,10 +1587,7 @@ export function Composer({
 	// plain placeholder takes over. The decision is made while rendering, so the
 	// frame that first shows the placeholder already has the right words in it.
 	const queuedHintWanted =
-		(!disabled || railFocused) &&
-		value.length === 0 &&
-		!editPreviousArmed &&
-		queuedEdit?.available === true
+		(!disabled || railFocused) && value.length === 0 && queuedEdit?.available === true
 	const settledEpisode = nextQueuedHintEpisode(queuedHintEpisode, queuedHintWanted)
 	if (settledEpisode !== queuedHintEpisode) setQueuedHintEpisode(settledEpisode)
 	useEffect(() => {
@@ -1548,7 +1622,7 @@ export function Composer({
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
 	const promptGlyph = disabled && !railFocused ? '…' : '❯'
-	const showPlaceholder = (!disabled || railFocused) && value.length === 0 && !editPreviousArmed
+	const showPlaceholder = (!disabled || railFocused) && value.length === 0
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)
 		: null
@@ -1589,8 +1663,6 @@ export function Composer({
 						<Text color={theme.text.muted}>
 							{settledEpisode.active && settledEpisode.show ? QUEUED_HINT : placeholder}
 						</Text>
-					) : editPreviousArmed ? (
-						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
 							{displayValue.leadingEllipsis ? '… ' : ''}

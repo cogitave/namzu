@@ -176,6 +176,19 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/** Look again after each turn of the event loop; setImmediate is not faked. */
+async function framesShowOnFakeClock(
+	harness: { readonly frames: readonly string[] },
+	text: string,
+): Promise<void> {
+	const expected = text.replace(/\s+/g, ' ')
+	for (let turn = 0; turn < 2_000; turn++) {
+		if (harness.frames.some((f) => f.replace(/\s+/g, ' ').includes(expected))) return
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(harness.frames.at(-1), `never showed: ${text}`).toContain(text)
+}
+
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
@@ -210,10 +223,35 @@ async function mountSource() {
 }
 
 async function openEditor(harness: Awaited<ReturnType<typeof mountSource>>) {
-	harness.stdin.write('\x1B')
-	await frameShows(harness, 'Press Esc again to edit a previous prompt')
-	harness.stdin.write('\x1B')
-	await frameShows(harness, 'Edit a previous prompt in a new branch')
+	// The second Esc counts only inside an 800 ms window, so the two presses are
+	// spaced on a fake clock: 50 ms apart whatever the host is doing. The terminal
+	// parser holds a lone Esc back on a timer, which the same clock moves.
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+	try {
+		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
+		expect(harness.lastFrame()).not.toContain('Press Esc again')
+		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
+		await framesShowOnFakeClock(harness, 'to the point before')
+	} finally {
+		vi.useRealTimers()
+	}
+	// It opens on the present, the last row.
+	expect(harness.lastFrame()).toContain('(current)')
+}
+
+/** Choose the prompt `ups` rows above the present, then the first option. */
+async function chooseRestoreConversation(
+	harness: Awaited<ReturnType<typeof mountSource>>,
+	ups: number,
+) {
+	for (let i = 0; i < ups; i++) harness.stdin.write('\x1B[A')
+	await tick()
+	harness.stdin.write('\r')
+	await frameShows(harness, 'Confirm you want to restore the conversation')
+	await frameShows(harness, 'The conversation will be forked.')
+	harness.stdin.write('\r')
 }
 
 it('forks before the selection, restores every attachment, and never mutates the source', async () => {
@@ -221,7 +259,7 @@ it('forks before the selection, restores every attachment, and never mutates the
 	await openEditor(harness)
 	expect(harness.lastFrame()).toContain('selected prompt')
 
-	harness.stdin.write('\r')
+	await chooseRestoreConversation(harness, 1)
 	await frameShows(harness, 'Forked into "Source conversation (fork)"')
 	await frameShows(harness, 'selected prompt')
 	await frameShows(harness, '[Document #2]')
@@ -258,11 +296,9 @@ it('steps toward older prompts with arrows and permits an empty-prefix branch', 
 	const harness = await mountSource()
 	await openEditor(harness)
 
-	// The picker opens on the latest prompt. Arrows navigate; Esc cancels.
-	harness.stdin.write('\x1B[D')
-	await frameShows(harness, '1/2')
+	// The picker opens on the present. Arrows navigate; Esc cancels.
 	expect(harness.lastFrame()).toContain('first prompt')
-	harness.stdin.write('\r')
+	await chooseRestoreConversation(harness, 2)
 	await frameShows(harness, 'Forked into "Source conversation (fork)"')
 	await frameShows(harness, 'first prompt')
 

@@ -262,9 +262,29 @@ afterEach(async () => {
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
-	timeoutMs?: number,
+	// Generous on purpose: this waits on a rendered App and the suite shares a
+	// loaded host, so the default one second can lapse with nothing broken (kept under
+	// the 15 s test timeout so a failure names the missing text). A real
+	// hang still ends at this bound.
+	timeoutMs = 12_000,
 ): Promise<void> {
 	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text), timeoutMs)
+}
+
+// The error row paints a render before the composer takes input again; wait
+// until the screen has stopped producing frames (by event-loop turns, not by
+// a clock) so the next keystroke is not typed into the gap.
+async function renderSettled(harness: { readonly frames: readonly string[] }): Promise<void> {
+	let stable = 0
+	let seen = harness.frames.length
+	while (stable < 10) {
+		await new Promise((resolve) => setImmediate(resolve))
+		if (harness.frames.length === seen) stable++
+		else {
+			seen = harness.frames.length
+			stable = 0
+		}
+	}
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
@@ -312,22 +332,25 @@ it('puts the compacted summary in the next model request and the durable convers
 	await submit(harness, '/compact')
 	await waitUntil(() => replaceEntered === 1)
 	await submit(harness, 'input while the compaction snapshot is owned')
-	await tick(80)
-	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
 	releaseReplacement()
 	await frameShows(harness, 'Compacted')
+	// A turn started while the snapshot was owned would already have been sent.
+	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
 
 	expect(replacements, 'the durable conversation was not compacted').toHaveLength(1)
 	expect(replacements[0]?.some((message) => message.content === SUMMARY_TEXT)).toBe(true)
 	expect(replacements[0]?.find((message) => message.content === SUMMARY_TEXT)?.retain).toBe(true)
 
-	await tick(80)
-	expect(sent, 'input queued while compaction owned the history snapshot').toHaveLength(1)
-
 	await submit(harness, 'question after compaction')
 	await frameShows(harness, 'answer-2')
 
-	expect(sent, 'the second turn never ran').toHaveLength(2)
+	// Exactly two requests: input typed during the compaction was neither run
+	// nor queued behind it.
+	expect(sent, 'the second turn never ran, or a stray one did').toHaveLength(2)
+	expect(
+		sent[1]?.at(-1)?.content,
+		'the second request was not the question asked after the compaction',
+	).toBe('question after compaction')
 	expect(
 		sent[1]?.some((message) => message.role === 'system' && message.content === SUMMARY_TEXT),
 		'the compaction summary never reached the next model request',
@@ -502,6 +525,7 @@ it('keeps the original conversation on screen and in the next turn when retentio
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
 	await frameShows(harness, 'Couldn’t summarise the conversation.')
+	await renderSettled(harness)
 	expect(replacements).toHaveLength(0)
 	await submit(harness, 'Continue')
 	await frameShows(harness, 'answer-2')
@@ -519,6 +543,7 @@ it('keeps the live history unchanged when its durable replacement fails', async 
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
 	await frameShows(harness, 'Couldn’t summarise the conversation.')
+	await renderSettled(harness)
 
 	await submit(harness, 'question after failed compaction')
 	await frameShows(harness, 'answer-2')
@@ -559,10 +584,8 @@ it('refuses to compact a turn that is still producing its next message', async (
 	await submit(harness, 'a running question')
 	await waitUntil(() => sent.length === 1)
 	await submit(harness, '/compact')
-	await tick(80)
-
+	await frameShows(harness, 'A reply is still running')
 	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(
 		0,
 	)
-	await frameShows(harness, 'A reply is still running')
 })

@@ -13,7 +13,7 @@
  * compacted, and nothing else may borrow it.
  */
 
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 
 /** How much a system row asks of the reader. */
 export type SystemLevel = 'notice' | 'warning' | 'error'
@@ -31,6 +31,11 @@ export const RESULT_GUTTER_INDENT = 2
 /** Width of the `⎿` plus the two spaces after it. */
 export const RESULT_GUTTER_WIDTH = 3
 
+/** The gutter glyph of the away recap row. It belongs to that row only. */
+export const RECAP_GLYPH = '※'
+/** The label before the text of an away recap. */
+export const RECAP_LABEL = 'recap:'
+
 /** The gutter glyph of the reply-closing line and of the compaction line. */
 export const CLOSING_GLYPH = '✻'
 
@@ -43,11 +48,11 @@ export interface SystemRowStyle {
 export function systemRowStyle(level: SystemLevel): SystemRowStyle {
 	switch (level) {
 		case 'warning':
-			return { glyph: SYSTEM_ROW_GLYPH, color: theme.status.warn }
+			return { glyph: SYSTEM_ROW_GLYPH, color: tokenColor('status.warn') }
 		case 'error':
-			return { glyph: SYSTEM_ROW_GLYPH, color: theme.status.error }
+			return { glyph: SYSTEM_ROW_GLYPH, color: tokenColor('status.error') }
 		case 'notice':
-			return { glyph: SYSTEM_ROW_GLYPH, color: theme.text.muted }
+			return { glyph: SYSTEM_ROW_GLYPH, color: tokenColor('text.muted') }
 	}
 }
 
@@ -76,7 +81,7 @@ export function interruptionRow(options: {
 }): InterruptionRow {
 	const content = options.steered === true ? INTERRUPTED_BY_STEER_TEXT : INTERRUPTED_TEXT
 	return options.callRunning
-		? { content, glyph: CONTINUATION_GLYPH, color: theme.text.muted }
+		? { content, glyph: CONTINUATION_GLYPH, color: tokenColor('text.muted') }
 		: { content, ...systemRowStyle('notice') }
 }
 

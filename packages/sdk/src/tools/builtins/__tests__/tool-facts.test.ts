@@ -251,7 +251,7 @@ describe('edit and write', () => {
 		})
 	})
 
-	it('write over a file nobody read is an already_exists failure', async () => {
+	it('write over a file nobody read is a not_read failure', async () => {
 		const { dir, ctx } = project()
 		writeFileSync(join(dir, 'out.txt'), 'x')
 		const tracker = createFileReadTracker()
@@ -262,8 +262,52 @@ describe('edit and write', () => {
 		expect(result.success).toBe(false)
 		expect(result.facts).toMatchObject({
 			kind: 'failure',
-			reason: 'already_exists',
+			reason: 'not_read',
+			subject: join(dir, 'out.txt'),
 		})
+	})
+
+	it('edit on a file nobody read is a not_read failure', async () => {
+		const { dir, ctx } = project()
+		writeFileSync(join(dir, 'a.txt'), 'one\n')
+		const result = await EditTool.execute({ path: 'a.txt', old_string: 'one', new_string: 'two' }, {
+			...ctx,
+			fileReadTracker: createFileReadTracker(),
+		} as never)
+		expect(result.success).toBe(false)
+		expect(result.facts).toMatchObject({ kind: 'failure', reason: 'not_read' })
+	})
+
+	it('edit on a copy that moved is a changed_on_disk failure, and so is a write', async () => {
+		const { dir, ctx } = project()
+		const file = join(dir, 'b.txt')
+		writeFileSync(file, 'one\n')
+		const tracker = createFileReadTracker()
+		const withTracker = { ...ctx, fileReadTracker: tracker } as never
+		await ReadFileTool.execute({ path: 'b.txt' }, withTracker)
+		writeFileSync(file, 'something else\n')
+		const edited = await EditTool.execute(
+			{ path: 'b.txt', insertLine: 0, new_string: 'x' },
+			withTracker,
+		)
+		expect(edited.facts).toMatchObject({ kind: 'failure', reason: 'changed_on_disk' })
+		const written = await WriteFileTool.execute({ path: 'b.txt', content: 'y' }, withTracker)
+		expect(written.facts).toMatchObject({ kind: 'failure', reason: 'changed_on_disk' })
+	})
+
+	it('edit text that is missing or repeated says which', async () => {
+		const { dir, ctx } = project()
+		writeFileSync(join(dir, 'c.txt'), 'a\na\n')
+		const missing = await EditTool.execute(
+			{ path: 'c.txt', old_string: 'zzz', new_string: 'q' },
+			ctx as never,
+		)
+		expect(missing.facts).toMatchObject({ kind: 'failure', reason: 'text_not_found' })
+		const twice = await EditTool.execute(
+			{ path: 'c.txt', old_string: 'a', new_string: 'q' },
+			ctx as never,
+		)
+		expect(twice.facts).toMatchObject({ kind: 'failure', reason: 'not_unique' })
 	})
 })
 

@@ -1,12 +1,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
-import {
-	NAMZU_COMPACT_WORDMARK,
-	NAMZU_MARK_COLOR,
-	NAMZU_WORDMARK,
-	NAMZU_WORDMARK_MIN_WIDTH,
-} from './logo.js'
+import { NAMZU_COMPACT_WORDMARK, NAMZU_WORDMARK, NAMZU_WORDMARK_MIN_WIDTH } from './logo.js'
 import { displayPath } from './person-terms.js'
 import { wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -49,7 +44,7 @@ export function BrandHeader({ version, permissionMode, cwd }: BrandHeaderProps) 
 		<Box flexDirection="column" marginY={1}>
 			<Box flexDirection="row" alignItems="flex-start">
 				<Box flexShrink={0}>
-					<Text color={NAMZU_MARK_COLOR} bold>
+					<Text color={theme.accent.assistant} bold>
 						{wordmark}
 					</Text>
 				</Box>

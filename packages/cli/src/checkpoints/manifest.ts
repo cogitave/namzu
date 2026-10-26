@@ -52,6 +52,13 @@ export interface Manifest {
 	turnId: string
 	seq: number
 	label: string
+	/**
+	 * Zero-based position of the prompt that started this turn among the
+	 * conversation's user messages, so a rewind picker can say which turns
+	 * come at or after a chosen prompt. Absent on a history written before
+	 * the link was recorded.
+	 */
+	promptOrdinal?: number
 	startedAt: number
 	/** Last time an edit settled in this turn; retention counts from here. */
 	lastEditAt: number

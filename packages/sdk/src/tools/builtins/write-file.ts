@@ -210,7 +210,7 @@ function enforceReadBeforeOverwrite(
 		success: false,
 		output: '',
 		error: `${key} already exists. Use the \`read\` tool on it first in this conversation, then call \`write\` again — or prefer \`edit\` for a targeted change.`,
-		facts: { kind: 'failure', reason: 'already_exists', subject: key },
+		facts: { kind: 'failure', reason: 'not_read', subject: key },
 	}
 }
 
@@ -232,7 +232,12 @@ function enforceFreshOverwrite(
 		// so a reader that cannot touch the filesystem stops referencing this
 		// path. Optional on the interface; an older tracker keeps its behavior.
 		context.fileReadTracker?.recordDriftObserved?.(key)
-		return { success: false, output: '', error: staleFileError(key, 'write') }
+		return {
+			success: false,
+			output: '',
+			error: staleFileError(key, 'write'),
+			facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
+		}
 	}
 	return null
 }

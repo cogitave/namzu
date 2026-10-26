@@ -98,6 +98,7 @@ The kernel.
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.
 
 * [Token budgets](token-budgets.md) - One ledger per root turn, shared with its child sessions: accounting, durable reservations and explicit recovery boundaries.
+* [Prompt cache lifetime](prompt-cache-lifetime.md) - How a call reports the prompt cache's lifetime, the CacheClock that tracks when it lapses, and the provider option that picks it.
 
 * [Paired harness verification](harness-verification.md) - Trace-attributed comparison and fresh confirmation of harness candidates.
 * [Memory retrieval research](memory-research.md) - Source-backed retrieval gaps, admission fix and evaluation priorities.

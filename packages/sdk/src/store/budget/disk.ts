@@ -238,6 +238,9 @@ function usageAtLeast(current: TokenUsage | undefined, previous: TokenUsage | un
 	if (current === undefined) return false
 	return Object.entries(previous).every(
 		([field, amount]) =>
-			typeof amount !== 'number' || (current[field as keyof TokenUsage] ?? 0) >= amount,
+			typeof amount !== 'number' ||
+			field === 'cacheTtlMs' ||
+			// `cacheTtlMs` is a per-call lifetime, not a running count: it has no order.
+			((current as unknown as Record<string, number | undefined>)[field] ?? 0) >= amount,
 	)
 }

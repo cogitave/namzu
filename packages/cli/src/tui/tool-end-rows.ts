@@ -5,9 +5,10 @@ import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { type ProposedChange, proposedBody } from './diff-rows.js'
 import { spansText } from './diff-view.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
+import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 import { declinedLine } from './tidy-tool-output.js'
 import { firstLineOf, toolFailureText } from './tool-failure-text.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -33,6 +34,8 @@ export interface ToolEndStart {
 	readonly command?: string
 	readonly web?: WebActivity
 	readonly activity?: 'exploration'
+	/** The call only looks; it folds into a counted line with its neighbours. */
+	readonly fold?: FoldOp
 	/** What an edit or write asked for, drawn dimmed if the person refuses it. */
 	readonly proposed?: ProposedChange
 }
@@ -42,7 +45,15 @@ export type ToolRow = Pick<TranscriptMessage, 'role' | 'content'> &
 	Partial<
 		Pick<
 			TranscriptMessage,
-			'glyph' | 'glyphColor' | 'meta' | 'detail' | 'activity' | 'shell' | 'diff'
+			| 'glyph'
+			| 'glyphColor'
+			| 'contentColor'
+			| 'meta'
+			| 'detail'
+			| 'activity'
+			| 'shell'
+			| 'diff'
+			| 'group'
 		>
 	>
 
@@ -91,6 +102,59 @@ function failureBody(lines: readonly string[], folded?: readonly string[]): Shel
 	return { stdout: [], stderr: lines, failed: true, byLine: true, ...(folded ? { folded } : {}) }
 }
 
+/** What a start says the call is to the fold; a view that only says it explores counts as a read. */
+function foldOf(start: ToolEndStart | undefined): FoldOp | undefined {
+	if (start?.fold) return start.fold
+	return start?.activity === 'exploration' ? { kind: 'read', key: start.label } : undefined
+}
+
+/**
+ * The rows of a failed call that has no look of its own.
+ *
+ * A failure the kernel classed reads as one short sentence (dim when it is
+ * advice, red when it is a fault) with the tool's own message behind ctrl+o.
+ * Any other failure is the tool's message itself: `Error: <text>` in the error
+ * colour, ten lines, then how many more ctrl+o shows. A schema failure reads
+ * `Invalid tool parameters` until expanded.
+ */
+function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): readonly ToolRow[] {
+	const head: ToolRow = {
+		role: 'tool',
+		content: headOf(event, start),
+		glyph: '●',
+		glyphColor: tokenColor('status.error'),
+	}
+	// A result that carried no text says what the summary said.
+	const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
+	const full = toolFailureText(said, true).split('\n')
+	if (event.plainFailure !== undefined) {
+		return [
+			head,
+			{
+				role: 'tool',
+				content: event.plainFailure,
+				glyph: '⎿',
+				contentColor:
+					event.plainFailureTone === 'muted'
+						? tokenColor('text.muted')
+						: tokenColor('status.error'),
+				...(said !== undefined && said.trim().length > 0
+					? { detail: full, meta: EXPAND_HINT, activity: 'agent-result' as const }
+					: {}),
+			},
+		]
+	}
+	const text = toolFailureText(said, false)
+	const lines = text.split('\n')
+	return [
+		{
+			...head,
+			detail: full,
+			shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
+		},
+	]
+}
+
 /** The words a call is headed with when its start was never seen. */
 function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
@@ -103,26 +167,53 @@ export function toolEndRows(
 	ctx: ToolEndContext,
 ): ToolEndRows {
 	const rows = (list: readonly ToolRow[]): ToolEndRows => ({ kind: 'rows', rows: list })
-	if (!event.isError && start?.activity === 'exploration') {
+	const fold = foldOf(start)
+	if (!event.isError && !event.declined && fold) {
 		// Preserve the result, including the summary removed from detail by the adapter.
-		const output =
+		const raw =
 			event.output !== undefined
 				? event.output.split('\n')
 				: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
+		// A command that answered with its status and printed nothing reads as
+		// that answer in the detailed transcript, not as "(no output)".
+		const answer = event.shell?.note
+		const output =
+			answer !== undefined && raw.join('').trim().toLowerCase() === '(no output)' ? [answer] : raw
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		const headline = event.headline ?? start?.label ?? headOf(event, start)
 		return rows([
 			{
 				role: 'tool',
-				content: event.headline ?? start.label,
-				glyph: '⎿',
-				detail: output,
-				glyphColor: theme.text.muted,
-				...(output.length > 0 ? { meta: EXPAND_HINT } : {}),
+				content: groupText(state, false),
+				detail: [headline, ...output],
+				glyph: ' ',
+				glyphColor: tokenColor('text.muted'),
+				meta: EXPAND_HINT,
 				activity: 'exploration',
+				group: state,
+			},
+		])
+	}
+	if (event.isError && !event.declined && !event.cancelled && fold) {
+		// A look that failed stays in its counted line with the others; the line
+		// shows no error, and the detailed transcript shows the call with its error.
+		const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		return rows([
+			{
+				role: 'tool',
+				content: groupText(state, false),
+				detail: [start?.label ?? headOf(event, start), ...toolFailureText(said, true).split('\n')],
+				glyph: ' ',
+				glyphColor: tokenColor('text.muted'),
+				meta: EXPAND_HINT,
+				activity: 'exploration',
+				group: state,
 			},
 		])
 	}
 	const web = event.web ?? start?.web
-	if (web) {
+	if (web && !event.isError) {
 		// Two rows, the call and what it came to, drawn as `web` activity:
 		// consecutive ones sit together and the result list stays behind
 		// Ctrl+O.
@@ -140,19 +231,17 @@ export function toolEndRows(
 				role: 'tool',
 				content: webCallTitle(activity),
 				glyph: '●',
-				glyphColor: event.isError ? theme.status.error : theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				activity: 'web',
 			},
 			{
 				role: 'tool',
-				content: event.isError
-					? `failed: ${event.summary}`
-					: webSettledLine(activity, {
-							...(durationMs !== undefined ? { durationMs } : {}),
-							...(activity.kind === 'fetch' && output !== undefined
-								? { bytes: Buffer.byteLength(output, 'utf8') }
-								: {}),
-						}),
+				content: webSettledLine(activity, {
+					...(durationMs !== undefined ? { durationMs } : {}),
+					...(activity.kind === 'fetch' && output !== undefined
+						? { bytes: Buffer.byteLength(output, 'utf8') }
+						: {}),
+				}),
 				glyph: '⎿',
 				...(outputLines ? { detail: outputLines } : {}),
 				...(outputLines && outputLines.length > 0 ? { meta: EXPAND_HINT } : {}),
@@ -160,26 +249,26 @@ export function toolEndRows(
 			},
 		])
 	}
-	if (isTaskTool(event.toolName)) {
+	if (isTaskTool(event.toolName) && !event.isError) {
 		// The task event already wrote the block. A listing refreshes it
 		// while there is a plan to show; with none it keeps its own row.
-		if (!event.isError && event.toolName !== 'task_list') return { kind: 'none' }
-		if (!event.isError && ctx.hasPlan) return { kind: 'task-block' }
+		if (event.toolName !== 'task_list') return { kind: 'none' }
+		if (ctx.hasPlan) return { kind: 'task-block' }
 		// Its own row, in words: the call's label, and the result's
 		// label rather than the model's receipt, which names ids.
-		const said = event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
+		const said = event.resultLabel ?? ''
 		return rows([
 			{
 				role: 'tool',
 				content: start?.label ?? formatToolCall(event.toolName, event.summary, true),
 				glyph: '●',
-				glyphColor: event.isError ? theme.status.error : theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 			},
 			...(said.length > 0
 				? [
 						{
 							role: 'tool' as const,
-							content: event.isError ? `failed: ${said}` : said,
+							content: said,
 							glyph: '⎿',
 						},
 					]
@@ -196,7 +285,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.text.muted,
+				glyphColor: tokenColor('text.muted'),
 			},
 			{
 				role: 'tool',
@@ -213,7 +302,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.text.muted,
+				glyphColor: tokenColor('text.muted'),
 				...(settledElapsed(event.durationMs) !== undefined
 					? { meta: settledElapsed(event.durationMs) }
 					: {}),
@@ -234,7 +323,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.accent.assistant,
+				glyphColor: tokenColor('accent.assistant'),
 			},
 			{ role: 'tool', content: WORKFLOW_BACKGROUND_NOTE, glyph: '⎿' },
 		])
@@ -248,7 +337,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.status.error,
+				glyphColor: tokenColor('status.error'),
 				detail: said,
 				shell: failureBody(said),
 			},
@@ -265,7 +354,7 @@ export function toolEndRows(
 				role: 'tool',
 				content: headOf(event, start),
 				glyph: '●',
-				glyphColor: theme.status.error,
+				glyphColor: tokenColor('status.error'),
 				detail: full,
 				shell: failureBody(full, text !== full.join('\n') ? lines : undefined),
 			},
@@ -282,7 +371,7 @@ export function toolEndRows(
 				content: catalogue,
 				glyph: '●',
 				detail: event.output?.split('\n'),
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				meta: EXPAND_HINT,
 				activity: 'catalogue',
 			},
@@ -299,7 +388,7 @@ export function toolEndRows(
 				content: evidence.content,
 				glyph: '●',
 				detail: evidence.detail,
-				glyphColor: theme.status.ok,
+				glyphColor: tokenColor('status.ok'),
 				meta: EXPAND_HINT,
 				activity: 'evidence',
 			},
@@ -326,11 +415,12 @@ export function toolEndRows(
 				content: header,
 				glyph: '●',
 				detail: [...settled.stdout, ...settled.stderr],
-				glyphColor: failed ? theme.status.error : theme.status.ok,
+				glyphColor: failed ? tokenColor('status.error') : tokenColor('status.ok'),
 				shell: full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
 			},
 		])
 	}
+	if (event.isError) return rows(failedCallRows(event, start))
 	const elapsed = settledElapsed(event.durationMs ?? ctx.elapsedMs)
 	const list: ToolRow[] = [
 		{
@@ -339,21 +429,14 @@ export function toolEndRows(
 			glyph: '●',
 			// The change to a file is drawn once, under its result.
 			detail: event.diff ? undefined : start?.detail,
-			glyphColor: event.isError ? theme.status.error : theme.status.ok,
+			glyphColor: tokenColor('status.ok'),
 			...(elapsed !== undefined ? { meta: elapsed } : {}),
 		},
 	]
-	if (
-		event.isError ||
-		(!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0))
-	) {
+	if (!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0)) {
 		list.push({
 			role: 'tool',
-			content: event.isError
-				? (event.plainFailure ?? `failed: ${withoutErrorName(event.summary)}`)
-				: event.diff?.summary
-					? spansText(event.diff.summary)
-					: event.summary,
+			content: event.diff?.summary ? spansText(event.diff.summary) : event.summary,
 			glyph: '⎿',
 			detail: event.detail,
 			...(event.diff ? { diff: event.diff } : {}),

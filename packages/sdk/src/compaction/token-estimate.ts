@@ -52,6 +52,11 @@ export function estimateMessageTokens(message: Message): number {
 	return Math.ceil(chars / CHARS_PER_TOKEN) + rich
 }
 
+/** Tokens in a piece of text by the same characters-per-token approximation. */
+export function estimateTextTokens(text: string): number {
+	return Math.ceil(text.length / CHARS_PER_TOKEN)
+}
+
 export function estimateMessagesTokens(messages: readonly Message[]): number {
 	return messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
 }

@@ -79,6 +79,11 @@ export const TokenUsageSchema = z
 		cachedTokens: count,
 		cacheWriteTokens: count,
 		reasoningTokens: count.optional(),
+		cacheTtlMs: count.optional(),
+		cacheWriteTtlTokens: z
+			.object({ fiveMin: count.optional(), oneHour: count.optional() })
+			.strict()
+			.optional(),
 	})
 	.strict()
 

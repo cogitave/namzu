@@ -93,7 +93,17 @@ function detectClaudeCodeVersion(): string {
  */
 interface AnthropicCacheControl {
 	type: 'ephemeral'
+	/** Omitted for the service default (5 minutes). */
+	ttl?: '1h'
 }
+
+/** The marker for one breakpoint. One lifetime is applied across the request. */
+function cacheMarker(ttl: '5m' | '1h' | undefined): AnthropicCacheControl {
+	return ttl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
+}
+
+const FIVE_MINUTES_MS = 300_000
+const ONE_HOUR_MS = 3_600_000
 
 interface AnthropicTextBlock {
 	type: 'text'
@@ -220,6 +230,7 @@ interface AnthropicMessageParam {
 function extractSystem(
 	messages: ChatCompletionParams['messages'],
 	cachingEnabled: boolean,
+	ttl?: '5m' | '1h',
 ): AnthropicTextBlock[] | undefined {
 	const blocks: AnthropicTextBlock[] = []
 	let lastCacheTagged: AnthropicTextBlock | undefined
@@ -232,7 +243,7 @@ function extractSystem(
 	}
 	if (blocks.length === 0) return undefined
 	if (cachingEnabled && lastCacheTagged) {
-		lastCacheTagged.cache_control = { type: 'ephemeral' }
+		lastCacheTagged.cache_control = cacheMarker(ttl)
 	}
 	return blocks
 }
@@ -548,6 +559,7 @@ function toAnthropicTools(
 	params: ChatCompletionParams,
 	cachingEnabled: boolean,
 	strictToolUseEnabled: boolean,
+	ttl?: '5m' | '1h',
 ): AnthropicToolParam[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
 	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
@@ -581,7 +593,7 @@ function toAnthropicTools(
 		// the cache prefix, so this caches every tool schema even when the
 		// system/message breakpoints downstream get invalidated.
 		const tail = tools[tools.length - 1]
-		if (tail) tail.cache_control = { type: 'ephemeral' }
+		if (tail) tail.cache_control = cacheMarker(ttl)
 	}
 	return tools
 }
@@ -674,7 +686,11 @@ function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): un
  * context, or the last message when no such context is present. A breakpoint
  * after changing context would include a suffix the next request replaces.
  */
-function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[], cacheEnd: number): void {
+function applyMessageCacheBreakpoint(
+	messages: AnthropicMessageParam[],
+	cacheEnd: number,
+	ttl?: '5m' | '1h',
+): void {
 	for (let i = cacheEnd - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (!msg) continue
@@ -684,14 +700,14 @@ function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[], cacheEnd
 				{
 					type: 'text',
 					text: msg.content,
-					cache_control: { type: 'ephemeral' },
+					cache_control: cacheMarker(ttl),
 				},
 			]
 			return
 		}
 		if (msg.content.length > 0) {
 			const last = msg.content[msg.content.length - 1]
-			if (last) last.cache_control = { type: 'ephemeral' }
+			if (last) last.cache_control = cacheMarker(ttl)
 			return
 		}
 	}
@@ -706,6 +722,11 @@ interface RawAnthropicUsage {
 	output_tokens?: number
 	cache_read_input_tokens?: number | null
 	cache_creation_input_tokens?: number | null
+	/** Cache-write tokens by lifetime, when the service breaks them down. */
+	cache_creation?: {
+		ephemeral_5m_input_tokens?: number | null
+		ephemeral_1h_input_tokens?: number | null
+	} | null
 	/**
 	 * Reasoning share of the output, when the vendor reports it.
 	 *
@@ -727,8 +748,25 @@ function emptyUsage(): TokenUsage {
 	}
 }
 
-function parseUsage(raw?: RawAnthropicUsage): TokenUsage {
+/**
+ * `requestedTtl` is the lifetime this request asked for; it stands in only when
+ * the response carries no per-lifetime breakdown. The breakdown wins because
+ * the service may write a shorter-lived entry than the one asked for.
+ */
+function parseUsage(raw?: RawAnthropicUsage, requestedTtl?: '5m' | '1h'): TokenUsage {
 	if (!raw) return emptyUsage()
+	const written5m = raw.cache_creation?.ephemeral_5m_input_tokens ?? 0
+	const written1h = raw.cache_creation?.ephemeral_1h_input_tokens ?? 0
+	const cacheTtlMs =
+		written1h > 0
+			? ONE_HOUR_MS
+			: written5m > 0
+				? FIVE_MINUTES_MS
+				: requestedTtl === undefined
+					? undefined
+					: requestedTtl === '1h'
+						? ONE_HOUR_MS
+						: FIVE_MINUTES_MS
 	const input = raw.input_tokens ?? 0
 	const output = raw.output_tokens ?? 0
 	const thinking = raw.output_tokens_details?.thinking_tokens
@@ -742,6 +780,15 @@ function parseUsage(raw?: RawAnthropicUsage): TokenUsage {
 		// thinking" about every turn on every driver that stays silent, and
 		// about every streamed event before the last one.
 		...(thinking !== undefined ? { reasoningTokens: thinking } : {}),
+		...(cacheTtlMs !== undefined ? { cacheTtlMs } : {}),
+		...(raw.cache_creation
+			? {
+					cacheWriteTtlTokens: {
+						...(written5m > 0 ? { fiveMin: written5m } : {}),
+						...(written1h > 0 ? { oneHour: written1h } : {}),
+					},
+				}
+			: {}),
 	}
 }
 
@@ -900,6 +947,7 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: true,
 	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
+	cacheTtl: ['5m', '1h'],
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -975,6 +1023,16 @@ export class AnthropicProvider implements LLMProvider {
 		)
 	}
 
+	/**
+	 * The lifetime this request asks the cache for: the call's own choice, else
+	 * the configured default, else none (the service's 5 minutes). Undefined when
+	 * the call does not cache at all, so no lifetime is claimed for it.
+	 */
+	private cacheTtlFor(params: ChatCompletionParams): '5m' | '1h' | undefined {
+		if (params.cacheControl === undefined) return undefined
+		return params.cacheControl.ttl ?? this.config.promptCacheTtl ?? '5m'
+	}
+
 	private buildCreateParams(
 		params: ChatCompletionParams,
 		stream: boolean,
@@ -985,15 +1043,17 @@ export class AnthropicProvider implements LLMProvider {
 		// is tools → system → messages, so each later breakpoint covers all
 		// earlier sections too).
 		const cachingEnabled = params.cacheControl !== undefined
+		const cacheTtl = this.cacheTtlFor(params)
 		const model = this.resolveModel(params)
 		const providerRoute = resolveAnthropicRoute(model, params.providerRoute)
-		const system = extractSystem(params.messages, cachingEnabled)
+		const system = extractSystem(params.messages, cachingEnabled, cacheTtl)
 		const { messages, cacheEnd } = toAnthropicMessages(params.messages, providerRoute)
-		if (cachingEnabled) applyMessageCacheBreakpoint(messages, cacheEnd)
+		if (cachingEnabled) applyMessageCacheBreakpoint(messages, cacheEnd, cacheTtl)
 		const tools = toAnthropicTools(
 			params,
 			cachingEnabled,
 			shouldUseStrictToolInputs(model, this.config.strictToolUse),
+			cacheTtl,
 		)
 		const toolChoice = toAnthropicToolChoice(params.toolChoice, params.parallelToolCalls)
 
@@ -1219,7 +1279,7 @@ export class AnthropicProvider implements LLMProvider {
 								yield {
 									id: messageId,
 									delta: {},
-									usage: parseUsage(event.message.usage),
+									usage: parseUsage(event.message.usage, this.cacheTtlFor(params)),
 								}
 							}
 							break

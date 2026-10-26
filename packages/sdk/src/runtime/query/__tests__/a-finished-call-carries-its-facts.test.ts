@@ -143,6 +143,18 @@ describe('a finished call', () => {
 		})
 	})
 
+	it('says a call with no arguments was refused for its arguments', async () => {
+		const [event] = await completed([{ id: 'c1', name: 'shell', args: {} }])
+		expect(event?.isError).toBe(true)
+		expect(event?.facts).toEqual({ kind: 'failure', reason: 'invalid_arguments' })
+	})
+
+	it('says a call with a wrong-typed argument was refused for its arguments', async () => {
+		const [event] = await completed([{ id: 'c1', name: 'shell', args: { command: 5 } }])
+		expect(event?.isError).toBe(true)
+		expect(event?.facts).toEqual({ kind: 'failure', reason: 'invalid_arguments' })
+	})
+
 	it('names a tool the registry does not hold', async () => {
 		const [event] = await completed([{ id: 'c1', name: 'ls', args: {} }])
 		expect(event?.isError).toBe(true)

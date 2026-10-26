@@ -494,7 +494,7 @@ export const DecisionExpiredRecordSchema = inTurn('decision_expired', {
 export const CompactionRecordSchema = recordSchema('compaction', {
 	compactionId: text.min(1),
 	strategy: text.min(1),
-	trigger: z.enum(['auto', 'manual']),
+	trigger: z.enum(['auto', 'manual', 'idle']),
 	replacesSeqRange: z.tuple([positive, positive]),
 	summary: z.union([z.array(messageBody), spill]),
 	keptMessageIds: z.array(messageId),

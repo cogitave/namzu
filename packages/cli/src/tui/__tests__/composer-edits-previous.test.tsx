@@ -2,7 +2,7 @@ import type { MessageAttachment } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { Composer } from '../Composer.js'
+import { Composer, REWIND_DOUBLE_ESC_MS } from '../Composer.js'
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30))
 const mounted: { unmount: () => void }[] = []
@@ -29,34 +29,81 @@ function open(overrides: Partial<Parameters<typeof Composer>[0]> = {}) {
 	return { ...harness, onSubmit, onEditPrevious, onDraftRestored }
 }
 
-describe('Esc ×2 previous-prompt entry', () => {
-	it('primes on the first empty Esc and opens only on the second', async () => {
+describe('Esc ×2 rewind entry', () => {
+	it('shows nothing on the first empty Esc and opens only on the second', async () => {
 		const harness = open()
 
 		harness.stdin.write('\x1B')
 		await tick()
 		expect(harness.onEditPrevious).not.toHaveBeenCalled()
-		expect(harness.lastFrame()).toContain('Press Esc again')
+		expect(harness.lastFrame()).not.toContain('Esc again')
+		expect(harness.lastFrame()).toContain('Type a message')
 
 		harness.stdin.write('\x1B')
 		await tick()
 		expect(harness.onEditPrevious).toHaveBeenCalledTimes(1)
 	})
 
-	it('clears a non-empty draft before it can arm editing', async () => {
+	describe('with the clock under test', () => {
+		afterEach(() => {
+			vi.useRealTimers()
+		})
+
+		it('opens when the second Esc comes inside the window and re-arms after it', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+			const harness = open()
+			await vi.advanceTimersByTimeAsync(30)
+
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(REWIND_DOUBLE_ESC_MS - 1)
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(30)
+			expect(harness.onEditPrevious).toHaveBeenCalledTimes(1)
+
+			// A press after the window only arms again.
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(REWIND_DOUBLE_ESC_MS + 1)
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(30)
+			expect(harness.onEditPrevious).toHaveBeenCalledTimes(1)
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(30)
+			expect(harness.onEditPrevious).toHaveBeenCalledTimes(2)
+		})
+
+		it('is disarmed by any other key', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+			const harness = open()
+			await vi.advanceTimersByTimeAsync(30)
+
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(30)
+			harness.stdin.write('x')
+			await vi.advanceTimersByTimeAsync(30)
+			harness.stdin.write('\x7f')
+			await vi.advanceTimersByTimeAsync(30)
+			harness.stdin.write('\x1B')
+			await vi.advanceTimersByTimeAsync(30)
+			expect(harness.onEditPrevious).not.toHaveBeenCalled()
+		})
+	})
+
+	it('clears a non-empty draft before it can arm the rewind picker', async () => {
 		const harness = open()
 		harness.stdin.write('do not branch this')
 		await tick()
 
 		harness.stdin.write('\x1B')
 		await tick()
+		expect(harness.lastFrame()).toContain('do not branch this')
+		harness.stdin.write('\x1B')
+		await tick()
 		expect(harness.lastFrame()).not.toContain('do not branch this')
-		expect(harness.lastFrame()).not.toContain('Press Esc again')
 
+		// The draft was cleared by that press; this one only arms.
 		harness.stdin.write('\x1B')
 		await tick()
 		expect(harness.onEditPrevious).not.toHaveBeenCalled()
-		expect(harness.lastFrame()).toContain('Press Esc again')
 	})
 
 	it('does not arm while Esc belongs to a running turn', async () => {
@@ -67,7 +114,6 @@ describe('Esc ×2 previous-prompt entry', () => {
 		await tick()
 
 		expect(harness.onEditPrevious).not.toHaveBeenCalled()
-		expect(harness.lastFrame()).not.toContain('Press Esc again')
 	})
 })
 

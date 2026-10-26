@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { loadConfig } from './load.js'
-import { setUserConfigValue } from './user-config.js'
+import { deleteUserConfigValue, setUserConfigValue } from './user-config.js'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -54,5 +54,25 @@ describe('setUserConfigValue', () => {
 			setUserConfigValue(['skills', 'suggest'], false, { env: { NAMZU_HOME: home } }),
 		).toThrow(error)
 		expect(readFileSync(file, 'utf8')).toBe(text)
+	})
+})
+
+describe('deleteUserConfigValue', () => {
+	it('removes a block the removal left empty, and only that block', () => {
+		const home = namzuHome()
+		const env = { NAMZU_HOME: home }
+		const file = join(home, 'config.yaml')
+		writeFileSync(file, 'format: yaml\ntui:\n  recap: false\nskills:\n  suggest: false\n')
+		expect(deleteUserConfigValue(['tui', 'recap'], { env })).toBe(true)
+		expect(readFileSync(file, 'utf8')).toBe('format: yaml\nskills:\n  suggest: false\n')
+	})
+
+	it('keeps a block that still holds other keys', () => {
+		const home = namzuHome()
+		const env = { NAMZU_HOME: home }
+		const file = join(home, 'config.yaml')
+		writeFileSync(file, 'tui:\n  recap: false\n  theme: light\n')
+		deleteUserConfigValue(['tui', 'recap'], { env })
+		expect(readFileSync(file, 'utf8')).toBe('tui:\n  theme: light\n')
 	})
 })

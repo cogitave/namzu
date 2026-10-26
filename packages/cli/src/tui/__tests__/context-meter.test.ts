@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fitStatusLine } from '../StatusBar.js'
-import { contextMeter } from '../context-meter.js'
+import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from '../context-meter.js'
+import { EMPTY_NOTICES, reduce } from '../notifications.js'
 
 /**
  * The footer says nothing until the context is within 20,000 tokens of the
@@ -47,36 +47,22 @@ describe('the context meter', () => {
 	})
 })
 
-describe('the meter in the footer', () => {
-	function layout(columns: number, context: string | null) {
-		return fitStatusLine({
-			columns,
-			provider: null,
-			model: 'claude-haiku-4-5',
-			modeLabel: '⏵⏵ accept edits on',
-			cycleSuffix: ' (shift+tab to cycle)',
-			effort: 'high',
-			interrupt: 'esc to interrupt',
-			context,
-		})
-	}
-
-	it('sits after the effort and before the hints', () => {
-		const out = layout(200, '12% until auto-compact')
-		expect(out.context).toBe('12% until auto-compact')
-		expect(out.effort).toBe('effort high')
+describe('the meter in the notice slot', () => {
+	it('is a medium notice that stays and takes a newer reading in place', () => {
+		const first = contextNotice({ text: '12% until auto-compact', tone: 'muted' })
+		const second = contextNotice({ text: '11% until auto-compact', tone: 'muted' })
+		expect(first.key).toBe(CONTEXT_NOTICE_KEY)
+		expect(first.priority).toBe('medium')
+		expect(first.timeoutMs).toBeGreaterThan(60 * 60 * 1000)
+		const shown = reduce(EMPTY_NOTICES, { type: 'add', notice: first }).state
+		expect(shown.current?.text).toBe('12% until auto-compact')
+		const folded = reduce(shown, { type: 'add', notice: second })
+		expect(folded.state.current?.text).toBe('11% until auto-compact')
+		expect(folded.timer).toMatchObject({ kind: 'start', key: CONTEXT_NOTICE_KEY })
 	})
 
-	it('is dropped after the hints and the cycle key, before the effort', () => {
-		const wide = layout(200, '12% until auto-compact')
-		const need = (l: ReturnType<typeof layout>) =>
-			[l.mode, l.cycleSuffix, l.effort, l.context, l.interrupt].filter(Boolean).join(' · ').length
-		// Narrow enough to lose the interrupt hint and the cycle key but not the effort.
-		const without = layout(need(wide) - 30, '12% until auto-compact')
-		expect(without.interrupt).toBeNull()
-		expect(without.cycleSuffix).toBeNull()
-		const tighter = layout(50, '12% until auto-compact')
-		expect(tighter.context).toBeNull()
-		expect(tighter.effort).not.toBeNull()
+	it('is red when nothing will compact', () => {
+		expect(contextNotice({ text: 'Context low (5% remaining)', tone: 'error' }).tone).toBe('error')
+		expect(contextNotice({ text: '12% until auto-compact', tone: 'muted' }).tone).toBe('dim')
 	})
 })

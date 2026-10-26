@@ -5,7 +5,13 @@ import {
 	permissionModeDescription,
 	permissionModeName,
 } from '../../permissions/mode.js'
-import { type SlashContext, renderPermissions, renderStatus, runSlash } from '../slashCommands.js'
+import {
+	type SlashContext,
+	renderContext,
+	renderPermissions,
+	renderStatus,
+	runSlash,
+} from '../slashCommands.js'
 
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
@@ -54,8 +60,24 @@ function report(command: string, ctx = context()): string {
 	return action.content
 }
 
+/** What `/context` writes without the grid: the action it asks the app for, and its plain text. */
+function reportContext(command: string, ctx = context()): string {
+	const action = runSlash(command, ctx)
+	if (action?.kind === 'message') return action.content
+	if (action?.kind !== 'context') throw new Error(`Expected a context action for ${command}`)
+	return renderContext(ctx.usage, ctx.compaction, action.details)
+}
+
 describe('command summaries and details', () => {
-	it.each(['cost', 'context', 'status', 'mcp'])(
+	it('context rejects mistyped arguments and accepts details and all', () => {
+		expect(reportContext('/context detials')).toMatch(/^Usage:/)
+		expect(runSlash('/context', context())).toEqual({ kind: 'context', details: false })
+		expect(runSlash('/context all', context())).toEqual({ kind: 'context', details: false })
+		expect(runSlash('/context details', context())).toEqual({ kind: 'context', details: true })
+		expect(reportContext('/context')).toContain('/context details')
+	})
+
+	it.each(['cost', 'status', 'mcp'])(
 		'%s keeps details discoverable and rejects mistyped arguments',
 		(command) => {
 			const summary = report(`/${command}`)
@@ -99,12 +121,12 @@ describe('command summaries and details', () => {
 	})
 
 	it('keeps estimates honest in the short context view and puts cleanup counters in details', () => {
-		const summary = report('/context')
+		const summary = reportContext('/context')
 		expect(summary).toContain('(about 10%)')
 		expect(summary).not.toContain('Counted by the provider')
-		expect(report('/context details')).toContain('Estimated by Namzu; window assumed')
+		expect(reportContext('/context details')).toContain('Estimated by Namzu; window assumed')
 		expect(summary).not.toContain('Tool results cleared:')
-		expect(report('/context details')).toContain('Tool results cleared: 3')
+		expect(reportContext('/context details')).toContain('Tool results cleared: 3')
 		expect(report('/cost')).not.toContain('Context:')
 	})
 

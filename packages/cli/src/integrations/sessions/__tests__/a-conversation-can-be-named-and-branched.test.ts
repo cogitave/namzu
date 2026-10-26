@@ -278,6 +278,28 @@ describe('forking before a selected user prompt', () => {
 		expect(await loadConversation(s, id)).toMatchObject([first, answer, selected, suffix])
 	})
 
+	it("hands back the fork's own history, with no id the fork's log never gave out", async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		const first = createUserMessage('first prompt')
+		const selected = createUserMessage('second prompt')
+		await recordTurn(s, id, [first, said('assistant', 'first answer')])
+		await recordTurn(s, id, [selected, said('assistant', 'second answer')])
+		const source = await loadConversation(s, id)
+		expect(source.every((message) => message.id !== undefined)).toBe(true)
+
+		const forked = await forkConversationBeforeUser(s, id, 1, source[2] as never)
+		const whole = await forkConversation(s, id)
+
+		// What the screen caches for its next send is what the fork's log folds to.
+		expect(forked.messages).toEqual(await loadConversation(s, forked.id))
+		expect(whole.messages).toEqual(await loadConversation(s, whole.id))
+		const sourceIds = new Set(source.map((message) => message.id))
+		for (const message of [...forked.messages, ...whole.messages]) {
+			expect(message.id === undefined || !sourceIds.has(message.id)).toBe(true)
+		}
+	})
+
 	it('allows the first prompt to reopen on an empty branch', async () => {
 		const s = await project()
 		const id = await startConversation(s)
