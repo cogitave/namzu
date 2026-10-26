@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { LocalTaskScheduler } from '../../../scheduler/local.js'
@@ -169,5 +170,95 @@ describe('restoring a saved child conversation', () => {
 		expect(
 			await scheduler.restoreChild?.({ childSessionId, workingDirectory: '/tmp', agentFor }),
 		).toMatchObject({ status: 'restored' })
+	})
+
+	describe('refuses what is not the saved child of this conversation or cannot be continued', () => {
+		/** Rewrite fields of the child's saved meta document, as a hand edit or another program would. */
+		async function editMeta(
+			world: Awaited<ReturnType<typeof afterRestart>>,
+			change: (meta: Record<string, unknown>) => void,
+		) {
+			const path = required(world.first.paths).subagentMeta(
+				{ sessionId: world.first.parent.id, ancestors: [] },
+				world.childSessionId,
+			)
+			const meta = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+			change(meta)
+			await writeFile(path, JSON.stringify(meta))
+		}
+		const ask = (world: Awaited<ReturnType<typeof afterRestart>>) =>
+			world.scheduler.restoreChild?.({
+				childSessionId: world.childSessionId,
+				workingDirectory: '/tmp',
+				agentFor,
+			})
+
+		it('a meta document that names another session', async () => {
+			const world = await afterRestart()
+			await editMeta(world, (meta) => {
+				meta.sessionId = randomUUID()
+			})
+			expect(await ask(world)).toEqual({ status: 'refused', reason: 'foreign' })
+		})
+
+		it('a meta document that names another parent session', async () => {
+			const world = await afterRestart()
+			await editMeta(world, (meta) => {
+				meta.parentSessionId = randomUUID()
+			})
+			expect(await ask(world)).toEqual({ status: 'refused', reason: 'foreign' })
+		})
+
+		it('a log written under another project', async () => {
+			const world = await afterRestart()
+			const other = new LocalTaskScheduler(world.second.manager, {
+				...world.second.context(),
+				projectId: randomUUID() as ReturnType<typeof world.second.context>['projectId'],
+			})
+			expect(
+				await other.restoreChild?.({
+					childSessionId: world.childSessionId,
+					workingDirectory: '/tmp',
+					agentFor,
+				}),
+			).toEqual({ status: 'refused', reason: 'foreign' })
+		})
+
+		it('a log written under another topic', async () => {
+			const world = await afterRestart()
+			const other = new LocalTaskScheduler(world.second.manager, {
+				...world.second.context(),
+				topicId: randomUUID() as ReturnType<typeof world.second.context>['topicId'],
+			})
+			expect(
+				await other.restoreChild?.({
+					childSessionId: world.childSessionId,
+					workingDirectory: '/tmp',
+					agentFor,
+				}),
+			).toEqual({ status: 'refused', reason: 'foreign' })
+		})
+
+		it('a child that worked in an isolated workspace', async () => {
+			const world = await afterRestart()
+			await editMeta(world, (meta) => {
+				meta.continuation = { workspace: 'isolated', profile }
+			})
+			expect(await ask(world)).toEqual({ status: 'refused', reason: 'not-resumable' })
+			await expect(
+				world.scheduler.createTask({
+					...world.second.taskOptions,
+					resumeSessionId: world.childSessionId,
+				}),
+			).rejects.toThrow('continuation authority is unavailable')
+		})
+
+		it('a child that was stopped', async () => {
+			const world = await afterRestart()
+			await editMeta(world, (meta) => {
+				meta.status = 'cancelled'
+			})
+			expect(await ask(world)).toEqual({ status: 'refused', reason: 'stopped' })
+		})
 	})
 })
