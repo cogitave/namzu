@@ -336,6 +336,12 @@ export interface GoalRoundMessageSource {
 export interface ProjectInstructionMessageSource {
 	readonly type: 'project-instructions'
 	readonly files: readonly string[]
+	/**
+	 * Set on a changed copy sent after the conversation's first one. It carries
+	 * the complete new policy under a header that says it replaces the earlier
+	 * copy, so the earlier copy keeps its place in the request.
+	 */
+	readonly update?: true
 }
 
 /**

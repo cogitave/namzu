@@ -661,6 +661,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 					resolvedInitialMessages,
 					snapshot,
 					'before-latest-user',
+					history.map((entry) => entry.message),
 				)
 			}
 		}

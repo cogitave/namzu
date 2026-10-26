@@ -8,6 +8,7 @@ import {
 	type UserMessage,
 	createProjectInstructionMessage,
 	isProjectInstructionMessageSource,
+	projectInstructionBody,
 } from '@namzu/sdk'
 import { visibleProjectInstructionPath } from './project-path.js'
 
@@ -252,7 +253,15 @@ export class ProjectInstructionTracker {
 	}
 
 	private snapshotKey(snapshot: UserMessage | null): string {
-		return snapshot ? JSON.stringify([snapshot.source, snapshot.content]) : 'null'
+		// An update carries the same policy under a header; compare the policy.
+		return snapshot
+			? JSON.stringify([
+					snapshot.source?.type === 'project-instructions'
+						? snapshot.source.files
+						: snapshot.source,
+					projectInstructionBody(snapshot),
+				])
+			: 'null'
 	}
 
 	private snapshotKeyFromMessages(messages: readonly Message[]): string {

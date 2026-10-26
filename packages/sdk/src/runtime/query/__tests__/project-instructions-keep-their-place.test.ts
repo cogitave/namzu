@@ -80,12 +80,37 @@ describe('project instructions keep their place in a conversation', () => {
 		expect(JSON.stringify(third).split('POLICY-A')).toHaveLength(2)
 	})
 
-	it('sends a changed copy once, just before the new question, and drops the old one', async () => {
-		const [, second] = await conversation(['POLICY-A', 'POLICY-B'])
+	it('keeps the first copy in place and sends a change as a complete update before the new question', async () => {
+		const [first, second] = await conversation(['POLICY-A', 'POLICY-B'])
+		const a = (first ?? []).findIndex((m) => text(m).includes('POLICY-A'))
 		const messages = second ?? []
+		// The first copy did not move, so the request still starts with the last one.
+		expect(messages.findIndex((m) => text(m).includes('POLICY-A'))).toBe(a)
 		const at = messages.findIndex((m) => text(m).includes('POLICY-B'))
-		expect(at).toBeGreaterThanOrEqual(0)
+		expect(at).toBeGreaterThan(a)
+		expect(text(messages[at])).toContain('replace the project instructions given earlier')
 		expect(text(messages[at + 1])).toContain('question 2')
-		expect(JSON.stringify(messages)).not.toContain('POLICY-A')
+		const shared = (first ?? []).filter((m) => m.role !== 'system').map(text)
+		expect(
+			messages
+				.filter((m) => m.role !== 'system')
+				.map(text)
+				.slice(0, shared.length),
+		).toEqual(shared)
+	})
+
+	it('holds only the first copy and the latest update across several changes', async () => {
+		const [, , third] = await conversation(['POLICY-A', 'POLICY-B', 'POLICY-C'])
+		const json = JSON.stringify(third)
+		expect(json).toContain('POLICY-A')
+		expect(json).not.toContain('POLICY-B')
+		expect(json).toContain('POLICY-C')
+	})
+
+	it('answers a return to the first wording with a complete update, never the dropped one', async () => {
+		const [, , third] = await conversation(['POLICY-A', 'POLICY-B', 'POLICY-A'])
+		const json = JSON.stringify(third)
+		expect(json).not.toContain('POLICY-B')
+		expect(json.split('replace the project instructions given earlier')).toHaveLength(2)
 	})
 })

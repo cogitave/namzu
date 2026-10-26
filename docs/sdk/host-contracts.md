@@ -63,8 +63,12 @@ The snapshot keeps one place in a conversation. When a new turn's
 `prepareInitialSnapshot` returns what the history already holds, the held copy
 stays where it landed and nothing is sent again, so the provider's cache covers
 the history after it. A changed snapshot is sent once, at the tail just before
-the turn's new user message, and replaces the old copy: the latest snapshot is
-always the complete policy, so a rule that was removed stops applying. The snapshot also tells the model that project
+the turn's new user message, as a complete update (`source.update: true`)
+under a line saying it replaces the earlier copy. The request keeps the first
+copy and the latest update only, so a rule that was removed stops applying.
+Compaction retains both, and the update's line tells the model which wins.
+`projectInstructionBody(message)` gives a snapshot's policy text without that
+line, for a host that compares the last snapshot with a fresh one. The snapshot also tells the model that project
 rules win over Namzu's default style and workflow, and never over safety or
 permission rules.
 
