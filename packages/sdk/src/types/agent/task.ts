@@ -238,6 +238,8 @@ export interface AgentTask {
 export interface SendMessageOptions {
 	/** See {@link import('./scheduler.js').CreateTaskOptions.resumeSessionId}. */
 	readonly resumeSessionId?: SessionId
+	/** See {@link import('./scheduler.js').CreateTaskOptions.continuationProfile}. */
+	readonly continuationProfile?: Readonly<Record<string, string>>
 	/** Explicit child filesystem policy; omitted preserves legacy backend behavior. */
 	readonly workspace?: ChildWorkspaceRequest
 	/**

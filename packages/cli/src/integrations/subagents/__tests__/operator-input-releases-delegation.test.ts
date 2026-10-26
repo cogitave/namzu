@@ -10,7 +10,6 @@ import {
 	TurnCancelled,
 	createUserMessage,
 	drainQuery,
-	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -462,11 +461,10 @@ describe('operator input releases delegation waits without cancelling children',
 		const release = deferred<void>()
 		const started = deferred<void>()
 		const completeOutput = `Task 1: 596ec65e-b063-401c-b1f7-a2b6cc4ce35a\nbegin:${'x'.repeat(5_000)}:complete-tail`
-		const otherTurnId = generateTurnId()
+		const otherTurnId = await parent.addForeignTurn()
 		let requests = 0
 		const runtime = await createSubagentRuntime({
-			resolveParent: (turnId) =>
-				parent.resolveParent(turnId === otherTurnId ? parent.scope.turnId : turnId),
+			resolveParent: parent.resolveParent,
 			resolveWaitForInbound: () => inbox.wait,
 			cwd,
 			model: 'mock-model',
@@ -526,19 +524,21 @@ describe('operator input releases delegation waits without cancelling children',
 				context,
 			)
 			expect(refused.success).toBe(false)
-			expect(refused.error).toContain('does not belong to this parent turn')
+			expect(refused.error).toContain(
+				'No task with ID 596ec65e-b063-401c-b1f7-a2b6cc4ce35a in this conversation.',
+			)
 			const foreign = await runtime.waitForTaskTool.execute(
 				{ task_id: taskId },
 				{ ...context, turnId: otherTurnId },
 			)
 			expect(foreign.success).toBe(false)
-			expect(foreign.error).toContain('does not belong to this parent turn')
+			expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
 			const invalid = await runtime.waitForTaskTool.execute(
 				{ task_id: '../../other-turn' },
 				context,
 			)
 			expect(invalid.success).toBe(false)
-			expect(invalid.error).toContain('task UUID')
+			expect(invalid.error).toContain('No task with ID ../../other-turn in this conversation.')
 		} finally {
 			release.resolve()
 			await launch.catch(() => {})
