@@ -417,6 +417,8 @@ export const WORKFLOW_RUN_GROUP_PREFIX = 'wf:'
 export interface SubagentMessageReceipt {
 	readonly kind: 'queued' | 'started'
 	readonly taskId: string
+	/** The id the parent conversation knows this agent by; it stays the same across resumes. */
+	readonly agentTaskId?: string
 	readonly sessionId?: string
 	readonly state: string
 	/** Host evidence of actual operator admission, never a child-authored claim. */
@@ -688,6 +690,8 @@ export async function createSubagentRuntime(
 			Pick<BaseAgentConfig, 'env' | 'toolResultGuardrails' | 'model' | 'effort'>
 		>
 		readonly workspace: 'shared' | 'worktree'
+		/** The id the model first knew this agent by; every later run keeps answering to it. */
+		readonly publicTaskId: string
 		gateway: TaskScheduler
 		task: TaskHandle
 		turnId: TurnId
@@ -700,6 +704,12 @@ export async function createSubagentRuntime(
 	// resumed agent gets a new task, and the id the model was handed first
 	// keeps naming the same agent.
 	const taskViews = new Map<string, string>()
+	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
+	const publicTaskId = (taskId: TaskId | string): string => {
+		const viewId = taskViews.get(String(taskId))
+		const owned = viewId === undefined ? undefined : conversations.get(viewId)
+		return owned?.publicTaskId ?? String(taskId)
+	}
 	const dropConversation = (viewId: string): void => {
 		conversations.delete(viewId)
 		for (const [taskId, owner] of taskViews) if (owner === viewId) taskViews.delete(taskId)
@@ -1092,7 +1102,7 @@ export async function createSubagentRuntime(
 		const shown = activity.getSnapshot().find((entry) => entry.taskId === String(handle.taskId))
 		const completion: SubagentCompletion = {
 			parentSessionId: runtime.parentSessionId,
-			taskId: String(handle.taskId),
+			taskId: publicTaskId(handle.taskId),
 			...(shown ? { viewId: shown.viewId } : {}),
 			agentId: shown?.agentId ?? String(handle.agentId),
 			description: shown?.description ?? String(handle.agentId),
@@ -1103,7 +1113,9 @@ export async function createSubagentRuntime(
 						? 'cancelled'
 						: 'failed',
 			...(shown?.stoppedBy ? { stoppedBy: shown.stoppedBy } : {}),
-			text: formatCompletionNotification([handle]),
+			text: formatCompletionNotification([
+				{ ...handle, taskId: publicTaskId(handle.taskId) as TaskId },
+			]),
 		}
 		for (const listener of [...backgroundCompletionListeners]) listener(completion)
 	}
@@ -1418,6 +1430,7 @@ export async function createSubagentRuntime(
 								: {}),
 						},
 						workspace: workspace ?? 'shared',
+						publicTaskId: String(task.taskId),
 						gateway,
 						task,
 						turnId: context.turnId,
@@ -1450,6 +1463,10 @@ export async function createSubagentRuntime(
 						? {
 								continuationProfile: {
 									agent: fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT),
+									// The short name the operator saw, so a later run shows the same one.
+									...(savedDescription(description)
+										? { description: savedDescription(description) }
+										: {}),
 									...(selection
 										? {
 												provider: selection.provider,
@@ -1689,7 +1706,7 @@ export async function createSubagentRuntime(
 					},
 				}
 			}
-			return completedAgentResult(outcome.handle)
+			return completedAgentResult(outcome.handle, publicTaskId(outcome.handle.taskId))
 		},
 	})
 	const launchWorkflowAgent = async (launch: WorkflowAgentLaunch): Promise<WorkflowAgentResult> => {
@@ -1840,6 +1857,12 @@ export async function createSubagentRuntime(
 			// work. They come first, so the newest launches survive the cap.
 			const parentKey = sessionKey(await resolveParent(context.turnId))
 			const listed = new Set(tasks.map((task) => String(task.taskId)))
+			// An earlier run of a resumed agent is the same agent as its latest run.
+			const latestRun = (task: TaskHandle): boolean => {
+				const viewId = taskViews.get(String(task.taskId))
+				const owned = viewId === undefined ? undefined : conversations.get(viewId)
+				return owned === undefined || owned.task.taskId === task.taskId
+			}
 			const earlier: TaskHandle[] = []
 			for (const owned of conversations.values()) {
 				if (owned.parentKey !== parentKey || listed.has(String(owned.task.taskId))) continue
@@ -1847,11 +1870,13 @@ export async function createSubagentRuntime(
 				if (isTerminalAgentTaskState(task.state)) earlier.push(task)
 			}
 			tasks.unshift(...earlier)
+			const current = tasks.filter(latestRun)
+			tasks.splice(0, tasks.length, ...current)
 			const snapshot = activity.getSnapshot()
 			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
 			const shown = tasks.slice(-40).map((task) => ({
 				description: labels.get(task.taskId) ?? task.agentId,
-				task_id: task.taskId,
+				task_id: publicTaskId(task.taskId),
 				agent: task.agentId,
 				state: task.state,
 				status: agentTaskOutcome(task),
@@ -1923,7 +1948,8 @@ export async function createSubagentRuntime(
 					error: await unknownTaskMessage(taskId, context.turnId),
 				}
 			// An agent that ended in an earlier turn has nothing left to wait for.
-			if (found.kind === 'settled') return completedAgentResult(found.task)
+			if (found.kind === 'settled')
+				return completedAgentResult(found.task, publicTaskId(found.task.taskId))
 			if (found.kind === 'ending')
 				return {
 					success: false,
@@ -1943,7 +1969,8 @@ export async function createSubagentRuntime(
 				onFailed: () => {},
 				onFinished: () => {},
 			})
-			if (outcome.kind === 'completed') return completedAgentResult(outcome.handle)
+			if (outcome.kind === 'completed')
+				return completedAgentResult(outcome.handle, publicTaskId(outcome.handle.taskId))
 			const progress =
 				outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 			return {
@@ -1963,6 +1990,8 @@ export async function createSubagentRuntime(
 	const cannotResume = (childId: string): string =>
 		`Not sent. Agent ${childId} was saved by an earlier run but cannot be resumed: what it needs was not kept (an agent started with a role cannot be continued after a restart), or no longer reads. Start a new agent if the work is still needed.`
 	const restoring = new Map<string, Promise<{ viewId: string } | { error: string } | undefined>>()
+	/** What a restored agent is called when its saved profile kept no short name. */
+	const UNNAMED_SAVED_AGENT = 'Earlier agent'
 	/**
 	 * An agent saved by an earlier run of the program, made reachable again: its
 	 * saved files are read back and checked by the SDK, the right to continue it
@@ -1970,16 +1999,20 @@ export async function createSubagentRuntime(
 	 * as a finished one, which `messageChild` then resumes under this turn's
 	 * limits and review channel. `undefined` when the id is not a saved agent.
 	 */
-	const restoreSavedAgent = (
+	const restoreSavedAgent = async (
 		childId: TaskId,
 		context: ToolContext,
 	): Promise<{ viewId: string } | { error: string } | undefined> => {
 		const key = String(childId)
-		const running = restoring.get(key)
+		if (!opts.savedAgents) return undefined
+		const parent = await resolveParent(context.turnId)
+		// One restore per agent of one conversation: another conversation that
+		// names the same id is answered by its own read, never by this one.
+		const flightKey = `${sessionKey(parent)}\u0000${key}`
+		const running = restoring.get(flightKey)
 		if (running) return running
 		const work = (async () => {
 			if (!opts.savedAgents) return undefined
-			const parent = await resolveParent(context.turnId)
 			let saved: Awaited<ReturnType<ReturnType<NonNullable<typeof opts.savedAgents>>['read']>>
 			try {
 				saved = await opts.savedAgents(parent.sessionId).read(key)
@@ -1988,7 +2021,7 @@ export async function createSubagentRuntime(
 			}
 			if (saved.status === 'cancelled')
 				return {
-					error: `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
+					error: `That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
 				}
 			// The parent's log may never have recorded an end for a child that did
 			// finish; the child's own log decides, in the SDK.
@@ -2028,18 +2061,23 @@ export async function createSubagentRuntime(
 				return {
 					error:
 						restored?.status === 'refused' && restored.reason === 'stopped'
-							? `Agent "${saved.description}" was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`
-							: cannotResume(key),
+							? `That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`
+							: restored?.status === 'refused' && restored.reason === 'running'
+								? `Agent ${key} is still running its earlier work, so the message was not sent. Try again in a moment, or wait for its notification.`
+								: cannotResume(key),
 				}
 			}
 			// The saved profile comes from disk: a model it names must still be
 			// one the current host can resolve, as for a model chosen on a launch.
-			if (kept.dynamic && kept.profile.model) {
+			// A model named without its provider is not one the agent ran on (a launch
+			// records both), so it is ignored rather than trusted unchecked.
+			const savedModel = kept.dynamic ? kept.profile.model : undefined
+			if (savedModel) {
 				const stillValid = opts.resolveModel
 					? await opts
 							.resolveModel(
 								{
-									model: kept.profile.model,
+									model: savedModel,
 									provider: kept.profile.provider,
 									effort: kept.profile.effort as ReasoningEffort | undefined,
 								},
@@ -2057,8 +2095,8 @@ export async function createSubagentRuntime(
 			}
 			const seed = {
 				agentId: kept.profile.agent ?? kept.agentId,
-				...(kept.profile.model ? { model: kept.profile.model } : {}),
-				description: saved.description,
+				...(savedModel ? { model: savedModel } : {}),
+				description: kept.profile.description || UNNAMED_SAVED_AGENT,
 				background: true,
 				prompt: '',
 				workflowId: String(context.turnId),
@@ -2079,9 +2117,9 @@ export async function createSubagentRuntime(
 				dynamic: kept.dynamic,
 				seed,
 				config: {
-					...(kept.profile.model
+					...(savedModel
 						? {
-								model: kept.profile.model,
+								model: savedModel,
 								...(kept.profile.effort ? { effort: kept.profile.effort as ReasoningEffort } : {}),
 							}
 						: {}),
@@ -2091,6 +2129,7 @@ export async function createSubagentRuntime(
 						: {}),
 				},
 				workspace: 'shared',
+				publicTaskId: key,
 				gateway,
 				task: handle,
 				turnId: context.turnId,
@@ -2099,8 +2138,8 @@ export async function createSubagentRuntime(
 			taskViews.set(String(handle.taskId), tracker.viewId)
 			taskViews.set(key, tracker.viewId)
 			return { viewId: tracker.viewId }
-		})().finally(() => restoring.delete(key))
-		restoring.set(key, work)
+		})().finally(() => restoring.delete(flightKey))
+		restoring.set(flightKey, work)
 		return work
 	}
 
@@ -2182,7 +2221,7 @@ export async function createSubagentRuntime(
 				return {
 					success: true,
 					output: `Resuming agent ${label}. It will notify you again when it finishes.`,
-					data: { task_id: found.owned.task.taskId, status: 'resumed' },
+					data: { task_id: found.owned.publicTaskId, status: 'resumed' },
 				}
 			}
 			const gateway = found.gateway
@@ -2208,7 +2247,7 @@ export async function createSubagentRuntime(
 				return {
 					success: true,
 					output: `Resuming agent ${label}. It will notify you again when it finishes.`,
-					data: { task_id: taskId, status: 'resumed' },
+					data: { task_id: publicTaskId(taskId), status: 'resumed' },
 				}
 			}
 			context.abortSignal.throwIfAborted()
@@ -2470,7 +2509,12 @@ export async function createSubagentRuntime(
 					? `${shown.agentId} was stopped, so it cannot take a message. Start a new agent for that work.`
 					: `Agent "${shown.agentId}" was stopped by the user and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
 			)
-		if (owned.busy) throw new Error('A message to this child is already being admitted.')
+		if (owned.busy)
+			throw new Error(
+				source === 'operator'
+					? 'This agent is already being resumed with an earlier message. Wait for it to start before sending another.'
+					: `Agent "${owned.seed.description}" is already being resumed with an earlier message. Wait for its notification before sending another.`,
+			)
 		owned.busy = true
 		let settleAdmission: () => void = () => {}
 		owned.admitting = new Promise<void>((resolve) => {
@@ -2480,7 +2524,7 @@ export async function createSubagentRuntime(
 		let journal: string | undefined
 		let admitted = false
 		let kind: SubagentMessageReceipt['kind'] = 'queued'
-		const audit = async (status: string, taskId: string): Promise<void> => {
+		const audit = async (status: string): Promise<void> => {
 			if (!journal) return
 			await appendFile(
 				journal,
@@ -2490,7 +2534,7 @@ export async function createSubagentRuntime(
 					source: 'operator',
 					...(status === 'accepted' ? { kind } : {}),
 					parentTurnId: turnId,
-					taskId,
+					taskId: owned.publicTaskId,
 					viewId,
 					message,
 					at: new Date().toISOString(),
@@ -2510,7 +2554,7 @@ export async function createSubagentRuntime(
 				await mkdir(directory, { recursive: true, mode: 0o700 })
 				journal = join(directory, 'child-operator-messages.jsonl')
 			}
-			await audit('submitted', String(owned.task.taskId))
+			await audit('submitted')
 			signal.throwIfAborted()
 			const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
 			let task: TaskHandle
@@ -2573,26 +2617,27 @@ export async function createSubagentRuntime(
 			)
 			let auditWarning: string | undefined
 			try {
-				await audit('accepted', String(task.taskId))
+				await audit('accepted')
 			} catch {
 				auditWarning = 'Message accepted; its audit acknowledgement could not be written.'
 			}
 			return {
 				kind,
 				taskId: String(task.taskId),
+				agentTaskId: owned.publicTaskId,
 				state: task.state,
 				sessionId: task.childSessionId ?? shown.sessionId,
 				parentNotice: formatChildOperatorAdmission({
 					id,
 					viewId,
-					taskId: String(task.taskId),
+					taskId: owned.publicTaskId,
 					message,
 					kind,
 				}),
 				...(auditWarning ? { auditWarning } : {}),
 			}
 		} catch (error) {
-			if (!admitted) await audit('refused', String(owned.task.taskId)).catch(() => undefined)
+			if (!admitted) await audit('refused').catch(() => undefined)
 			throw error
 		} finally {
 			owned.busy = false
@@ -2851,8 +2896,16 @@ function workspaceNote(task: TaskHandle): string {
 		: ''
 }
 
+/** The short name kept beside a saved agent: one line, never a long brief. */
+function savedDescription(description: string): string {
+	return (description.trim().split('\n', 1)[0] ?? '').trim().slice(0, 80)
+}
+
 /** Lifecycle completion is not proof the requested task finished successfully. */
-function completedAgentResult(completed: TaskHandle): ToolResult {
+function completedAgentResult(
+	completed: TaskHandle,
+	shownTaskId: string = completed.taskId,
+): ToolResult {
 	const turn = completed.result
 	const status = agentTaskOutcome(completed)
 	const succeeded = status === 'completed'
@@ -2884,7 +2937,7 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 		workspace.workspace_path && workspace.workspace_branch
 			? `\nworkspace: ${workspace.workspace_path}\nbranch: ${workspace.workspace_branch}\nThe worktree is kept for review.`
 			: ''
-	const output = `task_id: ${completed.taskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
+	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
 	return {
 		success: succeeded,
 		output,
@@ -2894,7 +2947,7 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 				}
 			: {}),
 		data: {
-			task_id: completed.taskId,
+			task_id: shownTaskId,
 			state: completed.state,
 			status,
 			...workspaceData(completed),

@@ -5048,12 +5048,12 @@ export async function createAgentSession(
 													''
 												).slice(0, 8_000)
 												const text =
-													`Host record: directly assigned child task ${JSON.stringify(receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
+													`Host record: directly assigned child task ${JSON.stringify(receipt.agentTaskId ?? receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
 													wrapUntrusted(
 														{
 															kind: 'agent-result',
 															attributes: {
-																task: receipt.taskId,
+																task: receipt.agentTaskId ?? receipt.taskId,
 																agent: finished.agentId,
 															},
 															provenance:
@@ -5063,7 +5063,7 @@ export async function createAgentSession(
 													)
 												if (!options.ephemeral)
 													await recordChildOperatorReport(paths, turnScope.sessionId, {
-														id: `report-${receipt.taskId}`,
+														id: `report-${receipt.agentTaskId ?? receipt.taskId}`,
 														text,
 													}).catch((error) =>
 														cliLogger().warn('Child follow-up report audit failed', {

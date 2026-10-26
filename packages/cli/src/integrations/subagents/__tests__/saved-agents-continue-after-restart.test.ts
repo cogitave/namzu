@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -30,6 +30,7 @@ async function runProgram(
 	known: readonly string[] = ['alt-model'],
 ) {
 	const requests: ChatCompletionParams[] = []
+	const models: (string | undefined)[] = []
 	const handlerTurns: TurnId[] = []
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,
@@ -60,9 +61,13 @@ async function runProgram(
 			name: 'child',
 			async *chatStream(params) {
 				requests.push(params)
-				yield* new MockLLMProvider({
+				const inner = new MockLLMProvider({
 					turns: [{ text: `${label}_${requests.length}` }],
-				}).chatStream(params)
+				})
+				for await (const chunk of inner.chatStream(params)) {
+					if (models.length < requests.length) models.push(inner.requests[0]?.model)
+					yield chunk
+				}
 			},
 		}),
 	})
@@ -74,7 +79,7 @@ async function runProgram(
 		env: {},
 		log() {},
 	})
-	return { runtime, requests, handlerTurns, contextFor }
+	return { runtime, requests, models, handlerTurns, contextFor }
 }
 
 /** A finished agent of a program that has since exited. */
@@ -272,6 +277,141 @@ describe('an agent saved by an earlier run of the program', () => {
 				after.contextFor(world.parent.addTurn()),
 			)
 			expect(missing.error).toContain('No task with ID 596ec65e-b063-401c-b1f7-a2b6cc4ce35a')
+		} finally {
+			await after.runtime.close()
+		}
+	})
+})
+
+/** Change the profile a finished agent saved for a later run, as an older program or a hand edit would. */
+function editSavedProfile(
+	world: Awaited<ReturnType<typeof finishedBeforeRestart>>,
+	change: (profile: Record<string, string>) => void,
+) {
+	const path = new SessionPaths({ home: join(world.cwd, 'state'), slug: 'restart' }).subagentMeta(
+		{ sessionId: world.parent.scope.sessionId, ancestors: [] },
+		world.childId as never,
+	)
+	const meta = JSON.parse(readFileSync(path, 'utf8')) as {
+		continuation: { profile: Record<string, string> }
+	}
+	change(meta.continuation.profile)
+	writeFileSync(path, JSON.stringify(meta))
+}
+
+describe('how a restored agent is named and which model it runs on', () => {
+	it('keeps the short name it was launched with, not the prompt the saved record carries', async () => {
+		const world = await finishedBeforeRestart({
+			description: 'Sample job',
+			prompt: 'CHILDPROMPT do the sample job',
+		})
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) =>
+				id === world.childId
+					? { ...world.record(), description: 'CHILDPROMPT do the sample job' }
+					: undefined,
+			'AFTER',
+		)
+		try {
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AGAIN' },
+				after.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.success).toBe(true)
+			expect(after.runtime.activity.getSnapshot()[0]?.description).toBe('Sample job')
+		} finally {
+			await after.runtime.close()
+		}
+	})
+
+	it('falls back to a plain label, never the prompt, when the save kept no name', async () => {
+		const world = await finishedBeforeRestart({
+			description: 'Sample job',
+			prompt: 'CHILDPROMPT do the sample job',
+		})
+		editSavedProfile(world, (profile) => {
+			delete profile.description
+		})
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) =>
+				id === world.childId
+					? { ...world.record(), description: 'CHILDPROMPT do the sample job' }
+					: undefined,
+			'AFTER',
+		)
+		try {
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AGAIN' },
+				after.contextFor(world.parent.addTurn()),
+			)
+			expect(sent.success).toBe(true)
+			const label = after.runtime.activity.getSnapshot()[0]?.description
+			expect(label).toBe('Earlier agent')
+			expect(JSON.stringify(after.runtime.activity.getSnapshot())).not.toContain('CHILDPROMPT')
+		} finally {
+			await after.runtime.close()
+		}
+	})
+
+	it('does not run on a saved model that names no provider', async () => {
+		const world = await finishedBeforeRestart()
+		editSavedProfile(world, (profile) => {
+			profile.model = 'unknown-model'
+			profile.provider = ''
+			delete profile.provider
+		})
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'AFTER',
+		)
+		const turn = world.parent.addTurn()
+		try {
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'AGAIN' },
+				after.contextFor(turn),
+			)
+			expect(sent.success).toBe(true)
+			await after.runtime.waitForTaskTool.execute(
+				{ task_id: world.childId },
+				after.contextFor(turn),
+			)
+			expect(after.models).toEqual(['mock'])
+		} finally {
+			await after.runtime.close()
+		}
+	})
+
+	it('answers a saved agent of one conversation only from that conversation', async () => {
+		const world = await finishedBeforeRestart()
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'AFTER',
+		)
+		try {
+			const stranger = await world.parent.addForeignTurn()
+			const own = world.parent.addTurn()
+			// Asked together, the other conversation's refusal is not handed to this one.
+			const [foreign, mine] = await Promise.all([
+				after.runtime.sendMessageTool.execute(
+					{ task_id: world.childId, message: 'FOREIGN' },
+					after.contextFor(stranger),
+				),
+				after.runtime.sendMessageTool.execute(
+					{ task_id: world.childId, message: 'MINE' },
+					after.contextFor(own),
+				),
+			])
+			expect(foreign.success).toBe(false)
+			expect(mine.error).toBeUndefined()
+			expect(mine.success).toBe(true)
 		} finally {
 			await after.runtime.close()
 		}

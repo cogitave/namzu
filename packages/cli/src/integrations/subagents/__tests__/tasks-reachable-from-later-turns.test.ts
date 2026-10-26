@@ -335,6 +335,74 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		}
 	})
 
+	it('keeps one id for an agent across resumes in what the model reads', async () => {
+		const world = await conversation({ holdResume: true, durable: true })
+		try {
+			const taskId = await launch(world, false)
+			await world.endTurn(world.turn1)
+			const heard: { taskId: string; text: string }[] = []
+			const ended = deferred<void>()
+			world.runtime.onBackgroundCompletion((completion) => {
+				heard.push(completion)
+				ended.resolve()
+			})
+			const sent = await world.runtime.sendMessageTool.execute(
+				{ task_id: taskId, message: 'FOLLOW_UP' },
+				world.context2,
+			)
+			expect(sent.data).toMatchObject({ task_id: taskId, status: 'resumed' })
+			// The turn ends while the resumed run is still working; its end is announced later.
+			await world.runtime.releaseTurn(world.turn2)
+			world.hold.resolve()
+			await ended.promise
+			expect(heard).toHaveLength(1)
+			expect(heard[0]?.taskId).toBe(taskId)
+			expect(heard[0]?.text).toContain(taskId)
+			expect(heard[0]?.text).toContain('RESULT_2')
+
+			const turn3 = world.parent.addTurn()
+			const listed = await world.runtime.agentTaskListTool.execute({}, world.contextFor(turn3))
+			expect(JSON.parse(listed.output).tasks).toEqual([
+				expect.objectContaining({ task_id: taskId, state: 'completed' }),
+			])
+			const waited = await world.runtime.waitForTaskTool.execute(
+				{ task_id: taskId },
+				world.contextFor(turn3),
+			)
+			expect(waited.output).toBe(`task_id: ${taskId}\nstatus: completed\n\nAgent result:\nRESULT_2`)
+			expect(waited.data).toMatchObject({ task_id: taskId })
+		} finally {
+			await world.finish()
+		}
+	})
+
+	it('says in plain words that an agent is already being resumed when two messages meet', async () => {
+		const world = await conversation({ holdResume: true, durable: true })
+		try {
+			const taskId = await launch(world, false)
+			await world.endTurn(world.turn1)
+			const viewId = world.runtime.activity.getSnapshot()[0]?.viewId
+			if (!viewId) throw new Error('the agent is not shown')
+			const signal = new AbortController().signal
+			const first = world.runtime.messageChild(viewId, 'ONE', world.turn2, signal)
+			const second = world.runtime.messageChild(viewId, 'TWO', world.turn2, signal)
+			await expect(second).rejects.toThrow(/already being resumed/i)
+			await expect(second).rejects.not.toThrow(/admitted/)
+			expect((await first).kind).toBe('started')
+
+			// Two messages from the model meet the same way: neither gets wire wording.
+			const answers = await Promise.all([
+				world.runtime.sendMessageTool.execute({ task_id: taskId, message: 'A' }, world.context2),
+				world.runtime.sendMessageTool.execute({ task_id: taskId, message: 'B' }, world.context2),
+			])
+			for (const answer of answers) {
+				expect(`${answer.output}${answer.error ?? ''}`).not.toMatch(/admitted/)
+			}
+		} finally {
+			await world.finish()
+		}
+	})
+
 	it('answers about the new run, not the old one, while a resume is being admitted', async () => {
 		const world = await conversation({ holdResume: true, durable: true })
 		try {

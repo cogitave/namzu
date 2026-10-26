@@ -198,6 +198,16 @@ UUID gets the same answer, and nothing is sent and no row is added. While a
 resume is being admitted the three tools answer about the new run, and an agent
 that is still unwinding after a stop answers that it is stopping.
 
+An agent keeps one task id for as long as the conversation knows it. A resumed
+run is a new task inside, but the notification, `agent_task_list`,
+`wait_for_task` and `send_message` all show the id the agent was first known by,
+and that id keeps working for `wait_for_task`, `cancel_agent` and
+`send_message`. When two messages meet an agent that is being resumed, the
+second is told in plain words that the agent is already being resumed and to
+wait for its notification before sending another. A saved agent that is still
+running its earlier work answers that the message was not sent and to try again
+in a moment.
+
 A running child has a `send_message` of its own with `to: "main"` and a
 `message`, offered only while the host can show the message (the interactive
 terminal). The text is queued for the conversation's next turn ("Message queued
@@ -537,8 +547,9 @@ message). Two readers use that evidence, and neither restarts anything.
 New turns and checkpoint resumes take one bounded snapshot of this
 conversation's earlier children, read through the session index
 (`SessionIndex.listChildren`), which is derived from the parent log. A child
-whose parent log has no `child_session_ended` yet is reported as
-`unresolved`; one that ended carries its actual outcome and a preview of its
+whose parent log has no `child_session_ended` yet and whose own log has no
+settled turn either is reported as `unresolved`; one whose own log did settle is
+reported with that outcome; one that ended carries its actual outcome and a preview of its
 answer of at most 16,000 characters, explicitly marked when truncated. A
 completed scheduler lifecycle does not turn a token-limited result into
 success.
@@ -549,10 +560,13 @@ The normal tool call still lists live tasks owned by the current session.
 Reading the history grants no authority by itself. To continue a saved agent,
 `send_message` to its session UUID from `agent_task_list({history: true})`
 ("Resuming agent …"): its saved history and settings are read back from disk, it
+is shown under the short name it was launched with (a plain "Earlier agent" when
+the save kept none, never its prompt), a saved model that names no provider is
+ignored and any other saved model is checked again before the agent runs, it
 runs again under the current turn's limits and review channel, and it appears on
 the rail like any resumed agent, with its duration counted from the resume. Only
 a finished agent whose saved record is complete can be continued. One that ended
-without recording an end (`unresolved`), one you stopped, one that ran in an
+without settling a turn (`unresolved`), one you stopped, one that ran in an
 isolated worktree or with a role, one saved by an older version, and one whose
 agent type no longer exists answer "Not sent. Agent … was saved by an earlier run
 but cannot be resumed …", or the stopped text, and send nothing. `wait_for_task`
