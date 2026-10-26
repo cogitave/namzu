@@ -24,6 +24,7 @@ import {
 	failureFactsLine,
 	tidyCommandOutput,
 	tidyTerminalOutput,
+	turnStoppedLine,
 	unknownToolNotice,
 } from './tidy-tool-output.js'
 import { clipText } from './truncation.js'
@@ -7390,10 +7391,10 @@ export function toAgentEvent(
 			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
 			// A refusal or failure the kernel classed says so in a sentence of its own.
-			const classed =
-				event.isError && event.facts?.kind === 'failure'
-					? failureFactsLine(event.facts, cwd)
-					: undefined
+			const classed = event.isError
+				? (turnStoppedLine(event.result) ??
+					(event.facts?.kind === 'failure' ? failureFactsLine(event.facts, cwd) : undefined))
+				: undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
 			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)

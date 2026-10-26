@@ -200,6 +200,19 @@ export function declinedLine(note: string | undefined): string {
 		: 'You declined this, so it did not run.'
 }
 
+/** What the kernel tells a call that never started because an earlier refusal stopped the turn. */
+const TURN_STOPPED_TEXT = 'An earlier call in this batch was refused and the turn was stopped'
+
+/**
+ * The sentence for a call that was not run because an earlier call was refused
+ * and the turn stopped, or `undefined` for any other result.
+ */
+export function turnStoppedLine(result: string): string | undefined {
+	return result.includes(TURN_STOPPED_TEXT)
+		? 'Not run: an earlier call was declined and the turn stopped.'
+		: undefined
+}
+
 /**
  * One sentence for a call the kernel refused or that could not do what it was
  * asked, from `ToolResult.facts` of kind `failure`, so the model's refusal text

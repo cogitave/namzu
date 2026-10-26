@@ -88,3 +88,20 @@ export function withStartedRow<
 		return { ...running, startedAt: now } as T
 	})
 }
+
+/**
+ * The kernel's start of a call: it takes over the row the call already has
+ * (waiting for its yes, or running once approved) in the place it holds, so a
+ * call never has two rows. A call with no row is added at the end.
+ */
+export function withTakenOverRow<T extends { readonly id: string; readonly turnId?: string }>(
+	rows: readonly T[],
+	started: T,
+): readonly T[] {
+	const at = rows.findIndex(
+		(row) =>
+			row.id === started.id &&
+			(started.turnId === undefined || row.turnId === undefined || row.turnId === started.turnId),
+	)
+	return at < 0 ? [...rows, started] : [...rows.slice(0, at), started, ...rows.slice(at + 1)]
+}

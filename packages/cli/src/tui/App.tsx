@@ -395,7 +395,13 @@ import {
 } from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
 import { needsQuestionDialog } from './question-dialog.js'
-import { queuedToolRow, withQueuedRow, withStartedRow, withoutQueuedRow } from './queued-calls.js'
+import {
+	queuedToolRow,
+	withQueuedRow,
+	withStartedRow,
+	withTakenOverRow,
+	withoutQueuedRow,
+} from './queued-calls.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
@@ -8005,24 +8011,9 @@ export function App({
 						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
-					// A call that was asked about already has its waiting row: the start
-					// takes that row over, in the place it already holds.
-					const waitingAt = activeToolsRef.current.findIndex(
-						(other) =>
-							other.id === tool.id &&
-							other.queued === true &&
-							(tool.turnId === undefined ||
-								other.turnId === undefined ||
-								other.turnId === tool.turnId),
-					)
-					activeToolsRef.current =
-						waitingAt >= 0
-							? [
-									...activeToolsRef.current.slice(0, waitingAt),
-									tool,
-									...activeToolsRef.current.slice(waitingAt + 1),
-								]
-							: [...activeToolsRef.current, tool]
+					// A call that was asked about already has its row (waiting, or running
+					// once it was approved): the start takes it over, in the place it holds.
+					activeToolsRef.current = withTakenOverRow(activeToolsRef.current, tool)
 					setActiveTools(activeToolsRef.current)
 					break
 				}
