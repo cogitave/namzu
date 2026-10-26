@@ -57,7 +57,14 @@ Compaction treats these snapshots, step context and reminders as runtime text,
 not as the operator's words: they never become the summary's task or a
 requirement, and the summary check's excerpt leaves them out. The snapshot is
 retained whole, so a compacted history holds it once, and the next turn
-replaces it with a fresh read. The snapshot also tells the model that project
+reads it fresh.
+
+The snapshot keeps one place in a conversation. When a new turn's
+`prepareInitialSnapshot` returns what the history already holds, the held copy
+stays where it landed and nothing is sent again, so the provider's cache covers
+the history after it. A changed snapshot is sent once, at the tail just before
+the turn's new user message, and replaces the old copy: the latest snapshot is
+always the complete policy, so a rule that was removed stops applying. The snapshot also tells the model that project
 rules win over Namzu's default style and workflow, and never over safety or
 permission rules.
 

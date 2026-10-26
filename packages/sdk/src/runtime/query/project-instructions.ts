@@ -150,6 +150,35 @@ export function collapseProjectInstructionSnapshots(messages: readonly Message[]
 	})
 }
 
+function canonical(message: UserMessage): unknown {
+	// Through JSON, as the durable record went: an explicitly undefined field and
+	// a missing one are the same message.
+	return JSON.parse(
+		JSON.stringify({
+			content: message.content,
+			attachments: message.attachments,
+			source: message.source,
+			cacheHint: message.cacheHint,
+		}),
+	)
+}
+
+/** Whether two snapshots say the same thing, ignoring ids, timestamps and `retain`. */
+export function sameProjectInstructionSnapshot(a: UserMessage, b: UserMessage): boolean {
+	return isDeepStrictEqual(canonical(a), canonical(b))
+}
+
+/** The latest project-instruction snapshot in `messages`, if there is one. */
+export function latestProjectInstructionSnapshot(
+	messages: readonly Message[],
+): UserMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index]
+		if (message && isProjectInstructionMessage(message)) return message
+	}
+	return undefined
+}
+
 /**
  * Replace project policy without mutating the caller's history.
  *
@@ -178,20 +207,7 @@ export function replaceProjectInstructionSnapshot(
 	if (
 		snapshot !== null &&
 		current !== undefined &&
-		isDeepStrictEqual(
-			{
-				content: current.content,
-				attachments: current.attachments,
-				source: current.source,
-				cacheHint: current.cacheHint,
-			},
-			{
-				content: snapshot.content,
-				attachments: snapshot.attachments,
-				source: snapshot.source,
-				cacheHint: snapshot.cacheHint,
-			},
-		)
+		sameProjectInstructionSnapshot(current, snapshot)
 	) {
 		return validated
 	}
