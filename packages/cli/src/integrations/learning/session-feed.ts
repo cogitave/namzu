@@ -49,6 +49,22 @@ export type FeedEvent =
 	  }
 	| { readonly kind: 'paused'; readonly turnId: string; readonly reason: string }
 	| {
+			readonly kind: 'provider-wait'
+			readonly turnId?: string
+			readonly code: string
+			readonly attempt: number
+			readonly maxRetries: number
+	  }
+	| { readonly kind: 'provider-fallback' }
+	| {
+			readonly kind: 'history-repair'
+			readonly duplicateResults: number
+			readonly orphanedResults: number
+			readonly interruptedCalls: number
+			readonly rejectedImages?: number
+	  }
+	| { readonly kind: 'context'; readonly row?: string; readonly shed: boolean }
+	| {
 			readonly kind: 'error'
 			readonly message: string
 			readonly failure?: unknown
@@ -170,6 +186,50 @@ function classify(event: FeedEvent): Classified | null {
 			key: 'paused',
 			reason: `The turn paused: ${sentence(redactSummary(e.reason))}`,
 			turnId: e.turnId,
+		}
+	}
+	// Recoveries: the turn went on, but something had to be worked around. The
+	// wording is fixed here; the event's own text is never copied.
+	if (event.kind === 'provider-wait') {
+		const e = event as Extract<FeedEvent, { kind: 'provider-wait' }>
+		const code = redactSummary(e.code, '')
+		return {
+			evaluator: 'provider-retry-v1',
+			outcome: 'unresolved',
+			taskKey: `recovered:provider-retry:${code}`,
+			key: `recovered:provider-retry:${code}`,
+			reason: `The provider failed a request (${code}) and the turn asked again after a wait; attempt ${e.attempt} of ${e.maxRetries}.`,
+			...(e.turnId ? { turnId: e.turnId } : {}),
+		}
+	}
+	if (event.kind === 'provider-fallback') {
+		return {
+			evaluator: 'provider-fallback-v1',
+			outcome: 'unresolved',
+			taskKey: 'recovered:provider-fallback',
+			key: 'recovered:provider-fallback',
+			reason: 'A provider could not serve and the reply moved to the next one in the chain.',
+		}
+	}
+	if (event.kind === 'history-repair') {
+		const e = event as Extract<FeedEvent, { kind: 'history-repair' }>
+		return {
+			evaluator: 'history-repair-v1',
+			outcome: 'unresolved',
+			taskKey: 'recovered:history-repair',
+			key: 'recovered:history-repair',
+			reason: `The conversation history was repaired before a model call: ${e.duplicateResults} duplicate, ${e.orphanedResults} orphaned, ${e.interruptedCalls} interrupted, ${e.rejectedImages ?? 0} rejected image.`,
+		}
+	}
+	if (event.kind === 'context') {
+		const e = event as Extract<FeedEvent, { kind: 'context' }>
+		if (e.row !== 'warning') return null
+		return {
+			evaluator: 'compaction-failure-v1',
+			outcome: 'unresolved',
+			taskKey: 'recovered:compaction-failure',
+			key: 'recovered:compaction-failure',
+			reason: 'A compaction pass failed and the history was left unchanged.',
 		}
 	}
 	if (event.kind === 'error') {

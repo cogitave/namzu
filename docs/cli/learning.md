@@ -43,7 +43,11 @@ When a conversation sees one of these, it writes an observation:
 
 - a tool call that failed (not one you declined or cancelled),
 - a provider error or a failed turn,
-- a turn that paused or stopped before it finished.
+- a turn that paused or stopped before it finished,
+- a recovery: the provider failed a request and the turn asked again, a reply
+  moved to the next provider in the chain, the conversation history was
+  repaired before a model call, or a compaction pass failed and left the
+  history unchanged. These use fixed wording and never copy the event's text.
 
 An observation holds a reference to the conversation and turn, the kind of
 failure, the time it was recorded, and one short excerpt (at most 160

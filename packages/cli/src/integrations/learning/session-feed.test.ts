@@ -100,6 +100,46 @@ describe('session learning feed', () => {
 		])
 	})
 
+	it('records the recoveries the conversation already classifies, with fixed wording', async () => {
+		const { feed, reader } = setup()
+		feed.observe({
+			kind: 'provider-wait',
+			turnId: TURN,
+			code: 'rate_limit',
+			attempt: 1,
+			maxRetries: 3,
+		})
+		feed.observe({
+			kind: 'provider-wait',
+			turnId: TURN,
+			code: 'rate_limit',
+			attempt: 2,
+			maxRetries: 3,
+		})
+		feed.observe({ kind: 'provider-fallback', text: 'Acme /home/x/secret moved to Other' } as never)
+		feed.observe({
+			kind: 'history-repair',
+			duplicateResults: 1,
+			orphanedResults: 0,
+			interruptedCalls: 2,
+			text: 'secret=abc',
+		} as never)
+		feed.observe({ kind: 'context', row: 'warning', shed: false, text: 'token=abc' } as never)
+		// Compaction that worked, a hidden pass and an unchanged notice are not failures.
+		feed.observe({ kind: 'context', row: 'compacted', shed: true })
+		feed.observe({ kind: 'context', row: 'hidden', shed: true })
+		await feed.flush()
+		const rows = await reader().observations()
+		expect(rows.map((r) => `${r.evaluatorRevision}:${r.outcome}`).sort()).toEqual([
+			'compaction-failure-v1:unresolved',
+			'history-repair-v1:unresolved',
+			'provider-fallback-v1:unresolved',
+			'provider-retry-v1:unresolved',
+		])
+		const text = JSON.stringify(rows)
+		expect(text).not.toMatch(/Acme|secret|token=abc|\/home\/x/)
+	})
+
 	it('records one observation per turn and kind, however often it is offered', async () => {
 		const { feed, reader } = setup()
 		for (const name of ['bash', 'read', 'bash'])
