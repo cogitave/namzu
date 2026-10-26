@@ -254,3 +254,55 @@ describe('read_conversation over a real recorded log', () => {
 		expect(r.error).toMatch(/positive record sequence/)
 	})
 })
+
+/** A later turn lands in the log, as every tool call of a running conversation does. */
+async function grow(f: Awaited<ReturnType<typeof conversation>>, times = 1) {
+	for (let i = 0; i < times; i++)
+		await recordTurn(f.sessions, f.sessionId, [createUserMessage(`later question ${i}`)])
+}
+
+describe('read_conversation after the log has grown', () => {
+	it('reads the match a search just returned, at its byteOffset, once more was recorded', async () => {
+		const f = await conversation()
+		const wanted = f.match.byteOffset
+		expect(wanted).toBeGreaterThan(0)
+		await grow(f)
+
+		const r = await f.call({ seq: f.seq, part: f.part, byteOffset: wanted })
+
+		expect(r.ok).toBe(true)
+		expect(r.page.text).toContain('NEEDLE')
+		expect(r.page.note).toBeUndefined()
+	})
+
+	it('reads from the start after a search and a later record, without a byteOffset', async () => {
+		const f = await conversation()
+		await grow(f)
+
+		const r = await f.call({ seq: f.seq, part: f.part })
+
+		expect(r.ok).toBe(true)
+		expect(r.page.text.startsWith('héllo')).toBe(true)
+	})
+
+	it('pages a long multi-byte record to the end by cursor while the log keeps growing', async () => {
+		const long = `${UNIT.repeat(900)}${MARKER}`
+		const f = await conversation(long)
+		let page = (await f.call({ seq: f.seq, part: f.part })).page
+		expect(page.complete).toBe(false)
+		let text = page.text
+		let pages = 1
+		while (page.nextCursor) {
+			await grow(f)
+			const r = await f.call({ seq: f.seq, part: f.part, cursor: page.nextCursor })
+			expect(r.ok).toBe(true)
+			page = r.page
+			text += page.text
+			pages++
+		}
+
+		expect(pages).toBeGreaterThan(2)
+		expect(text).toBe(long)
+		expect(page.complete).toBe(true)
+	})
+})

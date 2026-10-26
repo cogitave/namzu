@@ -262,8 +262,13 @@ function createSource(
 				throw new Error('Evidence scope has an active turn; it is not closed.')
 			}
 			const anchorKey = anchor ? await verifyAnchor(handle, anchor) : undefined
+			// A session log only grows. An address names one record by offset, length and
+			// digest, and a read verifies all three against the bytes, so what must
+			// bind a seal is the file's identity, never its size or times: those change
+			// with every append and would void every address and cursor handed out a
+			// moment earlier, including one a search just returned.
 			const sourceKey = digest(
-				`session-v1:${consistency}:${mode}:${scopeKey}:${anchorKey ?? stamp(before)}`,
+				`session-v1:${consistency}:${mode}:${scopeKey}:${anchorKey ?? `${before.dev}:${before.ino}`}`,
 			)
 			const seal = evidenceSeal(state.first, sourceKey)
 			const value = await action(handle, size, seal, sourceKey, budget, !state.closed)

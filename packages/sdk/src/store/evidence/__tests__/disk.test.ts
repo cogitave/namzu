@@ -584,6 +584,30 @@ describe('bounded retained tool evidence', () => {
 		await expect(a.source.read({ address })).rejects.toThrow()
 	})
 
+	it('keeps an address and a cursor valid while the log only grows', async () => {
+		const f = await fixture(
+			Array.from({ length: 70 }, (_, i) => ({ text: `ordinary entry ${i}` })),
+			{ open: true },
+		)
+		const source = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const found = await source.search({ query: 'ordinary', limit: 1 })
+		const address = found.matches[0]!.address
+		const cursor = found.nextCursor!
+		// Every tool call of a running turn appends to this log.
+		await f.session.append({
+			type: 'tool_completed',
+			toolUseId: 'call-later',
+			toolName: 'observe',
+			isError: false,
+			result: 'a later result',
+			outputTruncated: false,
+		})
+		const fresh = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		expect(await fresh.read({ address })).toMatchObject({ text: found.matches[0]!.excerpt })
+		const next = await fresh.search({ query: 'ordinary', limit: 1, cursor })
+		expect(next.matches).toHaveLength(1)
+	})
+
 	it('refuses altered cursors, symlinks, torn records and cancellation', async () => {
 		const f = await fixture(Array.from({ length: 70 }, () => ({ text: 'ordinary' })))
 		const cursor = (await f.source.search({ query: 'absent' })).nextCursor!
