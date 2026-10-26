@@ -113,33 +113,38 @@ export function composeStoredMemoryPrompt(index: RenderedMemoryIndex): string | 
 
 /**
  * The static prompt section that teaches the model to keep memory itself
- * while it works. It sits in the stable prefix, so it is one constant string:
- * nothing per-turn goes into it, and it never re-keys the cached prefix.
- * Tool mechanics (types, field layout, links, revisions) stay in the memory
- * tool descriptions; this holds only when to write and how to keep the store
- * tidy.
+ * while it works. It sits in the stable prefix: the only variable is whether a
+ * task-list tool is mounted, fixed when the session starts, so nothing
+ * per-turn goes into it and it never re-keys the cached prefix. Tool
+ * mechanics (types, field layout, links, revisions) stay in the memory tool
+ * descriptions; this holds only when to write and how to keep the store tidy.
  */
-export const MEMORY_GUIDANCE = [
-	'## Memory',
-	'',
-	'You keep memory yourself while you work. Memories are files that later sessions in this project read, so each one should hold something a later session cannot rebuild from the code, the history or the docs.',
-	'',
-	'Save as the work goes, because a lesson left unwritten is repeated by the next session:',
-	'- what the person prefers or corrects, including an approach they confirmed or rejected, with their reason;',
-	'- a decision and why it was made, or a constraint behind the work;',
-	'- a lesson from a failure: what went wrong, the cause, and what to do instead;',
-	'- a pointer to where something lives outside the repository, such as a tracker, a dashboard or a shared document.',
-	'',
-	'Leave out what the repository or its docs already record, and what matters only to this conversation, such as progress and the current plan (the task list holds those). Leave out secrets such as keys and credentials, since memories are plain files.',
-	'',
-	'Keep the store tidy so it stays useful:',
-	'- Write one fact per memory, with a short name and a short one-line description, because the index shows only that line.',
-	'- Search before saving. When a memory on the topic exists, update it instead of adding a duplicate.',
-	'- When you find a memory is wrong, correct or remove it, so a later session is not misled.',
-	'- When the person asks you to remember something, save it now. When they ask you to forget something, find it and remove it.',
-	'',
-	'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note.',
-].join('\n')
+export function composeMemoryGuidance(options: { readonly taskList: boolean }): string {
+	const progress = options.taskList
+		? 'progress and the current plan belong in the task list'
+		: 'progress and the current plan belong in the conversation'
+	return [
+		'## Memory',
+		'',
+		'Memories are files that later sessions in this project read, so each one should hold something a later session cannot rebuild from the code, the history or the docs.',
+		'',
+		'Save what you expect to matter again, as the work goes:',
+		'- what the person prefers or corrects, including an approach they confirmed or rejected, with their reason;',
+		'- a decision and why it was made, or a constraint behind the work;',
+		'- a lesson from a failure, when it is likely to come up again or was not obvious: what went wrong, the cause, and what to do instead (a one-off slip such as a typo, a wrong flag or a missing install is not worth a memory);',
+		'- a pointer to where something lives outside the repository, such as a tracker, a dashboard or a shared document.',
+		'',
+		`Leave out what the repository or its docs already record, and what matters only to this conversation: ${progress}. Leave out secrets such as keys and credentials, since memories are plain files.`,
+		'',
+		'Keep the store tidy so it stays useful:',
+		'- Write one fact per memory, with a short name and a short one-line description, because the index shows only that line.',
+		'- Search before saving. When a memory on the topic exists, update it instead of adding a duplicate.',
+		'- When you find a memory is wrong, correct or remove it, so a later session is not misled.',
+		'- When the person asks you to remember something, save it. If the repository already records it, save only what was surprising or non-obvious about it. When they ask you to forget something, find it and remove it.',
+		'',
+		'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note.',
+	].join('\n')
+}
 
 /** What one launch's migration did, for the operator notice. */
 export interface MemoryMigrationReport {

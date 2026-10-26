@@ -11,7 +11,7 @@ import {
 	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../../integrations/providers/index.js'
-import { MEMORY_GUIDANCE } from '../../memory/typed.js'
+import { composeMemoryGuidance } from '../../memory/typed.js'
 import { type AgentSessionOptions, createAgentSession } from '../agent.js'
 
 interface Request {
@@ -92,26 +92,39 @@ afterEach(() => {
 	removeTempDir(cwd)
 })
 
+const WITH_TASKS = composeMemoryGuidance({ taskList: true })
+const WITHOUT_TASKS = composeMemoryGuidance({ taskList: false })
+
 describe('memory guidance in the assembled system prompt', () => {
 	it('is present, once, in the stable prefix when the memory tools are mounted', async () => {
 		const [prompt] = await turn({})
-		expect(prompt).toContain(MEMORY_GUIDANCE)
+		expect(prompt).toContain(WITH_TASKS)
 		expect(prompt.split('## Memory').length).toBe(2)
 		// Before the environment block, which carries per-launch facts.
-		expect(prompt.indexOf(MEMORY_GUIDANCE)).toBeLessThan(prompt.indexOf('## Environment'))
+		expect(prompt.indexOf(WITH_TASKS)).toBeLessThan(prompt.indexOf('## Environment'))
 	})
 
 	it('is absent when the session withholds the memory tools', async () => {
 		const [prompt] = await turn({ withheldTools: ['save_memory'] })
 		expect(prompt).not.toContain('## Memory')
-		expect(prompt).not.toContain(MEMORY_GUIDANCE)
+		expect(prompt).not.toContain(WITH_TASKS)
+	})
+
+	it('names the task list only when the session has one', async () => {
+		const [withTasks] = await turn({})
+		expect(withTasks).toContain('belong in the task list')
+		requests = []
+		const [withoutTasks] = await turn({ withheldTools: ['task_create'] })
+		expect(withoutTasks).toContain(WITHOUT_TASKS)
+		expect(withoutTasks).not.toContain('belong in the task list')
+		expect(withoutTasks).toContain('belong in the conversation')
 	})
 
 	it('keeps its sentences in the same order on every turn', async () => {
 		const prompts = await turn({}, 2)
 		expect(prompts).toHaveLength(2)
 		expect(prompts[1]).toBe(prompts[0])
-		const sentences = MEMORY_GUIDANCE.split(/(?<=[.:;])\s+/)
+		const sentences = WITH_TASKS.split(/(?<=[.:;])\s+/)
 		let at = -1
 		for (const sentence of sentences) {
 			const next = prompts[1].indexOf(sentence)
@@ -122,21 +135,49 @@ describe('memory guidance in the assembled system prompt', () => {
 })
 
 describe('memory guidance wording', () => {
+	const both = [WITH_TASKS, WITHOUT_TASKS]
+
 	it('uses plain emphasis, with no run of capital letters', () => {
-		expect(MEMORY_GUIDANCE).not.toMatch(/\b[A-Z]{3,}\b/)
+		for (const text of both) expect(text).not.toMatch(/\b[A-Z]{3,}\b/)
 	})
 
 	it('names no other product or vendor', () => {
-		expect(MEMORY_GUIDANCE).not.toMatch(
-			/claude|anthropic|openai|chatgpt|gemini|copilot|cursor|codex|llama|mistral/i,
-		)
+		for (const text of both) {
+			expect(text).not.toMatch(
+				/claude|anthropic|openai|chatgpt|gemini|copilot|cursor|codex|llama|mistral/i,
+			)
+		}
 	})
 
 	it('does not tell the model or the person to start over', () => {
-		expect(MEMORY_GUIDANCE).not.toMatch(/start over|new session|start fresh|\/clear|\/new/i)
+		for (const text of both) {
+			expect(text).not.toMatch(/start over|new session|start fresh|\/clear|\/new/i)
+		}
 	})
 
 	it('leaves tool mechanics to the tool descriptions', () => {
-		expect(MEMORY_GUIDANCE).not.toMatch(/How to apply|\[\[|revision|kebab/)
+		for (const text of both) expect(text).not.toMatch(/How to apply|\[\[|revision|kebab/)
+	})
+
+	it('states the purpose without pressing the model to save eagerly', () => {
+		for (const text of both) {
+			expect(text).not.toMatch(/left unwritten|repeated by the next/i)
+			expect(text).toContain('expect to matter again')
+		}
+	})
+
+	it('saves a failure lesson only when it will recur or was not obvious', () => {
+		for (const text of both) {
+			expect(text).toContain('likely to come up again or was not obvious')
+			expect(text).toContain('a one-off slip')
+		}
+	})
+
+	it('says an explicit ask to remember yields to the leave-out rule for what the repository holds', () => {
+		for (const text of both) {
+			expect(text).toContain(
+				'If the repository already records it, save only what was surprising or non-obvious about it.',
+			)
+		}
 	})
 })

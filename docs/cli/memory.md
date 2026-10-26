@@ -132,19 +132,40 @@ appended to the curated project file as before.
 
 A session that mounts the memory tools carries a `## Memory` section in its
 static system prompt, in the stable prefix before the environment block, so it
-never changes the cached prefix. It tells the model to keep memory itself while
-it works. It saves what a later conversation will need: the person's
-preferences and corrections, decisions and the reason for them, a lesson from a
-failure (what went wrong, the cause, what to do instead) and pointers to
-resources outside the repository. It leaves out what the repository or its docs
-already record and what only matters to the current conversation. It also asks
-for one fact per memory with a short one-line description, an update of a
-matching memory instead of a duplicate, the removal of a memory found wrong, a
-save when the person says "remember" and a removal when they say "forget", and
-a check of a recalled memory against the current code before acting on it. A
-session that withholds `save_memory`, and a resident continuation, get no such
-section. The mechanics (types, the `Why:` and `How to apply:` lines, `[[name]]`
-links, revisions) stay in the descriptions of the memory tools.
+never changes the cached prefix. It tells the model to save what it expects to
+matter again: the person's preferences and corrections, decisions and the
+reason for them, a lesson from a failure (what went wrong, the cause, what to
+do instead) and pointers to resources outside the repository. A lesson is kept
+only when it is likely to come up again or was not obvious; a one-off slip such
+as a typo, a wrong flag or a missing install is not. It leaves out what the
+repository or its docs already record and what only matters to the current
+conversation: progress and the current plan belong in the task list when the
+session has one, and in the conversation when it does not. It also asks for one
+fact per memory with a short one-line description, an update of a matching
+memory instead of a duplicate, the removal of a memory found wrong, and a check
+of a recalled memory against the current code before acting on it. When the
+person says "remember", the model saves it; when the repository already records
+the thing, it saves only what was surprising or non-obvious about it. When the
+person says "forget", it finds the memory and removes it. A session that
+withholds `save_memory`, and a resident continuation, get no such section. A
+sub-agent that holds `save_memory` gets the same section in its own prompt (with
+progress belonging in the conversation, since a sub-agent has no task list).
+The mechanics (types, the `Why:` and `How to apply:` lines, `[[name]]` links,
+revisions) stay in the descriptions of the memory tools.
+
+#### Saving does not ask
+
+In the default mode (ask before changes) and in the mode that approves edits,
+`save_memory` and `update_memory` run without an approval prompt. They write only
+to namzu's own memory store under its home, never to a workspace file, and the
+write is recorded in the turn like any other tool call, with the memory marked
+as written by the model. `delete_memory` still asks, since it removes a memory.
+Plan mode, strict mode and the classifier mode treat the memory tools as any
+other write, and a `permissions` rule that asks about or denies one still
+decides. Before this change every save asked "Do you want to run save_memory?".
+There is no setting that brings the prompt back for the memory tools alone; to
+be asked, write `permissions: { save_memory: "ask" }` (and the same for
+`update_memory`).
 
 Every send and resume takes a snapshot of the index and offers it, subject to
 the current request budget, in a request-only user-role `step-context` message under

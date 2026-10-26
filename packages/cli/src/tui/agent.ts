@@ -369,8 +369,8 @@ import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
-	MEMORY_GUIDANCE,
 	type TypedNoteResult,
+	composeMemoryGuidance,
 	composeStoredMemoryPrompt,
 	describeCuratedNotesImport,
 	describeMemoryMigration,
@@ -4173,7 +4173,7 @@ export async function createAgentSession(
 	const memoryGuidance = sessionToolsets.some((ts) =>
 		ts.tools().some((tool) => tool.name === 'save_memory'),
 	)
-		? MEMORY_GUIDANCE
+		? composeMemoryGuidance({ taskList: !withheldTools.has('task_create') })
 		: undefined
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
@@ -7069,6 +7069,12 @@ export const isPromptExempt: (
 	input: unknown,
 ) => boolean = isReviewExempt
 
+/**
+ * The memory tools that write without asking in `prompt` and `accept-edits`.
+ * Their store is namzu's own, under its home; no workspace file is touched.
+ */
+const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(['save_memory', 'update_memory'])
+
 /** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
 export const AGENT_LAUNCH_TOOL = 'Agent'
 
@@ -7134,6 +7140,13 @@ function withRuntimeMountedTools(
  * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
  * no exemption skips.
  *
+ * `save_memory` and `update_memory` are not asked about in `prompt` and
+ * `accept-edits`: they write only to namzu's own memory store under its home,
+ * never to a workspace file, and keeping memory is something the model does as
+ * it works. `delete_memory` declares itself destructive, so it still asks.
+ * `plan`, `strict` and the classifier modes treat them as any other write, and
+ * an `ask` or `deny` rule for either still decides.
+ *
  * `save_skill` (the TUI's alone) is not asked about here either, outside
  * `strict` and `plan`: its own screen shows the whole file and where it goes,
  * and asks in every mode, `auto` included. A second question in front of it
@@ -7155,6 +7168,9 @@ export function reviewExemptionFor(
 		(name === EXIT_PLAN_MODE_TOOL_NAME && manager.has(EXIT_PLAN_MODE_TOOL_NAME)) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
+		((mode === 'prompt' || mode === 'accept-edits') &&
+			MEMORY_WRITE_TOOLS.has(name) &&
+			manager.has(name)) ||
 		(mode !== 'strict' &&
 			mode !== 'plan' &&
 			name === SAVE_SKILL_TOOL_NAME &&
