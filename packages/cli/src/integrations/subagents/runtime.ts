@@ -2021,7 +2021,8 @@ export async function createSubagentRuntime(
 			}
 			if (saved.status === 'cancelled')
 				return {
-					error: 'That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.',
+					error:
+						'That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.',
 				}
 			// The parent's log may never have recorded an end for a child that did
 			// finish; the child's own log decides, in the SDK.
