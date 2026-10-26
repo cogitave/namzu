@@ -66,7 +66,7 @@ export const residentCommand = lazyCommand(
 export const learnCommand = lazyCommand(
 	{
 		name: 'learn',
-		description: 'Run one explicitly selected learning experiment (experimental)',
+		description: 'Learn from what conversations kept, now; list or undo what was learned',
 		passThrough: true,
 	},
 	async () => (await import('./learn.js')).learnCommand,
