@@ -25,6 +25,18 @@ comparison and the distinction between persisted guidance and recursive
 improvement of the improvement procedure. This API does not train model weights,
 execute generated skill code or establish a generalization result.
 
+## Status and what is missing
+
+Verified 2026-10-26. The cycle is `@experimental` and opt-in: the only way to
+reach it from the CLI is `namzu resident learn <file> --trust`, with a
+host-supplied `<file>.learning.js` generator. Namzu ships no generator of its
+own, installs no background executor, and handles one candidate per cycle:
+there is no fan-out, composition, blind selection, experience library, typed
+edit ledger or leak detector yet. The `resources` option is a per-cycle budget
+cap, not a trigger policy: it bounds what one cycle may spend and does not
+decide when a cycle runs. The [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
+lists what is built, what is opt-in and the staged plan.
+
 ## Host responsibilities and execution
 
 `ResidentLearningCycleOptions` requires an agenda with `read` and `promoteSkill`,

@@ -52,6 +52,78 @@ completed 40 fixture pursuits; measured selection with patience two completed
 payoff. Lower consumption alone cannot justify promotion. Those figures are
 development fixtures, not current production success rates.
 
+## Verified status, 2026-10-26
+
+Checked against `origin/main` at `0aa415967`. The comparison method is the
+public paper "Harness^2: Recursive Agent Harnessing for an Open World"
+(arXiv 2610.14224): candidate harnesses are proposed, executed, composed and
+selected blind, with a library of experience kept across tasks. The assessment
+above is a snapshot from 2026-09-14; this section supersedes its "Remaining
+gap" column.
+
+**Built.**
+
+- Paired, confirmation-gated verification and the no-regression protection plan
+  (`packages/sdk/src/eval/harness-verification.ts`, `harness-protection.ts`).
+- The learning cycle from candidate to activation and exact-revision rollback
+  (`packages/sdk/src/manager/resident/learning-cycle.ts`). It is `@experimental`
+  and is reached only through the explicit command
+  `namzu resident learn <file> --trust`. It is not on a default product path.
+- Retained-failure discovery over a durable store.
+- Recovery without dead ends: the turn ladders for a full context, an
+  unsupported image, a reasoning-only reply and a provider fallback.
+- Proposed-then-confirmed skills in the interactive terminal, and the deferred
+  `code_analysis` tool over `@namzu/analysis`.
+
+**Opt-in and experimental.** Everything that learns. The cycle takes one
+candidate supplied by a host file (`<file>.learning.js`); no generator ships
+with Namzu, no background executor is installed, and activation always needs
+the person's confirmation.
+
+**Missing.**
+
+- A built-in candidate generator. The comparison method's fan-out
+  (propose several candidates, execute each, compose, select blind) is not
+  built; the cycle handles one candidate per run.
+- Blind, anonymised selection.
+- An experience library with cue, lesson, evidence, confidence and a verdict
+  per edit (including "confounded"). Today only failure records are kept.
+- A typed edit ledger.
+- A detector for evaluator or answer leakage into a candidate. Today the
+  protection is architectural only (disjoint protection tasks, host-owned
+  evaluator, pinned evaluator revision).
+- A producer that turns real failures into observations in the CLI.
+- Scheduled or failure-gated improvement runs.
+- Authoring of Namzu's own tools, hooks, agents or configuration, editing its
+  own source, and recursive improvement of the improvement procedure. None is
+  started, and the Muse experiment found retained raw experience as accurate as
+  generated guidance, so the payoff of a generator is unproven for Namzu.
+
+**Cost control** is a per-cycle budget cap: `resources` (a unit and a maximum
+number of units) and usage receipts bound what one cycle may spend. There is no
+trigger-based control (nothing decides when a cycle is worth running).
+
+### Staged plan
+
+Order: 0, 1, 3, 2, 4, then measure. 5 and 6 only if 4 shows a gain.
+
+| Step | Work | Safety floor |
+| --- | --- | --- |
+| 0 | This status, and the cost label above | None touched |
+| 1 | Bridge from failures and recoveries the runtime already classifies to observations: references into the session log, a short redacted summary, local only, pruned after 30 days, a config key turns it off | Observations only, no activation |
+| 3 | Leak tripwire for candidates (evaluator and answer canaries, grader-verdict markers) | It is part of the floor |
+| 2 | Experience library and typed edit ledger beside observations | Read-only data, pinned evaluator revision |
+| 4 | Built-in generator, single surface (instruction skills), opt-in (config key, default off), spend per cycle bounded by `resources` with a conservative default | Allowlist is instruction skills only; permission review, protected paths, the dangerous-pattern floor and the learning code itself are never on the editable surface; activation still needs confirmation and is revertible by exact revision |
+| 5 | Execute-and-compose with blind selection on the workflow tool | Candidates run sandboxed; paired verification still gates activation |
+| 6 | Scheduled or failure-gated runs with mandatory per-job permissions | One run at a time |
+| 7-8 | Parity workflow, self-source map and `code_navigation`; `@namzu/analysis` phase B | Read-only |
+| 9 | Native analysis lane (Rust in CI and packaging are owner decisions) | Behind a config key |
+| 10-12 | Own tools, hooks, agents and config with revisions; own-source edits in a managed worktree; recursive improvement | Safety floor never editable by itself; owner approval to switch |
+
+Defaults chosen where the plan asked the owner, so they can be changed:
+observations record only failures and recoveries the runtime already classifies
+and are never uploaded; the generator is off until switched on.
+
 ## Research with a direct architectural consequence
 
 **Darwin Gödel Machine** evolves coding agents through code modifications,

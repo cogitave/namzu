@@ -248,3 +248,7 @@ delivery adapters and immutable-history storage compaction remain application
 or future storage work. [Archival](resident-retention.md) frees active slots but
 does not bound total disk history. The measured initiative selector remains
 opt-in because its earlier evaluation exposed premature stopping.
+
+For what is built, what is opt-in and experimental, and what is still missing
+(a built-in generator, blind selection, an experience library), see the
+[verified status](../../research/resident/rsi-readiness.md#verified-status-2026-10-26).
