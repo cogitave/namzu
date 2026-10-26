@@ -11,6 +11,7 @@ export type {
 
 export type {
 	DanglingResult,
+	ToolHistoryRepairOptions,
 	ToolHistoryRepairReport,
 	ToolHistoryRepairResult,
 } from './dangling.js'

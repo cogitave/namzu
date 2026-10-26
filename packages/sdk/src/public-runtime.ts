@@ -1332,6 +1332,7 @@ export {
 	WorkingStateManager,
 } from './compaction/index.js'
 export type {
+	ToolHistoryRepairOptions,
 	ToolHistoryRepairReport,
 	ToolHistoryRepairResult,
 } from './compaction/index.js'
