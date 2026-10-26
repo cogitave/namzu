@@ -359,7 +359,10 @@ retention falls back to the ordinary output budget.
 than a summary or search excerpt. `part` defaults to zero; compaction events
 can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
-caller-selected paths or follows a spill path from a record.
+caller-selected paths or follows a spill path from a record. The saved file
+named by "The full output was written to:" is a separate route: the generic
+`read` tool opens it, as described under
+[Getting at a saved output](#getting-at-a-saved-output).
 After an indexed, snapshot or live search returns a match, the CLI temporarily retains its
 authenticated SDK address under this conversation's root, tenant, project,
 session, turn, sequence and part. A following read can go directly to that source
@@ -412,10 +415,54 @@ explained beyond "could not be read or verified; search again".
 | The record exists but not that `part` | Refused, naming the parts that hold text. |
 | The record holds no recorded text | Refused, pointing to `search_conversation`. |
 | The retained text changed, or the address now names another record | Refused: run `search_conversation` again for a fresh `seq` and `part`. |
-| Anything else (ownership, integrity, unreadable log) | Refused with the generic "could not be read or verified; search again" message. |
+| The saved output behind the record was deleted or pruned | Refused, naming the seq and part and saying only the preview in the log remains. |
+| A later page fails (the record changed under a cursor) | Refused: the record changed since the previous page; call again without a cursor, or search again. |
+| Anything else (ownership, integrity, unreadable log) | Refused with the generic "could not be read or verified; search again" message. The real cause goes to the host log. |
 
-Only the first page of a read is adjusted; a later page's offset came from the
-reader itself, so a failure there is reported, not retried.
+Only the first page of a read is adjusted, and only for an offset the reader
+rejects as a place text cannot start (inside a character, or past the end). An
+integrity or ownership refusal on a first page is not an offset problem, so it is
+not retried from zero. A later page's offset came from the reader itself, so a
+failure there is reported, not retried. Every read made along the way, including
+a refused probe, counts once against the call's 8 MiB allowance.
+
+An address or cursor stays valid while the log only grows: a running
+conversation appends a record for every tool call, and that must not void the
+address a search just returned. The seal binds the log file's identity and the
+read still checks each record's offset, length and digest; a log that was
+replaced or rewritten is refused. A record is immutable, so a record cannot grow
+between pages.
+
+A seq beyond the log's end is answered with the highest retained seq before any
+scan, so a mistyped seq never ends in an empty page and a cursor. An image or
+document in a record is shown to the model when it arrives but is not kept as
+text, so a record that only holds those has no textual part to read. Paging
+works on UTF-16 units: one very long line, lone surrogates (kept as U+FFFD) and
+`\r\n` or lone `\r` line ends read back exactly. A page that is not the whole
+record says which call continues it. A UTF-16 `charOffset` input is not offered:
+the reader's chunk index does not carry a character index for every record, so a
+character position cannot be honoured without scanning from the start of the
+record on every page. `byteOffset` from search is the position to use.
+
+## Getting at a saved output
+
+When a tool result is over the output budget the model sees a preview and, under
+it, the line "The full output was written to: <path>" followed by one sentence
+that says how to read more. That sentence is written where the output is cut and
+names only the tools this turn has:
+
+- with the `read` tool: open the file with `read` (`offset` and `limit` page through it);
+- with the conversation tools: `search_conversation` with a phrase from the
+  output, then `read_conversation` with the `seq` and `part` it returns.
+
+The same sentence travels with the pointer into a cleared tool result after
+compaction, and every compaction summary ends with "Earlier output was cut from
+this summary. To get exact earlier text, call search_conversation, then
+read_conversation." when both tools are mounted. The `read` tool opens a file in
+this session's own retained-output directory without a prompt: an absolute path to
+a regular `.txt` file whose real path is inside that directory, not a symbolic
+link and with no other hard link, read-only and in the usual line windows. A path
+anywhere else is refused as before.
 
 Each call scans at most 8 MiB and returns at most 6,000 UTF-16 code units,
 without splitting surrogate pairs. `text` may be empty while scanning toward
