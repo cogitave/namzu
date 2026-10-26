@@ -1,4 +1,4 @@
-/** Ctrl+O reaches retained output through the App without appending copies. */
+/** A folded body names the key that opens it; the key appends nothing. */
 
 import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -32,17 +32,6 @@ vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] 
  */
 const CALL_DETAIL = Array.from({ length: 12 }, (_, i) => `call-line-${i + 1}`)
 const RESULT_DETAIL = Array.from({ length: 12 }, (_, i) => `result-line-${i + 1}`)
-
-/**
- * Short enough to print in full, so it collapses nothing and advertises nothing.
- *
- * Three lines rather than seven on purpose: the whole question is whether a body
- * that never truncates can nonetheless be the one Ctrl+O reprints. Set by the
- * second `describe` below.
- */
-const SHORT_DETAIL = ['short-a', 'short-b', 'short-c']
-/** Whether the mocked turn ends with a short, uncollapsed body. */
-let trailingShortBlock = false
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -90,7 +79,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					summary: 'ls',
 					detail: CALL_DETAIL,
 				} as AgentEvent
-				await new Promise((r) => setTimeout(r, 10))
+				await new Promise<void>((r) => setImmediate(r))
 				yield {
 					kind: 'tool-end',
 					toolUseId: 'u1',
@@ -99,24 +88,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					isError: false,
 					detail: RESULT_DETAIL,
 				} as AgentEvent
-				if (trailingShortBlock) {
-					yield {
-						kind: 'tool-start',
-						toolUseId: 'u2',
-						toolName: 'read',
-						summary: 'notes.txt',
-						detail: SHORT_DETAIL,
-					} as AgentEvent
-					await new Promise((r) => setTimeout(r, 10))
-					yield {
-						kind: 'tool-end',
-						toolUseId: 'u2',
-						toolName: 'read',
-						summary: 'ok',
-						isError: false,
-						detail: SHORT_DETAIL,
-					} as AgentEvent
-				}
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
 		}),
@@ -126,13 +97,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 const { App } = await import('../App.js')
 
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
-const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
+/** Yield to the event loop a few times so queued renders land; no wall-clock wait. */
+const tick = async (_ms?: number): Promise<void> => {
+	for (let turn = 0; turn < 8; turn++) await new Promise<void>((resolve) => setImmediate(resolve))
+}
 const mounted: { unmount: () => void }[] = []
 
 afterEach(() => {
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
-	trailingShortBlock = false
 	vi.restoreAllMocks()
 })
 
@@ -186,92 +159,14 @@ describe('a collapsed body advertises how to read it', () => {
 	})
 })
 
-/** Run `fn` on a terminal too short to keep any transcript row redrawable. */
-async function onAShortTerminal<T>(fn: () => Promise<T>): Promise<T> {
-	const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows')
-	Object.defineProperty(process.stdout, 'rows', { value: 16, configurable: true })
-	try {
-		return await fn()
-	} finally {
-		if (rows) Object.defineProperty(process.stdout, 'rows', rows)
-		else Reflect.deleteProperty(process.stdout, 'rows')
-	}
-}
-
-describe('a body that fits', () => {
-	it('is not what Ctrl+O opens; the hidden one is', async () => {
-		// The turn ends with a three-line body: fully visible, no hint, nothing
-		// concealed. Treating it as "the most recent block" would reprint three
-		// lines the operator can already read while the twelve-line body above
-		// stayed truncated — an answer to a question nobody asked.
-		trailingShortBlock = true
-		await onAShortTerminal(async () => {
-			const harness = render(<App ctx={ctx} />)
-			mounted.push(harness)
-			await frameShows(harness.lastFrame, 'a-model')
-			harness.stdin.write('go')
-			await tick(20)
-			harness.stdin.write('\r')
-			await frameShows(harness.lastFrame, 'short-c')
-
-			harness.stdin.write('\x0f') // Ctrl+O
-			await frameShows(harness.lastFrame, 'Tool output')
-			harness.stdin.write('G')
-			await frameShows(harness.lastFrame, 'result-line-7')
-
-			expect(harness.lastFrame() ?? '', 'Ctrl+O reprinted a body that was already whole').toContain(
-				'result-line-7',
-			)
-		})
-	})
-})
-
 describe('Ctrl+O', () => {
-	it('opens older output in a bounded viewer without appending a transcript row', async () => {
-		await onAShortTerminal(async () => {
-			const harness = await twoCollapsedBlocks()
-
-			harness.stdin.write('\x0f')
-			await frameShows(harness.lastFrame, 'Tool output')
-			harness.stdin.write('G')
-			await frameShows(harness.lastFrame, 'result-line-7')
-
-			const frame = harness.lastFrame() ?? ''
-			expect(frame, 'the hidden lines never appeared').toContain('result-line-7')
-			expect(frame).toContain('Tool output')
-			expect(frame).not.toContain('in full (12 lines)')
-			expect(frame, 'the most recent body is the one reprinted').not.toContain('call-line-7')
-		})
-	})
-
-	it('says what produces one when the transcript has none', async () => {
-		// Before any tool has run. An empty result here would read as a broken
-		// key rather than as an empty set.
+	it('opens the detailed transcript even when nothing is folded, and says nothing about expanding', async () => {
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
-		// The COMPOSER's placeholder is not readiness — it draws from the first
-		// frame, while the composer stays `disabled` until the session is up. The
-		// model footer is the first thing that only exists once the session is up.
 		await frameShows(harness.lastFrame, 'a-model')
 
 		harness.stdin.write('\x0f')
-		await frameShows(harness.lastFrame, 'Nothing to expand yet')
-
-		expect(harness.lastFrame() ?? '').toContain('Nothing to expand yet')
-	})
-
-	it('forgets a body when Ctrl+L takes the rows away', async () => {
-		// A body outliving the row it was in would print output the operator
-		// can no longer see anywhere, from a transcript they just cleared.
-		const harness = await twoCollapsedBlocks()
-
-		harness.stdin.write('\x0c') // Ctrl+L
-		await tick(80)
-		harness.stdin.write('\x0f')
-		await frameShows(harness.lastFrame, 'Nothing to expand yet')
-
-		const frame = harness.lastFrame() ?? ''
-		expect(frame, 'a cleared block was still expandable').toContain('Nothing to expand yet')
-		expect(frame, 'output from a cleared transcript came back').not.toContain('call-line-12')
+		await frameShows(harness.lastFrame, 'Showing detailed transcript')
+		expect(harness.lastFrame() ?? '').not.toContain('Nothing to expand yet')
 	})
 })

@@ -28,6 +28,8 @@ export interface ChecklistItem {
 	readonly id: string
 	readonly subject: string
 	readonly status: ChecklistStatus
+	/** Ids of tasks this one waits on; absent when it waits on none. */
+	readonly blockedBy?: readonly string[]
 }
 
 /** One text-presentation, single-cell mark per status. */

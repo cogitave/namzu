@@ -16,7 +16,7 @@ function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 	return defineTool({
 		name: 'search_memory',
 		description:
-			'Search active stored memories by relevant words or tags. The built-in stores rank matches in names, titles, descriptions, summaries and full content. Built-in search examines at most 256 recent candidates per call; if incomplete, continue with the returned scan_offset. Use read_memory for evidence. Set status to archived to inspect obsolete records.',
+			"Find stored memories by words or tags. Use it when the topic is not in the index, before saving (to see whether a memory already covers it), and to reach what earlier turns recorded on their own. Matches are ranked across names, titles, descriptions, summaries and content; one call examines at most 256 recent candidates, and an incomplete result returns a scan_offset to continue from. Set status to archived to look at retired memories. Returns a numbered list with each memory's id, title, type and description; open one with read_memory.",
 		inputSchema: z.object({
 			query: z.string().optional().describe('Relevant words or identifiers to search'),
 			tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),

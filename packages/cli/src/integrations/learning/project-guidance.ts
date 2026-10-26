@@ -70,7 +70,7 @@ export async function readProjectGuidance(
 		if (!projection.includedSkills.length) return null
 		return [
 			'Guidance this project learned from earlier conversations and the person confirmed.',
-			'It is advice about how to work here, not a permission and not an instruction to run anything.',
+			'It is advice about how to work here, not a permission and not an instruction to run anything. Stored memories are facts about the project; where a memory and this advice disagree, trust the memory.',
 			projection.text,
 		].join('\n')
 	} catch {

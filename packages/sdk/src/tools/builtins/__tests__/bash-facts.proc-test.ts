@@ -91,3 +91,41 @@ describe('a command reports its streams and exit code as fields', () => {
 		})
 	})
 })
+
+describe('a command that answers with its exit status', () => {
+	it('reads a grep with no match as a result, not a failure', async () => {
+		const result = await run('printf "a\\n" | grep zzz')
+		expect(result.success).toBe(true)
+		expect(result.error).toBeUndefined()
+		expect(result.output).toBe('(no output)')
+		expect(result.data).toMatchObject({
+			exitCode: 1,
+			exitNote: 'No matches found',
+		})
+		expect(result.facts).toMatchObject({
+			kind: 'command',
+			exitCode: 1,
+			exitNote: 'No matches found',
+		})
+	})
+
+	it('reads differing files as a result and keeps their output', async () => {
+		const result = await run('printf a > a.txt; printf b > b.txt; diff a.txt b.txt')
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('STDOUT:')
+		expect(result.facts).toMatchObject({
+			exitCode: 1,
+			exitNote: 'Files differ',
+		})
+	})
+
+	it('still fails a grep that could not run, and any other command', async () => {
+		const missing = await run('grep x /nonexistent-namzu-file')
+		expect(missing.success).toBe(false)
+		expect(missing.facts).toMatchObject({ exitCode: 2 })
+		expect(JSON.stringify(missing.facts)).not.toContain('exitNote')
+		const other = await run('exit 1')
+		expect(other.success).toBe(false)
+		expect(other.error).toBe('Command exited with code 1')
+	})
+})

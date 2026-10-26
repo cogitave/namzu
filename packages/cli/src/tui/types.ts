@@ -30,7 +30,9 @@ import type { LearningGeneratorConfig } from '../integrations/learning/generator
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
+import type { ContextView } from './context-grid.js'
 import type { DiffInfo } from './diff-view.js'
+import type { GroupState } from './read-search-group.js'
 import type { ShellOutput } from './shell-cell.js'
 import type { TaskOperation } from './task-activity.js'
 
@@ -40,10 +42,19 @@ export interface TranscriptMessage {
 	readonly id: string
 	readonly role: MessageRole
 	readonly content: string
+	/**
+	 * `recap`: the away recap, a display-only row (`※ recap: …`). Never sent to
+	 * the model and never counted as something the person typed. `shell`: the
+	 * echo of a `!command` the person ran themselves; a user row, but not a
+	 * prompt (no reply follows it and no rewind point stands at it).
+	 */
+	readonly kind?: 'recap' | 'shell'
 	/** Host-only schedule result from the active conversation's sidecar inbox. */
 	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */
 	readonly statusRows?: readonly (readonly [string, string])[]
+	/** The `/context` grid and lists; `content` carries the same as plain text. */
+	readonly contextView?: ContextView
 	readonly pending?: boolean
 	/**
 	 * Compact successful observation, with full output available on expansion.
@@ -52,10 +63,19 @@ export interface TranscriptMessage {
 	 * the terminal's width with an ellipsis.
 	 */
 	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web' | 'summary'
+	/**
+	 * Reads, searches, listings and connector calls folded into one counted line.
+	 * `content` is the line as plain text, `detail` holds every call it covers
+	 * (each call's headline, then its output) for expansion, and `pending` means
+	 * more calls may still join it.
+	 */
+	readonly group?: GroupState
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */
 	readonly glyphColor?: string
+	/** Overrides the colour of the row's text (the glyph keeps `glyphColor`). */
+	readonly contentColor?: string
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */
 	readonly meta?: string
 	/** Collapsible body under the line (tool diff / output). */
@@ -77,9 +97,14 @@ export interface TranscriptMessage {
 	readonly detailRef?: number
 	/**
 	 * Print the complete retained body, without clipping or omission markers.
-	 * Ctrl+O toggles this on live rows; a settled body is reprinted in a new row.
+	 * The detailed transcript screen (Ctrl+O) draws every row this way.
 	 */
 	readonly detailExpanded?: boolean
+	/**
+	 * What the model reasoned before this row. Kept so the detailed transcript
+	 * screen can draw it; no other view shows it.
+	 */
+	readonly thinking?: string
 	/**
 	 * A shell call's output, drawn as the command cell: this row is the header
 	 * (`content`) and the `⎿` result under it, elided to a preview until

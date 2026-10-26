@@ -100,6 +100,13 @@ export function deleteUserConfigValue(
 	}
 	if (!doc.hasIn(path)) return false
 	doc.deleteIn(path)
+	// A block this removal left empty goes with it, so the file does not keep a bare `tui: {}`.
+	for (let depth = path.length - 1; depth >= 1; depth -= 1) {
+		const parentPath = path.slice(0, depth)
+		const parent = doc.getIn(parentPath, true)
+		if (!isMap(parent) || parent.items.length > 0) break
+		doc.deleteIn(parentPath)
+	}
 	writePrivateUserConfig(file, doc)
 	return true
 }

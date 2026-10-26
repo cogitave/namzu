@@ -1,0 +1,91 @@
+import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
+import { useEffect, useState } from 'react'
+
+import { motionAllowed, useReducedMotion } from './motion.js'
+import { HINT_INTERVAL_MS, groupSegments, visibleHint } from './read-search-group.js'
+import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
+import { terminalDisplayText } from './terminal-display.js'
+import { theme } from './theme.js'
+import { EXPAND_HINT } from './truncation.js'
+import type { TranscriptMessage } from './types.js'
+
+/**
+ * The counted line a run of reads, searches and listings leaves, and while
+ * the run is open the same line in the present tense with a blinking dot and,
+ * under it, the latest target.
+ *
+ * Settled it is one quiet line with a blank two-column slot where the dot was.
+ */
+export function ReadSearchGroup({
+	message,
+	now = Date.now,
+}: {
+	readonly message: TranscriptMessage
+	/** The clock the hint's interval is read from; tests pass their own. */
+	readonly now?: () => number
+}) {
+	const state = message.group
+	const live = message.pending === true
+	// Redraws when the setting changes, so a blinking dot stops at once.
+	useReducedMotion()
+	const { stdout } = useStdout()
+	const screenReader = useIsScreenReaderEnabled()
+	const motion = live && stdout.isTTY === true && !screenReader && motionAllowed()
+	const { frame } = useAnimation({ isActive: motion, interval: 300 })
+	const [, setTick] = useState(0)
+	const queued = live && state?.hintQueued !== undefined ? state.hintShownAt : undefined
+	// Wake once when a held hint comes due, whether or not anything animates.
+	useEffect(() => {
+		if (queued === undefined) return
+		const timer = setTimeout(
+			() => setTick((n) => n + 1),
+			Math.max(0, queued + HINT_INTERVAL_MS - now()),
+		)
+		return () => clearTimeout(timer)
+	}, [queued, now])
+	if (!state) return null
+	const segments = groupSegments(state, live)
+	const hint = live ? visibleHint(state, now()) : undefined
+	const hintLines = hint ? hint.split('\n').map(terminalDisplayText) : []
+	// The detailed transcript is where the hint points: it never points at itself.
+	const shownHint = message.detailExpanded ? undefined : live ? EXPAND_HINT : message.meta
+	const tone = live ? theme.text.secondary : theme.text.muted
+	const blink = motion ? Math.floor(frame / 2) % 2 === 0 : true
+	return (
+		<Box flexDirection="column">
+			<Box flexDirection="row">
+				<Box width={2} flexShrink={0}>
+					<Text color={theme.text.muted}>{live && blink ? '●' : ' '}</Text>
+				</Box>
+				<Box flexGrow={1}>
+					<Text color={tone} wrap="wrap">
+						{segments.map((segment, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: segments are positional and hold no state.
+							<Text key={i} bold={segment.bold}>
+								{segment.text}
+							</Text>
+						))}
+						{shownHint ? <Text color={theme.text.muted}> {shownHint}</Text> : null}
+					</Text>
+				</Box>
+			</Box>
+			{hintLines.length > 0 ? (
+				<Box flexDirection="column" paddingLeft={RESULT_GUTTER_INDENT}>
+					{hintLines.map((line, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: these rows hold no state of their own.
+						<Box key={i} flexDirection="row">
+							<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
+								<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
+							</Box>
+							<Box flexGrow={1}>
+								<Text color={theme.text.muted} wrap="wrap">
+									{line}
+								</Text>
+							</Box>
+						</Box>
+					))}
+				</Box>
+			) : null}
+		</Box>
+	)
+}

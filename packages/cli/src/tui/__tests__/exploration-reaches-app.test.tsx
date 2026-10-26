@@ -142,7 +142,7 @@ async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 12
 	expect(predicate()).toBe(true)
 }
 
-it('groups observations, preserves expandable evidence and distinguishes background output from errors', async () => {
+it('groups observations, keeps a failed look in its line, and shows every call whole in the detailed transcript', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
 	mounted = screen
 	const painted = () => screen.scrollback().join('\n')
@@ -150,22 +150,28 @@ it('groups observations, preserves expandable evidence and distinguishes backgro
 	screen.press('inspect')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted().includes('failed: missing file'))
+	await waitUntil(screen, () => /^\s*Read 1 file/m.test(painted()))
 	const transcript = painted()
-	expect(transcript.match(/Explored/g)).toHaveLength(1)
-	expect(transcript).toContain('Read one.ts')
-	expect(transcript).toContain('Search needle in src')
+	// A read and a search fold into one counted line; the background-output
+	// call is a call of its own and ends it, so the read that failed after it
+	// opens a second line of its own, with no error on it and no per-call heading.
+	expect(transcript).not.toContain('Explored')
+	expect(transcript.match(/Searched for 1 pattern, read 1 file/g)).toHaveLength(1)
+	expect(transcript).not.toContain('Read one.ts')
 	expect(transcript).toContain('Read background output · job-one')
-	expect(transcript).toContain('● Read missing.ts')
+	expect(transcript).not.toContain('missing.ts')
+	expect(transcript).not.toContain('Error: missing file')
 	expect(transcript).not.toContain('FIRST evidence')
 	expect(transcript).not.toContain('SEARCH evidence')
 	screen.press('\x0f')
-	await waitUntil(screen, () => painted().includes('SEARCH evidence'))
-	if (painted().includes('Tool output')) {
-		screen.press('\x1b[D')
-		await waitUntil(screen, () => painted().includes('SECOND evidence'))
-		screen.press('\x1b[D')
-		await waitUntil(screen, () => painted().includes('FIRST evidence'))
-	}
-	expect(painted().match(/FIRST evidence/g)).toHaveLength(1)
+	await waitUntil(screen, () =>
+		screen.viewport().join('\n').includes('Showing detailed transcript'),
+	)
+	const shown = screen.viewport().join('\n')
+	// Every call of both lines, with its result, and the failed call with its error.
+	expect(shown).toContain('FIRST evidence')
+	expect(shown).toContain('SECOND evidence')
+	expect(shown).toContain('SEARCH evidence')
+	expect(shown).toContain('Error: missing file')
+	expect(shown).not.toContain('(ctrl+o to expand)')
 })

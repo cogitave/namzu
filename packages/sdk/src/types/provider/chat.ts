@@ -21,6 +21,14 @@ export type ResponseFormat =
 
 export interface CacheControl {
 	type: 'auto' | 'ephemeral'
+	/**
+	 * How long the provider should keep this prefix cached: `'5m'` (the
+	 * default every provider uses when this is absent) or `'1h'`. Honoured only
+	 * by a driver that has an extended lifetime; others ignore it. The longer
+	 * lifetime is priced higher for the cache write, so asking for it is a cost
+	 * decision, not a translation.
+	 */
+	ttl?: '5m' | '1h'
 }
 
 export interface ChatCompletionParams {

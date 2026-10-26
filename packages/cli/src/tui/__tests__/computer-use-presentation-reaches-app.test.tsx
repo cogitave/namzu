@@ -145,7 +145,7 @@ it('shows authored desktop actions, screenshot dimensions and failures without e
 	screen.press('inspect')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted().includes('failed: desktop bridge failed'))
+	await waitUntil(screen, () => painted().includes('Error: desktop bridge failed'))
 
 	const transcript = painted()
 	expect(transcript).toContain('● Capture screenshot')
@@ -154,7 +154,7 @@ it('shows authored desktop actions, screenshot dimensions and failures without e
 	expect(transcript).toContain('can’t see images, so Namzu gave it a text note')
 	expect(transcript).toContain('● Press WIN')
 	expect(transcript).toContain('● Press CTRL+R')
-	expect(transcript).toContain('failed: desktop bridge failed')
+	expect(transcript).toContain('Error: desktop bridge failed')
 	expect(transcript).not.toContain('Computer_use(')
 	expect(transcript).not.toContain('⎿ ok')
 })

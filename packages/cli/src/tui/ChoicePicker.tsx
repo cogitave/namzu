@@ -1,4 +1,5 @@
 import { Box, Text, useWindowSize } from 'ink'
+import type { ReactNode } from 'react'
 
 import { choicePickerWindowSize } from './choice-selection.js'
 import { fitHints } from './key-hints.js'
@@ -43,6 +44,8 @@ export interface ChoicePickerProps {
 	/** Present for a searchable chooser. App owns typing, filtering and selection. */
 	readonly query?: string
 	readonly searchPlaceholder?: string
+	/** Drawn under the rows, above the key hints (the theme picker's sample). */
+	readonly extra?: ReactNode
 }
 
 /** The most lines a description takes when it wraps under its label. */
@@ -61,6 +64,7 @@ export function ChoicePicker({
 	columns: availableColumns,
 	query,
 	searchPlaceholder = 'Type to filter',
+	extra,
 }: ChoicePickerProps) {
 	const terminal = useWindowSize()
 	const columns = availableColumns ?? terminal.columns ?? 80
@@ -230,6 +234,7 @@ export function ChoicePicker({
 					</Text>
 				</Box>
 			) : null}
+			{extra}
 			<Text color={theme.text.muted}>{truncateChoiceText(footer, contentWidth)}</Text>
 		</Box>
 	)

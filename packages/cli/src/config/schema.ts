@@ -14,6 +14,7 @@ import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import type { ThemeSetting } from '../tui/theme-palettes.js'
 import type { ToolResultScreenConfig } from './tool-result-screens.js'
 
 /**
@@ -46,6 +47,31 @@ export interface TuiConfig {
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
+	/**
+	 * The colours the terminal UI is drawn in: `auto` (follow the terminal's
+	 * light or dark background), `dark`, `light`, `dark-daltonized`,
+	 * `light-daltonized`, `dark-ansi` or `light-ansi`. Absent means `dark`.
+	 * Taken from your own config files only: a project file cannot restyle
+	 * your terminal, so it is ignored there. `/theme` sets it.
+	 */
+	readonly theme?: ThemeSetting
+	/**
+	 * Turn off the working line's moving highlight and the composer's pulse.
+	 * Absent or `false` means motion is on. Your own config files only.
+	 */
+	readonly reducedMotion?: boolean
+	/**
+	 * The one-line recap shown when a person returns to the terminal after a few
+	 * minutes away. Absent or `true` means on; only `false` turns it off. The
+	 * `NAMZU_RECAP` variable overrides this either way.
+	 */
+	readonly recap?: boolean
+	/**
+	 * Show one dim tip under the working row while a reply runs. Default
+	 * `true`; only an explicit `false` turns it off. The `Next:` row (the
+	 * plan's next task) is not a tip and shows either way.
+	 */
+	readonly spinnerTips?: boolean
 }
 
 /** Where the CLI may discover executable plugin bundles. */
@@ -121,6 +147,25 @@ export interface CompactionCliConfig {
 	 * memory store. This selects the writer; `memory.recall` controls retrieval.
 	 */
 	readonly consolidate?: boolean
+	/**
+	 * Compact a large conversation nobody is using just before its one-hour
+	 * prompt cache expires, so coming back does not re-write the whole context.
+	 * Default `false`. Acts only with `promptCacheTtl: '1h'` on a provider that
+	 * reports the cache lifetime; never on one that does not.
+	 */
+	readonly idleCompaction?: boolean
+	/**
+	 * The smallest context, in tokens, worth compacting while idle. Default
+	 * 200,000; values under 100,000 are raised to 100,000. The environment
+	 * variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it.
+	 */
+	readonly idleCompactionMinTokens?: number
+	/**
+	 * How long the provider keeps the prompt cache: `'5m'` (default, the
+	 * provider's own) or `'1h'`. Passed to providers that can be asked
+	 * (not every provider can be asked). A one-hour cache costs more per write.
+	 */
+	readonly promptCacheTtl?: '5m' | '1h'
 }
 
 /** See `NamzuCliConfig.browser`. */

@@ -12,7 +12,7 @@ export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'update_memory',
 		description:
-			'Correct an existing memory in place, or archive an obsolete claim so it is no longer recalled. Prefer this to saving a second memory about the same thing. Identify it by the ID from search_memory or by its name from the memory index; current evidence should determine corrections. Pass the revision from read_memory when available to refuse a stale correction.',
+			'Correct a memory in place, or archive one that is no longer true so it stops being recalled. Use it when a memory on the same topic already exists, which keeps the store free of duplicates, and when current evidence shows a memory is wrong. Identify the memory by the ID from search_memory or by its name from the index. Pass the revision from read_memory when available, so a change made since you read it is refused instead of overwritten. Returns the memory as it now stands.',
 		inputSchema: z.object({
 			id: z
 				.string()

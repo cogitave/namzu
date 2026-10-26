@@ -1,10 +1,10 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout, useWindowSize } from 'ink'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
+import { motionAllowed, useReducedMotion } from './motion.js'
 import { theme } from './theme.js'
 
 const HYPERMODE_GLOW_MS = 880
-const HYPERMODE_GLOW_COLORS = ['ansi256(183)', theme.accent.hypermode, 'ansi256(97)'] as const
 
 /**
  * The composer's frame: a plain horizontal rule above and below the input and
@@ -39,12 +39,13 @@ export function ComposerFrame({
 	const terminal = useWindowSize()
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
+	useReducedMotion()
 	const frameColumns = Math.max(2, columns ?? terminal.columns ?? 80)
 	// Only a frame too narrow to hold the complete word omits it.
 	const showMode = mode !== undefined && frameColumns >= mode.length + 5
 	const ruleColumns = Math.max(1, frameColumns - (showMode ? mode.length + 3 : 0))
 	// A pulse needs a rule long enough to have a visible center.
-	const motion = animate && stdout.isTTY === true && !screenReader && showMode && colourAllowed()
+	const motion = animate && stdout.isTTY === true && !screenReader && showMode && motionAllowed()
 	const [igniting, setIgniting] = useState(false)
 	const previousActivation = useRef(activation)
 	const { time, reset } = useAnimation({
@@ -122,11 +123,11 @@ function GlowRule({
 					const trail = radius - Math.abs(index - center)
 					const color =
 						trail >= 0 && trail < 2
-							? HYPERMODE_GLOW_COLORS[0]
+							? theme.glow[0]
 							: trail >= 2 && trail < 5
-								? HYPERMODE_GLOW_COLORS[1]
+								? theme.glow[1]
 								: trail >= 5 && trail < 9
-									? HYPERMODE_GLOW_COLORS[2]
+									? theme.glow[2]
 									: theme.border.default
 					return (
 						// biome-ignore lint/suspicious/noArrayIndexKey: one fixed cell per column; nothing reorders.
@@ -137,14 +138,5 @@ function GlowRule({
 				})}
 			</Text>
 		</Box>
-	)
-}
-
-/** The pulse is decoration; wherever colour is refused, the plain rule is drawn instead. */
-function colourAllowed(): boolean {
-	return (
-		process.env.NO_COLOR === undefined &&
-		process.env.FORCE_COLOR !== '0' &&
-		process.env.TERM !== 'dumb'
 	)
 }

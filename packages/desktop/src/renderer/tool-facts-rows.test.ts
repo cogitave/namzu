@@ -539,6 +539,20 @@ describe('failures', () => {
 		)
 		expect(row(thread)?.label).toBe('Couldn’t change out.txt: it already exists')
 	})
+
+	it.each([
+		['not_read', 'not read yet'],
+		['changed_on_disk', 'changed since it was read'],
+		['text_not_found', 'text not found'],
+		['not_unique', 'text appears more than once'],
+	] as const)('says why an edit was refused: %s', (reason, said) => {
+		const thread = failed(
+			'edit',
+			{ kind: 'generic', label: 'out.txt' },
+			{ kind: 'failure', reason, subject: '/p/out.txt' },
+		)
+		expect(row(thread)?.label).toContain(said)
+	})
 })
 
 describe('what the row opens to', () => {

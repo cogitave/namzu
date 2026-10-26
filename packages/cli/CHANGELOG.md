@@ -1,5 +1,85 @@
 # @namzu/cli
 
+## 40.0.0
+
+### Major Changes
+
+- bb67398: Breaking default in `@namzu/cli`: `save_memory` and `update_memory` no longer ask for approval in the default mode (ask before changes) and in the mode that approves edits. They write only to namzu's own memory store under its home, never to a workspace file. Before, every save asked "Do you want to run save_memory?". `delete_memory` still asks; plan mode, strict mode and the classifier mode treat the memory tools as before. To be asked again, add `permissions: { save_memory: "ask", update_memory: "ask" }` to the configuration.
+
+  The model now keeps memory itself during a session. When the memory tools are mounted, the system prompt carries a short `## Memory` section saying what is worth saving (the person's preferences and corrections, decisions and their reasons, lessons from failures that will recur or were not obvious, pointers to outside resources), what to leave out (what the repository records, progress, secrets), and how to keep the store tidy (one fact per memory, update instead of duplicating, remove a wrong one, check a recalled memory against the current code). When the person asks to remember something the repository already records, the model saves only what was surprising about it. A sub-agent that holds `save_memory` gets the same section. The section sits in the stable prefix, so it does not change prompt caching. The descriptions of `save_memory`, `search_memory`, `read_memory`, `update_memory` and `delete_memory` now state purpose, when to use the tool and what it returns, and the stored-memory index paragraph no longer repeats those rules. No option, export or tool input changes.
+
+- 38d62f7: One Esc on a typed draft no longer clears it. The first Esc shows `Esc again to clear` at the right end of the footer for a second; a second Esc within 800 ms clears the draft, and an Esc after that arms again. Any other key between the two ends the window, so typing after the first Esc starts over. The cleared text goes into the prompt history, so Up brings it back. Press Esc twice where you pressed it once. A running turn still keeps Esc for interrupting. On an empty box Esc has its own meaning, described in the rewind note: Esc twice opens the rewind dialog.
+
+  The footer's right end is now a notice slot: one passing notice at a time, ordered by priority. The context meter (`N% until auto-compact`) moves from the left items into it and is hidden from a compaction until the next turn starts; the stop-all chord's notices use it too. The update check no longer writes a scrollback row: when a newer Namzu is out, the footer carries `Update available! Run: namzu upgrade` until the next launch.
+
+- 38d62f7: Esc twice on an empty message now opens a rewind dialog instead of the previous-prompt picker, and the first Esc no longer shows "Press Esc again to edit a previous prompt". The second Esc counts only within 800 ms of the first, and any other key in between starts over. With a draft typed, Esc still means "clear it": the first Esc shows `Esc again to clear` and the second clears the draft. A running reply keeps Esc for interrupting, and inside the detailed transcript or a dialog Esc only closes it.
+
+  What changes for you: to edit an earlier prompt, press Esc twice, pick the prompt, and choose "Restore conversation". It does what the old picker did (continues in a new conversation before that prompt and puts the prompt back in the composer; the original stays in `/resume`). The dialog also offers "Restore code" (puts files back with the same drift-checked plan as `/restore`), "Restore code and conversation", "Summarize from here" and "Summarize up to here", and shows what each prompt would do to your files. `/rewind` opens the same dialog, with `/undo` and `/checkpoint` as aliases; `/restore` is unchanged. A project command or plugin command named `undo`, `checkpoint` or `rewind` is shadowed by the built-in.
+
+  `@namzu/sdk` adds `compactSessionRange` (and `CompactSessionRangeParams`): like `compactSession`, but it summarises only the messages from one recorded message id up to another and leaves the rest of the context verbatim.
+
+- 38d62f7: The `tui` block of the config now merges key by key across your config files; before, a later file that had a `tui` block replaced the whole block. A later file that sets only `notifications` no longer drops an earlier file's `notificationMethod`. If you relied on a later file replacing the whole block, list every key you want in that file (or remove the keys you no longer want from the earlier one) to keep the old result.
+- 38d62f7: Ctrl+O now opens a detailed transcript instead of expanding one tool body. The screen replaces the composer and shows the last 30 rows with every tool body, shell command, diff and agent answer in full, plus the model's thinking (dim italic, marked `∵`). Ctrl+E shows or hides the older rows, the arrow, page, `g` and `G` keys scroll a conversation taller than the terminal, and Ctrl+O, Esc, `q` or Ctrl+C returns to the composer with your draft untouched. Nothing is written to scrollback. A permission request that arrives while the screen is open waits behind it (`dialog waiting` in the footer) and appears when you close it.
+
+  Removed: the in-place expansion of a single body, the `Tool output` viewer with its left and right keys, and the `Nothing to expand yet` row. If you scripted Ctrl+O to reprint one result, press Ctrl+O and scroll to it instead. The PageUp scroll view is unchanged.
+
+### Minor Changes
+
+- 38d62f7: Consecutive reads, searches, directory listings, read-only shell commands (`rg`, `grep`, `find`, `cat`, `head`, `ls` and similar, with no redirect other than `2>&1` or to `/dev/null`, and no substitution) and connector (MCP) calls now fold into one counted line such as `Searched for 2 patterns, read 3 files, listed 1 directory`, with `(ctrl+o to expand)`. While the run is open it reads `Reading 1 file…` with the latest target under it; Ctrl+O opens the detailed transcript, which shows every call of the line, open or settled, with its result. The `Explored` heading and the row per call are gone, and a connector call or a read-only shell command no longer prints its output in the transcript; press Ctrl+O to see it. A call that fails is counted like the others and stays in the line with no error text on it; the detailed transcript shows that call with its error. A call you refuse keeps its own row. A script that matched on the old `Explored` heading, per-call `⎿` rows or a red row for a failed read should read the counted line instead.
+- 38d62f7: Fixes where the newer terminal screens meet. A read, search or listing that fails now stays in its counted line (nothing red on the line itself) and Ctrl+O shows that call with its error; every `(ctrl+o to expand)` hint now leads to the part it hides. A second Esc counts only if no other key or paste came between the two presses, and the clear-the-draft and open-rewind windows never count toward each other. A row already on screen follows a theme change, mark included; `/config theme [name]` is new, and `/config tips` and `/config motion` accept `list`. A rewind point is a prompt you sent, never a `!command` echo, a recap or a notice. An idle compaction or a rewind summary hides the footer's context meter until the next reply and `/context` sizes the conversation from its messages meanwhile; an idle compaction no longer runs while the detailed transcript is open. Removing the last key of a block from the settings file (for example `/config recap on`) removes the empty block too.
+- 38d62f7: `/context` now draws where the context goes: a grid for the window with a legend of categories (system prompt, tools, MCP tools and instructions, agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when a tool, file reads or memory files take a large share. The old one-line summary appears only before the first reply; `/context details` still shows how older messages were summarised, below the grid. Nothing in `exec` or the editor protocol changes. `/context all` is accepted and shows the same view.
+
+  The grid and its legend draw in the active theme's colours, so the light, colorblind-friendly and ANSI-only themes recolour them like everything else.
+
+- 38d62f7: A failed tool call now shows what the tool said. Under the call you see `Error: <text>` in the error colour (first 10 lines, then `… +N lines (ctrl+o to expand)`) instead of a muted `failed: <text>`; a schema error reads `Invalid tool parameters` until expanded. A refused read, edit, write, notebook edit, search or language call reads as a short red text (`File not found`, `Error reading file`, `Error editing file`, `Error writing file`, `Error editing notebook`, `Error searching files`, `LSP operation failed`), and an edit on a file never read says `File must be read first` in the dim colour; the tool's own message is behind Ctrl+O. Every other failure, including a permission error, a timeout or a directory read as a file, shows the tool's own text the same way. A background agent that fails leaves `Agent "<name>" failed: <plain reason>` with no duration with the error's own text on one line, and only the dot carries the red. Nothing to configure; scripts that read these rows from a terminal capture will see the new wording.
+- 38d62f7: The terminal now reports whether its window has focus, and Namzu uses it in two ways. The tab title's busy glyph alternates between two frames every 960 ms while a reply is working and the window has focus (it stays on the idle glyph during a permission wait and inside tmux, screen or zellij). And when you leave the window and a finished reply has sat for three minutes, Namzu writes a one-line recap of where things stand, shown as a `※ recap:` row when you come back.
+
+  The recap costs one small-model request each time (at most 120 reply tokens, from a digest of at most 6,000 characters of your recent prompts and replies; it needs at least three typed prompts in the conversation and two since the last recap). It is on by default. To switch it off, set `tui.recap: false`, run `/config recap off`, or set `NAMZU_RECAP=0`; `NAMZU_RECAP=1` forces it on. `/recap` writes one on request. A terminal that never reports focus never gets a recap. Runs without a screen (`exec`, `--json`) never recap.
+
+- 38d62f7: Compact a large conversation that nobody is using just before its one-hour prompt cache expires, so coming back does not re-write the whole context. Off by default: nothing changes until you set `compaction.idleCompaction: true` (and `compaction.promptCacheTtl: 1h`, because only a one-hour cache is worth it) in the config file. `compaction.idleCompactionMinTokens` (default 200,000) and the `NAMZU_IDLE_COMPACT_MIN_TOKENS` variable set the smallest context worth it. A one-hour cache costs more per write than the five-minute default, which stays the default.
+
+  Additive for callers: `@namzu/sdk` adds optional `TokenUsage.cacheTtlMs` and `cacheWriteTtlTokens` (per call, never summed), `CacheControl.ttl`, the `cacheTtl` provider capability, a `CacheClock` helper, an optional `cache` field on the `token_usage_updated` event, and `compactSession({ trigger: 'idle' })`. (The widened `trigger` union is in its own `@namzu/sdk` major changeset.) `@namzu/anthropic` and `@namzu/bedrock` take `promptCacheTtl: '5m' | '1h'` (Bedrock sends `1h` only to Claude 4.5 and later) and report the lifetime the service wrote.
+
+- 38d62f7: Add themes and a reduced-motion setting to the terminal UI. The default is unchanged: `dark` is the look Namzu has always had, so nothing changes unless you ask.
+
+  - `/theme` opens a list of seven choices (auto, dark, light, and a colorblind-friendly and an ANSI-only version of each) with a live preview as you move; Enter saves, Esc puts the saved theme back. `/theme <name>` applies one directly. `auto` follows the terminal's light or dark background.
+  - `/config theme [name]` does the same as `/theme`. Rows already on screen are redrawn in the new theme, and every new surface (the detailed transcript, the rewind dialog, tips and notices) draws through the theme colours.
+  - New config keys `tui.theme` and `tui.reducedMotion` in your user config. A project file cannot set them and its values are ignored, so a repository cannot restyle your terminal.
+  - `tui.reducedMotion: true` (or `/config motion on`) stops the working line's moving highlight, the composer's pulse, the open read/search line's blinking dot and the tab title's busy glyph.
+
+- 38d62f7: While a reply runs, the terminal now shows one dim line under the `Working` row: `Next: <task>` when the model's plan has a pending task, otherwise a short `Tip:` about a command or setting you have not used. A tip is picked when a reply ends, holds for the next reply, and does not return until its cooldown (counted in terminal launches) has passed; the history is kept in `~/.namzu/tip-history.json`. To turn tips off set `tui.spinnerTips: false` in `~/.namzu/config.yaml`, run `/config tips off` or use the `Tips` row in `/config` (`/config tips` says which it is now); the `Next:` row is not affected. Nothing you call from code changes.
+
+### Patch Changes
+
+- 38d62f7: The `bash` tool no longer reports a failure when a search or comparison command uses its exit status to answer. When the last command of the line is `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` or `git grep`, exit 1 now returns `success: true` with no `error` (it was `success: false` with `Command exited with code 1`), and `data.exitNote` and the new optional `ToolFacts` command field `exitNote` carry a short sentence (`No matches found`, `Some directories were inaccessible`, `Files differ`, `Condition is false`). Exit 2 and above, every other command, and a line whose last step follows `&&` (the status may belong to an earlier step) fail exactly as before. This changes the default result for those commands, so code that read `success === false` or the `error` text to detect "no match" must read `data.exitCode` (still 1) instead. The model's text is unchanged. In the terminal such a call is drawn as a success and, when it printed nothing, shows the note in dim where `(No output)` was, and a read-only search of this kind with no match stays inside its collapsed read and search line instead of ending it with a red failure.
+- 38d62f7: Sending the prompt you edited after Restore conversation in the rewind dialog (or after `/fork`) no longer fails with a message about a cached message id the log never recorded. The screen now continues from the fork's own saved history. If the saved conversation and the screen's copy ever disagree again, Namzu rebuilds the copy from the saved conversation and sends once more, and a second refusal reads as plain words with "Send your message again." A call whose arguments do not fit its tool now reads `Invalid tool parameters` on its row, with the full text on the Ctrl+O screen.
+- 38d62f7: The detailed transcript (Ctrl+O) now draws the model's thinking above the counted read or search line it led to, not under the answer that followed. A permission request that waited behind the detailed transcript starts its settle window again when the screen closes, so a stray key cannot approve a call you have not seen. Thinking is not saved with a conversation, so a resumed or forked one shows none.
+- 38d62f7: Display fixes in the terminal: `Esc again to clear` now stays a full second, a call whose arguments fail the tool's schema check reads `Invalid tool parameters` until you press Ctrl+O, a numbered file excerpt on the Ctrl+O screen keeps the last character of every line, and the rewind restore notices no longer print a turn number or a conversation id. Nothing to change on your side.
+- Updated dependencies [bb67398]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+- Updated dependencies [38d62f7]
+  - @namzu/sdk@54.0.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@29.0.0
+
+## 39.2.1
+
+### Patch Changes
+
+- b4a44b9: Model-facing wording (the system prompt, tool descriptions and bundled skills) now names categories instead of specific products, sites or models as examples, so an example is no longer repeated back as a preference. No API or behaviour change; nothing to do on upgrade.
+- Updated dependencies [b4a44b9]
+  - @namzu/sdk@53.2.2
+
 ## 39.2.0
 
 ### Minor Changes

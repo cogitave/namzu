@@ -252,7 +252,7 @@ const approvePlanModelInputSchema: Record<string, unknown> = {
 	properties: {
 		title: {
 			type: 'string',
-			description: 'Short title for the plan (e.g. "TypeScript Security & Performance Review").',
+			description: 'Short title for the plan (e.g. "Security & Performance Review").',
 		},
 		summary: {
 			type: 'string',
@@ -1279,7 +1279,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			inputSchema: z.object({
 				title: z
 					.string()
-					.describe('Short title for the plan (e.g. "TypeScript Security & Performance Review")'),
+					.describe('Short title for the plan (e.g. "Security & Performance Review")'),
 				summary: z.string().describe('1-3 sentence summary of what you plan to do'),
 				steps: z
 					.preprocess(normalizeApprovePlanSteps, z.array(approvePlanStepSchema))

@@ -157,6 +157,12 @@ export interface ProviderCapabilities {
 	/** Whether the driver maps document blocks returned by tools onto its result wire. */
 	supportsToolResultDocuments?: boolean
 	maxOutputTokens?: number
+	/**
+	 * Prompt-cache lifetimes the driver can be asked for through
+	 * `cacheControl.ttl`. Absent means the driver offers none (it has no cache,
+	 * or the lifetime is the provider's own and cannot be chosen or read).
+	 */
+	cacheTtl?: readonly ('5m' | '1h')[]
 }
 
 export interface ProviderFactoryResult {

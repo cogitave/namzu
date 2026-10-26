@@ -186,6 +186,32 @@ describe('session learning feed', () => {
 		expect(await reader().observations()).toHaveLength(1)
 	})
 
+	it('records an invalid-arguments failure once and not the read-first advice', async () => {
+		const { feed, reader } = setup()
+		feed.observe({
+			kind: 'tool-end',
+			turnId: TURN,
+			toolName: 'edit',
+			isError: true,
+			summary: 'x',
+			plainFailure: 'File must be read first',
+			plainFailureTone: 'muted',
+		})
+		for (let i = 0; i < 2; i++)
+			feed.observe({
+				kind: 'tool-end',
+				turnId: TURN,
+				toolName: 'edit',
+				isError: true,
+				summary: 'x',
+				plainFailure: 'Invalid parameters',
+			})
+		await feed.flush()
+		const rows = await reader().observations()
+		expect(rows).toHaveLength(1)
+		expect(rows[0]?.evidence.reason).toBe('A edit call failed. The message is not kept.')
+	})
+
 	it('writes nothing until there is something to record', async () => {
 		const { feed, paths } = setup()
 		feed.observe({ kind: 'done', stopReason: 'end_turn' })

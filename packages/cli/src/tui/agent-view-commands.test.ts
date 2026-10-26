@@ -15,7 +15,7 @@ describe('agentViewCommandClass', () => {
 	})
 
 	it('asks before the commands that act on the conversation’s history', () => {
-		for (const name of ['compact', 'clear', 'new', 'rewind']) {
+		for (const name of ['compact', 'clear', 'new', 'rewind', 'undo', 'checkpoint']) {
 			expect(agentViewCommandClass(name)).toEqual({
 				kind: 'confirm',
 				title: `/${name} acts on the main conversation, not this agent`,

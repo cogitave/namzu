@@ -24,6 +24,24 @@ export interface TokenUsage {
 	 * not zero.
 	 */
 	reasoningTokens?: number
+
+	/**
+	 * How long the provider keeps the prompt cache this call used, in
+	 * milliseconds, as the call itself reported or requested it.
+	 *
+	 * A fact about ONE model call, so it is never summed: {@link accumulateTokenUsage}
+	 * drops it, and {@link mergeTokenUsage} (frames of one streamed call) keeps the
+	 * latest value. Absent means the driver does not report a lifetime (or does
+	 * not cache); a host must not guess one.
+	 */
+	cacheTtlMs?: number
+
+	/**
+	 * Cache-write tokens split by the lifetime they were written with. Present
+	 * only when the provider breaks its write count down. Per call, like
+	 * {@link TokenUsage.cacheTtlMs}.
+	 */
+	cacheWriteTtlTokens?: { fiveMin?: number; oneHour?: number }
 }
 
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
@@ -40,6 +58,8 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		...(current.reasoningTokens !== undefined || addition.reasoningTokens !== undefined
 			? { reasoningTokens: (current.reasoningTokens ?? 0) + (addition.reasoningTokens ?? 0) }
 			: {}),
+		// `cacheTtlMs` and `cacheWriteTtlTokens` are per-call facts and are
+		// deliberately not carried into a sum.
 	}
 }
 
@@ -73,6 +93,13 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
 		...(current.reasoningTokens !== undefined || next.reasoningTokens !== undefined
 			? { reasoningTokens: Math.max(current.reasoningTokens ?? 0, next.reasoningTokens ?? 0) }
+			: {}),
+		// Frames of one call describe the same cache: the latest report wins.
+		...(next.cacheTtlMs !== undefined || current.cacheTtlMs !== undefined
+			? { cacheTtlMs: next.cacheTtlMs ?? current.cacheTtlMs }
+			: {}),
+		...(next.cacheWriteTtlTokens !== undefined || current.cacheWriteTtlTokens !== undefined
+			? { cacheWriteTtlTokens: next.cacheWriteTtlTokens ?? current.cacheWriteTtlTokens }
 			: {}),
 	}
 }

@@ -48,6 +48,7 @@ describe('@namzu/bedrock', () => {
 				supportsDocuments: false,
 				supportsToolResultImages: false,
 				supportsToolResultDocuments: false,
+				cacheTtl: ['5m', '1h'],
 			})
 		})
 

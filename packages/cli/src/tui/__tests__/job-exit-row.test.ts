@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { jobExitRow } from '../job-exit-row.js'
-import { theme } from '../theme.js'
+import { tokenColor } from '../theme.js'
 
 describe('the row for a finished background command', () => {
 	it('says finished in green with the runtime', () => {
@@ -9,7 +9,7 @@ describe('the row for a finished background command', () => {
 			jobExitRow({ command: 'npm test', status: 'exited', exitCode: 0, runtimeMs: 12_000 }),
 		).toEqual({
 			text: 'Background command "npm test" finished (exit code 0)',
-			color: theme.status.ok,
+			color: tokenColor('status.ok'),
 			meta: '12s',
 		})
 	})
@@ -17,7 +17,7 @@ describe('the row for a finished background command', () => {
 	it('says failed with the exit code in red', () => {
 		const row = jobExitRow({ command: 'make', status: 'exited', exitCode: 2 })
 		expect(row.text).toBe('Background command "make" failed with exit code 2')
-		expect(row.color).toBe(theme.status.error)
+		expect(row.color).toBe(tokenColor('status.error'))
 		expect(row.meta).toBeUndefined()
 	})
 
@@ -30,7 +30,7 @@ describe('the row for a finished background command', () => {
 	it('says stopped in yellow', () => {
 		const row = jobExitRow({ command: 'sleep 99', status: 'killed' })
 		expect(row.text).toBe('Background command "sleep 99" was stopped')
-		expect(row.color).toBe(theme.status.warn)
+		expect(row.color).toBe(tokenColor('status.warn'))
 	})
 
 	it('shows only the first line of a long or multi-line command', () => {

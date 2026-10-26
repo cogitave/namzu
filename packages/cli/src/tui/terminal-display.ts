@@ -1,3 +1,5 @@
+import stringWidth from 'string-width'
+
 /**
  * Project untrusted text into a terminal-safe, source-preserving display form.
  *
@@ -66,4 +68,36 @@ function isUnsafeTerminalCodePoint(codePoint: number): boolean {
 		(codePoint >= 0x2066 && codePoint <= 0x206f) ||
 		codePoint === 0xfeff
 	)
+}
+
+/** Cells between tab stops in a terminal. */
+const TAB_STOP = 8
+
+/**
+ * Replace each tab with the spaces the terminal would advance over, line by
+ * line. The renderer measures a tab as no width while the terminal moves to the
+ * next stop, so a clipped region cuts a tab-bearing line short; spaces measure
+ * the same everywhere. A view operation, like {@link terminalDisplayText}.
+ */
+export function expandTabs(source: string): string {
+	if (!source.includes('\t')) return source
+	return source
+		.split('\n')
+		.map((line) => {
+			if (!line.includes('\t')) return line
+			let out = ''
+			let column = 0
+			for (const char of line) {
+				if (char === '\t') {
+					const pad = TAB_STOP - (column % TAB_STOP)
+					out += ' '.repeat(pad)
+					column += pad
+				} else {
+					out += char
+					column += stringWidth(char)
+				}
+			}
+			return out
+		})
+		.join('\n')
 }
