@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Learning
-description: The learning module of the SDK, which belongs to every Namzu host and not to residents: observations, the learning cycle, its durable store, the names it exports and the old resident-prefixed names kept as deprecated aliases.
+description: The learning module of the SDK, which belongs to every Namzu host and not to residents: observations, the learning cycle, its durable store, the leak tripwire, the experience library, the built-in generator, the names it exports and the old resident-prefixed names kept as deprecated aliases.
 resource: packages/sdk/src/learning/cycle.ts
 tags: [sdk, learning, evaluation, observations]
 status: draft
