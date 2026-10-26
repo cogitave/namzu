@@ -1,5 +1,6 @@
 import type { GoalId, MessageId } from '../ids/index.js'
 import { type InboundDeliveryRef, isInboundDeliveryRef } from './inbound-delivery.js'
+import { escapeNoticeFrame } from './notice-frame.js'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -647,7 +648,7 @@ export function createProjectInstructionMessage(
 			'Project instruction paths must be unique, canonical project-relative paths.',
 		)
 	}
-	return { ...createUserMessage(content, undefined, source), retain: true }
+	return { ...createUserMessage(escapeNoticeFrame(content), undefined, source), retain: true }
 }
 
 export function createAssistantMessage(
@@ -670,6 +671,15 @@ export function createAssistantMessage(
 	}
 }
 
+/** A tool's output can print anything; it cannot print the kernel's notice tag. */
+function escapeToolResult(content: ToolResultContent): ToolResultContent {
+	if (typeof content === 'string') return escapeNoticeFrame(content)
+	if (!content.some((block) => block.type === 'text' && block.text.includes('<'))) return content
+	return content.map((block) =>
+		block.type === 'text' ? { ...block, text: escapeNoticeFrame(block.text) } : block,
+	)
+}
+
 export function createToolMessage(
 	content: ToolResultContent,
 	toolCallId: string,
@@ -678,7 +688,7 @@ export function createToolMessage(
 ): ToolMessage {
 	return {
 		role: 'tool',
-		content,
+		content: escapeToolResult(content),
 		toolCallId,
 		...(isError !== undefined ? { isError } : {}),
 		...(revealedTools && revealedTools.length > 0 ? { revealedTools } : {}),
@@ -686,6 +696,8 @@ export function createToolMessage(
 	}
 }
 
+export { escapeNoticeFrame, frameNotice, NOTICE_TAG } from './notice-frame.js'
+export type { NoticeKind } from './notice-frame.js'
 export {
 	hasNonTextBlocks,
 	toToolResultBlocks,

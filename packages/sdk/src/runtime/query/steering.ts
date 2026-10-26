@@ -1,5 +1,12 @@
 import type { Message, UserMessage } from '../../types/message/index.js'
 import {
+	NOTICE_PREAMBLE,
+	escapeNoticeFrame,
+	frameNotice,
+	noticeClose,
+	noticeOpen,
+} from '../../types/message/notice-frame.js'
+import {
 	MONITOR_EVENT_CONTENT_MAX_CHARS,
 	MONITOR_NOTIFICATION_MAX_CHARS,
 } from '../jobs/monitor-stream.js'
@@ -138,7 +145,7 @@ export function attachNotice(
 
 /** What the model reads when a background job it started has ended. */
 export function formatJobNote(text: string): string {
-	return `\n\n[Background job update]\n${text}`
+	return `\n\n${frameNotice('job', '[Background job update]', text)}`
 }
 
 /**
@@ -154,7 +161,7 @@ export function formatJobNote(text: string): string {
  * piled up while the model was busy.
  */
 export function formatMonitorNote(text: string): string {
-	return `\n\n[Monitor update]\n${capMonitorNotifications(text)}`
+	return `\n\n${frameNotice('monitor', '[Monitor update]', capMonitorNotifications(text))}`
 }
 
 /** One `formatSystemEvent` rendering, found by its nonce-bound opening and closing tags. */
@@ -305,11 +312,11 @@ function cutMiddle(text: string, max: number): string {
 	return `${text.slice(0, head)}${marker(text.length - head - tail)}${text.slice(text.length - tail)}`
 }
 
-const STEERING_NOTE_HEADER =
-	'\n\n[Message from the operator, received while this tool was running]\n'
+const STEERING_NOTE_HEADER = `\n\n${noticeOpen('operator-message')}\n[Message from the operator, received while this tool was running]\n${NOTICE_PREAMBLE['operator-message']}\n`
+const STEERING_NOTE_FOOTER = `\n${noticeClose()}`
 
 export function formatSteeringNote(text: string): string {
-	return `${STEERING_NOTE_HEADER}${text}`
+	return `${STEERING_NOTE_HEADER}${escapeNoticeFrame(text)}${STEERING_NOTE_FOOTER}`
 }
 
 /**
@@ -319,7 +326,9 @@ export function formatSteeringNote(text: string): string {
  */
 export function readSteeringNote(content: string): string | undefined {
 	const at = content.lastIndexOf(STEERING_NOTE_HEADER)
-	return at < 0 ? undefined : content.slice(at + STEERING_NOTE_HEADER.length)
+	if (at < 0) return undefined
+	const body = content.slice(at + STEERING_NOTE_HEADER.length)
+	return body.endsWith(STEERING_NOTE_FOOTER) ? body.slice(0, -STEERING_NOTE_FOOTER.length) : body
 }
 
 /**

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { NOTICE_PREAMBLE } from '../../../types/message/notice-frame.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { testToolset } from '../../../test-support/toolset.js'
@@ -514,7 +515,14 @@ describe('one notification is bounded', () => {
 		const outside = capped
 			.replace(/^<system-event-(\w+) [\s\S]*?^<\/system-event-\1>$/gm, '')
 			.split('\n')
-			.filter((line) => line.trim().length > 0 && !line.startsWith('[Monitor update]'))
+			.filter(
+				(line) =>
+					line.trim().length > 0 &&
+					!line.startsWith('[Monitor update]') &&
+					!line.startsWith('<namzu-notice') &&
+					!line.startsWith('</namzu-notice') &&
+					line !== NOTICE_PREAMBLE.monitor,
+			)
 		expect(outside).toEqual([omitted?.[0]])
 	})
 
