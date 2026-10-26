@@ -191,15 +191,24 @@ async function run(options: RunOptions) {
 	return { turn, events, provider, eventsDelivered, jobsDelivered }
 }
 
-function toolResults(messages: readonly { role: string; content: unknown }[]): string[] {
+function textsOf(role: string, messages: readonly { role: string; content: unknown }[]): string[] {
 	return messages
-		.filter((m) => m.role === 'tool' && typeof m.content === 'string')
+		.filter((m) => m.role === role && typeof m.content === 'string')
 		.map((m) => m.content as string)
+}
+
+/** What the model read as the kernel's own notices: user-role messages, never tool results. */
+function notices(messages: readonly { role: string; content: unknown }[]): string[] {
+	return textsOf('user', messages)
+}
+
+function toolResults(messages: readonly { role: string; content: unknown }[]): string[] {
+	return textsOf('tool', messages)
 }
 
 const JOB = 'b00000001'
 
-describe('a monitor’s event reaches the model on its next tool result', () => {
+describe('a monitor’s event reaches the model right after its next tool result', () => {
 	it('frames the line as untrusted process output, once, and acknowledges it after it landed', async () => {
 		const registry = new SpokenMonitors()
 		let eventId = ''
@@ -214,11 +223,11 @@ describe('a monitor’s event reaches the model on its next tool result', () => 
 		})
 
 		expect(turn.status).toBe('completed')
-		const results = toolResults(turn.messages)
-		const carrying = results.filter((text) => text.includes('[Monitor update]'))
-		// Delivered on exactly one result, not repeated on the next.
+		const carrying = notices(turn.messages).filter((text) => text.includes('[Monitor update]'))
+		// Delivered once, not repeated after the next result, and never inside one.
 		expect(carrying).toHaveLength(1)
-		expect(carrying[0]).toContain('step 1 complete')
+		expect(toolResults(turn.messages).some((text) => text.includes('[Monitor update]'))).toBe(false)
+		expect(toolResults(turn.messages).some((text) => text.includes('step 1 complete'))).toBe(true)
 		expect(carrying[0]).toContain('Monitor event: "deploy"')
 		expect(carrying[0]).toContain(`monitor ${JOB}: tail -f deploy.log`)
 		expect(carrying[0]).toContain('job {"action":"kill","id":"b00000001"} stops it')
@@ -267,13 +276,13 @@ describe('a monitor’s event reaches the model on its next tool result', () => 
 			},
 		})
 
-		const carrying = toolResults(turn.messages).find((text) => text.includes('[Monitor update]'))
+		const carrying = notices(turn.messages).find((text) => text.includes('[Monitor update]'))
 		expect(carrying).toContain('Monitor "deploy" ended without producing output (exit 0)')
 		expect(carrying).toContain('status="completed"')
 		// Not the generic line a plain job gets.
-		expect(
-			toolResults(turn.messages).some((text) => text.includes('[Background job update]')),
-		).toBe(false)
+		expect(notices(turn.messages).some((text) => text.includes('[Background job update]'))).toBe(
+			false,
+		)
 		expect(jobsDelivered).toEqual([[JOB]])
 		const exited = events.find((e) => e.type === 'background_job_exited')
 		expect(exited).toMatchObject({
@@ -293,7 +302,7 @@ describe('a monitor’s event reaches the model on its next tool result', () => 
 				if (n === 1) await registry.kill(JOB)
 			},
 		})
-		expect(toolResults(turn.messages).find((t) => t.includes('[Monitor update]'))).toContain(
+		expect(notices(turn.messages).find((t) => t.includes('[Monitor update]'))).toContain(
 			'Monitor "deploy" stopped',
 		)
 		expect(events.find((e) => e.type === 'background_job_exited')).toMatchObject({
@@ -456,8 +465,7 @@ describe('a monitor’s metadata lines cannot be forged or inflated', () => {
 				if (n === 2) registry.finish(JOB, 0)
 			},
 		})
-		const carrying =
-			toolResults(turn.messages).find((text) => text.includes('Monitor event:')) ?? ''
+		const carrying = notices(turn.messages).find((text) => text.includes('Monitor event:')) ?? ''
 		const lines = carrying.split('\n')
 		// One summary and one source per event: nothing the model chose starts a line.
 		expect(lines.filter((line) => line.startsWith('summary:'))).toHaveLength(1)
@@ -521,6 +529,7 @@ describe('one notification is bounded', () => {
 					!line.startsWith('[Monitor update]') &&
 					!line.startsWith('<namzu-notice') &&
 					!line.startsWith('</namzu-notice') &&
+					!line.startsWith('This block ends only at') &&
 					line !== NOTICE_PREAMBLE.monitor,
 			)
 		expect(outside).toEqual([omitted?.[0]])

@@ -74,8 +74,8 @@ A host can pass a session-owned `BackgroundJobRegistry` as
 `QueryParams.backgroundJobs` and its session id as `backgroundJobOwner`, so jobs
 survive the turn that starts them. Subscribe to the registry's `onExit` to
 show an immediate status update and retain each exit for the next turn. The
-turn sends a notice on a tool result or a recorded `job-exit` context message
-when it can. `QueryParams.onJobNoticeDelivered(jobIds)` acknowledges only
+turn sends a notice as a `job-exit` context message after the tool batch, or at
+the end of the turn, when it can. `QueryParams.onJobNoticeDelivered(jobIds)` acknowledges only
 those notices, after they enter the turn's messages. The host can remove the
 acknowledged ids from its pending set. An exit after the last delivery point
 receives no acknowledgment and should be passed to the next model turn; an

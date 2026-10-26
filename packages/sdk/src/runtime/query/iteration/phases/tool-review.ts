@@ -14,7 +14,12 @@ import {
 } from '../../project-instructions.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
 import { isReviewExempt } from '../../review-policy.js'
-import { attachNotice, attachSteering, formatJobNote, formatMonitorNote } from '../../steering.js'
+import {
+	formatJobNote,
+	formatMonitorNote,
+	takeNoticeMessage,
+	takeSteeringMessage,
+} from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -240,40 +245,42 @@ export async function* runToolReview(
 			const notice = ctx.repeatCalls?.record(summary.name, summary.input)
 			if (notice) notices.push(notice)
 		}
-		// Guidance the host queued while this batch was running rides out on
-		// the last result. This is the only legal slot for it: a `tool_use`
-		// block must be answered by a `tool_result` with the same id, so a
-		// user message wedged between them is rejected by the provider. Same
-		// delivery a denial already uses, without the refusal.
+		// What the host or the kernel queued while this batch was running reaches
+		// the model as messages of their own right after the batch. A tool result
+		// stays what the tool returned: instructions written into it read as tool
+		// output, and a `tool_use` block still gets its `tool_result` first.
 		let jobNoticeDelivered = false
 		let monitorNoticeDelivered = false
-		for (const msg of attachRepeatNotice(
-			attachNotice(
-				attachNotice(
-					attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
-					ctx.jobNotices,
-					formatJobNote,
-					// The exits that text accounts for have now been read, so the
-					// record of them stops being pending work. Left standing, it
-					// buys the model a turn the next time any job queues a notice.
-					() => {
-						ctx.awaitedJobs?.noticesDelivered()
-						jobNoticeDelivered = true
-					},
-				),
-				ctx.monitorNotices,
-				formatMonitorNote,
-				// Same rule for what a monitor said: read here, so a turn holding
-				// itself open for the monitor does not spend a turn re-reading it.
-				() => {
-					ctx.awaitedJobs?.monitorNoticesDelivered()
-					monitorNoticeDelivered = true
-				},
-			),
-			notices,
-		)) {
+		for (const msg of attachRepeatNotice(batch.messages, notices)) {
 			ctx.recorder.pushMessage(msg)
 		}
+		const steering = takeSteeringMessage(batch.messages, ctx.steering, ctx.onSteeringDelivered)
+		if (steering) ctx.recorder.pushMessage(steering)
+		const jobNotice = takeNoticeMessage(
+			batch.messages,
+			ctx.jobNotices,
+			formatJobNote,
+			// The exits that text accounts for have now been read, so the
+			// record of them stops being pending work. Left standing, it
+			// buys the model a turn the next time any job queues a notice.
+			() => {
+				ctx.awaitedJobs?.noticesDelivered()
+				jobNoticeDelivered = true
+			},
+		)
+		if (jobNotice) ctx.recorder.pushMessage(jobNotice)
+		const monitorNotice = takeNoticeMessage(
+			batch.messages,
+			ctx.monitorNotices,
+			formatMonitorNote,
+			// Same rule for what a monitor said: read here, so a turn holding
+			// itself open for the monitor does not spend a turn re-reading it.
+			() => {
+				ctx.awaitedJobs?.monitorNoticesDelivered()
+				monitorNoticeDelivered = true
+			},
+		)
+		if (monitorNotice) ctx.recorder.pushMessage(monitorNotice)
 		if (jobNoticeDelivered) ctx.onJobNoticeDelivered?.()
 		if (monitorNoticeDelivered) ctx.onMonitorNoticeDelivered?.()
 		// The complete tool-result batch is already in history before host policy

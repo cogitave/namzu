@@ -668,7 +668,7 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 	expect(budgets[1]).toEqual({ windowTokens: 8_192, remainingTokens: 0 })
 })
 
-it('keeps tool-attached steering as current intent after its tool result is compacted away', async () => {
+it('keeps steering sent during a tool batch as current intent after the batch is compacted away', async () => {
 	const store = new InMemoryMemoryStore()
 	await store.create({
 		title: 'Billing',
@@ -750,7 +750,9 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	expect(
 		context.messages.some(
 			(message) =>
-				message.role === 'tool' &&
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				message.source.kind === 'steering' &&
 				typeof message.content === 'string' &&
 				message.content.includes('Investigate deployment'),
 		),

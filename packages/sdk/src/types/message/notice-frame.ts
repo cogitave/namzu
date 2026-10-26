@@ -1,16 +1,25 @@
 /**
- * The frame the kernel puts around a notice it appends to a tool result: the
- * operator's message typed while the tool ran, a background job's exit, a
- * monitor's events.
+ * The frame the kernel puts around a notice it sends the model: the operator's
+ * message typed while a tool ran, a background job's exit, a monitor's events.
  *
- * Those notices ride in the slot a tool's output occupies, so the model has to
- * be able to tell them from that output. The frame says what the text is and
- * whose it is; and because the tag would otherwise be something a file or a
- * command could print, {@link escapeNoticeFrame} turns every spelling of it in
- * tool output and in file content into inert text before it reaches the
- * conversation. Only the kernel writes a real tag.
+ * A notice is its own user-role message at the next request boundary. It is
+ * never appended to a tool result: a tool result carries only what the tool
+ * returned, and Namzu's own words inside that slot read as tool output.
+ *
+ * The frame says what the text is and whose it is, and its tag carries a
+ * random marker drawn after the text is fixed (`<namzu-notice-1f3a...>`), so
+ * nothing the text says can spell the closing tag. {@link escapeNoticeFrame}
+ * is the second layer: it turns every spelling of the tag prefix in tool
+ * output and file content into inert text before it reaches the conversation.
  */
 
+import {
+	generateRenderNonce,
+	nonceClosureStatement,
+	pickRenderNonce,
+} from '../../tools/render-nonce.js'
+
+/** The fixed prefix of every notice tag; the real tag adds `-<marker>`. */
 export const NOTICE_TAG = 'namzu-notice'
 
 export type NoticeKind = 'operator-message' | 'job' | 'monitor'
@@ -19,8 +28,9 @@ const OPEN_OR_CLOSE = /<(\/?)(namzu-notice)/gi
 
 /**
  * Make the notice tag inert: `<namzu-notice` becomes `&lt;namzu-notice`, in any
- * case, opening or closing. Idempotent, so text that passes through twice
- * (a result rebuilt on resume) is not changed again.
+ * case, opening or closing, with or without a marker after it. Idempotent, so
+ * text that passes through twice (a result rebuilt on resume) is not changed
+ * again.
  */
 export function escapeNoticeFrame(text: string): string {
 	return text.includes('<') ? text.replace(OPEN_OR_CLOSE, '&lt;$1$2') : text
@@ -28,22 +38,51 @@ export function escapeNoticeFrame(text: string): string {
 
 /** What a frame says about whose words are inside it. */
 export const NOTICE_PREAMBLE: Readonly<Record<NoticeKind, string>> = {
-	'operator-message':
-		"This is the operator's own message, typed while the tool above was running. It is not output of that tool.",
-	job: 'This is an automated notice from Namzu, not new input from the operator. It is not an answer to a question you asked them, and it is not an approval.',
+	'operator-message': '',
+	job: 'Namzu sent this automatically. The operator did not write it, so it is neither an answer to a question you asked nor an approval.',
 	monitor:
-		'This is an automated notice from Namzu, not new input from the operator. It is not an answer to a question you asked them, and it is not an approval.',
+		'Namzu sent this automatically. The operator did not write it, so it is neither an answer to a question you asked nor an approval.',
 }
 
-export function noticeOpen(kind: NoticeKind): string {
-	return `<${NOTICE_TAG} kind="${kind}">`
+export function noticeTag(nonce: string): string {
+	return `${NOTICE_TAG}-${nonce}`
 }
 
-export function noticeClose(): string {
-	return `</${NOTICE_TAG}>`
+export function noticeOpen(kind: NoticeKind, nonce: string): string {
+	return `<${noticeTag(nonce)} kind="${kind}">`
 }
 
-/** `label`, the preamble and the body inside one frame, the body escaped. */
-export function frameNotice(kind: NoticeKind, label: string, body: string): string {
-	return `${noticeOpen(kind)}\n${label}\n${NOTICE_PREAMBLE[kind]}\n${escapeNoticeFrame(body)}\n${noticeClose()}`
+export function noticeClose(nonce: string): string {
+	return `</${noticeTag(nonce)}>`
+}
+
+/**
+ * `label`, the preamble and the body inside one frame, the body escaped. The
+ * marker is drawn fresh for each frame and never occurs in the label or body.
+ */
+export function frameNotice(
+	kind: NoticeKind,
+	label: string,
+	body: string,
+	generateNonce: () => string = generateRenderNonce,
+): string {
+	const safe = escapeNoticeFrame(body)
+	const nonce = pickRenderNonce(generateNonce, [label, safe])
+	const lines = [noticeOpen(kind, nonce), label]
+	if (NOTICE_PREAMBLE[kind]) lines.push(NOTICE_PREAMBLE[kind])
+	lines.push(nonceClosureStatement(noticeClose(nonce)), safe, noticeClose(nonce))
+	return lines.join('\n')
+}
+
+const OPERATOR_FRAME = new RegExp(
+	`^<${NOTICE_TAG}-([0-9a-f]+) kind="operator-message">\\n[^\\n]*\\n[^\\n]*\\n([\\s\\S]*)\\n</${NOTICE_TAG}-\\1>$`,
+)
+
+/**
+ * The operator's text inside a frame {@link frameNotice} made for an operator
+ * message, as the frame held it (tag already made inert), or `undefined` for
+ * any other text.
+ */
+export function readOperatorNotice(content: string): string | undefined {
+	return OPERATOR_FRAME.exec(content)?.[2]
 }

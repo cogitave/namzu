@@ -364,7 +364,7 @@ fall back to surviving history. This is a host-policy input, not an extra copy
 of the entire user message automatically inserted into every model request.
 New operator arrivals queued for resume take precedence over the checkpoint's
 older intent. Earlier surviving history does not overwrite a newer checkpoint.
-Inbound messages and tool-attached steering also refresh the bounded task and
+Inbound messages and steering sent during a tool batch also refresh the bounded task and
 requirements extracted into working state, so its compaction summary can retain
 the changed direction. Runtime worker reports do not become operator intent.
 `options.query` is a fallback

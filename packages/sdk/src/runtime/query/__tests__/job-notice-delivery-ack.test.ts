@@ -88,18 +88,19 @@ async function run(exitAt: 'tool-result' | 'final-answer') {
 }
 
 describe('background job notice acknowledgement', () => {
-	it('acknowledges an exit only after its notice enters a tool result', async () => {
+	it('acknowledges an exit only after its notice becomes a message the model reads', async () => {
 		const { result, acknowledgements } = await run('tool-result')
 		expect(result.status).toBe('completed')
 		expect(acknowledgements).toEqual([['b00000001']])
-		expect(
+		const carrying = (role: string) =>
 			result.messages.some(
 				(message) =>
-					message.role === 'tool' &&
+					message.role === role &&
 					typeof message.content === 'string' &&
 					message.content.includes('[Background job update]'),
-			),
-		).toBe(true)
+			)
+		expect(carrying('user')).toBe(true)
+		expect(carrying('tool')).toBe(false)
 	})
 
 	it('does not acknowledge an exit after the final tool result', async () => {

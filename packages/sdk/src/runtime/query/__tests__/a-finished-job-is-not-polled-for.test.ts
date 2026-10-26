@@ -118,7 +118,7 @@ async function run(registry: BackgroundJobRegistry, owner?: string, command = 'e
 }
 
 describe('a finished background job is not polled for', () => {
-	it('rides out on the next tool result as a notice, and reaches the host as an event', async () => {
+	it('reaches the model as its own message after the tool result, and the host as an event', async () => {
 		const registry = new BackgroundJobRegistry()
 		const { events, messages } = await run(registry)
 		const exited = events.find((e) => e.type === 'background_job_exited')
@@ -128,14 +128,15 @@ describe('a finished background job is not polled for', () => {
 			status: 'exited',
 			exitCode: 3,
 		})
-		const toolTexts = messages
-			.filter((m) => m.role === 'tool' && typeof m.content === 'string')
-			.map((m) => m.content as string)
-		expect(
-			toolTexts.some(
-				(t) => t.includes('[Background job update]') && t.includes('exited with code 3'),
-			),
-		).toBe(true)
+		const text = (role: string) =>
+			messages
+				.filter((m) => m.role === role && typeof m.content === 'string')
+				.map((m) => m.content as string)
+		const isNotice = (t: string) =>
+			t.includes('[Background job update]') && t.includes('exited with code 3')
+		expect(text('user').some(isNotice)).toBe(true)
+		// A tool result carries only what the tool returned.
+		expect(text('tool').some(isNotice)).toBe(false)
 	})
 
 	it('stops turn-owned jobs when the turn ends, and leaves session-owned ones to the host', async () => {

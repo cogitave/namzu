@@ -86,19 +86,23 @@ describe('guidance queued during a tool batch reaches the model', () => {
 		expect(bodiesOn(provider, 1)).toContain('actually, check the tests as well')
 	})
 
-	it('rides on the tool result rather than as a separate turn', async () => {
+	it('follows the tool result as the operator’s own message, never inside it', async () => {
 		const { provider } = await runWithSteer('check the tests as well')
 
 		const second = provider.requests[1]?.messages ?? []
-		const carrier = second.find((m) =>
+		const at = second.findIndex((m) =>
 			typeof m.content === 'string' ? m.content.includes('check the tests as well') : false,
 		)
+		const carrier = second[at]
 
-		// The slot matters: a `tool_use` block must be answered by a
-		// `tool_result` with the same id, so a user turn wedged in here is
-		// rejected by the provider outright.
-		expect(carrier?.role).toBe('tool')
-		expect(String(carrier?.content)).toContain('inspection done')
+		// A `tool_use` block is answered by its `tool_result` first; the operator's
+		// words come after it as a user-role message, so a model reads them as
+		// direction and not as something the tool printed.
+		expect(carrier?.role).toBe('user')
+		expect(String(carrier?.content)).toContain('The operator wrote this while you were working:')
+		expect(second[at - 1]?.role).toBe('tool')
+		expect(String(second[at - 1]?.content)).toContain('inspection done')
+		expect(String(second[at - 1]?.content)).not.toContain('check the tests as well')
 	})
 
 	it('is delivered once and leaves the channel empty', async () => {

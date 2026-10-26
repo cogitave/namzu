@@ -109,7 +109,7 @@ request removed by compaction or enlarge the history scan.
 
 When the retained `latestUserMessage` is the same object as a visible message,
 that message locates the boundary. A retained input can instead live outside
-the visible array, as with tool-result steering or checkpoint hydration. In
+the visible array, as with the plain text of steering sent during a tool batch, which the history holds inside its notice frame, or checkpoint hydration. In
 that case the planner considers the bounded recent visible history, without
 mistaking an older equal string for the new input. This view is not guaranteed
 to precede the original acceptance time: no missing position is invented from
