@@ -102,6 +102,7 @@ import {
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
+import { placeBeforeLatestOperatorMessage } from './step-context.js'
 import {
 	type StepShaping,
 	appendWorkContext,
@@ -879,7 +880,7 @@ export class IterationOrchestrator {
 
 					// Request-only context: observations that need no system
 					// authority and change from request to request. They ride
-					// runtime-context messages of kind `step-context` after the
+					// runtime-context messages of kind `step-context`, most of them after the
 					// history, which every driver keeps there and a caching driver
 					// ends its breakpoint before — so a changed pin or a new turn
 					// snapshot costs its own tokens, not a re-read of the history.
@@ -894,8 +895,16 @@ export class IterationOrchestrator {
 						? [...workingMemory.history, createSystemMessage(stepPreamble)]
 						: [...workingMemory.history]
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
-					if (contextText) requestHistory.push(stepContextMessage(contextText))
-					if (step.context) requestHistory.push(stepContextMessage(step.context))
+					// The blocks of data that belong to this turn (recalled memory and
+					// evidence, the context contributions) sit just before the
+					// operator's latest message, so the request is the last thing the
+					// model reads. The short reminders and notices stay after it.
+					placeBeforeLatestOperatorMessage(
+						requestHistory,
+						[contextText, step.context]
+							.filter((text): text is string => Boolean(text))
+							.map(stepContextMessage),
+					)
 					// After the history, never ahead of it: a system message in front
 					// of the conversation moves the prefix every cached request shares,
 					// and a mode change would re-key the whole conversation.
