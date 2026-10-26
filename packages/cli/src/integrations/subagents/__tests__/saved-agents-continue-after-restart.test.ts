@@ -10,7 +10,7 @@ import {
 	type ToolContext,
 	type TurnId,
 } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
@@ -230,6 +230,33 @@ describe('an agent saved by an earlier run of the program', () => {
 			)
 			expect(sent.error).toBeUndefined()
 			expect(sent.success).toBe(true)
+		} finally {
+			await after.runtime.close()
+		}
+	})
+
+	it('says the message was not sent while the agent is still running its earlier work', async () => {
+		const world = await finishedBeforeRestart()
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'AFTER',
+		)
+		try {
+			const turn = world.parent.addTurn()
+			const gateway = await after.runtime.gatewayForTurn(turn)
+			vi.spyOn(gateway, 'restoreChild').mockResolvedValue({
+				status: 'refused',
+				reason: 'running',
+			} as never)
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'TOO_SOON' },
+				after.contextFor(turn),
+			)
+			expect(sent.success).toBe(false)
+			expect(sent.error).toContain('still running its earlier work, so the message was not sent')
+			expect(after.requests).toEqual([])
 		} finally {
 			await after.runtime.close()
 		}

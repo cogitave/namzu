@@ -376,6 +376,27 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		}
 	})
 
+	it('lists a resumed running agent once, by the id it was first given, when an id is unknown', async () => {
+		const world = await conversation({ holdResume: true, durable: true })
+		try {
+			const taskId = await launch(world, false)
+			await world.endTurn(world.turn1)
+			const sent = await world.runtime.sendMessageTool.execute(
+				{ task_id: taskId, message: 'FOLLOW_UP' },
+				world.context2,
+			)
+			expect(sent.data).toMatchObject({ status: 'resumed' })
+			const unknown = await world.runtime.waitForTaskTool.execute(
+				{ task_id: MADE_UP },
+				world.context2,
+			)
+			expect(unknown.error).toContain(`Running agents: ${taskId}.`)
+			expect(unknown.error).not.toContain(',')
+		} finally {
+			await world.finish()
+		}
+	})
+
 	it('says in plain words that an agent is already being resumed when two messages meet', async () => {
 		const world = await conversation({ holdResume: true, durable: true })
 		try {

@@ -1195,9 +1195,13 @@ export async function createSubagentRuntime(
 		const seen = new Set<string>()
 		const collect = (gateway: TaskScheduler): void => {
 			for (const task of gateway.listTasks()) {
-				if (isTerminalAgentTaskState(task.state) || seen.has(String(task.taskId))) continue
-				seen.add(String(task.taskId))
-				running.push(String(task.taskId))
+				if (isTerminalAgentTaskState(task.state)) continue
+				// The id the model was handed, once per agent: an older run and the
+				// latest run of one agent are the same agent.
+				const shown = publicTaskId(task.taskId)
+				if (seen.has(shown)) continue
+				seen.add(shown)
+				running.push(shown)
 			}
 		}
 		collect(await gatewayForTurn(turnId))
@@ -1975,9 +1979,9 @@ export async function createSubagentRuntime(
 				outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 			return {
 				success: true,
-				output: `Task ${taskId} is ${progress}; it has not completed. Waiting was released for an operator message. Its result will arrive as a task notification.`,
+				output: `Task ${publicTaskId(task.taskId)} is ${progress}; it has not completed. Waiting was released for an operator message. Its result will arrive as a task notification.`,
 				data: {
-					task_id: taskId,
+					task_id: publicTaskId(task.taskId),
 					state: outcome.handle.state,
 					...workspaceData(outcome.handle),
 					wait_released: 'operator_input',
