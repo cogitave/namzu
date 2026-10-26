@@ -41,10 +41,24 @@ function* attachmentExcerpt(
 	yield ' — not included in this text excerpt]'
 }
 
+function isStandingContext(message: Message): boolean {
+	if (message.role !== 'user') return false
+	const source = message.source
+	return (
+		source?.type === 'project-instructions' ||
+		(source?.type === 'runtime-context' &&
+			(source.kind === 'step-context' || source.kind === 'reminder'))
+	)
+}
+
 /** Visible evidence only: never stringify a whole message or its attachment bytes. */
 function* conversationExcerpt(messages: readonly Message[]): Generator<string> {
 	let first = true
 	for (const message of messages) {
+		// Standing instructions are re-attached whole on the next turn; quoting
+		// them here would bloat the excerpt and let the verifier restate them
+		// as conversation facts.
+		if (isStandingContext(message)) continue
 		const hasDetails =
 			message.role === 'tool' ||
 			(message.role === 'assistant' && message.toolCalls?.length) ||

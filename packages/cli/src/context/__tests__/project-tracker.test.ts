@@ -60,6 +60,16 @@ async function observe(
 }
 
 describe('ProjectInstructionTracker', () => {
+	it('says project rules win over default style and workflow but never over safety or permission rules', async () => {
+		writeFileSync(join(repo, 'AGENTS.md'), 'Root rule.')
+		const snapshot = await initial(new ProjectInstructionTracker(repo).createTurnContext())
+
+		const text = snapshot?.content ?? ''
+		expect(text).toContain("win over Namzu's default style and\nworkflow")
+		expect(text).toContain('never over safety or permission rules')
+		expect(text.split('Root rule.')).toHaveLength(2)
+	})
+
 	it('renders terminal controls and bidi format characters as visible escapes', () => {
 		const dangerous = `pkg/${String.fromCodePoint(0x1b, 0x85, 0x9b, 0x202e, 0x2066)}AGENTS.md`
 		const rendered = visibleProjectInstructionPath(dangerous)

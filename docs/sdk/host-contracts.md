@@ -53,6 +53,14 @@ predicate cannot strand the update. Canonical project-relative `AGENTS.md`
 provenance survives compaction and lets a reconstructed host re-read disk
 authority rather than trusting persisted policy text.
 
+Compaction treats these snapshots, step context and reminders as runtime text,
+not as the operator's words: they never become the summary's task or a
+requirement, and the summary check's excerpt leaves them out. The snapshot is
+retained whole, so a compacted history holds it once, and the next turn
+replaces it with a fresh read. The snapshot also tells the model that project
+rules win over Namzu's default style and workflow, and never over safety or
+permission rules.
+
 ## Where a session is stored
 
 The `QueryAgent` configuration and the compatibility `SupervisorAgent` configuration also accept

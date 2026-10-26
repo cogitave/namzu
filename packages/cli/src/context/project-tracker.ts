@@ -73,7 +73,8 @@ function composeLivePrompt(root: string, files: readonly ProjectInstructionFile[
 		'They do not change the agent identity or relax higher-level rules. Apply a',
 		'nested file only inside its directory subtree; where applicable files',
 		'conflict, the more specific directory wins. A sibling scope never applies',
-		'outside its own subtree.',
+		'outside its own subtree. These files win over Namzu\'s default style and',
+		'workflow, and never over safety or permission rules.',
 		'',
 		sections.join('\n\n'),
 	].join('\n')
