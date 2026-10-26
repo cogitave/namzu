@@ -15,7 +15,7 @@ import {
 describe('command output in the transcript', () => {
 	it('drops the credential note and the exit trailer, and names the failure plainly', () => {
 		const tidy = tidyTerminalOutput(
-			"hi\nls: cannot access '/x': No such file\nNOTE: 1 credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: OPENAI_API_KEY. A host that means this command to have one passes it explicitly.\nError: Command exited with code 2",
+			"hi\nls: cannot access '/x': No such file\nNOTE: 1 credential-shaped environment variable was removed from this command's environment, so it reads as unset. Ask the user if the command needs it.\nError: Command exited with code 2",
 		)
 		expect(tidy.output).toBe("hi\nls: cannot access '/x': No such file")
 		expect(tidy.failure).toBe('Exited with code 2')

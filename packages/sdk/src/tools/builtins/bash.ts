@@ -90,7 +90,7 @@ function startsWithSleep(command: string): boolean {
  */
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
-	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Await it with wait_for_job: {"id":"${jobId}"}, read its output with job action "read" (id "${jobId}"), or stop it with job action "kill". Its output so far is above.`
+	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above.`
 }
 
 const inputSchema = z.object({
@@ -598,7 +598,7 @@ const BashToolBase = defineTool({
 				}
 				return {
 					success: true,
-					output: `Started background job ${job.id}. For finite work, await completion with wait_for_job: {"id":"${job.id}"}. For a persistent server, observe its literal readiness marker with wait_for_job: {"id":"${job.id}","output_contains":"<expected marker>","output_stream":"stdout"}; this leaves it running and does not prove health. Use job with action "read" for incremental output.`,
+					output: `Started background job ${job.id}; state: running.`,
 					data: { jobId: job.id, background: true },
 					facts: { kind: 'command', command: input.command, background: true },
 				}
@@ -903,23 +903,17 @@ function formatShellOutput(stdout: string | undefined, stderr: string | undefine
 		.join('\n\n')
 }
 
-/** How many withheld names to print before summarising the rest. */
-const WITHHELD_ENV_PREVIEW = 10
-
 /**
- * Name the credential-shaped variables this command did not inherit.
- *
- * Names only, never values. A command that failed because it wanted
- * `FOO_TOKEN` otherwise reports an authentication error pointing nowhere; the
- * next move — have the host pass it explicitly through `context.env` — is only
- * available to a reader who knows it was withheld rather than unset.
+ * Say that credential-shaped variables were left out of this command's
+ * environment. The count is enough: the model needs to know a missing
+ * credential is deliberate and who to ask, and the names are the user's data.
+ * A command that failed because it wanted one otherwise reports an
+ * authentication error pointing nowhere.
  */
-function describeWithheldEnv(dropped: readonly string[]): string {
+export function describeWithheldEnv(dropped: readonly string[]): string {
 	if (dropped.length === 0) return ''
-	const shown = dropped.slice(0, WITHHELD_ENV_PREVIEW).join(', ')
-	const rest = dropped.length - WITHHELD_ENV_PREVIEW
-	const names = rest > 0 ? `${shown}, and ${rest} more` : shown
-	return `NOTE: ${dropped.length} credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: ${names}. A host that means this command to have one passes it explicitly.`
+	const one = dropped.length === 1
+	return `NOTE: ${dropped.length} credential-shaped environment ${one ? 'variable was' : 'variables were'} removed from this command's environment, so ${one ? 'it reads' : 'they read'} as unset. Ask the user if the command needs ${one ? 'it' : 'one'}.`
 }
 
 /**

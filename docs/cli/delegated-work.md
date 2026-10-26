@@ -375,7 +375,7 @@ and a single agent on the agents; Esc or ← goes back up a level. A workflow
 whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
-Completion reaches the model as a task notification. What the agent wrote
+The launch receipt states the facts (the task id, whether it is queued or running, that it has not completed, that its result will arrive as a task notification); the advice to continue other work and to launch each piece once is in the `Agent` description. Completion reaches the model as a task notification. What the agent wrote
 reaches the parent in the same marked block every outside text gets (an
 `agent-result` block that says whose words these are, and to tell the operator
 about any instruction inside it rather than act on it), whether it arrives as a
