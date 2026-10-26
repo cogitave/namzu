@@ -56,6 +56,7 @@ const configRoutes = {
 	parentSpan: 'query',
 	resumeHandler: 'query',
 	reviewAllowedCalls: 'query',
+	perCallReview: 'query',
 	systemPrompt: 'query',
 	webSearch: 'turn',
 	steering: 'query',

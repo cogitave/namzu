@@ -565,6 +565,43 @@ export interface ToolCallOutcome {
 	revealedTools?: readonly ToolRevealReceipt[]
 }
 
+/** What the per-call review decided about one call that reached the front of the walk. */
+export type CallAdmission =
+	| { readonly run: true }
+	| {
+			readonly run: false
+			readonly reason: string
+			readonly declined?: ToolCallDeclined
+	  }
+
+/**
+ * The per-call review, as the executor sees it: a batch executed while its
+ * calls are still being asked about.
+ *
+ * The executor walks the calls in the model's order. A call that is safe to run
+ * beside others starts as soon as every call already in flight is also safe;
+ * any other call starts only when nothing is in flight, so it never overlaps an
+ * earlier call, and nothing after it starts before it does. Starting a call
+ * means asking `admit` and, on a yes, running it right away.
+ */
+export interface ReviewedExecution {
+	admit(call: ToolCall, index: number): Promise<CallAdmission>
+	/**
+	 * Aborts when a refusal ends the turn. Calls that are running are cancelled
+	 * through it, and a call that has not started is refused without `admit`
+	 * being consulted for a yes.
+	 */
+	readonly ended: AbortSignal
+}
+
+interface ReviewUnit {
+	readonly index: number
+	readonly toolCall: ToolCall
+	readonly preparedCall?: PreparedDirectCall
+	readonly safe: boolean
+	readonly run: () => Promise<void>
+}
+
 export interface ToolExecutionBatch {
 	messages: Message[]
 	results: ToolCallOutcome[]
@@ -1251,6 +1288,7 @@ export class ToolExecutor {
 		prior?: PriorToolResults,
 		preparedBatch?: PreparedToolBatch,
 		declines?: ToolCallDeclines,
+		review?: ReviewedExecution,
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
@@ -1277,9 +1315,9 @@ export class ToolExecutor {
 			if (refusal) {
 				const refused = new Map(denials)
 				for (const call of toolCalls) if (!refused.has(call.id)) refused.set(call.id, refusal)
-				return await this.runBatch(toolCalls, refused, prior, owned, declines)
+				return await this.runBatch(toolCalls, refused, prior, owned, declines, review)
 			}
-			return await this.runBatch(toolCalls, denials, prior, owned, declines)
+			return await this.runBatch(toolCalls, denials, prior, owned, declines, review)
 		} finally {
 			// Cleared so a later single execution outside a batch resolves
 			// live rather than inheriting the last batch's sample.
@@ -1293,6 +1331,7 @@ export class ToolExecutor {
 		prior?: PriorToolResults,
 		preparedBatch?: OwnedPreparedToolBatch,
 		declines?: ToolCallDeclines,
+		review?: ReviewedExecution,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			[NAMZU.TURN_ID]: this.config.turnId,
@@ -1353,6 +1392,9 @@ export class ToolExecutor {
 		// gate keeps that at a working-set size while preserving completion
 		// order independence.
 		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
+		// Under a per-call review the calls to run are collected here and walked
+		// afterwards; refusals that were settled before the review need no walk.
+		const reviewUnits: ReviewUnit[] = []
 		toolCalls.forEach((toolCall, i) => {
 			const preparedCall = preparedBatch?.calls.get(toolCall.id)
 			const tool = this.config.tools.get(preparedCall?.toolName ?? toolCall.function.name)
@@ -1374,7 +1416,7 @@ export class ToolExecutor {
 						? { structuredResultJson: recovered.structuredResultJson }
 						: {}),
 				}
-				if (isBarrier) schedule(async () => {}, true, true)
+				if (isBarrier && !review) schedule(async () => {}, true, true)
 				return
 			}
 
@@ -1383,18 +1425,16 @@ export class ToolExecutor {
 				// Denied calls never touch the tool; they still get a result
 				// message so the assistant turn stays fully answered. They can
 				// overlap other calls within a segment, respecting its barriers.
-				schedule(
-					async () => {
-						results[i] = await this.recordDenial(
-							toolCall,
-							denialReason,
-							preparedCall,
-							declines?.get(toolCall.id),
-						)
-					},
-					true,
-					isBarrier,
-				)
+				const recordDenied = async () => {
+					results[i] = await this.recordDenial(
+						toolCall,
+						denialReason,
+						preparedCall,
+						declines?.get(toolCall.id),
+					)
+				}
+				if (review) parallel.push(recordDenied())
+				else schedule(recordDenied, true, isBarrier)
 				return
 			}
 			// Per-call, because the event has to name which call it is about:
@@ -1419,6 +1459,13 @@ export class ToolExecutor {
 				...(escalation?.outsidePaths ? { approvedPaths: escalation.outsidePaths } : {}),
 				...(escalation?.sandboxEscape ? { sandboxEscapeApproved: true } : {}),
 				source: { kind: 'direct' },
+				// A refusal that ends the turn cancels what is running, through the
+				// same signal a tool already honours for a cancelled turn.
+				...(review
+					? {
+							abortSignal: AbortSignal.any([baseContext.abortSignal, review.ended]),
+						}
+					: {}),
 				// Overridden per call, so a nested dispatch can name the call
 				// that made it. The base context has no `toolUseId`, and a
 				// closure built there would report every nested call as
@@ -1460,8 +1507,19 @@ export class ToolExecutor {
 				// non-JSON args → treat as unsafe (serialize), the conservative path
 			}
 			const safe = tool?.isConcurrencySafe?.(input) === true
+			if (review) {
+				reviewUnits.push({
+					index: i,
+					toolCall,
+					...(preparedCall ? { preparedCall } : {}),
+					safe: safe && !isBarrier,
+					run: safe ? gated : run,
+				})
+				return
+			}
 			schedule(safe ? gated : run, safe, isBarrier)
 		})
+		if (review) await this.walkReviewed(reviewUnits, results, review)
 		await Promise.all([...parallel, serial])
 
 		// Whatever failed above left a hole in `results`; fill every one, so
@@ -1499,6 +1557,81 @@ export class ToolExecutor {
 		)
 
 		return { messages, results, observations }
+	}
+
+	/**
+	 * Walk the calls of a batch in the model's order, asking about each as it
+	 * reaches the front and running it right after a yes.
+	 *
+	 * A call may start when nothing is in flight, or when it and every call in
+	 * flight are safe to run side by side. The walk stops at the first call that
+	 * may not start yet, so an unsafe call is never overtaken by one that came
+	 * after it. Once a refusal has ended the turn, nothing waits: every call that
+	 * has not started is refused at once and the ones in flight are cancelled.
+	 */
+	private async walkReviewed(
+		units: readonly ReviewUnit[],
+		results: ToolCallOutcome[],
+		review: ReviewedExecution,
+	): Promise<void> {
+		const inFlight = new Set<ReviewUnit>()
+		let cursor = 0
+		let failure: { readonly error: unknown } | undefined
+		const refusedAfterEnd =
+			'An earlier call in this batch was refused and the turn was stopped, so this call was not run.'
+		await new Promise<void>((resolve) => {
+			const start = (unit: ReviewUnit): void => {
+				inFlight.add(unit)
+				void (async () => {
+					try {
+						let admission: CallAdmission
+						try {
+							admission = await review.admit(unit.toolCall, unit.index)
+						} catch {
+							// An answer that could not be obtained is not a yes.
+							admission = {
+								run: false,
+								reason: 'The approval for this call could not be completed, so it was not run.',
+							}
+						}
+						if (admission.run && !review.ended.aborted) {
+							await unit.run()
+						} else {
+							const refusal = admission.run
+								? { reason: refusedAfterEnd }
+								: { reason: admission.reason, declined: admission.declined }
+							results[unit.index] = await this.recordDenial(
+								unit.toolCall,
+								refusal.reason,
+								unit.preparedCall,
+								'declined' in refusal ? refusal.declined : undefined,
+							)
+						}
+					} catch (error) {
+						failure ??= { error }
+					} finally {
+						inFlight.delete(unit)
+						pump()
+					}
+				})()
+			}
+			const pump = (): void => {
+				while (cursor < units.length) {
+					const unit = units[cursor] as ReviewUnit
+					if (!review.ended.aborted) {
+						const mayStart =
+							inFlight.size === 0 || (unit.safe && [...inFlight].every((other) => other.safe))
+						if (!mayStart) break
+					}
+					cursor++
+					start(unit)
+				}
+				if (cursor >= units.length && inFlight.size === 0) resolve()
+			}
+			review.ended.addEventListener('abort', pump, { once: true })
+			pump()
+		})
+		if (failure) throw failure.error
 	}
 
 	/**

@@ -578,6 +578,42 @@ export class CheckpointManager {
 		return park
 	}
 
+	/**
+	 * End the parks that were the other questions of a batch whose decision has
+	 * just been applied (the per-call review parks one question per call).
+	 *
+	 * The batch is answered now, so a question about one of its calls is moot;
+	 * left open, an approval queue would keep serving it and a host resuming it
+	 * would rewind the turn to a batch that has long since been carried out.
+	 * Recorded as superseded, not as an answer: nobody gave one.
+	 */
+	async supersedeBatchParks(
+		callIds: ReadonlySet<string>,
+		except: CheckpointId,
+		superseding: HITLResumeDecision,
+	): Promise<number> {
+		await this.recorder.flush()
+		const parks = await readParks(this.recorder.log, {
+			turnId: this.scope.turnId,
+		})
+		let ended = 0
+		for (const park of parks) {
+			const request = park.pending.request
+			if (
+				park.checkpointId === except ||
+				park.pending.resolvedAt !== undefined ||
+				request.type !== 'tool_review' ||
+				request.perCall !== true ||
+				!request.toolCalls.every((call) => callIds.has(call.id))
+			) {
+				continue
+			}
+			await this.unpark(park.checkpointId, superseding)
+			ended += 1
+		}
+		return ended
+	}
+
 	private async openPark(checkpointId: CheckpointId): Promise<RecordedPark | null> {
 		await this.recorder.flush()
 		const parks = await readParks(this.recorder.log, { turnId: this.scope.turnId })

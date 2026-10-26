@@ -664,6 +664,18 @@ export interface ToolReviewRequest {
 	 * in the session run without asking.
 	 */
 	readonly screenConsent?: true
+	/**
+	 * Set when the request is the per-call review's question about one call (or
+	 * the few asked together), not the whole batch. See `PerCallReviewConfig`.
+	 */
+	readonly perCall?: true
+	/**
+	 * Aborts when the question stops being open: the turn was cancelled, a
+	 * rule or the mode now covers the call, or an earlier refusal ended the
+	 * turn. A host that shows the question closes it then; its answer is
+	 * ignored. Present only with `perCall`.
+	 */
+	readonly signal?: AbortSignal
 }
 
 export type ToolReviewAnswer =
@@ -680,6 +692,12 @@ export type ToolReviewAnswer =
 			 * cannot carry this. `note` is the person's own words.
 			 */
 			readonly declined?: ToolCallDeclined
+			/**
+			 * The refusal also ends the turn: see `endTurn` on the `reject_tools`
+			 * decision. A plain No sets it; a No that carries the person's reason
+			 * leaves it out so the model reads the reason and carries on.
+			 */
+			readonly endTurn?: true
 	  }
 
 /** How a host asks a person. The one thing the kernel cannot supply. */
@@ -955,6 +973,8 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				turnId: request.turnId,
 				toolCalls: request.toolCalls,
 				...(screenConsent ? { screenConsent } : {}),
+				...(request.perCall ? { perCall: true as const } : {}),
+				...(request.perCall && context?.signal ? { signal: context.signal } : {}),
 			})
 		// The first look at the screen in a session is the operator's to allow:
 		// what is on it goes to the model provider, and a screenshot reads as
@@ -982,6 +1002,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? SCREEN_CONSENT_DECLINED_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			consent.sessions.add(sessionKey)
@@ -1038,6 +1059,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 						action: 'reject_tools',
 						feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 						...(answer.declined ? { declined: answer.declined } : {}),
+						...(answer.endTurn ? { endTurn: true as const } : {}),
 					}
 				}
 				if (answer.kind === 'approve-all') remembered.all = true
@@ -1145,6 +1167,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			// "Approve all" still latches for the calls that follow; it never
@@ -1164,6 +1187,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			// Latches for the ordinary calls that follow, never for the next floor.
@@ -1182,6 +1206,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			// Latches for the ordinary calls that follow, never for the next path.
@@ -1202,6 +1227,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			if (answer.kind === 'approve-all') remembered.all = true
@@ -1222,6 +1248,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 			}
 			if (answer.kind === 'approve-all') remembered.all = true
@@ -1272,6 +1299,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					action: 'reject_tools',
 					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 					...(answer.declined ? { declined: answer.declined } : {}),
+					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
 		}
 	}
