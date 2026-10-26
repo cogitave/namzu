@@ -55,6 +55,27 @@ export interface RenderedRead {
 export function renderNumberedRead(content: string, input: ReadWindowRequest): RenderedRead {
 	const lines = content.split('\n')
 	const { start, end } = resolveReadWindow(input, lines.length)
+	// A file with no text in it, or a window that opens after its last line,
+	// has nothing to number. Say that in words instead of printing a numbered
+	// empty line or a "PARTIAL view" range that runs backwards.
+	const lineCount = content.endsWith('\n') ? lines.length - 1 : lines.length
+	if (content === '') {
+		return {
+			output: 'Warning: the file exists but is empty.',
+			totalLines: lines.length,
+			returnedLines: 0,
+			partial: false,
+		}
+	}
+	if (start >= lineCount) {
+		return {
+			output: `Warning: the file is shorter than the requested start (line ${start + 1}). It has ${lineCount} ${lineCount === 1 ? 'line' : 'lines'}.`,
+			totalLines: lines.length,
+			returnedLines: 0,
+			// Nothing of the file was shown, so this must never stand in for it.
+			partial: true,
+		}
+	}
 	const selected = lines.slice(start, end)
 	const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 	return {
@@ -153,7 +174,7 @@ export function estimateReadTokens(text: string, ext: string): number {
 	return Math.round(text.length / perToken)
 }
 
-function humanBytes(n: number): string {
+export function humanBytes(n: number): string {
 	if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`
 	if (n >= 1024) return `${Math.round(n / 1024)} KiB`
 	return `${n} B`
