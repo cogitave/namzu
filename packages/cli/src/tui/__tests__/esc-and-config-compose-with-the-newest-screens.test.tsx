@@ -120,13 +120,14 @@ describe('Esc', () => {
 		)
 
 		harness.stdin.write(ESC)
-		await vi.waitFor(() =>
-			expect(harness.lastFrame() ?? '').not.toContain('Showing detailed transcript'),
-		)
-		await tick()
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('half-typed')
-		expect(frame).not.toContain('Esc again to clear')
+		// The composer coming back with its draft is the settled screen: a clear
+		// window opened by this press would be drawn in the same render.
+		await vi.waitFor(() => {
+			const settled = harness.lastFrame() ?? ''
+			expect(settled).not.toContain('Showing detailed transcript')
+			expect(settled).toContain('half-typed')
+		})
+		expect(harness.lastFrame() ?? '').not.toContain('Esc again to clear')
 	})
 
 	it('does not interrupt a running reply when it only closes the detailed transcript', async () => {
@@ -145,10 +146,11 @@ describe('Esc', () => {
 		await vi.waitFor(() =>
 			expect(harness.lastFrame() ?? '').not.toContain('Showing detailed transcript'),
 		)
-		await tick()
-		expect(sawAbort).toBe(false)
 		release()
+		// The scripted reply says 'late words' only if its signal was never
+		// aborted, so reaching them is the proof; no waiting for an absence.
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('late words'))
+		expect(sawAbort).toBe(false)
 	})
 
 	it('interrupts a running reply from the composer', async () => {
@@ -167,19 +169,24 @@ describe('/config', () => {
 		const harness = await open()
 		await send(harness, '/config')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Configuration'))
-		for (let i = 0; i < 16; i += 1) {
-			harness.stdin.write('\x1b[B')
-			await tick(10)
-		}
-		const seen = harness.frames.join('\n')
-		for (const label of [
+		const labels = [
 			'Theme',
 			'Reduce motion',
 			'Session recap',
 			'Tips',
 			'Composer triggers',
 			'Setting sources',
-		]) {
+		]
+		const seenAll = () => labels.every((label) => harness.frames.join('\n').includes(label))
+		// Each Down moves the selection, so the screen changing is the settled
+		// signal; stop as soon as every row has been drawn.
+		for (let i = 0; i < 40 && !seenAll(); i += 1) {
+			const before = harness.lastFrame()
+			harness.stdin.write('\x1b[B')
+			await vi.waitFor(() => expect(harness.lastFrame()).not.toBe(before))
+		}
+		const seen = harness.frames.join('\n')
+		for (const label of labels) {
 			expect(seen, `no ${label} row`).toContain(label)
 		}
 	})

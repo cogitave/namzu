@@ -110,11 +110,11 @@ beforeEach(() => {
 	replies.length = 0
 	compactCalls.length = 0
 	idleSetting = { minTokens: 200_000 }
-	// The clock also runs along with real time (shouldAdvanceTime) and vi.waitFor
-	// nudges it on every poll. That is safe only because no assertion sits closer
-	// than twenty seconds to a threshold, and a waiting poll is bounded by the
-	// one-second real timeout: slow hosts move the clock by well under that.
-	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+	// Only the clock the code under test reads is faked, and only the test moves
+	// it (advanceTimersByTimeAsync). Waiting for the screen yields to the event
+	// loop and looks again; it never turns the clock, so how fast the host is
+	// cannot change which side of a threshold an assertion lands on.
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
 })
 
 afterEach(() => {
@@ -127,10 +127,25 @@ afterEach(() => {
 const flat = (harness: { readonly frames: readonly string[] }) =>
 	harness.frames.join('\n').replace(/\s+/g, '')
 
+/** Look again after each turn of the event loop (setImmediate is not faked). */
+async function until(read: () => boolean, why: string): Promise<void> {
+	for (let turn = 0; turn < 2_000; turn++) {
+		if (read()) return
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(read(), why).toBe(true)
+}
+
 async function frameShows(harness: { readonly frames: readonly string[] }, text: string) {
 	const expected = text.replace(/\s+/g, '')
-	await vi.waitFor(() => expect(flat(harness).includes(expected)).toBe(true))
+	await until(() => flat(harness).includes(expected), `never showed: ${text}`)
 }
+
+const lastFrameShows = (harness: { lastFrame: () => string | undefined }, text: string) =>
+	until(() => (harness.lastFrame() ?? '').includes(text), `never showed: ${text}`)
+
+const lastFrameLacks = (harness: { lastFrame: () => string | undefined }, text: string) =>
+	until(() => !(harness.lastFrame() ?? '').includes(text), `still showing: ${text}`)
 
 async function mountAndAnswer(reply: Reply) {
 	replies.push(reply)
@@ -141,7 +156,6 @@ async function mountAndAnswer(reply: Reply) {
 	await vi.advanceTimersByTimeAsync(40)
 	harness.stdin.write('\r')
 	await frameShows(harness, 'ANSWER')
-	await vi.waitFor(() => expect(flat(harness)).toContain('ANSWER'))
 	return harness
 }
 
@@ -200,19 +214,17 @@ describe('compacting while idle', () => {
 	it('takes the context meter down, as any compaction does, until the next reply', async () => {
 		// 970k of a 1M window is past the point where the footer says how much is left.
 		const harness = await mountAndAnswer({ cacheTtlMs: HOUR, contextTokens: 970_000 })
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('until auto-compact'))
+		await lastFrameShows(harness, 'until auto-compact')
 
 		await vi.advanceTimersByTimeAsync(0.9 * HOUR + 1_000)
 		await frameShows(harness, IDLE_COMPACTION_NOTICE)
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('until auto-compact'))
+		await lastFrameLacks(harness, 'until auto-compact')
 	})
 
 	it('leaves the history alone while the detailed transcript is open', async () => {
 		const harness = await mountAndAnswer({ cacheTtlMs: HOUR, contextTokens: 400_000 })
 		harness.stdin.write('\x0f')
-		await vi.waitFor(() =>
-			expect(harness.lastFrame() ?? '').toContain('Showing detailed transcript'),
-		)
+		await lastFrameShows(harness, 'Showing detailed transcript')
 
 		await vi.advanceTimersByTimeAsync(0.9 * HOUR + 1_000)
 		expect(compactCalls).toEqual([])

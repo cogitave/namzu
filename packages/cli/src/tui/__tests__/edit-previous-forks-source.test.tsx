@@ -176,6 +176,19 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/** Look again after each turn of the event loop; setImmediate is not faked. */
+async function framesShowOnFakeClock(
+	harness: { readonly frames: readonly string[] },
+	text: string,
+): Promise<void> {
+	const expected = text.replace(/\s+/g, ' ')
+	for (let turn = 0; turn < 2_000; turn++) {
+		if (harness.frames.some((f) => f.replace(/\s+/g, ' ').includes(expected))) return
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(harness.frames.at(-1), `never showed: ${text}`).toContain(text)
+}
+
 async function frameShows(
 	harness: { readonly frames: readonly string[] },
 	text: string,
@@ -210,12 +223,20 @@ async function mountSource() {
 }
 
 async function openEditor(harness: Awaited<ReturnType<typeof mountSource>>) {
-	// The first Esc shows nothing; the second, inside the window, opens the picker.
-	harness.stdin.write('\x1B')
-	await tick()
-	expect(harness.lastFrame()).not.toContain('Press Esc again')
-	harness.stdin.write('\x1B')
-	await frameShows(harness, 'to the point before')
+	// The second Esc counts only inside an 800 ms window, so the two presses are
+	// spaced on a fake clock: 50 ms apart whatever the host is doing. The terminal
+	// parser holds a lone Esc back on a timer, which the same clock moves.
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+	try {
+		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
+		expect(harness.lastFrame()).not.toContain('Press Esc again')
+		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
+		await framesShowOnFakeClock(harness, 'to the point before')
+	} finally {
+		vi.useRealTimers()
+	}
 	// It opens on the present, the last row.
 	expect(harness.lastFrame()).toContain('(current)')
 }
