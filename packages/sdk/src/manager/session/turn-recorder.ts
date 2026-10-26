@@ -1355,7 +1355,7 @@ function excerptOf(text: string): string {
 	return text.slice(0, end)
 }
 
-/** Bytes of one call's input a `tool_input_completed` record keeps inline before it is cut to an excerpt. */
+/** Bytes of one call's input a `tool_input_completed` or `tool_executing` record keeps inline before it is cut to an excerpt. */
 const INPUT_RECORD_BYTES = 1024 * 1024
 
 /**
@@ -1389,7 +1389,8 @@ export function eventDraft(
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
 	if (draft.type === 'tool_review_requested') boundReviewInputs(draft)
-	else if (draft.type === 'tool_input_completed') boundCompletedInput(draft)
+	else if (draft.type === 'tool_input_completed' || draft.type === 'tool_executing')
+		boundCompletedInput(draft)
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]
 }
 

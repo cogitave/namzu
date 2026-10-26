@@ -48,4 +48,20 @@ describe('a review of many large calls', () => {
 		expect(draft.input.truncated).toBe(true)
 		expect(draft.input.length).toBeGreaterThan(4_500_000)
 	})
+
+	it('cuts the input of an executing call that alone exceeds the record cap', () => {
+		const event = {
+			type: 'tool_executing',
+			sessionId: 'ses_1',
+			turnId: 'turn_1',
+			toolUseId: 'tu_1',
+			name: 'write',
+			input: { path: 'big', content: 'A'.repeat(4_500_000) },
+		} as never
+		const draft = eventDraft(event, undefined) as unknown as {
+			input: { truncated?: boolean; length?: number }
+		}
+		expect(Buffer.byteLength(JSON.stringify(draft))).toBeLessThan(SESSION_RECORD_MAX_BYTES)
+		expect(draft.input.truncated).toBe(true)
+	})
 })
