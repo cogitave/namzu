@@ -1347,6 +1347,24 @@ function boundReviewInputs(draft: Record<string, unknown>): void {
 	})
 }
 
+/** Bytes of one call's input a `tool_input_completed` record keeps inline before it is cut to an excerpt. */
+const INPUT_RECORD_BYTES = 1024 * 1024
+
+/**
+ * One call's parsed input can alone exceed the record cap (a single large
+ * file body). The assistant message holds it whole and spills it, so the
+ * input record keeps its length and a leading excerpt instead.
+ */
+function boundCompletedInput(draft: Record<string, unknown>): void {
+	const text = JSON.stringify(draft.input) ?? ''
+	if (text.length <= INPUT_RECORD_BYTES) return
+	draft.input = {
+		truncated: true,
+		length: text.length,
+		excerpt: text.slice(0, REVIEW_INPUT_RECORD_BYTES),
+	}
+}
+
 /** A live event as a record draft: the payload minus the live-only fields. */
 export function eventDraft(
 	event: SessionEvent,
@@ -1363,6 +1381,7 @@ export function eventDraft(
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
 	if (draft.type === 'tool_review_requested') boundReviewInputs(draft)
+	else if (draft.type === 'tool_input_completed') boundCompletedInput(draft)
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]
 }
 
