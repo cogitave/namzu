@@ -281,6 +281,16 @@ export async function runLearningCycle(
 			)
 		const baseline = current ? normalizeLearningSkill(current) : null
 		baselineRevision = baseline ? hashLearningSkill(baseline) : 'none'
+		if (baseline)
+			guard({
+				subject: 'baseline',
+				text: [
+					baseline.name,
+					baseline.description,
+					baseline.body,
+					...(baseline.sources ? [JSON.stringify(baseline.sources)] : []),
+				].join('\n'),
+			})
 		await append('started', {
 			tenantId: snapshot.tenantId,
 			agentKey: snapshot.agentKey,
@@ -520,13 +530,15 @@ export async function runLearningCycle(
 	} catch (error) {
 		if (error instanceof LearningLeakError) leak = error.findings
 		outcome = result(
-			error instanceof ResidentConflictError
-				? 'conflict'
-				: activationRequested
-					? 'activation-unknown'
-					: options.signal.aborted
-						? 'cancelled'
-						: 'failed',
+			error instanceof LearningLeakError
+				? 'failed'
+				: error instanceof ResidentConflictError
+					? 'conflict'
+					: activationRequested
+						? 'activation-unknown'
+						: options.signal.aborted
+							? 'cancelled'
+							: 'failed',
 			error instanceof Error ? error.message : String(error),
 		)
 	}

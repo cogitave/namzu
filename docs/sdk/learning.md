@@ -55,7 +55,14 @@ The kinds of evaluator-side material, set per experiment with
   words inside text.
 - `canaries`: random strings you plant inside evaluator data
   (`createLearningCanary()`). One sighting is proof, whatever the case,
-  spacing, zero-width characters, base64 or hex dressing.
+  spacing, zero-width characters, hex (either case), or base64 and base64url
+  at any of its three alignments inside a larger blob (line wrapping is
+  ignored). The built-in secret shapes are also tested with zero-width
+  characters removed. The active skill baseline is scanned too, before any
+  stage. Other encodings (gzip, rot13, split across fields) are not detected.
+  `namzu learn` passes no `leakGuard`, so the CLI applies only the built-in
+  markers and secret shapes; path globs, canaries and protected contents need
+  a host that calls the SDK and supplies them.
 - `markers`: extra wording only evaluator output carries.
 - `protectedContents`: verbatim protection-task prompts or expected answers
   (at least 12 characters; whitespace and case are ignored).

@@ -25,6 +25,39 @@ describe('learning leak tripwire', () => {
 		expect(scanForLearningLeak(guard, [{ subject: 'x', text: 'an ordinary trace' }])).toEqual([])
 	})
 
+	it('finds a canary inside a larger base64 or hex blob at every alignment', () => {
+		const canary = createLearningCanary()
+		const guard = { canaries: [canary] }
+		for (const lead of ['', 'x', 'xy', 'xyz']) {
+			for (const tail of ['', 'q', 'qr']) {
+				const raw = Buffer.from(`${lead}${canary}${tail}`)
+				const forms = [
+					raw.toString('base64'),
+					raw.toString('base64url'),
+					raw.toString('base64').replace(/(.{20})/g, '$1\n'),
+					raw.toString('hex').toUpperCase(),
+				]
+				for (const text of forms)
+					expect(
+						scanForLearningLeak(guard, [{ subject: 's', text }]),
+						`${lead}|${tail}|${text}`,
+					).toHaveLength(1)
+			}
+		}
+		expect(
+			scanForLearningLeak(guard, [
+				{ subject: 's', text: Buffer.from('nothing').toString('base64') },
+			]),
+		).toEqual([])
+	})
+
+	it('sees a built-in secret shape split by a zero-width character', () => {
+		const text = `sk-aaaaaaaaaa${'\u200b'}aaaaaaaaaaaaaaa`
+		expect(scanForLearningLeak(undefined, [{ subject: 's', text }])).toEqual([
+			{ kind: 'secret', subject: 's', rule: 'default:api-key' },
+		])
+	})
+
 	it('matches evaluator path globs on paths and on paths named inside text', () => {
 		const guard = { paths: ['**/evaluator/**', 'fixtures/answers/*.json'] }
 		expect(

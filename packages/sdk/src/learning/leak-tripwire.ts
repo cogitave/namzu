@@ -129,14 +129,44 @@ function pathTokens(text: string): string[] {
 		.filter((token) => token.length > 0 && token.length < 512)
 }
 
-function encodings(canary: string): string[] {
-	const raw = Buffer.from(canary, 'utf8')
-	return [fold(canary), raw.toString('base64').toLowerCase(), raw.toString('hex')]
+/** Plain-text forms, matched against the folded (lowercased) text. Hex is case-insensitive that way. */
+function plainForms(canary: string): string[] {
+	return [fold(canary), Buffer.from(canary, 'utf8').toString('hex')]
+}
+
+/**
+ * Base64 forms of the canary at each of the three alignments it can have inside
+ * a larger encoded blob, in standard and url-safe alphabets. The characters
+ * that depend on the bytes before or after the canary are dropped, so what is
+ * left is identical wherever the canary sits. Matched case-sensitively.
+ */
+function base64Forms(canary: string): string[] {
+	const forms = new Set<string>()
+	const body = Buffer.from(canary, 'utf8')
+	for (let lead = 0; lead < 3; lead++) {
+		const encoded = Buffer.concat([Buffer.alloc(lead, 0x78), body]).toString('base64')
+		const unpadded = encoded.replace(/=+$/, '')
+		const trailing = (lead + body.length) % 3 === 0 ? 0 : 1
+		const stable = unpadded.slice(lead === 0 ? 0 : lead + 1, unpadded.length - trailing)
+		if (stable.length < 8) continue
+		forms.add(stable)
+		forms.add(stable.replace(/\+/g, '-').replace(/\//g, '_'))
+	}
+	return [...forms]
+}
+
+/** Text with whitespace and zero-width characters removed, so wrapped base64 still matches. */
+function compact(text: string): string {
+	return text.replace(/[\u200b-\u200f\u2060\ufeff]/g, '').replace(/\s+/g, '')
+}
+
+function stripZeroWidth(text: string): string {
+	return text.replace(/[\u200b-\u200f\u2060\ufeff]/g, '')
 }
 
 interface CompiledGuard {
 	readonly paths: readonly (readonly [string, RegExp])[]
-	readonly canaries: readonly (readonly [string, readonly string[]])[]
+	readonly canaries: readonly (readonly [string, readonly string[], readonly string[]])[]
 	readonly markers: readonly (readonly [string, RegExp])[]
 	readonly protectedContents: readonly (readonly [string, string])[]
 	readonly secrets: readonly (readonly [string, string])[]
@@ -161,7 +191,7 @@ function compile(guard: LearningLeakGuard): CompiledGuard {
 		),
 		canaries: (guard.canaries ?? []).map((c, i) => {
 			if (fold(c).length < 8) throw new Error('A leak canary must be at least 8 characters.')
-			return [`canary[${i}]`, encodings(c)] as const
+			return [`canary[${i}]`, plainForms(c), base64Forms(c)] as const
 		}),
 		markers,
 		protectedContents: (guard.protectedContents ?? []).flatMap((c, i) => {
@@ -207,8 +237,12 @@ export function scanForLearningLeak(
 		const text = item.text.length > MAX_SCAN_CHARS ? item.text.slice(0, MAX_SCAN_CHARS) : item.text
 		const folded = fold(text)
 		const lower = text.toLowerCase()
-		for (const [rule, forms] of compiled.canaries)
-			if (forms.some((f) => folded.includes(f) || lower.includes(f)))
+		const packed = compiled.canaries.length ? compact(text) : ''
+		for (const [rule, forms, encoded] of compiled.canaries)
+			if (
+				forms.some((f) => folded.includes(f) || lower.includes(f)) ||
+				encoded.some((f) => packed.includes(f))
+			)
 				add('canary', item.subject, rule)
 		for (const [rule, content] of compiled.protectedContents)
 			if (folded.includes(content)) add('protected-content', item.subject, rule)
@@ -216,8 +250,9 @@ export function scanForLearningLeak(
 			if (re.test(folded) || re.test(text)) add('marker', item.subject, rule)
 		for (const [rule, secret] of compiled.secrets)
 			if (text.includes(secret)) add('secret', item.subject, rule)
+		const unzeroed = stripZeroWidth(text)
 		for (const [name, re] of DEFAULT_SECRETS)
-			if (re.test(text)) add('secret', item.subject, `default:${name}`)
+			if (re.test(text) || re.test(unzeroed)) add('secret', item.subject, `default:${name}`)
 		if (compiled.paths.length) {
 			for (const token of pathTokens(text))
 				for (const [rule, re] of compiled.paths) if (re.test(token)) add('path', item.subject, rule)

@@ -98,6 +98,30 @@ describe('learning cycle leak tripwire', () => {
 		expect(f.called).toEqual([])
 	})
 
+	it('refuses an active baseline that carries a canary before generation', async () => {
+		const canary = createLearningCanary()
+		const f = await fixture(canary)
+		const real = f.options.agenda
+		const agenda = Object.create(real) as typeof real
+		agenda.read = async () => {
+			const snap = await real.read()
+			if (!snap) return snap
+			return {
+				...snap,
+				learning: {
+					revision: 1,
+					preferences: [],
+					skills: [{ ...skill, body: `Remember ${canary}.` }],
+					lastChange: evidence,
+				},
+			} as unknown as typeof snap
+		}
+		const result = await runLearningCycle({ ...f.options, agenda })
+		expect(result.status).toBe('failed')
+		expect(result.leak).toEqual([{ kind: 'canary', subject: 'baseline', rule: 'canary[0]' }])
+		expect(f.called).toEqual([])
+	})
+
 	it('refuses a candidate that copied a canary, never records or returns it, and skips evaluation', async () => {
 		const canary = createLearningCanary()
 		const f = await fixture(canary, {
