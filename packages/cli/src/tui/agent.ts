@@ -267,12 +267,12 @@ import {
 	createBackgroundLearning,
 	withBackgroundLearning,
 } from '../integrations/learning/generator-trigger.js'
+import { describeLearned } from '../integrations/learning/learned-notice.js'
 import {
 	type SideLearningModel,
 	createLearningLedger,
 	createSideLearningModel,
 } from '../integrations/learning/learning-model.js'
-import { describeLearned } from '../integrations/learning/learned-notice.js'
 import { readProjectGuidance } from '../integrations/learning/project-guidance.js'
 import {
 	createSessionLearningFeed,

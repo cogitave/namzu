@@ -1317,6 +1317,27 @@ export function App({
 	/** For the scheduler integration's loop timer, which reads it outside render. */
 	const stateRef = useRef(state)
 	stateRef.current = state
+	/** Learned-by-itself notices waiting for the turn in flight to end. */
+	const learnedQueueRef = useRef<string[]>([])
+	const flushLearnedRef = useRef<() => void>(() => {})
+	flushLearnedRef.current = () => {
+		if (stateRef.current !== 'idle' || abortRef.current !== null) return
+		const lines = learnedQueueRef.current.splice(0)
+		if (lines.length === 0) return
+		setMessages((prev) => [
+			...prev,
+			...lines.map((content) => ({
+				id: nextId(),
+				role: 'system' as const,
+				content,
+				glyph: systemRowStyle('notice').glyph,
+				glyphColor: systemRowStyle('notice').color,
+			})),
+		])
+	}
+	useEffect(() => {
+		if (state === 'idle') flushLearnedRef.current()
+	}, [state])
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	// True when the sentence that stopped startup already says what to do next, so
 	// the screen adds no second line of advice under it.
@@ -5078,17 +5099,11 @@ export function App({
 								config: activeCtx.learningGenerator,
 								// One dim row when a revision was activated; the cycle never
 								// asks, and the row names how to undo it.
-								onLearned: (line) =>
-									setMessages((prev) => [
-										...prev,
-										{
-											id: nextId(),
-											role: 'system' as const,
-											content: line,
-											glyph: systemRowStyle('notice').glyph,
-											glyphColor: systemRowStyle('notice').color,
-										},
-									]),
+								// Held until no turn is streaming, so the row never lands mid-turn.
+								onLearned: (line) => {
+									learnedQueueRef.current.push(line)
+									flushLearnedRef.current()
+								},
 							},
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The

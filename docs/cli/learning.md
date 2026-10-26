@@ -142,7 +142,10 @@ cycle on request and keeps the daily limit.
 
 **What you see.** When a cycle activates a revision, one dim row appears in
 the conversation, once: `Namzu learned something for this folder: <one line>
-Undo with \`namzu learn --undo\`.` A cycle that is rejected or inconclusive
+Undo with \`namzu learn --undo\`.` If a turn is streaming when the cycle ends, the row waits until the turn
+ends. A cycle starts only when the conversation is idle; leaving the session
+starts none and aborts one that is running. Undo is the shell command
+`namzu learn --undo`; there is no slash command yet. A cycle that is rejected or inconclusive
 changes nothing and shows nothing. Activation needs no confirmation, because
 the editable surface is guidance text only and every activation is kept by its
 exact revision, so `namzu learn --undo` always restores the one before. Anything
