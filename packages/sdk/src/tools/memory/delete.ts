@@ -10,7 +10,7 @@ export function buildDeleteMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'delete_memory',
 		description:
-			'Permanently delete a stored memory by ID. Use update_memory with status archived when the record should remain available for inspection. Deletion does not erase past conversation transcripts. Pass the revision from read_memory when available to refuse a stale deletion.',
+			'Permanently remove a memory by ID, for one that should not be kept at all. Use update_memory with status archived when the record should stay available to inspect. Past conversation transcripts are not changed. Pass the revision from read_memory when available, so a deletion of a memory that changed since you read it is refused. Returns a confirmation.',
 		inputSchema: z.object({
 			id: z.string().describe('Memory ID to permanently delete'),
 			revision: z

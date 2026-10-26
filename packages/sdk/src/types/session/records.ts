@@ -494,7 +494,7 @@ export const DecisionExpiredRecordSchema = inTurn('decision_expired', {
 export const CompactionRecordSchema = recordSchema('compaction', {
 	compactionId: text.min(1),
 	strategy: text.min(1),
-	trigger: z.enum(['auto', 'manual']),
+	trigger: z.enum(['auto', 'manual', 'idle']),
 	replacesSeqRange: z.tuple([positive, positive]),
 	summary: z.union([z.array(messageBody), spill]),
 	keptMessageIds: z.array(messageId),
@@ -1039,6 +1039,22 @@ export const ChildSessionMetaSchema = z
 		status: turnExecutionStatus,
 		createdAt: isoUtc,
 		endedAt: isoUtc.optional(),
+		/**
+		 * What a later process needs to continue this child from its saved log:
+		 * the filesystem policy it ran under and a small host-defined profile
+		 * (which agent to rebuild, which model). Absent on children saved before
+		 * this field existed and on children whose host recorded no profile; those
+		 * cannot be continued from disk.
+		 */
+		continuation: z
+			.object({
+				workspace: z.enum(['shared', 'isolated']),
+				profile: z
+					.record(z.string().min(1).max(64), z.string().max(256))
+					.refine((value) => Object.keys(value).length <= 16, 'At most 16 profile entries'),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict()
 export type ChildSessionMeta = z.infer<typeof ChildSessionMetaSchema>

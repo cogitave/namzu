@@ -81,6 +81,27 @@ it('reads back the settled answer, bounded with a marker', async () => {
 	expect(saved.output).toHaveLength(MAX_SAVED_OUTPUT_CODE_UNITS)
 })
 
+it('reports the real final status of a child whose own log settled although the parent never recorded its end', async () => {
+	const fixture = await home()
+	const parent = await parentSession(fixture)
+	const finished = await spawnChild(fixture, parent, { description: 'finished work' })
+	const turnId = generateTurnId()
+	await finished.writer.beginTurn(turnId, 'do it')
+	await finished.writer.completeTurn(turnId, 'done', 10)
+	const midway = await spawnChild(fixture, parent, { description: 'midway work' })
+	await midway.writer.beginTurn(generateTurnId(), 'still going')
+
+	const history = createSavedAgentHistory({
+		index: await fixture.index(),
+		paths: fixture.paths,
+		session: { sessionId: parent.sessionId },
+	})
+	const { agents } = await history.list()
+	expect(agents.find((agent) => agent.sessionId === finished.sessionId)?.status).toBe('completed')
+	expect(agents.find((agent) => agent.sessionId === midway.sessionId)?.status).toBe('unresolved')
+	expect((await history.read(finished.sessionId)).status).toBe('completed')
+})
+
 it('names earlier turns’ agents in the system prompt, leaving out this turn’s and stepping aside under pressure', async () => {
 	const fixture = await home()
 	const parent = await parentSession(fixture)

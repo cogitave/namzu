@@ -49,6 +49,7 @@ import {
 	splitPermissionsTable,
 } from '../permissions/settings.js'
 import { homePath } from '../tui/person-terms.js'
+import { THEME_NAMES, parseThemeSetting } from '../tui/theme-palettes.js'
 import {
 	COMPOSER_TRIGGER_IDS,
 	COMPOSER_TRIGGER_LANGUAGES,
@@ -69,6 +70,7 @@ import type {
 	RoutingTarget,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
+	TuiConfig,
 	TurnLimitsConfig,
 	WorkflowCliConfig,
 } from './schema.js'
@@ -825,6 +827,9 @@ const CONFIG_READERS: ConfigReaders = {
 			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
 			consolidate?: unknown
+			idleCompaction?: unknown
+			idleCompactionMinTokens?: unknown
+			promptCacheTtl?: unknown
 		}
 		for (const key of Object.keys(v)) {
 			if (
@@ -834,7 +839,10 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'recallEvidence' &&
 				key !== 'resolveEvidenceQueries' &&
 				key !== 'retainedToolPreviewChars' &&
-				key !== 'deduplicateObservations'
+				key !== 'deduplicateObservations' &&
+				key !== 'idleCompaction' &&
+				key !== 'idleCompactionMinTokens' &&
+				key !== 'promptCacheTtl'
 			) {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
 			}
@@ -851,6 +859,24 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['resolveEvidenceQueries'], 'must be true or false')
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
+		}
+		if (raw.idleCompaction !== undefined && typeof raw.idleCompaction !== 'boolean') {
+			return invalidConfigValue(context, ['idleCompaction'], 'must be true or false')
+		}
+		if (
+			raw.idleCompactionMinTokens !== undefined &&
+			(typeof raw.idleCompactionMinTokens !== 'number' ||
+				!Number.isInteger(raw.idleCompactionMinTokens) ||
+				raw.idleCompactionMinTokens <= 0)
+		) {
+			return invalidConfigValue(context, ['idleCompactionMinTokens'], 'must be a positive integer')
+		}
+		if (
+			raw.promptCacheTtl !== undefined &&
+			raw.promptCacheTtl !== '5m' &&
+			raw.promptCacheTtl !== '1h'
+		) {
+			return invalidConfigValue(context, ['promptCacheTtl'], 'must be `5m` or `1h`')
 		}
 		if (
 			raw.retainedToolPreviewChars !== undefined &&
@@ -895,6 +921,11 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.deduplicateObservations !== undefined
 				? { deduplicateObservations: raw.deduplicateObservations }
 				: {}),
+			...(raw.idleCompaction !== undefined ? { idleCompaction: raw.idleCompaction } : {}),
+			...(raw.idleCompactionMinTokens !== undefined
+				? { idleCompactionMinTokens: raw.idleCompactionMinTokens }
+				: {}),
+			...(raw.promptCacheTtl !== undefined ? { promptCacheTtl: raw.promptCacheTtl } : {}),
 		} as CompactionCliConfig
 	},
 	additionalDirectories: (v, context) => {
@@ -1624,7 +1655,16 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 	tui: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
+		const raw = v as {
+			notifications?: unknown
+			notificationMethod?: unknown
+			theme?: unknown
+			reducedMotion?: unknown
+			recap?: unknown
+			spinnerTips?: unknown
+		}
+		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
+			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -1660,9 +1700,28 @@ const CONFIG_READERS: ConfigReaders = {
 			)
 		}
 
+		const themeSetting = raw.theme === undefined ? undefined : parseThemeSetting(raw.theme)
+		if (raw.theme !== undefined && themeSetting === undefined) {
+			return invalidConfigValue(
+				context,
+				['theme'],
+				`must be "auto" or one of ${THEME_NAMES.map((name) => `"${name}"`).join(', ')}`,
+			)
+		}
+		if (raw.reducedMotion !== undefined && typeof raw.reducedMotion !== 'boolean') {
+			return invalidConfigValue(context, ['reducedMotion'], 'must be true or false')
+		}
+		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
+			return invalidConfigValue(context, ['recap'], 'must be true or false')
+		}
+
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
+			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
+			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
+			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
+			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 		}
 	},
 }
@@ -1988,6 +2047,12 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'tui' && layer.config.tui) {
+				// Merged per key; the look of the terminal is the operator's, so a project layer cannot set it.
+				out.tui = mergeTuiConfig(out.tui, layer.config.tui, isProjectSource(layer.sourceFor(key)))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			// Same widened-view assignment as `sanitize`: a cast on the target,
 			// not the value, is what lets a generic key write onto a
 			// heterogeneous mapped type without silently dropping a field this
@@ -2200,6 +2265,19 @@ export function mergeCodeAnalysisConfig(
 	const enabled =
 		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
 	return enabled !== undefined ? { enabled } : {}
+}
+
+/**
+ * `tui` from one more layer: later keys win. `theme` and `reducedMotion` are the
+ * operator's own taste, so a project layer's values for them are dropped.
+ */
+export function mergeTuiConfig(
+	below: TuiConfig | undefined,
+	layer: TuiConfig,
+	fromProject: boolean,
+): TuiConfig {
+	const { theme: _theme, reducedMotion: _motion, ...rest } = layer
+	return { ...below, ...(fromProject ? rest : layer) }
 }
 
 function isProjectSource(source: ConfigSource): boolean {

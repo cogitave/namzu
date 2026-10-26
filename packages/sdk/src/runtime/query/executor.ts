@@ -17,6 +17,7 @@ import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
+import { resolveRetainedOutput } from '../../tools/retained-output.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
@@ -81,6 +82,7 @@ import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS_PER_MESSAGE,
+	type RetainedOutputRoutes,
 	type ToolOutputBudgetResult,
 	applyToolOutputBudget,
 	describeDroppedContent,
@@ -672,6 +674,17 @@ export function deniedToolOutput(toolName: string, reason: string): string {
 }
 
 export class ToolExecutor {
+	/** The recovery routes this turn actually has, so a pointer never names a missing tool. */
+	private recoveryRoutes(): RetainedOutputRoutes {
+		const tools = this.config.tools
+		return {
+			read: tools.get('read') !== undefined,
+			conversation:
+				tools.get('search_conversation') !== undefined &&
+				tools.get('read_conversation') !== undefined,
+		}
+	}
+
 	private outputDirectory(): string | undefined {
 		return typeof this.config.toolOutputDir === 'function'
 			? this.config.toolOutputDir()
@@ -1116,7 +1129,11 @@ export class ToolExecutor {
 		) {
 			const value = input[tool.pathArgument]
 			if (typeof value === 'string') {
-				const outside = await pathOutsideRoots(toolRoots(this.config), value)
+				// This session's own retained output is not "outside": it is where the
+				// result that was cut told the model to look.
+				const retained =
+					tool.name === 'read' && (await resolveRetainedOutput(this.outputDirectory(), value))
+				const outside = retained ? undefined : await pathOutsideRoots(toolRoots(this.config), value)
 				if (outside !== undefined) outsidePaths = [outside]
 			}
 		}
@@ -1676,6 +1693,7 @@ export class ToolExecutor {
 			{
 				maxChars,
 				spillDir: this.outputDirectory(),
+				recoveryRoutes: this.recoveryRoutes(),
 				onError: (message) =>
 					this.log.warn('Failed to retain a tool output replaced for the message budget', {
 						[NAMZU.TURN_ID]: this.config.turnId,
@@ -1956,6 +1974,7 @@ export class ToolExecutor {
 			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
+			recoveryRoutes: this.recoveryRoutes(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized nested tool output', {
 					[NAMZU.TURN_ID]: this.config.turnId,
@@ -2050,6 +2069,9 @@ export class ToolExecutor {
 			workingDirectory: this.config.workingDirectory,
 			...(this.config.additionalDirectories?.length
 				? { additionalDirectories: this.config.additionalDirectories }
+				: {}),
+			...(this.outputDirectory()
+				? { retainedOutputDirectory: this.outputDirectory() as string }
 				: {}),
 			abortSignal: this.config.abortSignal,
 			env: this.config.env,
@@ -2437,6 +2459,7 @@ export class ToolExecutor {
 			maxChars: maxToolOutputChars,
 			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
+			recoveryRoutes: this.recoveryRoutes(),
 			onError: (message) =>
 				this.log.warn('Failed to retain original tool output', {
 					[NAMZU.TURN_ID]: this.config.turnId,
@@ -3327,6 +3350,7 @@ export class ToolExecutor {
 						spillDir: this.outputDirectory()
 							? join(this.outputDirectory() as string, 'content')
 							: undefined,
+						recoveryRoutes: this.recoveryRoutes(),
 						onError: (message) =>
 							this.log.warn('Failed to spill oversized model tool content', {
 								[NAMZU.TURN_ID]: this.config.turnId,

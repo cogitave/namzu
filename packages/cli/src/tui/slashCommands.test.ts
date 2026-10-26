@@ -1287,17 +1287,25 @@ describe('commands that became keys or folded into another command', () => {
 	})
 })
 
+/** `/context` asks the app for the grid; its plain text is what `renderContext` writes. */
+function contextReport(command: string, ctx: SlashContext) {
+	const action = runSlash(command, ctx)
+	if (action?.kind !== 'context') return action
+	return {
+		kind: 'message' as const,
+		content: renderContext(ctx.usage, ctx.compaction, action.details),
+	}
+}
+
 describe('/context', () => {
 	it('says there is nothing to report before a session', () => {
-		const r = runSlash('/context', context({ usage: null }))
-		expect(r?.kind).toBe('message')
-		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No context size yet')
-		expect(r.content).not.toContain('Counted by the provider')
+		const text = renderContext(null, null)
+		expect(text).toContain('No context size yet')
+		expect(text).not.toContain('Counted by the provider')
 	})
 
 	it('names the strategy, its thresholds and what the passes did', () => {
-		const r = runSlash(
+		const r = contextReport(
 			'/context details',
 			context({
 				usage: {
@@ -1330,7 +1338,7 @@ describe('/context', () => {
 	})
 
 	it('leaves the "freeing about" clause out when no reclaimed size is known', () => {
-		const r = runSlash(
+		const r = contextReport(
 			'/context',
 			context({
 				usage: {
@@ -1434,6 +1442,27 @@ describe('/abandon', () => {
 	})
 })
 
+describe('/config tips', () => {
+	it('switches the spinner tips on or off and refuses anything else', () => {
+		expect(runSlash('/config tips off', context())).toEqual({ kind: 'spinner-tips', on: false })
+		expect(runSlash('/config tips ON', context())).toEqual({ kind: 'spinner-tips', on: true })
+		expect(runSlash('/config tips', context())).toEqual({ kind: 'spinner-tips', on: 'list' })
+		expect(runSlash('/config tips list', context())).toEqual({ kind: 'spinner-tips', on: 'list' })
+		expect(runSlash('/config tips maybe', context())).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /config tips [on|off|list]',
+		})
+	})
+})
+
+describe('/config theme', () => {
+	it('opens the picker, sets a name, and refuses anything else with the same usage as /theme', () => {
+		expect(runSlash('/config theme', context())).toEqual({ kind: 'theme-picker' })
+		expect(runSlash('/config theme light', context())).toEqual({ kind: 'theme', setting: 'light' })
+		expect(runSlash('/config theme nope', context())).toEqual(runSlash('/theme nope', context()))
+	})
+})
+
 describe('/config entry', () => {
 	it('opens settings and exposes source details without a model turn', () => {
 		const ctx = context()
@@ -1441,7 +1470,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources|limits|triggers]'),
+			content: expect.stringContaining('/config [sources|limits|triggers|theme|motion|recap|tips]'),
 		})
 	})
 
@@ -1463,6 +1492,23 @@ describe('/config entry', () => {
 			kind: 'message',
 			content: 'Usage: /config triggers [on|off|list]',
 		})
+	})
+})
+
+describe('/config recap and /recap', () => {
+	it('reads /config recap on|off|list, and lists by default', () => {
+		const ctx = context()
+		expect(runSlash('/config recap off', ctx)).toEqual({ kind: 'recap-setting', setting: 'off' })
+		expect(runSlash('/config recap ON', ctx)).toEqual({ kind: 'recap-setting', setting: 'on' })
+		expect(runSlash('/config recap', ctx)).toEqual({ kind: 'recap-setting', setting: 'list' })
+		expect(runSlash('/config recap maybe', ctx)).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /config recap [on|off|list]',
+		})
+	})
+
+	it('/recap asks for a recap now', () => {
+		expect(runSlash('/recap', context())).toEqual({ kind: 'recap-now' })
 	})
 })
 
@@ -1545,5 +1591,37 @@ describe('readouts say one plain thing per line', () => {
 				command.name,
 			).toBeLessThanOrEqual(64)
 		}
+	})
+})
+
+describe('/theme and /config motion', () => {
+	it('opens the picker with no argument', () => {
+		expect(runSlash('/theme', context())).toEqual({ kind: 'theme-picker' })
+	})
+
+	it('applies a named theme directly', () => {
+		expect(runSlash('/theme light-ansi', context())).toEqual({
+			kind: 'theme',
+			setting: 'light-ansi',
+		})
+		expect(runSlash('/theme auto', context())).toEqual({ kind: 'theme', setting: 'auto' })
+	})
+
+	it('names the choices when the name is not a theme', () => {
+		const result = runSlash('/theme neon', context())
+		expect(result).toMatchObject({ kind: 'message', role: 'system' })
+		expect(JSON.stringify(result)).toContain('dark-daltonized')
+	})
+
+	it('switches reduced motion with /config motion', () => {
+		expect(runSlash('/config motion on', context())).toEqual({
+			kind: 'reduced-motion',
+			setting: 'on',
+		})
+		expect(runSlash('/config motion', context())).toEqual({
+			kind: 'reduced-motion',
+			setting: 'list',
+		})
+		expect(runSlash('/config motion maybe', context())).toMatchObject({ kind: 'message' })
 	})
 })

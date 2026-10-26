@@ -290,6 +290,9 @@ export async function prepareDirectCall(
 			...(providerInput && !repairUsed && preparation.inputFailure
 				? { inputFailure: preparation.inputFailure }
 				: {}),
+			// The registry's typed reason (e.g. invalid arguments) is what a
+			// host keys its short label on; the message alone is wording.
+			...(preparation.result.facts ? { facts: preparation.result.facts } : {}),
 		}
 	}
 

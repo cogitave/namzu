@@ -533,7 +533,7 @@ describe('computer_use UI tree', () => {
 
 	it('points at the controls beside the first screenshot only, and at a shell for starting programs', async () => {
 		const tool = createComputerUseTool(makeUiHost().host, { settleMs: 0 })
-		expect(tool.description).toContain('a shell command (Start-Process notepad')
+		expect(tool.description).toContain('a shell command (Start-Process <program>')
 		expect(tool.description).not.toContain('WIN+R')
 		expect(tool.description).toContain('refused while a terminal window is in front')
 		const first = text(await run(tool, { type: 'screenshot' }))

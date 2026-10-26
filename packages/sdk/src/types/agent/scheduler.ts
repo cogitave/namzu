@@ -5,6 +5,7 @@ import type { CancelCause } from '../session/cancel-cause.js'
 import type { ChildSessionLifecycleEvent, SessionEventListener } from '../session/events.js'
 import type { WorkspaceRef } from '../workspace/ref.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
+import type { RestoreChildOptions, RestoreChildResult } from './manager.js'
 import type { AgentTaskState, ChildWorkspaceRequest } from './task.js'
 
 export interface TaskHandle {
@@ -41,6 +42,15 @@ export interface CreateTaskOptions {
 	 * and unchanged agent definition. A saved log alone grants no authority.
 	 */
 	readonly resumeSessionId?: SessionId
+	/**
+	 * What a later process needs to rebuild this child, written to the child's
+	 * saved meta document: at most 16 string entries, keys up to 64 and values up
+	 * to 256 characters. The host defines the keys (which agent to rebuild,
+	 * which model) and reads them back from `restoreChild`. Never put a secret
+	 * here; it lands on disk beside the log. Absent, the child cannot be
+	 * continued from disk after its process ends.
+	 */
+	readonly continuationProfile?: Readonly<Record<string, string>>
 	/** Per-task filesystem choice, forwarded to the local manager at admission. */
 	readonly workspace?: ChildWorkspaceRequest
 	/**
@@ -155,6 +165,17 @@ export interface TaskScheduler {
 	waitForTask(taskId: TaskId): Promise<TaskHandle>
 
 	continueTask(taskId: TaskId, message: string): Promise<void>
+
+	/**
+	 * Make a child saved by an earlier process continuable again, from its saved
+	 * log and meta document, under this scheduler's parent scope. OPTIONAL: only
+	 * a scheduler that can read saved children offers it. It runs nothing; the
+	 * caller then continues the child with `createTask({ resumeSessionId })`, so
+	 * the invoking turn's authority and limits apply. See
+	 * {@link CreateTaskOptions.continuationProfile} for what must have been
+	 * recorded at launch.
+	 */
+	restoreChild?(options: RestoreChildOptions): Promise<RestoreChildResult>
 
 	/**
 	 * Stop one task. A cause is relative to the child: a blocking delegation

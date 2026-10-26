@@ -28,7 +28,12 @@ A manual compaction runs between turns, never inside one: the host calls
 `compaction` record with `trigger: 'manual'` and no turn id, beside one
 `compaction_shed` event with `reason: manual` that contains the removed
 messages in input order, matching automatic compaction. No model is called for
-the record itself. The SDK spills large arrays to `tool-results/` and the
+the record itself. When a conversation mounts `search_conversation` and
+`read_conversation`, the summary ends with a pointer to them, and a cleared tool
+result keeps its saved-file line with the sentence that says how to read it (the
+`read` tool, or the conversation tools); see
+[Getting at a saved output](conversation-evidence.md#getting-at-a-saved-output).
+The SDK spills large arrays to `tool-results/` and the
 session index covers each textual part. Raw record consumers must iterate
 `messages`; use the returned `seq` and `part` when reading search matches. It
 adds no assistant answer, checkpoint or turn, and is refused while a turn is
@@ -90,6 +95,9 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
 | `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
+| `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
+| `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
+| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
@@ -106,6 +114,26 @@ ordinary budget. Exact originals remain available through
 [conversation evidence search](conversation-evidence.md); see the
 [SDK retention contract](../sdk/harness-invariants.md) for text/rich-channel
 boundaries. A short preview is an excerpt, not the complete output.
+
+# Compacting while idle
+
+A one-hour prompt cache is written once and read cheaply for an hour. Come back to a large conversation after it has lapsed and the whole context is written again at full price. With `compaction.idleCompaction: true` and `compaction.promptCacheTtl: 1h`, Namzu compacts the conversation shortly before the cache would lapse, so coming back re-reads a small context instead.
+
+It is off by default and acts only when every one of these holds at the moment the timer fires, which is once per finished reply, 90% of the way through the cache's life since its last use (54 minutes for a one-hour cache):
+
+- the provider reported a one-hour lifetime for the reply that just finished (a five-minute cache, or a provider that reports no lifetime, never triggers it);
+- the timer is no more than a minute late, so a laptop that slept does not compact a cache that is already gone;
+- the context holds at least `idleCompactionMinTokens`;
+- no new request, turn, dialog, queued message or background work exists, and nobody has pressed a key for a minute;
+- the conversation and model are the ones it was armed for.
+
+A skipped or failed attempt shows nothing and is not retried. A successful one is recorded in the conversation log as an `idle` compaction and leaves one dim row:
+
+```text
+Compacted while idle, before the prompt cache expired · turn off with "idleCompaction": false under "compaction" in the config
+```
+
+A person who comes back while it is running sees the usual compacting state. No usage-limit signal reaches the terminal, so there is no check against one. Like any compaction it hides the footer's context meter until the next reply, and `/context` sizes the conversation from its messages until then. It does not run while the detailed transcript is open. It is a file setting and has no `/config` row: it needs the one-hour cache lifetime chosen when the conversation starts, so a change takes effect from the next start.
 
 # Automatic historical evidence
 
@@ -184,17 +212,48 @@ workspace to infer its past nor replays a state-changing action.
 
 # `/context`
 
-The short report shows the latest context token count, window size and
-percentage, followed by cleanup passes and estimated tokens freed this
-session. It labels whether the token count was measured by the provider or
-estimated by Namzu, and whether the window was declared or assumed. An
-approximate percentage is marked with `~`; missing measurements are reported
-as unavailable rather than zero.
+`/context` draws where the window goes. A grid of squares stands for the whole
+window: 10 by 10 (100 squares), 5 by 5 on a terminal under 80 columns, and
+20 by 10 for a window of a million tokens or more. Each category fills
+`round(tokens / window x squares)` squares, at least one, in a colour of its
+own. A category's last square is `⛁` when it is at least 70% full and `⛀`
+below that; free space is a dim `⛶`; the auto-compact buffer, when it is
+drawn, comes last as `⛝`.
 
-The footer also shows `N% until auto-compact` once the context is within
-20,000 tokens of the summary point; see [the composer footer](terminal-design.md#the-composer-footer).
+Beside the grid: the model, `used/window tokens (percent)` (`42k/200k tokens
+(21%)`, with a leading `~` when the size is an estimate), and one line per
+category with its size and a one-decimal share. The categories, in order, are
+System prompt, System tools, MCP tools, MCP server instructions, Custom agents,
+Memory files, Skills and Messages, then Free space. A category with nothing in
+it is left out. Messages is what is left of the provider's measured size once
+the other categories are taken out, so the lines add up to the window.
 
-`/context details` adds the strategy and thresholds, the number of tool results
+The Autocompact buffer (the room kept for a reply plus 13,000 tokens, 33,000 on
+a 200,000-token window) and an `Auto-compact window:` line appear only when the
+window was set in the config or assumed for an unrecognised model. On a window
+the provider or Namzu's model table declares, there is no buffer and free space
+is the window minus what is used. When the context is past the window, a red
+line says by how much and to run `/compact`.
+
+Under the grid, each list that has something in it: MCP tools (`/mcp`), Custom
+agents (`.namzu/agents/`, grouped by Project and User), Memory files
+(`/memory`, one line per instruction file) and Skills (`/skills`, a rough size
+rounded to ten, or `< 20`). Sizes are estimated from characters, except that
+the total is the provider's own count when it gave one.
+
+Advice follows, warnings first and then by how much it could free: context at
+80% or more; a tool whose calls and results are at least 15% of the window and
+10,000 tokens (shell, read, search and web fetch each get their own hint, any
+other tool at 20%); file reads at 5% and 10,000 tokens; memory files at 5% and
+5,000 tokens, naming the three largest. There is no advice once the context no
+longer fits. Before the first reply, which is when the window is first known,
+`/context` says there is no size yet.
+
+The footer's notice slot also shows `N% until auto-compact` once the context is
+within 20,000 tokens of the summary point. A compaction hides it until the next
+turn starts; see [the composer footer](terminal-design.md#the-composer-footer).
+
+`/context details` adds, under the advice, the strategy and thresholds, the number of tool results
 cleared, messages shortened and summaries written. `salience` starts reducing
 less useful content at its soft target and summarises older history at its
 trigger; `structured` clears older tool results at its trigger and summarises

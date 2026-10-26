@@ -49,7 +49,10 @@ export function looksBinary(text: string): boolean {
 export function tidyTerminalOutput(raw: string): TidyOutput {
 	if (looksBinary(raw)) {
 		const output = 'The command printed binary data, which is not shown.'
-		return { output, shell: { stdout: [], stderr: [], failed: false, note: output } }
+		return {
+			output,
+			shell: { stdout: [], stderr: [], failed: false, note: output },
+		}
 	}
 	let failure: string | undefined
 	const kept: string[] = []
@@ -96,6 +99,8 @@ function endedHow(facts: CommandFacts): string | undefined {
 	if (facts.background) return undefined
 	if (facts.timedOut) return 'timed out'
 	if (facts.signal) return 'was stopped before it finished'
+	// A status the command uses to answer (no match, files differ) is not an end to report.
+	if (facts.exitNote !== undefined) return undefined
 	if (facts.exitCode !== undefined && facts.exitCode !== 0) {
 		return `exited with code ${facts.exitCode}`
 	}
@@ -177,7 +182,7 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 	// kernel's own sentence is the answer. Only its bookkeeping is removed.
 	return withFailure(
 		tidyTerminalOutput(raw).output,
-		cell([], [], facts.background ? BACKGROUND_NOTE : undefined),
+		cell([], [], facts.background ? BACKGROUND_NOTE : facts.exitNote),
 	)
 }
 
@@ -191,6 +196,9 @@ export function unknownToolNotice(result: string): string | undefined {
 		? `The model asked for a tool that does not exist (${named[1]}). It will try another way.`
 		: undefined
 }
+
+/** The short row for a call whose arguments did not fit the tool's schema; the full text is in the detailed transcript. */
+export const INVALID_PARAMETERS = 'Invalid tool parameters'
 
 /** What the transcript says under a call the person answered No to. */
 export function declinedLine(note: string | undefined): string {
@@ -251,7 +259,68 @@ export function failureFactsLine(
 			return 'It took too long and was stopped.'
 		case 'invalid_input':
 			return 'The model sent input this tool could not use.'
+		case 'not_read':
+			return subject
+				? `Read ${subject} first, then try again.`
+				: 'Read the file first, then try again.'
+		case 'changed_on_disk':
+			return subject
+				? `${subject} changed on disk since it was read.`
+				: 'The file changed on disk since it was read.'
+		case 'text_not_found':
+			return subject ? `Couldn’t find that text in ${subject}.` : 'Couldn’t find that text.'
+		case 'not_unique':
+			return subject
+				? `That text appears more than once in ${subject}.`
+				: 'That text appears more than once.'
+		case 'invalid_arguments':
+			return INVALID_PARAMETERS
 	}
+}
+
+/**
+ * The short text a refused call of a file, search or language tool reads as,
+ * only where a refusal is worth a label of its own: a missing file, a file
+ * that has to be read first, and a refusal made before the tool did its work
+ * (input it could not use, text that is not there, a copy gone stale). Every
+ * other failure, a permission error, a timeout or a directory read as a file,
+ * has no label and is drawn as the tool's own message. The full message stays
+ * behind ctrl+o. A file that has to be read first is advice, so it is drawn dim.
+ */
+export function shortToolFailure(
+	toolName: string,
+	facts: Extract<ToolFacts, { kind: 'failure' }>,
+): { readonly text: string; readonly tone: 'error' | 'muted' } | undefined {
+	const name = toolName.toLowerCase()
+	const reason = facts.reason
+	// Arguments that did not fit the schema read the same for every tool.
+	if (reason === 'invalid_arguments') return { text: INVALID_PARAMETERS, tone: 'error' }
+	const missing = reason === 'not_found'
+	const refused =
+		reason === 'invalid_input' ||
+		reason === 'not_read' ||
+		reason === 'changed_on_disk' ||
+		reason === 'text_not_found' ||
+		reason === 'not_unique' ||
+		reason === 'already_exists'
+	const error = (text: string) => ({ text, tone: 'error' as const })
+	if (name === 'read') {
+		if (missing) return error('File not found')
+		return refused ? error('Error reading file') : undefined
+	}
+	if (name === 'edit') {
+		if (reason === 'not_read') return { text: 'File must be read first', tone: 'muted' }
+		if (missing) return error('File not found')
+		return refused ? error('Error editing file') : undefined
+	}
+	if (name === 'write') return refused ? error('Error writing file') : undefined
+	if (name.includes('notebook')) return refused ? error('Error editing notebook') : undefined
+	if (name === 'grep' || name === 'glob') {
+		if (missing) return error('File not found')
+		return refused ? error('Error searching files') : undefined
+	}
+	if (name === 'lsp') return refused ? error('LSP operation failed') : undefined
+	return undefined
 }
 
 /** The file's own name: a headline names the file, and the full path is not for the transcript. */

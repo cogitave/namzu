@@ -24,6 +24,11 @@ import type {
 	AgentLifecycleListener,
 } from '../../types/agent/lifecycle-event.js'
 import type {
+	RestoreChildOptions,
+	RestoreChildRefusal,
+	RestoreChildResult,
+} from '../../types/agent/manager.js'
+import type {
 	AgentManagerConfig,
 	AgentTask,
 	AgentTaskContext,
@@ -53,7 +58,12 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
 import { type TopicManagerDependency, resolveTopicManager } from '../topic/dependency.js'
 import type { TopicManager } from '../topic/lifecycle.js'
-import { registerChildSessionLog, writeChildSessionMeta } from './child-session.js'
+import {
+	childSessionEnded,
+	readChildSessionMeta,
+	registerChildSessionLog,
+	writeChildSessionMeta,
+} from './child-session.js'
 
 /**
  * Dependencies threaded into {@link AgentManager}. Phase 6 promoted the
@@ -155,6 +165,7 @@ interface ChildSpawnRecord {
 		readonly toolCallId: string
 		readonly agentType: string
 		readonly description: string
+		readonly continuation?: NonNullable<ChildSessionMeta['continuation']>
 	}
 	/** Removes the child's log from the process-local lookup. */
 	releaseLog?: () => void
@@ -1236,6 +1247,7 @@ export class AgentManager {
 			description: placement.description,
 			status: 'running',
 			createdAt: placement.createdAt,
+			...(placement.continuation ? { continuation: placement.continuation } : {}),
 		}
 	}
 
@@ -1296,6 +1308,14 @@ export class AgentManager {
 			toolCallId: spawnToolCallId(taskId),
 			agentType: options.agentId,
 			description: describeSpawn(options),
+			...(options.continuationProfile
+				? {
+						continuation: {
+							workspace: options.workspace?.mode === 'isolated' ? 'isolated' : 'shared',
+							profile: { ...options.continuationProfile },
+						},
+					}
+				: {}),
 		}
 		await writeChildSessionMeta(spawnRecord.placement.metaPath, this.childMeta(spawnRecord))
 		return DiskSessionLog.at(paths, {
@@ -1794,6 +1814,166 @@ export class AgentManager {
 			log,
 			activeSubSessionId: origin.subSessionId,
 		})
+	}
+
+	/**
+	 * Make a child saved by an earlier process continuable again.
+	 *
+	 * Reads the child's meta document and log from the project layout under the
+	 * invoking parent, checks they describe a settled, shared-workspace child of
+	 * this very parent session, then re-creates the in-memory session and edge
+	 * and the retained conversation that {@link provisionContinuation} requires.
+	 * It runs nothing; the caller continues the child with `sendMessage` and
+	 * `resumeSessionId`, so the invoking turn's authority, limits and review
+	 * channel apply exactly as for a child that finished in this process.
+	 */
+	async restoreChildConversation(
+		options: RestoreChildOptions,
+		context: AgentTaskContext,
+	): Promise<RestoreChildResult> {
+		const refuse = (reason: RestoreChildRefusal): RestoreChildResult => ({
+			status: 'refused',
+			reason,
+		})
+		const id = options.childSessionId
+		const retained = this.childConversations.get(id)
+		if (retained?.activeSubSessionId) return refuse('running')
+		const paths =
+			context.childStorage?.kind === 'disk' ? context.childStorage.paths : this.deps.paths
+		if (!paths) return refuse('no-layout')
+		const store = this.deps.sessionStore
+		if (store.supportsInvocationSummaries !== true || store.supportsOwnerVersionCas !== true)
+			return refuse('not-resumable')
+		const ancestry = await store.getAncestry(context.sessionId, context.tenantId)
+		const parentLocator: SessionLocator = {
+			sessionId: context.sessionId,
+			ancestors: ancestry.slice(0, -1),
+		}
+		let meta: ChildSessionMeta | null
+		try {
+			meta = await readChildSessionMeta(paths.subagentMeta(parentLocator, id))
+		} catch {
+			return refuse('not-saved')
+		}
+		if (!meta) return refuse('not-saved')
+		if (meta.sessionId !== id || meta.parentSessionId !== context.sessionId)
+			return refuse('foreign')
+		const continuation = meta.continuation
+		if (!continuation || continuation.workspace !== 'shared') return refuse('not-resumable')
+		const agentId = options.agentFor(continuation.profile)
+		if (agentId === undefined || !this.registry.has(agentId)) return refuse('not-resumable')
+		const log = retained?.log ?? DiskSessionLog.at(paths, { sessionId: id, ancestors: ancestry })
+		// The child's own log wins over its meta document: a child that never
+		// recorded the end of a turn died mid-turn, and what it did is unknown.
+		const ended = await childSessionEnded(log)
+		if (!ended) return refuse('unsettled')
+		if (ended.status === 'cancelled' || meta.status === 'cancelled') return refuse('stopped')
+		// A log written under another project or topic cannot be continued here:
+		// the child's turn would refuse to open it.
+		const started = await log.head()
+		if (started === null) return refuse('unsettled')
+		for await (const { record } of log.read({ mode: 'tolerant' })) {
+			if (record.type !== 'session_started') continue
+			if (record.projectId !== context.projectId || record.topicId !== context.topicId)
+				return refuse('foreign')
+			break
+		}
+		const placement = {
+			paths,
+			metaPath: paths.subagentMeta(parentLocator, id),
+			createdAt: meta.createdAt,
+			toolCallId: meta.toolCallId,
+			agentType: meta.agentType,
+			description: meta.description,
+			continuation,
+		}
+		const restored: RestoreChildResult = {
+			status: 'restored',
+			childSessionId: id,
+			agentId,
+			profile: continuation.profile,
+			description: meta.description,
+		}
+		if (retained) return restored
+		if (this.childConversations.size >= RETAINED_CHILD_CONVERSATION_CAP) {
+			const oldest = [...this.childConversations].find(([, value]) => !value.activeSubSessionId)
+			if (!oldest) return refuse('full')
+			this.childConversations.delete(oldest[0])
+		}
+		const childActor: ActorRef = {
+			kind: 'agent',
+			agentId,
+			tenantId: context.tenantId,
+			parentActor: context.parentActor,
+		}
+		let child = await store.getSession(id, context.tenantId)
+		let createdChild = false
+		let edge: Awaited<ReturnType<typeof store.createSubSession>> | undefined
+		let createdEdge = false
+		try {
+			if (child) {
+				// A store that outlived the process still holds the child and its edge.
+				if (
+					child.status === 'active' ||
+					child.status === 'archived' ||
+					child.status === 'locked' ||
+					child.projectId !== context.projectId ||
+					child.topicId !== context.topicId ||
+					child.currentActor?.kind !== 'agent' ||
+					child.currentActor.agentId !== agentId
+				)
+					return refuse('running')
+			} else {
+				child = await store.createSession(
+					{ id, topicId: context.topicId, projectId: context.projectId, currentActor: childActor },
+					context.tenantId,
+				)
+				createdChild = true
+			}
+			edge = (await store.getChildren(context.sessionId, context.tenantId)).find(
+				(candidate) => candidate.childSessionId === id,
+			)
+			if (!edge) {
+				edge = await store.createSubSession(
+					{
+						parentSessionId: context.sessionId,
+						childSessionId: id,
+						kind: 'agent_spawn',
+						spawnedBy: context.parentActor,
+						failureMode: 'delegate',
+						completionMode: 'summary_ref',
+					},
+					context.tenantId,
+				)
+				createdEdge = true
+			}
+		} catch (error) {
+			if (edge && createdEdge)
+				await store.deleteSubSession(edge.id, context.tenantId).catch(() => undefined)
+			if (child && createdChild)
+				await store.deleteSession(id, context.tenantId).catch(() => undefined)
+			throw error
+		}
+		this.childConversations.set(id, {
+			definition: this.registry.getOrThrow(agentId),
+			origin: {
+				subSessionId: edge.id,
+				childSessionId: id,
+				tenantId: context.tenantId,
+				parentSessionId: context.sessionId,
+				parentTurnId: meta.parentTurnId,
+				rootSessionId: meta.rootSessionId,
+				ancestry,
+				childDepth: meta.depth,
+				childOwnerVersion: child.ownerVersion,
+				placement,
+			},
+			topicId: context.topicId,
+			projectId: context.projectId,
+			cwd: resolve(options.workingDirectory),
+			log,
+		})
+		return restored
 	}
 
 	private releaseChildConversation(record: ChildSpawnRecord): void {

@@ -253,7 +253,7 @@ bytes and hashes and are not reclassified from their text. See
 | `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown; `perCall: true` when it asks about some calls of a batch, see [asking one call at a time](review-policy.md#asking-one-call-at-a-time)), `deadlineAt?` |
 | `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
 | `decision_expired` | `decisionId` |
-| `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
+| `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`/`idle`; `idle` is a host compacting an unused conversation before its prompt cache lapses), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
 | `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
 | `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |

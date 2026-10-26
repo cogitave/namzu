@@ -1,6 +1,8 @@
 import { debugRequested } from '../debug-requested.js'
+import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
+import { promptCacheTtl, setPromptCacheTtl } from '../integrations/providers/prompt-cache-ttl.js'
 import { createOpenUrlTool } from '../integrations/web/open-url.js'
 import {
 	createWebSearchTool,
@@ -22,7 +24,7 @@ import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
 	factsHeadline,
-	failureFactsLine,
+	shortToolFailure,
 	tidyCommandOutput,
 	tidyTerminalOutput,
 	turnStoppedLine,
@@ -67,6 +69,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	COMPACTION_RECOVERY_NOTE,
 	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
 	type CodeAnalysisProvider,
@@ -160,7 +163,9 @@ import {
 	buildSessionGoalTools,
 	builtinCommandArguments,
 	compactNow,
+	compactRegion,
 	compactSession,
+	compactSessionRange,
 	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
@@ -172,6 +177,7 @@ import {
 	createReviewHandler,
 	createSkillTool,
 	deferred,
+	describeToolCatalogTokens,
 	ensureProject,
 	filtered,
 	generateSessionId,
@@ -373,6 +379,7 @@ import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
 	type TypedNoteResult,
+	composeMemoryGuidance,
 	composeStoredMemoryPrompt,
 	describeCuratedNotesImport,
 	describeMemoryMigration,
@@ -404,6 +411,7 @@ import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
+import { type FoldOp, classifyCall } from './read-search-group.js'
 import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
 
 export type AgentEvent =
@@ -427,6 +435,8 @@ export type AgentEvent =
 	| {
 			readonly kind: 'tool-start'
 			readonly activity?: 'exploration'
+			/** The call only looks (a read, a search, a listing, a connector call): it folds into a counted line. */
+			readonly fold?: FoldOp
 			/** Exact task identity for host-owned wait presentation. */
 			readonly taskId?: string
 			/** Turn-scopes provider tool ids, which are not globally unique. */
@@ -522,6 +532,8 @@ export type AgentEvent =
 			readonly diff?: DiffInfo
 			/** A plain sentence for why a failed step failed, to show in place of `failed: <summary>`. */
 			readonly plainFailure?: string
+			/** `muted` when that sentence is advice rather than a fault; absent means the error colour. */
+			readonly plainFailureTone?: 'muted'
 			/** One line for what a finished read, search, write or edit did, from its typed facts; `summary` carries it too. */
 			readonly headline?: string
 			/**
@@ -570,6 +582,11 @@ export type AgentEvent =
 			readonly totalTokens: number
 			/** The output share of `totalTokens`: what the model has written this turn. */
 			readonly outputTokens?: number
+			/**
+			 * The prompt cache after this model call, when the driver reports how
+			 * long it lives. Absent means unknown; nothing may assume a lifetime.
+			 */
+			readonly cache?: { readonly ttlMs: number; readonly touched: boolean }
 			/**
 			 * The kernel's cost record, carried whole.
 			 *
@@ -705,6 +722,8 @@ export type AgentEvent =
 			readonly taskId: string
 			readonly subject: string
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
+			/** Ids of the tasks this one waits on, when the store reported any. */
+			readonly blockedBy?: readonly string[]
 			/** The task left the plan; the checklist drops it. */
 			readonly removed?: true
 	  }
@@ -1239,6 +1258,21 @@ export interface AgentSession {
 	 */
 	readonly toolNames: () => readonly string[]
 	/**
+	 * What the host itself puts in front of the model, sized for `/context`:
+	 * the system prompt as the latest turn assembled it, and every tool
+	 * definition with its share of the request. Read at call time, like
+	 * `toolNames`. Absent on a session with no registry.
+	 */
+	readonly contextInventory?: () => {
+		readonly systemPrompt: string | undefined
+		readonly tools: readonly {
+			readonly name: string
+			readonly tokens: number
+			/** The connected tool server it came from; absent for a built-in tool. */
+			readonly server?: string
+		}[]
+	}
+	/**
 	 * This session's real tool-call/result presenter (`createToolPresenter`
 	 * over the session's own `ToolManager`), for a host that renders tool
 	 * events outside `send()`'s own stream — the ACP bridge, which used to
@@ -1290,7 +1324,29 @@ export interface AgentSession {
 		messages: readonly Message[],
 		/** What the person asked the summary to keep, from `/compact <text>`. */
 		instructions?: string,
+		/** Who asked. `idle` marks a compaction nobody requested; the log records it as such. */
+		trigger?: 'manual' | 'idle',
 	) => Promise<CompactionResult | null>
+	/**
+	 * Summarise one span of a conversation on request, leaving the rest as it
+	 * is. `from` is the first message summarised (the start when absent) and
+	 * `until` the message the span stops before (the end when absent), both
+	 * given as messages of `messages`. Same answers as `compact`: `null` when
+	 * the span holds nothing worth a summary; a message the conversation no
+	 * longer holds throws. Absent on a session that cannot summarise.
+	 */
+	readonly compactRange?: (input: {
+		readonly messages: readonly Message[]
+		readonly from?: Message
+		readonly until?: Message
+		readonly instructions?: string
+	}) => Promise<CompactionResult | null>
+	/**
+	 * Present only when the person turned idle compaction on: the smallest
+	 * context, in tokens, worth compacting while nobody is using the
+	 * conversation.
+	 */
+	readonly idleCompaction?: { readonly minTokens: number }
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -1964,7 +2020,7 @@ const NAMZU_IDENTITY = [
 ].join('\n')
 
 const NAMZU_BROWSER_DESKTOP_ROUTING =
-	'When the user means an already open desktop browser window, such as their Brave window, use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
+	'When the user means an already open desktop browser window (their own, not the Namzu-managed profile), use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
@@ -2369,6 +2425,8 @@ export async function createAgentSession(
 	// "Don't ask again" answers given at a prompt this session, consulted as
 	// one rule behind the operator's table (see permissions/session-allow.ts).
 	const commandArguments = builtinCommandArguments()
+	// Before any provider is built: how long the cache is asked to live.
+	setPromptCacheTtl(options.compaction?.promptCacheTtl)
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
@@ -4177,6 +4235,14 @@ export async function createAgentSession(
 			? deferExceptToolset(wrapped, EAGER_TOOLS_WHEN_DEFERRED)
 			: [wrapped]
 	})
+	// The memory section is written only for a session that holds the tool
+	// it teaches: a run that withholds `save_memory` would be told to use it.
+	// The answer is fixed at boot, so the prompt prefix stays byte-stable.
+	const memoryGuidance = sessionToolsets.some((ts) =>
+		ts.tools().some((tool) => tool.name === 'save_memory'),
+	)
+		? composeMemoryGuidance({ taskList: !withheldTools.has('task_create') })
+		: undefined
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
 	// `toolResultScreens`) — never for execution, which `query()` does with
@@ -4228,6 +4294,8 @@ export async function createAgentSession(
 				.tokens,
 			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
 		})
+	// The latest system prompt a turn assembled, kept for `/context`.
+	let lastSystemPromptText: string | undefined
 	let sessionStarted = false
 	const announceSessionStart = async (): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
@@ -4512,12 +4580,14 @@ export async function createAgentSession(
 					NAMZU_DELEGATION_DOCTRINE,
 					palPromptBlock(),
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+					memoryGuidance,
 					environmentPrompt,
 					systemNote,
 					turnSkills.overflowNote,
 				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
+			lastSystemPromptText = systemPrompt
 
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
@@ -4840,7 +4910,17 @@ export async function createAgentSession(
 			return reasoningEffortDefault
 		},
 		...(reasoningSettled ? { reasoningSettled } : {}),
-		compact: (messages, instructions) =>
+		...(options.compaction?.idleCompaction === true
+			? {
+					idleCompaction: {
+						minTokens: resolveIdleCompactionMinTokens(
+							process.env.NAMZU_IDLE_COMPACT_MIN_TOKENS,
+							options.compaction.idleCompactionMinTokens,
+						),
+					},
+				}
+			: {}),
+		compact: (messages, instructions, trigger) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
@@ -4851,6 +4931,8 @@ export async function createAgentSession(
 					model,
 					signal,
 					...(instructions ? { instructions } : {}),
+					// Only a host that mounts the conversation tools points the summary at them.
+					...(options.conversationSessions ? { recoveryNote: COMPACTION_RECOVERY_NOTE } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -4863,6 +4945,7 @@ export async function createAgentSession(
 					return await compactSession({
 						...common,
 						sessionId,
+						...(trigger === 'idle' ? { trigger } : {}),
 						locator: {
 							log: DiskSessionLog.at(paths, { sessionId }),
 							index: sessions.index,
@@ -4871,12 +4954,79 @@ export async function createAgentSession(
 				}
 				return compactNow({ ...common, messages })
 			}),
+		compactRange: ({ messages, from, until, instructions }) =>
+			operations.promise(undefined, async (signal) => {
+				const sessionId = scope.sessionId
+				const sessions = options.conversationSessions
+				await prepareProviderCredential(signal)
+				const common = {
+					config: compactionConfigFor(options.compaction),
+					provider: providerForSession(sessionId),
+					model,
+					signal,
+					...(instructions ? { instructions } : {}),
+				}
+				if (sessions && !options.ephemeral) {
+					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
+						throw new Error('Manual compaction is outside the current conversation scope.')
+					// The log names a message by the id it recorded it under.
+					if ((from && !from.id) || (until && !until.id)) {
+						throw new Error(
+							'That message is no longer in the active context. Choose a more recent message.',
+						)
+					}
+					return await compactSessionRange({
+						...common,
+						sessionId,
+						...(from?.id ? { from: from.id } : {}),
+						...(until?.id ? { until: until.id } : {}),
+						locator: {
+							log: DiskSessionLog.at(paths, { sessionId }),
+							index: sessions.index,
+						},
+					})
+				}
+				const at = (message: Message | undefined, fallback: number): number => {
+					if (!message) return fallback
+					const found = messages.indexOf(message)
+					if (found < 0) {
+						throw new Error(
+							'That message is no longer in the active context. Choose a more recent message.',
+						)
+					}
+					return found
+				}
+				return compactRegion({
+					...common,
+					messages,
+					start: at(from, 0),
+					end: at(until, messages.length),
+				})
+			}),
 		// Reads the same manager the session composed, at call time — the pair
 		// of `promptExemptTools` below, and for the same reason.
 		toolNames: () =>
 			liveManager()
 				.listNames()
 				.filter((name) => !goalToolNames.has(name)),
+		contextInventory: () => {
+			const live = liveManager()
+			const sized = describeToolCatalogTokens(live.toLLMTools())
+			return {
+				systemPrompt: lastSystemPromptText,
+				tools: sized
+					.filter((tool) => !goalToolNames.has(tool.name))
+					.map((tool) => {
+						let server: string | undefined
+						try {
+							server = live.sourceOf(tool.name).server
+						} catch {
+							// A tool that left the registry between the two reads is a built-in's size.
+						}
+						return server === undefined ? tool : { ...tool, server }
+					}),
+			}
+		},
 		presenter: sessionPresenter,
 		...(pluginRuntime
 			? {
@@ -5060,12 +5210,12 @@ export async function createAgentSession(
 													''
 												).slice(0, 8_000)
 												const text =
-													`Host record: directly assigned child task ${JSON.stringify(receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
+													`Host record: directly assigned child task ${JSON.stringify(receipt.agentTaskId ?? receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
 													wrapUntrusted(
 														{
 															kind: 'agent-result',
 															attributes: {
-																task: receipt.taskId,
+																task: receipt.agentTaskId ?? receipt.taskId,
 																agent: finished.agentId,
 															},
 															provenance:
@@ -5075,7 +5225,7 @@ export async function createAgentSession(
 													)
 												if (!options.ephemeral)
 													await recordChildOperatorReport(paths, turnScope.sessionId, {
-														id: `report-${receipt.taskId}`,
+														id: `report-${receipt.agentTaskId ?? receipt.taskId}`,
 														text,
 													}).catch((error) =>
 														cliLogger().warn('Child follow-up report audit failed', {
@@ -5546,6 +5696,7 @@ export async function createAgentSession(
 								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
 								residentContext ? undefined : palPromptBlock(),
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
+								residentContext ? undefined : memoryGuidance,
 								// Whenever anything is deferred, not only under
 								// `toolLoading: 'deferred'`: a deferred tool the model was
 								// never told how to load is a tool it does not have.
@@ -5570,8 +5721,11 @@ export async function createAgentSession(
 							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
+						lastSystemPromptText = systemPrompt
 						await announceSessionStart()
-						checkpoints.beginTurn(lastUserText(messages), turnId)
+						checkpoints.beginTurn(lastUserText(messages), turnId, {
+							promptOrdinal: Math.max(0, messages.filter((m) => m.role === 'user').length - 1),
+						})
 						if (opts?.goalRound) {
 							if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
 							if (
@@ -5941,6 +6095,7 @@ export function constructProvider(
 				...(isOAuth ? { authToken: token } : { apiKey: token }),
 				baseURL: det?.baseUrl,
 				model,
+				...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 			})
 			return provider
 		}
@@ -7072,6 +7227,12 @@ export const isPromptExempt: (
 	input: unknown,
 ) => boolean = isReviewExempt
 
+/**
+ * The memory tools that write without asking in `prompt` and `accept-edits`.
+ * Their store is namzu's own, under its home; no workspace file is touched.
+ */
+const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(['save_memory', 'update_memory'])
+
 /** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
 export const AGENT_LAUNCH_TOOL = 'Agent'
 
@@ -7137,6 +7298,13 @@ function withRuntimeMountedTools(
  * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
  * no exemption skips.
  *
+ * `save_memory` and `update_memory` are not asked about in `prompt` and
+ * `accept-edits`: they write only to namzu's own memory store under its home,
+ * never to a workspace file, and keeping memory is something the model does as
+ * it works. `delete_memory` declares itself destructive, so it still asks.
+ * `plan`, `strict` and the classifier modes treat them as any other write, and
+ * an `ask` or `deny` rule for either still decides.
+ *
  * `save_skill` (the TUI's alone) is not asked about here either, outside
  * `strict` and `plan`: its own screen shows the whole file and where it goes,
  * and asks in every mode, `auto` included. A second question in front of it
@@ -7158,6 +7326,9 @@ export function reviewExemptionFor(
 		(name === EXIT_PLAN_MODE_TOOL_NAME && manager.has(EXIT_PLAN_MODE_TOOL_NAME)) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
+		((mode === 'prompt' || mode === 'accept-edits') &&
+			MEMORY_WRITE_TOOLS.has(name) &&
+			manager.has(name)) ||
 		(mode !== 'strict' &&
 			mode !== 'plan' &&
 			name === SAVE_SKILL_TOOL_NAME &&
@@ -7338,6 +7509,18 @@ export function toAgentEvent(
 					const proposed = proposedFromInput(event.toolName, event.input)
 					return proposed ? { proposed } : {}
 				})(),
+				...(() => {
+					const view = presenter.presentCall(event.toolName, event.input)
+					const fold = classifyCall({
+						toolName: event.toolName,
+						input: event.input,
+						...(cwd ? { cwd } : {}),
+						...(view.kind === 'generic'
+							? { exploration: view.activity === 'exploration', label: view.label }
+							: {}),
+					})
+					return fold ? { fold } : {}
+				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
 		case 'tool_input_completed':
@@ -7401,16 +7584,13 @@ export function toAgentEvent(
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
 			const unknownTool = event.isError ? unknownToolNotice(shown) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
-			// A refusal or failure the kernel classed says so in a sentence of its own.
-			const classed = event.isError
-				? (turnStoppedLine(shown) ??
-					(event.facts?.kind === 'failure' ? failureFactsLine(event.facts, cwd) : undefined))
-				: undefined
+			// A call that never started because the turn was stopped says so in a sentence.
+			const stopped = event.isError ? turnStoppedLine(shown) : undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
 			// reported one; otherwise the body the view describes.
 			const diffBody = event.isError ? undefined : diffBodyFromFacts(event.facts, cwd)
 			const detail =
-				unknownTool || declined || classed ? undefined : (diffBody?.rows ?? viewToLines(view))
+				unknownTool || declined || stopped ? undefined : (diffBody?.rows ?? viewToLines(view))
 			// The first line is the summary row. It leaves the body only when
 			// the row says all of it: a shortened summary cannot replace the
 			// first line's evidence in expanded or raw output. A first line
@@ -7425,7 +7605,13 @@ export function toAgentEvent(
 				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
-			const plainFailure = unknownTool ?? classed ?? tidy?.failure
+			const short =
+				event.isError && event.facts?.kind === 'failure'
+					? shortToolFailure(event.toolName, event.facts)
+					: undefined
+			// Only a short label the tool family earns, or a command's own line, replaces
+			// the tool's message; every other failure shows that message.
+			const plainFailure = stopped ?? short?.text ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -7447,6 +7633,7 @@ export function toAgentEvent(
 				summary: headline ?? summary,
 				...(headline ? { headline } : {}),
 				...(plainFailure ? { plainFailure } : {}),
+				...(short?.tone === 'muted' && plainFailure ? { plainFailureTone: 'muted' as const } : {}),
 				...(tidy?.shell ? { shell: tidy.shell } : {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
@@ -7484,6 +7671,7 @@ export function toAgentEvent(
 				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
 				outputTokens: event.usage.completionTokens,
+				...(event.cache ? { cache: event.cache } : {}),
 				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
@@ -7547,6 +7735,7 @@ export function toAgentEvent(
 				taskId: String(event.taskId),
 				subject: event.subject,
 				status: event.status,
+				...(event.blockedBy ? { blockedBy: event.blockedBy.map(String) } : {}),
 				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':

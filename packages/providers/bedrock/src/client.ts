@@ -52,6 +52,29 @@ import type { BedrockConfig } from './types.js'
 const CACHE_POINT: { cachePoint: CachePointBlock } = { cachePoint: { type: 'default' } }
 
 /**
+ * The extended-lifetime cache point. Sent only when a caller asked for `'1h'`
+ * (`promptCacheTtl` or `cacheControl.ttl`) AND the model is one that accepts
+ * it; `ttl` stays unset otherwise, so a request that did not ask is byte for
+ * byte what it was.
+ */
+const CACHE_POINT_1H: { cachePoint: CachePointBlock } = {
+	cachePoint: { type: 'default', ttl: '1h' },
+}
+
+function cachePointFor(ttl: '5m' | '1h' | undefined): { cachePoint: CachePointBlock } {
+	return ttl === '1h' ? CACHE_POINT_1H : CACHE_POINT
+}
+
+/**
+ * Claude models on this wire that accept a one-hour cache point: the 4.5
+ * generation and later. An older model rejects the field, so it is gated by
+ * name and fails toward the default lifetime.
+ */
+export function supportsOneHourCache(modelId: string): boolean {
+	return /claude-(?:haiku|sonnet|opus)-(?:4-(?:[5-9]|\d{2})|[5-9])(?![0-9])/.test(modelId)
+}
+
+/**
  * System text, with a cache point after the last STATIC block.
  *
  * Position is the whole point, not presence. The runtime tags its static
@@ -67,6 +90,7 @@ const CACHE_POINT: { cachePoint: CachePointBlock } = { cachePoint: { type: 'defa
 function extractSystemBlocks(
 	messages: ChatCompletionParams['messages'],
 	cachingEnabled = false,
+	cacheTtl?: '5m' | '1h',
 ): SystemContentBlock[] {
 	const blocks: SystemContentBlock[] = []
 	let lastStatic = -1
@@ -77,7 +101,7 @@ function extractSystemBlocks(
 		if (m.cacheHint === 'cache') lastStatic = blocks.length - 1
 	}
 
-	if (cachingEnabled && lastStatic >= 0) blocks.splice(lastStatic + 1, 0, CACHE_POINT)
+	if (cachingEnabled && lastStatic >= 0) blocks.splice(lastStatic + 1, 0, cachePointFor(cacheTtl))
 
 	return blocks
 }
@@ -113,11 +137,15 @@ function isRequestOnlyContext(msg: ChatCompletionParams['messages'][number]): bo
  * point after the request-only context would put text the next request
  * replaces inside the cached prefix, so every read would miss.
  */
-function applyMessageCachePoint(messages: BedrockMessage[], cacheEnd: number): void {
+function applyMessageCachePoint(
+	messages: BedrockMessage[],
+	cacheEnd: number,
+	cacheTtl?: '5m' | '1h',
+): void {
 	for (let i = cacheEnd - 1; i >= 0; i--) {
 		const content = messages[i]?.content
 		if (content && content.length > 0) {
-			content.push(CACHE_POINT)
+			content.push(cachePointFor(cacheTtl))
 			return
 		}
 	}
@@ -156,7 +184,7 @@ function toBedrockRole(role: string): ConversationRole {
  */
 export function toBedrockMessages(
 	messages: ChatCompletionParams['messages'],
-	options: { cachePoint?: boolean } = {},
+	options: { cachePoint?: boolean; cacheTtl?: '5m' | '1h' } = {},
 ): BedrockMessage[] {
 	const out: BedrockMessage[] = []
 	let cacheEnd: number | undefined
@@ -224,7 +252,7 @@ export function toBedrockMessages(
 
 	// Placed before the merge, which may fold the context into the last
 	// history message; the point then sits between the two in one message.
-	if (options.cachePoint) applyMessageCachePoint(out, cacheEnd ?? out.length)
+	if (options.cachePoint) applyMessageCachePoint(out, cacheEnd ?? out.length, options.cacheTtl)
 	return mergeConsecutiveRoles(out)
 }
 
@@ -258,6 +286,7 @@ function extractToolNamesFromHistory(messages: ChatCompletionParams['messages'])
 export function toBedrockToolConfig(
 	params: ChatCompletionParams,
 	cachingEnabled = false,
+	cacheTtl?: '5m' | '1h',
 ): ToolConfiguration | undefined {
 	// 'none' means the model must not call a tool. This used to map to the
 	// wire's 'auto', which means it MAY — the opposite, and silent. No wire
@@ -296,7 +325,7 @@ export function toBedrockToolConfig(
 		// references a tool the caller no longer passes; their descriptions
 		// are the literal string `(completed)`, so caching them would pin a
 		// prefix that is not the caller's tool set.
-		if (cachingEnabled) tools.push(CACHE_POINT)
+		if (cachingEnabled) tools.push(cachePointFor(cacheTtl))
 
 		const toolChoice = formatToolChoice(params.toolChoice)
 		return { tools, toolChoice }
@@ -357,9 +386,15 @@ interface RawBedrockUsage {
 	totalTokens?: number
 	cacheReadInputTokenCount?: number
 	cacheWriteInputTokenCount?: number
+	/** Cache writes by lifetime, when the service breaks them down. */
+	cacheDetails?: { ttl?: string; inputTokens?: number }[]
 }
 
-export function parseBedrockUsage(raw?: RawBedrockUsage): TokenUsage {
+/**
+ * `requestedTtl` is the lifetime the request asked for; it stands in only when
+ * the response carries no breakdown, and only for a call that cached.
+ */
+export function parseBedrockUsage(raw?: RawBedrockUsage, requestedTtl?: '5m' | '1h'): TokenUsage {
 	if (!raw) {
 		return {
 			promptTokens: 0,
@@ -377,6 +412,40 @@ export function parseBedrockUsage(raw?: RawBedrockUsage): TokenUsage {
 		totalTokens: raw.totalTokens ?? input + output,
 		cachedTokens: raw.cacheReadInputTokenCount ?? 0,
 		cacheWriteTokens: raw.cacheWriteInputTokenCount ?? 0,
+		...cacheLifetime(raw, requestedTtl),
+	}
+}
+
+function cacheLifetime(
+	raw: RawBedrockUsage,
+	requestedTtl: '5m' | '1h' | undefined,
+): Pick<TokenUsage, 'cacheTtlMs' | 'cacheWriteTtlTokens'> {
+	let fiveMin = 0
+	let oneHour = 0
+	for (const detail of raw.cacheDetails ?? []) {
+		if (detail.ttl === '1h') oneHour += detail.inputTokens ?? 0
+		else if (detail.ttl === '5m') fiveMin += detail.inputTokens ?? 0
+	}
+	const cacheTtlMs =
+		oneHour > 0
+			? 3_600_000
+			: fiveMin > 0
+				? 300_000
+				: requestedTtl === undefined
+					? undefined
+					: requestedTtl === '1h'
+						? 3_600_000
+						: 300_000
+	return {
+		...(cacheTtlMs !== undefined ? { cacheTtlMs } : {}),
+		...(raw.cacheDetails
+			? {
+					cacheWriteTtlTokens: {
+						...(fiveMin > 0 ? { fiveMin } : {}),
+						...(oneHour > 0 ? { oneHour } : {}),
+					},
+				}
+			: {}),
 	}
 }
 
@@ -418,6 +487,9 @@ export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: false,
 	supportsToolResultImages: false,
 	supportsToolResultDocuments: false,
+	// `'1h'` takes effect only on Claude 4.5 and later (`supportsOneHourCache`);
+	// any other model keeps the default lifetime.
+	cacheTtl: ['5m', '1h'],
 }
 
 export class BedrockProvider implements LLMProvider {
@@ -471,9 +543,17 @@ export class BedrockProvider implements LLMProvider {
 		// rather than a discount they never had.
 		const cachingEnabled = params.cacheControl !== undefined && isAnthropicServedModel(params.model)
 
-		const system = extractSystemBlocks(params.messages, cachingEnabled)
-		const messages = toBedrockMessages(params.messages, { cachePoint: cachingEnabled })
-		const toolConfig = toBedrockToolConfig(params, cachingEnabled)
+		// A lifetime is claimed only for a call that caches. `'1h'` is asked for
+		// only where the model accepts it; otherwise the default lifetime stands.
+		const asked = params.cacheControl?.ttl ?? this.config.promptCacheTtl
+		const cacheTtl: '5m' | '1h' | undefined = !cachingEnabled
+			? undefined
+			: asked === '1h' && supportsOneHourCache(params.model)
+				? '1h'
+				: '5m'
+		const system = extractSystemBlocks(params.messages, cachingEnabled, cacheTtl)
+		const messages = toBedrockMessages(params.messages, { cachePoint: cachingEnabled, cacheTtl })
+		const toolConfig = toBedrockToolConfig(params, cachingEnabled, cacheTtl)
 
 		const inferenceConfig: Record<string, unknown> = {}
 		if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
@@ -614,7 +694,7 @@ export class BedrockProvider implements LLMProvider {
 					}
 
 					if ('metadata' in event && event.metadata?.usage) {
-						const usage = parseBedrockUsage(event.metadata.usage as RawBedrockUsage)
+						const usage = parseBedrockUsage(event.metadata.usage as RawBedrockUsage, cacheTtl)
 						yield {
 							id: requestId,
 							delta: {},

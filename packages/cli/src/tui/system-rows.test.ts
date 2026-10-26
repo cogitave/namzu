@@ -12,21 +12,21 @@ import {
 	interruptionRow,
 	systemRowStyle,
 } from './system-rows.js'
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 
 describe('systemRowStyle', () => {
 	it('is one dot whose colour is the level', () => {
 		expect(systemRowStyle('warning')).toEqual({
 			glyph: '●',
-			color: theme.status.warn,
+			color: tokenColor('status.warn'),
 		})
 		expect(systemRowStyle('error')).toEqual({
 			glyph: '●',
-			color: theme.status.error,
+			color: tokenColor('status.error'),
 		})
 		expect(systemRowStyle('notice')).toEqual({
 			glyph: '●',
-			color: theme.text.muted,
+			color: tokenColor('text.muted'),
 		})
 	})
 })
@@ -36,7 +36,7 @@ describe('interruptionRow', () => {
 		expect(interruptionRow({ callRunning: true })).toEqual({
 			content: 'Interrupted · What should Namzu do instead?',
 			glyph: '⎿',
-			color: theme.text.muted,
+			color: tokenColor('text.muted'),
 		})
 		expect(INTERRUPTED_TEXT).toBe('Interrupted · What should Namzu do instead?')
 	})
@@ -44,7 +44,7 @@ describe('interruptionRow', () => {
 	it('stands alone as a dim notice when no call was running', () => {
 		expect(interruptionRow({ callRunning: false })).toMatchObject({
 			glyph: '●',
-			color: theme.text.muted,
+			color: tokenColor('text.muted'),
 		})
 	})
 

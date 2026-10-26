@@ -14,7 +14,7 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 	return defineTool({
 		name: 'switch_model',
 		description:
-			'Change the current conversation model when the user requests it. Call this tool directly and alone, after any other work is finished; no tool search is needed. Supply the full model ID including its variant (for example gpt-5.6-luna, not just gpt-5.6), and optionally a provider ID. This tool checks available model catalogues and returns relevant choices on failure. Acceptance ends the turn automatically; the host applies the session-only change and confirms it. Do not repeat an accepted request or use this tool to change a delegated agent.',
+			'Change the current conversation model when the user requests it. Call this tool directly and alone, after any other work is finished; no tool search is needed. Supply the full model ID including its variant suffix, not just the base name, and optionally a provider ID. This tool checks available model catalogues and returns relevant choices on failure. Acceptance ends the turn automatically; the host applies the session-only change and confirms it. Do not repeat an accepted request or use this tool to change a delegated agent.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {

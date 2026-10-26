@@ -144,8 +144,7 @@ one-turn max-effort pin does not change it.
   forgets the decision and reads them again.
 - **Backspace** right after an armed `hypermode` drops it first and deletes
   nothing; the next Backspace deletes as usual.
-- **Esc** is not used: it interrupts a running turn and clears an idle draft,
-  as before.
+- **Esc** is not used: it interrupts a running turn and clears an idle draft (on the second press, after `Esc again to clear`).
 
 ## Enter, Tab and a running turn
 

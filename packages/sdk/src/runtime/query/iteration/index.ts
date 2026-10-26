@@ -1201,6 +1201,14 @@ export class IterationOrchestrator {
 						usage: recorder.tokenUsage,
 						budget: recorder.budget?.summary(),
 						cost: recorder.costInfo,
+						...(response.usage.cacheTtlMs !== undefined
+							? {
+									cache: {
+										ttlMs: response.usage.cacheTtlMs,
+										touched: response.usage.cachedTokens + response.usage.cacheWriteTokens > 0,
+									},
+								}
+							: {}),
 						...contextFigures,
 					})
 

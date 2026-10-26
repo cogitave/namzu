@@ -126,7 +126,7 @@ export function checkBrowserGrant(
 	const entries = Object.entries(input.sites)
 	if (entries.length === 0) {
 		throw new Error(
-			'A browser grant needs at least one site, e.g. --browser-site https://github.com=read.',
+			'A browser grant needs at least one site, e.g. --browser-site https://example.com=read.',
 		)
 	}
 	const sites: Record<string, ScheduleBrowserSiteLevel> = {}

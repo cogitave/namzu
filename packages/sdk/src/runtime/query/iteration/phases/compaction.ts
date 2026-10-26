@@ -13,7 +13,11 @@ import type { ContextReducer, ContextReduction } from '../../../../compaction/re
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
-import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
+import {
+	COMPACTION_RECOVERY_NOTE,
+	buildCompactionMessage,
+	isCompactionMessage,
+} from '../../../../compaction/summary.js'
 import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
 import { buildVerifiedSummaryWithBoundedProvider } from '../../../../compaction/verifier.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
@@ -999,7 +1003,14 @@ async function runCompactionCheckInner(
 		compactedContent = serializeState(manager.getState())
 	}
 
-	const compactionMessage = buildCompactionMessage(compactedContent)
+	// The pointer is only worth a line when both tools it names are mounted.
+	const mounted = new Set(ctx.tools?.listNames?.() ?? [])
+	const compactionMessage = buildCompactionMessage(
+		compactedContent,
+		mounted.has('search_conversation') && mounted.has('read_conversation')
+			? COMPACTION_RECOVERY_NOTE
+			: undefined,
+	)
 
 	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this turn's
 	// leading floor — `serializeState` is cumulative, so the new summary

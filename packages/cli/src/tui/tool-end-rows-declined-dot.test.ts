@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 import { type ToolEndEvent, toolEndRows } from './tool-end-rows.js'
 
 const base = {
@@ -19,7 +19,7 @@ describe('the dot of a call the person declined', () => {
 			{ hasPlan: false },
 		)
 		if (declined.kind !== 'rows') throw new Error('expected rows')
-		expect(declined.rows[0]?.glyphColor).toBe(theme.status.error)
+		expect(declined.rows[0]?.glyphColor).toBe(tokenColor('status.error'))
 		expect(declined.rows[1]?.content).toContain('You declined this')
 	})
 })

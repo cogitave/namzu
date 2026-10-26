@@ -1,5 +1,60 @@
 # Changelog
 
+## 54.0.0
+
+### Major Changes
+
+- 38d62f7: The `bash` tool no longer reports a failure when a search or comparison command uses its exit status to answer. When the last command of the line is `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` or `git grep`, exit 1 now returns `success: true` with no `error` (it was `success: false` with `Command exited with code 1`), and `data.exitNote` and the new optional `ToolFacts` command field `exitNote` carry a short sentence (`No matches found`, `Some directories were inaccessible`, `Files differ`, `Condition is false`). Exit 2 and above, every other command, and a line whose last step follows `&&` (the status may belong to an earlier step) fail exactly as before. This changes the default result for those commands, so code that read `success === false` or the `error` text to detect "no match" must read `data.exitCode` (still 1) instead. The model's text is unchanged. In the terminal such a call is drawn as a success and, when it printed nothing, shows the note in dim where `(No output)` was, and a read-only search of this kind with no match stays inside its collapsed read and search line instead of ending it with a red failure.
+- 38d62f7: `ToolFailureReason` gains four members: `not_read` (an edit or write on a file the conversation never read), `changed_on_disk` (the copy it was based on has since changed), `text_not_found` and `not_unique` (an edit whose text is missing or appears more than once). The `edit` and `write` tools now return them in `facts` on those refusals. A write over an existing file that was never read used to report `already_exists`; it now reports `not_read` (breaking: `facts.reason === 'already_exists'` no longer matches that case, so match `not_read` as well, or both, to keep handling it). If you `switch` over `ToolFailureReason` exhaustively, add cases for the four new members or a default branch.
+- 38d62f7: The compaction record's `trigger` now also accepts `'idle'` (a conversation compacted while nobody was using it). Breaking for code that switches over `trigger` exhaustively, or narrows it to the earlier members: add a case for `'idle'` (or a default branch). The same release adds `compactSession({ trigger: 'idle' })`, optional `TokenUsage.cacheTtlMs` and `cacheWriteTtlTokens`, `CacheControl.ttl`, the `cacheTtl` provider capability, a `CacheClock` helper and an optional `cache` field on the `token_usage_updated` event; none of those changes behaviour for existing callers.
+
+### Minor Changes
+
+- 38d62f7: Add `analyzeContextUsage`, which splits a context window into its parts (system prompt, tools, MCP tools and instructions, agents, memory files, skills, messages, free space and the compaction buffer) and sizes tool calls and results by tool name. Also adds `describeToolCatalogTokens` and `estimateTextTokens`. Nothing existing changes; a host that wants a "where did my context go" view can call these.
+- 38d62f7: `ToolFailureReason` gains `invalid_arguments`: the call's arguments did not fit the tool's input schema, so the tool never ran. The tool registry now returns it in `facts` on that refusal (it has no `subject`). Nothing existing changes; if you `switch` over `ToolFailureReason` exhaustively, add a case for it or a default branch.
+- 38d62f7: Esc twice on an empty message now opens a rewind dialog instead of the previous-prompt picker, and the first Esc no longer shows "Press Esc again to edit a previous prompt". The second Esc counts only within 800 ms of the first, and any other key in between starts over. With a draft typed, Esc still means "clear it": the first Esc shows `Esc again to clear` and the second clears the draft. A running reply keeps Esc for interrupting, and inside the detailed transcript or a dialog Esc only closes it.
+
+  What changes for you: to edit an earlier prompt, press Esc twice, pick the prompt, and choose "Restore conversation". It does what the old picker did (continues in a new conversation before that prompt and puts the prompt back in the composer; the original stays in `/resume`). The dialog also offers "Restore code" (puts files back with the same drift-checked plan as `/restore`), "Restore code and conversation", "Summarize from here" and "Summarize up to here", and shows what each prompt would do to your files. `/rewind` opens the same dialog, with `/undo` and `/checkpoint` as aliases; `/restore` is unchanged. A project command or plugin command named `undo`, `checkpoint` or `rewind` is shadowed by the built-in.
+
+  `@namzu/sdk` adds `compactSessionRange` (and `CompactSessionRangeParams`): like `compactSession`, but it summarises only the messages from one recorded message id up to another and leaves the rest of the context verbatim.
+
+### Patch Changes
+
+- bb67398: Breaking default in `@namzu/cli`: `save_memory` and `update_memory` no longer ask for approval in the default mode (ask before changes) and in the mode that approves edits. They write only to namzu's own memory store under its home, never to a workspace file. Before, every save asked "Do you want to run save_memory?". `delete_memory` still asks; plan mode, strict mode and the classifier mode treat the memory tools as before. To be asked again, add `permissions: { save_memory: "ask", update_memory: "ask" }` to the configuration.
+
+  The model now keeps memory itself during a session. When the memory tools are mounted, the system prompt carries a short `## Memory` section saying what is worth saving (the person's preferences and corrections, decisions and their reasons, lessons from failures that will recur or were not obvious, pointers to outside resources), what to leave out (what the repository records, progress, secrets), and how to keep the store tidy (one fact per memory, update instead of duplicating, remove a wrong one, check a recalled memory against the current code). When the person asks to remember something the repository already records, the model saves only what was surprising about it. A sub-agent that holds `save_memory` gets the same section. The section sits in the stable prefix, so it does not change prompt caching. The descriptions of `save_memory`, `search_memory`, `read_memory`, `update_memory` and `delete_memory` now state purpose, when to use the tool and what it returns, and the stored-memory index paragraph no longer repeats those rules. No option, export or tool input changes.
+
+## 53.2.2
+
+### Patch Changes
+
+- b4a44b9: Model-facing wording (the system prompt, tool descriptions and bundled skills) now names categories instead of specific products, sites or models as examples, so an example is no longer repeated back as a preference. No API or behaviour change; nothing to do on upgrade.
+
+## 53.2.1
+
+### Patch Changes
+
+- 36e89ef: A turn whose tool inputs or results contain a very long unbroken run of capital letters, or a long run of dots, dashes or slashes inside one word, no longer freezes before the next model request. The compaction scorer split such a token with patterns (the capitals split and the separator trim) that took time quadratic in the length (about 30 seconds for 150,000 characters, per call) and tokenized every message twice; it now splits in linear time and tokenizes each message once. Scores, budgets and spills are unchanged; nothing to do on upgrade.
+
+## 53.2.0
+
+### Minor Changes
+
+- 30654df: Adds `SessionEvidenceOffsetError`, thrown by a session text evidence source's `read` when the byte offset falls inside a multi-byte character (`code: 'inside_character'`) or beyond the text (`code: 'past_end'`), with `totalBytes` and the `scannedBytes` the failed read was charged. Both used to be plain `Error`s with the same messages, so a caller could not tell a bad position from an integrity or ownership refusal. The messages are unchanged and the class extends `Error`, so existing handlers keep working.
+- 30654df: A tool output that was cut now says one thing about how to get the rest, wherever the model meets it. The saved-file line is followed by a sentence that names only the tools the turn has: `read` (open the file, `offset`/`limit`) and, when both are mounted, `search_conversation` then `read_conversation`. The cleared-result placeholder keeps that sentence instead of its own advice, and every compaction summary of a conversation with those tools ends with a pointer to them. The built-in `read` tool now opens a regular `.txt` file in the session's own retained-output directory without a prompt (no symbolic link, no second hard link, read-only), so the pointer is true; `ToolContext.retainedOutputDirectory` is new and optional, and `CompactNowInput.recoveryNote` and `COMPACTION_RECOVERY_NOTE` are new exports. The conversation guidance no longer tells the model not to use `read`. Nothing is removed; a host that mounts neither tool still gets the neutral wording.
+- 5e9539a: A delegated child saved by an earlier process can now be continued. Pass `continuationProfile` (up to 16 short string entries, never a secret) to `createTask` when launching the child; it is written to the child's `meta.json`. In a later process, call the new optional `TaskScheduler.restoreChild({ childSessionId, workingDirectory, agentFor })`, which checks the saved log and meta under the invoking parent and re-creates the continuation that `createTask({ resumeSessionId })` needs, then continue the child with that call. It answers `{ status: 'refused', reason }` for a child with no profile, an isolated workspace, an unfinished turn, or one that was cancelled. Nothing changes for callers that do not use it; `ChildSessionMeta` gains an optional `continuation` field and `AgentManagerContract` an optional `restoreChildConversation`.
+
+### Patch Changes
+
+- 30654df: An evidence address or cursor from a session log no longer stops working as soon as the log grows. The seal used to include the log file's size and times, so every tool call of a running conversation voided the address a search had just returned, and `read_conversation` after `search_conversation`, or a second page by `nextCursor`, answered "could not be read". The seal now binds the file's identity, and the read still checks the record's offset, length and digest. A log that was rewritten or replaced is still refused. Nothing to do on upgrade.
+- 30654df: A conversation search address or cursor now stays valid when the next tool call reads it, even though that call is anchored at a later record. Previously every `read_conversation` after a `search_conversation` in a running turn was refused as changed. A seq past the end of the conversation is also answered at once on the live backend, naming the highest retained seq. Nothing to change in callers.
+
+## 53.1.0
+
+### Minor Changes
+
+- f225fb7: A tool call whose input is too large for one session-log record no longer ends the turn. The large `input` of a `tool_review_requested`, `decision_requested`, `tool_executing` or `tool_input_completed` record is now written to `tool-results/` and the record holds `{ "$spilledInput": <spill reference>, "preview": … }` in its place; a resumed turn reads the parked request's inputs back whole. A reader that walks the log itself and wants the full input of such a record reads the referenced spill (`SessionLog.readSpill`). Nothing to do for hosts that use the runtime.
+
 ## 53.0.0
 
 ### Major Changes
@@ -14,7 +69,7 @@
 
 ### Patch Changes
 
-- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from ` ⎿ ` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
+- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from `⎿` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
 
 ## 52.7.0
 

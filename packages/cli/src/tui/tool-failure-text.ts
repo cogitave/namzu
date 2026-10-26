@@ -10,6 +10,10 @@
 const WHOLE_TOOL_ERROR = /^\s*<tool_use_error>([\s\S]*)<\/tool_use_error>\s*$/i
 const NESTED_TOOL_ERROR = /<\/?tool_use_error\b/i
 
+/** The words the kernel's argument check opens with when a call's arguments do not fit its schema. */
+const BAD_ARGUMENTS =
+	/^(?:InputValidationError: |Validation failed for "|Tool "[^"]+" was called with no arguments\.)/
+
 /** The failure text of a tool result, ready to draw. `expanded` is the Ctrl+O view. */
 export function toolFailureText(output: string | undefined, expanded: boolean): string {
 	if (output === undefined) return 'Tool execution failed'
@@ -19,7 +23,7 @@ export function toolFailureText(output: string | undefined, expanded: boolean): 
 		.replace(/<sandbox_violations>[\s\S]*?<\/sandbox_violations>/g, '')
 		.replace(/<\/?error>/g, '')
 		.trim()
-	if (!expanded && text.startsWith('InputValidationError: ')) return 'Invalid tool parameters'
+	if (!expanded && BAD_ARGUMENTS.test(text)) return 'Invalid tool parameters'
 	return text.startsWith('Error: ') || text.startsWith('Cancelled: ') ? text : `Error: ${text}`
 }
 

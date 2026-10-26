@@ -1,26 +1,10 @@
 /**
- * The expand key reopens a body where it already is.
+ * Ctrl+O opens the detailed transcript on the screen surface.
  *
- * ## What it could not do before, and how that was established
- *
- * Every finalized row went through `<Static>`, which prints a row once and
- * never redraws it. So the key advertised on every collapsed body could not
- * reach the body: measured with a twelve-line body up, pressing it produced one
- * further frame whose transcript region was byte-identical to the previous one.
- * That is why expansion had to become a command appending a second copy of the
- * output further down.
- *
- * The rows at the end of the transcript are now drawn live, so for those the
- * key does what it always claimed.
- *
- * ## Why this is on the screen surface
- *
- * A frame string cannot tell "printed again below" from "rewritten in place",
- * and that distinction is the whole of this change. The emulated terminal can:
- * the row that showed the hint is asked what it shows now, an anchor above it
- * is asked whether it moved, and the buffer is asked how many copies of the
- * body it holds. An assertion that the hidden lines are "visible somewhere"
- * would pass for the appending command that already exists.
+ * A frame string cannot tell "printed into scrollback" from "drawn in the live
+ * region and gone again", and that distinction is the whole of this behaviour:
+ * the screen must leave the terminal's own scrollback exactly as it found it.
+ * The emulated terminal can be asked how many lines the buffer holds.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -156,50 +140,35 @@ async function aCollapsedBody(): Promise<Screen> {
 	return screen
 }
 
-describe('the expand key, on a body that is still on screen', () => {
-	it('opens it where it is, rather than printing a second copy below', async () => {
+describe('the detailed transcript, on a body that is folded in the live view', () => {
+	it('shows the hidden lines and takes the hint with it', async () => {
 		const screen = await aCollapsedBody()
-
 		const before = screen.viewport().join('\n')
 		expect(before, 'the body was not collapsed to begin with').toContain('… +6 lines')
-		expect(before, 'the hidden lines were visible before the key was pressed').not.toContain(
-			'result-line-4',
-		)
-		const hintRow = rowOf(screen, '… +6 lines')
-		const anchorRow = rowOf(screen, 'result-line-1')
-		expect(hintRow, 'the hint is not on screen').toBeGreaterThan(-1)
+		expect(before).not.toContain('result-line-4')
 
 		screen.press('\x0f') // Ctrl+O
-		await screenShows(screen, 'result-line-4')
+		await screenShows(screen, 'Showing detailed transcript')
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('result-line-4')
+		expect(frame, 'the screen still points at itself').not.toContain('(ctrl+o to expand)')
+		expect(frame, 'the composer is still drawn').not.toContain('Type a message')
+	}, 30_000)
 
-		// The rows above did not move, so the row indexes below mean something.
-		// If this fails the viewport scrolled, and the test says so rather than
-		// quietly asserting about a different row.
-		expect(rowOf(screen, 'result-line-1'), 'the viewport scrolled under the assertion').toBe(
-			anchorRow,
-		)
-		// The row that carried the hint now carries the fourth line of the body.
-		// This is the assertion a frame string cannot make.
-		expect(
-			screen.row(hintRow),
-			'the row that advertised the hidden lines is not the row that now shows them',
-		).toContain('result-line-4')
-		// And the hint is gone rather than still sitting above a copy.
-		expect(screen.viewport().join('\n'), 'the collapsed row was left behind').not.toContain(
-			'… +6 lines',
-		)
-		// One copy of the body on screen, not two. An appended expansion leaves
-		// the collapsed rows above its copy and would satisfy every "the hidden
-		// lines are visible somewhere" assertion.
-		//
-		// Read from the viewport rather than the whole buffer: a terminal that
-		// has scrolled keeps the frames that scrolled off, and those are the
-		// operator's history rather than the screen they are looking at.
-		//
-		// `endsWith`, because `result-line-1` is a prefix of `result-line-12` and
-		// a substring match counts the same body four times.
-		const copies = screen.viewport().filter((line) => line.endsWith('result-line-1'))
-		expect(copies, 'the body was printed a second time instead of reopened').toHaveLength(1)
+	it('writes nothing to scrollback by opening or closing', async () => {
+		const screen = await aCollapsedBody()
+		await screen.resize(COLS, 18)
+		screen.press('draft stays here')
+		await screen.waitForRender()
+		const before = screen.scrollback().join('\n')
+		for (let attempt = 0; attempt < 3; attempt++) {
+			screen.press('\x0f')
+			await screenShows(screen, 'Showing detailed transcript')
+			screen.press(attempt === 1 ? '\x0f' : 'q')
+			await screenShows(screen, 'draft stays here')
+			expect(screen.viewport().join('\n')).not.toContain('Showing detailed transcript')
+		}
+		expect(screen.scrollback().join('\n'), 'a copy of the body reached scrollback').toBe(before)
 	}, 30_000)
 
 	it('keeps the composer contiguous with a short transcript on a tall terminal', async () => {
@@ -254,18 +223,9 @@ describe('the expand key, on a body that is still on screen', () => {
 		30_000,
 	)
 
-	it('still reaches the rows of the conversation after Ctrl+L', async () => {
-		// Ctrl+L empties the transcript and remounts the static log, and the
-		// window has to come back with it.
-		//
-		// Honest about what this does NOT pin: dropping `settledRef` in
-		// `resetTranscript` leaves this green — verified by mutation. A stale
-		// floor is self-correcting, because it is clamped to the transcript's
-		// length and the window reopens as the new conversation grows past it,
-		// and this fixture's second conversation is already longer than the
-		// floor the first one left. What it does pin is the outcome an operator
-		// would notice: the key still reaches a body after the screen has been
-		// cleared under it.
+	it('shows only the new conversation after Ctrl+L', async () => {
+		// Ctrl+L empties the transcript; the screen opened afterwards must not
+		// bring the cleared rows back.
 		const screen = await aCollapsedBody()
 
 		screen.press('\x0c')
@@ -274,67 +234,20 @@ describe('the expand key, on a body that is still on screen', () => {
 			'result-line-12',
 		)
 
-		screen.press('go')
-		await screen.waitForRender()
-		screen.press('\r')
-		await screenShows(screen, 'result-line-12')
-
 		screen.press('\x0f')
-		await screenShows(screen, 'result-line-4')
-		expect(
-			screen.viewport().join('\n'),
-			'the key stopped reaching anything once the transcript had been cleared',
-		).toContain('result-line-4')
+		await screenShows(screen, 'Showing detailed transcript')
+		expect(screen.viewport().join('\n'), 'a cleared body came back').not.toContain('result-line-12')
 	}, 30_000)
 
-	it('closes it again, because it is a toggle', async () => {
-		const screen = await aCollapsedBody()
-
-		screen.press('\x0f')
-		await screenShows(screen, 'result-line-4')
-		screen.press('\x0f')
-		await screenShows(screen, '… +6 lines')
-
-		const frame = screen.viewport().join('\n')
-		expect(frame, 'the key only ever opened').toContain('… +6 lines')
-		expect(frame, 'the body stayed open').not.toContain('result-line-4')
-	}, 30_000)
-})
-
-describe('older output in a small terminal', () => {
-	it('keeps the open output viewer while the terminal expands', async () => {
+	it('stays up while the terminal grows', async () => {
 		const screen = await aCollapsedBody()
 		await screen.resize(COLS, 18)
 		screen.press('\x0f')
-		await screenShows(screen, 'Tool output')
-		screen.press('G')
-		await screenShows(screen, 'result-line-12')
+		await screenShows(screen, 'Showing detailed transcript')
 
-		await screen.resize(160, 18)
-		expect(screen.viewport().join('\n')).toContain('Tool output')
+		await screen.resize(160, 30)
+		await screenShows(screen, 'Showing detailed transcript')
 		expect(screen.viewport().join('\n')).toContain('result-line-12')
 		expect(screen.bufferType()).toBe('normal')
-	})
-
-	it('opens, pages and closes repeatedly without adding full copies to scrollback', async () => {
-		const screen = await aCollapsedBody()
-		await screen.resize(COLS, 18)
-		screen.press('draft stays here')
-		await screen.waitForRender()
-		const before = screen.scrollback().filter((line) => line.includes('result-line-1')).length
-		for (let attempt = 0; attempt < 3; attempt++) {
-			screen.press('\x0f')
-			await screenShows(screen, 'Tool output')
-			expect(screen.viewport().join('\n')).not.toContain('in full (')
-			screen.press('G')
-			await screenShows(screen, 'result-line-12')
-			screen.press(attempt === 1 ? '\x0f' : 'q')
-			for (let i = 0; i < 100 && screen.viewport().join('\n').includes('Tool output'); i++)
-				await screen.waitForRender()
-			expect(screen.viewport().join('\n')).not.toContain('Tool output')
-			expect(screen.viewport().join('\n')).toContain('draft stays here')
-		}
-		expect(screen.scrollback().filter((line) => line.includes('result-line-1')).length).toBe(before)
-		expect(screen.scrollback().join('\n')).not.toContain('in full (')
-	})
+	}, 30_000)
 })

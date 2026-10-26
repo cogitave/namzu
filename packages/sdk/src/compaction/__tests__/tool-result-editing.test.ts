@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { describeRetainedOutputRecovery } from '../../runtime/query/tool-output-budget.js'
 import type { Message } from '../../types/message/index.js'
 import { clearStaleToolResults, isClearedToolResult } from '../tool-result-editing.js'
 
@@ -37,6 +38,29 @@ function conversation(
 	})
 	return messages
 }
+
+describe('a cleared result that was saved to a file', () => {
+	it('keeps the spill line with the sentence that came with it, and adds no second route', () => {
+		const pointer = [
+			'The full output was written to: /state/s1/tool-results/abc.txt',
+			describeRetainedOutputRecovery({ read: true, conversation: true }),
+		].join('\n')
+		const messages = conversation([
+			{ tool: 'bash', output: `${big(30_000)}\n${pointer}\n${big(30_000)}` },
+			{ tool: 'ls', output: 'a.ts' },
+			{ tool: 'ls', output: 'b.ts' },
+			{ tool: 'ls', output: 'c.ts' },
+		])
+
+		const { messages: edited } = clearStaleToolResults(messages)
+
+		const cleared = edited.find((m) => m.role === 'tool' && isClearedToolResult(m.content))
+		const text = String(cleared?.content)
+		expect(text).toContain(pointer)
+		expect(text).not.toMatch(/`read`|`grep`|Read a window/)
+		expect(text.match(/open this file with the read tool/g)).toHaveLength(1)
+	})
+})
 
 describe('clearStaleToolResults', () => {
 	it('clears an old, large result and leaves a placeholder naming the tool', () => {

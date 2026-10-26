@@ -1,5 +1,8 @@
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
-import { SPILL_MARKER } from '../runtime/query/tool-output-budget.js'
+import {
+	describeRetainedOutputRecovery,
+	retainedOutputPointer,
+} from '../runtime/query/tool-output-budget.js'
 import { toolResultToText } from '../types/message/content.js'
 import type { Message, ToolMessage, ToolResultBlock } from '../types/message/index.js'
 import { findRetainedIndices } from './retention.js'
@@ -68,8 +71,8 @@ const KEEP_TAIL_CHARS = 200
  * back to it. Replacing the whole content destroyed the cheapest recovery
  * route precisely for the largest results — and then told the model to
  * call the tool again, which is advice to re-run something that returned
- * megabytes. Keeping one line preserves a `read`/`grep` route worth far
- * more than the line costs.
+ * megabytes. Keeping the line and its recovery sentence preserves a route
+ * worth far more than the two lines cost.
  *
  * A HEAD AND TAIL, because a result is not uniformly valuable: what a
  * model needs from a long output is usually near one end, and keeping a
@@ -86,12 +89,12 @@ function clearedPlaceholder(
 		`${CLEARED_PREFIX} ${toolName} returned ${size.toLocaleString('en-US')} characters, cleared to reclaim context.`,
 	]
 
-	const spillLine = text.split('\n').find((line) => line.startsWith(SPILL_MARKER))
-	if (spillLine) {
-		parts.push(
-			spillLine,
-			'Read a window of it with `read` (offset/limit) or search it with `grep`.',
-		)
+	// The pointer is the spill line with the sentence that came with it, so the
+	// route is stated once, where the output was cut, and never contradicted here.
+	const pointer = retainedOutputPointer(text)
+	if (pointer) {
+		// A pointer written before the sentence existed gets the neutral one.
+		parts.push(pointer.includes('\n') ? pointer : `${pointer}\n${describeRetainedOutputRecovery()}`)
 	} else {
 		parts.push(
 			'Full result unavailable here. Recover from a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.',

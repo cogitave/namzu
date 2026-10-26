@@ -96,6 +96,8 @@ it('continues a dynamic child across parent turns with fresh task/provider and o
 		)
 		expect(receipt.kind).toBe('started')
 		expect(receipt.taskId).not.toBe(original.taskId)
+		// The conversation keeps knowing the agent by the id it was first given.
+		expect(receipt.agentTaskId).toBe(original.taskId)
 		expect(receipt.sessionId).toBe(old.sessionId)
 		const newTask = await (await runtime.gatewayForTurn(f.nextTurn)).waitForTask(
 			asTaskId(receipt.taskId),
@@ -130,7 +132,7 @@ it('continues a dynamic child across parent turns with fresh task/provider and o
 		expect(journal.map((row) => row.status)).toEqual(['submitted', 'accepted'])
 		expect(journal[1]).toMatchObject({
 			source: 'operator',
-			taskId: receipt.taskId,
+			taskId: original.taskId,
 			message: 'FOLLOW_UP_TASK',
 		})
 	} finally {

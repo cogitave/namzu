@@ -22,6 +22,7 @@
 
 The operator application.
 
+* [Themes and reduced motion](themes.md) - The seven theme choices, how auto decides, the /theme picker with preview, the tui.theme and tui.reducedMotion keys and what reduced motion turns off.
 * [Terminal design](terminal-design.md) - Namzu's visual identity, conversation hierarchy and terminal interaction boundaries.
 * [Command experience audit](command-experience-audit.md) - Verified command defects, comparison with Codex source, and proposed interaction improvements.
 * [Harness efficiency review](harness-efficiency-review.md) - Revision-pinned comparisons, existing strengths and measurable improvements to tool and delegation workflows.
