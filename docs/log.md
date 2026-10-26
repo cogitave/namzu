@@ -2,6 +2,7 @@
 
 ## 2026-10-26
 
+- **Update** [Where tools run](cli/tool-boundary.md): one `composeSessionSystemPrompt` builds the system prompt for new turns and resumed delegated turns, so a resumed turn now carries plan-mode doctrine, deferred-tool guidance and the Agent-tool rule like a new one; the per-audience table is in the composer. `.changeset/one-prompt-composer.md` (`@namzu/cli` patch).
 - **Update** [Resident context](sdk/resident-context.md): `PromptBuilder.build()` is derived from `buildSegmented()` (static, separator, dynamic) instead of being assembled in a second order, so the whole-prompt cache hash covers the text a request sends. `.changeset/one-prompt-order.md` (`@namzu/sdk` patch).
 - **Update** [Where tools run](cli/tool-boundary.md): the host sentence in the environment block is derived from the turn's permission mode (it no longer says every call "may ask" under `bypass`, `strict`, `auto` or `plan`) and says a call that would ask is refused when nobody is at the terminal. `.changeset/prompt-text-defects.md` (`@namzu/cli` patch).
 - **Update** [Where tools run](cli/tool-boundary.md): the identity block names its tools from the tools' own names (the shell tool is `bash`, never `bash.run`), drops the closed six-tool list, and says one consistent thing about parallel and delegated work; a lint test over the assembled prompts checks tool names, product names and start-over wording. `.changeset/prompt-text-defects.md` (`@namzu/cli` patch).

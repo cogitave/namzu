@@ -233,22 +233,13 @@ import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.j
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
-	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_PLAN_FILE_DOCTRINE,
-	NAMZU_PLAN_MODE_DOCTRINE,
-	NAMZU_WORKING_DOCTRINE,
-} from '../context/doctrine.js'
-import {
 	type ExecutionBoundary,
 	composeEnvironmentPrompt,
 	detectWsl,
 	readEnvironmentFacts,
 } from '../context/environment.js'
-import {
-	AGENT_LAUNCH_TOOL,
-	FOREGROUND_BASH_DESCRIPTION,
-	NAMZU_IDENTITY,
-} from '../context/identity.js'
+import { AGENT_LAUNCH_TOOL, FOREGROUND_BASH_DESCRIPTION } from '../context/identity.js'
+import { DEFERRED_TOOL_GUIDANCE, composeSessionSystemPrompt } from '../context/system-prompt.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
 	type ResolvedSandbox,
@@ -357,7 +348,6 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
-import { WORKFLOW_DOCTRINE } from '../integrations/workflows/doctrine.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowRefusal } from '../integrations/workflows/offering.js'
@@ -1911,8 +1901,11 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
-export const DEFERRED_TOOL_GUIDANCE =
-	'Before using a tool listed under deferred_tools, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+export { DEFERRED_TOOL_GUIDANCE }
+
+/** True when any toolset sent to a turn defers a tool behind `search_tools`. */
+const anyDeferred = (toolsets: readonly Toolset[]): boolean =>
+	toolsets.some((ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0)
 
 /**
  * Everything `ts` contributes defaults to `deferred` except the names in
@@ -4474,20 +4467,29 @@ export async function createAgentSession(
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
 			})
-			const systemPrompt =
-				[
-					NAMZU_IDENTITY,
-					NAMZU_WORKING_DOCTRINE,
-					browserDesktopRouting,
-					NAMZU_DELEGATION_DOCTRINE,
-					palPromptBlock(),
-					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-					environmentPrompt,
-					systemNote,
-					turnSkills.overflowNote,
-				]
-					.filter((s): s is string => Boolean(s))
-					.join('\n\n') || undefined
+			const resumePlanPath =
+				options.planApproval && !options.ephemeral
+					? paths.planFile({ sessionId: entry.sessionId })
+					: undefined
+			const systemPrompt = composeSessionSystemPrompt({
+				resident: false,
+				browserDesktopRouting,
+				palBlock: palPromptBlock(),
+				environment: environmentPrompt,
+				delegationAvailable: !options.withheldTools?.includes(AGENT_LAUNCH_TOOL),
+				// A resumed turn runs over the session's toolset, which has no
+				// workflow tool: it is added per send, for a turn that carries a
+				// review channel.
+				workflowOffered: false,
+				conversationEvidence: options.conversationSessions
+					? CONVERSATION_EVIDENCE_GUIDANCE
+					: undefined,
+				toolsDeferred: options.toolLoading === 'deferred' || anyDeferred(sessionToolsets),
+				permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
+				planPath: resumePlanPath,
+				systemNote,
+				skillsOverflowNote: turnSkills.overflowNote,
+			})
 
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
@@ -5467,7 +5469,7 @@ export async function createAgentSession(
 						}
 						// The `workflow` tool is listed on every turn of a host that can run
 						// one, and the model is gated by wording: its description and
-						// `WORKFLOW_DOCTRINE` say when it may be called (the operator's
+						// the workflow doctrine say when it may be called (the operator's
 						// keyword, hypermode on, their own words). A tool list
 						// that changes with the message would also change the cached prefix.
 						const workflowOffer =
@@ -5502,44 +5504,23 @@ export async function createAgentSession(
 								messages: () => [],
 							})
 						}
-						const systemPrompt =
-							[
-								NAMZU_IDENTITY,
-								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
-								browserDesktopRouting,
-								// Advice on delegating, for a session that has the Agent tool:
-								// a scheduled run whose job withholds it would only be told how
-								// to use a tool it was not sent.
-								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
-									? undefined
-									: NAMZU_DELEGATION_DOCTRINE,
-								workflowOffer ? WORKFLOW_DOCTRINE : undefined,
-								residentContext ? undefined : palPromptBlock(),
-								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
-								// Whenever anything is deferred, not only under
-								// `toolLoading: 'deferred'`: a deferred tool the model was
-								// never told how to load is a tool it does not have.
-								options.toolLoading === 'deferred' ||
-								runToolsets.some(
-									(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
-								)
-									? DEFERRED_TOOL_GUIDANCE
-									: undefined,
-								// Present only while the turn runs under `plan`. A mode change
-								// is rare, so the cached prefix it re-keys is a price paid once
-								// per switch rather than once per turn.
-								!residentContext && opts?.permissionMode === 'plan'
-									? planPath
-										? NAMZU_PLAN_FILE_DOCTRINE
-										: NAMZU_PLAN_MODE_DOCTRINE
-									: undefined,
-								residentContext ? undefined : environmentPrompt,
-								residentContext ? undefined : opts?.extraSystem,
-								residentContext ? undefined : opts?.systemNote,
-								turnSkills.overflowNote,
-							]
-								.filter((s): s is string => Boolean(s))
-								.join('\n\n') || undefined
+						const systemPrompt = composeSessionSystemPrompt({
+							resident: Boolean(residentContext),
+							browserDesktopRouting,
+							palBlock: palPromptBlock(),
+							environment: environmentPrompt,
+							delegationAvailable: !options.withheldTools?.includes(AGENT_LAUNCH_TOOL),
+							workflowOffered: workflowOffer,
+							conversationEvidence: options.conversationSessions
+								? CONVERSATION_EVIDENCE_GUIDANCE
+								: undefined,
+							toolsDeferred: options.toolLoading === 'deferred' || anyDeferred(runToolsets),
+							permissionMode: opts?.permissionMode,
+							planPath,
+							extraSystem: opts?.extraSystem,
+							systemNote: opts?.systemNote,
+							skillsOverflowNote: turnSkills.overflowNote,
+						})
 						await announceSessionStart()
 						checkpoints.beginTurn(lastUserText(messages), turnId)
 						if (opts?.goalRound) {
