@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Learning in the CLI
-description: namzu learn and namzu learning, the observations ordinary conversations keep when something fails, what is stored and where, how long, and the learningObservations key that turns it off.
+description: namzu learn and namzu learning, the observations ordinary conversations keep when something fails, the built-in generator that learns from them by itself, what is stored and where, how long, and the learningObservations and learningGenerator keys that turn them off.
 resource: packages/cli/src/commands/learn.ts
 tags: [cli, learning, observations, config]
 status: draft
@@ -16,6 +16,9 @@ ordinary conversation, in the terminal or through `namzu exec`, feeds it.
 ## Commands
 
 ```text
+namzu learn [--cwd <path>]
+namzu learn --list [--cwd <path>]
+namzu learn --undo [cycle-id] [--cwd <path>]
 namzu learn <experiment.learning.js> [--trust] [--cwd <path>] [--agent <name>]
 namzu learn --sessions <experiment.learning.js> [--trust] [--cwd <path>]
 namzu learning [cycle-id] [--events] [--after <n>] [--before <n>] [--limit <n>]
@@ -23,9 +26,11 @@ namzu learning --observations [--after <n>] [--limit <n>]
 namzu learning --sessions [--after <n>] [--limit <n>]
 ```
 
-`namzu learn` runs one experiment from a host module you chose, through the SDK's
-[learning cycle](../sdk/learning.md). The module supplies the generator and the
-independent evaluation. Nothing runs in the background, the module runs only
+`namzu learn` with no module runs one cycle of Namzu's own generator now (see
+[Learning by itself](#learning-by-itself)); `--list` and `--undo` show and
+revert what it learned. With a module, `namzu learn` runs one experiment from a
+host module you chose, through the SDK's [learning cycle](../sdk/learning.md).
+The module supplies the generator and the independent evaluation, it runs only
 with `--trust`, and the result becomes active only for the exact revision that
 passed. `namzu learning` lists experiments, shows one, or lists observations.
 `--observations` lists a resident's; `--sessions` lists what conversations in
@@ -88,8 +93,83 @@ nothing. Ephemeral conversations do not read it. An exploration policy is never
 handed to a conversation. Revert by activating an earlier revision through the
 same history, as for a resident.
 
+## Learning by itself
+
+Namzu writes what it learns about working in a folder the way it writes notes
+to memory: in the background, without a command. It is on unless you turn it off
+with `learningGenerator: false` (below). It runs in the interactive terminal,
+never in `exec`, a scheduled run or a sub-agent, and only for conversations that
+keep observations.
+
+**When it starts.** After a turn ends and no turn is open, Namzu checks the
+folder's kept observations. A cycle starts when at least 5 new ones have
+accumulated since the last cycle, at least 6 hours have passed since the last
+cycle started, and today's token allowance is not used up. The check runs at
+most every 10 minutes. Every model call waits for an idle conversation, so a
+cycle never competes with your own turn, and closing the session stops it.
+Only one cycle runs per folder at a time.
+
+**What it does.** One cycle makes one revision of the folder's guidance
+(an instruction skill named `session-guidance`; nothing else is editable, and
+permission review, protected paths, the always-refused command patterns and the
+learning code are never part of what it may change). The model reads the kept
+observations (their fixed one-sentence descriptions, never the failure text),
+the guidance now in force, and what earlier cycles in this folder tried and how
+they ended. A revision that reaches outside the editable surface, or whose
+wording would weaken the safety floor or tell you to start over, is sent back
+once and then refused.
+
+**How it is checked.** The revision never grades itself. A built-in evaluation
+runs fixed scenarios under the current guidance and under the revision: three
+about recovering from trouble and two plain tasks that must not get worse in
+each of two rounds, five tasks per round, two trials per task, with different
+tasks in the second round. Each trial is graded by a separate model call that
+sees the rubric and both replies in an order it cannot tie to a side. The
+revision is activated, for exactly that revision, only when it improves at least
+one task in both rounds, regresses none, and keeps the plain tasks passing. Most
+cycles end `rejected` or `inconclusive`; that is the gate working, not an error.
+The generator never sees the scenarios, and a revision that repeats one is
+refused as a leak. Every outcome, including a rejected revision and what was
+tried, is kept in the folder's learning history and informs the next proposal.
+
+**What it costs.** Which model: the configured `smallModel`, else the cheapest
+text model of the active provider, else the conversation's own model; the
+provider you configured, nothing else. A full cycle makes about 60 model calls,
+mostly short. One cycle stops at 120,000 recorded tokens and all cycles together
+at 300,000 tokens per local day; a call whose usage cannot be measured ends the
+cycle as inconclusive instead of counting as free. `namzu learn` runs the same
+cycle on request and keeps the daily limit.
+
+**Where it is kept and how to undo it.** The guidance and its history are in the
+folder's `learning/guidance` state, the observations and the cycle journal in
+`learning/`, the experience library in `learning/experience.sqlite`, and the
+pause and today's spend in `learning/generator.json`; all stay on this machine.
+`namzu learn --list` shows each activation and which one is active, and
+`namzu learn --undo` restores the guidance the newest active revision replaced
+(or a given cycle, if it is still the active one). An undo is a new revision, so
+it appears in the history. The guidance is advice, never a permission and never
+an instruction to run anything.
+
+### The `learningGenerator` key
+
+```yaml
+learningGenerator: false          # turn learning by itself off
+learningGenerator:
+  enabled: true
+  cycleTokens: 120000             # one cycle (1,000 to 10,000,000)
+  dailyTokens: 300000             # all cycles in one local day
+```
+
+Absent means on with these defaults. A project file can turn learning off and
+lower a cap, never turn it back on or raise a cap. It is not settable from the
+environment. `namzu learn` with no module still runs a cycle by hand when this
+is `false`.
+
 ## What is not done yet
 
-The generator is not built in: Namzu supplies none of its own and activation
-needs a module you wrote. Nothing starts `namzu learn --sessions` by itself;
-you run it.
+The built-in generator proposes one revision of one guidance skill. It does
+not run several candidates at once, compose them, or choose between them blind.
+The evaluation's scenarios are fixed and general (recovering from trouble and
+plain tasks), so guidance specific to a project's own work is checked only for
+doing no harm and for the recovery behaviour. Nothing else Namzu owns (tools,
+hooks, agents, configuration) can be edited by learning.

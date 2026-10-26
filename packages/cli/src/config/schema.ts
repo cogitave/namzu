@@ -450,6 +450,21 @@ export interface NamzuCliConfig {
 	 */
 	readonly learningObservations?: boolean
 	/**
+	 * Whether Namzu learns from what conversations kept, by itself, in the
+	 * background of the interactive terminal. Absent means on. `false` turns
+	 * it off; a mapping sets `enabled` and the token caps for one cycle
+	 * (`cycleTokens`, default 120,000) and for one day (`dailyTokens`, default
+	 * 300,000). A project file can only lower these, never raise them or turn
+	 * learning back on. Not settable from the environment.
+	 */
+	readonly learningGenerator?:
+		| boolean
+		| {
+				readonly enabled?: boolean
+				readonly cycleTokens?: number
+				readonly dailyTokens?: number
+		  }
+	/**
 	 * The scheduler (`namzu schedule`). Read from the user and managed files
 	 * only: a project file is repo content, and a repository must not be able
 	 * to raise how many unattended runs a machine starts or silence their

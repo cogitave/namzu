@@ -58,3 +58,35 @@ export interface SessionLearningTarget extends SqliteLearningStore {
 		readonly projectId: string
 	}
 }
+
+/**
+ * The observation store of a project the caller already knows, opened for
+ * writing. Null when nothing has been recorded there yet. A conversation uses
+ * this to learn from its own project without looking the project up again.
+ */
+export function openLearningTarget(
+	paths: SessionPaths,
+	tenantId: string,
+	projectId: string,
+): SessionLearningTarget | null {
+	const directory = join(paths.projectDir(), 'learning')
+	const databasePath = join(directory, 'learning.sqlite')
+	if (!existsSync(databasePath)) return null
+	for (const entry of [directory, databasePath]) {
+		const stat = lstatSync(entry)
+		if (stat.isSymbolicLink() || (entry === databasePath ? !stat.isFile() : !stat.isDirectory()))
+			return null
+	}
+	return Object.assign(
+		new SqliteLearningStore({
+			databasePath,
+			artifactsPath: join(directory, 'artifacts'),
+			scope: {
+				tenantId: tenantId as never,
+				projectId: projectId as never,
+				agentKey: SESSION_AGENT_KEY,
+			},
+		}),
+		{ target: { paths, tenantId, projectId } },
+	)
+}

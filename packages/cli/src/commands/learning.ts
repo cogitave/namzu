@@ -131,12 +131,14 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 		.exitOverride()
 		.configureOutput({ writeOut: () => {}, writeErr: () => {} })
 		.allowExcessArguments(false)
-		.argument(execute ? '<experiment.learning.js>' : '[cycle-id]')
+		.argument(execute ? '[experiment.learning.js]' : '[cycle-id]')
 		.option('--cwd <path>')
 		.option('--agent <name>', 'Resident name', 'default')
 	if (execute)
 		parser
 			.option('--trust')
+			.option('--list', "List what Namzu learned for this folder's guidance")
+			.option('--undo [cycle-id]', 'Restore the guidance an activation replaced')
 			.option(
 				'--sessions',
 				"Learn from the failures conversations in this folder kept, into this project's own guidance (no resident needed)",
@@ -165,6 +167,8 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 		events?: boolean
 		observations?: boolean
 		sessions?: boolean
+		list?: boolean
+		undo?: boolean | string
 		after?: number
 		before?: number
 		limit?: number
@@ -172,6 +176,28 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 	const target = resolveWorkingDirectory(flags.cwd ?? null)
 	if ('error' in target) {
 		ctx.formatter.error({ message: target.error })
+		return EXIT_USAGE
+	}
+	// No module: Namzu's own learning. One cycle now, or what it learned and how to undo it.
+	if (execute && !parser.args[0]) {
+		const misuse =
+			flags.sessions || flags.trust || flags.agent !== 'default'
+				? '--sessions, --trust and --agent apply to a learning module; none was given.'
+				: flags.list && flags.undo !== undefined
+					? 'Choose --list or --undo, not both.'
+					: null
+		if (misuse) {
+			ctx.formatter.error({ message: misuse })
+			return EXIT_USAGE
+		}
+		const { learnNow, listLearned, undoLearned } = await import('./learn-builtin.js')
+		if (flags.list) return listLearned(ctx, target.cwd)
+		if (flags.undo !== undefined)
+			return undoLearned(ctx, target.cwd, typeof flags.undo === 'string' ? flags.undo : undefined)
+		return learnNow(ctx, target.cwd)
+	}
+	if (flags.list || flags.undo !== undefined) {
+		ctx.formatter.error({ message: '--list and --undo apply to `namzu learn` without a module.' })
 		return EXIT_USAGE
 	}
 	const controller = new AbortController()

@@ -56,8 +56,12 @@ export type GeneratorOutcome =
 export interface GeneratorRunOptions {
 	readonly target: SessionLearningTarget
 	readonly model: LearningModel
-	/** Names the model route, so a change of route is a change of evaluation conditions. */
-	readonly route: string
+	/**
+	 * Names the model route, so a change of route is a change of evaluation
+	 * conditions. A function is called only once a cycle is going to run, so a
+	 * check that starts nothing never looks the route up.
+	 */
+	readonly route: string | (() => Promise<string>)
 	readonly settings: LearningGeneratorSettings
 	/** `automatic` honours the thresholds and the cooldown; `manual` is one cycle on request. */
 	readonly mode: 'automatic' | 'manual'
@@ -136,6 +140,7 @@ export async function runGeneratorCycle(options: GeneratorRunOptions): Promise<G
 				agentKey: SESSION_AGENT_KEY,
 			},
 		})
+		const route = typeof options.route === 'string' ? options.route : await options.route()
 		const plan = scenarioPlan()
 		const leakGuard = { protectedContents: scenarioProtectedContents(plan) }
 		const lastOrdinal = observations.at(-1)?.ordinal ?? state.lastOrdinal
@@ -195,9 +200,7 @@ export async function runGeneratorCycle(options: GeneratorRunOptions): Promise<G
 				options.progress?.(
 					`Learning · checking the revision (${context.stage === 'verification' ? 'first' : 'second'} round)`,
 				)
-				return createScenarioEvaluator({ plan, model: options.model, route: options.route })(
-					context,
-				)
+				return createScenarioEvaluator({ plan, model: options.model, route })(context)
 			},
 		})
 		const proposed = proposal as LearningProposal | null

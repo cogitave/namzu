@@ -29,12 +29,11 @@ execute generated skill code or establish a generalization result.
 
 ## Status and what is missing
 
-Verified 2026-10-26. The cycle is `@experimental` and opt-in: the only way to
-reach it from the CLI is `namzu resident learn <file> --trust`, with a
-host-supplied `<file>.learning.js` generator. Namzu ships no generator of its
-own, installs no background executor, and handles one candidate per cycle:
-there is no fan-out, composition, blind selection, experience library, typed
-edit ledger or leak detector yet. The `resources` option is a per-cycle budget
+Verified 2026-10-26. The cycle is `@experimental`. From the CLI it is reached
+through `namzu learn <file> --trust` with a host-supplied `<file>.learning.js`
+generator, or through Namzu's own built-in generator (the terminal runs it by itself; see [Learning in the CLI](../cli/learning.md#learning-by-itself)).
+The cycle handles one candidate per run: there is no fan-out, composition or
+blind selection among candidates yet. The `resources` option is a per-cycle budget
 cap, not a trigger policy: it bounds what one cycle may spend and does not
 decide when a cycle runs. The [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
 lists what is built, what is opt-in and the staged plan.

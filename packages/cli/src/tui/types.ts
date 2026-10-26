@@ -26,6 +26,7 @@ import type {
 	WorkflowCliConfig,
 } from '../config/schema.js'
 import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
+import type { LearningGeneratorConfig } from '../integrations/learning/generator-settings.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
@@ -172,6 +173,8 @@ export interface TuiContext {
 	readonly hypermode?: boolean
 	/** See `NamzuCliConfig.learningObservations`; anything but `false` keeps them. */
 	readonly learningObservations?: boolean
+	/** See `NamzuCliConfig.learningGenerator`; absent means learning by itself is on. */
+	readonly learningGenerator?: LearningGeneratorConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
 	/** See `NamzuCliConfig.smallModel`. */

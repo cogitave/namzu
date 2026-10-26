@@ -5072,6 +5072,9 @@ export function App({
 								: {}),
 							...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
 							learningObservations: activeCtx.learningObservations !== false,
+							// Learn by itself in the background of this conversation, unless the
+							// config key turned it off.
+							backgroundLearning: { config: activeCtx.learningGenerator },
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.

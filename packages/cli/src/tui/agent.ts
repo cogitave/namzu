@@ -259,11 +259,25 @@ import {
 	maybeCreateDecisionTool,
 } from '../integrations/decision/model.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
+import {
+	type LearningGeneratorConfig,
+	resolveGeneratorSettings,
+} from '../integrations/learning/generator-settings.js'
+import {
+	createBackgroundLearning,
+	withBackgroundLearning,
+} from '../integrations/learning/generator-trigger.js'
+import {
+	type SideLearningModel,
+	createLearningLedger,
+	createSideLearningModel,
+} from '../integrations/learning/learning-model.js'
 import { readProjectGuidance } from '../integrations/learning/project-guidance.js'
 import {
 	createSessionLearningFeed,
 	withSessionLearningFeed,
 } from '../integrations/learning/session-feed.js'
+import { openLearningTarget } from '../integrations/learning/session-store.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -1161,6 +1175,12 @@ export interface AgentSession {
 	 * them, in which case no such request is made.
 	 */
 	readonly sideModel?: SideModel
+	/**
+	 * The model built-in learning uses: the small model's route through the
+	 * configured provider, with each call's tokens counted. Absent where the
+	 * session has no side model.
+	 */
+	readonly learning?: SideLearningModel
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
@@ -2160,6 +2180,15 @@ export interface AgentSessionOptions {
 	 * config key is `false`. Ephemeral sessions never keep any.
 	 */
 	readonly learningObservations?: boolean
+	/**
+	 * Learn by itself from those observations, in the background of this
+	 * conversation (see `NamzuCliConfig.learningGenerator`). Only a host with a
+	 * person present and a long-lived session passes it, the interactive
+	 * terminal; the value is the config key as written, and absent in that host
+	 * means the default (on). Ignored for an ephemeral session or when
+	 * observations are not kept.
+	 */
+	readonly backgroundLearning?: { readonly config: LearningGeneratorConfig | undefined }
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
@@ -3294,6 +3323,7 @@ export async function createAgentSession(
 	// Requests beside the conversation (its title, the answer `web_fetch` extracts)
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
+	let learning: SideLearningModel | undefined
 	const webCapability = options.web?.fetch
 		? {
 				// A page may be ten mebibytes; the guard's own
@@ -3688,6 +3718,31 @@ export async function createAgentSession(
 			},
 			ledger: sub.sideLedger,
 			debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+		})
+		const learningLedger = createLearningLedger()
+		learning = createSideLearningModel({
+			side: createSideModel({
+				active: () => ({
+					providerId: turnRouteTarget?.provider ?? primary.id,
+					model: turnRouteTarget?.model ?? model,
+				}),
+				configured: options.smallModel,
+				isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+				buildProvider: (sessionId, target) =>
+					providerForModel(sessionId, target.providerId as ProviderId, target.model),
+				offerable: (providerId, listed) => {
+					const found = findDetected(detected, providerId as ProviderId)
+					return (
+						found != null &&
+						canSelectModel(found.entry, found.apiKey, listed.id) &&
+						isOfferableModel(providerId, listed.id)
+					)
+				},
+				ledger: learningLedger,
+				debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+			}),
+			ledger: learningLedger,
+			sessionId: scope.sessionId,
 		})
 		// The parent's own toolsets, and only ever these — and only where
 		// somebody is there to read it, the same condition `ask_user_question`
@@ -4988,6 +5043,7 @@ export async function createAgentSession(
 				}
 			: {}),
 		...(sideModel ? { sideModel } : {}),
+		...(learning ? { learning } : {}),
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
@@ -5853,7 +5909,22 @@ export async function createAgentSession(
 				})
 			}),
 	}
-	return learningFeed ? withSessionLearningFeed(agentSession, learningFeed) : agentSession
+	const watched = learningFeed ? withSessionLearningFeed(agentSession, learningFeed) : agentSession
+	// Learning by itself: the person's own conversation, never an ephemeral one.
+	const background = options.backgroundLearning
+	if (!background || !learningFeed || !learning) return watched
+	const generator = resolveGeneratorSettings(background.config)
+	if (!generator.enabled) return watched
+	const tenantId = readIdentity(paths.home)?.tenantId ?? scope.tenantId
+	return withBackgroundLearning(
+		watched,
+		createBackgroundLearning({
+			settings: generator,
+			openTarget: () => openLearningTarget(paths, tenantId, projectId),
+			learning,
+			flushObservations: () => learningFeed.flush(),
+		}),
+	)
 }
 
 /**
