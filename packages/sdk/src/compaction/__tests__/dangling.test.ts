@@ -190,6 +190,23 @@ describe('findDanglingMessages', () => {
 })
 
 describe('repairToolMessageHistory', () => {
+	it('says a call that never started did not run, and leaves the others unknown', () => {
+		const messages: Message[] = [
+			createUserMessage('go'),
+			createAssistantMessage(null, ['asked', 'started']),
+		]
+		const repaired = repairToolMessageHistory(messages, {
+			neverRan: new Set(['asked']),
+		})
+		const results = repaired.messages.filter((m) => m.role === 'tool')
+		expect(results).toHaveLength(2)
+		expect(results[0]?.content).toContain('did not run')
+		expect(results[0]?.content).toContain('never given')
+		expect(results[1]?.content).toContain('outcome is unknown')
+		expect(repaired.report.syntheticToolResultsInserted).toBe(2)
+		expect(repaired.report.neverRanToolResultsInserted).toBe(1)
+	})
+
 	it('repairs the full chronological history without changing durable input fields', () => {
 		const opening = {
 			...createUserMessage('inspect the records'),
