@@ -91,7 +91,7 @@ async function buildAgentTool(
 		cwd: '/tmp',
 		model: 'test-model',
 		buildProvider: () => ({}) as LLMProvider,
-		buildTools: () => ({}) as never,
+		buildTools: () => [],
 		...extra,
 	})
 

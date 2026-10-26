@@ -16,7 +16,7 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'read_memory',
 		description:
-			'Read the full content of a specific memory by its ID or its name. For a text or Markdown memory the result ends with how old the memory is and resolves any [[name]] links it contains.',
+			'Read one memory in full by its ID or its name. Use it when the index or a search shows that a memory bears on the task. Returns the memory text; a text or Markdown memory ends with how old it is and the memories its [[name]] links point to.',
 		inputSchema: z.object({
 			id: z
 				.string()

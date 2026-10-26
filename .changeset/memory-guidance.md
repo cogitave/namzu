@@ -1,0 +1,8 @@
+---
+'@namzu/cli': major
+'@namzu/sdk': patch
+---
+
+Breaking default in `@namzu/cli`: `save_memory` and `update_memory` no longer ask for approval in the default mode (ask before changes) and in the mode that approves edits. They write only to namzu's own memory store under its home, never to a workspace file. Before, every save asked "Do you want to run save_memory?". `delete_memory` still asks; plan mode, strict mode and the classifier mode treat the memory tools as before. To be asked again, add `permissions: { save_memory: "ask", update_memory: "ask" }` to the configuration.
+
+The model now keeps memory itself during a session. When the memory tools are mounted, the system prompt carries a short `## Memory` section saying what is worth saving (the person's preferences and corrections, decisions and their reasons, lessons from failures that will recur or were not obvious, pointers to outside resources), what to leave out (what the repository records, progress, secrets), and how to keep the store tidy (one fact per memory, update instead of duplicating, remove a wrong one, check a recalled memory against the current code). When the person asks to remember something the repository already records, the model saves only what was surprising about it. A sub-agent that holds `save_memory` gets the same section. The section sits in the stable prefix, so it does not change prompt caching. The descriptions of `save_memory`, `search_memory`, `read_memory`, `update_memory` and `delete_memory` now state purpose, when to use the tool and what it returns, and the stored-memory index paragraph no longer repeats those rules. No option, export or tool input changes.
