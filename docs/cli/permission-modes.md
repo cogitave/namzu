@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Permission modes
-description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, which two need an opt-in, what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, and what Desktop and sub-agents do with them.
+description: The six modes a Namzu session can run in (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, which two need an opt-in, what each still stops for, the permissions settings that choose or shut them, how the auto classifier picks its model, how the terminal asks about one call at a time, and what Desktop and sub-agents do with them.
 resource: packages/cli/src/permissions/mode.ts
 tags: [cli, permissions, modes, bypass, auto, classifier]
 status: stable
@@ -117,13 +117,31 @@ permissions:
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 
+## One question per call
+
+The terminal asks about one tool call at a time, in the order the model made them, while the batch runs. Calls that are safe to run side by side (reads, searches, fetches) start together and each opens its own question; a call that is not safe (an edit, a write, a command that changes things) waits until every call before it has finished, then asks, then runs. A call you approve starts at once. Only your own conversation asks this way: Desktop, ACP, `namzu exec` and an agent's own calls keep the whole-batch question they always had.
+
+Each question shows its own call in full, so what you approve is exactly what runs: the input that was shown is checked again when you answer, and a call that changed after it was shown is refused alone. A call whose input is too large to show gets only a one-time **Yes**, and its siblings keep their other answers.
+
+When two or more questions are open at once, a dim `2 of 3` sits at the right of the title row. It counts the questions already settled, including any a rule closed for you, and it is dropped when the row has no room for it. It replaces the old "N more awaiting approval" line. A question from another agent waits behind every question of your own conversation, never takes the screen from the one you are answering, and says so in its title (`from the Reviewer agent`). Each question starts its own short settle window, so a key aimed at one cannot answer the next.
+
+- **Yes** approves that call only.
+- **No**, or Esc, ends the turn: the calls still running are cancelled, the calls that have not started are refused without being asked, and the open questions close. Calls you approved earlier have already run. A refused agent's call never ends your turn.
+- **Tab** on the No row opens a line to say why. Enter refuses only that call and sends your words to the model (cut to 500 characters, control characters removed, and kept in the audit record as your note); the other calls carry on and are still asked. Esc puts the line away.
+- **Yes, and don't ask again** and **Shift+Tab** (the answer that accepts edits, where it is offered) re-check every question still open, including those from other agents: a call the new rule or mode now covers is let through without being shown. A re-check only ever approves. A call that leaves the working directory, runs outside the sandbox, always needs a person, was asked about by a rule, or whose input was not shown in full stays open. Switching to plan or strict approves nothing.
+- **Ctrl+C** refuses everything and stops the turn, as before.
+
+A call that is waiting for its yes shows in the transcript as a dim, static dot with its usual title, and a shell command adds a dim `Waiting…` where `Running…` will go. When the call starts, that row becomes its running row. A connected server's tool is named by its server and tool in plain words (`slack · post`) in the title and the question, not by the name the model calls it.
+
+A first look at the screen is still asked as one question, before the calls that need it, and a scheduled run holds what needs a person instead of asking. A workflow's agents count as another agent's questions and queue behind your own.
+
 ## Large calls
 
 A large write, edit or command is asked about, not refused. The prompt shows the input in a page of rows; PgUp, PgDn, Home and End move through the rest, and `d` switches between the readable view and the exact input. Approving binds exactly the input that was shown: if it changed after the prompt opened, the call is refused instead of run.
 
 A single value over 200 thousand characters is not shown. The exact view prints a short placeholder in its place (`[about 200k characters not shown]`), and only **Yes** and **No** are offered: no "switch to accept edits" and no "don't ask again". A whole batch is capped at 1 MiB of review text; past that the remaining values are replaced the same way. A tool that has no view of its own (a connected server's tool, for example) is approved once only when its input reads as more than 2,000 units of one line, has more than 10,000 elements, or is nested deeper than 64; its input is still shown whole. A shell command or a file body is held to the 200 thousand character limit alone. A workflow's script is read whole up to 640 KiB. Input that cannot be written as plain JSON (a function, a cycle, an object with accessors) is still refused. Desktop and ACP never had a size limit and are unchanged.
 
-The box carries one notice for the batch, however many calls are marked ("3 of 30 calls are marked below. Approving runs the batch once and is not remembered."). In a batch, each marked call says so beside its number in the list (`2. write · destructive · too large to show`, or `· long input` for a call shown whole), and a lone call is covered by the notice alone. The hint line keeps `d` (the exact input) at narrow widths and gives up `ctrl+c stop` and then the arrow-key hint first.
+When a question covers a whole batch (another agent's, a scheduled run's), the box carries one notice for the batch, however many calls are marked ("3 of 30 calls are marked below. Approving runs the batch once and is not remembered."). In a batch, each marked call says so beside its number in the list (`2. write · destructive · too large to show`, or `· long input` for a call shown whole), and a lone call is covered by the notice alone. The hint line keeps `d` (the exact input) at narrow widths and gives up `ctrl+c stop` and then the arrow-key hint first.
 
 A call's input can be larger than one line of the session log may be. It is then written beside the log, so a batch of large writes still reaches the prompt, and a turn resumed after a restart gets the same calls back.
 

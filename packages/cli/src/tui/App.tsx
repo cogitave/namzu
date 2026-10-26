@@ -193,6 +193,7 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
 	SKILL_CREATOR_SKILL,
@@ -370,6 +371,14 @@ import {
 	resolveModelSwitch,
 } from './model-switch.js'
 import { isRepeatedNotice } from './notices.js'
+import {
+	type TerminalPerCallReview,
+	appendTypedReason,
+	createTerminalPerCallReview,
+	noWithReason,
+	plainNo,
+} from './per-call-review.js'
+import { type AskCount, AskQueue, CLOSED_QUESTION } from './permission-asks.js'
 import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
@@ -386,6 +395,7 @@ import {
 } from './plugin-view.js'
 import { selectPrimaryProvider } from './provider-selection.js'
 import { needsQuestionDialog } from './question-dialog.js'
+import { queuedToolRow, withQueuedRow, withStartedRow, withoutQueuedRow } from './queued-calls.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import {
 	SourceDeliveryView,
@@ -2361,25 +2371,94 @@ export function App({
 		setActiveTools([])
 	}, [])
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
-	const permissionQueueRef = useRef<
-		Array<{
-			permission: PendingPermission
-			resolve: (decision: PermissionDecision) => void
-		}>
-	>([])
 	const permissionShownRef = useRef<PendingPermission | null>(null)
-	const [queuedPermissionCount, setQueuedPermissionCount] = useState(0)
+	/**
+	 * The text of a refusal being typed (Tab on the No row), or `null` while the
+	 * answers are shown. A ref beside the state because the key handler reads it
+	 * in the tick it was set.
+	 */
+	const [permissionReason, setPermissionReasonState] = useState<string | null>(null)
+	const permissionReasonRef = useRef<string | null>(null)
+	const setPermissionReason = useCallback((next: string | null) => {
+		permissionReasonRef.current = next
+		setPermissionReasonState(next)
+	}, [])
+	const [permissionCount, setPermissionCount] = useState<AskCount | undefined>(undefined)
+	/** What the terminal tells the kernel when it asks about one call at a time. */
+	const perCallReviewRef = useRef<TerminalPerCallReview | null>(null)
+	if (perCallReviewRef.current === null) {
+		perCallReviewRef.current = createTerminalPerCallReview({
+			mode: () => permissionModeRef.current,
+		})
+	}
+	/** The questions waiting on the person, one on screen at a time. */
+	const permissionAsksRef = useRef<AskQueue<PendingPermission> | null>(null)
+	if (permissionAsksRef.current === null) {
+		permissionAsksRef.current = new AskQueue<PendingPermission>(
+			(pending) => {
+				setPermissionReviewOffset(0)
+				setPermissionChoice(0)
+				setPermissionReason(null)
+				permissionShownRef.current = pending
+				if (pending) {
+					// Every question gets its own settle window, so a key aimed at the
+					// last one cannot answer the next.
+					permissionOpenedAtRef.current = Date.now()
+					permissionResolveRef.current = (decision) => permissionAsksRef.current?.answer(decision)
+					setPermissionDetailsOpen(!pending.summary.complete)
+					setPermission(pending)
+					setState('awaiting-permission')
+				} else {
+					permissionOpenedAtRef.current = null
+					permissionResolveRef.current = null
+					setPermissionDetailsOpen(false)
+					setPermission(null)
+					setState((current) => (current === 'awaiting-permission' ? 'thinking' : current))
+				}
+			},
+			() => setPermissionCount(permissionAsksRef.current?.count()),
+		)
+	}
+	const permissionAsks = permissionAsksRef.current
+	/**
+	 * A rule was remembered or the permission mode changed: re-check every
+	 * question still open. A re-check only ever approves. The turn's own
+	 * per-call questions are re-checked by the kernel (it is told here); whole
+	 * batches other agents asked are re-checked below, and a question whose
+	 * input was not shown in full, that leaves the turn's boundary, or that a rule
+	 * or the tool itself says always needs a person stays open.
+	 *
+	 * Deferred a tick: the answer that caused the change is delivered first, so
+	 * a re-check can never be taken for the answer to the question on screen.
+	 */
+	const rulesChanged = useCallback(
+		(newAllows?: readonly SessionAllow[]): void => {
+			queueMicrotask(() => {
+				const perCallReview = perCallReviewRef.current
+				perCallReview?.rulesChanged()
+				const commands = session?.commandArguments
+				permissionAsks.settleWhere((pending) => {
+					if (pending.perCall || pending.batchOnly || pending.screenConsent) return undefined
+					if (pending.withheld.length > 0 || pending.toolCalls.length === 0) return undefined
+					const covered = pending.toolCalls.every((call) => {
+						if (perCallReview?.modeCovers(call)) return true
+						if (!newAllows || !commands) return false
+						const allows = allowsFor(call, commands)
+						return (
+							allows?.every((allow) => newAllows.some((added) => sameAllow(added, allow))) === true
+						)
+					})
+					return covered ? { kind: 'approve' } : undefined
+				})
+			})
+		},
+		[permissionAsks, session],
+	)
 	useEffect(
 		() => () => {
-			const decision: PermissionDecision = {
-				kind: 'reject',
-				feedback: 'The approval screen closed.',
-			}
-			permissionResolveRef.current?.(decision)
-			permissionResolveRef.current = null
-			for (const pending of permissionQueueRef.current.splice(0)) pending.resolve(decision)
+			permissionAsks.closeAll({ kind: 'reject', feedback: 'The approval screen closed.' })
 		},
-		[],
+		[permissionAsks],
 	)
 
 	/**
@@ -3733,6 +3812,7 @@ export function App({
 			permissionModeSourceRef.current = 'session'
 			setPermissionModeState(mode)
 			void session.setPermissionMode?.(mode)
+			rulesChanged()
 			if (announce) {
 				pushMessage(
 					'system',
@@ -3748,7 +3828,7 @@ export function App({
 				)
 			}
 		},
-		[pushMessage, session],
+		[pushMessage, rulesChanged, session],
 	)
 
 	const applyPermissionMode = useCallback(
@@ -6330,6 +6410,7 @@ export function App({
 		batchOnly: pending.batchOnly === true,
 		screenConsent: pending.screenConsent === true,
 		withheld: pending.withheld.length > 0,
+		endsTurn: endsTurnOnNo(pending),
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
 			? {
@@ -6341,54 +6422,33 @@ export function App({
 
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const resolvePermission = useCallback(
-		(requested: PermissionDecision) => {
-			const resolve = permissionResolveRef.current
-			const shown = permissionShownRef.current
-			permissionShownRef.current = null
-			// The screen may show a bounded view, but a yes only binds the input
-			// that was shown: the hash is the binding. It is taken again over the
-			// request the SDK holds and will run, and must equal what the person
-			// saw.
-			let decision = requested
-			if (requested.kind === 'approve' && shown) {
-				const again = buildPermissionReview(shown.source.toolCalls)
-				if (!again.ok || again.envelopeHash !== shown.envelopeHash)
-					decision = {
-						kind: 'reject',
-						feedback: 'Refused: the tool input changed after it was shown for approval.',
-					}
-			}
-			permissionResolveRef.current = null
-			permissionOpenedAtRef.current = null
-			setPermissionReviewOffset(0)
-			setPermissionDetailsOpen(false)
-			setPermissionChoice(0)
-			setPermission(null)
-			if (resolve) {
-				// The provider resumes asynchronously after the decision. Leaving the
-				// old state in place during that hand-off painted an empty `…` row and
-				// the now-invalid approval footer, so a four-agent batch looked frozen
-				// precisely while its children were starting. The turn is working from
-				// the instant consent resolves; the next tool event will refine this to
-				// `tool`, and the ordinary turn finalizer owns the transition to idle.
-				setState('thinking')
-				resolve(decision)
-			}
-			const next = permissionQueueRef.current.shift()
-			setQueuedPermissionCount(permissionQueueRef.current.length)
-			if (next) {
-				permissionResolveRef.current = next.resolve
-				permissionOpenedAtRef.current = Date.now()
-				setPermissionDetailsOpen(!next.permission.summary.complete)
-				permissionShownRef.current = next.permission
-				setPermission(next.permission)
-				setState('awaiting-permission')
-			}
-		},
-		[setPermissionDetailsOpen, setPermissionReviewOffset],
-	)
+	const resolvePermission = useCallback((requested: PermissionDecision) => {
+		const shown = permissionShownRef.current
+		if (!shown) return
+		// The screen may show a bounded view, but a yes only binds the input
+		// that was shown: the hash is the binding. It is taken again over the
+		// request the SDK holds and will run, and must equal what the person
+		// saw. A call that was never shown (a rule or the mode approved it while
+		// it waited) is not checked here; the kernel records it as approved
+		// without being shown.
+		let decision = requested
+		if (requested.kind === 'approve') {
+			const again = buildPermissionReview(shown.source.toolCalls)
+			if (!again.ok || again.envelopeHash !== shown.envelopeHash)
+				decision = {
+					kind: 'reject',
+					feedback: 'Refused: the tool input changed after it was shown for approval.',
+				}
+		}
+		// The provider resumes asynchronously after the decision. Leaving the
+		// old state in place during that hand-off painted an empty `…` row and
+		// the now-invalid approval footer, so a four-agent batch looked frozen
+		// precisely while its children were starting. The turn is working from
+		// the instant consent resolves; the next tool event will refine this to
+		// `tool`, and the ordinary turn finalizer owns the transition to idle.
+		setState('thinking')
+		permissionAsksRef.current?.answer(decision)
+	}, [])
 
 	/**
 	 * Stop the running turn, and hand the screen back in a usable state.
@@ -6411,12 +6471,7 @@ export function App({
 	const interruptTurn = useCallback(
 		(recoverInput = false): boolean => {
 			const cancelledSwitch = cancelPendingModelSwitch()
-			for (const pending of permissionQueueRef.current.splice(0)) {
-				pending.resolve({ kind: 'reject', feedback: 'User interrupted.' })
-			}
-			setQueuedPermissionCount(0)
-			if (permissionResolveRef.current)
-				resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
+			permissionAsksRef.current?.closeAll({ kind: 'reject', feedback: 'User interrupted.' })
 			const ac = abortRef.current
 			if (!ac) {
 				// A prompt still at the turn boundary: nothing has begun, so taking
@@ -6473,7 +6528,6 @@ export function App({
 			discardQueued,
 			goalActivation,
 			replaceQueued,
-			resolvePermission,
 			setQueuePause,
 			wakeGoalDriver,
 		],
@@ -7404,7 +7458,8 @@ export function App({
 	)
 
 	// Bridge passed into session.send(): the agent calls this before a
-	// non-read-only tool batch; it parks until the user presses y/n/a.
+	// non-read-only tool batch (or, asking one call at a time, before each
+	// call); it parks until the person answers.
 	const onPermission = useCallback(
 		(req: ScreenPermissionRequest) => {
 			const review = buildPermissionReview(req.toolCalls)
@@ -7421,43 +7476,72 @@ export function App({
 				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
-			return new Promise<PermissionDecision>((resolve) => {
-				if (permissionResolveRef.current) {
-					permissionQueueRef.current.push({
-						permission: {
-							...req,
-							review: review.text,
-							summary,
-							siteNotes,
-							withheld: review.withheld,
-							source: req,
-							envelopeHash: review.envelopeHash,
-						},
-						resolve,
-					})
-					setQueuedPermissionCount(permissionQueueRef.current.length)
-					return
+			const pending: PendingPermission = {
+				...req,
+				review: review.text,
+				summary,
+				siteNotes,
+				withheld: review.withheld,
+				source: req,
+				envelopeHash: review.envelopeHash,
+			}
+			const asks = permissionAsksRef.current
+			const perCallReview = perCallReviewRef.current
+			if (!asks || !perCallReview) {
+				return Promise.resolve<PermissionDecision>({
+					kind: 'reject',
+					feedback: 'The approval screen closed.',
+				})
+			}
+			if (req.perCall) {
+				// A call is shown as waiting from the moment it is asked about, and a
+				// re-check never lets through a call whose input was not shown in full.
+				const presenter = reviewSessionRef.current?.presenter
+				for (const [index, call] of req.toolCalls.entries()) {
+					perCallReview.hold(
+						call.id,
+						review.withheld.some((held) => held.index === index),
+					)
+					const row = presenter
+						? queuedToolRow(call, req.turnId, presenter, ctxRef.current.cwd, Date.now())
+						: undefined
+					if (row) {
+						activeToolsRef.current = withQueuedRow(activeToolsRef.current, row as RunningTool)
+						setActiveTools(activeToolsRef.current)
+					}
 				}
-				permissionResolveRef.current = resolve
-				permissionOpenedAtRef.current = Date.now()
-				setPermissionReviewOffset(0)
-				setPermissionDetailsOpen(!summary.complete)
-				const shown: PendingPermission = {
-					...req,
-					review: review.text,
-					summary,
-					siteNotes,
-					withheld: review.withheld,
-					source: req,
-					envelopeHash: review.envelopeHash,
+			}
+			// Another agent's request waits behind every question of the person's
+			// own conversation; it never takes the screen from the one already up.
+			const background = reviewSource(req, scopeRef.current?.sessionId) !== undefined
+			const answered = asks.enqueue(pending, {
+				background,
+				...(req.signal ? { signal: req.signal } : {}),
+			})
+			if (asks.shown === pending) announceApproval()
+			return answered.then((decision) => {
+				if (req.perCall) {
+					for (const call of req.toolCalls) {
+						perCallReview.release(call.id)
+						// A question closed from outside (a rule now covers it, the turn
+						// stopped) leaves the row as it is: the kernel's start event takes
+						// it over, and the turn's end clears what never started.
+						if (decision === CLOSED_QUESTION) continue
+						activeToolsRef.current =
+							decision.kind === 'approve'
+								? (withStartedRow(
+										activeToolsRef.current,
+										call.id,
+										Date.now(),
+									) as readonly RunningTool[])
+								: (withoutQueuedRow(activeToolsRef.current, call.id) as readonly RunningTool[])
+					}
+					setActiveTools(activeToolsRef.current)
 				}
-				permissionShownRef.current = shown
-				setPermission(shown)
-				setState('awaiting-permission')
-				announceApproval()
+				return decision
 			})
 		},
-		[announceApproval, setPermissionDetailsOpen, setPermissionReviewOffset],
+		[announceApproval],
 	)
 
 	/**
@@ -7921,7 +8005,24 @@ export function App({
 						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
-					activeToolsRef.current = [...activeToolsRef.current, tool]
+					// A call that was asked about already has its waiting row: the start
+					// takes that row over, in the place it already holds.
+					const waitingAt = activeToolsRef.current.findIndex(
+						(other) =>
+							other.id === tool.id &&
+							other.queued === true &&
+							(tool.turnId === undefined ||
+								other.turnId === undefined ||
+								other.turnId === tool.turnId),
+					)
+					activeToolsRef.current =
+						waitingAt >= 0
+							? [
+									...activeToolsRef.current.slice(0, waitingAt),
+									tool,
+									...activeToolsRef.current.slice(waitingAt + 1),
+								]
+							: [...activeToolsRef.current, tool]
 					setActiveTools(activeToolsRef.current)
 					break
 				}
@@ -8929,6 +9030,8 @@ export function App({
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
+						// The terminal asks about one call at a time while the batch runs.
+						...(perCallReviewRef.current ? { perCallReview: perCallReviewRef.current.config } : {}),
 						// A workflow this turn starts outlives it, so its agents cannot borrow
 						// `askPermission`, which belongs to this turn. They ask through the
 						// conversation instead, for as long as it is the one on screen.
@@ -9132,19 +9235,10 @@ export function App({
 					// around it are decoration too.
 					abortRef.current = null
 					if (ownsTurn) activeTurnTokenRef.current = null
-					permissionResolveRef.current?.({
+					permissionAsksRef.current?.closeAll({
 						kind: 'reject',
 						feedback: 'The owning turn ended.',
 					})
-					for (const pending of permissionQueueRef.current.splice(0))
-						pending.resolve({
-							kind: 'reject',
-							feedback: 'The owning turn ended.',
-						})
-					setQueuedPermissionCount(0)
-					permissionResolveRef.current = null
-					permissionOpenedAtRef.current = null
-					setPermission(null)
 					clearActiveTools()
 					setState('idle')
 					// The turn is over whether or not it is announced: from here a minute of
@@ -12055,6 +12149,32 @@ export function App({
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
 			if (permissionResolveRef.current) {
 				const ch = input.toLowerCase()
+				// A refusal being typed owns the keys until it is sent or put away.
+				// Sending it is a refusal, so it is never held back by the settle window.
+				const typing = permissionReasonRef.current
+				if (typing !== null) {
+					if (key.ctrl && input === 'c') {
+						interruptTurn()
+						return
+					}
+					if (key.escape) {
+						setPermissionReason(null)
+						return
+					}
+					if (key.return) {
+						const refusal = noWithReason(typing)
+						if (refusal) resolvePermission(refusal)
+						return
+					}
+					if (key.backspace || key.delete) {
+						setPermissionReason(Array.from(typing).slice(0, -1).join(''))
+						return
+					}
+					if (!key.ctrl && !key.meta && !key.tab && !key.upArrow && !key.downArrow) {
+						setPermissionReason(appendTypedReason(typing, input))
+					}
+					return
+				}
 				if (permission && ch === 'd') {
 					setPermissionReviewOffset(0)
 					setPermissionDetailsOpen(!permissionDetailsOpenRef.current)
@@ -12073,11 +12193,7 @@ export function App({
 						? permission.review
 						: (permission.summary.compactText ?? permission.summary.text)
 					const count = permissionReviewRows(source, terminal.columns).length
-					const pageRows = Math.max(
-						1,
-						permissionReviewPageRows(terminal.rows) -
-							(reviewSource(permission, scopeRef.current?.sessionId) ? 1 : 0),
-					)
+					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows))
 					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -12096,10 +12212,19 @@ export function App({
 					interruptTurn()
 					return
 				}
+				const noDecision = permission ? plainNo(endsTurnOnNo(permission)) : plainNo(false)
 				if (ch === 'n' || key.escape) {
 					// The person's own No is recorded as theirs, so the step reads "You declined
 					// this" and not the refusal text the model was given.
-					resolvePermission({ kind: 'reject', declined: {} })
+					resolvePermission(noDecision)
+					return
+				}
+				const answers = permission
+					? permissionAnswers(permission.toolCalls, permissionAnswerOptions(permission))
+					: []
+				// Tab on the No row opens the person's own words for this one call.
+				if (key.tab && !key.shift) {
+					if (answers[permissionChoiceRef.current]?.kind === 'reject') setPermissionReason('')
 					return
 				}
 				// Every approval waits out the settle window: `y`, `a`, a digit and
@@ -12111,25 +12236,33 @@ export function App({
 				// The answers on screen, so a digit or Enter means what it is next
 				// to: a batch-only prompt (a scheduled run) has no "allow all", and
 				// neither its `a` nor a `3` answers it.
-				const answers = permission
-					? permissionAnswers(permission.toolCalls, permissionAnswerOptions(permission))
-					: []
 				const numbered = /^[1-9]$/.test(ch) ? Number(ch) - 1 : null
 				const chosen = key.return ? permissionChoiceRef.current : numbered
-				const answer = ch === 'y' ? answers[0] : chosen !== null ? answers[chosen] : undefined
+				// Shift+Tab is the "accept edits" answer where one is offered.
+				const answer =
+					key.tab && key.shift
+						? answers.find((candidate) => candidate.kind === 'approve-edits')
+						: ch === 'y'
+							? answers[0]
+							: chosen !== null
+								? answers[chosen]
+								: undefined
 				if (!answer) return
 				if (answer.kind === 'reject') {
-					resolvePermission({ kind: 'reject', declined: {} })
+					resolvePermission(noDecision)
 					return
 				}
 				// The extra answers are session settings applied the way their own
-				// commands apply them, then this batch is approved like any yes.
+				// commands apply them, then this question is approved like any yes.
+				// The change is then announced, so every question still open is
+				// re-checked against it.
 				if (answer.kind === 'approve-edits') applyPermissionMode('accept-edits', false)
 				else if (answer.kind === 'approve-rule' && answer.allows) {
 					const notice = session?.allowForSession?.(answer.allows)
 					if (notice) pushMessage('system', notice)
 				}
 				resolvePermission({ kind: 'approve' })
+				if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
 				return
 			}
 			// The shell view observes only this AgentSession's jobs. Consent always
@@ -13097,8 +13230,8 @@ export function App({
 		: undefined
 	const permissionSourceLabel = permissionSource
 		? permissionOwner
-			? `Agent: ${permissionOwner.description}`
-			: 'Agent: another agent'
+			? `from the ${permissionOwner.description} agent`
+			: 'from another agent'
 		: undefined
 	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
@@ -13364,8 +13497,10 @@ export function App({
 								detailsOpen={permissionDetailsOpen}
 								reviewOffset={permissionReviewOffset}
 								choice={permissionChoice}
-								queuedCount={queuedPermissionCount}
-								sourceLabel={permissionSourceLabel}
+								{...(permissionCount ? { count: permissionCount } : {})}
+								{...(permissionSourceLabel ? { from: permissionSourceLabel } : {})}
+								{...(permissionReason !== null ? { reason: permissionReason } : {})}
+								endsTurn={endsTurnOnNo(permission)}
 								columns={terminal.columns}
 								rows={terminal.rows}
 								batchOnly={permission.batchOnly === true}
@@ -13877,6 +14012,16 @@ function reviewSource(
 ): string | undefined {
 	const sessionId = (request as { readonly sessionId?: unknown } | null | undefined)?.sessionId
 	return typeof sessionId === 'string' && sessionId !== currentSessionId ? sessionId : undefined
+}
+
+/**
+ * Whether a plain No to this question ends the turn: the person's own
+ * conversation, asked about one call at a time. A whole-batch question (the
+ * first look at the screen, a scheduled run's) and any other agent's request
+ * are refused for that request alone.
+ */
+function endsTurnOnNo(pending: PendingPermission): boolean {
+	return pending.perCall === true && pending.batchOnly !== true && pending.screenConsent !== true
 }
 
 /** The label the operator saw for the option id they chose. */

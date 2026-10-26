@@ -88,6 +88,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type Origin,
+	type PerCallReviewConfig,
 	type PluginLifecycleManager,
 	type PluginNotificationInfo,
 	type PrepareStep,
@@ -974,6 +975,12 @@ export interface SendOptions {
 	 * can answer; strict mode still refuses and auto mode still approves.
 	 */
 	readonly onPermission?: PermissionFn
+	/**
+	 * Ask about one call at a time while the batch runs (see `PerCallReviewConfig`
+	 * in `@namzu/sdk`). Honoured only with `onPermission`: a turn nobody can ask
+	 * (held, scheduled, headless) reviews its batches as a unit, as before.
+	 */
+	readonly perCallReview?: PerCallReviewConfig
 	/**
 	 * Extra system context to inject for this turn (e.g. active skills).
 	 */
@@ -5727,6 +5734,9 @@ export async function createAgentSession(
 								approvalPolicyName: modeControl.initialName,
 								onApprovalPolicy: (box) => modeControl.attach(box),
 								reviewAllowedCalls: modeControl.reviewAllowedCalls,
+								...(opts?.perCallReview && opts.onPermission && !opts.reviewHold
+									? { perCallReview: opts.perCallReview }
+									: {}),
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
