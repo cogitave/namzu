@@ -629,6 +629,42 @@ describe('bounded retained tool evidence', () => {
 		)
 	})
 
+	it('keeps an address and a cursor valid across a re-anchored source as the log grows', async () => {
+		const f = await fixture(
+			Array.from({ length: 70 }, (_, i) => ({ text: `ordinary entry ${i}` })),
+			{ open: true },
+		)
+		// Each tool call captures a source anchored at the head of its moment: the
+		// call that searches and the call that reads are anchored at different records.
+		const first = await f.session.textSource('live')
+		const found = await first.search({ query: 'ordinary', limit: 1 })
+		const address = found.matches[0]!.address
+		const cursor = found.nextCursor!
+		await f.session.append({
+			type: 'tool_completed',
+			toolUseId: 'call-later',
+			toolName: 'observe',
+			isError: false,
+			result: 'a later result',
+			outputTruncated: false,
+		})
+		const second = await f.session.textSource('live')
+		expect(await second.read({ address })).toMatchObject({ text: found.matches[0]!.excerpt })
+		const next = await second.search({ query: 'ordinary', limit: 1, cursor })
+		expect(next.matches).toHaveLength(1)
+		await f.session.append({
+			type: 'tool_completed',
+			toolUseId: 'call-later-2',
+			toolName: 'observe',
+			isError: false,
+			result: 'another later result',
+			outputTruncated: false,
+		})
+		const third = await f.session.textSource('live')
+		const after = await third.search({ query: 'ordinary', limit: 1, cursor: next.nextCursor! })
+		expect(after.matches).toHaveLength(1)
+	})
+
 	it('refuses altered cursors, symlinks, torn records and cancellation', async () => {
 		const f = await fixture(Array.from({ length: 70 }, () => ({ text: 'ordinary' })))
 		const cursor = (await f.source.search({ query: 'absent' })).nextCursor!

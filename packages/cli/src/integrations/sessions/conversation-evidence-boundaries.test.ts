@@ -9,10 +9,12 @@ import {
 	type SessionTextEvidenceSearchResult,
 	type SessionTextEvidenceSource,
 	type TurnId,
+	createUserMessage,
 	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 /**
@@ -64,6 +66,8 @@ async function fixture(text = 'ORIGINAL') {
 	const sessions = await openSessions(cwd, { stateRoot: home })
 	const sessionId = await startConversation(sessions)
 	owners.push({ sessions, sessionId })
+	// The log holds the records the mocked capture reports, as a real anchor would.
+	await recordTurn(sessions, sessionId, [createUserMessage('question')])
 	const turnId = generateTurnId()
 	const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId }
 	const match: SessionTextEvidenceMatch = {
@@ -538,6 +542,8 @@ describe('a read that cannot continue as asked says what to do next', () => {
 
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/seq 99999 is past the end.*highest retained seq is \d+/)
+		// Answered before any scan, so no cursor is handed out for a record that cannot exist.
+		expect(f.search).not.toHaveBeenCalled()
 	})
 
 	it('names a vanished saved output instead of a generic failure', async () => {

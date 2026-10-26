@@ -262,6 +262,10 @@ function createSource(
 			if (!state.closed && consistency === 'closed') {
 				throw new Error('Evidence scope has an active turn; it is not closed.')
 			}
+			// The anchored prefix is verified here and again after the action. It is not
+			// part of the seal: the anchor moves with every record the writer appends, so
+			// binding it would void an address the moment the search call that returned
+			// it is itself recorded.
 			const anchorKey = anchor ? await verifyAnchor(handle, anchor) : undefined
 			// A session log only grows. An address names one record by offset, length and
 			// digest, and a read verifies all three against the bytes, so what must
@@ -269,7 +273,7 @@ function createSource(
 			// with every append and would void every address and cursor handed out a
 			// moment earlier, including one a search just returned.
 			const sourceKey = digest(
-				`session-v1:${consistency}:${mode}:${scopeKey}:${anchorKey ?? `${before.dev}:${before.ino}`}`,
+				`session-v1:${consistency}:${mode}:${scopeKey}:${fileIdentity(before)}`,
 			)
 			const seal = evidenceSeal(state.first, sourceKey)
 			const value = await action(handle, size, seal, sourceKey, budget, !state.closed)
@@ -556,6 +560,21 @@ function createSource(
 			})
 		},
 	})
+}
+
+/**
+ * What names the log file across appends: device and inode, plus the creation
+ * time where the filesystem reports no inode (zero), so a replaced file still
+ * changes the identity there.
+ */
+function fileIdentity(stats: {
+	dev: number | bigint
+	ino: number | bigint
+	birthtimeMs: number
+}): string {
+	return Number(stats.ino) === 0
+		? `${stats.dev}:0:${stats.birthtimeMs}`
+		: `${stats.dev}:${stats.ino}`
 }
 
 /** The anchor record must still hold the bytes the writer vouched for. */

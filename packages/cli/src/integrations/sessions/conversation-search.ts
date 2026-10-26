@@ -832,9 +832,9 @@ export async function readConversationEvidence(
 	// A seq beyond the log's end is answered at once. Scanning the log for it would
 	// only end in an empty page and a cursor, which is a dead end for a record
 	// that cannot exist.
-	// The live capture can hold a record the log has not yet flushed, so only the
-	// log backend is answered ahead of its scan.
-	if (!state.address && !state.lookupCursor && state.backend === 'log') {
+	// The live capture is anchored at a record the log already holds, so the log's
+	// head bounds both backends.
+	if (!state.address && !state.lookupCursor) {
 		const newest = await newestSeq(sessions, sessionId, signal)
 		if (newest !== undefined && input.seq > newest)
 			return explainMissingRecord(

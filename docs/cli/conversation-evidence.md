@@ -428,7 +428,10 @@ a refused probe, counts once against the call's 8 MiB allowance.
 
 An address or cursor stays valid while the log only grows: a running
 conversation appends a record for every tool call, and that must not void the
-address a search just returned. The seal binds the log file's identity and the
+address a search just returned. The seal binds the log file's identity (device
+and inode, with the creation time added where a filesystem reports no inode) and
+not the record a running turn is anchored at, which moves with every append, so
+a read made by a later tool call accepts an address from an earlier one. The
 read still checks each record's offset, length and digest; a log that was
 replaced or rewritten is refused. A record is immutable, so a record cannot grow
 between pages.
