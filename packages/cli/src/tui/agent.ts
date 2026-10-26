@@ -3495,7 +3495,7 @@ export async function createAgentSession(
 			readEnvironment: async (childCwd) =>
 				composeEnvironmentPrompt({
 					...(await readEnvironmentFacts(childCwd)),
-					boundary: boundaryFor(lastSendInteractive),
+					boundary: { ...boundaryFor(lastSendInteractive), delegated: true },
 					...(wsl ? { wsl } : {}),
 				}),
 			// Each child has its own provider instance, never the parent's fallback cursor.
@@ -5730,6 +5730,10 @@ export async function createAgentSession(
 								],
 								taskStore: turnTaskStore,
 								...(reminderSource ? { reminders: reminderSource } : {}),
+								// The mode reminders already tell the model about a mode
+								// change, once, after the history; the kernel's own notice
+								// would say it a second time.
+								...(stableEnvironment ? { announceApprovalPolicyChange: false } : {}),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
@@ -6631,6 +6635,8 @@ interface TurnParams {
 	readonly taskStore: TaskStore
 	/** Hidden reminders for each model request; see `AgentSessionOptions.reminders`. */
 	readonly reminders?: ReminderSource
+	/** Whether the kernel also tells the model about a mode change; see `QueryParams`. */
+	readonly announceApprovalPolicyChange?: boolean
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
@@ -6702,6 +6708,7 @@ async function* runTurn({
 	reviewAllowedCalls,
 	taskStore,
 	reminders,
+	announceApprovalPolicyChange,
 	systemPrompt,
 	messages,
 	projectInstructionContext,
@@ -6808,6 +6815,7 @@ async function* runTurn({
 			projectInstructionContext,
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
+			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),

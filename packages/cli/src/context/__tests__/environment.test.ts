@@ -128,11 +128,23 @@ describe('what the permission sentence says per mode', () => {
 		}
 	})
 
+	it('tells a sub-agent whose decision a call is, not that it may ask the user', () => {
+		const text = composeEnvironmentPrompt({
+			...facts,
+			boundary: { escape: 'refused', interactive: true, delegated: true },
+		})
+		expect(text).toContain('follow the permission mode of the session that started you')
+		expect(text).toContain('You have no one to ask yourself')
+		expect(text).not.toContain('may ask the user')
+	})
+
 	it('says each mode in its own words', () => {
 		expect(host('prompt')).toContain('put to the user before they run')
 		expect(host('accept-edits')).toContain('run without asking')
 		expect(host('plan')).toContain('plan mode')
-		expect(host('classify')).toContain('A second model checks each call')
+		expect(host('classify')).toContain(
+			'checked automatically instead, and some may still be refused',
+		)
 		expect(host('strict')).toContain('Only preapproved tools run')
 		expect(host('auto')).toContain('Nobody is asked')
 	})

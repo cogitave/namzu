@@ -19,48 +19,57 @@ const texts = (messages: readonly Message[]) =>
 
 describe('permission mode announcements', () => {
 	it.each([
-		['auto', 'Nobody is asked'],
+		['classify', 'auto', 'are checked automatically instead, and some may still be refused'],
+		['auto', 'unattended', 'Nobody is asked'],
+		['strict', 'strict', 'Only preapproved tools run'],
 		[
+			'accept-edits',
 			'accept-edits',
 			'File edits and simple file commands in the working directory run without asking',
 		],
-		['bypass', 'Permission prompts are off in this mode'],
-	] as const)('announces %s once, in that mode’s own words', (mode, sentence) => {
+		['bypass', 'bypass', 'Permission prompts are off in this mode'],
+	] as const)('announces %s once, in that mode’s own words', (mode, name, sentence) => {
 		let messages = turn([], mode)
 		messages = turn(messages, mode)
 		messages = turn(messages, mode)
 		const said = texts(messages)
 		expect(said).toHaveLength(1)
-		expect(said[0]).toContain(`The ${mode} permission mode is on.`)
+		expect(said[0]).toContain(`The ${name} permission mode is on.`)
 		expect(said[0]).toContain(sentence)
+		expect(said[0]).toContain('safety rules')
+		expect(said[0]).not.toMatch(/relax|no longer apply|disabled|ignore/i)
 	})
 
-	it.each(['prompt', 'plan', 'classify', 'strict'] as const)('says nothing under %s', (mode) => {
+	it.each(['prompt', 'plan'] as const)('says nothing under %s', (mode) => {
 		expect(texts(turn([], mode))).toEqual([])
 	})
 
-	it('announces the end of a mode once, and never says a safety rule was relaxed', () => {
+	it.each([
+		['prompt', 'the user may be asked before they run'],
+		['plan', 'Plan mode is on now'],
+	] as const)('words the end of a mode for the mode it lands in (%s)', (landing, sentence) => {
 		let messages = turn([], 'bypass')
-		messages = turn(messages, 'prompt')
-		messages = turn(messages, 'prompt')
+		messages = turn(messages, landing)
+		messages = turn(messages, landing)
 		const said = texts(messages)
 		expect(said).toHaveLength(2)
 		expect(said[1]).toContain('The bypass permission mode has ended.')
-		expect(said[1]).toContain('the user may be asked')
+		expect(said[1]).toContain(sentence)
+		if (landing === 'plan') expect(said[1]).not.toContain('may be asked')
 		for (const text of said) expect(text).not.toMatch(/relax|no longer apply|disabled|ignore/i)
-		expect(said[0]).toContain('safety rules')
 	})
 
-	it('moves straight from one announced mode to another with the new one', () => {
-		let messages = turn([], 'accept-edits')
-		messages = turn(messages, 'auto')
+	it('never says the user may be asked when it moves from one announced mode to another', () => {
+		let messages = turn([], 'bypass')
+		messages = turn(messages, 'classify')
 		const said = texts(messages)
 		expect(said).toHaveLength(2)
 		expect(said[1]).toContain('The auto permission mode is on.')
+		expect(said.join('\n')).not.toContain('may be asked')
 	})
 
 	it('announces a mode again after the earlier announcement is gone from the conversation', () => {
-		expect(texts(turn([createUserMessage('summary')], 'auto'))).toHaveLength(1)
+		expect(texts(turn([createUserMessage('summary')], 'classify'))).toHaveLength(1)
 	})
 
 	it('says a call that would ask is refused when nobody is at the terminal', () => {

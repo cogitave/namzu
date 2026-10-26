@@ -77,6 +77,11 @@ export interface ExecutionBoundary {
 	 * about permissions general, as it was before the mode was passed.
 	 */
 	readonly mode?: PermissionMode
+	/**
+	 * This prompt is a sub-agent's. It has no operator of its own and is told
+	 * nothing about the mode: its calls follow the session that started it.
+	 */
+	readonly delegated?: boolean
 }
 
 /** What the model needs to know about running under WSL. */
@@ -316,7 +321,10 @@ export function composeEnvironmentPrompt(
  */
 export function permissionSentence(boundary: ExecutionBoundary, stable = false): string {
 	if (stable) {
-		return 'Shell commands and file changes go through the permission settings. Whether the user is asked first depends on the permission mode; you are told when it is anything but the usual one, and when it ends.'
+		return 'Shell commands and file changes go through the permission settings. Whether the user is asked first depends on the permission mode; you are told whenever the mode is anything but the usual one, and when it ends (plan mode has its own notices).'
+	}
+	if (boundary.delegated) {
+		return 'Your shell commands and file changes follow the permission mode of the session that started you. You have no one to ask yourself: when a call is put to a person, the person using that session decides, and a refused call stays refused.'
 	}
 	const noOneAsks = boundary.interactive
 		? ''
@@ -333,7 +341,7 @@ export function permissionSentence(boundary: ExecutionBoundary, stable = false):
 		case 'bypass':
 			return "Permission prompts are off in this mode, so calls run without asking. What always needs the user still does: removing a home or top-level directory, leaving a sandbox, and anything the user's rules say to ask about. Protected files and the safety rules apply as usual."
 		case 'classify':
-			return `A second model checks each call that would otherwise ask the user and blocks the risky ones. A blocked call is a decision, not an error to route around.${noOneAsks}`
+			return `Calls that would otherwise ask the user are checked automatically instead, and some may still be refused. A refused call is a decision, not an error to route around.${noOneAsks}`
 		case 'strict':
 			return 'Only preapproved tools run; any other call is refused without asking.'
 		case 'auto':

@@ -202,5 +202,49 @@ describe('where and when the agent is', () => {
 		const config = (await general.configBuilder({})) as { systemPrompt?: string }
 		expect(config.systemPrompt).toContain('feature/parser')
 		expect(config.systemPrompt).toContain(localIsoDate(new Date()))
+		// A sub-agent has no operator and no mode reminder: it is told whose
+		// decision a refused or asked call is, not that it may ask the user.
+		expect(config.systemPrompt).toContain(
+			'follow the permission mode of the session that started you',
+		)
+		expect(config.systemPrompt).toContain('You have no one to ask yourself')
+		expect(config.systemPrompt).not.toContain('may ask the user before they run')
+	})
+
+	it('tells the model about a mode change once, as a reminder after the history', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: repo,
+			reminders: true,
+		})
+		const modes = ['prompt', 'classify', 'strict', 'bypass', 'prompt'] as const
+		for (const permissionMode of modes) {
+			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }], {
+				permissionMode,
+			})) {
+				// drain
+			}
+		}
+		expect(queryCalls).toHaveLength(modes.length)
+		// System blocks do not move with the mode.
+		expect(new Set(queryCalls.map((call) => String(call.systemPrompt))).size).toBe(1)
+		// The kernel's own "Approval policy changed" message is off: the
+		// reminder is the one place the model hears it.
+		for (const call of queryCalls) {
+			expect(
+				(call as { announceApprovalPolicyChange?: boolean }).announceApprovalPolicyChange,
+			).toBe(false)
+		}
+		const said = async (i: number) =>
+			(await reminded(queryCalls[i], [createUserMessage('hi')])).join('\n')
+		const auto = await said(1)
+		expect(auto.match(/permission mode is on/g)).toHaveLength(1)
+		expect(auto).toContain('The auto permission mode is on.')
+		expect(auto).toContain('checked automatically')
+		expect(auto).not.toContain('second model')
+		expect(await said(2)).toContain('The strict permission mode is on.')
+		expect(await said(3)).toContain('Permission prompts are off in this mode')
+		const prompt = await said(0)
+		expect(prompt).not.toContain('permission mode is on')
 	})
 })
