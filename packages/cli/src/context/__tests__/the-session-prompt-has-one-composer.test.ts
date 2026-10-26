@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
 import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
+import { workflowSizeAdvice } from '../../integrations/workflows/size.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
@@ -66,6 +67,17 @@ describe('the session system prompt', () => {
 		expect(fromFacts({}, { workflowOffered: false })).toBe(resumed)
 		expect(resumed).toContain('SKILLS')
 		expect(resumed).toContain('NOTE')
+	})
+
+	it('says the workflow size guideline right after the workflow doctrine, only when it is offered', () => {
+		const advice = workflowSizeAdvice('medium', false)
+		const offered = fromFacts({ workflowSizeAdvice: advice }, { workflowOffered: true })
+		expect(offered).toContain(`${WORKFLOW_DOCTRINE}\n\n${advice}`)
+		const notOffered = fromFacts({ workflowSizeAdvice: advice }, { workflowOffered: false })
+		expect(notOffered).not.toContain(advice)
+		expect(fromFacts({ workflowSizeAdvice: '' }, { workflowOffered: true })).toBe(
+			fromFacts({}, { workflowOffered: true }),
+		)
 	})
 
 	it('differs from a new turn that is offered the workflow tool by exactly that rule', () => {

@@ -362,9 +362,8 @@ import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows
 import { workflowRefusal } from '../integrations/workflows/offering.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
-	DEFAULT_WORKFLOW_SIZE_GUIDELINE,
 	parseTokenTarget,
-	workflowSizeAdvice,
+	sessionWorkflowSizeAdvice,
 	workflowTokenCeiling,
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
@@ -3791,10 +3790,6 @@ export async function createAgentSession(
 					},
 				}
 			},
-			sizeAdvice: workflowSizeAdvice(
-				options.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
-				options.workflow?.sizeGuideline !== undefined,
-			),
 			limitsFor: (turnId) => {
 				const budget = delegationLimits.get(turnId)?.tokenBudget
 				const ceiling = workflowTokenCeiling(budget, workflowTokenTargets.get(turnId))
@@ -4562,6 +4557,7 @@ export async function createAgentSession(
 						anyToolDeferred: anyDeferred(sessionToolsets),
 						planPath: resumePlanPath,
 						skillsOverflowNote: turnSkills.overflowNote,
+						workflowSizeAdvice: sessionWorkflowSizeAdvice(options.workflow),
 					},
 					{
 						resident: false,
@@ -5695,6 +5691,7 @@ export async function createAgentSession(
 									anyToolDeferred: anyDeferred(runToolsets),
 									planPath,
 									skillsOverflowNote: turnSkills.overflowNote,
+									workflowSizeAdvice: sessionWorkflowSizeAdvice(options.workflow),
 								},
 								{
 									resident: Boolean(residentContext),

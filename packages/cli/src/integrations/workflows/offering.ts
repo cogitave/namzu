@@ -38,13 +38,6 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')
 
-/** The tool's description with the session's size advice (if any) after it. */
-export function workflowToolDescription(sizeAdvice = ''): string {
-	return sizeAdvice === ''
-		? WORKFLOW_TOOL_DESCRIPTION
-		: `${WORKFLOW_TOOL_DESCRIPTION}\n\n${sizeAdvice}`
-}
-
 /**
  * Why a turn may not start a workflow, or `undefined` when it may.
  *

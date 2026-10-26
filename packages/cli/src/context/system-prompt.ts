@@ -55,6 +55,8 @@ export interface SessionPromptInput {
 	readonly delegationAvailable: boolean
 	/** True when the workflow tool is in this turn's toolset. */
 	readonly workflowOffered: boolean
+	/** The session's workflow size guideline, said beside the workflow doctrine; empty for none. */
+	readonly workflowSizeAdvice?: string | undefined
 	readonly conversationEvidence?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
@@ -80,6 +82,7 @@ export interface SessionPromptFacts {
 	readonly anyToolDeferred: boolean
 	readonly planPath?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
+	readonly workflowSizeAdvice?: string | undefined
 }
 
 /** What differs between one turn and another that holds the same facts. */
@@ -121,6 +124,7 @@ export function sessionPromptInput(
 		extraSystem: turn.extraSystem,
 		systemNote: turn.systemNote,
 		skillsOverflowNote: facts.skillsOverflowNote,
+		workflowSizeAdvice: facts.workflowSizeAdvice,
 	}
 }
 
@@ -133,7 +137,9 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		// Advice on delegating, for a turn that has the Agent tool: a run whose
 		// job withholds it would only be told how to use a tool it was not sent.
 		resident || !input.delegationAvailable ? undefined : NAMZU_DELEGATION_DOCTRINE,
-		input.workflowOffered ? WORKFLOW_DOCTRINE : undefined,
+		input.workflowOffered
+			? [WORKFLOW_DOCTRINE, input.workflowSizeAdvice].filter(Boolean).join('\n\n')
+			: undefined,
 		resident ? undefined : input.palBlock,
 		input.conversationEvidence,
 		// Whenever anything is deferred: a deferred tool the model was never
