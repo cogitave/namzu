@@ -3,7 +3,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type Message, createUserMessage, generateSessionId } from '@namzu/sdk'
+import { type Message, createUserMessage, generateSessionId, isReminderMessage } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { recordTurn } from '../../__fixtures__/session-log.js'
@@ -152,9 +152,12 @@ it('keeps fresh system floor private and sends exact prior reasoning_content', a
 		await session.close()
 	}
 
-	expect(firstConversation).toHaveLength(2)
+	// The hidden reminders (the date, the permission mode) ride in the settled
+	// conversation too; the exchange itself is the question and the answer.
+	const exchange = firstConversation?.filter((message) => !isReminderMessage(message))
+	expect(exchange).toHaveLength(2)
 	expect(firstConversation?.some((message) => message.role === 'system')).toBe(false)
-	expect(firstConversation?.[1]).toMatchObject({
+	expect(exchange?.[1]).toMatchObject({
 		role: 'assistant',
 		content: 'answer 1',
 		reasoning: [{ type: 'thinking', text: 'REASONING_1' }],
