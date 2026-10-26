@@ -1342,9 +1342,17 @@ function boundReviewInputs(draft: Record<string, unknown>): void {
 		;(call as { input?: unknown }).input = {
 			truncated: true,
 			length: text.length,
-			excerpt: text.slice(0, REVIEW_INPUT_RECORD_BYTES),
+			excerpt: excerptOf(text),
 		}
 	})
+}
+
+/** The leading excerpt of a serialized input, never ending on half a surrogate pair. */
+function excerptOf(text: string): string {
+	let end = REVIEW_INPUT_RECORD_BYTES
+	const last = text.charCodeAt(end - 1)
+	if (last >= 0xd800 && last <= 0xdbff) end--
+	return text.slice(0, end)
 }
 
 /** Bytes of one call's input a `tool_input_completed` record keeps inline before it is cut to an excerpt. */
@@ -1361,7 +1369,7 @@ function boundCompletedInput(draft: Record<string, unknown>): void {
 	draft.input = {
 		truncated: true,
 		length: text.length,
-		excerpt: text.slice(0, REVIEW_INPUT_RECORD_BYTES),
+		excerpt: excerptOf(text),
 	}
 }
 

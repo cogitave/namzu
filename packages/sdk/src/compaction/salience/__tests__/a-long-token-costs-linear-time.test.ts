@@ -11,6 +11,16 @@ describe('a very long unbroken token', () => {
 		expect(tokenize(run)).toEqual([run.toLowerCase()])
 	})
 
+	it.each(['-', '.', '/'])('trims a long run of %s inside a token in linear time', (sep) => {
+		// A quadratic end-trim takes tens of seconds here; the runner's own timeout catches a regression.
+		const token = `x${sep.repeat(400_000)}x`
+		expect(tokenize(token)[0]).toBe(token)
+	})
+
+	it('trims separators from both ends of a token', () => {
+		expect(tokenize('--./foo.bar:/')).toEqual(['foo.bar', 'foo', 'bar'])
+	})
+
 	it('still splits an acronym from the word after it', () => {
 		expect(tokenize('parseHTTPResponse')).toEqual([
 			'parsehttpresponse',
