@@ -14,6 +14,7 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
+import { connectorCallSummary } from './connector-label.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { displayPath } from './display-path.js'
@@ -189,6 +190,7 @@ import {
 	resumeSession,
 	seedObservationLedger,
 	toolset,
+	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
 	wrapUntrusted,
@@ -7309,7 +7311,9 @@ export function toAgentEvent(
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
 					return {
-						summary: pathSummary(viewToSummary(view), event.input, cwd),
+						summary: event.toolName.startsWith('mcp__')
+							? connectorCallSummary(event.input)
+							: pathSummary(viewToSummary(view), event.input, cwd),
 						...(() => {
 							const command =
 								view.kind === 'terminal'
@@ -7369,6 +7373,11 @@ export function toAgentEvent(
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
 		case 'tool_completed': {
+			// A connector's answer reaches the model inside a frame that marks where it
+			// came from; the person reads what the server said, without the frame.
+			const shown = event.toolName.startsWith('mcp__')
+				? (untrustedEnvelopeBody(event.result) ?? event.result)
+				: event.result
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
@@ -7376,7 +7385,7 @@ export function toAgentEvent(
 					{},
 					{
 						success: !event.isError,
-						output: event.result,
+						output: shown,
 					},
 				)
 			// Command output is cleaned for display only; `output` below stays verbatim.
@@ -7390,11 +7399,11 @@ export function toAgentEvent(
 					: undefined
 			const view =
 				presented.kind === 'terminal' && tidy ? { ...presented, output: tidy.output } : presented
-			const unknownTool = event.isError ? unknownToolNotice(event.result) : undefined
+			const unknownTool = event.isError ? unknownToolNotice(shown) : undefined
 			const declined = view.kind === 'generic' && view.declined !== undefined
 			// A refusal or failure the kernel classed says so in a sentence of its own.
 			const classed = event.isError
-				? (turnStoppedLine(event.result) ??
+				? (turnStoppedLine(shown) ??
 					(event.facts?.kind === 'failure' ? failureFactsLine(event.facts, cwd) : undefined))
 				: undefined
 			// What changed in a file, drawn from the kernel's own line diff when it
@@ -7413,7 +7422,7 @@ export function toAgentEvent(
 					? resultToLines(view.output)[0]
 					: undefined
 			const summary =
-				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(event.result))
+				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const plainFailure = unknownTool ?? classed ?? tidy?.failure
@@ -7454,7 +7463,7 @@ export function toAgentEvent(
 					const kind = webActivityKind(event.toolName)
 					if (!kind) return {}
 					const results =
-						kind === 'search' && !event.isError ? countListedResults(event.result) : undefined
+						kind === 'search' && !event.isError ? countListedResults(shown) : undefined
 					return {
 						web: { kind, ...(results !== undefined ? { results } : {}) },
 					}

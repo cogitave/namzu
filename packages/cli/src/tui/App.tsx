@@ -2397,6 +2397,8 @@ export function App({
 			mode: () => permissionModeRef.current,
 		})
 	}
+	/** A plain No ended the running turn: its interruption row is still owed. */
+	const refusalEndedTurnRef = useRef(false)
 	/** The questions waiting on the person, one on screen at a time. */
 	const permissionAsksRef = useRef<AskQueue<PendingPermission> | null>(null)
 	if (permissionAsksRef.current === null) {
@@ -6453,6 +6455,8 @@ export function App({
 		// the instant consent resolves; the next tool event will refine this to
 		// `tool`, and the ordinary turn finalizer owns the transition to idle.
 		setState('thinking')
+		// A plain No that ends the turn leaves one interruption row when the turn closes.
+		if (decision.kind === 'reject' && decision.endTurn === true) refusalEndedTurnRef.current = true
 		permissionAsksRef.current?.answer(decision)
 	}, [])
 
@@ -8302,6 +8306,14 @@ export function App({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
+					// A plain No stopped this turn: say so once, under the calls it left.
+					if (refusalEndedTurnRef.current) {
+						refusalEndedTurnRef.current = false
+						if (event.stopReason === 'cancelled') {
+							const row = interruptionRow({ callRunning: false })
+							pushMessage('system', row.content, false, row.glyph, undefined, row.color)
+						}
+					}
 					const stopNotice = describeTurnStop(event.stopReason, event.budget)
 					if (stopNotice) pushSystem('warning', stopNotice)
 					if (st.startedAt !== undefined) {
@@ -8692,6 +8704,7 @@ export function App({
 				}
 			}
 			abortRef.current = ac
+			refusalEndedTurnRef.current = false
 			activeTurnTokenRef.current = turnToken
 			// Where this turn will be saved, and which transcript its rows belong
 			// to. Both fixed HERE, at the one moment they are knowable.
@@ -12200,7 +12213,7 @@ export function App({
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
 				if (key.ctrl && input === 'c') {
-					interruptTurn()
+					interruptWithRow(false)
 					return
 				}
 				const noDecision = permission ? plainNo(endsTurnOnNo(permission)) : plainNo(false)

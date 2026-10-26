@@ -149,6 +149,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 				])
 				off?.()
 				await hold
+				if (turnAborted) {
+					yield { kind: 'done', stopReason: 'cancelled', text: '' } as AgentEvent
+					return
+				}
 				for (const entry of asked) {
 					if (entry.decision?.kind === 'approve') {
 						started.push(entry.call.id)
@@ -300,6 +304,26 @@ describe('refusing', () => {
 		expect(asked[1]?.controller.signal.aborted).toBe(true)
 		expect(asked[2]?.controller.signal.aborted).toBe(true)
 		await vi.waitFor(() => expect(frameOf(h)).not.toContain('enter confirm'))
+	})
+
+	it('leaves one dim interruption row when a plain No stops the turn', async () => {
+		const h = await withQuestionsOpen()
+		h.stdin.write('n')
+		await vi.waitFor(() => expect(turnAborted).toBe(true))
+		release()
+		await vi.waitFor(() =>
+			expect(frameOf(h)).toContain('Interrupted · What should Namzu do instead?'),
+		)
+		expect(frameOf(h).match(/Interrupted/g)?.length).toBe(1)
+	})
+
+	it('leaves the same row when Ctrl+C stops the turn at a question', async () => {
+		const h = await withQuestionsOpen()
+		h.stdin.write('\x03')
+		await vi.waitFor(() =>
+			expect(frameOf(h)).toContain('Interrupted · What should Namzu do instead?'),
+		)
+		expect(frameOf(h).match(/Interrupted/g)?.length).toBe(1)
 	})
 
 	it('ends the turn on Esc as well', async () => {

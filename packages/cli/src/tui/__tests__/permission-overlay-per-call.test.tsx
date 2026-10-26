@@ -75,11 +75,21 @@ describe('the count on the title row', () => {
 })
 
 describe('refusing', () => {
-	it('says a plain No stops here when it ends the turn, and offers Tab to say why on that row', async () => {
+	it('keeps the established No wording when a plain No ends the turn, and offers Tab to say why on that row', async () => {
 		const viewport = await rows({ endsTurn: true, choice: 1 })
 		const text = viewport.join('\n')
-		expect(text).toContain('No, and stop here (esc)')
+		expect(text).toContain('No, and tell Namzu what to do differently (esc)')
+		expect(text).not.toContain('stop here')
 		expect(text).toContain('tab say why')
+	})
+
+	it('keeps "tab say why" on the hint line at 60 columns, ahead of the arrows and the stop key', async () => {
+		const viewport = await rows({ endsTurn: true, choice: 1 }, 60)
+		const hint = viewport.find((row) => row.includes('enter confirm'))
+		expect(hint).toBeDefined()
+		expect(hint).toMatch(/tab (say )?why/)
+		expect(hint).toContain('enter confirm')
+		expect(hint).toContain('esc cancel')
 	})
 
 	it('does not offer Tab while the cursor is on Yes', async () => {

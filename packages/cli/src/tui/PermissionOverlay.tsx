@@ -337,11 +337,7 @@ export function permissionAnswers(
 				? 'Start this agent'
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
-	const reject = agents
-		? 'Do not start'
-		: options.endsTurn
-			? 'No, and stop here (esc)'
-			: 'No, and tell Namzu what to do differently (esc)'
+	const reject = agents ? 'Do not start' : 'No, and tell Namzu what to do differently (esc)'
 	const extra = options.batchOnly || options.withheld ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
@@ -616,7 +612,7 @@ export function PermissionOverlay({
 							: [
 									// The arrow keys are the first of the answer keys to go: enter and y / n
 									// still answer, and the list shows which row is selected.
-									{ text: '↑↓ select', rank: 4 },
+									{ text: '↑↓ select', rank: 3 },
 									{ text: 'enter confirm', rank: 5 },
 									{
 										text: 'y / n answer',
@@ -626,7 +622,6 @@ export function PermissionOverlay({
 										rank: scriptView ? 4 : 5,
 									},
 									{ text: 'esc cancel', rank: 5 },
-									...(onRefusal ? [{ text: 'tab say why', rank: 4 }] : []),
 									...(offersEdits ? [{ text: 'shift+tab accept edits', rank: 3 }] : []),
 									{
 										text: 'ctrl+c stop',
@@ -649,6 +644,10 @@ export function PermissionOverlay({
 										// whose key works without being shown.
 										rank: 5,
 									},
+									// On the No row the way to give a reason is the one hint that cannot be
+									// guessed, so it outlasts the arrows and the stop key. Last of its rank,
+									// it gives way first, and says less before it does.
+									...(onRefusal ? [{ text: 'tab say why', short: 'tab why', rank: 5 }] : []),
 								],
 						boxedHintWidth(columns),
 					)}
