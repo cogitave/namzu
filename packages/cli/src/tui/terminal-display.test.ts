@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { terminalDisplayText } from './terminal-display.js'
+import { expandTabs, terminalDisplayText } from './terminal-display.js'
 
 const cp = (value: number): string => String.fromCodePoint(value)
 
@@ -49,5 +49,17 @@ describe('terminalDisplayText', () => {
 	it('is idempotent, so layered render boundaries do not rewrite the view twice', () => {
 		const once = terminalDisplayText(`before${cp(0x1b)}after${cp(0x202e)}`)
 		expect(terminalDisplayText(once)).toBe(once)
+	})
+})
+
+describe('expandTabs', () => {
+	it('advances to the next tab stop line by line', () => {
+		expect(expandTabs('1\t# a')).toBe('1       # a')
+		expect(expandTabs('12345678\tx')).toBe('12345678        x')
+		expect(expandTabs('a\tb\nc\td')).toBe('a       b\nc       d')
+	})
+
+	it('leaves a line without a tab as it is', () => {
+		expect(expandTabs('plain\ntext')).toBe('plain\ntext')
 	})
 })

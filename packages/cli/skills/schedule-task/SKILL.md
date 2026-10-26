@@ -197,7 +197,7 @@ Start from the smallest set that can do the job.
   waits for the operator. Unmatched calls park.
 - `rules`: extra rules in the config's `[permissions]` vocabulary, applied
   over the preset: a tool name mapped to `allow`, `ask` or `deny`, or to
-  patterns, e.g. `{"bash": {"npm test*": "allow", "*": "ask"}}`. Allow the
+  patterns, e.g. `{"bash": {"<command> *": "allow", "*": "ask"}}`. Allow the
   exact commands the job needs, not `bash` as a whole.
 - `unmatched` (required): what happens to a call no rule covers. `park`
   waits for the operator (the job's later runs are skipped until they
@@ -267,10 +267,10 @@ alone:
   the user reads afterwards. Keep exact values (addresses, commands, text to
   post) as the user gave them.
 
-Example: "Run `npm outdated --json` in this folder. If any dependency is a
-major version behind, write the list with current and latest versions to
-`reports/outdated.md`, replacing the file. If the command fails, stop and
-report its error. Do not install or change anything."
+Example: "Check the files in this folder. If any file is older than a week, write
+the list with names and dates to `reports/stale.md`, replacing the file. If a
+file cannot be read, stop and report the error. Do not install or change
+anything."
 
 ## 5. Propose, then confirm
 
@@ -302,7 +302,7 @@ the result says none is installed, tell the user to run
 ## Browser access
 
 Grant the browser with `permissions.browser`:
-`{ "profile": "social", "sites": { "http://localhost:8123": "act" } }`.
+`{ "profile": "work", "sites": { "http://localhost:8123": "act" } }`.
 
 - `profile` is one the operator already signed in to with
   `namzu browser login <profile> <url>`. Use the one the user named, or ask;
@@ -327,7 +327,7 @@ the user the command to run themselves, for example:
 
 and for a browser job
 
-`namzu schedule add morning-post --prompt "…" --when "0 9 * * *" --permissions read-only --unmatched deny --browser social --browser-site http://localhost:8123=act`
+`namzu schedule add morning-report --prompt "…" --when "0 9 * * *" --permissions read-only --unmatched deny --browser work --browser-site http://localhost:8123=act`
 
 and for a `script` job:
 

@@ -2,12 +2,18 @@ import { readFile } from 'node:fs/promises'
 
 import { z } from 'zod'
 import type { ToolContext, ToolResult } from '../../types/tool/index.js'
+import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip, describeChange } from './classifier-input.js'
 import { fingerprintContent, staleFileError, unreadFileError } from './content-fingerprint.js'
-import { type NormalizedEditInput, applyEdit, normalizeEditInput } from './edit-apply.js'
+import {
+	type EditApplyFailure,
+	type NormalizedEditInput,
+	applyEdit,
+	normalizeEditInput,
+} from './edit-apply.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
@@ -334,7 +340,7 @@ function recordDrift(context: ToolContext, key: string): void {
 }
 
 type EditAdmission =
-	| { success: false; output: ''; error: string }
+	| { success: false; output: ''; error: string; facts: ToolFacts }
 	| { success: true; result: ReturnType<typeof applyEdit> }
 
 /**
@@ -359,7 +365,12 @@ function admitAgainstRead(
 ): EditAdmission {
 	const tracker = context.fileReadTracker
 	if (tracker && !tracker.hasRead(key)) {
-		return { success: false, output: '', error: unreadFileError(key, 'edit') }
+		return {
+			success: false,
+			output: '',
+			error: unreadFileError(key, 'edit'),
+			facts: { kind: 'failure', reason: 'not_read', subject: key },
+		}
 	}
 	const seen = tracker?.fingerprint?.(key)
 	const applied = applyEdit(content, operations)
@@ -367,7 +378,12 @@ function admitAgainstRead(
 		const recoverable = applied.success && operations.every((o) => o.operation === 'replace')
 		if (!recoverable) {
 			recordDrift(context, key)
-			return { success: false, output: '', error: staleFileError(key) }
+			return {
+				success: false,
+				output: '',
+				error: staleFileError(key),
+				facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
+			}
 		}
 	}
 	return { success: true, result: applied }
@@ -394,6 +410,18 @@ function editFacts(path: string, replacements: number, before: string, after: st
 			...(diff.hunks.length > 0 ? { hunks: diff.hunks } : {}),
 			...(diff.truncated ? { hunksTruncated: true as const } : {}),
 		},
+	}
+}
+
+/** A refused edit, with the kind of refusal when the text said it. */
+function refusedEdit(result: EditApplyFailure, path: string) {
+	return {
+		success: false as const,
+		output: '' as const,
+		error: result.error,
+		...(result.reason
+			? { facts: { kind: 'failure' as const, reason: result.reason, subject: path } }
+			: {}),
 	}
 }
 
@@ -529,9 +557,7 @@ export const EditTool = defineTool({
 				const admitted = admitAgainstRead(context, parsed.data.path, content, normalized.operations)
 				if (!admitted.success) return admitted
 				const result = admitted.result
-				if (!result.success) {
-					return { success: false as const, output: '', error: result.error }
-				}
+				if (!result.success) return refusedEdit(result, parsed.data.path)
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
 				recordEditedContent(context, parsed.data.path, result.content)
@@ -554,7 +580,7 @@ export const EditTool = defineTool({
 			const admitted = admitAgainstRead(context, hostPath, content, normalized.operations)
 			if (!admitted.success) return admitted
 			const result = admitted.result
-			if (!result.success) return { success: false as const, output: '', error: result.error }
+			if (!result.success) return refusedEdit(result, hostPath)
 
 			// Temp file, fsync, rename — a reader sees the old body or the new
 			// one, never a half-written one. A plain `writeFile` that fails

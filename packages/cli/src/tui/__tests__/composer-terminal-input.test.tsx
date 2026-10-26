@@ -56,7 +56,9 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 			expect(transitions).toEqual([true])
 
-			screen.press('\x1b')
+			// Ctrl+U empties the draft; the Esc clear is covered under a fake clock in
+			// escape-twice-clears-the-draft.test.tsx.
+			screen.press('\x15')
 			await waitUntil(screen, () => transitions.length === 2)
 			expect(transitions).toEqual([true, false])
 		} finally {

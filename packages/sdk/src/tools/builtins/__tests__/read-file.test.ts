@@ -1,6 +1,6 @@
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { encode } from 'fast-png'
 import { describe, expect, it } from 'vitest'
 import { findPortableSchemaViolations } from '../../../registry/tool/portable.js'
@@ -269,5 +269,115 @@ describe('what a read tells the observation ledger', () => {
 
 		expect(tracker.fingerprint?.(join(dir, 'doc.md'))).toBe(fingerprintContent(body))
 		expect(tracker.readWitness?.(join(dir, 'doc.md'))).toBeUndefined()
+	})
+})
+
+describe("read opens this session's own retained output, and nothing else outside the roots", () => {
+	const setup = () => {
+		const work = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-read-work-')))
+		const retained = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-read-retained-')))
+		const outside = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-read-outside-')))
+		return {
+			work,
+			retained,
+			outside,
+			context: makeContext(work, { retainedOutputDirectory: retained }),
+		}
+	}
+
+	it('reads a regular retained file in its usual line windows', async () => {
+		const { retained, context } = setup()
+		const file = join(retained, 'abc.txt')
+		writeFileSync(file, 'one\ntwo\nthree\nfour\n')
+
+		const out = await ReadFileTool.execute({ path: file, offset: 1, limit: 2 }, context)
+
+		expect(out.success).toBe(true)
+		expect(out.output).toContain('two')
+		expect(out.output).toContain('three')
+		expect(out.output).not.toContain('four')
+	})
+
+	it('reads a file kept in a subdirectory of the retained directory', async () => {
+		const { retained, context } = setup()
+		mkdirSync(join(retained, 'content'))
+		const file = join(retained, 'content', 'abc.txt')
+		writeFileSync(file, 'nested\n')
+
+		expect((await ReadFileTool.execute({ path: file }, context)).success).toBe(true)
+	})
+
+	it('refuses the same file when the turn retains no output', async () => {
+		const { retained, work } = setup()
+		const file = join(retained, 'abc.txt')
+		writeFileSync(file, 'secret\n')
+
+		expect((await ReadFileTool.execute({ path: file }, makeContext(work))).success).toBe(false)
+	})
+
+	it.each([
+		['a file outside the directory', (_r: string, o: string) => join(o, 'x.txt'), 'plain'],
+		[
+			'a path that climbs out of it',
+			(r: string, o: string) => join(r, '..', basename(o), 'x.txt'),
+			'plain',
+		],
+		['a file that is not text output', (r: string) => join(r, 'x.manifest.json'), 'plain'],
+	])('refuses %s', async (_name, pathFor, _kind) => {
+		const { retained, outside, context } = setup()
+		writeFileSync(join(outside, 'x.txt'), 'outside\n')
+		writeFileSync(join(retained, 'x.manifest.json'), '{}')
+		expect(
+			(await ReadFileTool.execute({ path: pathFor(retained, outside) }, context)).success,
+		).toBe(false)
+	})
+
+	it('refuses a symbolic link, even one pointing at a file in the directory', async () => {
+		const { retained, outside, context } = setup()
+		writeFileSync(join(retained, 'real.txt'), 'real\n')
+		symlinkSync(join(retained, 'real.txt'), join(retained, 'link.txt'))
+		writeFileSync(join(outside, 'target.txt'), 'outside\n')
+		symlinkSync(join(outside, 'target.txt'), join(retained, 'escape.txt'))
+
+		expect(
+			(await ReadFileTool.execute({ path: join(retained, 'link.txt') }, context)).success,
+		).toBe(false)
+		expect(
+			(await ReadFileTool.execute({ path: join(retained, 'escape.txt') }, context)).success,
+		).toBe(false)
+	})
+
+	it('refuses a directory that is a link to somewhere else', async () => {
+		const { retained, outside, context } = setup()
+		writeFileSync(join(outside, 'x.txt'), 'outside\n')
+		symlinkSync(outside, join(retained, 'dir'))
+
+		expect(
+			(await ReadFileTool.execute({ path: join(retained, 'dir', 'x.txt') }, context)).success,
+		).toBe(false)
+	})
+
+	it('refuses a file with a second hard link', async () => {
+		const { retained, outside, context } = setup()
+		writeFileSync(join(outside, 'x.txt'), 'outside\n')
+		linkSync(join(outside, 'x.txt'), join(retained, 'linked.txt'))
+
+		expect(
+			(await ReadFileTool.execute({ path: join(retained, 'linked.txt') }, context)).success,
+		).toBe(false)
+	})
+
+	it('reads it from the host even when the turn has a sandbox', async () => {
+		const { retained, work } = setup()
+		const file = join(retained, 'abc.txt')
+		writeFileSync(file, 'host text\n')
+		const context = makeContext(work, {
+			retainedOutputDirectory: retained,
+			sandbox: sandboxOver('sandbox text'),
+		})
+
+		const out = await ReadFileTool.execute({ path: file }, context)
+
+		expect(out.output).toContain('host text')
 	})
 })

@@ -30,6 +30,7 @@ import {
 import type { MdBlock } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
+import { useThemeEpoch } from './theme-store.js'
 import { theme } from './theme.js'
 
 /**
@@ -47,8 +48,6 @@ export const ContentWidth = createContext<number>(76)
 export function useContentWidth(): number {
 	return Math.max(10, useContext(ContentWidth))
 }
-
-const CODE_COLOR = theme.status.ok
 
 export interface MarkdownProps {
 	readonly text: string
@@ -116,6 +115,8 @@ const BlockView = memo(function BlockView({
 	/** Cells this block has; a resize re-renders every block at the new width. */
 	readonly width: number
 }) {
+	// A memoised block would otherwise keep the colours it was drawn with.
+	useThemeEpoch()
 	// One blank line between blocks, except: nothing before the first block,
 	// and consecutive list items stay tight (no gap between bullets).
 	const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
@@ -175,7 +176,7 @@ const BlockView = memo(function BlockView({
 					{block.lang ? <Text color={theme.text.muted}>{block.lang}</Text> : null}
 					{(block.lines.length > 0 ? block.lines : ['']).map((line, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
-						<Text key={`c-${i}`} color={CODE_COLOR}>
+						<Text key={`c-${i}`} color={theme.status.ok}>
 							{line.length > 0 ? line : ' '}
 						</Text>
 					))}
@@ -307,7 +308,7 @@ function SpanView({
 	if (span.muted) return <Text color={theme.text.muted}>{span.text}</Text>
 	if (span.code) {
 		return (
-			<Text color={CODE_COLOR} bold={span.bold} italic={span.italic}>
+			<Text color={theme.status.ok} bold={span.bold} italic={span.italic}>
 				{span.text}
 			</Text>
 		)

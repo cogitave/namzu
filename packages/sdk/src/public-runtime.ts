@@ -405,8 +405,13 @@ export type {
 // session between turns.
 export { abandonTurn } from './runtime/query/abandon-turn.js'
 export type { AbandonTurnOptions, SessionLocatorOptions } from './runtime/query/abandon-turn.js'
-export { compactSession } from './runtime/query/compact-session.js'
-export type { CompactSessionParams } from './runtime/query/compact-session.js'
+export { CacheClock } from './runtime/cache-clock.js'
+export type { CacheClockState } from './runtime/cache-clock.js'
+export { compactSession, compactSessionRange } from './runtime/query/compact-session.js'
+export type {
+	CompactSessionParams,
+	CompactSessionRangeParams,
+} from './runtime/query/compact-session.js'
 export { prepareForkState } from './runtime/query/fork/prepare.js'
 export { listCheckpoints } from './runtime/query/fork/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
@@ -1276,7 +1281,7 @@ export { compactNow, compactRegion } from './compaction/manual.js'
 // A host persisting manual compaction has to recognise the system message on
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
-export { isCompactionMessage } from './compaction/summary.js'
+export { COMPACTION_RECOVERY_NOTE, isCompactionMessage } from './compaction/summary.js'
 export {
 	DEFAULT_SALIENCE_CONFIG,
 	DEFAULT_SALIENCE_WEIGHTS,
@@ -1564,6 +1569,22 @@ export {
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
 export { resolveTriggerThreshold } from './compaction/context-window.js'
+// What the context window is made of, for a host that draws the answer to
+// "where did my context go".
+export {
+	analyzeContextUsage,
+	describeToolCatalogTokens,
+	CONTEXT_CATEGORY_ORDER,
+} from './compaction/context-breakdown.js'
+export type {
+	ContextBreakdown,
+	ContextCategory,
+	ContextCategoryId,
+	ContextCategoryKind,
+	ContextMessageBreakdown,
+	ContextUsageInput,
+} from './compaction/context-breakdown.js'
+export { estimateTextTokens } from './compaction/token-estimate.js'
 export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,
@@ -1640,6 +1661,7 @@ export {
 	createSessionEvidenceSource,
 	createSessionTextEvidenceSource,
 } from './store/evidence/disk.js'
+export { SessionEvidenceOffsetError } from './store/evidence/source-text.js'
 export {
 	classifyEvidenceSource,
 	EVIDENCE_RECORD_GUIDANCE,

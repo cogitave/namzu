@@ -27,8 +27,10 @@ export interface Bm25Index {
 const K1 = 1.2
 const B = 0.75
 
-export function indexDocument(text: string): Bm25Document {
-	const tokens = tokenize(text)
+export function indexDocument(
+	text: string,
+	tokens: readonly string[] = tokenize(text),
+): Bm25Document {
 	return { tf: termFrequencies(tokens), length: tokens.length }
 }
 

@@ -235,6 +235,28 @@ async function sourceText(
 	}
 }
 
+/**
+ * @experimental A read named a byte offset the retained text cannot start at.
+ * `inside_character` means the offset falls inside a multi-byte character (the
+ * character starts up to three bytes earlier); `past_end` means it lies beyond
+ * the text. Every other read failure (integrity, ownership, a changed source)
+ * is a plain `Error`, so a caller can recover from a bad position without
+ * treating a refusal as one.
+ */
+export class SessionEvidenceOffsetError extends Error {
+	constructor(
+		readonly code: 'inside_character' | 'past_end',
+		message: string,
+		/** Bytes of the retained text. */
+		readonly totalBytes: number,
+		/** Bytes this failed read was charged. */
+		readonly scannedBytes: number,
+	) {
+		super(message)
+		this.name = 'SessionEvidenceOffsetError'
+	}
+}
+
 export async function readTextPage(
 	source: TextSource,
 	scope: SessionEvidenceScope,
@@ -242,13 +264,27 @@ export async function readTextPage(
 	budget: EvidenceBudget,
 ): Promise<SessionTextEvidenceReadResult> {
 	const entry = source.entry
-	if (offset > source.bytes) throw new Error('Offset exceeds retained text.')
+	if (offset > source.bytes)
+		throw new SessionEvidenceOffsetError(
+			'past_end',
+			'Offset exceeds retained text.',
+			source.bytes,
+			budget.bytes,
+		)
 	const chunk = entry.spill
 		? Math.min(Math.floor(offset / EVIDENCE_CHUNK_BYTES), source.chunks - 1)
 		: 0
 	const window = await source.window(chunk)
-	if (offset < window.offset) throw new Error('Offset splits a UTF-8 character.')
+	const splits = () =>
+		new SessionEvidenceOffsetError(
+			'inside_character',
+			'Offset splits a UTF-8 character.',
+			source.bytes,
+			budget.bytes,
+		)
+	if (offset < window.offset) throw splits()
 	const bytes = window.bytes.subarray(offset - window.offset)
+	if (bytes.length && ((bytes[0] ?? 0) & 0xc0) === 0x80) throw splits()
 	let text = decode(utf8Page(bytes, 24_000))
 	if (text.length > 6000) {
 		let end = 6000

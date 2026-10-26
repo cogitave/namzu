@@ -5,6 +5,7 @@ import type { ToolContext } from '../../types/tool/index.js'
 import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
+import { resolveRetainedOutput } from '../retained-output.js'
 import { looksBinary } from '../text-window.js'
 import { fingerprintContent } from './content-fingerprint.js'
 import { type RenderedRead, renderCappedRead } from './read-render.js'
@@ -71,8 +72,12 @@ export const ReadFileTool = defineTool({
 	},
 
 	async execute(input, context) {
+		// This session's own retained tool output lives on the host, outside the
+		// roots and outside any sandbox. It is read here, as a plain window of text,
+		// because the result that named it told the model to.
+		const retained = await resolveRetainedOutput(context.retainedOutputDirectory, input.path)
 		// Sandbox-aware: route through sandbox.readFile() when available
-		if (context.sandbox) {
+		if (context.sandbox && retained === undefined) {
 			const buffer = await context.sandbox.readFile(input.path)
 			const binaryGuidance = describeStructuredBinaryRead(input.path, buffer)
 			if (binaryGuidance) {
@@ -112,7 +117,7 @@ export const ReadFileTool = defineTool({
 			}
 		}
 
-		const filePath = await resolveWithinAnyReal(toolRoots(context), input.path)
+		const filePath = retained ?? (await resolveWithinAnyReal(toolRoots(context), input.path))
 		// Refused on the size alone, before the file is in memory, when no window
 		// was named: the cap exists so a huge file is never loaded to be refused.
 		if (input.readRange === undefined && input.limit === undefined) {

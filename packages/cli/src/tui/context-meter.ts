@@ -8,12 +8,18 @@
  * compact & continue` (red). The percentage counts down to the threshold the
  * conversation will really be compacted at, not to the end of the window.
  *
+ * The meter rides the footer's notice slot (`notifications.ts`) as a medium
+ * notice that stays while it is true. A compaction hides it until the next
+ * turn starts: the figure counted before the summary is stale until then.
+ *
  * The threshold is the kernel's own, read from the same function the kernel
  * compares against (`resolveTriggerThreshold`), so the figure never disagrees
  * with when compaction actually happens.
  */
 
 import { resolveTriggerThreshold } from '@namzu/sdk'
+
+import type { Notice } from './notifications.js'
 
 /** The meter appears this many tokens before the threshold. */
 export const CONTEXT_WARNING_MARGIN_TOKENS = 20_000
@@ -49,4 +55,21 @@ export function contextMeter(input: ContextMeterInput): ContextMeter | null {
 				text: `Context low (${left}% remaining) · Run /compact to compact & continue`,
 				tone: 'error',
 			}
+}
+
+/** The meter's key in the notice slot. */
+export const CONTEXT_NOTICE_KEY = 'token-warning'
+/** It stays as long as it is true: five hours is the same as never timing out. */
+const CONTEXT_NOTICE_MS = 18_000_000
+
+/** The meter as a notice; a newer reading replaces the one showing. */
+export function contextNotice(meter: ContextMeter): Notice {
+	return {
+		key: CONTEXT_NOTICE_KEY,
+		text: meter.text,
+		tone: meter.tone === 'error' ? 'error' : 'dim',
+		priority: 'medium',
+		timeoutMs: CONTEXT_NOTICE_MS,
+		fold: (_older, newer) => newer,
+	}
 }

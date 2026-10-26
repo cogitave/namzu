@@ -812,6 +812,12 @@ type CoreSessionEvent =
 			usage: TokenUsage
 			cost: CostInfo
 			/**
+			 * The prompt cache after the latest model call alone (not the turn
+			 * total above). Present only when the driver reports a lifetime;
+			 * absent means unknown, and a host must not assume one.
+			 */
+			cache?: { ttlMs: number; touched: boolean }
+			/**
 			 * How large the CONTEXT is right now, and how large it may get.
 			 *
 			 * These are a different quantity from `usage` beside them and the

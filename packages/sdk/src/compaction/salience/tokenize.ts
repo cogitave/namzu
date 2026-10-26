@@ -46,10 +46,24 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
 
 const WORD = /[\p{L}\p{N}_$][\p{L}\p{N}_$.\-/\\:]*/gu
 
+const SEPARATORS: ReadonlySet<string> = new Set(['.', '-', '/', '\\', ':'])
+
+// A linear scan from each end: a `[sep]+$` regex is retried from every start of a
+// long separator run inside a token and fails at the end each time, quadratically.
+function trimSeparators(token: string): string {
+	let start = 0
+	let end = token.length
+	while (start < end && SEPARATORS.has(token[start] as string)) start++
+	while (end > start && SEPARATORS.has(token[end - 1] as string)) end--
+	return start === 0 && end === token.length ? token : token.slice(start, end)
+}
+
 function splitIdentifier(raw: string): string[] {
 	const parts = raw
 		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+		// Lookaround keeps this linear: a capturing `([A-Z]+)([A-Z][a-z])` backtracks
+		// quadratically on a long run of capitals that never reaches a lower-case letter.
+		.replace(/(?<=[A-Z])(?=[A-Z][a-z])/g, ' ')
 		.split(/[_\s]+/)
 		.filter((p) => p.length > 0)
 	return parts.length > 1 ? parts : []
@@ -59,7 +73,7 @@ function splitIdentifier(raw: string): string[] {
 export function tokenize(text: string): string[] {
 	const out: string[] = []
 	for (const match of text.matchAll(WORD)) {
-		const raw = match[0].replace(/^[.\-/\\:]+|[.\-/\\:]+$/g, '')
+		const raw = trimSeparators(match[0])
 		if (raw.length === 0) continue
 		const whole = raw.toLowerCase()
 		if (!STOP_WORDS.has(whole)) out.push(whole)

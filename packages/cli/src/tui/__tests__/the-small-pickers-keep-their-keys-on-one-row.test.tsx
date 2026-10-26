@@ -12,8 +12,9 @@ import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { CopyPicker } from '../CopyPicker.js'
-import { EditPromptPicker } from '../EditPromptPicker.js'
 import { ResumePicker } from '../ResumePicker.js'
+import { RewindPicker } from '../RewindPicker.js'
+import { buildRewindRows, openRewind } from '../rewind.js'
 import { renderToScreen } from './support/screen.js'
 
 const pickers: readonly (readonly [string, () => ReactNode, RegExp])[] = [
@@ -28,11 +29,18 @@ const pickers: readonly (readonly [string, () => ReactNode, RegExp])[] = [
 		/enter/,
 	],
 	[
-		'edit',
+		'rewind',
 		() => (
-			<EditPromptPicker
-				prompts={[{ userOrdinal: 1, displayText: 'first', message: { role: 'user' } } as any]}
-				selected={0}
+			<RewindPicker
+				rows={buildRewindRows(
+					[{ userOrdinal: 1, displayText: 'first', message: { role: 'user' } } as any],
+					undefined,
+					[],
+				)}
+				state={openRewind(2)}
+				options={[]}
+				checkpointing={false}
+				now={0}
 			/>
 		),
 		/enter/,

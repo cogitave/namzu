@@ -12,7 +12,6 @@ import {
 	createUserMessage,
 	defineTool,
 	drainQuery,
-	generateTurnId,
 	mcpJsonSchemaToZod,
 	toolset,
 } from '@namzu/sdk'
@@ -43,7 +42,7 @@ async function backgroundTurn() {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-background-message-'))
 	workdirs.push(cwd)
 	const parent = await subagentParentFixture(cwd)
-	const foreignTurnId = generateTurnId()
+	const foreignTurnId = await parent.addForeignTurn()
 	const childStarted = deferred<AbortSignal>()
 	const childRelease = deferred<void>()
 	const childUnwound = deferred<void>()
@@ -63,8 +62,7 @@ async function backgroundTurn() {
 		],
 	})
 	const runtime = await createSubagentRuntime({
-		resolveParent: (turnId) =>
-			parent.resolveParent(turnId === foreignTurnId ? parent.scope.turnId : turnId),
+		resolveParent: parent.resolveParent,
 		cwd,
 		model: 'mock-model',
 		tokenBudget: 1_000_000,
@@ -291,7 +289,7 @@ it('does independent work, delivers one correction at the next child boundary, a
 			{ ...turn.context, turnId: turn.foreignTurnId },
 		)
 		expect(foreign.success).toBe(false)
-		expect(foreign.error).toContain('does not belong to this parent turn')
+		expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
 		const afterForeign = turn.runtime.activity
 			.getSnapshot()
 			.find((entry) => entry.taskId === taskId)

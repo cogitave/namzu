@@ -117,9 +117,9 @@ describe('parallel turns share their actual parent Session capacity', () => {
 			const theirs = await second.createTask({ ...task, prompt: 'second-owner' })
 			await vi.waitFor(() => expect(signals.size).toBe(2))
 			expect(first.getTask(theirs.taskId)).toBeUndefined()
-			await expect(first.waitForTask(theirs.taskId)).rejects.toThrow('does not belong')
+			await expect(first.waitForTask(theirs.taskId)).rejects.toThrow('in this conversation')
 			await expect(first.continueTask(theirs.taskId, 'interfere')).rejects.toThrow(
-				'does not belong',
+				'in this conversation',
 			)
 			first.cancelTask(theirs.taskId)
 			expect(signals.get('second-owner')?.aborted).toBe(false)

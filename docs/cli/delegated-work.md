@@ -180,15 +180,33 @@ what the rules leave to review, as the unattended default does, except a sandbox
 path outside the roots, which is refused; `plan` and `strict` refuse. `namzu
 exec` resumes under the mode the session was started with.
 
-`send_message` takes `task_id` and `message`. A running or queued child owned by
-the current parent session is sent the message for its next tool round
+`send_message` takes `task_id` and `message`. The task may come from any turn of
+the conversation, running or finished. A running or queued child of the
+conversation is sent the message for its next tool round
 ("Message queued for delivery … at its next tool round"); acceptance confirms
 queuing, not delivery or execution. A **finished** child is resumed from its own
 transcript with the message ("Resuming agent …") and notifies again when it
 ends. A child the user stopped is refused: "Agent … was stopped by the user and
 was not resumed. Treat its work as cancelled; only start a new agent for it if
-the user explicitly asks." Messages are bounded to 16,000 characters, and
-another parent's task cannot receive the message.
+the user explicitly asks." A resumed child runs under the current turn's limits
+and review channel. Messages are bounded to 16,000 characters. An id that no
+agent of this conversation has, including one of another conversation, gets the
+same answer: "No task with ID … in this conversation.", followed by "Running
+agents: …" when any are running and, only when the id is a saved agent's session
+UUID, a pointer to `agent_task_list` with `history: true`; a value that is not a
+UUID gets the same answer, and nothing is sent and no row is added. While a
+resume is being admitted the three tools answer about the new run, and an agent
+that is still unwinding after a stop answers that it is stopping.
+
+An agent keeps one task id for as long as the conversation knows it. A resumed
+run is a new task inside, but the notification, `agent_task_list`,
+`wait_for_task` and `send_message` all show the id the agent was first known by,
+and that id keeps working for `wait_for_task`, `cancel_agent` and
+`send_message`. When two messages meet an agent that is being resumed, the
+second is told in plain words that the agent is already being resumed and to
+wait for its notification before sending another. A saved agent that is still
+running its earlier work answers that the message was not sent and to try again
+in a moment.
 
 A running child has a `send_message` of its own with `to: "main"` and a
 `message`, offered only while the host can show the message (the interactive
@@ -271,9 +289,8 @@ runs, `Running 3 agents…` with one block per agent (`description · 4 tool use
 `3 agents finished`, when the last member ends; the manage hint is only for an
 all-background batch. Each observed agent completion adds **one** row, whether or
 not the model calls `wait_for_task`: `● Agent "<description>" finished · 1m 4s
-(ctrl+o to expand)` with the agent's answer behind Ctrl+O (in place while the row
-is live and in the output viewer once it has settled into history), or
-`failed: <reason> · 3s`, `was stopped by user · 1s`, `was stopped by Namzu · 1s`
+(ctrl+o to expand)` with the agent's answer behind Ctrl+O (the detailed transcript), or
+`failed: <reason>` (no duration), `was stopped by user · 1s`, `was stopped by Namzu · 1s`
 when the conversation's own agent cancelled it, or `was stopped · 1s`, with no
 token count and no repeat of the result. The separate `Message from @<type>` row
 now belongs only to a running agent's own `send_message`. Only an agent that runs on its own
@@ -309,6 +326,8 @@ press shows `Press ctrl+x ctrl+k again to stop background agents` in the footer 
 3 seconds (it is not a transcript row); the second stops them and leaves
 `All background agents stopped` (the same single row as Ctrl+C). Agents
 the parent is waiting on (foreground) are stopped one at a time with `x`.
+
+A background agent's notice row colours only its `●` by outcome (green, red for a failure, warning for a stop); its sentence is plain primary text. A failure's sentence is the error's own text on one line (whitespace folded, wrapped at the terminal width, never cut), and the row carries no duration and no expandable body. `failed again` compares that text.
 
 A failed agent shows the error text the agent produced, verbatim and in the
 error colour, in three places. In the conversation the failed `Agent` call shows
@@ -365,9 +384,12 @@ saved agent's history; the task id, status and worktree stay outside the block.
 A sub-agent has no one to ask: where the working rules say to ask or stop, it
 finishes what is safe, leaves the risky step undone and names the blocker or
 assumption in its final summary, so the parent decides. `wait_for_task` retrieves
-the result without launching duplicate work, also in a later turn than the one
-that launched the agent, and `send_message`, `cancel_agent` and `agent_task_list`
-see a background agent that a finished turn left running. Background work keeps
+the result without launching duplicate work. `wait_for_task`, `send_message`,
+`cancel_agent` and `agent_task_list` reach every agent of the conversation from
+any later turn, running or finished: a finished one is returned as it ended
+(`wait_for_task` starts no new wait, `cancel_agent` says it already ended) or,
+with `send_message`, resumed; a running one keeps the review channel it was
+launched under. Background work keeps
 the same parent authority, shared tree budget and capacity limit. In the terminal
 a background agent outlives the turn that started it and is stopped by you (Ctrl+C
 when idle, `ctrl+x ctrl+k`, `x` on its rail row) or by closing the conversation;
@@ -534,8 +556,9 @@ message). Two readers use that evidence, and neither restarts anything.
 New turns and checkpoint resumes take one bounded snapshot of this
 conversation's earlier children, read through the session index
 (`SessionIndex.listChildren`), which is derived from the parent log. A child
-whose parent log has no `child_session_ended` yet is reported as
-`unresolved`; one that ended carries its actual outcome and a preview of its
+whose parent log has no `child_session_ended` yet and whose own log has no
+settled turn either is reported as `unresolved`; one whose own log did settle is
+reported with that outcome; one that ended carries its actual outcome and a preview of its
 answer of at most 16,000 characters, explicitly marked when truncated. A
 completed scheduler lifecycle does not turn a token-limited result into
 success.
@@ -543,7 +566,20 @@ success.
 Use `agent_task_list({history: true})` to inspect the snapshot and
 `agent_task_list({history: true, task_id: "<UUID>"})` to read one saved result.
 The normal tool call still lists live tasks owned by the current session.
-Historical access grants no cancellation, messaging or execution authority.
+Reading the history grants no authority by itself. To continue a saved agent,
+`send_message` to its session UUID from `agent_task_list({history: true})`
+("Resuming agent …"): its saved history and settings are read back from disk, it
+is shown under the short name it was launched with (a plain "Earlier agent" when
+the save kept none, never its prompt), a saved model that names no provider is
+ignored and any other saved model is checked again before the agent runs, it
+runs again under the current turn's limits and review channel, and it appears on
+the rail like any resumed agent, with its duration counted from the resume. Only
+a finished agent whose saved record is complete can be continued. One that ended
+without settling a turn (`unresolved`), one you stopped, one that ran in an
+isolated worktree or with a role, one saved by an older version, and one whose
+agent type no longer exists answer "Not sent. Agent … was saved by an earlier run
+but cannot be resumed …", or the stopped text, and send nothing. `wait_for_task`
+and `cancel_agent` take the same UUID once the agent has been resumed.
 
 `unresolved` means the parent never recorded an end. It does not prove that the
 child is still running, failed, or had no effects: a process that died mid-turn

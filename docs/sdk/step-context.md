@@ -164,8 +164,11 @@ comes first. The reminders and notices that follow the message stay after it.
 Once the turn has an assistant or tool message after the operator's message,
 the blocks follow the history as above, where a caching driver ends its
 breakpoint before them, so the tool loop of a long turn stays cached. The
-working-memory slot, the derived work context and the approval-policy notice
-always follow the history.
+working-memory slot and the approval-policy notice always follow the history.
+The derived work context (owned delegated work and visible file evidence) is
+placed the same way as the other blocks: before the operator's new message
+while that message is what the model answers, after the history once the turn
+has moved on.
 
 ### Prompt placements
 

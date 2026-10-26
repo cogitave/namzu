@@ -768,6 +768,7 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		const result = await m.execute('strict', { required: 123 }, makeContext())
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/Validation failed for "strict"/)
+		expect(result.facts).toEqual({ kind: 'failure', reason: 'invalid_arguments' })
 	})
 
 	it('appends a tool-specific recovery hint to validation failures', async () => {
@@ -799,6 +800,7 @@ describe('ToolManager — execute (pipeline moved from ToolRegistry)', () => {
 		const result = await m.execute('needs', {}, makeContext())
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/called with no arguments/)
+		expect(result.facts).toEqual({ kind: 'failure', reason: 'invalid_arguments' })
 		expect(result.error).toContain('q: string — the query')
 		expect(result.error).toContain('n: number')
 	})

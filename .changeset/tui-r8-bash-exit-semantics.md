@@ -1,0 +1,6 @@
+---
+'@namzu/sdk': major
+'@namzu/cli': patch
+---
+
+The `bash` tool no longer reports a failure when a search or comparison command uses its exit status to answer. When the last command of the line is `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` or `git grep`, exit 1 now returns `success: true` with no `error` (it was `success: false` with `Command exited with code 1`), and `data.exitNote` and the new optional `ToolFacts` command field `exitNote` carry a short sentence (`No matches found`, `Some directories were inaccessible`, `Files differ`, `Condition is false`). Exit 2 and above, every other command, and a line whose last step follows `&&` (the status may belong to an earlier step) fail exactly as before. This changes the default result for those commands, so code that read `success === false` or the `error` text to detect "no match" must read `data.exitCode` (still 1) instead. The model's text is unchanged. In the terminal such a call is drawn as a success and, when it printed nothing, shows the note in dim where `(No output)` was, and a read-only search of this kind with no match stays inside its collapsed read and search line instead of ending it with a red failure.

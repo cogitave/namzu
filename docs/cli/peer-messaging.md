@@ -35,8 +35,8 @@ unambiguous title returned by discovery. Endpoint tokens are never returned to
 the model. A live terminal id is separate from its durable conversation id;
 resuming another conversation does not redirect that conversation's queued mail.
 
-This is different from the existing `send_message` tool, which addresses an
-owned child task in the current parent turn. Peer messaging cannot spawn,
+This is different from the existing `send_message` tool, which addresses a
+child task of the current conversation, from any of its turns, including one saved by an earlier run of the program. Peer messaging cannot spawn,
 restart, cancel or change another terminal's permissions.
 
 ## Delivery and authority

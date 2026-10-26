@@ -3153,36 +3153,32 @@ describe('agent completion presentation', () => {
 		)
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
-		// First press: the live answer opens in place.
+		// One press opens the detailed transcript: both answers, settled or not.
 		screen.press('\x0f')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('SECOND_ANSWER'),
-			'live answer not opened',
+			() => screen.viewport().join('\n').includes('Showing detailed transcript'),
+			'detailed transcript not opened',
 		)
-		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
-		// Second press: the settled one, in the viewer.
-		screen.press('\x0f')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('SECOND_ANSWER'),
+			'live answer not shown',
+		)
+		screen.press('g')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('FIRST_ANSWER'),
 			'settled answer never reachable',
 		)
-		expect(screen.viewport().join('\n')).toContain('Choose first colour')
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('←→ outputs'),
-			'viewer did not close',
+			() => !screen.viewport().join('\n').includes('Showing detailed transcript'),
+			'screen did not close',
 		)
-		// Closed, the live answer is folded again, and the next press reopens it.
+		// Closed, the answers are folded again.
 		expect(screen.viewport().join('\n')).not.toContain('SECOND_ANSWER')
-		screen.press('\x0f')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('SECOND_ANSWER'),
-			'live answer not reopened',
-		)
 	})
 
 	it.each([true, false])(

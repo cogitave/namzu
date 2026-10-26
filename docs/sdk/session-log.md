@@ -93,7 +93,12 @@ canonicalised (`recordSha256`, `parseSessionLogLine`,
 at most 4 MiB (`SESSION_RECORD_MAX_BYTES`). Message bodies, compaction summaries
 and completed-result text above that threshold can spill to `tool-results/`;
 the spill file and its manifest are on disk before the record that points at
-them. Other fields still have to fit inside the record. By default, opt-in
+them. A tool call's input is spilled the same way when its record would not
+fit a line: `tool_review_requested`, `decision_requested`, `tool_executing` and
+`tool_input_completed` keep `{ "$spilledInput": <spill reference>, "preview": … }`
+in place of each large `input`, largest first and only as many as it takes. A
+resumed turn reads the spilled inputs of its parked request back whole. Other
+fields still have to fit inside the record. By default, opt-in
 [`tool_completed.structuredResultJson`](structured-output-review.md#retaining-structured-tool-results)
 and `turn_completed.settlement.structuredOutput` are inline. The ceiling includes
 escaping and metadata; an oversized record is refused, not silently truncated.
@@ -248,7 +253,7 @@ bytes and hashes and are not reclassified from their text. See
 | `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown), `deadlineAt?` |
 | `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
 | `decision_expired` | `decisionId` |
-| `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
+| `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`/`idle`; `idle` is a host compacting an unused conversation before its prompt cache lapses), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
 | `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
 | `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |

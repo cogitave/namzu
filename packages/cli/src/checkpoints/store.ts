@@ -53,6 +53,7 @@ import {
 	shareBlob,
 	writeManifest,
 } from './manifest.js'
+import { type RewindSummary, summariseRewind } from './rewind-stats.js'
 import {
 	type ConflictReason,
 	type DiskState,
@@ -67,6 +68,7 @@ import {
 
 export type { SkipReason, TurnStatus } from './manifest.js'
 export type { ConflictReason, PlanAction, PlanFile, UndoPlan } from './undo-plan.js'
+export type { RewindSummary } from './rewind-stats.js'
 
 export interface CheckpointTurn {
 	/** 1-based, in the order turns first recorded a change in this conversation. */
@@ -74,6 +76,8 @@ export interface CheckpointTurn {
 	readonly turnId: string
 	/** The prompt that started the turn, cut to a line. */
 	readonly label: string
+	/** Which user message started the turn; absent in a history from before it was recorded. */
+	readonly promptOrdinal?: number
 	readonly startedAt: number
 	readonly status: TurnStatus
 	/** Host paths changed in this turn, first change first. */
@@ -309,7 +313,7 @@ export class FileCheckpointStore {
 	 * a caller with none (a test, a host command) gets a generated one.
 	 * Returns the id.
 	 */
-	beginTurn(label: string, turnId?: string): string {
+	beginTurn(label: string, turnId?: string, meta: { promptOrdinal?: number } = {}): string {
 		const known = turnId === undefined ? undefined : this.byId.get(turnId)
 		if (known) {
 			this.current = known
@@ -317,11 +321,11 @@ export class FileCheckpointStore {
 		}
 		const id = turnId ?? randomUUID()
 		if (!isSafeTurnId(id)) throw new Error(`Cannot keep file history for turn id ${id}.`)
-		this.current = this.newRec(id, firstLine(label).slice(0, LABEL_CHARS))
+		this.current = this.newRec(id, turnLabel(label), meta.promptOrdinal)
 		return id
 	}
 
-	private newRec(turnId: string, label: string): Rec {
+	private newRec(turnId: string, label: string, promptOrdinal?: number): Rec {
 		const at = this.now()
 		const rec: Rec = {
 			m: {
@@ -329,6 +333,9 @@ export class FileCheckpointStore {
 				turnId,
 				seq: 0,
 				label,
+				...(promptOrdinal !== undefined && Number.isInteger(promptOrdinal) && promptOrdinal >= 0
+					? { promptOrdinal }
+					: {}),
 				startedAt: at,
 				lastEditAt: at,
 				status: 'applied',
@@ -667,10 +674,33 @@ export class FileCheckpointStore {
 				index: r.m.seq,
 				turnId: r.m.turnId,
 				label: r.m.label,
+				...(r.m.promptOrdinal !== undefined ? { promptOrdinal: r.m.promptOrdinal } : {}),
 				startedAt: r.m.startedAt,
 				status: r.m.status,
 				files: changedEntries(r.m).map((e) => e.path),
 			}))
+	}
+
+	/**
+	 * What putting the files back to before turn `fromIndex` would change, as
+	 * a person reads it: the files whose content differs from what that
+	 * point held, and how many lines each side gained or lost. Reads saved
+	 * bodies, never the disk. `expired` ends the counting early (the file
+	 * names still come back, the line counts do not).
+	 */
+	async rewindSummary(
+		fromIndex: number,
+		expired: () => boolean = () => false,
+	): Promise<RewindSummary> {
+		const root = this.currentRoot()
+		return this.locked(root, async () => {
+			const history = await this.load(root)
+			const turns = history.recs
+				.filter((r) => r.m.seq >= fromIndex && !r.m.pruned && r.m.status !== 'undone')
+				.sort((a, b) => a.m.seq - b.m.seq)
+				.map((r) => ({ root: r.root ?? history.root, entries: changedEntries(r.m) }))
+			return summariseRewind(turns, readBlob, expired)
+		})
 	}
 
 	/**
@@ -1189,6 +1219,11 @@ async function writeAtomic(path: string, data: Buffer, mode: number | null): Pro
 	}
 }
 
+/** How a prompt is kept as a turn's label: its first non-blank line, cut short. */
+export function turnLabel(text: string): string {
+	return firstLine(text).slice(0, LABEL_CHARS)
+}
+
 function firstLine(text: string): string {
 	const line = text.split('\n').find((l) => l.trim().length > 0) ?? ''
 	return line.trim()
@@ -1238,17 +1273,25 @@ const CONFLICT_TEXT: Record<ConflictReason, string> = {
 	'outside-cwd': 'now resolves outside the project',
 }
 
-/** What `/restore N` prints. */
-export function renderRestore(report: RestoreReport, cwd: string): string {
+/**
+ * What `/restore N` prints. The rewind list numbers no turns, so its report
+ * names the prompt instead (`before: 'prompt'`).
+ */
+export function renderRestore(
+	report: RestoreReport,
+	cwd: string,
+	options: { readonly before?: 'turn' | 'prompt' } = {},
+): string {
 	const rel = (p: string) => relative(cwd, p) || p
 	const left = report.conflicts.length > 0 || report.failed.length > 0
 	const wrote = report.restored.length + report.removed.length > 0
+	const point = options.before === 'prompt' ? 'that prompt' : `turn ${report.turn}`
 	const lines = [
 		!left
-			? `Restored the tree to before turn ${report.turn}.`
+			? `Restored the tree to before ${point}.`
 			: wrote
-				? `Restored part of the tree to before turn ${report.turn}. Some files were left as they are.`
-				: `Nothing could be put back to before turn ${report.turn}. Every file was left as it is.`,
+				? `Restored part of the tree to before ${point}. Some files were left as they are.`
+				: `Nothing could be put back to before ${point}. Every file was left as it is.`,
 	]
 	for (const p of report.restored) lines.push(`  restored ${rel(p)}`)
 	for (const p of report.removed) lines.push(`  removed  ${rel(p)}`)
