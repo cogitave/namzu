@@ -16,7 +16,7 @@ describe('structuredOutput', () => {
 			const tool = createStructuredOutputTool(schema)
 
 			expect(tool.name).toBe('structured_output')
-			expect(tool.description).toContain('MUST call this tool')
+			expect(tool.description).toContain('Call this tool with your answer')
 		})
 
 		it('should have correct tool properties', () => {

@@ -205,7 +205,11 @@ describe('an agent is reachable from every later turn of its conversation', () =
 				world.context2,
 			)
 			expect(waited.success).toBe(true)
-			expect(waited.output).toBe(`task_id: ${taskId}\nstatus: completed\n\nAgent result:\nRESULT_1`)
+			expect(waited.output).toMatch(
+				new RegExp(
+					`^task_id: ${taskId}\\nstatus: completed\\n\\nAgent result:\\n<namzu-untrusted-[0-9a-f]+ kind="agent-result"[^>]*>[\\s\\S]*\\nRESULT_1\\n</namzu-untrusted-[0-9a-f]+>$`,
+				),
+			)
 			expect(world.requests).toHaveLength(1)
 
 			const cancelled = await world.runtime.cancelAgentTool.execute(
@@ -369,7 +373,11 @@ describe('an agent is reachable from every later turn of its conversation', () =
 				{ task_id: taskId },
 				world.contextFor(turn3),
 			)
-			expect(waited.output).toBe(`task_id: ${taskId}\nstatus: completed\n\nAgent result:\nRESULT_2`)
+			expect(waited.output).toMatch(
+				new RegExp(
+					`^task_id: ${taskId}\\nstatus: completed\\n\\nAgent result:\\n<namzu-untrusted-[0-9a-f]+ kind="agent-result"[^>]*>[\\s\\S]*\\nRESULT_2\\n</namzu-untrusted-[0-9a-f]+>$`,
+				),
+			)
 			expect(waited.data).toMatchObject({ task_id: taskId })
 		} finally {
 			await world.finish()

@@ -102,6 +102,7 @@ import {
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
+import { placeBeforeLatestOperatorMessage } from './step-context.js'
 import {
 	type StepShaping,
 	appendWorkContext,
@@ -853,8 +854,8 @@ export class IterationOrchestrator {
 					// there is no length check here — a second guard for the same
 					// case is one more thing to keep in agreement with the first.
 					const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
-					// A supervision change rides the same ephemeral slot, and for
-					// the same reason: it applies to what happens next, not to the
+					// A supervision change is request-only context, and for the
+					// same reason: it applies to what happens next, not to the
 					// run's history. The model plans around how closely it is being
 					// watched — a turn that silently stops asking a human leaves it
 					// batching destructive calls it expects to be reviewed, and one
@@ -879,7 +880,7 @@ export class IterationOrchestrator {
 
 					// Request-only context: observations that need no system
 					// authority and change from request to request. They ride
-					// runtime-context messages of kind `step-context` after the
+					// runtime-context messages of kind `step-context`, most of them after the
 					// history, which every driver keeps there and a caching driver
 					// ends its breakpoint before — so a changed pin or a new turn
 					// snapshot costs its own tokens, not a re-read of the history.
@@ -887,15 +888,27 @@ export class IterationOrchestrator {
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
-					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
+					const stepPreamble = [step.system, stepSkills, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
 					const requestHistory = stepPreamble
 						? [...workingMemory.history, createSystemMessage(stepPreamble)]
 						: [...workingMemory.history]
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
-					if (contextText) requestHistory.push(stepContextMessage(contextText))
-					if (step.context) requestHistory.push(stepContextMessage(step.context))
+					// The blocks of data that belong to this turn (recalled memory and
+					// evidence, the context contributions) sit just before the
+					// operator's latest message, so the request is the last thing the
+					// model reads. The short reminders and notices stay after it.
+					placeBeforeLatestOperatorMessage(
+						requestHistory,
+						[contextText, step.context]
+							.filter((text): text is string => Boolean(text))
+							.map(stepContextMessage),
+					)
+					// After the history, never ahead of it: a system message in front
+					// of the conversation moves the prefix every cached request shares,
+					// and a mode change would re-key the whole conversation.
+					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??

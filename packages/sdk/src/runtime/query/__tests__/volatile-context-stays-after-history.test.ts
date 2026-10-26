@@ -28,6 +28,12 @@ import { WORKING_MEMORY_HEADER } from '../iteration/phases/working-memory.js'
  * observation does. Both must reach the request after the history, as
  * runtime-context messages of kind `step-context`, which every driver keeps
  * there and a caching driver ends its breakpoint before.
+ *
+ * The blocks that belong to the turn (what a `context` contribution renders)
+ * are the exception while the operator's new message is what the model is
+ * about to answer: they sit just before it, so the request is the last thing
+ * read. Once the turn has called a tool they stay after the history, where the
+ * breakpoint keeps the tool loop cached.
  */
 
 registerMock()
@@ -60,6 +66,21 @@ function trailingContext(messages: readonly Message[]): Message[] {
 		end--
 	}
 	return messages.slice(end).filter(isRequestOnly)
+}
+
+/** The step-context run that ends right where the operator's latest message starts. */
+function contextBeforeRequest(messages: readonly Message[]): Message[] {
+	let at = -1
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i] as Message
+		if (message.role === 'user' && message.source === undefined) {
+			at = i
+			break
+		}
+	}
+	let start = at
+	while (start > 0 && isRequestOnly(messages[start - 1] as Message)) start--
+	return messages.slice(start, at)
 }
 
 function setup() {
@@ -146,7 +167,7 @@ describe('the working-memory slot in a request', () => {
 })
 
 describe('a context contribution', () => {
-	it('renders per iteration into request-only context after the history', async () => {
+	it('renders per iteration into request-only context: before the operator message at first, after the history once a tool has run', async () => {
 		const contributions = new PromptContributionRegistry()
 		contributions.register({
 			id: 'observation',
@@ -180,9 +201,15 @@ describe('a context contribution', () => {
 				.map(text)
 				.join('\n')
 			expect(system).not.toContain('OBSERVED AT')
-			const tail = trailingContext(messages).map(text).join('\n')
-			expect(tail).toContain(`OBSERVED AT ${i + 1}`)
-			expect(tail.includes('ONLY ON TWO')).toBe(i === 1)
+			const placed = (i === 0 ? contextBeforeRequest(messages) : trailingContext(messages))
+				.map(text)
+				.join('\n')
+			expect(placed).toContain(`OBSERVED AT ${i + 1}`)
+			expect(placed.includes('ONLY ON TWO')).toBe(i === 1)
+			// Where it sits on the first request, nothing of it trails the history.
+			if (i === 0) {
+				expect(trailingContext(messages).map(text).join('\n')).not.toContain('OBSERVED AT')
+			}
 			// Once per request, never twice.
 			expect(messages.map(text).join('\n').split('OBSERVED AT').length - 1).toBe(1)
 		}
@@ -192,7 +219,7 @@ describe('a context contribution', () => {
 		expect(history.map(text).join('\n')).not.toContain('OBSERVED AT')
 	})
 
-	it('comes after the working-memory slot and leaves turn contributions in the system run', async () => {
+	it('comes after the working-memory slot once a tool has run, and leaves turn contributions in the system run', async () => {
 		const contributions = new PromptContributionRegistry()
 		contributions.register({ id: 'obs', placement: 'context', render: () => 'CONTEXT TEXT' })
 		contributions.register({ id: 'turnly', placement: 'turn', render: () => 'TURN TEXT' })
@@ -209,6 +236,11 @@ describe('a context contribution', () => {
 			messages: [{ role: 'user', content: 'go' }],
 		})
 
+		// The first request has only the operator's message to answer: the context is before it.
+		const first = provider.requests[0]?.messages as Message[]
+		const userAt = first.findIndex((m) => m.role === 'user' && m.source === undefined)
+		expect(first.findIndex((m) => text(m).includes('CONTEXT TEXT'))).toBeLessThan(userAt)
+
 		const messages = provider.requests[1]?.messages as Message[]
 		const tail = trailingContext(messages).map(text)
 		const slotAt = tail.findIndex(isSlot)
@@ -222,5 +254,49 @@ describe('a context contribution', () => {
 				.map(text)
 				.join('\n'),
 		).toContain('TURN TEXT')
+	})
+})
+
+describe('recalled context from preparation', () => {
+	it('sits before the operator message while the reminders after it stay last', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ id: 'c1', name: 'note', args: { text: 'FACT' } }] },
+				{ text: 'done' },
+			],
+		})
+		await drainQuery({
+			...setup(),
+			provider,
+			prepareStep: () => ({ context: 'RECALLED MEMORY BODY' }),
+			messages: [
+				{ role: 'user', content: 'earlier question' },
+				{ role: 'assistant', content: 'earlier answer' },
+				{ role: 'user', content: 'the new request' },
+			],
+		})
+
+		const [request] = provider.requests
+		{
+			const messages = request!.messages as Message[]
+			const userAt = messages.findIndex((m) => m.role === 'user' && text(m) === 'the new request')
+			const recalled = messages.findIndex((m) => text(m).includes('RECALLED MEMORY BODY'))
+			expect(userAt).toBeGreaterThan(0)
+			expect(recalled).toBeGreaterThanOrEqual(0)
+			expect(recalled).toBe(userAt - 1)
+			// Once per request, and the earlier question is not displaced.
+			expect(messages.filter((m) => text(m).includes('RECALLED MEMORY BODY'))).toHaveLength(1)
+			expect(messages.findIndex((m) => text(m) === 'earlier question')).toBeLessThan(recalled)
+		}
+
+		// After the tool call the model has moved on: the block follows the history, as before.
+		const later = provider.requests[1]?.messages as Message[]
+		const indexOfLast = (predicate: (m: Message) => boolean) => {
+			for (let i = later.length - 1; i >= 0; i--) if (predicate(later[i] as Message)) return i
+			return -1
+		}
+		const lastRecalled = indexOfLast((m) => text(m).includes('RECALLED MEMORY BODY'))
+		const lastUser = indexOfLast((m) => m.role === 'user' && m.source === undefined)
+		expect(lastRecalled).toBeGreaterThan(lastUser)
 	})
 })

@@ -10,6 +10,8 @@ import {
 	TurnCancelled,
 	createUserMessage,
 	drainQuery,
+	generateTurnId,
+	untrustedEnvelopeBody,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -183,7 +185,13 @@ describe('operator input releases delegation waits without cancelling children',
 				inbox.enqueue('Are the agents working?')
 				const firstResponse = await requests[1]!.promise
 				expect(operatorText(firstResponse.messages)).toBe('Are the agents working?')
+				// The turn's data block sits in front of the operator's message, so the
+				// request is the last thing the model reads.
 				expect(firstResponse.messages.at(-1)).toMatchObject({
+					role: 'user',
+					content: 'Are the agents working?',
+				})
+				expect(firstResponse.messages.at(-2)).toMatchObject({
 					role: 'user',
 					source: { type: 'runtime-context', kind: 'step-context' },
 				})
@@ -514,9 +522,10 @@ describe('operator input releases delegation waits without cancelling children',
 			release.resolve()
 			const result = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			expect(result.success).toBe(true)
-			expect(result.output).toBe(
-				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
-			)
+			// The task facts are Namzu's own; the child's words sit in a marked block.
+			const [facts, framed] = String(result.output).split('Agent result:\n')
+			expect(facts).toBe(`task_id: ${taskId}\nstatus: completed\n\n`)
+			expect(untrustedEnvelopeBody(framed ?? '')).toBe(completeOutput)
 			expect(requests).toBe(1)
 			expect((await runtime.completionInboxForTurn(parent.scope.turnId)).drain()).toEqual([])
 			const refused = await runtime.waitForTaskTool.execute(
@@ -586,6 +595,10 @@ describe('operator input releases delegation waits without cancelling children',
 			expect(result.output).not.toContain('status: completed')
 			expect(result.output).toContain('token_budget')
 			expect(result.output).toContain('does not establish task completion')
+			// Namzu's own note sits after the child's marked block, not inside it.
+			expect(result.output.indexOf('does not establish task completion')).toBeGreaterThan(
+				result.output.lastIndexOf('</namzu-untrusted'),
+			)
 			expect(result.output).toContain('Partial finding from the child.')
 			expect(runtime.activity.getSnapshot().at(-1)?.status).toBe('failed')
 			const listing = await runtime.agentTaskListTool.execute(

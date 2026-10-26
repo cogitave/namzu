@@ -19,11 +19,12 @@ import {
 	type UserMessage,
 	createRuntimeContextMessage,
 } from '../../types/message/index.js'
+import { escapeNoticeFrame } from '../../types/message/notice-frame.js'
 import { CHECKPOINT_DOCUMENT_VERSION, type Checkpoint } from '../../types/session/checkpoint.js'
 import type { CheckpointListEntry } from '../../types/session/fork.js'
 import type { SessionRecord } from '../../types/session/records.js'
 import { asGoalId, generateCheckpointId } from '../../utils/id.js'
-import { formatSteeringNote, readSteeringNote } from './steering.js'
+import { readSteeringNote } from './steering.js'
 
 /** Keep intent text/provenance without copying attachment payloads into a second slot. */
 function snapshotUserIntent(value: unknown): UserMessage {
@@ -460,8 +461,8 @@ export class CheckpointManager {
 
 	/**
 	 * The id of the record that carries a message's text: its own record,
-	 * or — for operator guidance delivered attached to a tool result — the
-	 * record of the tool result that carries it.
+	 * or, for the operator's message sent while a tool ran, the record of the
+	 * framed message that carries it.
 	 */
 	private messageIdOf(recorder: TurnRecorder, message: Message): MessageId | undefined {
 		if (message === this.restoredUserMessage) return this.restoredUserMessageId
@@ -483,14 +484,17 @@ export class CheckpointManager {
 		) {
 			return undefined
 		}
-		const note = formatSteeringNote(message.content)
+		// The operator's words were sent as a framed message of their own whose
+		// marker is random, so it is found by what its frame holds.
+		const wanted = escapeNoticeFrame(message.content)
 		const messages = recorder.messages
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const candidate = messages[i] as Message
 			if (
-				candidate.role === 'tool' &&
+				candidate.role === 'user' &&
 				typeof candidate.content === 'string' &&
-				candidate.content.endsWith(note)
+				(candidate as UserMessage).source?.type === 'runtime-context' &&
+				readSteeringNote(candidate.content) === wanted
 			) {
 				const id = recorder.recordedIdOf(candidate)
 				if (id) this.steeringCarriers.set(message, id)
@@ -576,6 +580,42 @@ export class CheckpointManager {
 			resolvedBy: resolver(this.recorder),
 		})
 		return park
+	}
+
+	/**
+	 * End the parks that were the other questions of a batch whose decision has
+	 * just been applied (the per-call review parks one question per call).
+	 *
+	 * The batch is answered now, so a question about one of its calls is moot;
+	 * left open, an approval queue would keep serving it and a host resuming it
+	 * would rewind the turn to a batch that has long since been carried out.
+	 * Recorded as superseded, not as an answer: nobody gave one.
+	 */
+	async supersedeBatchParks(
+		callIds: ReadonlySet<string>,
+		except: CheckpointId,
+		superseding: HITLResumeDecision,
+	): Promise<number> {
+		await this.recorder.flush()
+		const parks = await readParks(this.recorder.log, {
+			turnId: this.scope.turnId,
+		})
+		let ended = 0
+		for (const park of parks) {
+			const request = park.pending.request
+			if (
+				park.checkpointId === except ||
+				park.pending.resolvedAt !== undefined ||
+				request.type !== 'tool_review' ||
+				request.perCall !== true ||
+				!request.toolCalls.every((call) => callIds.has(call.id))
+			) {
+				continue
+			}
+			await this.unpark(park.checkpointId, superseding)
+			ended += 1
+		}
+		return ended
 	}
 
 	private async openPark(checkpointId: CheckpointId): Promise<RecordedPark | null> {
@@ -693,9 +733,10 @@ export async function restoreCheckpointContext(
 			`Checkpoint latestUserMessage names message ${intentId}, which its session log does not hold`,
 		)
 	}
-	// Guidance delivered attached to a tool result: the intent is the note.
+	// Guidance the operator sent while a tool ran: the intent is the note, whether
+	// it is a message of its own or, in an older session, the end of a tool result.
 	const guidance =
-		intent?.role === 'tool' && typeof intent.content === 'string'
+		(intent?.role === 'tool' || intent?.role === 'user') && typeof intent.content === 'string'
 			? readSteeringNote(intent.content)
 			: undefined
 	const operatorIntent =

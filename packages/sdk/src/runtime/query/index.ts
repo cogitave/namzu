@@ -786,6 +786,15 @@ export interface QueryParams {
 	 * See {@link ReminderSource}.
 	 */
 	reminders?: import('./reminders.js').ReminderSource
+	/**
+	 * Whether the kernel tells the model, once, that the approval policy
+	 * changed ("Approval policy changed from X to Y ..."), as request-only
+	 * context after the history. Default `true`. A host that already tells the
+	 * model about a mode change itself (through `reminders`) sets `false` so
+	 * the model hears it once; the `approval_policy_changed` event is
+	 * recorded either way.
+	 */
+	announceApprovalPolicyChange?: boolean
 
 	/**
 	 * Wake a background-task hold when operator input is available, without draining it.
@@ -839,6 +848,16 @@ export interface QueryParams {
 	 * Absent, both shortcuts apply as they always have.
 	 */
 	reviewAllowedCalls?: () => boolean
+
+	/**
+	 * Ask about one call at a time while the batch runs, instead of reviewing the
+	 * whole batch as a unit. Opt-in; absent, nothing about review changes. See
+	 * {@link import('../../types/hitl/index.js').PerCallReviewConfig}.
+	 *
+	 * Only this turn is affected: a delegated child reviews its own batches as
+	 * it did before.
+	 */
+	perCallReview?: import('../../types/hitl/index.js').PerCallReviewConfig
 
 	/**
 	 * A name for the policy `resumeHandler` implements.
@@ -1770,7 +1789,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Read through the box on every call, so a swap lands on the next
 			// question rather than the next turn.
 			resumeHandler: (request, context) => approvalPolicy.current.handler(request, context),
-			takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
+			takeApprovalPolicyChange: () => {
+				// Taken either way, so the change is not left pending for a later turn.
+				const change = approvalPolicy.takeUnannouncedChange()
+				return params.announceApprovalPolicyChange === false ? undefined : change
+			},
 			promptContributions,
 			...(params.steering ? { steering: params.steering } : {}),
 			...(jobNotices ? { jobNotices } : {}),
@@ -1788,6 +1811,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			toolGrants: new ToolGrantSet(),
 			skillGrants,
 			...(params.reviewAllowedCalls ? { reviewAllowedCalls: params.reviewAllowedCalls } : {}),
+			...(params.perCallReview ? { perCallReview: params.perCallReview } : {}),
 			// Turn-scoped for the same reason. A repeat count carried into a later
 			// run is a claim about work nobody repeated, and a module-level map
 			// would leak exactly that way.
@@ -2690,6 +2714,26 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 							})
 							return null
 						})
+					// A decision about one call of a batch answered the batch: the
+					// batch's other open questions are moot.
+					if (pendingResume?.partial && params.pendingDecision) {
+						const batchIds = new Set(
+							pendingResume.response.message.toolCalls?.map((call) => call.id) ?? [],
+						)
+						await checkpointMgr
+							.supersedeBatchParks(
+								batchIds,
+								resolvedCheckpointId,
+								supersededByRecovery(params.pendingDecision),
+							)
+							.catch((err: unknown) => {
+								ctx.log.error('Applied a pending decision but failed to clear its sibling parks', {
+									[NAMZU.TURN_ID]: ctx.turnId,
+									'exception.message': err instanceof Error ? err.message : String(err),
+								})
+								return 0
+							})
+					}
 				}
 
 				yield* iterationOrchestrator.runLoop()

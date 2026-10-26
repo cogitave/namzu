@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Message } from '../../../types/message/index.js'
-import { SteeringBinding, attachSteering, formatSteeringNote } from '../steering.js'
+import {
+	SteeringBinding,
+	attachSteering,
+	formatSteeringNote,
+	takeSteeringMessage,
+} from '../steering.js'
 
 /**
  * `AgentManager.queueMessage` / `drainMessages` have existed for a while and
@@ -46,7 +51,7 @@ describe('steering a running turn', () => {
 		const out = attachSteering([toolMessage('a', 'output')], channel)
 
 		// Unlabelled it would read as something `bash` said.
-		expect(out[0]?.content).toContain('[Message from the operator')
+		expect(out[0]?.content).toContain('The operator wrote this')
 	})
 
 	it('accumulates repeated calls in order rather than replacing', () => {
@@ -122,5 +127,38 @@ describe('steering a running turn', () => {
 	it('formats a note that names who is speaking', () => {
 		expect(formatSteeringNote('hello')).toContain('operator')
 		expect(formatSteeringNote('hello')).toContain('hello')
+	})
+})
+
+describe('the operator’s message as a message of its own', () => {
+	it('is a user-role message that follows the batch and leaves the results alone', () => {
+		const channel = new SteeringBinding()
+		channel.steer('check the tests too')
+		const delivered: string[] = []
+
+		const message = takeSteeringMessage([toolMessage('a', 'output')], channel, (text) =>
+			delivered.push(text),
+		)
+
+		expect(message?.role).toBe('user')
+		expect(message?.source).toEqual({ type: 'runtime-context', kind: 'steering' })
+		expect(String(message?.content)).toContain('The operator wrote this while you were working:')
+		expect(String(message?.content)).toContain('check the tests too')
+		expect(delivered).toEqual(['check the tests too'])
+		expect(channel.pending).toBe(false)
+	})
+
+	it('stays queued when the batch has no tool result', () => {
+		const channel = new SteeringBinding()
+		channel.steer('later')
+
+		expect(takeSteeringMessage([assistantMessage('text')], channel)).toBeUndefined()
+		expect(channel.pending).toBe(true)
+	})
+
+	it('draws a fresh marker for every frame', () => {
+		const first = formatSteeringNote('same')
+		const second = formatSteeringNote('same')
+		expect(first).not.toBe(second)
 	})
 })

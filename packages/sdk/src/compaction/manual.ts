@@ -1,6 +1,7 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { resolveStreamIdleTimeoutMs } from '../provider/idle-timeout.js'
+import { isOperatorUserMessage } from '../runtime/query/steering.js'
 import { type TokenUsage, accumulateTokenUsage } from '../types/common/index.js'
 import { NamzuError } from '../types/errors/index.js'
 import { toolResultToText } from '../types/message/content.js'
@@ -127,6 +128,10 @@ function populateWorkingState(
 	for (const message of messages) {
 		switch (message.role) {
 			case 'user':
+				// Project instructions, step context and reminders are runtime
+				// text in the user role. They are neither the task nor a
+				// requirement the operator stated.
+				if (!isOperatorUserMessage(message)) break
 				extractFromUserMessage(manager, message.content, firstUser)
 				firstUser = false
 				break

@@ -22,8 +22,13 @@ import { drainQuery } from '../index.js'
  */
 
 /** The JSON payload of a request's file-evidence message, if it carries one. */
+function evidenceMessage(messages: Message[] | undefined): Message | undefined {
+	return messages?.find((m) => String(m.content).includes('Visible file evidence'))
+}
+
+/** The block sits in front of the operator's new message while that is what the model answers. */
 function entriesIn(messages: Message[] | undefined): unknown {
-	const content = String(messages?.at(-1)?.content ?? '')
+	const content = String(evidenceMessage(messages)?.content ?? '')
 	if (!content.includes('Visible file evidence')) return undefined
 	return JSON.parse(content.split('\n').at(-1) as string)
 }
@@ -72,7 +77,7 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 		])
 		// The body is referenced, not copied: it is already in the request, in
 		// the receipt the entry names.
-		expect(String(requests[1]?.at(-1)?.content)).not.toContain('alpha')
+		expect(String(evidenceMessage(requests[1])?.content)).not.toContain('alpha')
 		// And the entry's claim about that receipt, asserted against the very
 		// array the provider was handed: still byte-for-byte what the tool
 		// fingerprinted, so a later stage that decorated a tool result after the
@@ -117,6 +122,12 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 				observedFingerprint: expect.any(String),
 			},
 		])
+		// A new operator message is what the model answers, so the block of this
+		// turn's data sits in front of it and the request stays the last thing read.
+		const sent = afterDrift[0] ?? []
+		const askedAt = sent.findIndex((m) => m.content === 'Change beta to gamma')
+		expect(askedAt).toBeGreaterThan(-1)
+		expect(sent.indexOf(evidenceMessage(sent) as Message)).toBeLessThan(askedAt)
 		// Admission is what finds out, and its refusal is what tells the ledger.
 		const refusal = second.messages.find((m) => m.role === 'tool' && m.toolCallId === 'e')
 		expect(refusal?.content).toContain('changed on disk')

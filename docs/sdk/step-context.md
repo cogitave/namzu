@@ -154,6 +154,22 @@ request after an empty completion — the `[SYSTEM] ...` closing directive is
 the last message, after every piece of request-only context, so nothing the
 model reads after it reframes the instruction to finish.
 
+### Where the per-turn blocks sit
+
+The blocks that belong to the turn (what `context` contributions and
+`PrepareStepResult.context` render, including recalled memory and evidence)
+go just before the operator's new message while that message is what the model
+is about to answer, so the request is the last thing it reads and the long data
+comes first. The reminders and notices that follow the message stay after it.
+Once the turn has an assistant or tool message after the operator's message,
+the blocks follow the history as above, where a caching driver ends its
+breakpoint before them, so the tool loop of a long turn stays cached. The
+working-memory slot and the approval-policy notice always follow the history.
+The derived work context (owned delegated work and visible file evidence) is
+placed the same way as the other blocks: before the operator's new message
+while that message is what the model answers, after the history once the turn
+has moved on.
+
 ### Prompt placements
 
 `PromptPlacement` has four values:
@@ -163,7 +179,7 @@ model reads after it reframes the instruction to finish.
 | `static` | once per invocation | the cached system prompt segment | system |
 | `dynamic` | once per invocation | the uncached system prompt segment | system |
 | `turn` | before every request, with `iteration` | the trailing system message | system |
-| `context` | before every request, with `iteration` | one `step-context` message after history | none, an observation |
+| `context` | before every request, with `iteration` | one `step-context` message, [before the operator's new message or after history](#where-the-per-turn-blocks-sit) | none, an observation |
 
 Choose `context` for an observation the model should read and weigh, such as a
 repository snapshot or a status. Choose `turn` only when the text must carry

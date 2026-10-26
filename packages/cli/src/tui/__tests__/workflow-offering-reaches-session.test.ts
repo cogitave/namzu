@@ -116,7 +116,7 @@ describe('when the model is offered the workflow tool', () => {
 	it('lists it on an ordinary request, with the opt-in rule in the system prompt', async () => {
 		const call = await sendWith('fix the failing test in cart.ts')
 		expect(offered(call)?.name).toBe('workflow')
-		expect(offered(call)?.description).toContain('ONLY call it after an explicit opt-in')
+		expect(offered(call)?.description).toContain('Call it only after an explicit opt-in')
 		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
 	})
 
@@ -208,7 +208,8 @@ describe('when the model is offered the workflow tool', () => {
 			await session.close()
 		}
 		const call = queryCalls[0] as { reminders?: ReminderSource } | undefined
-		expect(await call?.reminders?.({ messages: resumed } as never)).toEqual([])
+		const said = (await call?.reminders?.({ messages: resumed } as never)) ?? []
+		expect(said.filter((text) => text.includes('Hypermode'))).toEqual([])
 	})
 
 	it('says the exit text for a conversation that was told "on", on a host with no other reminders', async () => {
@@ -238,7 +239,7 @@ describe('when the model is offered the workflow tool', () => {
 		expect(said.join('\n')).toContain('Hypermode is off')
 	})
 
-	it('creates no reminder source for a headless conversation that never heard hypermode', async () => {
+	it('says nothing of hypermode to a headless conversation that never heard it', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(preferences, detectedAnthropic(), { cwd })
 		try {
@@ -251,7 +252,9 @@ describe('when the model is offered the workflow tool', () => {
 			await session.close()
 		}
 		const call = queryCalls[0] as { reminders?: ReminderSource } | undefined
-		expect(call?.reminders).toBeUndefined()
+		const said =
+			(await call?.reminders?.({ messages: [createUserMessage('hello')] } as never)) ?? []
+		expect(said.filter((text) => text.includes('Hypermode'))).toEqual([])
 	})
 
 	it('tells a host that cannot start a workflow to use parallel agents instead', async () => {
@@ -273,7 +276,8 @@ describe('when the model is offered the workflow tool', () => {
 			reminders?: ReminderSource
 		}>
 		expect(call && offered(call)).toBeUndefined()
-		const [text] = (await call?.reminders?.({ messages: [createUserMessage('go')] } as never)) ?? []
+		const said = (await call?.reminders?.({ messages: [createUserMessage('go')] } as never)) ?? []
+		const text = said.find((entry) => entry.includes('Hypermode'))
 		expect(text).toContain('not available in this run')
 		expect(text).toContain('`Agent`')
 	})

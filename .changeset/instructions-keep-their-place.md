@@ -1,0 +1,5 @@
+---
+'@namzu/sdk': minor
+---
+
+The project instructions a host supplies through `ProjectInstructionContext.prepareInitialSnapshot` (and `observeToolResult`) keep one place in the conversation. Before, every new user message got its own copy and the old one dropped, so the instructions moved to the tail each turn and a provider's prompt cache could reuse nothing after their old position. Now the first copy stays where it landed, an unchanged snapshot sends nothing, and a changed one is sent once at the tail as a complete update (`source.update: true`, under a line saying it replaces the earlier copy). Only the first copy and the latest update are kept, so a rule that was removed stops applying. New export `projectInstructionBody(message)` returns a snapshot's policy text without the update header; a host that compares the last snapshot with a fresh one should compare those. Nothing to do otherwise; a host that read the instructions from the request sees the first copy plus, after a change, one update.

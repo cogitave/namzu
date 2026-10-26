@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentManager, MockLLMProvider } from '@namzu/sdk'
+import { AgentManager, MockLLMProvider, generateTurnId, untrustedEnvelopeBody } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -75,9 +75,10 @@ describe('retained delegated output', () => {
 
 			const result = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			expect(result.success).toBe(true)
-			expect(result.output).toBe(
-				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
-			)
+			// The task facts are Namzu's own; the child's words sit in a marked block.
+			const [facts, framed] = String(result.output).split('Agent result:\n')
+			expect(facts).toBe(`task_id: ${taskId}\nstatus: completed\n\n`)
+			expect(untrustedEnvelopeBody(framed ?? '')).toBe(completeOutput)
 			expect(gateway.getTask(taskId)).toEqual(settled)
 			expect(await gateway.waitForTask(taskId)).toEqual(settled)
 			expect(provider.requests).toHaveLength(1)

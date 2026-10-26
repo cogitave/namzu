@@ -650,8 +650,9 @@ describe('/permissions session mode', () => {
 
 		settle()
 		stdin.write('y')
-		await decisionSettles()
-		expect(toolExecutions).toBe(1)
+		// The previous test's turn can still answer after it was torn down, and that
+		// answer lands in `decisions` too: wait for this prompt's own approval.
+		await vi.waitFor(() => expect(toolExecutions).toBe(1))
 
 		await tick(120)
 		stdin.write('/permissions')
@@ -670,8 +671,9 @@ describe('concurrent permission requests', () => {
 	it('keeps each request separate and resets the consent window', async () => {
 		parallelApprovals = true
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-		expect(lastFrame()).toContain('1 more awaiting approval')
-		expect(lastFrame()).toContain('Agent: another agent')
+		expect(lastFrame()).toContain('1 of 2')
+		expect(lastFrame()).not.toContain('more awaiting approval')
+		expect(lastFrame()).toContain('from another agent')
 		expect(lastFrame()).not.toContain(secondReviewSession)
 		expect(lastFrame()).not.toContain('echo second-review')
 		settle()
@@ -680,7 +682,9 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).toContain('Agent: another agent')
+		// The last of the two still reads as the second of two.
+		expect(lastFrame()).toContain('2 of 2')
+		expect(lastFrame()).toContain('from another agent')
 		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')
 		await tick(60)

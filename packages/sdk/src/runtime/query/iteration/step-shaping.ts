@@ -20,7 +20,7 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
 import { measureContext } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
-import { stepContextMessage } from './step-context.js'
+import { placeBeforeLatestOperatorMessage, stepContextMessage } from './step-context.js'
 
 /**
  * How the next request is shaped: admission, preparation, and the context
@@ -58,6 +58,7 @@ export function appendWorkContext(
 		ctx.toolExecutor.describeFileEvidence(messages),
 	].filter((content): content is string => Boolean(content))
 	if (contributions.length === 0) return
+	const placed: Message[] = []
 	let room = stepContext(shaping, stepNumber, prepared).contextBudget?.remainingTokens ?? 0
 	// Leave room for the actual task; admit whole contributions, never dangling partial references.
 	if (room < 1_500) return
@@ -66,9 +67,12 @@ export function appendWorkContext(
 		const message = stepContextMessage(content)
 		const tokens = estimateMessageTokens(message)
 		if (tokens > Math.min(2_000, room - 1_000)) continue
-		messages.push(message)
+		placed.push(message)
 		room -= tokens
 	}
+	// Per-turn data goes in front of the operator's new message while that is
+	// what the model is answering, like the other blocks of request-only data.
+	placeBeforeLatestOperatorMessage(messages, placed)
 }
 
 export function stepContext(

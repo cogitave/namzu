@@ -333,6 +333,7 @@ export { drainQuery, query } from './runtime/query/index.js'
 export {
 	collapseProjectInstructionSnapshots,
 	isProjectInstructionMessage,
+	projectInstructionBody,
 	replaceProjectInstructionSnapshot,
 } from './runtime/query/project-instructions.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the

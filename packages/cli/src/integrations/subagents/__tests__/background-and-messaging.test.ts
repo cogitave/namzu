@@ -269,7 +269,8 @@ it('does independent work, delivers one correction at the next child boundary, a
 		const receipt = turn.parentRequests[1]?.messages.find(
 			(message) => message.role === 'tool' && message.toolCallId === 'launch',
 		)
-		expect(String(receipt?.content)).toContain('Continue independent work')
+		expect(String(receipt?.content)).toContain('It runs in the background')
+		expect(String(receipt?.content)).not.toMatch(/do not launch|Continue independent/)
 		expect(String(receipt?.content)).toContain('has not completed')
 		const acknowledgement = turn.parentRequests[3]?.messages.find(
 			(message) => message.role === 'tool' && message.toolCallId === 'correction',

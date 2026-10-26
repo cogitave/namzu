@@ -652,8 +652,7 @@ emitted together do not establish a dependency: the model should wait for the
 repair result and check in the next batch. Concurrent reads retain their normal
 execution semantics.
 
-Delivery rides the last `tool_result` of the settled batch, the same slot
-steering notes use, appending the advisory text to that result's content —
+Delivery rides the last `tool_result` of the settled batch, appending the advisory text to that result's content —
 when that content is a plain string. A structured result (an image, a
 document, an MCP resource block) has no string slot to append to, so the
 advisory instead arrives as its own message immediately after the complete

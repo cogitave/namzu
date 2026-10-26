@@ -34,7 +34,7 @@ export function createStructuredOutputTool<TSchema extends z.ZodType>(
 	return defineTool({
 		name: STRUCTURED_OUTPUT_TOOL_NAME,
 		description:
-			'Use this tool to provide your final structured response. You MUST call this tool with your answer.',
+			'Use this tool to provide your final structured response. Call this tool with your answer.',
 		inputSchema: schema,
 		category: 'analysis',
 		permissions: [],

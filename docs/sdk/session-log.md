@@ -250,7 +250,7 @@ bytes and hashes and are not reclassified from their text. See
 | `message_replaced` | `targetMessageId`, `content`, `reason` (`pin-slot`, `guardrail_blocked`, `guardrail_rewritten`, `review`, `outstanding_work`, `structured_output`, `history-repair`), `spill?` |
 | `checkpoint_written` | `checkpointId`, `iteration`, `throughSeq`, `throughSha256`, `path`, `docSha256` |
 | `checkpoint_pruned` | `checkpointIds` |
-| `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown), `deadlineAt?` |
+| `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown; `perCall: true` when it asks about some calls of a batch, see [asking one call at a time](review-policy.md#asking-one-call-at-a-time)), `deadlineAt?` |
 | `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
 | `decision_expired` | `decisionId` |
 | `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`/`idle`; `idle` is a host compacting an unused conversation before its prompt cache lapses), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
@@ -258,6 +258,12 @@ bytes and hashes and are not reclassified from their text. See
 | `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
+
+### Parks of a per-call review
+
+With [per-call review](review-policy.md#asking-one-call-at-a-time) on, each open question about a tool call is its own park: its own checkpoint, and a `decision_requested` whose request names the one call (or the few asked together) with `perCall: true`. Several can be open at once. A park is written only when its answer takes more than a quarter of a second, like any other.
+
+A second process resumes one of them with `resumeFromCheckpoint` and `pendingDecision`. The decision applies to the calls that park named and to no others. Calls that had already run are answered from their recorded results and are not run again. A call that had not run and was not named by the park is not run: the model is told so and asks again if it still needs it. The batch's other still-open one-call questions are not restored; the model asks again for each call it still needs. The batch's other open `perCall` parks are then recorded as superseded (a `decision_resolved` carrying a `pause` whose reason starts `crash-recovery-superseded`), so `findPendingCheckpoint` does not serve them again. A plain refusal's `endTurn` is not applied on resume; the turn goes on and the model reads the refusal.
 
 ### Continuing under the recorded owner
 
