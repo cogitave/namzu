@@ -36,7 +36,7 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
+				'Alias for content. Useful for hosts that expose create/write operations as newStr. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 	})
 	.strict()
@@ -63,7 +63,7 @@ const modelInputSchema: Record<string, unknown> = {
 		content: {
 			type: 'string',
 			description:
-				'Complete file body. Use "" only for an intentionally empty file. Keep under 12000 characters.',
+				'Complete file body. Use "" only for an intentionally empty file. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 		},
 	},
 	required: ['path', 'content'],

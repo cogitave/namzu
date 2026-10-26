@@ -39,7 +39,7 @@ describe('EditTool', () => {
 				new_string: {
 					type: 'string',
 					description:
-						'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+						'Exact replacement text. May be empty to delete old_string. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 				},
 				insertLine: {
 					anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],

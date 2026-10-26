@@ -53,13 +53,13 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'The replacement string. Self-budget this payload under 12000 characters before calling.',
+				'The replacement string. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		newStr: z
 			.string()
 			.optional()
 			.describe(
-				'Alias for new_string. Also used as inserted content when insertLine is provided. Self-budget this payload under 12000 characters before calling.',
+				'Alias for new_string. Also used as inserted content when insertLine is provided. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		insertLine: z
 			.union([z.coerce.number().int().min(0), z.string().min(1)])
@@ -204,7 +204,7 @@ const modelInputSchema: Record<string, unknown> = {
 		new_string: {
 			type: 'string',
 			description:
-				'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+				'Exact replacement text. May be empty to delete old_string. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 		},
 		insertLine: {
 			// The union the execution schema already accepts, stated so a
