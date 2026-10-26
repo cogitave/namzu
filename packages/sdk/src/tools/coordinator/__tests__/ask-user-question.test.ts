@@ -10,6 +10,7 @@ import type {
 } from '../../../types/hitl/index.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
+import { buildAskUserQuestionTool } from '../ask-user-question.js'
 import { buildCoordinatorTools } from '../index.js'
 
 const SESSION_ID = '4db4b128-e808-43d9-ac50-b6e79a72c452' as SessionId
@@ -714,5 +715,21 @@ describe('the question contract is closed, not merely shaped', () => {
 			expect(text).not.toContain('"label":"First (Recommended)"')
 		}
 		expect(tool.description).toContain('recommended: true')
+	})
+})
+
+describe('the plan-approval sentence names only a tool the host mounts', () => {
+	const resumeHandler: ResumeHandler = async () => ({ action: 'continue' })
+
+	it('names the approval tool the host passes', () => {
+		const tool = buildAskUserQuestionTool({ resumeHandler, planApprovalTool: 'exit_plan_mode' })
+		expect(tool.description).toContain('plan ratification goes through `exit_plan_mode`.')
+		expect(tool.description).not.toContain('approve_plan')
+	})
+
+	it('names no tool when the host passes none', () => {
+		const tool = buildAskUserQuestionTool({ resumeHandler })
+		expect(tool.description).toContain('plan ratification goes through the plan-approval tool.')
+		expect(tool.description).not.toContain('approve_plan')
 	})
 })

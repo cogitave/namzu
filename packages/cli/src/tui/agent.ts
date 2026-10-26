@@ -3900,7 +3900,16 @@ export async function createAgentSession(
 		// handler above routes by the question, not by the turn, and no durable
 		// park recorder is supplied.
 		toolsets.push(
-			toolset('ask-user-question', [buildAskUserQuestionTool({ resumeHandler: parkQuestion })]),
+			toolset('ask-user-question', [
+				buildAskUserQuestionTool({
+					resumeHandler: parkQuestion,
+					// Only where the plan-approval tool is mounted (below), so the
+					// description never names a tool the model does not have.
+					...(options.planApproval && !options.ephemeral
+						? { planApprovalTool: EXIT_PLAN_MODE_TOOL_NAME }
+						: {}),
+				}),
+			]),
 		)
 	}
 	// `exit_plan_mode`, where somebody can approve. The tool is per session; who

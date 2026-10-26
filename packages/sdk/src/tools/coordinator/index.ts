@@ -1519,7 +1519,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	if (resumeHandler && sessionId && turnId) {
 		tools.push(
-			buildAskUserQuestionTool({ resumeHandler, sessionId, turnId, questionParks, pendingAnswers }),
+			buildAskUserQuestionTool({
+				resumeHandler,
+				sessionId,
+				turnId,
+				questionParks,
+				pendingAnswers,
+				...(getPlanManager ? { planApprovalTool: 'approve_plan' } : {}),
+			}),
 		)
 	}
 
