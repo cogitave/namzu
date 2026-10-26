@@ -328,7 +328,7 @@ const inputSchema = mcpJsonSchemaToZod({
 			minLength: 1,
 			maxLength: 4096,
 			description:
-				'One or two sentences saying WHEN to use the skill (the task and the words a user would use), at most 1024 characters. The model decides to load a skill from this alone.',
+				'One or two sentences saying when to use the skill (the task and the words a user would use), at most 1024 characters. The model decides to load a skill from this alone.',
 		},
 		body: {
 			type: 'string',

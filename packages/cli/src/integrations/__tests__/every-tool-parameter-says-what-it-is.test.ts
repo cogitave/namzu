@@ -102,7 +102,7 @@ describe('the tools in a request', () => {
 			messages: () => [],
 		})
 		const shouting =
-			/\b(MUST|NOT|ONLY|NEVER|ALWAYS|DO NOT|REQUIRED|CRITICAL|IMPORTANT|THIS|PREFERRED|FIRST|ALL|ONE|ANOTHER|CLAIM|BEFORE)\b/
+			/\b(MUST|NOT|ONLY|NEVER|ALWAYS|DO NOT|REQUIRED|CRITICAL|IMPORTANT|THIS|PREFERRED|FIRST|ALL|ONE|ANOTHER|CLAIM|BEFORE|WHEN|WHAT|WHERE|WHY|HOW|WHICH|WHO)\b/
 		const offenders: string[] = []
 		for (const tool of registry.toLLMTools()) {
 			const texts: [string, string][] = [[tool.function.name, tool.function.description ?? '']]
