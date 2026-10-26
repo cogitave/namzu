@@ -110,6 +110,10 @@ beforeEach(() => {
 	replies.length = 0
 	compactCalls.length = 0
 	idleSetting = { minTokens: 200_000 }
+	// The clock also runs along with real time (shouldAdvanceTime) and vi.waitFor
+	// nudges it on every poll. That is safe only because no assertion sits closer
+	// than twenty seconds to a threshold, and a waiting poll is bounded by the
+	// one-second real timeout: slow hosts move the clock by well under that.
 	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
 })
 

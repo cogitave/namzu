@@ -2480,14 +2480,17 @@ function AppBody({
 	 * could first have been SEEN rather than when it was decided upon.
 	 */
 	const trustShownAtRef = useRef<number | null>(null)
-	// A request that waited behind the detailed transcript was not seen while it
-	// waited: the settle window starts again when the screen closes.
-	const transcriptWasOpenRef = useRef(false)
+	// A request that waited behind a surface that hides it (the detailed
+	// transcript, the rewind and resume pickers) was not seen while it waited:
+	// the settle window starts again when that surface closes.
+	const promptHiddenNow =
+		transcriptScreen || phase === 'edit' || phase === 'resume' || phase === 'unarchive'
+	const promptWasHiddenRef = useRef(false)
 	useEffect(() => {
-		if (transcriptWasOpenRef.current && !transcriptScreen && permissionOpenedAtRef.current !== null)
+		if (promptWasHiddenRef.current && !promptHiddenNow && permissionOpenedAtRef.current !== null)
 			permissionOpenedAtRef.current = Date.now()
-		transcriptWasOpenRef.current = transcriptScreen
-	}, [transcriptScreen])
+		promptWasHiddenRef.current = promptHiddenNow
+	}, [promptHiddenNow])
 	// What the folder's own config pre-approves, read once for the gate.
 	const trustGrants = useMemo(() => readFolderGrants(trustedCwdRef.current), [])
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries

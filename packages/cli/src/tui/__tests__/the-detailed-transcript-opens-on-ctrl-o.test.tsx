@@ -32,6 +32,8 @@ let release: (() => void) | undefined
 let permissionGate: Promise<void> | undefined
 /** What the fake session was told about the command it asked to run. */
 const decisions: unknown[] = []
+/** The turn's permission callback, kept so a test can ask after the turn is over. */
+let askLater: ((req: never) => Promise<unknown>) | undefined
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -63,6 +65,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			promptExemptTools: () => [],
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				askLater = opts?.onPermission as typeof askLater
 				yield { kind: 'reasoning', text: 'weighing-the-options' } as AgentEvent
 				yield { kind: 'reasoning', text: '', done: true } as AgentEvent
 				yield { kind: 'delta', text: 'The plan is ready.\n\n' } as AgentEvent
@@ -120,12 +123,17 @@ const CTRL_O = '\x0f'
 const CTRL_E = '\x05'
 const CTRL_C = '\x03'
 
-afterEach(() => {
+afterEach(async () => {
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
+	// Unmounting rejects a request still waiting, and its decision lands a turn of
+	// the event loop later: let it land before the list is emptied.
+	await new Promise<void>((resolve) => setImmediate(resolve))
 	release = undefined
 	permissionGate = undefined
 	decisions.length = 0
+	askLater = undefined
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 })
 
@@ -251,5 +259,36 @@ describe('the detailed transcript', () => {
 		stdin.write('q')
 		await frameShows(lastFrame, '1. Yes')
 		expect(lastFrame() ?? '').not.toContain('Showing detailed transcript')
+	})
+
+	it('waits out the settle window again when the rewind dialog that hid a request closes', async () => {
+		const { stdin, lastFrame } = await afterATurn()
+		// Only Date is faked, and only the test moves it: the window is measured on
+		// a clock that does not depend on how fast the host is.
+		vi.useFakeTimers({ toFake: ['Date'] })
+		stdin.write('\x1B')
+		await tick()
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Restore and fork the conversation')
+
+		void askLater?.({
+			toolCalls: [
+				{ id: 'call-2', name: 'bash', input: { command: 'rm -rf build' }, isDestructive: true },
+			],
+		} as never).then((decision) => decisions.push(decision))
+		await tick()
+		expect(lastFrame() ?? '', 'the request was drawn over the dialog').not.toContain('1. Yes')
+
+		// Long enough that the request, counted from its arrival, would be settled.
+		vi.setSystemTime(Date.now() + 5_000)
+		stdin.write('\x1B')
+		await frameShows(lastFrame, '1. Yes')
+		stdin.write('y')
+		await tick()
+		expect(decisions, 'a key from closing the dialog approved a call never seen').toEqual([])
+
+		vi.setSystemTime(Date.now() + 1_000)
+		stdin.write('y')
+		await vi.waitFor(() => expect(decisions).toHaveLength(1))
 	})
 })

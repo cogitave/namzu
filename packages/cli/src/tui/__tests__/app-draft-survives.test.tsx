@@ -377,25 +377,37 @@ describe('esc while a turn is running', () => {
 		// disabled for a moment (compacting, an external editor request) would not
 		// satisfy it, so this says more than "the composer is on screen" — and it
 		// says it without a guess at how long the probe takes.
-		await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
+		await frameShowsOnFakeClock(harness.lastFrame, 'Type a message', 'the composer never appeared')
 		harness.stdin.write('throwaway')
 		// The keystrokes landing is an event; polling for it is what makes this a
 		// statement about the composer rather than about the machine's load.
-		await frameShows(() => said(harness), 'throwaway', 'the keystrokes never reached the composer')
+		await frameShowsOnFakeClock(
+			() => said(harness),
+			'throwaway',
+			'the keystrokes never reached the composer',
+		)
 
-		// The clear window runs on the fake clock, which only vi.waitFor moves, a
-		// poll at a time: the second press lands inside it however slow the host.
+		// The terminal parser holds a lone Esc back on a timer, which is faked here,
+		// so each press is followed by a fixed 50 ms step of the fake clock. The two
+		// presses are 100 ms apart on that clock whatever the host does, well inside
+		// the 800 ms clear window, and nothing else moves it.
 		harness.stdin.write('\x1B')
-		await frameShows(
+		await vi.advanceTimersByTimeAsync(50)
+		await frameShowsOnFakeClock(
 			harness.lastFrame,
 			'Esc again to clear',
 			'the first Esc never offered the clear',
 		)
 		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
 		// An empty composer draws the placeholder again, in the same render that
 		// drops the text — so the placeholder returning is the completion to wait
 		// for. A fixed wait here asks whether the machine got to it in time.
-		await frameShows(harness.lastFrame, 'Type a message', 'the composer never came back empty')
+		await frameShowsOnFakeClock(
+			harness.lastFrame,
+			'Type a message',
+			'the composer never came back empty',
+		)
 
 		expect(harness.lastFrame(), 'esc did not clear an idle composer').not.toContain('throwaway')
 	})
