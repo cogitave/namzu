@@ -146,6 +146,7 @@ import {
 	startConversation,
 	titleOf,
 	titlesOf,
+	unansweredReviewPark,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
@@ -6372,6 +6373,24 @@ function AppBody({
 				)
 				return true
 			}
+			// Questions about tool calls cannot outlive the session that asked them:
+			// the calls did not run, nobody is asked again, and the turn is closed.
+			if (
+				session.abandonTurn &&
+				!(await scheduleRef.current?.isParked()) &&
+				(await unansweredReviewPark(sessions, resumedSessionId).catch(() => undefined))
+			) {
+				try {
+					await session.abandonTurn(
+						active.turnId as TurnId,
+						'The session ended while the questions about its tool calls were open.',
+					)
+					pushMessage('system', PAUSED_TURN_LINES.unansweredReview)
+				} catch (err) {
+					pushSystem('error', explainFailure(err, 'Couldn’t close the unanswered questions.'))
+				}
+				return true
+			}
 			setHandoffPark(null)
 			const ac = new AbortController()
 			abortRef.current = ac
@@ -8683,6 +8702,9 @@ function AppBody({
 								duplicateResults: event.duplicateResults,
 								orphanedResults: event.orphanedResults,
 								interruptedCalls: event.interruptedCalls,
+								...(event.neverRanCalls !== undefined
+									? { neverRanCalls: event.neverRanCalls }
+									: {}),
 								...(event.rejectedImages !== undefined
 									? { rejectedImages: event.rejectedImages }
 									: {}),
@@ -9004,13 +9026,21 @@ function AppBody({
 				const scope = scopeRef.current
 				if (!sessions || !scope || !conversationMaterializedRef.current || !session?.abandonTurn)
 					return
-				const stopped = await closableProviderPause(sessions, scope.sessionId)
+				const providerPause = await closableProviderPause(sessions, scope.sessionId)
+				const unanswered = providerPause
+					? undefined
+					: (await scheduleRef.current?.isParked())
+						? undefined
+						: await unansweredReviewPark(sessions, scope.sessionId)
+				const stopped = providerPause ?? unanswered
 				if (!stopped) return
 				// Its unknown usage stays on the ledger; the failed message stays in
 				// what the provider is shown, as in the desktop app.
 				await session.abandonTurn(
 					stopped.turnId as TurnId,
-					'The operator went on with a new message instead of retrying.',
+					unanswered
+						? 'The session ended while the questions about its tool calls were open; the operator went on with a new message.'
+						: 'The operator went on with a new message instead of retrying.',
 				)
 				setHandoffPark(null)
 			}

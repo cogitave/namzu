@@ -72,6 +72,8 @@ export interface HistoryRepairNoticeInput {
 	readonly duplicateResults?: number
 	readonly orphanedResults?: number
 	readonly interruptedCalls?: number
+	/** Of the interrupted calls, those that never started. */
+	readonly neverRanCalls?: number
 	readonly rejectedImages?: number
 	/** The provider the conversation is using, for the rejected-image case (the event does not name it). */
 	readonly providerId?: string
@@ -90,6 +92,9 @@ export function describeHistoryRepairNotice(input: HistoryRepairNoticeInput): st
 			: `${what.charAt(0).toUpperCase()}${what.slice(1)} wasn’t accepted. Namzu kept the file but will leave it out of later messages. Attach a corrected copy to try again.`
 	}
 	if ((input.interruptedCalls ?? 0) > 0) {
+		// Every unfinished call never started: nothing they asked for happened.
+		if (input.neverRanCalls === input.interruptedCalls)
+			return 'Some tool calls in this conversation never started, so Namzu marked them as not run. Nothing they asked for happened.'
 		return input.source === 'abandoned-checkpoint'
 			? 'Your last reply was cut off before its steps finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again.'
 			: 'Some steps in this conversation never finished, so Namzu marked them as unfinished. Check any files or commands they touched before asking again.'
