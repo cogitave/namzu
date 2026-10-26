@@ -110,6 +110,7 @@ The kernel.
 * [Resident communication experiment](resident-communication.md) - Atomic outbound intents, acknowledged delivery and explicit time windows.
 
 * [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
+* [Learning](learning.md) - The learning module every host shares: observations, the cycle, its store, and the deprecated resident-prefixed names.
 * [Durable resident learning records](resident-learning-storage.md) - Scoped SQLite journals, immutable artifacts and explicit host execution.
 * [Resident learning cycle](resident-learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
 * [Resident learning discovery](resident-learning-discovery.md) - Select retained failures and atomically admit one experiment per task, evaluator and baseline.

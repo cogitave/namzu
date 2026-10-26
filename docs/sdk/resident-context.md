@@ -80,18 +80,18 @@ then allowed and appears at the end of rendering order.
 
 `ResidentStepPromptOptions` requires `state: ResidentState` and
 `outputInstructions: string`. Optional fields are the admission's approved
-`learning: ResidentLearningState`, `history: ResidentHistoryScope`, host-loaded `skillsContext: string`, and
+`learning: LearningState`, `history: ResidentHistoryScope`, host-loaded `skillsContext: string`, and
 `readOnly: boolean` (default false).
 
 ```ts
 import {
   PromptContributionRegistry,
   createResidentStepContributions,
-  type ResidentLearningState,
+  type LearningState,
   type ResidentState,
 } from '@namzu/sdk'
 
-export function promptForStep(state: ResidentState, learning?: ResidentLearningState) {
+export function promptForStep(state: ResidentState, learning?: LearningState) {
   const contributions = new PromptContributionRegistry()
   for (const contribution of createResidentStepContributions({
     state,
@@ -176,7 +176,7 @@ A bounded step can leave useful work for the next admission; completion refers
 to the whole authorized objective. The host supplies its own response format
 and owns answer validation and durable settlement.
 
-[Approved learning](resident-learning.md) uses `projectResidentLearning` with a
+[Approved learning](resident-learning.md) uses `projectLearning` with a
 12,000-character projection bound and all task skills present in that approved
 snapshot selected; exploration policies are withheld. The projection reports omitted entries and never emits a
 partial learning entry. That limit applies to learning, not to the entire prompt

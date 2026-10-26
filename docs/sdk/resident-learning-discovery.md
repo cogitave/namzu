@@ -2,14 +2,14 @@
 type: Reference
 title: Resident learning discovery
 description: Select a retained, host-scored failure and admit one deduplicated learning experiment.
-resource: packages/sdk/src/manager/resident/learning-store.ts
+resource: packages/sdk/src/learning/store.ts
 tags: [sdk, agents, learning, sqlite, evaluation]
 status: draft
 ---
 
 # Resident learning discovery
 
-`runStoredResidentLearningFromObservations` selects a failure from the
+`runStoredLearningFromObservations` selects a failure from the
 [learning store](resident-learning-storage.md) and runs the existing
 [learning cycle](resident-learning-cycle.md). The host supplies authorized
 evaluators, generation and evaluation callbacks. The SDK chooses the retained
@@ -24,14 +24,14 @@ controls; the host remains responsible for that coverage.
 
 ## Recording observations
 
-`store.observe(observation)` records an immutable `ResidentLearningObservation`:
+`store.observe(observation)` records an immutable `LearningObservation`:
 
 | Field | Meaning |
 | --- | --- |
 | `turnId` | UUID of the retained execution, canonicalized to lowercase. |
 | `taskKey` | Stable task identity including input and source revision. Retries of the same task keep this key. |
 | `skillName` | Guidance slot that could improve this task family. |
-| `baselineRevision` | `hashResidentSkill` of the guidance used, or `none`. |
+| `baselineRevision` | `hashLearningSkill` of the guidance used, or `none`. |
 | `evaluatorRevision` | Host-owned evaluation contract and execution conditions. Include the provider, model, effort and relevant harness/tool configuration; changing them requires a new revision. |
 | `outcome` | Independently checked `passed` or `failed`, or `execution-error` / `unresolved`. |
 | `usageComplete` | Host checked that all owned requests and usage receipts settled. Unknown usage is false. |
@@ -53,18 +53,18 @@ Original execution transcripts and usage accounting remain in their existing sto
 
 ```ts
 import {
-  runStoredResidentLearningFromObservations,
-  type ResidentLearningDiscoveryOptions,
-  type SqliteResidentLearningStore,
+  runStoredLearningFromObservations,
+  type LearningDiscoveryOptions,
+  type SqliteLearningStore,
 } from '@namzu/sdk'
 
 async function improveOnce(
-  store: SqliteResidentLearningStore,
-  host: ResidentLearningDiscoveryOptions,
+  store: SqliteLearningStore,
+  host: LearningDiscoveryOptions,
 ) {
   // host.evaluators names the authorized skill/evaluator pairs.
   // The current installed baseline is read from host.agenda.
-  const { observation, cycle } = await runStoredResidentLearningFromObservations(store, host)
+  const { observation, cycle } = await runStoredLearningFromObservations(store, host)
   return { selectedTurn: observation?.turnId ?? null, outcome: cycle?.status ?? 'idle' }
 }
 ```
@@ -84,7 +84,7 @@ priority. The query uses scoped indexes and returns at most one row per target;
 it does not load every retained trace into memory.
 
 `store.selectObservation(targets)` exposes this read-only selection for hosts that
-need to inspect it. Each `ResidentLearningTarget` includes the current
+need to inspect it. Each `LearningTarget` includes the current
 `baselineRevision`. Inspection reserves nothing. Discovery checks again at the
 cycle's start: the exact failure, current baseline and still-eligible task must
 match. Concurrent selectors may choose the same observation, but only one can

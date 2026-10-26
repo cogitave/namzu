@@ -52,6 +52,7 @@ The operator application.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
 * [Monitors in the CLI](monitor.md) - How the monitor tool is mounted, how its events wake an idle session or a single-shot run, and how monitors are counted and listed.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
+* [Learning in the CLI](learning.md) - namzu learn and namzu learning, the failures conversations keep as observations, where and how long, and the learningObservations key.
 * [Managed resident runners](resident-runner.md) - Opt-in background hosting, zero-call idle waits, exact-owner status/stop and crash recovery.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of namzu exec](exec-exit-codes.md) - What $? says after namzu exec, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.

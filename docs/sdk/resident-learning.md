@@ -2,7 +2,7 @@
 type: Design
 title: Resident learning experiment
 description: Evidence-backed behavioral revisions, evaluated guidance, reversible activation and bounded admitted context.
-resource: packages/sdk/src/manager/resident/learning.ts
+resource: packages/sdk/src/learning/skill.ts
 tags: [sdk, agents, continuity, learning]
 status: draft
 ---
@@ -46,9 +46,9 @@ separate best-effort extraction hook; it is not the activation transaction.
 
 ## Correcting the profile
 
-`DiskResidentAgenda.updateProfile(expectedAgenda, ResidentProfileUpdate)`
+`DiskResidentAgenda.updateProfile(expectedAgenda, LearningProfileUpdate)`
 accepts an optional self-description `identity`, a patch list of `preferences`,
-and `ResidentLearningEvidence`. Evidence has nonempty `key`, `source`, and
+and `LearningEvidence`. Evidence has nonempty `key`, `source`, and
 `reason`; the host validates its provenance and authority. The SDK does not
 verify a cited external artifact merely because its key is supplied.
 
@@ -59,7 +59,7 @@ evidence still retained in the active learning state are refused. This last
 check is not a permanent global evidence-ID ledger; the host owns stable source
 identity and must not recycle old IDs for unrelated assertions.
 
-The result is a new immutable `ResidentLearningState` in the same agenda CAS.
+The result is a new immutable `LearningState` in the same agenda CAS.
 It records its increasing revision, optional self-description with evidence,
 preferences, active learned skills and `lastChange`. Limits are 4,000 characters
 for self-description, 32 preference keys with 1,000-character values, and 16
@@ -73,17 +73,17 @@ Old profile snapshots remain available through `readRevision(agendaRevision)`.
 
 ## Evaluated guidance and rollback
 
-`ResidentSkillCandidate` contains `name`, `description`, and instructional
+`LearningSkillCandidate` contains `name`, `description`, and instructional
 `body`, capped at 64, 1,000 and 4,000 characters respectively. Leading/trailing
-whitespace is normalized. `hashResidentSkill(candidate)` hashes the normalized
+whitespace is normalized. `hashLearningSkill(candidate)` hashes the normalized
 three-field tuple with SHA-256. Optional source bindings extend that tuple; changing content or a declared source revision changes its approval identity.
 
-`promoteSkill(expectedAgenda, candidate, ResidentSkillEvaluation, evidence)`
+`promoteSkill(expectedAgenda, candidate, LearningSkillEvaluation, evidence)`
 binds both verification rounds' `candidateRevision` to that digest and
 `baselineRevision` to the currently active skill's digest, or `none` when no
 skill with that name is active. It then invokes `reviewHarnessCandidate`.
 
-`ResidentSkillEvaluation.protection` is required: it names disjoint verification
+`LearningSkillEvaluation.protection` is required: it names disjoint verification
 and confirmation preservation task IDs selected by the host before generation.
 Both rounds must contain successful paired baseline and candidate results for
 every declared control. The same gate applies to direct `promoteSkill` calls,
@@ -103,7 +103,7 @@ limits it needs. It owns task selection, isolation, scoring, attribution and
 complete cost measurement before calling promotion. A candidate's own success
 claim is not an evaluation.
 
-`ResidentLearnedSkill` stores the normalized content, its hash, source evidence,
+`LearnedSkill` stores the normalized content, its hash, source evidence,
 baseline/candidate hashes, counts of verification/confirmation tasks, and a
 digest of the supplied evaluation. Full traces belong in the host's retained
 evaluation artifacts; a digest alone does not reconstruct or certify them.
@@ -131,7 +131,7 @@ Bindings are normalized, sorted by key, included in the approval hash and retain
 through generation, evaluation, activation, immutable storage and rollback.
 Unbound candidates retain their existing hashes and behavior.
 
-`projectResidentLearning` accepts an optional `sources` array of current host
+`projectLearning` accepts an optional `sources` array of current host
 observations. Every dependency must match exactly. Missing observations produce
 `unverified-source`; mismatching observed revisions produce `changed-source`.
 Such skills contribute to `omitted` and `withheldSkills`, and **their bodies are
@@ -178,8 +178,8 @@ experiment-selection policies from ordinary task guidance. It is covered by the
 content digest and requires explicit matching projection; ordinary resident steps
 withhold such policies. Existing skills without a purpose retain their task behavior.
 
-`projectResidentLearning(state, { maxChars, skillNames })` creates a
-`ResidentLearningProjection`: newline-separated JSON entries, revision,
+`projectLearning(state, { maxChars, skillNames })` creates a
+`LearningProjection`: newline-separated JSON entries, revision,
 included skill names and omission count. The character budget is required and
 bounded to 0–64,000 UTF-16 code units. Self-description and preferences precede
 explicitly selected skills. Oversized entries are omitted whole; a large entry
@@ -190,16 +190,16 @@ monetary budget.
 
 ```ts
 import {
-  ResidentHost, projectResidentLearning,
-  type ResidentAgendaStore, type ResidentLearningProjection,
+  ResidentHost, projectLearning,
+  type ResidentAgendaStore, type LearningProjection,
 } from '@namzu/sdk'
 
 function inspectAdmittedLearning(
   agenda: ResidentAgendaStore,
-  inspect: (projection: ResidentLearningProjection) => void,
+  inspect: (projection: LearningProjection) => void,
 ) {
   return new ResidentHost(agenda, async (_pursuit, _signal, context) => {
-    inspect(projectResidentLearning(context.learning, {
+    inspect(projectLearning(context.learning, {
       maxChars: 3000, skillNames: ['normalize-input'],
     }))
     return { kind: 'complete', summary: 'Inspected admitted context.' }

@@ -467,7 +467,7 @@ decision-shape review and any explicitly configured command gate.
 
 ## Explicit learning experiments
 
-`learn` runs a deliberately selected executable host module through the SDK's
+`learn` (also available as the top-level [`namzu learn`](learning.md)) runs a deliberately selected executable host module through the SDK's
 [stored learning cycle](../sdk/resident-learning-storage.md). `learning` inspects
 its durable records without executing the module or starting a model:
 
@@ -484,7 +484,7 @@ resident. The module must be an explicit regular `.learning.js` or `.learning.mj
 file with a default factory. There is no automatic module discovery or replay.
 
 The factory receives `{cwd, tenantId, projectId, agentKey, signal, store}` and
-returns `Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
+returns `Omit<LearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
 It should only configure callbacks and read retained evidence: all model and
 review calls belong inside the charged `explore`, `generate` and `evaluate` callbacks.
 The CLI supplies the bound agenda, cancellation and durable journal. The factory
@@ -500,7 +500,7 @@ journal. No supplied correction is required. This is an explicitly invoked
 host capability; ordinary conversations do not automatically start experiments.
 
 A host may instead return
-`Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
+`Omit<LearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
 and record independently scored turns through `store.observe`. The SDK then
 [selects one retained failure](../sdk/resident-learning-discovery.md), bound to
 the installed guidance and the authorized evaluation conditions. This mode
