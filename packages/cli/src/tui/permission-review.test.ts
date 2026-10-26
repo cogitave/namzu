@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-	MAX_PERMISSION_REVIEW_BYTES,
+	MAX_REVIEW_VALUE_CHARS,
 	PERMISSION_REVIEW_PAGE_ROWS,
+	REVIEW_ALLOCATION_BYTES,
 	buildPermissionReview,
 	buildPermissionSummary,
 	permissionReviewRows,
@@ -39,20 +40,152 @@ describe('buildPermissionReview', () => {
 		})
 		expect(result.text).toContain('git push origin main')
 		expect(result.bytes).toBe(Buffer.byteLength(result.text, 'utf8'))
-		expect(result.bytes).toBeLessThanOrEqual(MAX_PERMISSION_REVIEW_BYTES)
+		expect(result.withheld).toEqual([])
 	})
 
-	it('refuses the whole batch instead of cutting an oversized value', () => {
-		expect(
+	it('shows a value of 8 001 bytes whole and withholds nothing', () => {
+		const result = buildPermissionReview([
+			{ id: 'call_1', name: 'bash', input: { command: 'x'.repeat(8001) }, isDestructive: true },
+		])
+		expect(result).toMatchObject({ ok: true, withheld: [] })
+		if (result.ok) expect(result.text).toContain('x'.repeat(8001))
+	})
+
+	it('withholds a value past the per-value limit and says what was left out', () => {
+		const result = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'bash',
+				input: { command: 'x'.repeat(MAX_REVIEW_VALUE_CHARS + 1), cwd: '/work' },
+				isDestructive: true,
+			},
+		])
+		expect(result.ok).toBe(true)
+		if (!result.ok) return
+		expect(result.withheld).toEqual([
+			{ index: 0, name: 'bash', characters: MAX_REVIEW_VALUE_CHARS + 1, omitted: true },
+		])
+		expect(JSON.parse(result.text).calls[0].input).toEqual({
+			command: '[about 200k characters not shown]',
+			cwd: '/work',
+		})
+		expect(result.bytes).toBeLessThan(1000)
+	})
+
+	it('keeps a batch of many large values under the allocation ceiling', () => {
+		const calls = Array.from({ length: 30 }, (_, index) => ({
+			id: `c${index}`,
+			name: 'write',
+			input: { path: `/tmp/${index}`, content: 'y'.repeat(150_000) },
+			isDestructive: true,
+		}))
+		const result = buildPermissionReview(calls)
+		expect(result.ok).toBe(true)
+		if (!result.ok) return
+		expect(result.bytes).toBeLessThanOrEqual(REVIEW_ALLOCATION_BYTES)
+		expect(result.bytes).toBe(Buffer.byteLength(result.text, 'utf8'))
+		expect(result.withheld.length).toBeGreaterThan(0)
+		expect(result.withheld.length).toBeLessThan(30)
+		// The text is still one valid envelope with every call in it.
+		expect(JSON.parse(result.text).calls).toHaveLength(30)
+	})
+
+	it('bounds a long flat list instead of refusing it', () => {
+		const result = buildPermissionReview([
+			{
+				id: 'c',
+				name: 'mcp',
+				input: { items: Array.from({ length: 400_000 }, () => 12345) },
+				isDestructive: false,
+			},
+		])
+		expect(result.ok).toBe(true)
+		if (!result.ok) return
+		expect(result.bytes).toBeLessThanOrEqual(REVIEW_ALLOCATION_BYTES + 200)
+		expect(result.withheld).toHaveLength(1)
+	})
+
+	it('hashes the true input, so a change under a placeholder is noticed', () => {
+		const make = (tail: string) =>
 			buildPermissionReview([
 				{
-					id: 'call_1',
-					name: 'bash',
-					input: { command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES) },
+					id: 'c',
+					name: 'write',
+					input: { content: `${'z'.repeat(MAX_REVIEW_VALUE_CHARS)}${tail}` },
 					isDestructive: true,
 				},
+			])
+		const a = make('a')
+		const b = make('b')
+		expect(a.ok && b.ok).toBe(true)
+		if (!a.ok || !b.ok) return
+		expect(a.text).toBe(b.text)
+		expect(a.envelopeHash).not.toBe(b.envelopeHash)
+		expect(make('a')).toEqual(a)
+	})
+
+	it('says a placeholder size in rounded plain words, never an exact count', () => {
+		const placeholder = (characters: number) => {
+			const result = buildPermissionReview([
+				{
+					id: 'c',
+					name: 'write',
+					input: { content: 'x'.repeat(characters) },
+					isDestructive: true,
+				},
+			])
+			if (!result.ok) throw new Error('fixture must be representable')
+			return JSON.parse(result.text).calls[0].input.content
+		}
+		expect(placeholder(MAX_REVIEW_VALUE_CHARS + 5)).toBe('[about 200k characters not shown]')
+		expect(placeholder(1_250_000)).toBe('[about 1.3M characters not shown]')
+	})
+
+	describe('a long input to a tool with no view of its own', () => {
+		const review = (name: string, input: unknown) => {
+			const result = buildPermissionReview([{ id: 'c', name, input, isDestructive: false }])
+			if (!result.ok) throw new Error('fixture must be representable')
+			return result
+		}
+
+		it('is approved once only when its line is over 2 000 units, though shown whole', () => {
+			const result = review('mcp__docs__search', { query: 'q'.repeat(9000) })
+			expect(result.withheld).toEqual([
+				{ index: 0, name: 'mcp__docs__search', characters: 0, omitted: false },
+			])
+			expect(result.text).toContain('q'.repeat(9000))
+		})
+
+		it('is approved normally under 2 000 units', () => {
+			expect(review('mcp__docs__search', { query: 'q'.repeat(1900) }).withheld).toEqual([])
+		})
+
+		it('is approved once only past 10 000 elements', () => {
+			const result = review('mcp__docs__bulk', { ids: Array.from({ length: 10_001 }, () => 1) })
+			expect(result.withheld).toHaveLength(1)
+		})
+
+		it('is approved once only when nested deeper than 64', () => {
+			let nested: unknown = 'leaf'
+			for (let level = 0; level < 70; level += 1) nested = { next: nested }
+			expect(review('mcp__docs__tree', nested).withheld).toHaveLength(1)
+			let shallow: unknown = 'leaf'
+			for (let level = 0; level < 40; level += 1) shallow = { next: shallow }
+			expect(review('mcp__docs__tree', shallow).withheld).toEqual([])
+		})
+
+		it('leaves a shell command and a file write to the per-value limit', () => {
+			expect(review('bash', { command: 'echo '.concat('x'.repeat(9000)) }).withheld).toEqual([])
+			expect(review('write', { path: '/tmp/f', content: 'x'.repeat(9000) }).withheld).toEqual([])
+		})
+	})
+
+	it('keeps refusing input the protocol cannot represent', () => {
+		expect(
+			buildPermissionReview([
+				{ id: 'c', name: 'bash', input: { n: Number.NaN }, isDestructive: false },
 			]),
-		).toEqual({ ok: false, reason: 'too_large' })
+		).toEqual({ ok: false, reason: 'unrepresentable' })
 	})
 
 	it('refuses accessors and custom objects without invoking user code', () => {
