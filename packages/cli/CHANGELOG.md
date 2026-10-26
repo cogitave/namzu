@@ -1,5 +1,13 @@
 # @namzu/cli
 
+## 39.2.1
+
+### Patch Changes
+
+- b4a44b9: Model-facing wording (the system prompt, tool descriptions and bundled skills) now names categories instead of specific products, sites or models as examples, so an example is no longer repeated back as a preference. No API or behaviour change; nothing to do on upgrade.
+- Updated dependencies [b4a44b9]
+  - @namzu/sdk@53.2.2
+
 ## 39.2.0
 
 ### Minor Changes

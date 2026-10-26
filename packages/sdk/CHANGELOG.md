@@ -1,5 +1,11 @@
 # Changelog
 
+## 53.2.2
+
+### Patch Changes
+
+- b4a44b9: Model-facing wording (the system prompt, tool descriptions and bundled skills) now names categories instead of specific products, sites or models as examples, so an example is no longer repeated back as a preference. No API or behaviour change; nothing to do on upgrade.
+
 ## 53.2.1
 
 ### Patch Changes
