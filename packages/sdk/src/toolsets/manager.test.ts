@@ -527,7 +527,8 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		const snapshot = m.snapshotUntrustedDeferredContext()
 		expect(snapshot.all).toContain('remote_0')
 		expect(snapshot.all).not.toContain('remote_59')
-		expect(snapshot.all.length).toBeLessThan(4_500)
+		// The hints are capped at 4,000 characters; the rest is the marked block around them.
+		expect(snapshot.all.length).toBeLessThan(4_700)
 		expect(snapshot.maxRenderedChars).toBeGreaterThanOrEqual(snapshot.all.length)
 		const selected = snapshot.forNames(['remote_1'])
 		expect(selected).toContain('remote_1')
