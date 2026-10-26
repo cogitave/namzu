@@ -150,6 +150,8 @@ function buildShellContext(config: PromptBuilderConfig): string | undefined {
 	return lines.length > 0 ? lines.join('\n') : undefined
 }
 
+const SEGMENT_SEPARATOR = '\n\n---\n\n'
+
 export class PromptBuilder {
 	private config: PromptBuilderConfig
 
@@ -232,67 +234,22 @@ export class PromptBuilder {
 		)
 	}
 
+	/**
+	 * The whole prompt as one string: exactly the two segments a request
+	 * sends, static then dynamic, joined by the separator. It is derived from
+	 * `buildSegmented` rather than assembled a second time, so the order the
+	 * model reads and the text the prompt-cache hash covers cannot drift apart.
+	 */
 	build(contextLevel: AgentContextLevel = 'full', workingDirectory?: string): string {
-		const parts: string[] = []
-
-		if (contextLevel === 'full' && this.config.basePrompt) {
-			parts.push(this.config.basePrompt)
-		}
-
-		if (this.config.systemPrompt) {
-			parts.push(this.config.systemPrompt)
-		} else if (this.config.persona) {
-			parts.push(assembleSystemPrompt(this.config.persona, this.config.skills))
-		} else {
-			const skillSection = this.renderSkillsInPlace()
-			if (skillSection) parts.push(skillSection)
-		}
-
-		if (this.config.systemPrompt) {
-			const skillSection = this.renderSkillsInPlace()
-			if (skillSection) parts.push(skillSection)
-		}
-
-		if (contextLevel !== 'minimal') {
-			const toolSection = this.config.tools.toPromptSection(this.config.allowedTools)
-			if (toolSection) {
-				parts.push(toolSection)
-			}
-
-			const tierGuidance = this.config.tools.toTierGuidance()
-			if (tierGuidance) {
-				parts.push(tierGuidance)
-			}
-		}
-
-		if (contextLevel !== 'minimal' && workingDirectory) {
-			const shouldIncludeEnv =
-				hasFilesystemTools(this.config.tools, this.config.allowedTools) ||
-				Boolean(this.config.runtimeContext)
-			if (shouldIncludeEnv) {
-				parts.push(buildEnvContext(workingDirectory, this.config))
-			}
-		}
-
-		// Static then dynamic, in that order and nothing between them,
-		// because that is exactly how `buildSegmented` is rejoined upstream:
-		// `${static}\n\n---\n\n${dynamic}`. The two methods produce the same
-		// prompt for the same input, and a turn that hits the prompt cache
-		// must not be asking a different question from one that misses it.
-		const shellContext = buildShellContext(this.config)
-		if (shellContext) parts.push(shellContext)
-
-		parts.push(...this.renderContributions('static', workingDirectory))
-		parts.push(...this.renderContributions('dynamic', workingDirectory))
-
-		return parts.join('\n\n---\n\n')
+		const { static: staticText, dynamic } = this.buildSegmented(contextLevel, workingDirectory)
+		return [staticText, dynamic].filter((part) => part.length > 0).join(SEGMENT_SEPARATOR)
 	}
 
 	buildSegmented(
 		contextLevel: AgentContextLevel = 'full',
 		workingDirectory?: string,
 	): PromptSegments {
-		const separator = '\n\n---\n\n'
+		const separator = SEGMENT_SEPARATOR
 		const staticParts: string[] = []
 		const dynamicParts: string[] = []
 
