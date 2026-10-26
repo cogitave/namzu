@@ -57,7 +57,7 @@ it('two processes competing for one sequence cannot overwrite each other', async
 		kind: 'started',
 		data: { tenantId: f.options.scope.tenantId, agentKey: 'default' },
 	})
-	const module = new URL('../../dist/manager/resident/learning-store.js', import.meta.url).href
+	const module = new URL('../../dist/learning/store.js', import.meta.url).href
 	const contenders = await Promise.all(
 		['first', 'second'].map((marker) =>
 			child(`
@@ -124,7 +124,7 @@ it('separate processes claim a learning task once and reopening does not replay 
 	await f.store.observe(observation)
 	const selected = await f.store.selectObservation([observation])
 	if (!selected) throw new Error('Missing selected observation.')
-	const module = new URL('../../dist/manager/resident/learning-store.js', import.meta.url).href
+	const module = new URL('../../dist/learning/store.js', import.meta.url).href
 	const events = [0, 1].map(() => ({
 		cycleId: randomUUID(),
 		sequence: 1,
