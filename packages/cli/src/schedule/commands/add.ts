@@ -146,7 +146,7 @@ export function browserInput(
 		const level = at > 0 ? entry.slice(at + 1).trim() : ''
 		if (!site || !level) {
 			throw new JobRequestError(
-				`--browser-site ${entry}: write <site>=read, <site>=ask or <site>=act, e.g. https://github.com=read`,
+				`--browser-site ${entry}: write <site>=read, <site>=ask or <site>=act, e.g. https://example.com=read`,
 			)
 		}
 		if (level === 'none') {

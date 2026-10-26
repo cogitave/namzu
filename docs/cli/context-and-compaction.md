@@ -28,7 +28,12 @@ A manual compaction runs between turns, never inside one: the host calls
 `compaction` record with `trigger: 'manual'` and no turn id, beside one
 `compaction_shed` event with `reason: manual` that contains the removed
 messages in input order, matching automatic compaction. No model is called for
-the record itself. The SDK spills large arrays to `tool-results/` and the
+the record itself. When a conversation mounts `search_conversation` and
+`read_conversation`, the summary ends with a pointer to them, and a cleared tool
+result keeps its saved-file line with the sentence that says how to read it (the
+`read` tool, or the conversation tools); see
+[Getting at a saved output](conversation-evidence.md#getting-at-a-saved-output).
+The SDK spills large arrays to `tool-results/` and the
 session index covers each textual part. Raw record consumers must iterate
 `messages`; use the returned `seq` and `part` when reading search matches. It
 adds no assistant answer, checkpoint or turn, and is refused while a turn is

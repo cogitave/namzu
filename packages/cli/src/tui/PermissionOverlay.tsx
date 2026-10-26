@@ -22,8 +22,10 @@ import type { PermissionToolCall } from './agent.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
+	type WithheldCall,
 	permissionReviewPageRows,
 	permissionReviewRows,
+	withheldNotice,
 } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -66,6 +68,11 @@ export interface PermissionOverlayProps {
 	 * it, as the session names its provider.
 	 */
 	readonly screenConsent?: { readonly provider: string | null }
+	/**
+	 * Calls whose input is too large to show in full. Each gets a notice, and
+	 * the prompt offers only the answers that apply once.
+	 */
+	readonly withheld?: readonly WithheldCall[]
 }
 
 /** What the box says when the question is whether to share the screen. */
@@ -276,6 +283,8 @@ export interface PermissionAnswerOptions {
 	readonly commandArguments?: ReadonlyMap<string, string>
 	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
 	readonly rememberWhere?: string
+	/** The review leaves part of this batch out, so only a one-time yes is offered. */
+	readonly withheld?: boolean
 }
 
 /**
@@ -309,7 +318,7 @@ export function permissionAnswers(
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
 	const reject = agents ? 'Do not start' : 'No, and tell Namzu what to do differently (esc)'
-	const extra = options.batchOnly ? undefined : extraAnswer(toolCalls, options)
+	const extra = options.batchOnly || options.withheld ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
 		...(extra ? [extra] : []),
@@ -394,6 +403,7 @@ export function PermissionOverlay({
 	rememberWhere,
 	siteNotes = [],
 	screenConsent,
+	withheld = [],
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -416,6 +426,7 @@ export function PermissionOverlay({
 	const choices = permissionChoices(toolCalls, {
 		batchOnly,
 		screenConsent: sharing,
+		withheld: withheld.length > 0,
 		...(mode ? { mode } : {}),
 		...(commandArguments ? { commandArguments } : {}),
 		...(rememberWhere ? { rememberWhere } : {}),
@@ -469,6 +480,11 @@ export function PermissionOverlay({
 					{terminalDisplayText(note)}
 				</Text>
 			))}
+			{withheld.length > 0 ? (
+				<Text color={theme.text.muted}>
+					{terminalDisplayText(withheldNotice(withheld, toolCalls.length))}
+				</Text>
+			) : null}
 			{siteNotes.map((note) => (
 				<Text key={note} color={theme.text.secondary}>
 					{terminalDisplayText(note)}
@@ -526,7 +542,9 @@ export function PermissionOverlay({
 					    their hint is gone. */}
 					{fitHints(
 						[
-							{ text: '↑↓ select', rank: 5 },
+							// The arrow keys are the first of the answer keys to go: enter and y / n
+							// still answer, and the list shows which row is selected.
+							{ text: '↑↓ select', rank: 4 },
 							{ text: 'enter confirm', rank: 5 },
 							{
 								text: 'y / n answer',
@@ -553,7 +571,9 @@ export function PermissionOverlay({
 												: 'view input'
 								}`,
 								short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
-								rank: scriptView ? 5 : 3,
+								// The only way to the exact input: it outranks the stop hint,
+								// whose key works without being shown.
+								rank: 5,
 							},
 						],
 						boxedHintWidth(columns),

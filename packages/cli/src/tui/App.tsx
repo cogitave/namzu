@@ -489,6 +489,7 @@ import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import { PauseClock } from './pause-clock.js'
 import {
+	type WithheldCall,
 	buildPermissionReview,
 	buildPermissionSummary,
 	permissionReviewPageRows,
@@ -604,6 +605,12 @@ type PendingPermission = ScreenPermissionRequest & {
 	readonly summary: ReturnType<typeof buildPermissionSummary>
 	/** `site rule: <origin> → <level> · profile <p> · <engine>`, one per browser call. */
 	readonly siteNotes?: readonly string[]
+	/** Calls whose input the review leaves partly out; approving them is one-time only. */
+	readonly withheld: readonly WithheldCall[]
+	/** The request the SDK holds and will execute: what the person approves is this object. */
+	readonly source: ScreenPermissionRequest
+	/** Hash of the true batch when it was shown; checked again when it is approved. */
+	readonly envelopeHash: string
 }
 
 export type ExternalEditorAdapter = (request: {
@@ -2449,6 +2456,7 @@ function AppBody({
 			resolve: (decision: PermissionDecision) => void
 		}>
 	>([])
+	const permissionShownRef = useRef<PendingPermission | null>(null)
 	const [queuedPermissionCount, setQueuedPermissionCount] = useState(0)
 	useEffect(
 		() => () => {
@@ -6513,6 +6521,7 @@ function AppBody({
 	const permissionAnswerOptions = (pending: PendingPermission) => ({
 		batchOnly: pending.batchOnly === true,
 		screenConsent: pending.screenConsent === true,
+		withheld: pending.withheld.length > 0,
 		mode: permissionModeRef.current,
 		...(session?.allowForSession && session.commandArguments
 			? {
@@ -6526,8 +6535,23 @@ function AppBody({
 	// down the overlay. No-op if nothing is pending.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const resolvePermission = useCallback(
-		(decision: PermissionDecision) => {
+		(requested: PermissionDecision) => {
 			const resolve = permissionResolveRef.current
+			const shown = permissionShownRef.current
+			permissionShownRef.current = null
+			// The screen may show a bounded view, but a yes only binds the input
+			// that was shown: the hash is the binding. It is taken again over the
+			// request the SDK holds and will run, and must equal what the person
+			// saw.
+			let decision = requested
+			if (requested.kind === 'approve' && shown) {
+				const again = buildPermissionReview(shown.source.toolCalls)
+				if (!again.ok || again.envelopeHash !== shown.envelopeHash)
+					decision = {
+						kind: 'reject',
+						feedback: 'Refused: the tool input changed after it was shown for approval.',
+					}
+			}
 			permissionResolveRef.current = null
 			permissionOpenedAtRef.current = null
 			setPermissionReviewOffset(0)
@@ -6550,6 +6574,7 @@ function AppBody({
 				permissionResolveRef.current = next.resolve
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionDetailsOpen(!next.permission.summary.complete)
+				permissionShownRef.current = next.permission
 				setPermission(next.permission)
 				setState('awaiting-permission')
 			}
@@ -7769,12 +7794,21 @@ function AppBody({
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
+				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {
 				if (permissionResolveRef.current) {
 					permissionQueueRef.current.push({
-						permission: { ...req, review: review.text, summary, siteNotes },
+						permission: {
+							...req,
+							review: review.text,
+							summary,
+							siteNotes,
+							withheld: review.withheld,
+							source: req,
+							envelopeHash: review.envelopeHash,
+						},
 						resolve,
 					})
 					setQueuedPermissionCount(permissionQueueRef.current.length)
@@ -7784,7 +7818,17 @@ function AppBody({
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionReviewOffset(0)
 				setPermissionDetailsOpen(!summary.complete)
-				setPermission({ ...req, review: review.text, summary, siteNotes })
+				const shown: PendingPermission = {
+					...req,
+					review: review.text,
+					summary,
+					siteNotes,
+					withheld: review.withheld,
+					source: req,
+					envelopeHash: review.envelopeHash,
+				}
+				permissionShownRef.current = shown
+				setPermission(shown)
 				setState('awaiting-permission')
 				announceApproval()
 			})
@@ -14014,6 +14058,7 @@ function AppBody({
 										}
 									: {})}
 								siteNotes={permission.siteNotes}
+								withheld={permission.withheld}
 								{...(permission.screenConsent === true
 									? {
 											screenConsent: {

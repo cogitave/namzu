@@ -13,7 +13,11 @@ import {
 	permissionQuestion,
 	permissionTitle,
 } from '../PermissionOverlay.js'
-import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
+import {
+	MAX_WORKFLOW_REVIEW_BYTES,
+	buildPermissionReview,
+	buildPermissionSummary,
+} from '../permission-review.js'
 import { renderToScreen } from './support/screen.js'
 
 const META =
@@ -198,11 +202,23 @@ describe('a large script', () => {
 		expect(summary.expandedText).toContain('// step 5999')
 	})
 
-	it('still refuses an oversized batch of ordinary calls', () => {
+	it('no longer refuses a large batch of ordinary calls: it is shown bounded and withheld', () => {
 		const result = buildPermissionReview([
 			{ id: 'b', name: 'bash', input: { command: 'x'.repeat(9000) }, isDestructive: true },
 		])
-		expect(result).toEqual({ ok: false, reason: 'too_large' })
+		expect(result).toMatchObject({ ok: true, withheld: [] })
+	})
+
+	it('withholds a workflow value past the 640 KiB per-value ceiling', () => {
+		const result = buildPermissionReview([
+			{
+				id: 'w',
+				name: 'workflow',
+				input: { script: 'x'.repeat(MAX_WORKFLOW_REVIEW_BYTES + 1) },
+				isDestructive: false,
+			},
+		])
+		expect(result).toMatchObject({ ok: true, withheld: [{ index: 0, name: 'workflow' }] })
 	})
 
 	it('pages the whole script in the expanded view', async () => {

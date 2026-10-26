@@ -1,5 +1,48 @@
 # @namzu/cli
 
+## 39.2.1
+
+### Patch Changes
+
+- b4a44b9: Model-facing wording (the system prompt, tool descriptions and bundled skills) now names categories instead of specific products, sites or models as examples, so an example is no longer repeated back as a preference. No API or behaviour change; nothing to do on upgrade.
+- Updated dependencies [b4a44b9]
+  - @namzu/sdk@53.2.2
+
+## 39.2.0
+
+### Minor Changes
+
+- 30654df: A tool output that was cut now says one thing about how to get the rest, wherever the model meets it. The saved-file line is followed by a sentence that names only the tools the turn has: `read` (open the file, `offset`/`limit`) and, when both are mounted, `search_conversation` then `read_conversation`. The cleared-result placeholder keeps that sentence instead of its own advice, and every compaction summary of a conversation with those tools ends with a pointer to them. The built-in `read` tool now opens a regular `.txt` file in the session's own retained-output directory without a prompt (no symbolic link, no second hard link, read-only), so the pointer is true; `ToolContext.retainedOutputDirectory` is new and optional, and `CompactNowInput.recoveryNote` and `COMPACTION_RECOVERY_NOTE` are new exports. The conversation guidance no longer tells the model not to use `read`. Nothing is removed; a host that mounts neither tool still gets the neutral wording.
+- 5e9539a: An agent can now be waited on, messaged, resumed or cancelled by its task id from any later turn of the same conversation, whether it is still running or has already ended. Before, an agent whose turn had ended could be reached only while it was running, and every other id was refused with "does not belong to this parent turn", so a task id taken from an earlier notification often failed. A finished agent returns its result without a new wait, `cancel_agent` reports that it already ended, and `send_message` resumes it from its own transcript under the current turn's limits and review channel; an agent you stopped is still not resumed. An id that belongs to no agent of the conversation, or to another conversation, now answers "No task with ID … in this conversation." and lists the agents that are running. If you call the sub-agent tools from the SDK, match on that text instead of the old one. A message to a running agent now also reaches it after the turn that launched it has ended, and a message to an agent saved by an earlier run of the program (its session UUID from `agent_task_list` with `history: true`) resumes it from its saved history under the current turn's limits and review channel, or says it cannot be resumed when nothing readable was kept. Requires `@namzu/sdk` with `restoreChild`.
+
+  An agent started with a role is the exception: its role text is not saved, so after a restart it cannot be continued and a message to it says so. A resumed agent's duration keeps counting from its original start while it is still tracked, and from the restore when it is not.
+
+  An agent also keeps one task id across resumes: the notification, `agent_task_list`, `wait_for_task` and `send_message` show the id it was first known by, and that id keeps working. A restored agent keeps the short name it was launched with instead of its prompt, a finished agent no longer reads as `unresolved` when its own log settled, a saved model that names no provider is ignored, and two messages that meet an agent being resumed are told in plain words to wait for its notification.
+
+### Patch Changes
+
+- 30654df: An evidence address or cursor from a session log no longer stops working as soon as the log grows. The seal used to include the log file's size and times, so every tool call of a running conversation voided the address a search had just returned, and `read_conversation` after `search_conversation`, or a second page by `nextCursor`, answered "could not be read". The seal now binds the file's identity, and the read still checks the record's offset, length and digest. A log that was rewritten or replaced is still refused. Nothing to do on upgrade.
+- 30654df: A conversation search address or cursor now stays valid when the next tool call reads it, even though that call is anchored at a later record. Previously every `read_conversation` after a `search_conversation` in a running turn was refused as changed. A seq past the end of the conversation is also answered at once on the live backend, naming the highest retained seq. Nothing to change in callers.
+- 30654df: `read_conversation` now recovers only from a bad offset. An integrity or ownership refusal on a read that carried a `byteOffset` is no longer retried from the start; the model gets the generic "could not be read" answer and the cause goes to the host log. Probe reads are counted against the per-call byte limit exactly once. A seq far past the end of the conversation is answered with the highest retained seq whichever source serves the read, a page that is not the whole record says which call continues it, and an expired cursor's note says that earlier pages repeat. Nothing to do on upgrade.
+- 30654df: `read_conversation` no longer answers every failure with the same sentence. An offset inside a multi-byte character reads from that character, an offset past the end returns an empty complete page with `totalChars`, a record with no character index reads from the start, and an expired cursor restarts from the `seq`/`part` address; the page's new `note` says which. Other failures now name the cause and the next step (the highest retained `seq`, the parts that hold text, search again after a changed log, repeat the original offset with a cursor). Ownership and integrity checks are unchanged. Nothing to do on upgrade.
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [5e9539a]
+  - @namzu/sdk@53.2.0
+
+## 39.1.0
+
+### Minor Changes
+
+- f225fb7: A large write, edit or command now opens the approval prompt instead of being refused. The input is shown in a page of rows with the rest one key away (PgDn, or `d` for the exact input). A value over 200 thousand characters, or the part of a batch past 1 MiB, is replaced by a short notice (`[about 200k characters not shown]`), and only a one-time Yes and No are offered: no "switch to accept edits" and no "don't ask again". The same holds for a connected server's tool whose input reads as more than 2,000 units of one line, more than 10,000 elements or deeper than 64 levels; its input is still shown whole. One notice covers a batch and each marked call is flagged beside its number. Approving binds the exact input; if it changed after the prompt opened, the call is refused. Input that is not plain JSON is still refused. The hint line keeps the `d` key at narrow widths. Nothing to do. No exported symbol changed; the review module is internal to the CLI.
+
+### Patch Changes
+
+- Updated dependencies [f225fb7]
+  - @namzu/sdk@53.1.0
+
 ## 39.0.0
 
 ### Major Changes
@@ -32,7 +75,7 @@
 
 - 7608640: The terminal message box now shows a pasted block as a short label inside your text, for example `[Pasted text #1 +40 lines]`, and a pasted image as `[Image #1]`, instead of a separate row above the box. Backspace removes a label whole, and the full text is sent when you press Enter. Pastes of up to a few lines now stay as ordinary text. On a fresh conversation the empty box suggests an example such as `Try "fix lint errors"` (naming a file you edit often when it can), and the hint for queued messages (`Press up to edit queued messages`) is shown for its first three appearances, counted across launches in `~/.namzu/hint-counts.json`; Enter on an empty box still loads a queued message for editing and does not send the queue. A label that leaves the text by any route also drops its image. Nothing to change on your side.
 - 7608640: Changes to files are drawn with line numbers, full-width colour and word highlights. An edit's call row now reads `Update(path)` (it read `Edit(path)`); its result says `Added 2 lines, removed 1 line` with the numbers in bold, and the hunks sit under it with a line-number gutter, full-width green and red rows, the changed words highlighted when little of a changed pair differs, a dim `...` between hunks and no vertical rule. An edit shows every hunk the kernel carried (it used to stop after 40 rows); a created file reads `Wrote 14 lines to notes.txt` with its first 10 lines. A declined edit or write keeps `You declined this, so it did not run.` and shows what it would have changed in dimmed colours. Terminals that report truecolor get these colours, others the named ANSI ones. `/diff` and resumed conversations draw the same rows; a resumed conversation without a journal keeps the line counts from the receipt. Anything that matched the old `Edit(...)` call text or the `Edited a.ts +2 -1` / `Created n.txt +2` result text in the terminal transcript should match the new wording; the structured events and the Desktop are unchanged. Adds `diff` 9.0.0 as a dependency.
-- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from ` ⎿ ` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
+- 7608640: Display text only; nothing to change when you upgrade. If a script, test or screen-scrape reads the terminal's wording, these lines changed: composer tag rows no longer start with a `✦`/`✧` mark and are sentence case (`Hypermode · this reply: …`); `Press ctrl+x ctrl+k again to stop background agents` is a footer hint, not a transcript row, and the stop leaves `All background agents stopped`; an agent stopped by Esc or Ctrl+C now reads `was stopped by user` like one stopped from the rail; tool results hang from `⎿` (two spaces after the glyph) everywhere; `/workflows` rows read `finished` (not `completed`) with the duration first; `/compact` echoes `› /compact` and prints its result below the turns that stay. `@namzu/sdk` workflow scripts log `Step N stopped: <reason>` from `parallel()` (was `parallel item N failed: …`) and `Item N stopped at step M: <reason>` from `pipeline()` (was `pipeline item N stopped at stage M: …`); a script that matches on those log lines must change the match.
 - 7608640: Stopping background agents now leaves one row. Ctrl+C on an idle composer and `ctrl+x ctrl+k` write `All background agents stopped` and nothing else: the stopped agents no longer add a `was stopped by user` row each, and no `Worked for` line lands between them. Anything that matched those per-agent rows after a stop must expect one row.
 
   Other visible changes:

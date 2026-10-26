@@ -67,6 +67,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	COMPACTION_RECOVERY_NOTE,
 	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
 	type CodeAnalysisProvider,
@@ -2006,7 +2007,7 @@ const NAMZU_IDENTITY = [
 ].join('\n')
 
 const NAMZU_BROWSER_DESKTOP_ROUTING =
-	'When the user means an already open desktop browser window, such as their Brave window, use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
+	'When the user means an already open desktop browser window (their own, not the Namzu-managed profile), use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
@@ -4908,6 +4909,8 @@ export async function createAgentSession(
 					model,
 					signal,
 					...(instructions ? { instructions } : {}),
+					// Only a host that mounts the conversation tools points the summary at them.
+					...(options.conversationSessions ? { recoveryNote: COMPACTION_RECOVERY_NOTE } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -5185,12 +5188,12 @@ export async function createAgentSession(
 													''
 												).slice(0, 8_000)
 												const text =
-													`Host record: directly assigned child task ${JSON.stringify(receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
+													`Host record: directly assigned child task ${JSON.stringify(receipt.agentTaskId ?? receipt.taskId)} settled: task ${finished.state}; execution ${finished.result?.status ?? 'no result'}${finished.result?.stopReason ? ` (${finished.result.stopReason})` : ''}.\n` +
 													wrapUntrusted(
 														{
 															kind: 'agent-result',
 															attributes: {
-																task: receipt.taskId,
+																task: receipt.agentTaskId ?? receipt.taskId,
 																agent: finished.agentId,
 															},
 															provenance:
@@ -5200,7 +5203,7 @@ export async function createAgentSession(
 													)
 												if (!options.ephemeral)
 													await recordChildOperatorReport(paths, turnScope.sessionId, {
-														id: `report-${receipt.taskId}`,
+														id: `report-${receipt.agentTaskId ?? receipt.taskId}`,
 														text,
 													}).catch((error) =>
 														cliLogger().warn('Child follow-up report audit failed', {

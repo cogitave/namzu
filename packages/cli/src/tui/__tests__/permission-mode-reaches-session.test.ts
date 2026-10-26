@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import type { PermissionDecision, PermissionRequest, SendOptions } from '../agent.js'
-import { MAX_PERMISSION_REVIEW_BYTES } from '../permission-review.js'
+import { MAX_REVIEW_VALUE_CHARS } from '../permission-review.js'
 
 const queryCalls: Record<string, unknown>[] = []
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -148,14 +148,14 @@ describe('the TUI permission-mode hop', () => {
 				{
 					...review.toolCalls[0],
 					name: 'bash',
-					input: { command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES) },
+					input: { command: 'x'.repeat(MAX_REVIEW_VALUE_CHARS) },
 				},
 			],
 		}
 
 		expect(await handler?.(oversized)).toEqual({ action: 'approve_tools' })
 		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.input).toEqual({
-			command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES),
+			command: 'x'.repeat(MAX_REVIEW_VALUE_CHARS),
 		})
 	})
 })

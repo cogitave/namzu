@@ -10,6 +10,8 @@ import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 	SPILL_MARKER,
 	applyToolOutputBudget,
+	describeRetainedOutputRecovery,
+	retainedOutputPointer,
 } from '../tool-output-budget.js'
 
 /**
@@ -212,6 +214,49 @@ describe('applyToolOutputBudget', () => {
 		expect(out.output).toContain('characters omitted')
 		expect(out.output).toContain('host-authorized retained-output recovery tools')
 		expect(out.output).not.toMatch(/`read`|`grep`/)
+	})
+
+	it.each([['\r\n'], ['\r'], ['\n']])(
+		'finds the pointer when the output ends its lines with %j',
+		(eol) => {
+			const pointer = [
+				`${SPILL_MARKER} /state/s/tool-results/a.txt`,
+				describeRetainedOutputRecovery({ read: true }),
+			].join('\n')
+			const output = `head${eol}${pointer.replaceAll('\n', eol)}${eol}tail`
+
+			expect(retainedOutputPointer(output)).toBe(pointer)
+		},
+	)
+
+	it('names only the recovery routes the host has mounted', () => {
+		let calls = 0
+		const spilled = (recoveryRoutes?: { read?: boolean; conversation?: boolean }) =>
+			applyToolOutputBudget({
+				...base,
+				// The spill file is keyed by it and opened exclusively.
+				toolUseId: `routes-${++calls}`,
+				output: 'y'.repeat(100_000),
+				maxChars: 1_000,
+				spillDir: dir,
+				...(recoveryRoutes ? { recoveryRoutes } : {}),
+			}).output
+
+		const both = spilled({ read: true, conversation: true })
+		expect(both).toContain('open this file with the read tool')
+		expect(both).toContain('search_conversation')
+		expect(both).not.toContain('read and grep cannot open it')
+
+		const readOnly = spilled({ read: true })
+		expect(readOnly).toContain('open this file with the read tool')
+		expect(readOnly).not.toContain('search_conversation')
+
+		const conversationOnly = spilled({ conversation: true })
+		expect(conversationOnly).toContain('search_conversation')
+		expect(conversationOnly).toContain('read and grep cannot open it')
+		expect(conversationOnly).not.toContain('open this file with the read tool')
+
+		expect(spilled({})).toContain('host-authorized retained-output recovery tools')
 	})
 
 	it('degrades to middle-elision when there is nowhere to spill', () => {

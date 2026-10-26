@@ -51,6 +51,7 @@ import {
 	isLeaseLive,
 } from './lease.js'
 import type { SpillReadOptions, SpillRef, SpillStore } from './spill.js'
+import { TOOL_INPUT_RECORD_TYPES, spilledInput, toolInputSlots } from './spilled-input.js'
 
 // ─── public types ─────────────────────────────────────────────────────────
 
@@ -666,6 +667,9 @@ export class SessionLogCore implements SessionLog {
 			? await this.#spillStructuredResults(original)
 			: original
 		const type = candidate.type
+		if (typeof type === 'string' && TOOL_INPUT_RECORD_TYPES.has(type)) {
+			return this.#spillToolInputs(candidate)
+		}
 		if (
 			type !== 'message' &&
 			type !== 'message_replaced' &&
@@ -713,6 +717,30 @@ export class SessionLogCore implements SessionLog {
 			...(typeof content.toolCallId === 'string' ? { toolCallId: content.toolCallId } : {}),
 		}
 		return { ...candidate, content: preview, spill: ref }
+	}
+
+	/**
+	 * A record that carries tool inputs and would not fit a line: each large
+	 * input goes to `tool-results/` and the record keeps a stand-in, so the
+	 * person is still asked and the call is still restored on resume.
+	 */
+	async #spillToolInputs(candidate: Record<string, unknown>): Promise<Record<string, unknown>> {
+		const sizeOf = (record: Record<string, unknown>): number =>
+			Buffer.byteLength(`${JSON.stringify(record)}\n`, 'utf8')
+		if (sizeOf(candidate) <= this.#spillAbove) return candidate
+		const copy = structuredClone(candidate)
+		const slots = toolInputSlots(copy)
+		const bodies = slots.map(({ holder, key }) => JSON.stringify(holder[key]) ?? 'null')
+		// Largest first, and only as many as it takes to fit.
+		const order = slots.map((_, i) => i).sort((a, b) => bodies[b]!.length - bodies[a]!.length)
+		for (const index of order) {
+			const slot = slots[index]!
+			const body = bodies[index]!
+			const ref = await this.#spills.write(`input:${String(candidate.id)}:${index}`, 'text', body)
+			slot.holder[slot.key] = spilledInput(ref, body)
+			if (sizeOf(copy) <= this.#spillAbove) break
+		}
+		return copy
 	}
 
 	async #spillStructuredResults(

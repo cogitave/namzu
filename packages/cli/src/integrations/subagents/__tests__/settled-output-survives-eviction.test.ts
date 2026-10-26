@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentManager, MockLLMProvider, generateTurnId } from '@namzu/sdk'
+import { AgentManager, MockLLMProvider } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -14,11 +14,11 @@ describe('retained delegated output', () => {
 		for (const workdir of workdirs.splice(0)) removeTempDir(workdir)
 	})
 
-	it('retrieves a yielded result after manager eviction without crossing parent ownership', async () => {
+	it('retrieves a yielded result after manager eviction without crossing the conversation', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-delegation-eviction-'))
 		workdirs.push(cwd)
 		const parent = await subagentParentFixture(cwd)
-		const otherTurnId = generateTurnId()
+		const otherTurnId = await parent.addForeignTurn()
 		const sendMessage = vi.spyOn(AgentManager.prototype, 'sendMessage')
 		let release!: () => void
 		const held = new Promise<void>((resolve) => {
@@ -29,8 +29,7 @@ describe('retained delegated output', () => {
 			turns: [{ text: completeOutput, chunkSize: 8_000 }],
 		})
 		const runtime = await createSubagentRuntime({
-			resolveParent: (turnId) =>
-				parent.resolveParent(turnId === otherTurnId ? parent.scope.turnId : turnId),
+			resolveParent: parent.resolveParent,
 			// Pending operator input releases the initial Agent wait immediately.
 			resolveWaitForInbound: () => async () => {},
 			cwd,
@@ -90,12 +89,10 @@ describe('retained delegated output', () => {
 				{ ...context, turnId: otherTurnId },
 			)
 			expect(foreign.success).toBe(false)
-			expect(foreign.error).toContain('does not belong to this parent turn')
+			expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
 			const foreignGateway = await runtime.gatewayForTurn(otherTurnId)
 			expect(foreignGateway.getTask(taskId)).toBeUndefined()
-			await expect(foreignGateway.waitForTask(taskId)).rejects.toThrow(
-				'does not belong to this parent turn',
-			)
+			await expect(foreignGateway.waitForTask(taskId)).rejects.toThrow('in this conversation')
 
 			await runtime.close()
 			const afterClose = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)

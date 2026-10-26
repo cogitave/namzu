@@ -43,6 +43,58 @@ export const MESSAGE_BUDGET_PREVIEW_CHARS = 2_000
 export const SPILL_MARKER = 'The full output was written to:'
 
 /**
+ * The recovery routes a host has mounted for a retained output. A pointer
+ * names only a tool that exists, so the same sentence is true wherever it is
+ * read: in the result, in the cleared placeholder that keeps it, and in a
+ * summary that quotes it.
+ */
+export interface RetainedOutputRoutes {
+	/** The `read` tool is mounted and may open this session's own retained files. */
+	readonly read?: boolean
+	/** `search_conversation` and `read_conversation` are both mounted. */
+	readonly conversation?: boolean
+}
+
+/** Opening of the sentence that follows the spill line; how a pointer is recognised. */
+export const RETAINED_OUTPUT_NOTE = 'This path identifies retained output, not the original input.'
+
+const REPLAY_WARNING =
+	'A fresh observation of the original input cannot recover its earlier contents. If recovery is unavailable, report the missing detail; do not replay the original action.'
+
+/**
+ * The one sentence that says how to get at a retained output. Without routes
+ * (an embedder that told the budget nothing) it keeps the neutral wording.
+ */
+export function describeRetainedOutputRecovery(routes?: RetainedOutputRoutes): string {
+	const read = routes?.read === true
+	const conversation = routes?.conversation === true
+	const how = [
+		read ? 'To read more of it, open this file with the read tool (offset and limit).' : '',
+		conversation
+			? read
+				? 'For anything else from earlier in this conversation, call search_conversation with a phrase from it, then read_conversation with the seq and part it returns.'
+				: 'To read more of it, call search_conversation with a phrase from it, then read_conversation with the seq and part it returns. The path is not a workspace file, so read and grep cannot open it.'
+			: '',
+	].filter(Boolean)
+	if (how.length === 0)
+		return `${RETAINED_OUTPUT_NOTE} Use the host-authorized retained-output recovery tools when available; the path does not grant filesystem access. ${REPLAY_WARNING}`
+	return [RETAINED_OUTPUT_NOTE, ...how, REPLAY_WARNING].join(' ')
+}
+
+/**
+ * The spill line and the recovery sentence under it, when `text` carries them.
+ * Whatever shortens a result keeps this pair, so the route survives.
+ */
+export function retainedOutputPointer(text: string): string | undefined {
+	// A tool may end its lines with \r\n or a bare \r; the pointer is one line either way.
+	const lines = text.split(/\r\n|\r|\n/)
+	const at = lines.findIndex((line) => line.startsWith(SPILL_MARKER))
+	if (at < 0) return undefined
+	const next = lines[at + 1]
+	return next?.startsWith(RETAINED_OUTPUT_NOTE) ? `${lines[at]}\n${next}` : (lines[at] as string)
+}
+
+/**
  * Share of the budget spent on the head. The rest goes to the tail.
  *
  * Weighted toward the head because that is where a document's structure
@@ -91,7 +143,7 @@ function boundedPreview(
 		'',
 	].join('\n')
 	const compactMiddle = '\n[... omitted ...]\n'
-	const spillLine = recovery.split('\n').find((line) => line.startsWith(SPILL_MARKER))
+	const spillLine = recovery.split(/\r\n|\r|\n/).find((line) => line.startsWith(SPILL_MARKER))
 	const compactRecovery = spillLine ? `${compactMiddle}${spillLine}\n` : compactMiddle
 	const middle =
 		detailedMiddle.length < maxChars
@@ -182,6 +234,8 @@ export interface ApplyToolOutputBudgetOptions {
 	 * middle-elided instead — degraded, but never unbounded.
 	 */
 	readonly spillDir?: string | undefined
+	/** Which recovery routes the host has mounted; see {@link describeRetainedOutputRecovery}. */
+	readonly recoveryRoutes?: RetainedOutputRoutes
 	readonly onError?: (message: string) => void
 }
 
@@ -189,8 +243,9 @@ export interface ApplyToolOutputBudgetOptions {
  * Bound a tool result to the model-visible budget.
  *
  * Retention keeps the original while bounding its model-visible preview.
- * The host owns the recovery route and its permissions; a spill path is not
- * proof that workspace read/grep tools can access it. Middle-elision is the
+ * The recovery sentence names only the routes the host says are mounted
+ * ({@link RetainedOutputRoutes}); a spill path alone is not proof that a
+ * workspace tool can open it. Middle-elision is the
  * fallback for a turn with no directory to write to.
  *
  * The preview keeps head AND tail because the two ends carry different
@@ -224,10 +279,9 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 
 	const spillPath = retained?.path
 	const recovery = spillPath
-		? [
-				`${SPILL_MARKER} ${spillPath}`,
-				'This path identifies retained output, not the original input. Use the host-authorized retained-output recovery tools when available; the path does not grant filesystem access. A fresh observation of the original input cannot recover its earlier contents. If recovery is unavailable, report the missing detail; do not replay the original action.',
-			].join('\n')
+		? [`${SPILL_MARKER} ${spillPath}`, describeRetainedOutputRecovery(opts.recoveryRoutes)].join(
+				'\n',
+			)
 		: 'The full output was not retained. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.'
 	const requestedPreview = opts.retainedPreviewChars
 	// Separate the spill threshold from the cost of carrying its preview on every
@@ -358,10 +412,9 @@ export interface MessageBudgetReplacement {
 export interface FitResultsToMessageBudgetOptions {
 	readonly maxChars: number
 	readonly spillDir?: string | undefined
+	readonly recoveryRoutes?: RetainedOutputRoutes
 	readonly onError?: (message: string) => void
 }
-
-const SPILL_LINE = new RegExp(`^${SPILL_MARKER} .+$`, 'm')
 
 /**
  * Hold one assistant message's combined tool results under a cap.
@@ -409,7 +462,7 @@ function previewForMessageBudget(
 	item: MessageBudgetItem,
 	opts: FitResultsToMessageBudgetOptions,
 ): MessageBudgetReplacement {
-	const spilledAt = SPILL_LINE.exec(item.output)?.[0]
+	const spilledAt = retainedOutputPointer(item.output)
 	if (spilledAt !== undefined) {
 		const output = [
 			safeHead(item.output, MESSAGE_BUDGET_PREVIEW_CHARS / 2),
@@ -420,7 +473,7 @@ function previewForMessageBudget(
 		return {
 			output,
 			originalLength: item.output.length,
-			spillPath: spilledAt.slice(SPILL_MARKER.length + 1),
+			spillPath: (spilledAt.split('\n')[0] as string).slice(SPILL_MARKER.length + 1),
 		}
 	}
 	const budgeted = applyToolOutputBudget({
@@ -430,6 +483,7 @@ function previewForMessageBudget(
 		output: item.output,
 		maxChars: MESSAGE_BUDGET_PREVIEW_CHARS,
 		spillDir: opts.spillDir,
+		...(opts.recoveryRoutes ? { recoveryRoutes: opts.recoveryRoutes } : {}),
 		...(opts.onError ? { onError: opts.onError } : {}),
 	})
 	return {
