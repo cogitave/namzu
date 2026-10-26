@@ -22,6 +22,7 @@ const FAILURE_REASONS: readonly ToolFailureReason[] = [
 	'changed_on_disk',
 	'text_not_found',
 	'not_unique',
+	'invalid_arguments',
 ]
 const WRITE_OPERATIONS = ['created', 'updated', 'unchanged', 'wrote'] as const
 const MAX_TEXT = 2_000

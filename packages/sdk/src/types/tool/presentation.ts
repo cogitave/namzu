@@ -114,6 +114,8 @@ export type ToolFailureReason =
 	| 'text_not_found'
 	/** An edit whose text appears more than once. */
 	| 'not_unique'
+	/** The call's arguments did not fit the tool's input schema, so the tool never ran. */
+	| 'invalid_arguments'
 
 /**
  * What a call was about and what came of it, as typed fields.

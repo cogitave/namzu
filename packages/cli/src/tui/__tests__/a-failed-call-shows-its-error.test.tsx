@@ -97,6 +97,24 @@ describe('an unclassified failure of an ordinary tool', () => {
 		expect(full).not.toContain('ctrl+o to expand')
 	})
 
+	it('reads "Invalid tool parameters" from the typed reason, with the full text behind ctrl+o', async () => {
+		const output = 'Error: Validation failed for "write": path: Expected string, received number.'
+		const event = failedCall('write', output, { plainFailure: 'Invalid tool parameters' })
+		const folded = (await draw(rowsOf(event))).scrollback().join('\n')
+		expect(folded).toContain('Invalid tool parameters')
+		expect(folded).not.toContain('Validation failed')
+		expect(folded).toContain('(ctrl+o to expand)')
+		const full = (await draw(rowsOf(event), true)).scrollback().join('\n')
+		expect(full).toContain('Validation failed for "write"')
+		expect(shortToolFailure('read', { kind: 'failure', reason: 'invalid_arguments' })).toEqual({
+			text: 'Invalid tool parameters',
+			tone: 'error',
+		})
+		expect(shortToolFailure('bash', { kind: 'failure', reason: 'invalid_arguments' })?.text).toBe(
+			'Invalid tool parameters',
+		)
+	})
+
 	it('reads "Invalid tool parameters" until expanded', async () => {
 		const output = 'InputValidationError: missing "url"'
 		const folded = (await draw(rowsOf(failedCall('web_fetch', output)))).scrollback().join('\n')

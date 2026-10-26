@@ -404,6 +404,7 @@ const FAILURE_TEXT: Record<ToolFailureReason, string> = {
 	changed_on_disk: 'changed since it was read',
 	text_not_found: 'text not found',
 	not_unique: 'text appears more than once',
+	invalid_arguments: 'invalid parameters',
 }
 
 function failureLead(kind: ActionKind): string {

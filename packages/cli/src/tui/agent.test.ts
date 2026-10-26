@@ -905,6 +905,23 @@ describe('the rows under a tool call', () => {
 		expect((event as { plainFailure?: string }).plainFailure).toBeUndefined()
 	})
 
+	it('reads a call whose arguments did not fit as "Invalid tool parameters", whatever the tool', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				toolUseId,
+				toolName: 'read',
+				isError: true,
+				result: 'Error: Tool "read" was called with no arguments. Required: path',
+				facts: { kind: 'failure', reason: 'invalid_arguments' },
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect((event as { plainFailure?: string }).plainFailure).toBe('Invalid tool parameters')
+	})
+
 	it('renders creation diffs without a phantom final line', () => {
 		expect(
 			viewToLines({

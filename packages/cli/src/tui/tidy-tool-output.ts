@@ -197,6 +197,9 @@ export function unknownToolNotice(result: string): string | undefined {
 		: undefined
 }
 
+/** The short row for a call whose arguments did not fit the tool's schema; the full text is in the detailed transcript. */
+export const INVALID_PARAMETERS = 'Invalid tool parameters'
+
 /** What the transcript says under a call the person answered No to. */
 export function declinedLine(note: string | undefined): string {
 	const said = note?.replace(/\s+/g, ' ').trim()
@@ -257,6 +260,8 @@ export function failureFactsLine(
 			return subject
 				? `That text appears more than once in ${subject}.`
 				: 'That text appears more than once.'
+		case 'invalid_arguments':
+			return INVALID_PARAMETERS
 	}
 }
 
@@ -275,6 +280,8 @@ export function shortToolFailure(
 ): { readonly text: string; readonly tone: 'error' | 'muted' } | undefined {
 	const name = toolName.toLowerCase()
 	const reason = facts.reason
+	// Arguments that did not fit the schema read the same for every tool.
+	if (reason === 'invalid_arguments') return { text: INVALID_PARAMETERS, tone: 'error' }
 	const missing = reason === 'not_found'
 	const refused =
 		reason === 'invalid_input' ||
