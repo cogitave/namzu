@@ -15,6 +15,7 @@
 import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
 import { mustAskPerson } from '../permissions/session-allow.js'
 import type { PermissionDecision, PermissionToolCall } from './agent.js'
+import { buildPermissionReview } from './permission-review.js'
 
 /** The person's own words about a refusal are cut at this many characters. */
 export const REASON_MAX_CHARS = 500
@@ -75,6 +76,20 @@ export function noWithReason(reason: string): PermissionDecision | undefined {
 	}
 }
 
+/**
+ * Whether a call's input would be shown in part only, or could not be shown
+ * exactly at all. A call's size is a fact of the call itself, so it is known
+ * before the call is ever asked about: a call queued behind an earlier question
+ * is checked against a remembered answer on the strength of this, not of a
+ * screen it has not reached yet.
+ */
+function notShownInFull(call: { id: string; name: string; input: unknown }): boolean {
+	const review = buildPermissionReview([
+		{ id: call.id, name: call.name, input: call.input, isDestructive: false },
+	])
+	return !review.ok || review.withheld.length > 0
+}
+
 export interface PerCallReviewHost {
 	/** The session's permission mode now. */
 	readonly mode: () => PermissionMode
@@ -116,8 +131,10 @@ export function createTerminalPerCallReview(host: PerCallReviewHost): TerminalPe
 				}
 			},
 			covers: (call) => modeCovers(call),
-			// A call the terminal has not seen is held: a re-check keeps it open.
-			neverCover: (call) => held.get(call.id) !== false,
+			// A call marked as not shown in full stays open. A call the screen has
+			// not reached yet (queued behind another question) is judged by its own
+			// input, the way the screen will judge it when it gets there.
+			neverCover: (call) => held.get(call.id) ?? notShownInFull(call),
 		},
 		rulesChanged: () => {
 			for (const listener of [...listeners]) listener()
@@ -126,7 +143,8 @@ export function createTerminalPerCallReview(host: PerCallReviewHost): TerminalPe
 			held.set(callId, notShownInFull)
 		},
 		release: (callId) => {
-			held.delete(callId)
+			// A question that is over is never covered again: its call has its answer.
+			held.set(callId, true)
 		},
 		modeCovers,
 	}

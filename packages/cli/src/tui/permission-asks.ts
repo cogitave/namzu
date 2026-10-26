@@ -10,8 +10,9 @@
  * - First asked, first shown. A question from another agent (a background ask)
  *   waits behind every question of the person's own conversation, but never
  *   takes the screen from the one already up.
- * - "k of N": `settled + 1` of `settled + open`, shown only while two or more
- *   questions are open. A question closed without being shown (a rule now
+ * - "k of N": `settled + 1` of `settled + open`, shown when that total is two
+ *   or more, so the last of several questions still reads "3 of 3" once the
+ *   others are answered. A question closed without being shown (a rule now
  *   covers it) still counts as settled, so the numbers move the way the person
  *   would count. The count starts over when nothing is open.
  * - A question whose signal aborts (the turn was stopped, a rule now covers
@@ -70,10 +71,15 @@ export class AskQueue<T> {
 		return this.#waiting.length
 	}
 
-	/** The "k of N" for the question on screen, or none while fewer than two are open. */
+	/**
+	 * The "k of N" for the question on screen, or none while the set holds fewer
+	 * than two questions (those settled since it began and those open now).
+	 */
 	count(): AskCount | undefined {
-		if (this.open < 2) return undefined
-		return { position: this.#settled + 1, total: this.#settled + this.open }
+		if (this.open === 0) return undefined
+		const total = this.#settled + this.open
+		if (total < 2) return undefined
+		return { position: this.#settled + 1, total }
 	}
 
 	/** Every open question, the one on screen first. */

@@ -266,8 +266,8 @@ describe('one overlay per call', () => {
 		settle()
 		h.stdin.write('y')
 		await vi.waitFor(() => expect(frameOf(h)).toContain('$ git status'))
-		// Only one question is left open: nothing to count.
-		expect(frameOf(h)).not.toMatch(/\d of \d/)
+		// The last of three still reads as the third of three.
+		expect(frameOf(h)).toContain('3 of 3')
 		settle()
 		h.stdin.write('y')
 		await vi.waitFor(() =>
@@ -320,6 +320,12 @@ describe('refusing', () => {
 	it('leaves the same row when Ctrl+C stops the turn at a question', async () => {
 		const h = await withQuestionsOpen()
 		h.stdin.write('\x03')
+		await vi.waitFor(() => expect(turnAborted).toBe(true))
+		// The same ending as a plain No: the shown call is declined, the others closed unasked.
+		expect(asked[0]?.decision).toEqual({ kind: 'reject', declined: {}, endTurn: true })
+		expect(asked[1]?.controller.signal.aborted).toBe(true)
+		expect(asked[2]?.controller.signal.aborted).toBe(true)
+		release()
 		await vi.waitFor(() =>
 			expect(frameOf(h)).toContain('Interrupted · What should Namzu do instead?'),
 		)

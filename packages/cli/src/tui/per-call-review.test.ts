@@ -88,15 +88,23 @@ describe('what a re-check may approve', () => {
 		expect(live.config.covers?.(edit as never)).toBe(true)
 	})
 
-	it('keeps a call open when its input was not shown in full, and one it has not seen', () => {
+	it('keeps a call open when its input was not shown in full, and judges one the screen has not reached by its own input', () => {
 		const live = review('bypass')
 		live.hold('big', true)
 		live.hold('small', false)
 		expect(live.config.neverCover?.({ ...shell, id: 'big' } as never)).toBe(true)
 		expect(live.config.neverCover?.({ ...shell, id: 'small' } as never)).toBe(false)
-		expect(live.config.neverCover?.({ ...shell, id: 'unknown' } as never)).toBe(true)
 		live.release('small')
 		expect(live.config.neverCover?.({ ...shell, id: 'small' } as never)).toBe(true)
+		// A call the screen has not reached is judged by its own input.
+		expect(live.config.neverCover?.({ ...shell, id: 'unseen' } as never)).toBe(false)
+		expect(
+			live.config.neverCover?.({
+				...shell,
+				id: 'unseen-big',
+				input: { command: `echo ${'x'.repeat(250_000)}` },
+			} as never),
+		).toBe(true)
 	})
 
 	it('tells every listener when the rules or mode change, until it unsubscribes', () => {

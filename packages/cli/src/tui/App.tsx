@@ -12213,6 +12213,12 @@ export function App({
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
 				if (key.ctrl && input === 'c') {
+					// At a question of the person's own turn, Ctrl+C ends like a plain No:
+					// the kernel settles every call and the turn closes with one row.
+					if (permission && endsTurnOnNo(permission)) {
+						resolvePermission(plainNo(true))
+						return
+					}
 					interruptWithRow(false)
 					return
 				}

@@ -682,7 +682,8 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).not.toMatch(/\d of \d/)
+		// The last of the two still reads as the second of two.
+		expect(lastFrame()).toContain('2 of 2')
 		expect(lastFrame()).toContain('from another agent')
 		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')

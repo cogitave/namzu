@@ -58,7 +58,7 @@ describe('the questions waiting on the person', () => {
 		expect(asks.shown).toBe('agent')
 	})
 
-	it('counts k of N only while two or more are open, and starts over when none is', () => {
+	it('counts k of N once the set holds two or more, the last one included, and starts over when none is open', () => {
 		const { asks } = queue()
 		void asks.enqueue('a')
 		expect(asks.count()).toBeUndefined()
@@ -68,9 +68,10 @@ describe('the questions waiting on the person', () => {
 		asks.answer(yes)
 		expect(asks.count()).toEqual({ position: 2, total: 3 })
 		asks.answer(yes)
-		// Only one is left open: nothing to count.
-		expect(asks.count()).toBeUndefined()
+		// The last of three still reads as the third of three.
+		expect(asks.count()).toEqual({ position: 3, total: 3 })
 		asks.answer(yes)
+		expect(asks.count()).toBeUndefined()
 		void asks.enqueue('d')
 		void asks.enqueue('e')
 		expect(asks.count()).toEqual({ position: 1, total: 2 })
@@ -89,6 +90,17 @@ describe('the questions waiting on the person', () => {
 		expect(asks.count()).toEqual({ position: 2, total: 3 })
 		asks.answer(yes)
 		expect(asks.shown).toBe('c')
+		expect(asks.count()).toEqual({ position: 3, total: 3 })
+	})
+
+	it('shows no count for questions that never coexist', () => {
+		const { asks } = queue()
+		void asks.enqueue('a')
+		asks.answer(yes)
+		expect(asks.count()).toBeUndefined()
+		void asks.enqueue('b')
+		expect(asks.count()).toBeUndefined()
+		asks.answer(yes)
 		expect(asks.count()).toBeUndefined()
 	})
 
