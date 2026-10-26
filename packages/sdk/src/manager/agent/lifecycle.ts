@@ -20,14 +20,14 @@ import {
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type { AgentDefinition } from '../../types/agent/factory.js'
 import type {
+	AgentLifecycleEvent,
+	AgentLifecycleListener,
+} from '../../types/agent/lifecycle-event.js'
+import type {
 	RestoreChildOptions,
 	RestoreChildRefusal,
 	RestoreChildResult,
 } from '../../types/agent/manager.js'
-import type {
-	AgentLifecycleEvent,
-	AgentLifecycleListener,
-} from '../../types/agent/lifecycle-event.js'
 import type {
 	AgentManagerConfig,
 	AgentTask,
@@ -1856,7 +1856,8 @@ export class AgentManager {
 			return refuse('not-saved')
 		}
 		if (!meta) return refuse('not-saved')
-		if (meta.sessionId !== id || meta.parentSessionId !== context.sessionId) return refuse('foreign')
+		if (meta.sessionId !== id || meta.parentSessionId !== context.sessionId)
+			return refuse('foreign')
 		const continuation = meta.continuation
 		if (!continuation || continuation.workspace !== 'shared') return refuse('not-resumable')
 		const agentId = options.agentFor(continuation.profile)
@@ -1949,7 +1950,8 @@ export class AgentManager {
 		} catch (error) {
 			if (edge && createdEdge)
 				await store.deleteSubSession(edge.id, context.tenantId).catch(() => undefined)
-			if (child && createdChild) await store.deleteSession(id, context.tenantId).catch(() => undefined)
+			if (child && createdChild)
+				await store.deleteSession(id, context.tenantId).catch(() => undefined)
 			throw error
 		}
 		this.childConversations.set(id, {

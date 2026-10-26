@@ -117,7 +117,9 @@ export class LocalTaskScheduler implements TaskScheduler {
 			{
 				agentId: options.agentId,
 				...(options.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
-				...(options.continuationProfile ? { continuationProfile: options.continuationProfile } : {}),
+				...(options.continuationProfile
+					? { continuationProfile: options.continuationProfile }
+					: {}),
 				beforeStart: options.beforeStart,
 				...(options.workspace ? { workspace: options.workspace } : {}),
 				...(options.planId ? { planId: options.planId } : {}),
