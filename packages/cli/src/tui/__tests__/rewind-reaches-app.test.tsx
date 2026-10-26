@@ -35,6 +35,8 @@ const forkCalls: Array<{ sourceId: string; userOrdinal: number; expected: Messag
 const rangeCalls: Array<{ from?: Message; until?: Message; instructions?: string }> = []
 let fileAtFork: string | undefined
 let rangeFails = false
+/** The fork hands back the source's own messages (ids and all) instead of its own fold. */
+let forkKeepsSourceIds = false
 let dir: string
 let target: string
 let store: FileCheckpointStore
@@ -73,11 +75,13 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 			return seen === userOrdinal
 		})
 		const prefix = messages.slice(0, selectedIndex)
-		durable.set(FORK, [...prefix])
+		// The fork's log folds the copy without any id its own log gave out.
+		const folded = prefix.map(({ id: _id, ...rest }) => rest as Message)
+		durable.set(FORK, folded)
 		return {
 			id: FORK,
 			title: 'Source conversation (fork)',
-			messages: prefix,
+			messages: forkKeepsSourceIds ? prefix : folded,
 			selected: messages[selectedIndex],
 		}
 	},
@@ -151,6 +155,17 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
+				// The kernel's rule: a message carrying an id must be one this
+				// conversation's own log gave out. A fork's log gave out none.
+				const foreign = messages.find((message) => message.id !== undefined)
+				if (foreign) {
+					yield {
+						kind: 'error',
+						message: 'A cached message carries an id this log never recorded.',
+						failure: { code: 'stale_cached_history', message: 'stale', retryable: false },
+					} as AgentEvent
+					return
+				}
 				yield { kind: 'delta', text: 'BRANCHED ANSWER' } as AgentEvent
 				// The kernel records the turn in the conversation the session's
 				// scope names when the turn begins: its user message, then the answer.
@@ -183,12 +198,13 @@ beforeEach(async () => {
 	await store.snapshot(target)
 	await writeFile(target, 'two\nthree\n')
 	await store.settle(target, { ok: true, first: true })
+	// Saved messages carry the id the source's log gave each of them.
 	const messages = [
 		createUserMessage('first prompt'),
 		createAssistantMessage('first answer'),
 		createUserMessage('selected prompt'),
 		createAssistantMessage('answer that must stay only in the source'),
-	]
+	].map((message, index) => ({ ...message, id: `src-${index}` }) as unknown as Message)
 	sourceBefore = messages
 	durable = new Map([
 		[SOURCE, [...messages]],
@@ -199,6 +215,7 @@ beforeEach(async () => {
 	rangeCalls.length = 0
 	fileAtFork = undefined
 	rangeFails = false
+	forkKeepsSourceIds = false
 })
 
 afterEach(async () => {
@@ -432,4 +449,56 @@ it('Never mind goes back to the list; the present closes the dialog', async () =
 	await frameShows(harness, '❯ Type a message… (/help for commands)')
 	expect(forkCalls).toEqual([])
 	expect(await readFile(target, 'utf8')).toBe('two\nthree\n')
+})
+
+/** Edit the restored prompt and send it, as a person does after the fork. */
+async function sendEditedPrompt(harness: Awaited<ReturnType<typeof mountSource>>) {
+	await frameShows(harness, '❯ selected prompt')
+	for (const ch of ' edited') harness.stdin.write(ch)
+	await frameShows(harness, '❯ selected prompt edited')
+	harness.stdin.write('\r')
+	await frameShows(harness, 'BRANCHED ANSWER')
+}
+
+it('sends the edited prompt after Restore conversation without naming an id the fork never gave out', async () => {
+	const harness = await mountSource()
+	await openRewind(harness)
+	await openOptions(harness, 1)
+	harness.stdin.write(DOWN)
+	await tick()
+	harness.stdin.write('\r')
+	await frameShows(harness, 'Forked into "Source conversation (fork)"')
+	await sendEditedPrompt(harness)
+	expect(sent).toHaveLength(1)
+	expect(sent[0]?.every((message) => message.id === undefined)).toBe(true)
+	expect(sent[0]?.at(-1)?.content).toBe('selected prompt edited')
+	expect(harness.frames.join('\n')).not.toContain('never recorded')
+})
+
+it('sends the edited prompt after Restore code and conversation the same way', async () => {
+	const harness = await mountSource()
+	await openRewind(harness)
+	await openOptions(harness, 1)
+	harness.stdin.write('\r')
+	await frameShows(harness, 'Forked into "Source conversation (fork)"')
+	await sendEditedPrompt(harness)
+	expect(sent).toHaveLength(1)
+	expect(sent[0]?.every((message) => message.id === undefined)).toBe(true)
+	expect(harness.frames.join('\n')).not.toContain('never recorded')
+})
+
+it('rebuilds the cache from the saved fork and sends again when a copy still names foreign ids', async () => {
+	forkKeepsSourceIds = true
+	const harness = await mountSource()
+	await openRewind(harness)
+	await openOptions(harness, 1)
+	harness.stdin.write(DOWN)
+	await tick()
+	harness.stdin.write('\r')
+	await frameShows(harness, 'Forked into "Source conversation (fork)"')
+	await sendEditedPrompt(harness)
+	expect(sent).toHaveLength(2)
+	expect(sent[1]?.every((message) => message.id === undefined)).toBe(true)
+	expect(harness.frames.join('\n')).not.toContain('never recorded')
+	expect(harness.frames.join('\n')).not.toContain('stopped because of a problem')
 })

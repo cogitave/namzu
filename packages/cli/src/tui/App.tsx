@@ -125,6 +125,7 @@ import {
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
+import { sendWithRebuiltHistory } from './stale-history-retry.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
 import {
 	type CliSessions,
@@ -7395,6 +7396,9 @@ function AppBody({
 			// The fork owns the displayed history, except for host-only results
 			// delivered to the original conversation's sidecar inbox.
 			scope.sessionId = forked.id
+			// The copy's own history: the original's messages name ids the copy's
+			// log never gave out, and the next send would be refused.
+			modelHistoryRef.current = forked.messages
 			resetTranscript()
 			setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
 			sourceDeliveryPollRef.current()
@@ -9297,146 +9301,159 @@ function AppBody({
 						startGeneratedTitle(session.sideModel, destination, turnId, promptText)
 					}
 					const typedInput = typedInputOf(prompt)
-					for await (const event of session.send(priorForSdk, {
-						signal: ac.signal,
-						turnId,
-						origin: {
-							protocol: 'cli',
-							kind: goalRound ? 'goal-round' : 'prompt',
-						},
-						// Only the person's own words can set a token target.
-						...(typedInput !== undefined ? { typedInput } : {}),
-						// The TUI never resumes a turn whose process is gone; the next
-						// prompt closes it. A paused turn is never closed this way.
-						abandonInterrupted: true,
-						// A redrawing screen can take back a reply a dropped connection cut short.
-						restartableOutput: true,
-						permissionMode: turnPermissionMode,
-						// Read at every decision: the operator may change the mode
-						// while this turn runs, and the change governs what follows.
-						currentPermissionMode: () => permissionModeRef.current,
-						onAutoModeLimit: handleAutoModeLimit,
-						limits: turnLimits,
-						// A trigger that pins the highest effort does so for this
-						// turn only; the session's own setting is untouched.
-						...((pinnedEffort ?? turnReasoningEffort) !== undefined
-							? { effort: pinnedEffort ?? turnReasoningEffort }
-							: {}),
-						...(turnHypermode ? { hypermode: true } : {}),
-						...(turnTriggers.includes('workflow') ? { workflow: true } : {}),
-						// Read at every iteration, so an after-turn trigger a steer
-						// binds to this turn is said from the next one on.
-						hostContext: () =>
-							[
-								...(st.contextTexts ?? []),
-								idleNoticeSnapshot.text,
-								monitorSnapshot.text,
-								workflowNoticeSnapshot.size > 0
-									? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
-									: undefined,
-								operatorShellSnapshot,
-								...[...childNoticeSnapshot.values()].map((notice) => notice.context),
-								...childMessageSnapshot.values(),
-							].filter((part): part is string => Boolean(part)),
-						...(goalRound ? { goalRound } : {}),
-						// The mode above decides whether this callback is consulted.
-						onPermission: askPermission,
-						// A workflow this turn starts outlives it, so its agents cannot borrow
-						// `askPermission`, which belongs to this turn. They ask through the
-						// conversation instead, for as long as it is the one on screen.
-						workflowReview: {
-							onPermission: async (request) => {
-								if (!workflowOwns()) {
-									return {
-										kind: 'reject',
-										feedback: 'The owning conversation changed.',
-									}
-								}
-								const decision = await onPermission(request)
-								// An agent can ask while no turn runs; nothing else would put the
-								// input back once the operator has answered.
-								if (workflowOwns() && !abortRef.current && !permissionResolveRef.current) {
-									setState('idle')
-								}
-								return decision
+					const sendOnce = (prior: readonly Message[]) =>
+						session.send(prior, {
+							signal: ac.signal,
+							turnId,
+							origin: {
+								protocol: 'cli',
+								kind: goalRound ? 'goal-round' : 'prompt',
 							},
+							// Only the person's own words can set a token target.
+							...(typedInput !== undefined ? { typedInput } : {}),
+							// The TUI never resumes a turn whose process is gone; the next
+							// prompt closes it. A paused turn is never closed this way.
+							abandonInterrupted: true,
+							// A redrawing screen can take back a reply a dropped connection cut short.
+							restartableOutput: true,
+							permissionMode: turnPermissionMode,
+							// Read at every decision: the operator may change the mode
+							// while this turn runs, and the change governs what follows.
 							currentPermissionMode: () => permissionModeRef.current,
-						},
-						onQuestion: askQuestion,
-						onPlanExit: askPlanApproval,
-						bypassAvailable: () => bypassAvailableRef.current,
-						onModelSwitch: requestModelSwitch,
-						inboundMessages: () => {
-							const operatorMessages = inbox.drain()
-							if (ac.signal.aborted || !stillHere()) return operatorMessages
-							const mail = peersRef.current?.take(turnGeneration) ?? []
-							const childNotices = [...directChildNoticesRef.current].filter(
-								([id]) => !childNoticeSnapshot.has(id),
-							)
-							// A workflow that ended while this turn runs: told to the model once.
-							const workflowEnds = [...workflowNoticesRef.current].filter(
-								([id]) => !workflowNoticeSnapshot.has(id),
-							)
-							for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
-							// What a running agent said to the conversation: told to the model once.
-							const childMessages = [...childMessagesRef.current].filter(
-								([id]) => !childMessageSnapshot.has(id),
-							)
-							for (const [id] of childMessages) childMessagesRef.current.delete(id)
-							if (childNotices.length) {
-								flushStream(st)
-								if (st.assistantId) {
-									finalizeMessage(st.assistantId)
-									st.assistantId = null
-								}
-								// What the person typed to an agent is in that agent's transcript, so
-								// main prints nothing for it; the model still gets the note.
-								for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
-							}
-							if (mail.length) {
-								// An idle wake may already be queued behind operator admission.
-								// Once this turn drains it, its queue row is no longer pending.
-								const deliveredIds = new Set(mail.map((item) => item.id))
-								replaceQueued(
-									queuedRef.current.filter(
-										(item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id),
-									),
+							onAutoModeLimit: handleAutoModeLimit,
+							limits: turnLimits,
+							// A trigger that pins the highest effort does so for this
+							// turn only; the session's own setting is untouched.
+							...((pinnedEffort ?? turnReasoningEffort) !== undefined
+								? { effort: pinnedEffort ?? turnReasoningEffort }
+								: {}),
+							...(turnHypermode ? { hypermode: true } : {}),
+							...(turnTriggers.includes('workflow') ? { workflow: true } : {}),
+							// Read at every iteration, so an after-turn trigger a steer
+							// binds to this turn is said from the next one on.
+							hostContext: () =>
+								[
+									...(st.contextTexts ?? []),
+									idleNoticeSnapshot.text,
+									monitorSnapshot.text,
+									workflowNoticeSnapshot.size > 0
+										? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
+										: undefined,
+									operatorShellSnapshot,
+									...[...childNoticeSnapshot.values()].map((notice) => notice.context),
+									...childMessageSnapshot.values(),
+								].filter((part): part is string => Boolean(part)),
+							...(goalRound ? { goalRound } : {}),
+							// The mode above decides whether this callback is consulted.
+							onPermission: askPermission,
+							// A workflow this turn starts outlives it, so its agents cannot borrow
+							// `askPermission`, which belongs to this turn. They ask through the
+							// conversation instead, for as long as it is the one on screen.
+							workflowReview: {
+								onPermission: async (request) => {
+									if (!workflowOwns()) {
+										return {
+											kind: 'reject',
+											feedback: 'The owning conversation changed.',
+										}
+									}
+									const decision = await onPermission(request)
+									// An agent can ask while no turn runs; nothing else would put the
+									// input back once the operator has answered.
+									if (workflowOwns() && !abortRef.current && !permissionResolveRef.current) {
+										setState('idle')
+									}
+									return decision
+								},
+								currentPermissionMode: () => permissionModeRef.current,
+							},
+							onQuestion: askQuestion,
+							onPlanExit: askPlanApproval,
+							bypassAvailable: () => bypassAvailableRef.current,
+							onModelSwitch: requestModelSwitch,
+							inboundMessages: () => {
+								const operatorMessages = inbox.drain()
+								if (ac.signal.aborted || !stillHere()) return operatorMessages
+								const mail = peersRef.current?.take(turnGeneration) ?? []
+								const childNotices = [...directChildNoticesRef.current].filter(
+									([id]) => !childNoticeSnapshot.has(id),
 								)
-								flushStream(st)
-								if (st.assistantId) {
-									finalizeMessage(st.assistantId)
-									st.assistantId = null
+								// A workflow that ended while this turn runs: told to the model once.
+								const workflowEnds = [...workflowNoticesRef.current].filter(
+									([id]) => !workflowNoticeSnapshot.has(id),
+								)
+								for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
+								// What a running agent said to the conversation: told to the model once.
+								const childMessages = [...childMessagesRef.current].filter(
+									([id]) => !childMessageSnapshot.has(id),
+								)
+								for (const [id] of childMessages) childMessagesRef.current.delete(id)
+								if (childNotices.length) {
+									flushStream(st)
+									if (st.assistantId) {
+										finalizeMessage(st.assistantId)
+										st.assistantId = null
+									}
+									// What the person typed to an agent is in that agent's transcript, so
+									// main prints nothing for it; the model still gets the note.
+									for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
 								}
-								for (const item of mail) pushSystem('notice', peerMailLabel(item))
-							}
-							return [
-								...operatorMessages,
-								...mail.map(peerMailMessage),
-								...childNotices.map(([, notice]) =>
-									createRuntimeContextMessage(notice.context, notice.kind),
-								),
-								...workflowEnds.map(([, text]) =>
-									createRuntimeContextMessage(text, 'task-completion'),
-								),
-								...childMessages.map(([, text]) =>
-									createRuntimeContextMessage(text, 'task-completion'),
-								),
-							]
-						},
-						waitForInbound: (signal) => inbox.waitForInbound(signal),
-						onJobNoticeDelivered: (ids) => {
-							const notices = idleJobNoticesRef.current
-							if (notices.ownerSession !== session) return
-							for (const id of ids) {
-								notices.delivered.add(id)
-								notices.pending.delete(id)
-							}
-						},
-						extraSystem: composeSkillsPrompt(activeSkills) || undefined,
-						onConversationMessages: (messages) => {
-							// State-only: opaque reasoning/signatures must reach the next
-							// provider and durable store without becoming transcript text.
-							st.conversationMessages = messages
+								if (mail.length) {
+									// An idle wake may already be queued behind operator admission.
+									// Once this turn drains it, its queue row is no longer pending.
+									const deliveredIds = new Set(mail.map((item) => item.id))
+									replaceQueued(
+										queuedRef.current.filter(
+											(item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id),
+										),
+									)
+									flushStream(st)
+									if (st.assistantId) {
+										finalizeMessage(st.assistantId)
+										st.assistantId = null
+									}
+									for (const item of mail) pushSystem('notice', peerMailLabel(item))
+								}
+								return [
+									...operatorMessages,
+									...mail.map(peerMailMessage),
+									...childNotices.map(([, notice]) =>
+										createRuntimeContextMessage(notice.context, notice.kind),
+									),
+									...workflowEnds.map(([, text]) =>
+										createRuntimeContextMessage(text, 'task-completion'),
+									),
+									...childMessages.map(([, text]) =>
+										createRuntimeContextMessage(text, 'task-completion'),
+									),
+								]
+							},
+							waitForInbound: (signal) => inbox.waitForInbound(signal),
+							onJobNoticeDelivered: (ids) => {
+								const notices = idleJobNoticesRef.current
+								if (notices.ownerSession !== session) return
+								for (const id of ids) {
+									notices.delivered.add(id)
+									notices.pending.delete(id)
+								}
+							},
+							extraSystem: composeSkillsPrompt(activeSkills) || undefined,
+							onConversationMessages: (messages) => {
+								// State-only: opaque reasoning/signatures must reach the next
+								// provider and durable store without becoming transcript text.
+								st.conversationMessages = messages
+							},
+						})
+					for await (const event of sendWithRebuiltHistory(sendOnce, {
+						history: historyBeforeTurn,
+						tail: priorForSdk.slice(historyBeforeTurn.length),
+						rebuild: async () => {
+							const sessions = sessionsRef.current
+							const scope = scopeRef.current
+							if (!sessions || !scope || !conversationMaterializedRef.current) return undefined
+							const fresh = await loadConversation(sessions, scope.sessionId)
+							modelHistoryRef.current = fresh
+							return fresh
 						},
 					})) {
 						// A turn the operator has left is consumed but not rendered: no row
