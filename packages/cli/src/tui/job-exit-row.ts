@@ -1,5 +1,5 @@
 import { type BackgroundJob, describeMonitorEnd } from '@namzu/sdk'
-import { theme } from './theme.js'
+import { tokenColor } from './theme.js'
 
 /**
  * The transcript row for a background command that ended, in the plain words
@@ -41,12 +41,12 @@ export function jobExitRow(job: {
 	const label = `Background command "${commandLabel(job.command)}"`
 	const meta = job.runtimeMs === undefined ? {} : { meta: runtime(job.runtimeMs) }
 	if (job.status === 'killed') {
-		return { text: `${label} was stopped`, color: theme.status.warn, ...meta }
+		return { text: `${label} was stopped`, color: tokenColor('status.warn'), ...meta }
 	}
 	if (job.exitCode === 0) {
 		return {
 			text: `${label} finished (exit code 0)`,
-			color: theme.status.ok,
+			color: tokenColor('status.ok'),
 			...meta,
 		}
 	}
@@ -58,7 +58,7 @@ export function jobExitRow(job: {
 				: 'an unknown exit'
 	return {
 		text: `${label} failed with ${how}`,
-		color: theme.status.error,
+		color: tokenColor('status.error'),
 		...meta,
 	}
 }
@@ -79,22 +79,22 @@ export function monitorEndRow(
 	if (job.stopReason === 'expired') {
 		return {
 			text: `Monitor "${label}" ran out of time`,
-			color: theme.status.warn,
+			color: tokenColor('status.warn'),
 			...meta,
 		}
 	}
 	if (job.stopReason === 'too_much_output') {
 		return {
 			text: `Monitor "${label}" stopped: it printed too much`,
-			color: theme.status.warn,
+			color: tokenColor('status.warn'),
 			...meta,
 		}
 	}
 	const color =
 		end.status === 'completed'
-			? theme.status.ok
+			? tokenColor('status.ok')
 			: end.status === 'failed'
-				? theme.status.error
-				: theme.status.warn
+				? tokenColor('status.error')
+				: tokenColor('status.warn')
 	return { text: end.summary, color, ...meta }
 }

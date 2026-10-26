@@ -16,10 +16,14 @@ import {
 	type TuiResumeInvocation,
 	formatTuiExitSummary,
 } from './exit-summary.js'
+import { installFocusReporting } from './focus-reporting.js'
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
 import { liveRenderOption } from './render-mode.js'
+import { terminalFocus } from './terminal-focus.js'
+import { applyLaunchTheme } from './theme-launch.js'
+import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(
@@ -40,6 +44,9 @@ export async function launchTui(
 	// buffers instead of writing. A crash flushes that bounded buffer; a clean
 	// exit discards it and prints only the concise conversation handoff below.
 	const logs = installTuiLogSink(ctx.logging)
+	// One start of the interactive terminal; the tips' cooldowns count these.
+	const tipHistory = fileTipHistory()
+	tipHistory.recordLaunch()
 	let exitSummary: TuiExitSummary | null = null
 	// Take over the terminal: clear the screen + scrollback and home the
 	// cursor so namzu opens on a clean canvas
@@ -59,6 +66,19 @@ export async function launchTui(
 	// Ink redraws only on the stream's `resize`; on a Windows pseudo-console that event can fail
 	// to come, so the size is asked for on a timer there (see `output-size-watch.ts`).
 	const stopSizeWatch = watchOutputSize(process.stdout)
+	// The colours and motion the config asks for. `auto` asks the terminal for its background first,
+	// which needs the real stdin; a Windows console input device is not asked.
+	const themeReady = applyLaunchTheme(
+		ctx.tui,
+		consoleInput === undefined ? { input: process.stdin, output: process.stdout } : undefined,
+	)
+	if (themeReady) await themeReady
+	// Focus reports (`ESC [ I` / `ESC [ O`) are taken off the stream before Ink reads it, and
+	// switched on only while raw mode is held (see `focus-reporting.ts`).
+	const inputStream = consoleInput?.stream ?? process.stdin
+	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
+		terminalFocus.set(focused),
+	)
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
@@ -70,11 +90,12 @@ export async function launchTui(
 			terminationExit,
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
+			tipHistory,
 		}),
 		{
 			stdout: process.stdout,
 			stderr: process.stderr,
-			stdin: consoleInput?.stream ?? process.stdin,
+			stdin: inputStream,
 			exitOnCtrlC: false,
 			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
 			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
@@ -101,6 +122,7 @@ export async function launchTui(
 	} finally {
 		termination.dispose()
 		stopSizeWatch?.()
+		stopFocusReporting()
 		consoleInput?.release()
 		logs.close()
 		// A hangup means the terminal is gone: nobody is there to read the

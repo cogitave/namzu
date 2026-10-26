@@ -38,6 +38,22 @@ function expectPlain(text: string): void {
 	for (const pattern of MACHINE) expect(text).not.toMatch(pattern)
 }
 
+describe('a refused copy of the conversation', () => {
+	it('reads in plain words, with no id and no raw message', () => {
+		const text = describePlainInterruption(
+			failed({
+				message:
+					"A cached message carries id 01a1, which this session's log never recorded. A host must not mint its own id.",
+				failure: { code: 'stale_cached_history', message: 'x', retryable: false },
+			}),
+		)
+		expect(text).toBe(
+			'This screen was out of step with the saved conversation. Send your message again.',
+		)
+		expectPlain(text)
+	})
+})
+
 describe('a conversation the model cannot hold', () => {
 	it('keeps the conversation: no /new, no /clear, no start over', () => {
 		const text = describePlainInterruption(

@@ -26,13 +26,14 @@ clause, so no line ends mid-sentence.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. `/config triggers on\|off` switches [composer triggers](composer-triggers.md) in your user config; `/config triggers` lists what is in force. `/config theme [name]` picks the [theme](themes.md) (the same as `/theme`). `/config motion on\|off\|list` switches [reduced motion](themes.md). `/config recap on\|off\|list` switches the [away recap](terminal-design.md#focus-and-the-away-recap) in your user config (`tui.recap`). `/config tips on\|off\|list` shows or hides the [tip under the working row](terminal-design.md#tips-and-the-next-task-under-the-working-row). |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
 | `/archive` | Archive this conversation and exit after confirmation. |
 | `/unarchive` | List this project's archived conversations, restore one and open it. Older archived conversations can be found with `namzu archive list --page <n>` and restored by id. |
 | `/exit` | Exit namzu. |
+| `/rewind`, `/undo`, `/checkpoint` | Open the rewind dialog (the same as Esc Esc on an empty message): pick an earlier prompt, then restore the files, the conversation, or both to the point before it, or summarize around it. See [File checkpoints](file-checkpoints.md#rewind). `/restore` is separate: it lists and restores file turns by number. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy, leaving the original unchanged. |
 | `/worktree` | List or create [managed Git worktrees](worktrees.md), copy this settled conversation into a new checkout, or print how to open one. |
@@ -49,16 +50,18 @@ clause, so no line ends mid-sentence.
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this conversation runs, by event. |
-| `/context` | Show how full the context is (`Context: 54k of 128k used (42%)`, "about" when it is an estimate) and whether older messages were summarised; `/context details` adds where the measurement comes from, thresholds and cleanup counters. |
+| `/context` | Show where the context goes: a grid that stands for the window, a legend of categories (system prompt, system tools, MCP tools and instructions, custom agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when something is large. `/context details` adds how older messages were summarised; `/context all` is accepted and shows the same. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
 | `/mcp` | Show connection state, tool counts and failures; `/mcp tools` lists tool names. `/mcp details` is equivalent. |
 | `/diff` | Show what is uncommitted in this working tree, grouped per file with its line counts and the changed lines, drawn like an edit's result (line-number gutter, full-width green and red rows, changed words highlighted, three lines of context). |
 | `/compact` | Summarise the older half of this conversation to free up context. `/compact <what to keep>` says what the summary must keep. |
+| `/recap` | Write a short recap of this conversation now (the [away recap](terminal-design.md#focus-and-the-away-recap) shown on its own after a few minutes away is switched with `/config recap on\|off`). |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, workspace and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
+| `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
@@ -369,13 +372,13 @@ terminals place descriptions below labels.
 
 ## Keys that are not commands
 
-- **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
+- **Esc Esc** on an empty composer, the second press within 800 ms of the first (the first shows nothing), opens the [rewind dialog](file-checkpoints.md#rewind). To edit an earlier prompt, pick it and choose Restore conversation: that forks the conversation before the prompt and reopens it for editing; the original conversation is left where it was. With text in the composer, Esc clears it instead.
 - **Enter** during a turn steers a message into that turn at its next model boundary. **Tab** queues a message for a later turn. Both wait as `❯` rows above the composer's upper rule, with the message text and attachment count; a Tab-queued row says `after this reply`. **Ctrl+X Ctrl+S** sends them now (see the Esc line).
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit.
 - **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `bypass` when the launch opened it (`--yolo`, `--allow-dangerously-skip-permissions`, `permissions.defaultMode: bypass`; see [Launch flags](launch-flags.md)), then `auto` unless `permissions.disableAutoMode` is set, then `prompt`. `strict` is not on the cycle and goes back to `prompt`; see [Permission modes](permission-modes.md). It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
-- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
+- **Ctrl+O** opens the detailed transcript: every row whole, the model's thinking, the last 30 rows (Ctrl+E for all). Ctrl+O, Esc, `q` or Ctrl+C returns to the composer. See [Terminal design](terminal-design.md).
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
 - **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.

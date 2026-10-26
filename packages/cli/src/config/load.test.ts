@@ -336,6 +336,23 @@ describe('terminal notification config', () => {
 		},
 	)
 
+	it.each([true, false])('accepts tui.recap: %s', (recap) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui: { recap } }))
+
+		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({ recap })
+	})
+
+	it.each([{ recap: 'off' }, { recap: 0 }])(
+		'refuses a recap that is not a boolean: $recap',
+		(tui) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+			writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
+
+			expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
+		},
+	)
+
 	it.each([
 		{ notifications: ['turn-complet'] },
 		{ notifications: 'yes' },
@@ -898,6 +915,29 @@ describe('compaction', () => {
 		}
 	})
 
+	it('reads the idle-compaction keys and refuses what they cannot hold', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-idle-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			'compaction:\n  idleCompaction: true\n  idleCompactionMinTokens: 250000\n  promptCacheTtl: 1h\n',
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
+			idleCompaction: true,
+			idleCompactionMinTokens: 250000,
+			promptCacheTtl: '1h',
+		})
+		for (const [bad, path] of [
+			['compaction:\n  idleCompaction: sometimes\n', 'compaction.idleCompaction'],
+			['compaction:\n  idleCompactionMinTokens: 0\n', 'compaction.idleCompactionMinTokens'],
+			['compaction:\n  idleCompactionMinTokens: 1.5\n', 'compaction.idleCompactionMinTokens'],
+			['compaction:\n  promptCacheTtl: 2h\n', 'compaction.promptCacheTtl'],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
 	it('is not settable from the environment', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
 		expect(
@@ -1195,5 +1235,40 @@ describe('smallModel', () => {
 
 	it('cannot be set from the environment', () => {
 		expect(ENV_VARIABLE_NAMES.smallModel).toBeUndefined()
+	})
+})
+
+describe('theme and motion config', () => {
+	it('reads the theme and reducedMotion from the user file', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: dark-ansi\n  reducedMotion: true\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			theme: 'dark-ansi',
+			reducedMotion: true,
+		})
+	})
+
+	it('ignores both in a project file but keeps its other terminal settings', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  theme: light\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ tui: { theme: 'dark-ansi', reducedMotion: true, notifications: true } }),
+		)
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			theme: 'light',
+			notifications: true,
+		})
+	})
+
+	it.each([{ theme: 'neon' }, { theme: 3 }, { reducedMotion: 'yes' }])('refuses %j', (tui) => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), `tui: ${JSON.stringify(tui)}\n`)
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(
+			/tui\.(theme|reducedMotion)/,
+		)
 	})
 })

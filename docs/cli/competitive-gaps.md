@@ -22,8 +22,8 @@ implemented corrections or claims about model quality.
 
 Correct retry semantics and task context roles first. Then improve incremental
 memory retrieval, local plugin reload, per-server MCP diagnosis and project-scoped
-historical discovery. Deferred capability bundles and an operator recap are
-later additions with explicit cost and recovery checks. The report records
+historical discovery. Deferred capability bundles are
+a later addition with explicit cost and recovery checks. The report records
 source revisions, existing strengths, patterns to avoid copying and acceptance
 criteria for each item.
 
@@ -158,7 +158,6 @@ The second pass found more genuine gaps, but each needs its own host contract:
 
 | Remaining gap | Source evidence | Correct acceptance boundary |
 | --- | --- | --- |
-| Bounded conversation recap | Codex's [recap path](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/tui/src/app/recap.rs) uses a temporary request rather than altering the active thread. | A Namzu recap must include the latest correction, use no tools, bound input and output, ignore a result after the conversation changes, and leave durable model context untouched. `/compact` changes that context and is a different operation. |
 | Queue a prompt into another process's live session | Codex's [session queue command](https://github.com/openai/codex/blob/e72da2b53805894878023d01949a25a082e0a5cb/codex-rs/tui/src/session_queue_commands.rs) talks to its app server. | Namzu has in-process steering but no shared session server. A cross-process queue needs authenticated ownership, idempotent delivery and an explicit response when no host is running; racing writes to the session log would not supply those properties. |
 | Browser-based MCP input request | The official SDK's [input-required guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/7f7a94c22017e121a960e071bb50ec75e34450bd/docs/servers/input-required.md) includes URL elicitation, and the `Claude Code` [changelog](https://github.com/anthropics/claude-code/blob/7779afb12e3635f46f56ec823979d68350ae000b/CHANGELOG.md) records support. | An interactive host must display the target origin, ask before opening it, keep the request state scoped to that call and decline safely in headless runs. Namzu currently advertises no elicitation capability, which is the honest behavior until that flow exists. |
 | Reusable MCP image files | The `Claude Code` [changelog](https://github.com/anthropics/claude-code/blob/7779afb12e3635f46f56ec823979d68350ae000b/CHANGELOG.md) records image retention. | Namzu passes image blocks to the model, but a file path for later `Read` needs private storage, size validation, retention and sandbox scope. Saving arbitrary server bytes into the caller's workspace without that boundary would be a different behavior. |

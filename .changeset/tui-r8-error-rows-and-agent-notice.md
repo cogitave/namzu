@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+A failed tool call now shows what the tool said. Under the call you see `Error: <text>` in the error colour (first 10 lines, then `… +N lines (ctrl+o to expand)`) instead of a muted `failed: <text>`; a schema error reads `Invalid tool parameters` until expanded. A refused read, edit, write, notebook edit, search or language call reads as a short red text (`File not found`, `Error reading file`, `Error editing file`, `Error writing file`, `Error editing notebook`, `Error searching files`, `LSP operation failed`), and an edit on a file never read says `File must be read first` in the dim colour; the tool's own message is behind Ctrl+O. Every other failure, including a permission error, a timeout or a directory read as a file, shows the tool's own text the same way. A background agent that fails leaves `Agent "<name>" failed: <plain reason>` with no duration with the error's own text on one line, and only the dot carries the red. Nothing to configure; scripts that read these rows from a terminal capture will see the new wording.

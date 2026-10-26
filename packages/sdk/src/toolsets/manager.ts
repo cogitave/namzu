@@ -1012,7 +1012,12 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			'namzu.registry.errors': errorMessage,
 			'namzu.registry.empty': isEmptyInput,
 		})
-		return { success: false, output: '', error: enrichedMessage }
+		return {
+			success: false,
+			output: '',
+			error: enrichedMessage,
+			facts: { kind: 'failure', reason: 'invalid_arguments' },
+		}
 	}
 }
 

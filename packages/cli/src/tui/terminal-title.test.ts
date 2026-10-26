@@ -5,9 +5,12 @@ import {
 	DEFAULT_TERMINAL_TITLE,
 	IDLE_TITLE_GLYPH,
 	RESET_TERMINAL_TITLE_SEQUENCE,
+	TITLE_ANIMATION_MS,
 	setTerminalTitleSequence,
 	terminalTitleEnabled,
 	terminalTitleText,
+	titleAnimates,
+	underMultiplexer,
 } from './terminal-title.js'
 
 describe('the terminal title text', () => {
@@ -84,5 +87,33 @@ describe('when the title is written', () => {
 		expect(terminalTitleEnabled({ NAMZU_DISABLE_TERMINAL_TITLE: 'true' }, true)).toBe(false)
 		expect(terminalTitleEnabled({ NAMZU_DISABLE_TERMINAL_TITLE: '0' }, true)).toBe(true)
 		expect(terminalTitleEnabled({ NAMZU_DISABLE_TERMINAL_TITLE: '' }, true)).toBe(true)
+	})
+})
+
+describe('the animated busy glyph', () => {
+	it('alternates between two glyphs by frame and rests on the idle glyph', () => {
+		const at = (frame: number) => terminalTitleText({ busy: true, frame })
+		expect(at(0)).toBe(`◐ ${DEFAULT_TERMINAL_TITLE}`)
+		expect(at(1)).toBe(`◑ ${DEFAULT_TERMINAL_TITLE}`)
+		expect(at(2)).toBe(at(0))
+		expect(terminalTitleText({ busy: false, frame: 1 })).toBe(
+			`${IDLE_TITLE_GLYPH} ${DEFAULT_TERMINAL_TITLE}`,
+		)
+	})
+
+	it('moves every 960 ms', () => {
+		expect(TITLE_ANIMATION_MS).toBe(960)
+	})
+
+	it('animates only while working, in view, and outside a multiplexer', () => {
+		const env = {}
+		expect(titleAnimates({ working: true, focused: true, env })).toBe(true)
+		expect(titleAnimates({ working: false, focused: true, env })).toBe(false)
+		expect(titleAnimates({ working: true, focused: false, env })).toBe(false)
+		for (const name of ['TMUX', 'STY', 'ZELLIJ']) {
+			expect(underMultiplexer({ [name]: '1' })).toBe(true)
+			expect(titleAnimates({ working: true, focused: true, env: { [name]: '1' } })).toBe(false)
+		}
+		expect(underMultiplexer({ TMUX: '' })).toBe(false)
 	})
 })

@@ -14,12 +14,20 @@ import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
 import { Checklist, checklistLine } from './Checklist.js'
+import { ContextGridRow } from './ContextGridRow.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
+import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
-import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
-import { terminalDisplayText } from './terminal-display.js'
-import { theme } from './theme.js'
+import {
+	RECAP_GLYPH,
+	RECAP_LABEL,
+	RESULT_GUTTER_INDENT,
+	RESULT_GUTTER_WIDTH,
+} from './system-rows.js'
+import { expandTabs, terminalDisplayText } from './terminal-display.js'
+import { useThemeEpoch } from './theme-store.js'
+import { paint, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -215,7 +223,13 @@ function RawMessageRow({
 	readonly prev: TranscriptMessage | undefined
 }) {
 	const content =
-		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
+		message.kind === 'recap'
+			? `${RECAP_LABEL} ${terminalDisplayText(message.content)}`
+			: message.content.length > 0
+				? terminalDisplayText(message.content)
+				: message.pending
+					? '…'
+					: ''
 	const fullHeader = message.shell?.fullHeader
 	const text = [
 		`${fullHeader !== undefined ? terminalDisplayText(fullHeader) : content}${message.meta ? `${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}` : ''}`,
@@ -236,15 +250,51 @@ function RawMessageRow({
 	)
 }
 
+/** The away recap: `※`, a bold `recap:` label and the text in italics, all dim. */
+function RecapRow({
+	message,
+	prev,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+}) {
+	return (
+		<Box flexDirection="row" marginTop={prev ? 1 : 0}>
+			<Box width={2} flexShrink={0}>
+				<Text color={theme.text.muted}>{RECAP_GLYPH}</Text>
+			</Box>
+			<Box flexGrow={1}>
+				<Text color={theme.text.muted} wrap="wrap">
+					<Text bold>{RECAP_LABEL} </Text>
+					<Text italic>{terminalDisplayText(message.content)}</Text>
+				</Text>
+			</Box>
+		</Box>
+	)
+}
+
 function MessageRow({
 	message,
 	prev,
 	hyperlinks,
+	screen = false,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
+	/** Drawn on the detailed transcript screen: the model's thinking shows above the row. */
+	readonly screen?: boolean
 }) {
+	// The row is memoised on its props; the epoch makes a new theme repaint it.
+	useThemeEpoch()
+	if (message.kind === 'recap') return <RecapRow message={message} prev={prev} />
+	if (message.contextView) {
+		return (
+			<Box marginTop={prev ? 1 : 0}>
+				<ContextGridRow view={message.contextView} />
+			</Box>
+		)
+	}
 	if (message.statusRows) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>
@@ -263,33 +313,38 @@ function MessageRow({
 	// A long message is echoed by its two ends, with a note of what lies between.
 	const userCut = message.role === 'user' ? cutUserText(content) : content
 	const glyph = message.glyph ?? glyphForRole(message.role)
+	const textColor = paint(message.contentColor) ?? contentColorForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
-		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+		paint(message.glyphColor) ??
+		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.
-	const exploration = message.activity === 'exploration'
-	const startsExploration = exploration && prev?.activity !== 'exploration'
-	// Consecutive web searches and fetches read as one burst of work, the way
-	// consecutive exploration steps do: no blank line between one call's `⎿`
-	// line and the next call.
+	// Consecutive web searches and fetches read as one burst of work: no blank
+	// line between one call's `⎿` line and the next call.
 	const web = message.activity === 'web'
 	const continuesWeb = web && prev?.activity === 'web'
-	const gap =
-		!prev ||
-		(message.glyph === '⎿' && !startsExploration) ||
-		(exploration && !startsExploration) ||
-		continuesWeb
-			? 0
-			: 1
+	const gap = !prev || message.glyph === '⎿' || continuesWeb ? 0 : 1
+	if (message.group) {
+		return (
+			<Box flexDirection="column" marginTop={gap}>
+				{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
+				<ReadSearchGroup message={message} />
+				{message.detail && message.detail.length > 0 && message.detailExpanded ? (
+					<DetailBlock
+						lines={message.detail}
+						expanded
+						detailRef={message.detailRef}
+						diff={message.diff}
+					/>
+				) : null}
+			</Box>
+		)
+	}
 	return (
 		<Box flexDirection="column" marginTop={gap}>
-			{startsExploration ? (
-				<Text bold color={theme.text.secondary}>
-					Explored
-				</Text>
-			) : null}
+			{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
 			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
 				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0}>
 					<Text color={glyphColor} bold>
@@ -316,7 +371,7 @@ function MessageRow({
 					) : !web && content.length > 0 ? (
 						// Every other row wraps the way a reply does, each row in the
 						// same column (see `markdown-wrap.ts`); a web row is cut instead.
-						<Text color={contentColorForRole(message.role)} wrap="wrap">
+						<Text color={textColor} wrap="wrap">
 							<WrappedSpans
 								spans={[
 									...(message.diff?.summary ?? [{ text: content }]),
@@ -332,11 +387,11 @@ function MessageRow({
 								width={
 									glyph === '⎿' ? width - RESULT_GUTTER_INDENT - (RESULT_GUTTER_WIDTH - 2) : width
 								}
-								color={contentColorForRole(message.role)}
+								color={textColor}
 							/>
 						</Text>
 					) : (
-						<Text color={contentColorForRole(message.role)} wrap={web ? 'truncate-end' : 'wrap'}>
+						<Text color={textColor} wrap={web ? 'truncate-end' : 'wrap'}>
 							{content}
 							{message.meta ? (
 								<Text color={theme.text.muted}>
@@ -376,6 +431,68 @@ function MessageRow({
 			) : null}
 		</Box>
 	)
+}
+
+/** The mark in front of the model's thinking on the detailed transcript screen. */
+export const THINKING_GLYPH = '∵'
+
+/** The model's thinking: a dim italic block under its own mark, drawn only on the screen. */
+function ThinkingBlock({ text }: { readonly text: string }) {
+	return (
+		<Box flexDirection="row">
+			<Box width={2} flexShrink={0}>
+				<Text color={theme.text.muted} dimColor italic>
+					{THINKING_GLYPH}
+				</Text>
+			</Box>
+			<Box flexGrow={1}>
+				<Text color={theme.text.muted} dimColor italic wrap="wrap">
+					{terminalDisplayText(text.trim())}
+				</Text>
+			</Box>
+		</Box>
+	)
+}
+
+/** A `(ctrl+o …)` hint carried as a row's trailing text. */
+const HINT_META = /^\(ctrl\+o[^)]*\)$/
+
+/**
+ * A row as the detailed transcript screen draws it: the whole retained body
+ * and no hint that points at the screen it is already on.
+ */
+export function screenMessage(message: TranscriptMessage): TranscriptMessage {
+	const { meta, ...rest } = message
+	const keepMeta = meta !== undefined && !HINT_META.test(meta)
+	// The screen clips its rows, and a clipped row drops the end of a line that
+	// holds a tab (a numbered file excerpt), so tabs become spaces first.
+	const detail = rest.detail?.map(expandTabs)
+	const shell = rest.shell && {
+		...rest.shell,
+		stdout: rest.shell.stdout.map(expandTabs),
+		stderr: rest.shell.stderr.map(expandTabs),
+		...(rest.shell.folded ? { folded: rest.shell.folded.map(expandTabs) } : {}),
+	}
+	return {
+		...rest,
+		...(detail ? { detail } : {}),
+		...(shell ? { shell } : {}),
+		...(keepMeta ? { meta } : {}),
+		detailExpanded: true,
+	}
+}
+
+/** One row of the detailed transcript screen. */
+export function ScreenMessageRow({
+	message,
+	prev,
+	hyperlinks = false,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+	readonly hyperlinks?: boolean
+}) {
+	return <MessageRow message={screenMessage(message)} prev={prev} hyperlinks={hyperlinks} screen />
 }
 
 /** Columns the `⎿` prefix and its indent take from a result row. */
@@ -657,7 +774,7 @@ function renderedDiffLines(
 
 function detailLineColor(line: string): string {
 	if (line.startsWith('+')) return theme.status.ok
-	if (line.startsWith('-')) return theme.status.error
+	if (line.startsWith('-') || line.startsWith('Error: ')) return theme.status.error
 	return theme.text.muted
 }
 

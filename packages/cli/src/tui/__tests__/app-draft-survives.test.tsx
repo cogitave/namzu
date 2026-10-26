@@ -97,16 +97,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 					// landed, Esc cleared the draft as designed, and the failure
 					// reported was "the turn was not interrupted" — a true statement
 					// about a turn that was already over.
-					await Promise.race([
-						new Promise<void>((resolve) => {
-							if (opts?.signal?.aborted) return resolve()
-							opts?.signal?.addEventListener('abort', () => resolve(), { once: true })
-						}),
-						// A backstop so a test that never interrupts cannot hang the
-						// run. It is not the mechanism; if it is what ends a turn,
-						// something above went wrong.
-						new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-					])
+					// No timer backstop: a test that never interrupts is caught by the
+					// test runner's own timeout.
+					await new Promise<void>((resolve) => {
+						if (opts?.signal?.aborted) return resolve()
+						opts?.signal?.addEventListener('abort', () => resolve(), { once: true })
+					})
 					return
 				}
 				// The prompt opens when the test says it has finished typing, not
@@ -142,7 +138,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 const { App } = await import('../App.js')
 
 const ctx: TuiContext = { cwd: process.cwd(), version: '0.0.0-test' }
-const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
 
 /**
  * Everything this harness has drawn, as one line of words.
@@ -218,6 +213,26 @@ async function frameShows(
 	await vi.waitFor(() => expect(read(), why).toContain(text), timeoutMs)
 }
 
+/**
+ * Wait for `read()` to say `text` while the fake clock is on, without moving it.
+ *
+ * `vi.waitFor` advances a fake clock by its poll interval on every check, so
+ * how much fake time had passed would depend on how many polls the host
+ * needed. This yields to the event loop (setImmediate is not faked) and looks
+ * again, so the clock moves only where the test moves it.
+ */
+async function frameShowsOnFakeClock(
+	read: () => string | undefined,
+	text: string,
+	why: string,
+): Promise<void> {
+	for (let turn = 0; turn < 500; turn++) {
+		if ((read() ?? '').includes(text)) return
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(read(), why).toContain(text)
+}
+
 let nowMs = 1_000_000
 const mounted: { unmount: () => void }[] = []
 
@@ -245,6 +260,7 @@ beforeEach(() => {
 afterEach(() => {
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 })
 
@@ -353,6 +369,7 @@ describe('esc while a turn is running', () => {
 		// The other half: Esc must not become inert. With no turn in flight it
 		// is the composer's own clear, which is what it is for.
 		askPermission = false
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 		// The placeholder is drawn only while the composer is enabled and empty,
@@ -360,17 +377,37 @@ describe('esc while a turn is running', () => {
 		// disabled for a moment (compacting, an external editor request) would not
 		// satisfy it, so this says more than "the composer is on screen" — and it
 		// says it without a guess at how long the probe takes.
-		await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
+		await frameShowsOnFakeClock(harness.lastFrame, 'Type a message', 'the composer never appeared')
 		harness.stdin.write('throwaway')
 		// The keystrokes landing is an event; polling for it is what makes this a
 		// statement about the composer rather than about the machine's load.
-		await frameShows(() => said(harness), 'throwaway', 'the keystrokes never reached the composer')
+		await frameShowsOnFakeClock(
+			() => said(harness),
+			'throwaway',
+			'the keystrokes never reached the composer',
+		)
 
+		// The terminal parser holds a lone Esc back on a timer, which is faked here,
+		// so each press is followed by a fixed 50 ms step of the fake clock. The two
+		// presses are 100 ms apart on that clock whatever the host does, well inside
+		// the 800 ms clear window, and nothing else moves it.
 		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
+		await frameShowsOnFakeClock(
+			harness.lastFrame,
+			'Esc again to clear',
+			'the first Esc never offered the clear',
+		)
+		harness.stdin.write('\x1B')
+		await vi.advanceTimersByTimeAsync(50)
 		// An empty composer draws the placeholder again, in the same render that
 		// drops the text — so the placeholder returning is the completion to wait
 		// for. A fixed wait here asks whether the machine got to it in time.
-		await frameShows(harness.lastFrame, 'Type a message', 'the composer never came back empty')
+		await frameShowsOnFakeClock(
+			harness.lastFrame,
+			'Type a message',
+			'the composer never came back empty',
+		)
 
 		expect(harness.lastFrame(), 'esc did not clear an idle composer').not.toContain('throwaway')
 	})
@@ -404,6 +441,31 @@ describe('while the prompt is up', () => {
 
 		expect(harness.lastFrame(), 'a key meant for the prompt landed in the draft').not.toContain(
 			`${draft}q`,
+		)
+	})
+})
+
+describe('the footer notice slot at App level', () => {
+	it('shows "no background agents" for two seconds and then takes it back', async () => {
+		askPermission = false
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShowsOnFakeClock(harness.lastFrame, 'Type a message', 'the composer never appeared')
+		harness.stdin.write('\x18')
+		harness.stdin.write('\x0b')
+		await frameShowsOnFakeClock(
+			harness.lastFrame,
+			'No background agents running',
+			'the empty case was not announced',
+		)
+		await vi.advanceTimersByTimeAsync(1_900)
+		expect(harness.lastFrame()).toContain('No background agents running')
+		await vi.advanceTimersByTimeAsync(200)
+		await frameShowsOnFakeClock(
+			() => ((harness.lastFrame() ?? '').includes('No background agents running') ? '' : 'gone'),
+			'gone',
+			'the notice outstayed its two seconds',
 		)
 	})
 })

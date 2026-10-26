@@ -189,18 +189,22 @@ it.each(['\u000f', '/raw'])(
 		if (command.startsWith('/')) screen.press('\r')
 		let restoredText: string
 		if (command === '\u000f') {
-			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
-			// The viewer has its own key line; the composer's mode footer is not left
-			// standing above its box.
+			await until(screen, () =>
+				screen.viewport().join('\n').includes('Showing detailed transcript'),
+			)
+			// The composer's footer is not left standing above the screen.
 			expect(screen.viewport().join('\n')).not.toContain('shift+tab to cycle')
+			// The newest rows show first; page up to the top, then read down.
+			screen.press('g')
+			await screen.waitForRender()
 			const pages = [screen.viewport().join('\n')]
-			for (let page = 0; page < 20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
+			for (let page = 0; page < 40 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
 				const previous = screen.viewport().join('\n')
 				screen.press(' ')
 				await until(screen, () => screen.viewport().join('\n') !== previous)
 				pages.push(screen.viewport().join('\n'))
 			}
-			restoredText = pages.join('\n').replace(/^[ ]*│ ?(.*?) *│[ ]*$/gm, '$1')
+			restoredText = pages.join('\n')
 		} else {
 			await until(screen, () => text().includes('MIDDLE_DIAGNOSTIC'))
 			restoredText = text()

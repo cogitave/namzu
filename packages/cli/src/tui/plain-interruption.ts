@@ -31,11 +31,13 @@ export type InterruptionKind =
 	| 'context'
 	| 'content'
 	| 'bad_request'
+	| 'stale_history'
 	| 'unknown'
 
 /** Which of the plain-language cases an interruption is, from facts the event carries. */
 export function classifyInterruption(event: Interruption): InterruptionKind {
 	const id = event.explanation?.id ?? ''
+	if (event.failure?.code === 'stale_cached_history') return 'stale_history'
 	if (id === 'provider.permission') return 'permission'
 	if (id === 'provider.auth') return 'auth'
 	if (id.startsWith('provider.rate_limit')) return 'rate_limit'
@@ -214,6 +216,11 @@ function copyFor(
 						what: `${name} could not process this message.`,
 						next: 'Change the message and send it again, or pick another model with /model.',
 					}
+		case 'stale_history':
+			return {
+				what: 'This screen was out of step with the saved conversation.',
+				next: 'Send your message again.',
+			}
 		case 'unknown':
 			return {
 				what: 'This reply stopped because of a problem.',

@@ -56,6 +56,8 @@ import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
+import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
+import type { ThemeSetting } from './theme-palettes.js'
 
 /** One row in the interactive `/help` command palette. */
 export interface CommandPickerEntry {
@@ -123,6 +125,18 @@ export type SlashAction =
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
+	/** Open the theme chooser. */
+	| { kind: 'theme-picker' }
+	/** Apply and save a theme by name. */
+	| { kind: 'theme'; setting: ThemeSetting }
+	/** `/config motion on|off|list`: reduced motion, written to the user config. */
+	| { kind: 'reduced-motion'; setting: 'on' | 'off' | 'list' }
+	/** `/config recap on|off|list`: the away recap's switch, written to the user config. */
+	| { kind: 'recap-setting'; setting: 'on' | 'off' | 'list' }
+	/** `/recap`: write a recap of the conversation now. */
+	| { kind: 'recap-now' }
+	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
+	| { kind: 'spinner-tips'; on: boolean | 'list' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| {
@@ -171,6 +185,8 @@ export type SlashAction =
 	| { kind: 'fork' }
 	/** List file checkpoints, or put the tree back to before turn `turn`. */
 	| { kind: 'restore'; turn?: number }
+	/** Open the rewind picker: restore the files and/or the conversation to an earlier prompt. */
+	| { kind: 'rewind' }
 	/** Let the file tools reach another directory for the rest of the session. */
 	| { kind: 'add-dir'; path: string }
 	/**
@@ -183,6 +199,11 @@ export type SlashAction =
 	 */
 	/** `instructions` is the free text after `/compact`, in the person's words. */
 	| { kind: 'compact'; instructions?: string }
+	/**
+	 * Draw where the context goes. Async in App because the instruction files,
+	 * skills and agents are read from disk to size them.
+	 */
+	| { kind: 'context'; details: boolean }
 	/** Choose a raw source region from the latest available assistant output. */
 	| { kind: 'copy' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
@@ -366,6 +387,8 @@ export interface SlashContext {
 			readonly windowTokens: number
 			readonly measured: boolean
 			readonly windowAssumed: boolean
+			/** Where the window figure came from, when the kernel said. */
+			readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 		}
 	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
@@ -717,14 +740,41 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config limits [tokens|iterations|time] [value]',
 				'/config limits unlimited',
 				'/config triggers [on|off|list]',
+				'/config theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]',
+				'/config motion [on|off|list]',
+				'/config recap [on|off|list]',
+				'/config tips [on|off|list]',
 			],
 			details: [
 				'/config triggers off stops words in a message (hypermode, "save this as a skill") from acting for that message, in your user config; /config triggers on turns them back on; /config triggers lists what is in force.',
+				'/config recap off stops the one-line recap shown when you come back after a few minutes away, in your user config; /config recap on turns it back on.',
+				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
+				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
+				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
 			],
 		},
 		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'settings-picker' }
 			if (args[0] === 'limits') return turnLimitsAction(args.slice(1))
+			if (args[0] === 'motion') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'reduced-motion', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config motion [on|off|list]' }
+			}
+			if (args[0] === 'tips') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off'))
+					return { kind: 'spinner-tips', on: setting === 'on' }
+				if (args.length <= 2 && setting === 'list') return { kind: 'spinner-tips', on: 'list' }
+				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off|list]' }
+			}
+			if (args[0] === 'theme') {
+				if (args.length === 1) return { kind: 'theme-picker' }
+				const setting = parseThemeArgument(args.slice(1))
+				if (setting !== undefined) return { kind: 'theme', setting }
+				return { kind: 'message', role: 'system', content: THEME_USAGE }
+			}
 			if (args[0] === 'triggers') {
 				const setting = (args[1] ?? 'list').toLowerCase()
 				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
@@ -735,15 +785,26 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: 'Usage: /config triggers [on|off|list]',
 				}
 			}
+			if (args[0] === 'recap') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off' || setting === 'list'))
+					return { kind: 'recap-setting', setting }
+				return { kind: 'message', role: 'system', content: 'Usage: /config recap [on|off|list]' }
+			}
 			return {
 				kind: 'message',
 				role: 'system',
 				content:
 					args.join(' ') === 'sources'
 						? renderConfigDebug(ctx.configDebug)
-						: 'Usage: /config [sources|limits|triggers]',
+						: 'Usage: /config [sources|limits|triggers|theme|motion|recap|tips]',
 			}
 		},
+	},
+	{
+		name: 'recap',
+		description: 'Write a short recap of this conversation now.',
+		action: () => ({ kind: 'recap-now' }),
 	},
 	{
 		name: 'settings',
@@ -985,6 +1046,29 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			}
 			return { kind: 'add-dir', path }
 		},
+	},
+	{
+		name: 'rewind',
+		help: {
+			usage: ['/rewind'],
+			details: [
+				'Pick an earlier prompt, then restore the files, the conversation, or both to the point before it, or summarize around it. Restoring the conversation continues in a new branch; the original stays in /resume. Pressing Esc twice on an empty message does the same.',
+			],
+		},
+		description: 'Restore the code and/or conversation to a previous point.',
+		action: () => ({ kind: 'rewind' }),
+	},
+	{
+		name: 'undo',
+		help: { usage: ['/undo'], details: ['Same as /rewind.'] },
+		description: 'Same as /rewind.',
+		action: () => ({ kind: 'rewind' }),
+	},
+	{
+		name: 'checkpoint',
+		help: { usage: ['/checkpoint'], details: ['Same as /rewind.'] },
+		description: 'Same as /rewind.',
+		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'restore',
@@ -1243,11 +1327,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'context',
 		help: { usage: ['/context [details]'] },
-		description: 'Show context usage and automatic cleanup.',
-		action: (ctx, args) =>
-			reportCommand('context', args, (details) =>
-				renderContext(ctx.usage, ctx.compaction, details),
-			),
+		description: 'Show where the context goes, as a grid.',
+		action: (ctx, args) => {
+			// `all` is accepted for people who type it; the full lists are always shown.
+			const option = args.join(' ').trim().toLowerCase()
+			if (option !== '' && option !== 'details' && option !== 'all')
+				return { kind: 'message', role: 'system', content: 'Usage: /context [details]' }
+			return { kind: 'context', details: option === 'details' }
+		},
 	},
 	{
 		name: 'review',
@@ -1396,6 +1483,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				content:
 					'Usage: /permissions opens the permission menu. Choose a preset there, or use /permissions details to view rules.',
 			}
+		},
+	},
+	{
+		name: 'theme',
+		help: {
+			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],
+			details: [
+				'Run /theme to pick the colours with a live preview. Auto follows the terminal’s light or dark background. The colorblind-friendly themes use blue and red in place of green and red; the ANSI themes use only the terminal’s own sixteen colors.',
+			],
+		},
+		description: 'Change the colors: /theme [name].',
+		action: (_ctx, args) => {
+			if (args.length === 0) return { kind: 'theme-picker' }
+			const setting = parseThemeArgument(args)
+			if (setting !== undefined) return { kind: 'theme', setting }
+			return { kind: 'message', role: 'system', content: THEME_USAGE }
 		},
 	},
 	{
@@ -1664,37 +1767,47 @@ export function renderContext(
 	const lines = contextMeasurement(usage, details)
 	if (usage?.context && details)
 		lines.push('Latest reported context size; not cumulative token usage.')
-	if (!compaction) {
-		lines.push('Older messages are summarised automatically when the context fills.')
-	} else {
-		lines.push(
-			compaction.passes === 0
-				? 'Nothing summarised yet.'
-				: compaction.reclaimedTokens > 0
-					? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
-					: `Summarised ${plural(compaction.passes, 'time')}.`,
-		)
-		if (details) {
-			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
-			lines.push(`Strategy: ${compaction.strategy}`)
-			if (compaction.strategy === 'salience') {
-				lines.push(
-					`Older, less useful content is shortened from ${pct(compaction.softTarget)} of the window; older history is summarised at ${pct(compaction.triggerThreshold)}.`,
-				)
-			} else {
-				lines.push(
-					`Older tool results are cleared at ${pct(compaction.triggerThreshold)} of the window; history is summarised if needed.`,
-				)
-			}
-			lines.push(
-				`Tool results cleared: ${compaction.clearedResults.toLocaleString('en-US')}`,
-				`Messages shortened: ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
-				`Summaries written: ${compaction.summaries.toLocaleString('en-US')}`,
-			)
-		}
-	}
+	lines.push(...contextCleanupLines(compaction, details))
 	if (!details) lines.push('/context details for how it was summarised.')
 	return lines.join('\n')
+}
+
+/** What the automatic cleanup has done, and with `details` how it decides. */
+export function contextCleanupLines(
+	compaction: CompactionSummary | null,
+	details = false,
+): string[] {
+	const lines: string[] = []
+	if (!compaction) {
+		lines.push('Older messages are summarised automatically when the context fills.')
+		return lines
+	}
+	lines.push(
+		compaction.passes === 0
+			? 'Nothing summarised yet.'
+			: compaction.reclaimedTokens > 0
+				? `Summarised ${plural(compaction.passes, 'time')}, freeing about ${humanTokens(compaction.reclaimedTokens)} tokens.`
+				: `Summarised ${plural(compaction.passes, 'time')}.`,
+	)
+	if (details) {
+		const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
+		lines.push(`Strategy: ${compaction.strategy}`)
+		if (compaction.strategy === 'salience') {
+			lines.push(
+				`Older, less useful content is shortened from ${pct(compaction.softTarget)} of the window; older history is summarised at ${pct(compaction.triggerThreshold)}.`,
+			)
+		} else {
+			lines.push(
+				`Older tool results are cleared at ${pct(compaction.triggerThreshold)} of the window; history is summarised if needed.`,
+			)
+		}
+		lines.push(
+			`Tool results cleared: ${compaction.clearedResults.toLocaleString('en-US')}`,
+			`Messages shortened: ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
+			`Summaries written: ${compaction.summaries.toLocaleString('en-US')}`,
+		)
+	}
+	return lines
 }
 
 /** Keep unknown prices distinct from measured zero, in status and cost alike. */

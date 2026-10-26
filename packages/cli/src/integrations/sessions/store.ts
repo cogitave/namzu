@@ -1000,7 +1000,7 @@ export async function seedConversationHistory(
 export async function forkConversation(
 	s: CliSessions,
 	sourceId: SessionId,
-): Promise<{ id: SessionId; title: string; copied: number }> {
+): Promise<{ id: SessionId; title: string; copied: number; messages: readonly Message[] }> {
 	await requireWritableConversation(s, sourceId, 'fork conversation')
 	const messages = await loadConversation(s, sourceId)
 	if (messages.length === 0) {
@@ -1008,8 +1008,8 @@ export async function forkConversation(
 		// that shows up in `/resume` forever and answers no question.
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
-	const { id, title } = await writeFork(s, s, sourceId, messages, messages)
-	return { id, title, copied: messages.length }
+	const { id, title, messages: forkMessages } = await writeFork(s, s, sourceId, messages, messages)
+	return { id, title, copied: messages.length, messages: forkMessages }
 }
 
 /**
@@ -1068,7 +1068,12 @@ function sameMessageSequence(a: readonly Message[], b: readonly Message[]): bool
 export interface ForkBeforeUserResult {
 	readonly id: SessionId
 	readonly title: string
-	/** Exact durable prefix copied into the fork. */
+	/**
+	 * The fork's history as the FORK's own log folds it. A copy carries no
+	 * message id the fork's log recorded (the seed is one summary record), so
+	 * a cache seeded from the source's messages would name ids the fork never
+	 * gave out and the kernel would refuse the first send. Seed from this.
+	 */
 	readonly messages: readonly Message[]
 	/** Exact durable user message the caller selected and may reopen. */
 	readonly selected: UserMessage
@@ -1115,8 +1120,8 @@ export async function forkConversationBeforeUser(
 	}
 
 	const prefix = messages.slice(0, messageIndex)
-	const { id, title } = await writeFork(s, s, sourceId, messages, prefix)
-	return { id, title, messages: prefix, selected }
+	const { id, title, messages: forkMessages } = await writeFork(s, s, sourceId, messages, prefix)
+	return { id, title, messages: forkMessages, selected }
 }
 
 /** Create, seed and name one fork after every boundary decision has been validated. */
@@ -1126,7 +1131,7 @@ async function writeFork(
 	sourceId: SessionId,
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
-): Promise<{ id: SessionId; title: string }> {
+): Promise<{ id: SessionId; title: string; messages: Message[] }> {
 	const sourceFacts = await readConversationFacts(sourceStore, sourceId, 'tolerant')
 	const source =
 		sourceFacts?.title !== undefined && sourceFacts.title.length > 0
@@ -1140,7 +1145,7 @@ async function writeFork(
 	}
 	const title = nextForkName(await takenTitles(targetStore), source)
 	await setTitle(targetStore, id, title)
-	return { id, title }
+	return { id, title, messages: copiedBack }
 }
 
 /** Every title in use among this project's conversations, keyed by session id. */

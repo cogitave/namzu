@@ -263,3 +263,37 @@ describe('checklistInView', () => {
 		expect(view([block(), pending], 36)).toBe(false)
 	})
 })
+
+describe('an open group of reads and searches', () => {
+	const open = (hint: string): TranscriptMessage => ({
+		id: 'g',
+		role: 'tool',
+		content: 'Searching for 1 pattern…',
+		pending: true,
+		glyph: ' ',
+		group: {
+			readKeys: [],
+			anonymousReads: 0,
+			searches: 1,
+			lists: 0,
+			mcpCalls: 0,
+			mcpLabels: [],
+			hintShown: hint,
+			hintShownAt: 0,
+		},
+	})
+
+	it('counts the row for the latest target under it', () => {
+		const height = (message: TranscriptMessage) =>
+			liveWindow({
+				messages: [message],
+				rows: 50,
+				columns: 80,
+				furnitureRows: FURNITURE,
+				settled: 0,
+			}).rows
+		const bare = height({ ...open(''), group: { ...open('').group!, hintShown: undefined } })
+		expect(height(open('"one line"'))).toBe(bare + 1)
+		expect(height(open('$ first\nsecond\nthird'))).toBe(bare + 3)
+	})
+})

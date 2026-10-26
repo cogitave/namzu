@@ -116,14 +116,12 @@ it.each([40, 100])(
 		expect(painted()).not.toContain('failed:')
 		expect(painted()).not.toContain('FINAL_RECEIPT')
 		s.press('\x0f')
-		await until(() => s.viewport().join('\n').includes('Tool output'))
-		expect(s.viewport().join('\n')).not.toContain('Preview flagged')
-		s.press('G')
+		await until(() => s.viewport().join('\n').includes('Showing detailed transcript'))
 		await until(() => s.viewport().join('\n').includes('retainedPreview'))
 		expect(s.viewport().join('\n')).toContain('FINAL_RECEIPT')
 		expect(s.viewport().join('\n')).toContain('true')
 		s.press('q')
-		await until(() => !s.viewport().join('\n').includes('Tool output'))
+		await until(() => !s.viewport().join('\n').includes('Showing detailed transcript'))
 		expect(painted().match(/Conversation read/g)).toHaveLength(1)
 	},
 )
@@ -148,7 +146,7 @@ it('renders incomplete search and empty lookup honestly, and leaves retrieval fa
 	]
 	const s = await start(100)
 	const painted = () => s.scrollback().join('\n')
-	await until(() => painted().includes('failed: Cannot read this evidence address.'))
+	await until(() => painted().includes('Error: Cannot read this evidence address.'))
 	expect(painted()).toContain('0 matches on this page')
 	expect(painted()).toContain(
 		'Search not finished · a missing result may not have been reached yet',

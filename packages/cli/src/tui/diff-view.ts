@@ -418,7 +418,7 @@ export function diffViewBody(
 
 /**
  * The same rows as plain text, one per logical row and not wrapped: what a
- * copy, an export or the output viewer holds, and what height is estimated from.
+ * copy or an export holds, and what height is estimated from.
  */
 export function plainDiffRows(
 	info: Pick<DiffInfo, 'mode' | 'hunks' | 'files' | 'footer'>,

@@ -106,6 +106,16 @@ export type ToolFailureReason =
 	| 'unknown_tool'
 	| 'timed_out'
 	| 'invalid_input'
+	/** An edit or write on a file the conversation never read. */
+	| 'not_read'
+	/** An edit or write based on a copy that has since changed on disk. */
+	| 'changed_on_disk'
+	/** An edit whose text is not in the file. */
+	| 'text_not_found'
+	/** An edit whose text appears more than once. */
+	| 'not_unique'
+	/** The call's arguments did not fit the tool's input schema, so the tool never ran. */
+	| 'invalid_arguments'
 
 /**
  * What a call was about and what came of it, as typed fields.
@@ -126,6 +136,12 @@ export type ToolFacts =
 			/** The command line, on the call. */
 			readonly command?: string
 			readonly exitCode?: number
+			/**
+			 * A non-zero `exitCode` that is the command's answer and not a failure
+			 * (`grep` found nothing, `diff` found a difference): a short plain
+			 * sentence. A host draws the call as having succeeded.
+			 */
+			readonly exitNote?: string
 			readonly timedOut?: boolean
 			/** The signal that ended it, when one did. */
 			readonly signal?: string
