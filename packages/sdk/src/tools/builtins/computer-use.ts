@@ -109,7 +109,7 @@ export function computerUseUnavailableReason(
 	model?: string,
 ): string | undefined {
 	if (!resolveProviderCapabilities(provider).supportsToolResultImages) {
-		return `The ${provider.id} provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can (for example Anthropic, Codex or Google) for computer use.`
+		return `The ${provider.id} provider cannot return images in tool results, so the model would never see a screenshot. Use a provider that can return images in tool results for computer use.`
 	}
 	// The driver can carry the image; the model behind it may still not read one.
 	// It would act on a screen it never saw, and the first screenshot would make
@@ -508,7 +508,7 @@ function buildDescription(
 		available.includes('type_text')
 	)
 		lines.push(
-			'To start a Windows program, a shell command (Start-Process notepad, or cmd.exe /c start calc) is surest when you have a shell tool. The Start menu searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
+			'To start a Windows program, a shell command (Start-Process <program>, or cmd.exe /c start <program>) is surest when you have a shell tool. The Start menu searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
 		)
 	if (available.includes('list_windows'))
 		lines.push(

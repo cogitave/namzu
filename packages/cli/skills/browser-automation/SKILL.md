@@ -19,12 +19,12 @@ Two tools. `browser` looks and moves: `navigate`, `back`, `forward`,
    `browser` with `action: "snapshot"`. It returns the page as an
    accessibility tree, each element marked `[ref=eN]`, under a header line:
 
-   `Page: https://github.com — "Pull requests" (tab t1)`
+   `Page: https://example.com — "Example page" (tab t1)`
 
 2. **Act by ref.** Pass the `ref` from the latest snapshot. Refs belong to
    that snapshot only; after the page changes, take a new one.
 3. **Copy the origin.** Every `browser_act` call needs `origin`, copied
-   exactly from the header (`https://github.com` above), never typed from
+   exactly from the header (`https://example.com` above), never typed from
    memory or taken from a link. If the page has moved to another origin the
    call is refused and nothing happens; a ref from an older snapshot is
    refused the same way. Take a snapshot and decide again.

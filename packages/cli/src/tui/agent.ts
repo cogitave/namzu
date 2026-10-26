@@ -1953,7 +1953,7 @@ const NAMZU_IDENTITY = [
 ].join('\n')
 
 const NAMZU_BROWSER_DESKTOP_ROUTING =
-	'When the user means an already open desktop browser window, such as their Brave window, use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
+	'When the user means an already open desktop browser window (their own, not the Namzu-managed profile), use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts

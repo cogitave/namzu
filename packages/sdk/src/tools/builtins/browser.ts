@@ -280,7 +280,7 @@ function actModelSchema(actions: readonly BrowserActActionName[]) {
 			origin: {
 				type: 'string',
 				description:
-					'REQUIRED. The origin from the latest snapshot header ("Page: <origin> — …"), e.g. https://github.com. The call is refused if the page is no longer there.',
+					'REQUIRED. The origin from the latest snapshot header ("Page: <origin> — …"), e.g. https://example.com. The call is refused if the page is no longer there.',
 			},
 			ref: { type: 'string', description: 'Element ref from the latest snapshot, like e12.' },
 			text: { type: 'string' },

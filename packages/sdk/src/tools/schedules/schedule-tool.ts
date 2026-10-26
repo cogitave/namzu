@@ -121,7 +121,7 @@ const inputSchema = z.object({
 			rules: z
 				.record(z.string(), z.union([EFFECT, z.record(z.string(), EFFECT)]))
 				.optional()
-				.describe('Extra rules, e.g. {"bash": {"npm test*": "allow"}}'),
+				.describe('Extra rules, e.g. {"bash": {"<command> *": "allow"}}'),
 			browser: z
 				.object({
 					profile: z
@@ -131,7 +131,7 @@ const inputSchema = z.object({
 					sites: z
 						.record(z.string(), z.enum(['read', 'ask', 'act']))
 						.describe(
-							'Site to level, e.g. {"https://github.com": "read"}. read: open and read only; ask: changes wait for the operator; act: changes run unasked. Unlisted sites are denied; there is no "*".',
+							'Site to level, e.g. {"https://example.com": "read"}. read: open and read only; ask: changes wait for the operator; act: changes run unasked. Unlisted sites are denied; there is no "*".',
 						),
 					headed: z.boolean().optional().describe('Show the browser window; default no window'),
 				})
@@ -239,7 +239,7 @@ function browserGrant(
 		return {
 			ok: false,
 			error:
-				'permissions.browser.sites is empty; list each site the run may open, e.g. {"https://github.com": "read"}.',
+				'permissions.browser.sites is empty; list each site the run may open, e.g. {"https://example.com": "read"}.',
 		}
 	}
 	const sites: Record<string, ScheduleBrowserSiteLevel> = {}
