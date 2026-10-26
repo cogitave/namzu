@@ -271,6 +271,22 @@ async function frameShows(
 	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text), timeoutMs)
 }
 
+// The error row paints a render before the composer takes input again; wait
+// until the screen has stopped producing frames (by event-loop turns, not by
+// a clock) so the next keystroke is not typed into the gap.
+async function renderSettled(harness: { readonly frames: readonly string[] }): Promise<void> {
+	let stable = 0
+	let seen = harness.frames.length
+	while (stable < 10) {
+		await new Promise((resolve) => setImmediate(resolve))
+		if (harness.frames.length === seen) stable++
+		else {
+			seen = harness.frames.length
+			stable = 0
+		}
+	}
+}
+
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
 	harness.stdin.write(text)
 	await tick()
@@ -509,6 +525,7 @@ it('keeps the original conversation on screen and in the next turn when retentio
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
 	await frameShows(harness, 'Couldn’t summarise the conversation.')
+	await renderSettled(harness)
 	expect(replacements).toHaveLength(0)
 	await submit(harness, 'Continue')
 	await frameShows(harness, 'answer-2')
@@ -526,6 +543,7 @@ it('keeps the live history unchanged when its durable replacement fails', async 
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
 	await frameShows(harness, 'Couldn’t summarise the conversation.')
+	await renderSettled(harness)
 
 	await submit(harness, 'question after failed compaction')
 	await frameShows(harness, 'answer-2')
