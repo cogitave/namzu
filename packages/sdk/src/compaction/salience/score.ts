@@ -132,7 +132,9 @@ export function scoreMessages(
 	const texts = messages.map(messageText)
 	const richContent = messages.map(hasRichContent)
 	const tokenLists = texts.map(tokenize)
-	const documents: Bm25Document[] = texts.map(indexDocument)
+	const documents: Bm25Document[] = texts.map((text, i) =>
+		indexDocument(text, tokenLists[i] as string[]),
+	)
 	const index = buildIndex(documents)
 	const goalTokens = tokenize(options.goal)
 
