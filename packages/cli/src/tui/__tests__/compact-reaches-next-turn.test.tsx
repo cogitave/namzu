@@ -271,22 +271,6 @@ async function frameShows(
 	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text), timeoutMs)
 }
 
-// The error row paints a render before the composer takes input again; wait
-// until the screen has stopped producing frames (by event-loop turns, not by
-// a clock) so the next keystroke is not typed into the gap.
-async function renderSettled(harness: { readonly frames: readonly string[] }): Promise<void> {
-	let stable = 0
-	let seen = harness.frames.length
-	while (stable < 10) {
-		await new Promise((resolve) => setImmediate(resolve))
-		if (harness.frames.length === seen) stable++
-		else {
-			seen = harness.frames.length
-			stable = 0
-		}
-	}
-}
-
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
 	harness.stdin.write(text)
 	await tick()
@@ -516,37 +500,43 @@ it('shows automatic compaction before the next provider settles without footer t
 	expect(visibleScreen(screen)).not.toContain('~20%')
 })
 
+// A frame is visible before the composer's keyboard listener is attached again
+// (React runs that effect after the commit that painted it), so a key written
+// at that instant is dropped. `waitForRender` settles the renderer's own work, so
+// the tests below type only once it has: nothing here counts frames or turns.
 it('keeps the original conversation on screen and in the next turn when retention fails', async () => {
 	archiveShouldFail = true
-	const harness = render(<App ctx={ctx} />)
-	mounted.push(harness)
-	await frameShows(harness, 'a-model')
-	await submit(harness, 'ORIGINAL_USER_FACT')
-	await frameShows(harness, 'answer-1')
-	await submit(harness, '/compact')
-	await frameShows(harness, 'Couldn’t summarise the conversation.')
-	await renderSettled(harness)
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
+	await submitToScreen(screen, 'ORIGINAL_USER_FACT')
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () =>
+		fullScreen(screen).includes('Couldn’t summarise the conversation.'),
+	)
 	expect(replacements).toHaveLength(0)
-	await submit(harness, 'Continue')
-	await frameShows(harness, 'answer-2')
+	await submitToScreen(screen, 'Continue')
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-2'))
 	expect(sent[1]?.some((message) => message.content === 'ORIGINAL_USER_FACT')).toBe(true)
 	expect(sent[1]?.some((message) => message.content === SUMMARY_TEXT)).toBe(false)
 })
 
 it('keeps the live history unchanged when its durable replacement fails', async () => {
 	replaceShouldFail = true
-	const harness = render(<App ctx={ctx} />)
-	mounted.push(harness)
-	await frameShows(harness, 'a-model')
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
 
-	await submit(harness, 'question before failed compaction')
-	await frameShows(harness, 'answer-1')
-	await submit(harness, '/compact')
-	await frameShows(harness, 'Couldn’t summarise the conversation.')
-	await renderSettled(harness)
+	await submitToScreen(screen, 'question before failed compaction')
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () =>
+		fullScreen(screen).includes('Couldn’t summarise the conversation.'),
+	)
 
-	await submit(harness, 'question after failed compaction')
-	await frameShows(harness, 'answer-2')
+	await submitToScreen(screen, 'question after failed compaction')
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-2'))
 	expect(
 		sent[1]?.some((message) => message.content === SUMMARY_TEXT),
 		'the live history changed even though its durable replacement did not land',
