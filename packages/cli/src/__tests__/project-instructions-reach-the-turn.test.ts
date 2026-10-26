@@ -154,7 +154,7 @@ describe("the project's instructions", () => {
 
 		expect(systemPrompt).toContain('You are Namzu')
 		expect(systemPrompt).toContain(
-			'Ground action claims in successful tool results from this conversation.',
+			'Ground action claims in successful tool results from this conversation',
 		)
 		expect(projectPrompt).toContain('Never use a default export.')
 	})
@@ -210,6 +210,6 @@ describe("the project's instructions", () => {
 		expect(
 			childPrompt,
 			"a delegated task must keep its own guardrails as well as the project's",
-		).toContain('Never fabricate.')
+		).toContain('Report only results you produced through tool calls')
 	})
 })

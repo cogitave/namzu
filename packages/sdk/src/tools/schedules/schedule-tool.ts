@@ -140,7 +140,7 @@ const inputSchema = z.object({
 		})
 		.optional()
 		.describe(
-			'create: REQUIRED explicit permission set; there is no default. For a pure script, use {rules:{}, unmatched:"deny"} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
+			'create: an explicit permission set is required; there is no default. For a pure script, use {rules:{}, unmatched:"deny"} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script cannot use a browser grant. update: the whole new set, only when the permissions change',
 		),
 	budget: z
 		.object({

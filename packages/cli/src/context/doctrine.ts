@@ -41,8 +41,8 @@ const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
 		'Where proceeding under any assumption would be unsafe or would make the work useless if wrong, leave that step undone and name it in your summary.',
 	],
 	[
-		'Ask for clarification when the intended change is genuinely unspecified; do not ask the user to repeat information already available.',
-		'When the intended change is genuinely unspecified, take the most conservative reading and state it; use information that is already available.',
+		'Ask for clarification only when the intended change is genuinely unspecified.',
+		'When the intended change is genuinely unspecified, take the most conservative reading and state it.',
 	],
 	[
 		"stop and ask rather than stashing, committing or discarding somebody else's work.",
@@ -82,4 +82,4 @@ export const NAMZU_CHILD_WORKING_DOCTRINE: string = withoutAsking(WORKING_DOCTRI
  */
 export const NAMZU_PLAN_FILE_DOCTRINE = `## Plan mode
 
-You are in plan mode. Read, search and think; the only file you may change is the plan file named in the plan-mode reminder. Any other \`edit\`, \`write\` or shell command that changes state will be refused. Write the plan into the plan file, then call \`exit_plan_mode\` so the user can approve it; do not ask for approval in plain text. If the user sends you back with feedback, revise the plan file and call it again.`
+You are in plan mode. Read, search and think; the only file you may change is the plan file named in the plan-mode reminder. Any other \`edit\`, \`write\` or shell command that changes state will be refused. Write the plan into the plan file, then call \`exit_plan_mode\` so the user can approve it; a plain-text question cannot be answered in the approval screen. If the user sends you back with feedback, revise the plan file and call it again.`

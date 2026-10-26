@@ -103,7 +103,7 @@ const inputSchema = z.object({
 			isWindowsBash(hostCommandShell()) ? rewriteWindowsNullRedirect(command) : command,
 		)
 		.describe(
-			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be created with `write`, then extended with `edit` insertLine: "end", not piped into bash.',
+			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Large file content belongs in `write` (see its description), not in a heredoc.',
 		),
 	timeout: z
 		.preprocess(
@@ -121,7 +121,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Do NOT use `cmd &` as a substitute for a registered job: strict execution ownership can retire the allocation when the launcher exits with live descendants. An interactive application may belong to a dedicated computer only when that computer explicitly supports application lifetime; its launch result is not a registered job or proof the application has finished.',
+			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Background a command with this parameter, since `cmd &` is not a registered job: strict execution ownership can retire the allocation when the launcher exits with live descendants. An interactive application may belong to a dedicated computer only when that computer explicitly supports application lifetime; its launch result is not a registered job or proof the application has finished.',
 		),
 	dangerously_disable_sandbox: z
 		.boolean()
@@ -458,7 +458,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
 const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.'
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required, so every call carries one. Long file content goes through `write`, not a heredoc, so it cannot hit the output token limit mid-stream.'
 
 const BashToolBase = defineTool({
 	name: 'bash',

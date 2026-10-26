@@ -30,7 +30,7 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `edit` with insertLine: "end" to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the complete intended content for this bounded chunk, not a diff. Keep it under 12000 characters; the tool description says how to build a longer file.',
 			),
 		newStr: z
 			.string()
@@ -73,7 +73,7 @@ const modelInputSchema: Record<string, unknown> = {
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- To modify an existing file, use `edit`: it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Chaining several `write` calls to one path loses content, because each overwrites the previous.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,

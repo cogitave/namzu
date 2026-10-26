@@ -118,7 +118,7 @@ function commit(cwd: string, subject: string): void {
  * heading alone would survive the doctrine being reduced to its heading.
  */
 const DOCTRINE_SENTENCES = [
-	'The requested scope is the deliverable.',
+	'The requested scope is the deliverable:',
 	'If tests fail, say so and show the output.',
 	'Before editing, use the relevant file content already available from a successful read or write',
 	'Never push, force-push, reset, rebase, clean',

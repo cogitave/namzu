@@ -75,17 +75,30 @@ const NOT_A_SDK_TOOL = new Set<string>([
 
 const TOOL_SHAPED = /^[a-z][a-z0-9]*([_.][a-z0-9]+)+$/
 
-const FACTS: EnvironmentFacts = { today: '2026-10-26', branch: 'main', isRepository: true }
+const FACTS: EnvironmentFacts = {
+	today: '2026-10-26',
+	branch: 'main',
+	isRepository: true,
+}
 
 function environments(): readonly string[] {
 	return [
 		composeEnvironmentPrompt(FACTS),
-		composeEnvironmentPrompt({ ...FACTS, boundary: { escape: 'ask', interactive: true } }),
-		composeEnvironmentPrompt({ ...FACTS, boundary: { escape: 'refused', interactive: false } }),
+		composeEnvironmentPrompt({
+			...FACTS,
+			boundary: { escape: 'ask', interactive: true },
+		}),
+		composeEnvironmentPrompt({
+			...FACTS,
+			boundary: { escape: 'refused', interactive: false },
+		}),
 		composeEnvironmentPrompt({
 			...FACTS,
 			boundary: {
-				sandbox: { environment: 'linux-bwrap', enforced: ['filesystem', 'network'] },
+				sandbox: {
+					environment: 'linux-bwrap',
+					enforced: ['filesystem', 'network'],
+				},
 				escape: 'ask',
 				interactive: true,
 			},
@@ -174,6 +187,73 @@ describe('the assembled prompts', () => {
 		expect(NAMZU_IDENTITY).toContain('timestamped proof of overlap')
 	})
 
+	it.each(assembled())('%s: uses ordinary emphasis, with no capitals stacks', (_n, text) => {
+		// A word of four or more capital letters reads as shouting. The tags and
+		// variable names such as PATH are not words.
+		const shouted = (text.match(/\b[A-Z]{4,}\b/g) ?? []).filter(
+			(w) => !/^(HTTP|HTTPS|JSON|WSL|PATH)$/.test(w),
+		)
+		expect(shouted).toEqual([])
+		expect(text).not.toMatch(/\bMUST\b|\bCRITICAL\b/)
+	})
+
+	it('states the wanted behaviour, keeping a flat never for the rules with no positive twin', () => {
+		// The main prompt once held 32 prohibitions in 14k characters. The flat
+		// nevers that remain are the git rules, which have no positive phrasing.
+		const nevers =
+			(NAMZU_IDENTITY + NAMZU_WORKING_DOCTRINE).match(/\b[Nn]ever\b|\b[Dd]o not\b|\b[Dd]on't\b/g) ??
+			[]
+		expect(nevers.length).toBeLessThanOrEqual(8)
+		for (const gone of [
+			'Never say you ran',
+			'Never invent file paths',
+			'do not narrate an action',
+			'Do not quietly narrow it',
+			'Never claim two',
+			'never fabricate',
+		]) {
+			expect(NAMZU_IDENTITY + NAMZU_WORKING_DOCTRINE).not.toContain(gone)
+		}
+		expect(NAMZU_IDENTITY).toContain(
+			'Describe an action as done only after its tool call has returned',
+		)
+		expect(NAMZU_IDENTITY).toContain(
+			'Announce an action in the same response as the tool call that performs it',
+		)
+	})
+
+	it('gives each rule one home', () => {
+		const all = join([
+			NAMZU_IDENTITY,
+			NAMZU_WORKING_DOCTRINE,
+			NAMZU_DELEGATION_DOCTRINE,
+			WORKFLOW_DOCTRINE,
+			CONVERSATION_EVIDENCE_GUIDANCE,
+		])
+		// Tool-specific rules live in the tool's description, not in the system prompt.
+		expect(all).not.toContain('insertLine')
+		expect(all).not.toMatch(/heredoc/i)
+		expect(all).not.toContain('replace_all')
+		// The opt-in list for the workflow tool is in the tool's description only.
+		expect(all).not.toContain('saved workflow')
+		// Replaying an action for old output is spoken to once, in the working rules.
+		expect(all.match(/state-changing action/g) ?? []).toHaveLength(1)
+		// The prefer-dedicated-tools rule is in the working rules, not repeated in the identity.
+		expect(NAMZU_IDENTITY).not.toMatch(/prefer the dedicated/i)
+	})
+
+	it('briefs a sub-agent with an objective, limits, tools and sources, and a reply shape', () => {
+		for (const part of [
+			'the objective',
+			'what is out of bounds',
+			'which tools and sources to use',
+			'the shape of the reply you want',
+		]) {
+			expect(NAMZU_DELEGATION_DOCTRINE).toContain(part)
+		}
+		expect(NAMZU_DELEGATION_DOCTRINE).toContain('starts with none of your context')
+	})
+
 	it('tells a sub-agent what to do with the ask and stop rules it inherits, after them', () => {
 		// The working rules say to stop and ask in several places. A sub-agent has
 		// no one to ask, so the prompt says what to do instead, and says it last so
@@ -219,15 +299,25 @@ describe('the reminder texts', () => {
 					...first.map((text) => createRuntimeContextMessage(text, 'reminder')),
 					createUserMessage('two'),
 				]
-				for (const text of planModeReminders({ ...input, messages: history, mode: 'prompt' }))
+				for (const text of planModeReminders({
+					...input,
+					messages: history,
+					mode: 'prompt',
+				}))
 					out.push([`plan exit (${planExists}, ${canAsk})`, text])
 				const exited = [
 					...history,
-					...planModeReminders({ ...input, messages: history, mode: 'prompt' }).map((text) =>
-						createRuntimeContextMessage(text, 'reminder'),
-					),
+					...planModeReminders({
+						...input,
+						messages: history,
+						mode: 'prompt',
+					}).map((text) => createRuntimeContextMessage(text, 'reminder')),
 				]
-				for (const text of planModeReminders({ ...input, messages: exited, planExists: true }))
+				for (const text of planModeReminders({
+					...input,
+					messages: exited,
+					planExists: true,
+				}))
 					out.push([`plan re-entry (${canAsk})`, text])
 			}
 		}
@@ -252,11 +342,19 @@ describe('the reminder texts', () => {
 		}))
 			out.push(['plan sparse', text])
 		for (const mode of ['auto', 'accept-edits', 'bypass'] as const) {
-			for (const text of modeReminders({ messages: [], mode, interactive: true }))
+			for (const text of modeReminders({
+				messages: [],
+				mode,
+				interactive: true,
+			}))
 				out.push([`mode ${mode}`, text])
 		}
 		for (const toolListed of [false, true]) {
-			for (const text of hypermodeReminders({ messages: [], on: true, toolListed }))
+			for (const text of hypermodeReminders({
+				messages: [],
+				on: true,
+				toolListed,
+			}))
 				out.push([`hypermode (${toolListed})`, text])
 		}
 		return out

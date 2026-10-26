@@ -116,7 +116,7 @@ describe('when the model is offered the workflow tool', () => {
 	it('lists it on an ordinary request, with the opt-in rule in the system prompt', async () => {
 		const call = await sendWith('fix the failing test in cart.ts')
 		expect(offered(call)?.name).toBe('workflow')
-		expect(offered(call)?.description).toContain('ONLY call it after an explicit opt-in')
+		expect(offered(call)?.description).toContain('Call it only after an explicit opt-in')
 		expect(call.systemPrompt ?? '').toContain(WORKFLOW_DOCTRINE)
 	})
 

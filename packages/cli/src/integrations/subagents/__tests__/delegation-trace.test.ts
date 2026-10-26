@@ -325,7 +325,7 @@ describe('a sub-agent is bound by the project it works in', () => {
 			signal,
 		})
 		expect(prompt).toContain('You are a security auditor')
-		expect(prompt).toContain('Never fabricate.')
+		expect(prompt).toContain('Report only results you produced through tool calls')
 		expect(snapshot?.content).toContain('Never use a default export.')
 	})
 
