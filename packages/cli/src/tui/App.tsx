@@ -125,7 +125,6 @@ import {
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
-import { sendWithRebuiltHistory } from './stale-history-retry.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
 import {
 	type CliSessions,
@@ -428,6 +427,7 @@ import {
 	writeSuggestionLedger,
 } from './skills/suggestion-ledger.js'
 import { setSpinnerTips } from './spinner-tips-setting.js'
+import { sendWithRebuiltHistory } from './stale-history-retry.js'
 import {
 	CLOSING_GLYPH,
 	CONTINUATION_GLYPH,
