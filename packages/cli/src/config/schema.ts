@@ -440,6 +440,16 @@ export interface NamzuCliConfig {
 	 */
 	readonly hypermode?: boolean
 	/**
+	 * Keep what a conversation already classifies as a failure or an unrecovered
+	 * stop (a failed tool call, a provider error, a turn that ended early) as a
+	 * learning observation, so `namzu learn` has real input. Absent means on;
+	 * `false` records nothing. What is kept is a reference to the conversation
+	 * and turn plus one short redacted sentence, in the project's own state
+	 * directory, never uploaded, and dropped after 30 days. Read by the
+	 * interactive terminal and `exec`.
+	 */
+	readonly learningObservations?: boolean
+	/**
 	 * The scheduler (`namzu schedule`). Read from the user and managed files
 	 * only: a project file is repo content, and a repository must not be able
 	 * to raise how many unattended runs a machine starts or silence their

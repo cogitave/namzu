@@ -260,6 +260,10 @@ import {
 } from '../integrations/decision/model.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
+	createSessionLearningFeed,
+	withSessionLearningFeed,
+} from '../integrations/learning/session-feed.js'
+import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
 	type McpServersConfig,
@@ -2147,6 +2151,13 @@ export interface AgentSessionOptions {
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
+	/**
+	 * Keep this conversation's failures and unrecovered stops as learning
+	 * observations in the project's own state directory. Default `false`; the
+	 * interactive terminal and `exec` pass it unless the `learningObservations`
+	 * config key is `false`. Ephemeral sessions never keep any.
+	 */
+	readonly learningObservations?: boolean
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
@@ -2471,6 +2482,18 @@ export async function createAgentSession(
 		)
 	}
 	const scope = options.scope ?? mintScope(projectId, options.sessionId)
+	// Failures and unrecovered stops this conversation already classifies are kept
+	// as learning observations (references and a short redacted sentence, local
+	// to the project, dropped after 30 days). Only a host that asks gets it.
+	const learningFeed =
+		options.learningObservations === true && !options.ephemeral
+			? createSessionLearningFeed({
+					paths,
+					tenantId: scope.tenantId,
+					projectId,
+					sessionId: String(scope.sessionId),
+				})
+			: undefined
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -4792,7 +4815,7 @@ export async function createAgentSession(
 			if (failure) yield { kind: 'error', message: failure.message }
 		})()
 	}
-	return {
+	const agentSession: AgentSession = {
 		hasProvider: true,
 		autoMode: {
 			available: sessionClassifier !== undefined,
@@ -5817,6 +5840,7 @@ export async function createAgentSession(
 				})
 			}),
 	}
+	return learningFeed ? withSessionLearningFeed(agentSession, learningFeed) : agentSession
 }
 
 /**

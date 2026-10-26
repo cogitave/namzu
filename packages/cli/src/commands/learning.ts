@@ -3,11 +3,11 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
-	type ResidentLearningCycleOptions,
-	type ResidentLearningCycleSummary,
-	type ResidentLearningDiscoveryOptions,
-	runStoredResidentLearningCycle,
-	runStoredResidentLearningFromObservations,
+	type LearningCycleOptions,
+	type LearningCycleSummary,
+	type LearningDiscoveryOptions,
+	runStoredLearningCycle,
+	runStoredLearningFromObservations,
 } from '@namzu/sdk'
 import { Command } from 'commander'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -30,7 +30,7 @@ const integer = (value: string) => {
 	return Number(value)
 }
 
-export function learningSummary(row: ResidentLearningCycleSummary): string {
+export function learningSummary(row: LearningCycleSummary): string {
 	const usage = row.result?.consumption ?? {
 		...row.recordedUsage,
 		unfinishedStages: 1,
@@ -69,10 +69,7 @@ export function learningSummary(row: ResidentLearningCycleSummary): string {
 }
 
 /** Explicit host modules follow the existing eval command's executable-suite convention. */
-export async function residentLearningCommand({
-	ctx,
-	rawArgs,
-}: CommandHandlerArgs): Promise<number> {
+export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): Promise<number> {
 	const execute = rawArgs[0] === 'learn'
 	const parser = new Command()
 		.exitOverride()
@@ -235,8 +232,8 @@ export async function residentLearningCommand({
 			signal: controller.signal,
 			store,
 		})) as
-			| Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>
-			| Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>
+			| Omit<LearningCycleOptions, 'agenda' | 'signal' | 'record'>
+			| Omit<LearningDiscoveryOptions, 'agenda' | 'signal'>
 		controller.signal.throwIfAborted()
 		const explore = options.explore
 		const execution = {
@@ -246,30 +243,26 @@ export async function residentLearningCommand({
 			...(explore
 				? {
 						explore: async (
-							context: Parameters<NonNullable<ResidentLearningCycleOptions['explore']>>[0],
+							context: Parameters<NonNullable<LearningCycleOptions['explore']>>[0],
 						) => {
 							ctx.formatter.info(`Learning · ${line(context.skillName)} · exploring environment`)
 							return explore(context)
 						},
 					}
 				: {}),
-			generate: async (context: Parameters<ResidentLearningCycleOptions['generate']>[0]) => {
+			generate: async (context: Parameters<LearningCycleOptions['generate']>[0]) => {
 				ctx.formatter.info(`Learning · ${line(context.skillName)} · generating guidance`)
 				return options.generate(context)
 			},
-			evaluate: async (context: Parameters<ResidentLearningCycleOptions['evaluate']>[0]) => {
+			evaluate: async (context: Parameters<LearningCycleOptions['evaluate']>[0]) => {
 				ctx.formatter.info(`Learning · ${context.stage}`)
 				return options.evaluate(context)
 			},
 		}
 		const discovery =
-			'evaluators' in execution
-				? await runStoredResidentLearningFromObservations(store, execution)
-				: null
+			'evaluators' in execution ? await runStoredLearningFromObservations(store, execution) : null
 		const result =
-			'evaluators' in execution
-				? discovery?.cycle
-				: await runStoredResidentLearningCycle(store, execution)
+			'evaluators' in execution ? discovery?.cycle : await runStoredLearningCycle(store, execution)
 		if (!result) {
 			ctx.formatter.print({
 				text: 'No eligible unattempted learning observation for the current skills and evaluators.',
@@ -277,7 +270,7 @@ export async function residentLearningCommand({
 			})
 			return 0
 		}
-		let saved: ResidentLearningCycleSummary | null = null
+		let saved: LearningCycleSummary | null = null
 		try {
 			saved = await store.get(result.cycleId)
 		} catch (error) {

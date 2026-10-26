@@ -1,6 +1,6 @@
 import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
-import { SqliteResidentLearningStore } from '@namzu/sdk'
+import { SqliteLearningStore } from '@namzu/sdk'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type CliResident, residentDirectoryFor } from './storage.js'
 
@@ -13,7 +13,7 @@ import { type CliResident, residentDirectoryFor } from './storage.js'
 export function residentLearningStore(
 	resident: CliResident,
 	readOnly = false,
-): SqliteResidentLearningStore | null {
+): SqliteLearningStore | null {
 	const agentRoot = residentDirectoryFor(resident.root, resident.slug, resident.agentKey)
 	const databasePath = join(agentRoot, 'learning.sqlite')
 	const artifactsPath = join(agentRoot, 'artifacts')
@@ -44,7 +44,7 @@ export function residentLearningStore(
 		if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1)
 			throw new Error(`Learning database requires a private regular file: ${file}`)
 	}
-	return new SqliteResidentLearningStore({
+	return new SqliteLearningStore({
 		databasePath,
 		artifactsPath,
 		scope: resident,

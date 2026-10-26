@@ -5071,6 +5071,7 @@ export function App({
 								? { additionalDirectories: activeCtx.additionalDirectories }
 								: {}),
 							...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
+							learningObservations: activeCtx.learningObservations !== false,
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.

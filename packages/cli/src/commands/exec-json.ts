@@ -341,6 +341,7 @@ export async function execJson(
 			tenantId: cli.tenantId,
 		},
 		stateRoot: cli.root,
+		learningObservations: ctx.config.learningObservations !== false,
 		// A keyed conversation appends to its log; a stateless one runs in an
 		// in-memory log, so nothing is written for it.
 		...(conversationId ? { conversationSessions: cli } : { ephemeral: true }),

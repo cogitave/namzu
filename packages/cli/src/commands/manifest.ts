@@ -63,6 +63,24 @@ export const residentCommand = lazyCommand(
 	async () => (await import('./resident.js')).residentCommand,
 )
 
+export const learnCommand = lazyCommand(
+	{
+		name: 'learn',
+		description: 'Run one explicitly selected learning experiment (experimental)',
+		passThrough: true,
+	},
+	async () => (await import('./learn.js')).learnCommand,
+)
+
+export const learningCommand = lazyCommand(
+	{
+		name: 'learning',
+		description: 'Inspect learning experiments and the observations they start from',
+		passThrough: true,
+	},
+	async () => (await import('./learn.js')).learningCommand,
+)
+
 export const loginCommand = lazyCommand(
 	{
 		name: 'login',

@@ -27,8 +27,8 @@ import { loadResidentVerification } from '../integrations/resident/verification.
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
+import { runLearningCommand } from './learning.js'
 import { parseResidentFlags } from './resident-flags.js'
-import { residentLearningCommand } from './resident-learning.js'
 import type { CommandDef } from './types.js'
 
 const line = (value: string) => stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}]/gu, ' ')
@@ -128,8 +128,8 @@ export const residentCommand: CommandDef = {
 		'',
 		'  add <objective>          Save work without starting a model',
 		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
-		'  learn <file.learning.js> Run one explicitly selected executable learning experiment (--trust, --cwd, --agent)',
-		'  learning [cycle-id]      Inspect experiments or --observations (--events, --after, --before, --limit)',
+		'  learn <file.learning.js> Same as `namzu learn`: run one explicitly selected learning experiment (--trust, --cwd, --agent)',
+		'  learning [cycle-id]      Same as `namzu learning`: inspect experiments or --observations (--events, --after, --before, --limit)',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
 		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',
@@ -175,7 +175,7 @@ export const residentCommand: CommandDef = {
 	].join('\n'),
 	handler: async ({ ctx: bootstrap, rawArgs }) => {
 		if (rawArgs[0] === 'learn' || rawArgs[0] === 'learning')
-			return residentLearningCommand({ ctx: bootstrap, rawArgs })
+			return runLearningCommand({ ctx: bootstrap, rawArgs })
 		let flags: ReturnType<typeof parseResidentFlags>
 		try {
 			flags = parseResidentFlags(rawArgs)
