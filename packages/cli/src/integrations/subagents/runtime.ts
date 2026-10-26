@@ -1961,7 +1961,7 @@ export async function createSubagentRuntime(
 
 	/** Said when a saved agent has nothing readable left to continue from. */
 	const cannotResume = (childId: string): string =>
-		`Not sent. Agent ${childId} was saved by an earlier run but cannot be resumed: what it needs was not kept, or no longer reads. Start a new agent if the work is still needed.`
+		`Not sent. Agent ${childId} was saved by an earlier run but cannot be resumed: what it needs was not kept (an agent started with a role cannot be continued after a restart), or no longer reads. Start a new agent if the work is still needed.`
 	const restoring = new Map<string, Promise<{ viewId: string } | { error: string } | undefined>>()
 	/**
 	 * An agent saved by an earlier run of the program, made reachable again: its
