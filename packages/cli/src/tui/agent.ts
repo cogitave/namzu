@@ -5599,7 +5599,12 @@ export async function createAgentSession(
 							options.reminders || turnHypermode || stableEnvironment
 								? createCliReminderSource({
 										mode: () => modeControl.current(),
-										...(stableEnvironment ? { environment: () => environmentFacts } : {}),
+										...(stableEnvironment
+											? {
+													environment: () => environmentFacts,
+													interactive: opts?.onPermission !== undefined,
+												}
+											: {}),
 										...(options.reminders || planInReminders
 											? {
 													...(planPath
