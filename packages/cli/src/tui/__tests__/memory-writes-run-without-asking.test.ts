@@ -64,6 +64,15 @@ describe('memory writes in the terminal', () => {
 				expect(ask).not.toHaveBeenCalled()
 			})
 
+			it('runs a memory write asked about on its own without a question', async () => {
+				const { handler, ask } = handlerFor(mode)
+				for (const name of ['save_memory', 'update_memory']) {
+					const alone = { ...review(call(name)), perCall: true as const }
+					expect((await handler(alone)).action, name).toBe('approve_tools')
+				}
+				expect(ask).not.toHaveBeenCalled()
+			})
+
 			it('still asks about a write into the workspace', async () => {
 				const { handler, ask } = handlerFor(mode)
 				await handler(review(call('write', { path: '/work/a.ts', content: 'x' })))
