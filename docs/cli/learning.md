@@ -50,13 +50,14 @@ When a conversation sees one of these, it writes an observation:
   history unchanged. These use fixed wording and never copy the event's text.
 
 An observation holds a reference to the conversation and turn, the kind of
-failure, the time it was recorded, and one short excerpt (at most 160
-characters) of the failure message with home folders, absolute paths, links,
-email addresses, `key=value` secrets, bearer credentials and long token-like
-strings masked. The excerpt can still contain other words from the message, so
-it is not a guarantee that nothing sensitive survives. It never holds your
-prompt, the model's answer or a tool's output; the details stay in the
-conversation's own log, which the reference points to. Each is marked usage-incomplete, so none can start an
+failure, the time it was recorded, and one fixed sentence naming the tool,
+stop reason or provider error code. The failure message itself is never kept,
+because free text cannot be masked reliably. Only failures count: a turn that
+hit a limit, timed out, was refused or errored. Your own cancel, a rejected
+plan, a stop you asked for, a plain approval pause and successful turns record
+nothing. It never holds your prompt, the model's answer or a tool's output;
+the details stay in the conversation's own log, which the reference points to.
+Each is marked usage-incomplete, so none can start an
 experiment by itself. Successful turns record nothing.
 
 Observations are kept under the project's state directory

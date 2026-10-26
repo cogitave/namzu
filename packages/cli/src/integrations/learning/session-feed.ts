@@ -47,7 +47,13 @@ export type FeedEvent =
 			readonly turnId?: string
 			readonly stopReason?: string
 	  }
-	| { readonly kind: 'paused'; readonly turnId: string; readonly reason: string }
+	| {
+			readonly kind: 'paused'
+			readonly turnId: string
+			readonly reason: string
+			readonly failure?: unknown
+			readonly providerError?: unknown
+	  }
 	| {
 			readonly kind: 'provider-wait'
 			readonly turnId?: string
@@ -90,7 +96,8 @@ export interface SessionLearningFeed {
 }
 
 /**
- * A short masked excerpt of a failure message: home folders, absolute paths,
+ * A short masked excerpt of free text (used for tool names and codes, never
+ * for a failure message, whose words cannot be masked reliably): home folders, absolute paths,
  * links, email addresses, `key=value` secrets, bearer credentials and long
  * token-like strings are replaced. Other words in the message are kept, so it
  * is an excerpt, not a guarantee that no sensitive word survives.
@@ -116,8 +123,6 @@ export function redactSummary(text: string, home = homedir()): string {
 	const chars = Array.from(value)
 	return chars.length > 160 ? `${chars.slice(0, 160).join('')}…` : chars.join('')
 }
-
-const sentence = (text: string) => (text ? text : 'No further detail was recorded.')
 
 /** A stable, valid UUID for an event that carries no turn id of its own. */
 function derivedTurnId(sessionId: string, kind: string, ordinal: number): string {
@@ -152,6 +157,26 @@ interface Classified {
 	readonly turnId?: string
 }
 
+/**
+ * Stop reasons that mean a turn failed without recovering. The person's own
+ * cancel, a rejected plan, a stop the caller asked for and a plain pause are
+ * choices, not failures, and are never recorded.
+ */
+const UNRECOVERED_STOPS = new Set([
+	'timeout',
+	'max_iterations',
+	'token_budget',
+	'cost_limit',
+	'cost_unmeasurable',
+	'error',
+	'step_refused',
+	'structured_output_failed',
+	'output_limit',
+	'answer_rejected',
+	'input_guardrail',
+	'output_guardrail',
+])
+
 function classify(event: FeedEvent): Classified | null {
 	if (event.kind === 'tool-end') {
 		const e = event as Extract<FeedEvent, { kind: 'tool-end' }>
@@ -161,13 +186,13 @@ function classify(event: FeedEvent): Classified | null {
 			outcome: 'failed',
 			taskKey: `tool:${e.toolName}`,
 			key: `tool:${e.toolName}`,
-			reason: `A ${redactSummary(e.toolName, '')} call failed: ${sentence(redactSummary(e.plainFailure ?? e.summary.split('\n')[0] ?? ''))}`,
+			reason: `A ${redactSummary(e.toolName, '')} call failed. The message is not kept.`,
 			...(e.turnId ? { turnId: e.turnId } : {}),
 		}
 	}
 	if (event.kind === 'done') {
 		const e = event as Extract<FeedEvent, { kind: 'done' }>
-		if (!e.stopReason || e.stopReason === 'end_turn') return null
+		if (!e.stopReason || !UNRECOVERED_STOPS.has(e.stopReason)) return null
 		return {
 			evaluator: 'turn-stop-v1',
 			outcome: 'unresolved',
@@ -179,12 +204,15 @@ function classify(event: FeedEvent): Classified | null {
 	}
 	if (event.kind === 'paused') {
 		const e = event as Extract<FeedEvent, { kind: 'paused' }>
+		// A plain approval or hand-off pause is the conversation working as
+		// designed; only a pause that carries a failure is one.
+		if (e.failure === undefined && e.providerError === undefined) return null
 		return {
 			evaluator: 'turn-pause-v1',
 			outcome: 'unresolved',
 			taskKey: 'paused',
 			key: 'paused',
-			reason: `The turn paused: ${sentence(redactSummary(e.reason))}`,
+			reason: 'The turn paused because of a failure. The message is not kept.',
 			turnId: e.turnId,
 		}
 	}
@@ -236,12 +264,18 @@ function classify(event: FeedEvent): Classified | null {
 		const e = event as Extract<FeedEvent, { kind: 'error' }>
 		if (e.turnInProgress) return null
 		const provider = e.providerError !== undefined
+		const rawCode = (e.providerError as { code?: unknown } | undefined)?.code
+		const code =
+			(typeof rawCode === 'string' || typeof rawCode === 'number') &&
+			/^[\w.-]{1,40}$/.test(String(rawCode))
+				? String(rawCode)
+				: ''
 		return {
 			evaluator: provider ? 'provider-error-v1' : 'turn-error-v1',
 			outcome: 'execution-error',
 			taskKey: provider ? 'provider-error' : 'turn-error',
 			key: provider ? 'provider-error' : 'turn-error',
-			reason: `${provider ? 'The provider failed' : 'The turn failed'}: ${sentence(redactSummary(e.message))}`,
+			reason: `${provider ? 'The provider failed' : 'The turn failed'}${code ? ` (${code})` : ''}. The message is not kept.`,
 		}
 	}
 	return null

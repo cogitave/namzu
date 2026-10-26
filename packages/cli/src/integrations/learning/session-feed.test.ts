@@ -74,7 +74,40 @@ describe('session learning feed', () => {
 		expect(row?.outcome).toBe('failed')
 		expect(row?.usageComplete).toBe(false)
 		expect(row?.evidence.reason).not.toMatch(/a@b\.com|abcdefghijklmnopqrstuvwxyz0123/)
-		expect(row?.evidence.reason).toContain('[email]')
+		expect(row?.evidence.reason).toBe('A bash call failed. The message is not kept.')
+	})
+
+	it('never keeps a failure message, so a short bare secret cannot reach a reader', async () => {
+		const { feed, reader } = setup()
+		feed.observe({
+			kind: 'tool-end',
+			toolName: 'bash',
+			isError: true,
+			summary: 'wrong password hunter2',
+			plainFailure: 'sk-abc123 rejected',
+		})
+		feed.observe({
+			kind: 'error',
+			message: 'bad credential hunter2',
+			providerError: { code: 401 },
+		})
+		await feed.flush()
+		const rows = await reader().observations()
+		expect(rows).toHaveLength(2)
+		for (const row of rows) expect(row.evidence.reason).not.toMatch(/hunter2|sk-abc123/)
+		expect(rows.map((r) => r.evidence.reason)).toContain(
+			'The provider failed (401). The message is not kept.',
+		)
+	})
+
+	it("does not record the person's own choices or a plain pause as failures", async () => {
+		const { feed, reader } = setup()
+		for (const stopReason of ['cancelled', 'plan_rejected', 'stop_condition', 'paused']) {
+			feed.observe({ kind: 'done', turnId: TURN, stopReason })
+		}
+		feed.observe({ kind: 'paused', turnId: TURN, reason: 'needs approval' })
+		await feed.flush()
+		expect(await reader().observations()).toEqual([])
 	})
 
 	it('records unrecovered stops, pauses and provider errors, and nothing for success', async () => {
@@ -88,7 +121,12 @@ describe('session learning feed', () => {
 			declined: { note: 'no' },
 		})
 		feed.observe({ kind: 'done', turnId: TURN, stopReason: 'max_iterations' })
-		feed.observe({ kind: 'paused', turnId: TURN, reason: 'rate limited' })
+		feed.observe({
+			kind: 'paused',
+			turnId: TURN,
+			reason: 'rate limited',
+			providerError: { code: 429 },
+		})
 		feed.observe({ kind: 'error', message: 'upstream 503', providerError: { code: 503 } })
 		feed.observe({ kind: 'delta' })
 		await feed.flush()
