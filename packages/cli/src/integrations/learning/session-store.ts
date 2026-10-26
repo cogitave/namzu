@@ -10,11 +10,14 @@ import { cliProjectRoot } from '../state/project.js'
 import { SESSION_AGENT_KEY } from './session-feed.js'
 
 /**
- * The project's conversation observations, opened read-only. Null when this
+ * The project's conversation observations, opened read-only unless `readOnly` is false. Null when this
  * folder has no project, no identity, or nothing has been recorded. Needs no
  * resident.
  */
-export async function sessionLearningStore(cwd: string): Promise<SqliteLearningStore | null> {
+export async function sessionLearningStore(
+	cwd: string,
+	readOnly = true,
+): Promise<SessionLearningTarget | null> {
 	const root = resolveNamzuHome()
 	const identity = readIdentity(root)
 	if (!identity) return null
@@ -31,14 +34,27 @@ export async function sessionLearningStore(cwd: string): Promise<SqliteLearningS
 		if (stat.isSymbolicLink() || (entry === databasePath ? !stat.isFile() : !stat.isDirectory()))
 			throw new Error(`Learning state requires a private regular path: ${entry}`)
 	}
-	return new SqliteLearningStore({
-		databasePath,
-		artifactsPath: join(directory, 'artifacts'),
-		scope: {
-			tenantId: identity.tenantId,
-			projectId: project.projectId,
-			agentKey: SESSION_AGENT_KEY,
-		},
-		readOnly: true,
-	})
+	const paths = new SessionPaths({ home: root, slug: project.slug })
+	return Object.assign(
+		new SqliteLearningStore({
+			databasePath,
+			artifactsPath: join(directory, 'artifacts'),
+			scope: {
+				tenantId: identity.tenantId,
+				projectId: project.projectId,
+				agentKey: SESSION_AGENT_KEY,
+			},
+			readOnly,
+		}),
+		{ target: { paths, tenantId: identity.tenantId, projectId: project.projectId } },
+	)
+}
+
+/** What a caller needs besides the store to activate guidance for this project. */
+export interface SessionLearningTarget extends SqliteLearningStore {
+	readonly target: {
+		readonly paths: SessionPaths
+		readonly tenantId: string
+		readonly projectId: string
+	}
 }

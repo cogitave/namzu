@@ -93,6 +93,7 @@ export function redactSummary(text: string, home = homedir()): string {
 			'$1=[redacted]',
 		)
 		.replace(/(^|[\s("'=])\/(?:[\w.@~+-]+\/)+[\w.@~+-]*/g, '$1[path]')
+		.replace(/(^|[\s("'=])(?:[A-Za-z]:|\\\\[\w.$-]+)[\\/][^\s"')]*/g, '$1[path]')
 		.replace(/[A-Za-z0-9_\-+/=]{24,}/g, '[redacted]')
 		.replace(/\s+/g, ' ')
 		.trim()

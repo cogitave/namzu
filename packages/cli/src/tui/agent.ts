@@ -259,6 +259,7 @@ import {
 	maybeCreateDecisionTool,
 } from '../integrations/decision/model.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
+import { readProjectGuidance } from '../integrations/learning/project-guidance.js'
 import {
 	createSessionLearningFeed,
 	withSessionLearningFeed,
@@ -2496,6 +2497,10 @@ export async function createAgentSession(
 					sessionId: String(scope.sessionId),
 				})
 			: undefined
+	// Guidance the person confirmed through `namzu learn --sessions`, read once.
+	const projectGuidance = options.ephemeral
+		? null
+		: await readProjectGuidance(paths, readIdentity(paths.home)?.tenantId ?? scope.tenantId)
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -5440,6 +5445,12 @@ export async function createAgentSession(
 								},
 							})
 						}
+						if (projectGuidance)
+							promptContributions.register({
+								id: 'namzu.learning.project-guidance',
+								placement: 'context',
+								render: () => projectGuidance,
+							})
 						promptContributions.register({
 							id: 'namzu.turn-snapshot',
 							placement: 'context',

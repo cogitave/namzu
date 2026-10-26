@@ -17,6 +17,7 @@ ordinary conversation, in the terminal or through `namzu exec`, feeds it.
 
 ```text
 namzu learn <experiment.learning.js> [--trust] [--cwd <path>] [--agent <name>]
+namzu learn --sessions <experiment.learning.js> [--trust] [--cwd <path>]
 namzu learning [cycle-id] [--events] [--after <n>] [--before <n>] [--limit <n>]
 namzu learning --observations [--after <n>] [--limit <n>]
 namzu learning --sessions [--after <n>] [--limit <n>]
@@ -34,7 +35,7 @@ the folder kept (below) and needs no resident. It only reads.
 their older names and behave identically. The experiment's activation target is
 still an agent's saved guidance, so both need an agent in the folder
 (`--agent`, default `default`); without one, `namzu learn` says so and stops
-(only `namzu learning --sessions` works with no agent); see [Resident work](resident-work.md#explicit-learning-experiments).
+(`--sessions` needs none, below); see [Resident work](resident-work.md#explicit-learning-experiments).
 
 ## What a conversation keeps
 
@@ -65,11 +66,25 @@ Turn recording off with `learningObservations: false` in the user or project
 config. Absent means on. Ephemeral conversations (`exec` without a
 conversation) keep nothing.
 
+## Learning from conversations, with no resident
+
+`namzu learn --sessions <module>` starts from the observations conversations in
+this folder kept, with no agent needed. The module is the same kind of host
+module and runs only with `--trust`; the independent two-round check and the
+confirmation are unchanged, and only the exact revision that passed is
+activated. The result is this project's own guidance (the evaluated skills,
+stored with their history under `projects/<project>/learning/guidance/`), not
+an agent's. If no conversation here has kept an observation yet, it says so
+and stops with exit 64.
+
+Every later conversation in the folder starts with that guidance in its
+context, as advice about how to work here: it grants no permission and runs
+nothing. Ephemeral conversations do not read it. An exploration policy is never
+handed to a conversation. Revert by activating an earlier revision through the
+same history, as for a resident.
+
 ## What is not done yet
 
 The generator is not built in: Namzu supplies none of its own and activation
-needs a module you wrote. Conversations feed observations, but `namzu learn`
-does not read them yet and needs an agent to activate into; separating the two
-is an open owner decision. Conversations do not read
-approved guidance back; approved guidance reaches residents through their saved
-state, as before.
+needs a module you wrote. Nothing starts `namzu learn --sessions` by itself;
+you run it.

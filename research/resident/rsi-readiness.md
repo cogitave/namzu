@@ -250,4 +250,4 @@ long-term interference and recursive improvement remain unproven.
 
 ## Open owner decision: learning without a resident
 
-`namzu learn` still activates into an agent's saved guidance, so it needs a resident, and it does not read the conversation observations that `namzu learning --sessions` lists. Separating the two needs a standing activation target that is not a resident agent. Not decided; no work started.
+`namzu learn --sessions` reads the conversation observations and activates into the project's own guidance (a revisioned store beside them), which later conversations start with; it still needs a host module that supplies the generator and the independent evaluation. Nothing runs it automatically.

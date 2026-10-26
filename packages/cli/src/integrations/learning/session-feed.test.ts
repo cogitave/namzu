@@ -170,6 +170,10 @@ describe('helpers', () => {
 		expect(text).not.toMatch(/hunter2|abc123|sk-1|\/etc/)
 		expect(text).toContain('[path]')
 	})
+	it('masks drive-letter and network paths that are not under the home folder', () => {
+		const text = redactSummary('open C:\\Users\\bob\\x.txt and \\\\srv\\share\\f failed', '/home/x')
+		expect(text).toBe('open [path] and [path] failed')
+	})
 	it('reads the time out of a version-7 id only', () => {
 		expect(uuidTime(idAt(1_700_000_000_000))).toBe(1_700_000_000_000)
 		expect(uuidTime('3f2b8c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f')).toBeNull()
