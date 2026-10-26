@@ -25,6 +25,7 @@ export const theme: SemanticColors = {
 	status: { ...initial.status },
 	border: { ...initial.border },
 	live: { ...initial.live },
+	context: { ...initial.context },
 	glow: [...initial.glow],
 	diff: { truecolor: initial.diff.truecolor, basic: initial.diff.basic },
 }
@@ -41,6 +42,7 @@ export function applyPalette(name: ThemeName): void {
 	target.status = { ...palette.status }
 	target.border = { ...palette.border }
 	target.live = { ...palette.live }
+	target.context = { ...palette.context }
 	target.glow = [...palette.glow]
 	target.diff = { truecolor: palette.diff.truecolor, basic: palette.diff.basic }
 	activeName = name
@@ -74,7 +76,7 @@ export function diffColors(env: NodeJS.ProcessEnv = process.env): DiffColors {
 }
 
 /** The colour groups a row may name by token. */
-type RowTokenGroup = 'text' | 'accent' | 'status' | 'border'
+type RowTokenGroup = 'text' | 'accent' | 'status' | 'border' | 'context'
 
 /** A theme colour a row is allowed to carry, as `group.name` (`status.error`). */
 export type ThemeToken = {

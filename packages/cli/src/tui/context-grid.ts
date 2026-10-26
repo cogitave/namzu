@@ -13,6 +13,8 @@ import type {
 	ContextMessageBreakdown,
 } from '@namzu/sdk'
 
+import { tokenColor } from './theme.js'
+
 /** Glyphs. A full square, a partly filled one, free room, and the compaction buffer. */
 export const GLYPH_FULL = '⛁'
 export const GLYPH_PARTIAL = '⛀'
@@ -22,18 +24,21 @@ export const GLYPH_BUFFER = '⛝'
 /** A square this full or fuller is drawn as a full one. */
 export const FULL_SQUARE_FROM = 0.7
 
-/** Colours by category, as ANSI-256 indices the theme's own palette already uses. */
+/**
+ * Colours by category, as theme tokens. A token is looked up in the active
+ * palette when the row is drawn, so a theme change repaints the grid.
+ */
 export const CONTEXT_COLORS: Readonly<Record<ContextCategoryId, string>> = {
-	'system-prompt': 'ansi256(245)',
-	'system-tools': 'ansi256(248)',
-	'mcp-tools': 'ansi256(37)',
-	'mcp-instructions': 'ansi256(77)',
-	agents: 'ansi256(147)',
-	memory: 'ansi256(173)',
-	skills: 'ansi256(221)',
-	messages: 'ansi256(141)',
-	buffer: 'ansi256(245)',
-	free: 'ansi256(239)',
+	'system-prompt': tokenColor('context.systemPrompt'),
+	'system-tools': tokenColor('context.systemTools'),
+	'mcp-tools': tokenColor('context.mcpTools'),
+	'mcp-instructions': tokenColor('context.mcpInstructions'),
+	agents: tokenColor('context.agents'),
+	memory: tokenColor('context.memory'),
+	skills: tokenColor('context.skills'),
+	messages: tokenColor('context.messages'),
+	buffer: tokenColor('context.buffer'),
+	free: tokenColor('context.free'),
 }
 
 export interface GridCell {

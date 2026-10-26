@@ -93,6 +93,19 @@ export interface SemanticColors {
 		readonly ahead: string
 		readonly rgb?: { readonly done: Rgb; readonly edge: Rgb; readonly ahead: Rgb }
 	}
+	/** The `/context` grid and its legend: one colour for each category of the window. */
+	readonly context: {
+		readonly systemPrompt: string
+		readonly systemTools: string
+		readonly mcpTools: string
+		readonly mcpInstructions: string
+		readonly agents: string
+		readonly memory: string
+		readonly skills: string
+		readonly messages: string
+		readonly buffer: string
+		readonly free: string
+	}
 	/** The hypermode glow on the composer's rule: three steps, light to deep. */
 	readonly glow: readonly [string, string, string]
 	/** Diff row backgrounds: for a terminal with 24-bit colour, and for every other one. */
@@ -143,6 +156,18 @@ const DARK: SemanticColors = {
 		ahead: 'ansi256(245)',
 		rgb: { done: [85, 255, 85], edge: [255, 255, 255], ahead: [138, 138, 138] },
 	},
+	context: {
+		systemPrompt: 'ansi256(245)',
+		systemTools: 'ansi256(248)',
+		mcpTools: 'ansi256(37)',
+		mcpInstructions: 'ansi256(77)',
+		agents: 'ansi256(147)',
+		memory: 'ansi256(173)',
+		skills: 'ansi256(221)',
+		messages: 'ansi256(141)',
+		buffer: 'ansi256(245)',
+		free: 'ansi256(239)',
+	},
 	glow: ['ansi256(183)', 'ansi256(141)', 'ansi256(97)'],
 	diff: {
 		truecolor: {
@@ -183,6 +208,18 @@ const LIGHT: SemanticColors = {
 		ahead: 'ansi256(243)',
 		rgb: { done: [0, 135, 0], edge: [0, 0, 0], ahead: [118, 118, 118] },
 	},
+	context: {
+		systemPrompt: 'ansi256(243)',
+		systemTools: 'ansi256(240)',
+		mcpTools: 'ansi256(30)',
+		mcpInstructions: 'ansi256(28)',
+		agents: 'ansi256(97)',
+		memory: 'ansi256(130)',
+		skills: 'ansi256(136)',
+		messages: 'ansi256(91)',
+		buffer: 'ansi256(243)',
+		free: 'ansi256(250)',
+	},
 	glow: ['ansi256(97)', 'ansi256(91)', 'ansi256(55)'],
 	diff: {
 		truecolor: {
@@ -213,6 +250,18 @@ const DARK_DALTONIZED: SemanticColors = {
 		ahead: 'ansi256(245)',
 		rgb: { done: [95, 215, 255], edge: [255, 255, 255], ahead: [138, 138, 138] },
 	},
+	context: {
+		systemPrompt: 'ansi256(245)',
+		systemTools: 'ansi256(248)',
+		mcpTools: 'ansi256(37)',
+		mcpInstructions: 'ansi256(75)',
+		agents: 'ansi256(147)',
+		memory: 'ansi256(173)',
+		skills: 'ansi256(221)',
+		messages: 'ansi256(141)',
+		buffer: 'ansi256(245)',
+		free: 'ansi256(239)',
+	},
 	diff: {
 		truecolor: {
 			added: 'rgb(0,68,102)',
@@ -241,6 +290,18 @@ const LIGHT_DALTONIZED: SemanticColors = {
 		edge: 'ansi256(16)',
 		ahead: 'ansi256(243)',
 		rgb: { done: [0, 95, 175], edge: [0, 0, 0], ahead: [118, 118, 118] },
+	},
+	context: {
+		systemPrompt: 'ansi256(243)',
+		systemTools: 'ansi256(240)',
+		mcpTools: 'ansi256(30)',
+		mcpInstructions: 'ansi256(25)',
+		agents: 'ansi256(97)',
+		memory: 'ansi256(130)',
+		skills: 'ansi256(136)',
+		messages: 'ansi256(91)',
+		buffer: 'ansi256(243)',
+		free: 'ansi256(250)',
 	},
 	diff: {
 		truecolor: {
@@ -271,6 +332,18 @@ const DARK_ANSI: SemanticColors = {
 	status: { ok: 'green', warn: 'yellow', error: 'redBright', merged: 'magenta' },
 	border: { default: 'blackBright', focus: 'greenBright' },
 	live: { done: 'greenBright', edge: 'whiteBright', ahead: 'blackBright' },
+	context: {
+		systemPrompt: 'blackBright',
+		systemTools: 'white',
+		mcpTools: 'cyan',
+		mcpInstructions: 'blueBright',
+		agents: 'magentaBright',
+		memory: 'red',
+		skills: 'yellowBright',
+		messages: 'magenta',
+		buffer: 'blackBright',
+		free: 'blackBright',
+	},
 	glow: ['magentaBright', 'magenta', 'blackBright'],
 	diff: { truecolor: NAMED_DIFF, basic: NAMED_DIFF },
 }
@@ -291,6 +364,18 @@ const LIGHT_ANSI: SemanticColors = {
 	status: { ok: 'green', warn: 'yellow', error: 'red', merged: 'magenta' },
 	border: { default: 'blackBright', focus: 'green' },
 	live: { done: 'green', edge: 'black', ahead: 'blackBright' },
+	context: {
+		systemPrompt: 'blackBright',
+		systemTools: 'black',
+		mcpTools: 'cyan',
+		mcpInstructions: 'blue',
+		agents: 'magenta',
+		memory: 'red',
+		skills: 'yellow',
+		messages: 'green',
+		buffer: 'blackBright',
+		free: 'blackBright',
+	},
 	glow: ['magentaBright', 'magenta', 'blackBright'],
 	diff: { truecolor: NAMED_DIFF, basic: NAMED_DIFF },
 }

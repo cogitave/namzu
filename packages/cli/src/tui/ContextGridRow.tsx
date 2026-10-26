@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink'
 
 import { type ContextListGroup, type ContextView, formatTokens } from './context-grid.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 
 /** The tree under a list's title: `├` for each item but the last, `└` for the last. */
 function Group({ group }: { readonly group: ContextListGroup }) {
@@ -32,7 +32,7 @@ export function ContextGridRow({ view }: { readonly view: ContextView }) {
 						<Text key={rowIndex}>
 							{row.map((cell, cellIndex) => (
 								// biome-ignore lint/suspicious/noArrayIndexKey: grid cells have no identity beyond their place.
-								<Text key={cellIndex} color={cell.color} dimColor={cell.dim}>
+								<Text key={cellIndex} color={paint(cell.color)} dimColor={cell.dim}>
 									{`${cell.glyph} `}
 								</Text>
 							))}
@@ -48,7 +48,7 @@ export function ContextGridRow({ view }: { readonly view: ContextView }) {
 					</Text>
 					{view.legend.map((line) => (
 						<Text key={line.name}>
-							<Text color={line.color} dimColor={line.dimGlyph}>{`${line.glyph} `}</Text>
+							<Text color={paint(line.color)} dimColor={line.dimGlyph}>{`${line.glyph} `}</Text>
 							<Text dimColor={line.dimName}>{`${line.name}: `}</Text>
 							<Text dimColor>{line.value}</Text>
 						</Text>

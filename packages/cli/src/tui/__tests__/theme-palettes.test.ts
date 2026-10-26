@@ -44,6 +44,7 @@ function strings(colors: SemanticColors): string[] {
 		...Object.values(colors.accent),
 		...Object.values(colors.status),
 		...Object.values(colors.border),
+		...Object.values(colors.context),
 		colors.live.done,
 		colors.live.edge,
 		colors.live.ahead,
@@ -83,6 +84,7 @@ describe('palettes', () => {
 				accent: Object.keys(colors.accent),
 				status: Object.keys(colors.status),
 				border: Object.keys(colors.border),
+				context: Object.keys(colors.context),
 				diff: Object.keys(colors.diff.truecolor),
 			})
 		for (const name of THEME_NAMES) {
@@ -122,6 +124,33 @@ describe('palettes', () => {
 			for (const color of [status.ok, status.error, status.warn, accent.assistant, accent.system]) {
 				expect(contrastOnWhite(color), `${name} ${color}`).toBeGreaterThanOrEqual(3)
 			}
+		}
+	})
+
+	it('reads the context grid on white in the light themes', () => {
+		for (const name of ['light', 'light-daltonized'] as const) {
+			const { free, ...drawn } = PALETTES[name].context
+			for (const [key, color] of Object.entries(drawn)) {
+				expect(contrastOnWhite(color), `${name} ${key} ${color}`).toBeGreaterThanOrEqual(3)
+			}
+			expect(free).toMatch(/^ansi256\(\d+\)$/)
+		}
+	})
+
+	it('gives every context category its own colour in each theme except the quiet pair', () => {
+		for (const name of THEME_NAMES) {
+			const c = PALETTES[name].context
+			const loud = [
+				c.systemPrompt,
+				c.systemTools,
+				c.mcpTools,
+				c.mcpInstructions,
+				c.agents,
+				c.memory,
+				c.skills,
+				c.messages,
+			]
+			expect(new Set(loud).size, name).toBe(loud.length)
 		}
 	})
 
