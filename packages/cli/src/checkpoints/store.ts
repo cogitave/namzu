@@ -1273,17 +1273,25 @@ const CONFLICT_TEXT: Record<ConflictReason, string> = {
 	'outside-cwd': 'now resolves outside the project',
 }
 
-/** What `/restore N` prints. */
-export function renderRestore(report: RestoreReport, cwd: string): string {
+/**
+ * What `/restore N` prints. The rewind list numbers no turns, so its report
+ * names the prompt instead (`before: 'prompt'`).
+ */
+export function renderRestore(
+	report: RestoreReport,
+	cwd: string,
+	options: { readonly before?: 'turn' | 'prompt' } = {},
+): string {
 	const rel = (p: string) => relative(cwd, p) || p
 	const left = report.conflicts.length > 0 || report.failed.length > 0
 	const wrote = report.restored.length + report.removed.length > 0
+	const point = options.before === 'prompt' ? 'that prompt' : `turn ${report.turn}`
 	const lines = [
 		!left
-			? `Restored the tree to before turn ${report.turn}.`
+			? `Restored the tree to before ${point}.`
 			: wrote
-				? `Restored part of the tree to before turn ${report.turn}. Some files were left as they are.`
-				: `Nothing could be put back to before turn ${report.turn}. Every file was left as it is.`,
+				? `Restored part of the tree to before ${point}. Some files were left as they are.`
+				: `Nothing could be put back to before ${point}. Every file was left as it is.`,
 	]
 	for (const p of report.restored) lines.push(`  restored ${rel(p)}`)
 	for (const p of report.removed) lines.push(`  removed  ${rel(p)}`)

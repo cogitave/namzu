@@ -100,6 +100,17 @@ describe('the text of a failed tool call', () => {
 		expect(toolFailureText(text, false)).toBe('Invalid tool parameters')
 		expect(toolFailureText(text, true)).toBe(`Error: ${text}`)
 	})
+
+	it("folds the kernel's own argument check the same way", () => {
+		const text = 'Validation failed for "read": path: Required. Required: path: string'
+		expect(toolFailureText(text, false)).toBe('Invalid tool parameters')
+		expect(toolFailureText(text, true)).toBe(`Error: ${text}`)
+		const none = 'Tool "read" was called with no arguments. Required: path. Retry the call.'
+		expect(toolFailureText(none, false)).toBe('Invalid tool parameters')
+		expect(toolFailureText('Validation failed for the build', false)).toBe(
+			'Error: Validation failed for the build',
+		)
+	})
 })
 
 describe('a failed agent call in the conversation', () => {

@@ -25,7 +25,7 @@ import {
 	RESULT_GUTTER_INDENT,
 	RESULT_GUTTER_WIDTH,
 } from './system-rows.js'
-import { terminalDisplayText } from './terminal-display.js'
+import { expandTabs, terminalDisplayText } from './terminal-display.js'
 import { useThemeEpoch } from './theme-store.js'
 import { paint, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -464,7 +464,22 @@ const HINT_META = /^\(ctrl\+o[^)]*\)$/
 export function screenMessage(message: TranscriptMessage): TranscriptMessage {
 	const { meta, ...rest } = message
 	const keepMeta = meta !== undefined && !HINT_META.test(meta)
-	return { ...rest, ...(keepMeta ? { meta } : {}), detailExpanded: true }
+	// The screen clips its rows, and a clipped row drops the end of a line that
+	// holds a tab (a numbered file excerpt), so tabs become spaces first.
+	const detail = rest.detail?.map(expandTabs)
+	const shell = rest.shell && {
+		...rest.shell,
+		stdout: rest.shell.stdout.map(expandTabs),
+		stderr: rest.shell.stderr.map(expandTabs),
+		...(rest.shell.folded ? { folded: rest.shell.folded.map(expandTabs) } : {}),
+	}
+	return {
+		...rest,
+		...(detail ? { detail } : {}),
+		...(shell ? { shell } : {}),
+		...(keepMeta ? { meta } : {}),
+		detailExpanded: true,
+	}
 }
 
 /** One row of the detailed transcript screen. */

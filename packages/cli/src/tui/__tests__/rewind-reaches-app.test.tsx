@@ -339,7 +339,7 @@ it('Restore code puts the files back and leaves the conversation alone', async (
 	harness.stdin.write(DOWN)
 	await tick()
 	harness.stdin.write('\r')
-	await frameShows(harness, 'Restored the tree to before turn 1')
+	await frameShows(harness, 'Restored the tree to before that prompt')
 	expect(await readFile(target, 'utf8')).toBe('one\n')
 	expect(forkCalls).toEqual([])
 	expect(durable.get(SOURCE)).toEqual(sourceBefore)
@@ -351,7 +351,7 @@ it('Restore code and conversation restores the files first, then forks', async (
 	await openOptions(harness, 1)
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Forked into "Source conversation (fork)"')
-	await frameShows(harness, 'Restored the tree to before turn 1')
+	await frameShows(harness, 'Restored the tree to before that prompt')
 	expect(fileAtFork).toBe('one\n')
 	expect(forkCalls).toHaveLength(1)
 	expect(forkCalls[0]).toMatchObject({ sourceId: SOURCE, userOrdinal: 1 })
@@ -368,6 +368,9 @@ it('Restore conversation forks and leaves the files alone', async () => {
 	await tick()
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Forked into "Source conversation (fork)"')
+	// The notice names no conversation id: the original is simply "the original".
+	await frameShows(harness, 'the original is unchanged and remains in /resume')
+	expect(harness.lastFrame() ?? '').not.toContain(SOURCE)
 	expect(await readFile(target, 'utf8')).toBe('two\nthree\n')
 })
 

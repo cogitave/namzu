@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { Composer, ESC_CLEAR_WINDOW_MS } from '../Composer.js'
+import { Composer, ESC_CLEAR_NOTICE_MS, ESC_CLEAR_WINDOW_MS } from '../Composer.js'
 import type { Notice } from '../notifications.js'
 
 const mounted: { unmount: () => void }[] = []
@@ -45,7 +45,7 @@ describe('Esc on a typed draft', () => {
 			key: 'escape-again-to-clear',
 			text: 'Esc again to clear',
 			priority: 'immediate',
-			timeoutMs: ESC_CLEAR_WINDOW_MS,
+			timeoutMs: 1000,
 		})
 	})
 
@@ -108,6 +108,11 @@ describe('Esc on a typed draft', () => {
 		expect(h.lastFrame()).toContain('half a thought')
 		expect(h.notices).toHaveLength(2)
 		expect(h.removed).toEqual([])
+	})
+
+	it('keeps the notice a fifth of a second longer than the window that clears', () => {
+		expect(ESC_CLEAR_WINDOW_MS).toBe(800)
+		expect(ESC_CLEAR_NOTICE_MS - ESC_CLEAR_WINDOW_MS).toBe(200)
 	})
 
 	it('leaves Esc to a running turn', async () => {

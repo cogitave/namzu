@@ -45,8 +45,13 @@ export function RewindPicker(props: RewindPickerProps) {
 	const terminal = useWindowSize()
 	const hints = fitHints(
 		[
-			{ text: 'enter continue', short: 'enter', rank: 5 },
-			{ text: 'esc cancel', short: 'esc', rank: 5 },
+			// On the list Enter goes on to the options; on the options it does the thing.
+			state.stage === 'list'
+				? { text: 'enter continue', short: 'enter', rank: 5 }
+				: { text: 'enter choose', short: 'enter', rank: 5 },
+			state.stage === 'list'
+				? { text: 'esc cancel', short: 'esc', rank: 5 }
+				: { text: 'esc back', short: 'esc', rank: 5 },
 		],
 		boxedHintWidth(terminal.columns),
 	)

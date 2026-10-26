@@ -7575,7 +7575,7 @@ function AppBody({
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Forked into "${displayConversationTitle(forked.title)}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
+					`Forked into "${displayConversationTitle(forked.title)}" before the selected prompt. Edit it below; the original is unchanged and remains in /resume.`,
 				)
 			} finally {
 				editCommittedRef.current = false
@@ -7725,7 +7725,7 @@ function AppBody({
 				}
 				const announce = () => {
 					if (!report) return
-					pushMessage('system', renderRestore(report, ctxRef.current.cwd))
+					pushMessage('system', renderRestore(report, ctxRef.current.cwd, { before: 'prompt' }))
 					// The model's picture of those files is now wrong; it reads
 					// this before its next turn.
 					operatorShellRef.current.push(renderRestoreNote(report, ctxRef.current.cwd))
