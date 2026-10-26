@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	SessionEvidenceOffsetError,
 	type SessionId,
 	type SessionTextEvidenceMatch,
 	type SessionTextEvidenceReadResult,
@@ -449,6 +450,94 @@ describe('a read that cannot continue as asked says what to do next', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/could not be read or verified.*search_conversation again/)
 		expect(result.error).not.toMatch(/owner|FOREIGN/)
+	})
+
+	it('recovers only from the reader\u2019s own offset answer, never from an integrity refusal', async () => {
+		const f = await fixture('0123456789')
+		const log = vi.fn()
+		f.read.mockRejectedValue(new Error('Recorded tool evidence changed.'))
+		const context = { ...(contextFor(f) as object), log } as never
+
+		const result = await toolFor(f).execute({ seq: 2, byteOffset: 5 }, context)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/could not be read or verified/)
+		expect(result.error).not.toMatch(/Recorded tool evidence/)
+		expect(f.read).toHaveBeenCalledTimes(1)
+		expect(log).toHaveBeenCalledWith(
+			'warn',
+			expect.stringContaining('Recorded tool evidence changed'),
+		)
+	})
+
+	it('charges every probe of a snapped read once', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) => {
+			if (options.byteOffset === 5)
+				throw new SessionEvidenceOffsetError('inside_character', 'splits', 10, 40)
+			return {
+				...f.readPage,
+				text: '456789',
+				byteOffset: options.byteOffset ?? 0,
+				characterOffset: 4,
+				scannedBytes: 100,
+			}
+		})
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 5 },
+			undefined,
+			f.active,
+		)
+
+		expect(f.read.mock.calls.map(([options]) => options.byteOffset)).toEqual([5, 4])
+		// The lookup search costs 100, the refused probe 40, the kept read 100.
+		expect(page.scannedBytes).toBe(240)
+	})
+
+	it('charges a past-end answer once, not twice', async () => {
+		const f = await fixture('0123456789')
+		f.read.mockImplementation(async (options) => {
+			if (options.byteOffset === 50)
+				throw new SessionEvidenceOffsetError('past_end', 'past', 10, 30)
+			return { ...f.readPage, byteOffset: options.byteOffset ?? 0, scannedBytes: 100 }
+		})
+
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, byteOffset: 50 },
+			undefined,
+			f.active,
+		)
+
+		expect(page).toMatchObject({ text: '', complete: true, scannedBytes: 230 })
+		expect(page.note).toMatch(/past the end of this record \(10 bytes\)/)
+	})
+
+	it('says earlier pages repeat when an expired cursor restarts a read', async () => {
+		const f = await fixture('0123456789')
+		const page = await readConversationEvidence(
+			f.sessions,
+			f.sessionId,
+			{ seq: 2, cursor: 'f'.repeat(48) },
+			undefined,
+			f.active,
+		)
+
+		expect(page.note).toMatch(/expired.*earlier pages repeats.*nextCursor continues/)
+	})
+
+	it('names the highest retained seq for a seq far past the end on the live backend too', async () => {
+		const f = await fixture('0123456789')
+		f.search.mockResolvedValue(f.page(null))
+
+		const result = await toolFor(f).execute({ seq: 99999 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/seq 99999 is past the end.*highest retained seq is \d+/)
 	})
 
 	it('does not retry a later page of a read with another offset', async () => {

@@ -4,7 +4,9 @@ import {
 	EVIDENCE_RECORD_GUIDANCE,
 	type EvidenceRecordKind,
 	type SessionEvidenceScope,
+	SessionEvidenceOffsetError,
 	type SessionId,
+	type SessionTextEvidenceReadResult,
 	type SessionTextEvidenceSource,
 	type ToolContext,
 	type ToolDefinition,
@@ -691,6 +693,20 @@ const UNREADABLE =
 /** Longest UTF-8 character is four bytes, so a split offset is at most three bytes in. */
 const MAX_SPLIT_BYTES = 3
 
+/** The highest seq the durable log holds, whichever backend serves the read. */
+async function newestSeq(
+	sessions: ConversationContext,
+	sessionId: SessionId,
+	signal?: AbortSignal,
+): Promise<number | undefined> {
+	try {
+		return (await openConversationLog(sessions, sessionId).head())?.pointer.seq
+	} catch {
+		signal?.throwIfAborted()
+		return undefined
+	}
+}
+
 /**
  * Say why a record could not be found, and what to do next. Only reports facts
  * about this conversation: its newest seq, and the parts that do hold text.
@@ -704,14 +720,7 @@ async function explainMissingRecord(
 	remainingBytes: number,
 	signal?: AbortSignal,
 ): Promise<never> {
-	let newest: number | undefined
-	if (opened.backend === 'log') {
-		try {
-			newest = (await openConversationLog(sessions, sessionId).head())?.pointer.seq
-		} catch {
-			signal?.throwIfAborted()
-		}
-	}
+	const newest = await newestSeq(sessions, sessionId, signal)
 	if (newest !== undefined && seq > newest)
 		throw new ConversationReadError(
 			`The requested record has no retained textual part: seq ${seq} is past the end of this conversation, whose highest retained seq is ${newest}. Use search_conversation to find a seq that holds the text.`,
@@ -773,7 +782,7 @@ export async function readConversationEvidence(
 			notes.push(
 				`The cursor had expired, so reading restarted at ${
 					wantedOffset ? `byteOffset ${wantedOffset} of` : 'the start of'
-				} seq ${input.seq} part ${part}.`,
+				} seq ${input.seq} part ${part}: text from earlier pages repeats here, and this page's nextCursor continues from this page.`,
 			)
 		}
 	}
@@ -820,6 +829,24 @@ export async function readConversationEvidence(
 		expires: Date.now() + CURSOR_TTL_MS,
 	}
 	let lookupPages = 0
+	// A seq beyond the log's end is answered at once. Scanning the log for it would
+	// only end in an empty page and a cursor, which is a dead end for a record
+	// that cannot exist.
+	// The live capture can hold a record the log has not yet flushed, so only the
+	// log backend is answered ahead of its scan.
+	if (!state.address && !state.lookupCursor && state.backend === 'log') {
+		const newest = await newestSeq(sessions, sessionId, signal)
+		if (newest !== undefined && input.seq > newest)
+			return explainMissingRecord(
+				sessions,
+				sessionId,
+				{ ...opened, backend: state.backend },
+				input.seq,
+				part,
+				SCAN_BYTES,
+				signal,
+			)
+	}
 	while (!state.address) {
 		signal?.throwIfAborted()
 		const previous = state.lookupCursor
@@ -877,21 +904,32 @@ export async function readConversationEvidence(
 			})
 	}
 	const address = state.address
+	// Every read this call makes is charged, whether it is kept or only probed.
 	const readAt = async (offset: number) => {
 		const remaining = SCAN_BYTES - result.scannedBytes
-		const read = await opened.source.read(
-			{ address, byteOffset: offset, maxReadBytes: remaining },
-			signal,
-		)
+		let read: SessionTextEvidenceReadResult
+		try {
+			read = await opened.source.read(
+				{ address, byteOffset: offset, maxReadBytes: remaining },
+				signal,
+			)
+		} catch (error) {
+			if (error instanceof SessionEvidenceOffsetError) result.scannedBytes += error.scannedBytes
+			throw error
+		}
 		assertEvidenceReadPage(read, opened.owner, remaining, offset, signal)
 		if (read.seq !== input.seq || read.part !== part)
 			throw new ConversationReadError(
 				'The record at this address no longer matches the requested seq and part, so nothing was read. Run search_conversation again for a fresh seq and part.',
 			)
+		result.scannedBytes += read.scannedBytes
 		return read
 	}
 	// Only the first page of a read can be given an offset the record rejects; a
-	// later page's offset is one the reader itself handed back.
+	// later page's offset is one the reader itself handed back. Only the reader's
+	// own "this offset is not a place the text can start" answer is recovered
+	// from: an integrity or ownership refusal is not about the offset, so it
+	// surfaces as the refusal it is.
 	const firstPage = state.readOffset === undefined
 	const wanted = state.byteOffset ?? 0
 	let readFrom = wanted
@@ -900,21 +938,13 @@ export async function readConversationEvidence(
 		page = await readAt(wanted)
 	} catch (error) {
 		signal?.throwIfAborted()
-		if (error instanceof ConversationReadError) throw error
-		if (!firstPage || wanted === 0) throw error
-		// The offset is the likely culprit: find out how long the record is, then
-		// step back to the start of the character it falls inside.
-		let start: Awaited<ReturnType<typeof readAt>>
-		try {
-			start = await readAt(0)
-		} catch {
-			signal?.throwIfAborted()
-			throw error
-		}
-		result.scannedBytes += start.scannedBytes
-		if (wanted > start.totalBytes) {
+		if (!(error instanceof SessionEvidenceOffsetError) || !firstPage || wanted === 0) throw error
+		if (error.code === 'past_end') {
+			const start = await readAt(0)
 			notes.push(
-				`byteOffset ${wanted} is past the end of this record (${start.totalBytes} bytes), so there is nothing left to read.`,
+				`byteOffset ${wanted} is past the end of this record (${start.totalBytes} bytes${
+					start.totalChars === undefined ? '' : `, ${start.totalChars} characters`
+				}), so there is nothing left to read. Use an offset below ${start.totalBytes}, or omit it to read from the start.`,
 			)
 			page = {
 				...start,
@@ -923,8 +953,8 @@ export async function readConversationEvidence(
 				nextByteOffset: null,
 				characterOffset: start.totalChars,
 			}
-			readFrom = wanted
 		} else {
+			// The offset falls inside a character: it starts at most three bytes earlier.
 			let snapped: typeof page | undefined
 			for (let back = 1; back <= MAX_SPLIT_BYTES && wanted - back >= 0 && !snapped; back++) {
 				try {
@@ -932,7 +962,8 @@ export async function readConversationEvidence(
 					readFrom = wanted - back
 				} catch (inner) {
 					signal?.throwIfAborted()
-					if (inner instanceof ConversationReadError) throw inner
+					if (!(inner instanceof SessionEvidenceOffsetError) || inner.code !== 'inside_character')
+						throw inner
 				}
 			}
 			if (snapped) {
@@ -941,7 +972,7 @@ export async function readConversationEvidence(
 					`byteOffset ${wanted} falls inside a character, so reading began at that character, byteOffset ${readFrom}.`,
 				)
 			} else {
-				page = start
+				page = await readAt(0)
 				readFrom = 0
 				notes.push(
 					`byteOffset ${wanted} is not a position in this record; reading began at the start.`,
@@ -950,12 +981,7 @@ export async function readConversationEvidence(
 		}
 	}
 	if (firstPage && readFrom > 0 && page.characterOffset === undefined && page.text.length) {
-		try {
-			page = await readAt(0)
-		} catch (error) {
-			signal?.throwIfAborted()
-			throw error
-		}
+		page = await readAt(0)
 		readFrom = 0
 		notes.push(
 			`This record has no character index, so byteOffset ${wanted} was ignored and reading began at the start.`,
@@ -963,7 +989,6 @@ export async function readConversationEvidence(
 	}
 	if (firstPage && wanted > 0 && page.text === '' && page.nextByteOffset === null && !notes.length)
 		notes.push('byteOffset is at the end of this record; there is nothing left to read.')
-	result.scannedBytes += page.scannedBytes
 	result.text = page.text
 	result.source = page.source
 	result.recordKind = classifyEvidenceSource(page.source)
@@ -978,7 +1003,15 @@ export async function readConversationEvidence(
 	if (notes.length) result.note = notes.join(' ')
 	state.byteOffset = page.nextByteOffset ?? undefined
 	state.readOffset = result.offset + page.text.length
-	if (!result.complete) result.nextCursor = encodeCursor(state)
+	if (!result.complete) {
+		result.nextCursor = encodeCursor(state)
+		notes.push(
+			`This is part of the record. To continue, call read_conversation with seq ${input.seq}, part ${part}${
+				wantedOffset === undefined ? '' : `, byteOffset ${wantedOffset}`
+			} and cursor set to nextCursor.`,
+		)
+		result.note = notes.join(' ')
+	}
 	return result
 }
 
@@ -1027,6 +1060,13 @@ export function buildConversationReadTool(
 				}
 			} catch (error) {
 				context.abortSignal?.throwIfAborted()
+				if (!(error instanceof ConversationReadError))
+					context.log?.(
+						'warn',
+						`read_conversation could not read the retained text: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+					)
 				return {
 					success: false,
 					output: '',

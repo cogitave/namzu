@@ -1639,6 +1639,7 @@ export {
 	createSessionEvidenceSource,
 	createSessionTextEvidenceSource,
 } from './store/evidence/disk.js'
+export { SessionEvidenceOffsetError } from './store/evidence/source-text.js'
 export {
 	classifyEvidenceSource,
 	EVIDENCE_RECORD_GUIDANCE,

@@ -127,12 +127,16 @@ describe('read_conversation over a real recorded log', () => {
 		expect(r.page.offset).toBe(TEXT.indexOf(r.page.text.slice(0, 2)))
 	})
 
-	it('reads an exact character boundary with no note', async () => {
+	it('reads an exact character boundary with no adjustment note, naming the next call', async () => {
 		const f = await conversation()
 
 		const r = await f.call({ seq: f.seq, part: f.part, byteOffset: CJK })
 
-		expect(r.page.note).toBeUndefined()
+		expect(r.page.note).not.toMatch(/inside a character|ignored|past the end/)
+		expect(r.page.complete).toBe(false)
+		expect(r.page.note).toContain(`call read_conversation with seq ${f.seq}, part ${f.part}`)
+		expect(r.page.note).toContain(`byteOffset ${CJK}`)
+		expect(r.page.note).toContain('nextCursor')
 		expect(r.page.text.startsWith('日')).toBe(true)
 	})
 
@@ -260,6 +264,18 @@ async function grow(f: Awaited<ReturnType<typeof conversation>>, times = 1) {
 	for (let i = 0; i < times; i++)
 		await recordTurn(f.sessions, f.sessionId, [createUserMessage(`later question ${i}`)])
 }
+
+describe('a seq far past the end of a recorded log', () => {
+	it('is answered with the highest retained seq, not an empty page and a cursor', async () => {
+		const f = await conversation()
+
+		const r = await f.call({ seq: 99999 })
+
+		expect(r.ok).toBe(false)
+		expect(r.error).toMatch(/seq 99999 is past the end.*highest retained seq is \d+/)
+		expect(r.error).toMatch(/search_conversation/)
+	})
+})
 
 describe('read_conversation after the log has grown', () => {
 	it('reads the match a search just returned, at its byteOffset, once more was recorded', async () => {

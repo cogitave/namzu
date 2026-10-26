@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
 import { createSessionEvidenceSource, createSessionTextEvidenceSource } from '../disk.js'
 import { EVIDENCE_CHUNK_BYTES, digest } from '../format.js'
+import { SessionEvidenceOffsetError } from '../source-text.js'
 import type { SessionEvidenceSearchResult, SessionTextEvidenceSearchResult } from '../types.js'
 import { evidenceSession } from './support/session-log.js'
 
@@ -606,6 +607,26 @@ describe('bounded retained tool evidence', () => {
 		expect(await fresh.read({ address })).toMatchObject({ text: found.matches[0]!.excerpt })
 		const next = await fresh.search({ query: 'ordinary', limit: 1, cursor })
 		expect(next.matches).toHaveLength(1)
+	})
+
+	it('names a bad read offset by kind, so a caller can tell it from a refusal', async () => {
+		const f = await fixture([{ text: 'a日b' }])
+		const source = createSessionTextEvidenceSource(f)
+		const address = (await source.search({ query: 'a' })).matches[0]!.address
+
+		await expect(source.read({ address, byteOffset: 2 })).rejects.toMatchObject({
+			name: 'SessionEvidenceOffsetError',
+			code: 'inside_character',
+			totalBytes: 5,
+		})
+		await expect(source.read({ address, byteOffset: 6 })).rejects.toMatchObject({
+			code: 'past_end',
+			totalBytes: 5,
+		})
+		await expect(source.read({ address, byteOffset: 1 })).resolves.toMatchObject({ text: '日b' })
+		await expect(source.read({ address: `x${address}` })).rejects.not.toBeInstanceOf(
+			SessionEvidenceOffsetError,
+		)
 	})
 
 	it('refuses altered cursors, symlinks, torn records and cancellation', async () => {

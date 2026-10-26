@@ -110,8 +110,9 @@ export interface EvidenceAnchor {
  * session log, or one turn of it. Closed by default (no active turn in scope);
  * snapshot mode also reads a session whose turn is running, without assuming
  * its writer is dead. The host owns authorization and the log's directory.
- * Changes to the log invalidate addresses; record and chunk digests detect
- * changed bytes. This is not a hostile filesystem sandbox.
+ * An address names a record by offset, length and digest and survives appends
+ * to the log; a replaced or rewritten log is refused and record and chunk
+ * digests detect changed bytes. This is not a hostile filesystem sandbox.
  */
 export function createSessionTextEvidenceSource(
 	options: SessionEvidenceSourceOptions,
