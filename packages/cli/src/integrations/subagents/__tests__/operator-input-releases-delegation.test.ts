@@ -185,7 +185,13 @@ describe('operator input releases delegation waits without cancelling children',
 				inbox.enqueue('Are the agents working?')
 				const firstResponse = await requests[1]!.promise
 				expect(operatorText(firstResponse.messages)).toBe('Are the agents working?')
+				// The turn's data block sits in front of the operator's message, so the
+				// request is the last thing the model reads.
 				expect(firstResponse.messages.at(-1)).toMatchObject({
+					role: 'user',
+					content: 'Are the agents working?',
+				})
+				expect(firstResponse.messages.at(-2)).toMatchObject({
 					role: 'user',
 					source: { type: 'runtime-context', kind: 'step-context' },
 				})
