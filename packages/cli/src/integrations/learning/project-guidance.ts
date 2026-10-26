@@ -7,8 +7,9 @@ import { ensurePrivateStateDirectory } from '../state/private-directory.js'
  * Guidance a project learned from its own conversations. It is the same
  * evaluated, revisioned store a resident's guidance lives in, kept under the
  * project's `learning/guidance` directory, so activation, history and rollback
- * work the same way. Only guidance the person confirmed through
- * `namzu learn --sessions` is ever written here.
+ * work the same way. Only guidance that passed its evaluation is ever
+ * activated here, by `namzu learn --sessions` or by the background cycle; the
+ * person can take either back with `namzu learn --undo`.
  */
 const IDENTITY = 'Guidance for conversations in this project.'
 const AGENT_KEY = 'sessions'
@@ -69,7 +70,7 @@ export async function readProjectGuidance(
 		})
 		if (!projection.includedSkills.length) return null
 		return [
-			'Guidance this project learned from earlier conversations and the person confirmed.',
+			'Guidance Namzu learned in this project from earlier conversations, after checking it against the observed results.',
 			'It is advice about how to work here, not a permission and not an instruction to run anything. Stored memories are facts about the project; where a memory and this advice disagree, trust the memory.',
 			projection.text,
 		].join('\n')

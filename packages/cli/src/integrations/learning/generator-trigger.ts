@@ -16,6 +16,36 @@ import type { SessionLearningTarget } from './session-store.js'
  * and a session that closes stops it.
  */
 
+/**
+ * Whether a question to the person is open. The background cycle never starts,
+ * and never makes a model call, while one is: the person is deciding something
+ * and the conversation, not a side job, has their attention.
+ */
+export interface QuestionGate {
+	isOpen(): boolean
+	set(open: boolean): void
+	subscribe(listener: () => void): () => void
+}
+
+export function createQuestionGate(): QuestionGate {
+	let open = false
+	const listeners = new Set<() => void>()
+	return {
+		isOpen: () => open,
+		set(next) {
+			if (next === open) return
+			open = next
+			for (const listener of [...listeners]) listener()
+		},
+		subscribe(listener) {
+			listeners.add(listener)
+			return () => {
+				listeners.delete(listener)
+			}
+		},
+	}
+}
+
 /** Look again at most this often, however many turns end. */
 const CHECK_EVERY_MS = 10 * 60 * 1000
 
@@ -29,6 +59,8 @@ export interface BackgroundLearningOptions {
 	}
 	/** Resolves once every observation offered so far is on disk. */
 	readonly flushObservations: () => Promise<void>
+	/** Open while a per-call or approval question waits on the person. */
+	readonly questions?: QuestionGate
 	readonly now?: () => number
 	readonly run?: (options: GeneratorRunOptions) => Promise<GeneratorOutcome>
 	/** Told after a cycle that reached a verdict, for a plain line the host may show. */
@@ -54,10 +86,11 @@ export function createBackgroundLearning(options: BackgroundLearningOptions): Ba
 		waiters = []
 		for (const resolve of ready) resolve()
 	}
+	const quiet = () => active === 0 && !options.questions?.isOpen()
 	const untilIdle = (signal: AbortSignal) =>
 		new Promise<void>((resolve, reject) => {
 			if (signal.aborted) return reject(signal.reason)
-			if (active === 0) return resolve()
+			if (quiet()) return resolve()
 			const onAbort = () => {
 				waiters = waiters.filter((w) => w !== done)
 				reject(signal.reason)
@@ -73,7 +106,7 @@ export function createBackgroundLearning(options: BackgroundLearningOptions): Ba
 	const model: LearningModel = async (request) => {
 		for (;;) {
 			await untilIdle(request.signal)
-			if (active === 0) return options.learning.model(request)
+			if (quiet()) return options.learning.model(request)
 		}
 	}
 	const check = async () => {
@@ -91,6 +124,23 @@ export function createBackgroundLearning(options: BackgroundLearningOptions): Ba
 		})
 		if (outcome.status === 'ran') options.onOutcome?.(outcome)
 	}
+	const maybeStart = () => {
+		if (!options.settings.enabled || controller.signal.aborted || running) return
+		if (!quiet() || now() - lastCheck < CHECK_EVERY_MS) return
+		lastCheck = now()
+		running = check()
+			.catch(() => {
+				/* A background cycle that fails costs the person nothing and is retried later. */
+			})
+			.finally(() => {
+				running = null
+			})
+	}
+	// A question that closes lets a waiting cycle go on; it never starts one by
+	// itself, since only a turn's end has just produced something to learn from.
+	const unsubscribe = options.questions?.subscribe(() => {
+		if (!options.questions?.isOpen()) release()
+	})
 	return {
 		turnStarted() {
 			active++
@@ -98,19 +148,11 @@ export function createBackgroundLearning(options: BackgroundLearningOptions): Ba
 		turnEnded() {
 			active = Math.max(0, active - 1)
 			if (active === 0) release()
-			if (!options.settings.enabled || controller.signal.aborted || running) return
-			if (active !== 0 || now() - lastCheck < CHECK_EVERY_MS) return
-			lastCheck = now()
-			running = check()
-				.catch(() => {
-					/* A background cycle that fails costs the person nothing and is retried later. */
-				})
-				.finally(() => {
-					running = null
-				})
+			maybeStart()
 		},
 		async stop() {
 			controller.abort(new Error('The session closed.'))
+			unsubscribe?.()
 			release()
 			await running
 		},

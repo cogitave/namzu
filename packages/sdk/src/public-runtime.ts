@@ -1473,6 +1473,8 @@ export {
 } from './runtime/query/auto-review/index.js'
 // What the model is told when a person declines a call without words of their own.
 export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
+// Whether a tool result answers a call the review did not let run, so a host counting failures can leave it out.
+export { isReviewRefusalResult } from './runtime/query/iteration/phases/per-call-review.js'
 
 // The system prompt is open: a contribution registry the assembler
 // consumes, with skills as its first contributor. See `prompt/contributions.ts`.

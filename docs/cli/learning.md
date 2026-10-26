@@ -46,7 +46,9 @@ still an agent's saved guidance, so both need an agent in the folder
 
 When a conversation sees one of these, it writes an observation:
 
-- a tool call that failed (not one you declined or cancelled),
+- a tool call that failed (not one you declined or cancelled, and not a call the
+  per-call question never let run: your No, or a call that went with the turn
+  your No ended),
 - a provider error or a failed turn,
 - a turn that paused or stopped before it finished,
 - a recovery: the provider failed a request and the turn asked again, a reply
@@ -106,7 +108,9 @@ folder's kept observations. A cycle starts when at least 5 new ones have
 accumulated since the last cycle, at least 6 hours have passed since the last
 cycle started, and today's token allowance is not used up. The check runs at
 most every 10 minutes. Every model call waits for an idle conversation, so a
-cycle never competes with your own turn, and closing the session stops it.
+cycle never competes with your own turn, and closing the session stops it. While
+a question about a tool call (or any approval) waits on you, no cycle starts and
+no model call is made; the cycle goes on once the question closes.
 Only one cycle runs per folder at a time.
 
 **What it does.** One cycle makes one revision of the folder's guidance

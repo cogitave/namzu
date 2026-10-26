@@ -89,6 +89,10 @@ import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '..
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
+	type QuestionGate,
+	createQuestionGate,
+} from '../integrations/learning/generator-trigger.js'
+import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
 	writeTerminalNotification,
@@ -2510,6 +2514,10 @@ function AppBody({
 	}
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
+	/** Open while any question waits on the person; the background learning cycle reads it. */
+	const learningQuestionsRef = useRef<QuestionGate | null>(null)
+	if (learningQuestionsRef.current === null) learningQuestionsRef.current = createQuestionGate()
+	const learningQuestions = learningQuestionsRef.current
 	/** The questions waiting on the person, one on screen at a time. */
 	const permissionAsksRef = useRef<AskQueue<PendingPermission> | null>(null)
 	if (permissionAsksRef.current === null) {
@@ -2535,7 +2543,11 @@ function AppBody({
 					setState((current) => (current === 'awaiting-permission' ? 'thinking' : current))
 				}
 			},
-			() => setPermissionCount(permissionAsksRef.current?.count()),
+			() => {
+				setPermissionCount(permissionAsksRef.current?.count())
+				// The background learning cycle holds still while any question is open.
+				learningQuestions.set((permissionAsksRef.current?.open ?? 0) > 0)
+			},
 		)
 	}
 	const permissionAsks = permissionAsksRef.current
@@ -5378,6 +5390,7 @@ function AppBody({
 							// config key turned it off.
 							backgroundLearning: {
 								config: activeCtx.learningGenerator,
+								questions: learningQuestions,
 								// One dim row when a revision was activated; the cycle never
 								// asks, and the row names how to undo it.
 								// Held until no turn is streaming, so the row never lands mid-turn.

@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	DECLINED_TOOL_CALL_FEEDBACK,
 	type ProjectId,
 	SessionPaths,
 	SqliteLearningStore,
@@ -108,6 +109,37 @@ describe('session learning feed', () => {
 		feed.observe({ kind: 'paused', turnId: TURN, reason: 'needs approval' })
 		await feed.flush()
 		expect(await reader().observations()).toEqual([])
+	})
+
+	it('does not record a call the review refused, with or without words, as a failed tool', async () => {
+		const { feed, reader } = setup()
+		const refused = [
+			DECLINED_TOOL_CALL_FEEDBACK,
+			'An earlier call in this batch was refused and the turn was stopped, so this call was not run. Wait for the user.',
+			'No answer was given for this call, so it was not run. Ask again if it is still needed.',
+		]
+		for (const reason of refused) {
+			feed.observe({
+				kind: 'tool-end',
+				turnId: TURN,
+				toolName: 'bash',
+				isError: true,
+				summary: 'x',
+				output: `Error: Tool "bash" was not executed. ${reason}`,
+			})
+		}
+		// A call that ran and failed is still one.
+		feed.observe({
+			kind: 'tool-end',
+			turnId: TURN,
+			toolName: 'bash',
+			isError: true,
+			summary: 'x',
+			output: 'Error: exit 2',
+		})
+		await feed.flush()
+		const rows = await reader().observations()
+		expect(rows.map((r) => r.evaluatorRevision)).toEqual(['tool-failure-v1'])
 	})
 
 	it('records unrecovered stops, pauses and provider errors, and nothing for success', async () => {

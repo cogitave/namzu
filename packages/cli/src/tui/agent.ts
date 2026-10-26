@@ -273,6 +273,7 @@ import {
 	resolveGeneratorSettings,
 } from '../integrations/learning/generator-settings.js'
 import {
+	type QuestionGate,
 	createBackgroundLearning,
 	withBackgroundLearning,
 } from '../integrations/learning/generator-trigger.js'
@@ -2242,6 +2243,8 @@ export interface AgentSessionOptions {
 		readonly config: LearningGeneratorConfig | undefined
 		/** One plain line, told once per activated revision, for the host to show. */
 		readonly onLearned?: (line: string) => void
+		/** Open while a question waits on the person; the cycle holds still meanwhile. */
+		readonly questions?: QuestionGate
 	}
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
@@ -2582,7 +2585,9 @@ export async function createAgentSession(
 					sessionId: String(scope.sessionId),
 				})
 			: undefined
-	// Guidance the person confirmed through `namzu learn --sessions`, read once.
+	// Guidance this project activated (by `namzu learn --sessions` or the background
+	// cycle), read once so the text is the same on every turn of the session. It rides
+	// the per-turn `context` placement: an observation to weigh, never system authority.
 	const projectGuidance = options.ephemeral
 		? null
 		: await readProjectGuidance(paths, readIdentity(paths.home)?.tenantId ?? scope.tenantId)
@@ -6111,6 +6116,7 @@ export async function createAgentSession(
 			settings: generator,
 			openTarget: () => openLearningTarget(paths, tenantId, projectId),
 			learning,
+			...(background.questions ? { questions: background.questions } : {}),
 			flushObservations: () => learningFeed.flush(),
 			onOutcome: (outcome) => {
 				const line = describeLearned(outcome)

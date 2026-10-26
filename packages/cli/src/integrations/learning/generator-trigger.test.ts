@@ -5,6 +5,7 @@ import { resolveGeneratorSettings } from './generator-settings.js'
 import {
 	type BackgroundLearningOptions,
 	createBackgroundLearning,
+	createQuestionGate,
 	withBackgroundLearning,
 } from './generator-trigger.js'
 import type { SessionLearningTarget } from './session-store.js'
@@ -284,5 +285,59 @@ describe('withBackgroundLearning', () => {
 		await watched.close()
 		expect(calls).toEqual(['stop'])
 		expect(log).toEqual(['close'])
+	})
+})
+
+describe('background learning and open questions', () => {
+	it('does not start a cycle while a question waits on the person', async () => {
+		const questions = createQuestionGate()
+		const { bg, runs, advance } = setup({ questions })
+		questions.set(true)
+		bg.turnStarted()
+		bg.turnEnded()
+		expect(runs).toHaveLength(0)
+		questions.set(false)
+		advance(11 * 60 * 1000)
+		bg.turnStarted()
+		bg.turnEnded()
+		await idle(bg)
+		expect(runs).toHaveLength(1)
+	})
+
+	it('holds a running cycle before its next model call until the question closes', async () => {
+		const questions = createQuestionGate()
+		let calls = 0
+		let askedModel: () => void = () => {}
+		const modelAsked = new Promise<void>((resolve) => {
+			askedModel = resolve
+		})
+		let cycle: Promise<unknown> = Promise.resolve()
+		const { bg } = setup({
+			questions,
+			learning: {
+				model: async () => {
+					calls++
+					return reply
+				},
+				route: async () => 'p/m',
+			},
+			run: async (run) => {
+				// The question opens after the cycle began and before its model call.
+				questions.set(true)
+				cycle = run.model({ signal: run.signal } as never)
+				askedModel()
+				await cycle
+				return skipped
+			},
+		})
+		bg.turnStarted()
+		bg.turnEnded()
+		await modelAsked
+		await Promise.resolve()
+		expect(calls).toBe(0)
+		questions.set(false)
+		await cycle
+		expect(calls).toBe(1)
+		await idle(bg)
 	})
 })

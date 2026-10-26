@@ -7,6 +7,7 @@ import {
 	type SessionPaths,
 	SqliteLearningStore,
 	type TenantId,
+	isReviewRefusalResult,
 } from '@namzu/sdk'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 
@@ -37,6 +38,8 @@ export type FeedEvent =
 			readonly turnId?: string
 			readonly toolName: string
 			readonly isError: boolean
+			/** What the tool answered; read only to tell a refused call from a failed one, never kept. */
+			readonly output?: string
 			readonly summary: string
 			readonly plainFailure?: string
 			/** `muted` marks advice (the read-first guard), not a fault. */
@@ -183,6 +186,9 @@ function classify(event: FeedEvent): Classified | null {
 	if (event.kind === 'tool-end') {
 		const e = event as Extract<FeedEvent, { kind: 'tool-end' }>
 		if (!e.isError || e.declined || e.cancelled) return null
+		// A call the review did not let run (the person's No, or a call that went
+		// with the turn it ended) is a choice, not a tool that failed.
+		if (typeof e.output === 'string' && isReviewRefusalResult(e.output)) return null
 		// The read-first guard is the tool working as designed, shown as advice
 		// and not as a fault; only a failure drawn as one is a failure to learn from.
 		if (e.plainFailureTone === 'muted') return null

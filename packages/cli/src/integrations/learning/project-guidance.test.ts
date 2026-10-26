@@ -130,6 +130,10 @@ describe('project guidance', () => {
 		const text = await readProjectGuidance(paths, tenantId)
 		expect(text).toContain('Check the file exists before editing it.')
 		expect(text).toContain('not a permission')
+		// Memory wins where the two disagree, and the opening does not claim a
+		// confirmation the background cycle never asks for.
+		expect(text).toContain('where a memory and this advice disagree, trust the memory')
+		expect(text).not.toContain('the person confirmed')
 	})
 
 	it('never hands a conversation an exploration policy', async () => {
