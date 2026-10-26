@@ -2021,7 +2021,7 @@ export async function createSubagentRuntime(
 			}
 			if (saved.status === 'cancelled')
 				return {
-					error: `That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`,
+					error: 'That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.',
 				}
 			// The parent's log may never have recorded an end for a child that did
 			// finish; the child's own log decides, in the SDK.
@@ -2061,7 +2061,7 @@ export async function createSubagentRuntime(
 				return {
 					error:
 						restored?.status === 'refused' && restored.reason === 'stopped'
-							? `That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.`
+							? 'That agent was stopped and was not resumed. Treat its work as cancelled; only start a new agent for it if the user explicitly asks.'
 							: restored?.status === 'refused' && restored.reason === 'running'
 								? `Agent ${key} is still running its earlier work, so the message was not sent. Try again in a moment, or wait for its notification.`
 								: cannotResume(key),
