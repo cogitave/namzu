@@ -1632,6 +1632,16 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 export { hashLearningSkill, projectLearning } from './learning/skill.js'
 export { runLearningCycle } from './learning/cycle.js'
 export {
+	LEARNING_CONFIDENCE_LEVELS,
+	LEARNING_EDIT_VERDICTS,
+	normalizeLearningExperience,
+	selectLearningExperience,
+} from './learning/experience.js'
+export {
+	LEARNING_EXPERIENCE_STORE_VERSION,
+	SqliteLearningExperienceStore,
+} from './learning/experience-store.js'
+export {
 	LearningLeakError,
 	assertNoLearningLeak,
 	createLearningCanary,

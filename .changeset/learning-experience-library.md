@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": minor
+---
+
+New, additive: an experience library for the learning module. `SqliteLearningExperienceStore` records, per adopted or rejected cycle, the full artefact, a typed edit ledger (component, change, verdict `helped` / `hurt` / `no observed effect` / `confounded`) and lessons (cue, lesson, evidence, confidence with a reason). When a candidate changed several components, rows not tried alone are stored as `confounded`, and a lesson resting on confounded edits is capped at medium or low. `retrieve` returns entries only from the same domain and evaluator revision, and only those recorded before the ordinal you pass. Entries are immutable, run through the leak tripwire, and live in a separate database file. New exports: `SqliteLearningExperienceStore`, `normalizeLearningExperience`, `selectLearningExperience`, `LEARNING_EDIT_VERDICTS`, `LEARNING_CONFIDENCE_LEVELS`, `LEARNING_EXPERIENCE_STORE_VERSION` and the related types. Nothing existing changes; the cycle does not read the library yet.

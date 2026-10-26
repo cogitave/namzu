@@ -20,6 +20,7 @@ say resident.
 | Guidance, state and projection | `skill.ts` | `LearningSkillCandidate`, `LearningState`, `hashLearningSkill`, `projectLearning` |
 | One experiment | `cycle.ts` | `runLearningCycle`, `LearningCycleOptions`, `LearningCycleResult` |
 | Durable records | `store.ts` | `SqliteLearningStore`, `runStoredLearningCycle`, `runStoredLearningFromObservations` |
+| Experience library and edit ledger | `experience.ts`, `experience-store.ts` | `SqliteLearningExperienceStore`, `LearningExperienceEntry`, `normalizeLearningExperience`, `selectLearningExperience` |
 | Host-scored observations | `observation.ts` | `LearningObservation`, `LearningObservationRecord`, `LearningTarget` |
 
 Behaviour is unchanged by the move. The cycle still needs a host that supplies
@@ -78,6 +79,39 @@ is the point: such text should not steer guidance.
 expose the same check to a host that builds evidence itself. An empty scan is
 not a proof that nothing leaked; the disjoint protection tasks and the
 host-owned evaluator remain the first defence.
+
+## Experience library
+
+`SqliteLearningExperienceStore` keeps what each finished cycle tried and what
+came of it, in its own database beside the observations. A generator that
+reads it learns across cycles; nothing in the cycle depends on it yet.
+
+One entry per cycle, immutable (recording the same cycle again with identical
+content returns the stored entry, with different content is refused):
+
+- `domain`, the kind of task, and `evaluatorRevision`, the evaluator that
+  judged it. Both are pinned on the entry.
+- `decision` (`adopted` or `rejected`), the `reason`, and the full artefact as
+  proposed with its `candidateRevision`. The artefact is stored whole, never
+  summarised.
+- `edits`, the typed ledger: `component`, `change` and a `verdict` of
+  `helped`, `hurt`, `no observed effect` or `confounded`.
+- `lessons`: a `cue` (the shape of the situation), the `lesson`, `evidence`
+  references, a `confidence` of `high`, `medium` or `low`, and the reason for it.
+
+Two rules keep the record honest. When a candidate changed more than one
+component, the outcome belongs to the whole change, so every row without
+`isolated: true` (an edit tried alone) is stored as `confounded`. A lesson that
+cites edits (`edits: [index]`) is capped at `medium` when any of them is
+confounded and at `low` when all are, and its reason says it was narrowed.
+
+`retrieve({ domain, evaluatorRevision, beforeOrdinal })` returns entries of
+that domain and evaluator revision recorded before `beforeOrdinal`, newest
+first. It never crosses a domain, an evaluator revision, or reaches an entry
+at or after the reader's own. `nextOrdinal()` gives the point just after
+everything recorded. `record` runs the leak tripwire over the entry (reason,
+artefact, edits, lessons) with an optional `leakGuard` and throws
+`LearningLeakError` without repeating the text.
 
 ## Old names
 

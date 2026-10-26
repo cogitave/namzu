@@ -632,6 +632,17 @@ export type {
 } from './learning/cycle.js'
 
 export type {
+	LearningConfidence,
+	LearningEditRow,
+	LearningEditVerdict,
+	LearningExperienceEntry,
+	LearningExperienceInput,
+	LearningExperienceQuery,
+	LearningLesson,
+} from './learning/experience.js'
+export type { SqliteLearningExperienceStoreOptions } from './learning/experience-store.js'
+
+export type {
 	LearningLeakGuard,
 	LearningLeakKind,
 	LearningLeakFinding,
