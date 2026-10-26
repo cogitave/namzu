@@ -4,10 +4,12 @@ title: Resident communication experiment
 description: Atomic outgoing intents, acknowledged delivery and explicit delivery windows for resident agents.
 resource: packages/sdk/src/manager/resident
 tags: [sdk, agents, continuity, delivery]
-status: draft
+status: deprecated
 ---
 
 # Resident communication experiment
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 This implements the communication stage of the [resident roadmap](resident-agents.md).
 An authorized host can retain a finding and its outgoing message together,

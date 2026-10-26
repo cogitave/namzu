@@ -4,10 +4,12 @@ title: Resident agents experiment
 description: Staged plan and opt-in SDK experiments for durable agendas, internal continuation and honest interruption handling.
 resource: packages/sdk/src/manager/resident
 tags: [sdk, agents, continuity, research]
-status: draft
+status: deprecated
 ---
 
 # Resident agents experiment
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 ## Objective and boundary
 

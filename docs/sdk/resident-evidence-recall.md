@@ -4,10 +4,12 @@ title: Automatic resident tool evidence recall
 description: Bounded request-only retrieval of original tool evidence across settled resident admissions.
 resource: packages/sdk/src/manager/resident/evidence-recall.ts
 tags: [sdk, residents, context, evidence, retrieval]
-status: draft
+status: deprecated
 ---
 
 # Automatic resident tool evidence recall
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 `createResidentEvidenceRecallStep` prepares historical tool excerpts for one
 already admitted resident invocation. It uses the same bounded selection,

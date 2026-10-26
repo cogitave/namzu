@@ -4,10 +4,12 @@ title: Resident work in the CLI
 description: Explicit foreground execution of durable pursuits, project-bound state, pause observation and inspected recovery.
 resource: packages/cli/src/commands/resident.ts
 tags: [cli, agents, continuity, recovery]
-status: draft
+status: deprecated
 ---
 
 # Resident work in the CLI
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](../sdk/learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 `namzu resident` is the first CLI host for the SDK's
 [resident experiment](../sdk/resident-agents.md). It retains authorized work

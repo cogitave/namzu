@@ -4,10 +4,12 @@ title: Resident step context
 description: Stable resident guidance and captured continuation state through the existing SDK prompt contribution registry.
 resource: packages/sdk/src/prompt/resident-step.ts
 tags: [sdk, agents, context, continuity]
-status: draft
+status: deprecated
 ---
 
 # Resident step context
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 For on-demand learned guidance, use `createResidentStepContext(options)`. Mount
 **both** its `tools` and `contributions` on the admitted step's turn. It accepts

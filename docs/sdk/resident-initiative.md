@@ -4,10 +4,12 @@ title: Resident initiative experiment
 description: Opt-in pursuit selection, host-observed outcomes and atomic admission of bounded subgoal proposals.
 resource: packages/sdk/src/manager/resident
 tags: [sdk, agents, continuity, research]
-status: draft
+status: deprecated
 ---
 
 # Resident initiative experiment
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning lives in its own module (see [learning](learning.md)) and keeps working through `namzu learn`. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 This extends the [resident host](resident-agents.md) with measured selection and
 subgoal admission. Default host fairness is unchanged. Selection is a local,
