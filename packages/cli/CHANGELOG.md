@@ -1,5 +1,29 @@
 # @namzu/cli
 
+## 39.2.0
+
+### Minor Changes
+
+- 30654df: A tool output that was cut now says one thing about how to get the rest, wherever the model meets it. The saved-file line is followed by a sentence that names only the tools the turn has: `read` (open the file, `offset`/`limit`) and, when both are mounted, `search_conversation` then `read_conversation`. The cleared-result placeholder keeps that sentence instead of its own advice, and every compaction summary of a conversation with those tools ends with a pointer to them. The built-in `read` tool now opens a regular `.txt` file in the session's own retained-output directory without a prompt (no symbolic link, no second hard link, read-only), so the pointer is true; `ToolContext.retainedOutputDirectory` is new and optional, and `CompactNowInput.recoveryNote` and `COMPACTION_RECOVERY_NOTE` are new exports. The conversation guidance no longer tells the model not to use `read`. Nothing is removed; a host that mounts neither tool still gets the neutral wording.
+- 5e9539a: An agent can now be waited on, messaged, resumed or cancelled by its task id from any later turn of the same conversation, whether it is still running or has already ended. Before, an agent whose turn had ended could be reached only while it was running, and every other id was refused with "does not belong to this parent turn", so a task id taken from an earlier notification often failed. A finished agent returns its result without a new wait, `cancel_agent` reports that it already ended, and `send_message` resumes it from its own transcript under the current turn's limits and review channel; an agent you stopped is still not resumed. An id that belongs to no agent of the conversation, or to another conversation, now answers "No task with ID … in this conversation." and lists the agents that are running. If you call the sub-agent tools from the SDK, match on that text instead of the old one. A message to a running agent now also reaches it after the turn that launched it has ended, and a message to an agent saved by an earlier run of the program (its session UUID from `agent_task_list` with `history: true`) resumes it from its saved history under the current turn's limits and review channel, or says it cannot be resumed when nothing readable was kept. Requires `@namzu/sdk` with `restoreChild`.
+
+  An agent started with a role is the exception: its role text is not saved, so after a restart it cannot be continued and a message to it says so. A resumed agent's duration keeps counting from its original start while it is still tracked, and from the restore when it is not.
+
+  An agent also keeps one task id across resumes: the notification, `agent_task_list`, `wait_for_task` and `send_message` show the id it was first known by, and that id keeps working. A restored agent keeps the short name it was launched with instead of its prompt, a finished agent no longer reads as `unresolved` when its own log settled, a saved model that names no provider is ignored, and two messages that meet an agent being resumed are told in plain words to wait for its notification.
+
+### Patch Changes
+
+- 30654df: An evidence address or cursor from a session log no longer stops working as soon as the log grows. The seal used to include the log file's size and times, so every tool call of a running conversation voided the address a search had just returned, and `read_conversation` after `search_conversation`, or a second page by `nextCursor`, answered "could not be read". The seal now binds the file's identity, and the read still checks the record's offset, length and digest. A log that was rewritten or replaced is still refused. Nothing to do on upgrade.
+- 30654df: A conversation search address or cursor now stays valid when the next tool call reads it, even though that call is anchored at a later record. Previously every `read_conversation` after a `search_conversation` in a running turn was refused as changed. A seq past the end of the conversation is also answered at once on the live backend, naming the highest retained seq. Nothing to change in callers.
+- 30654df: `read_conversation` now recovers only from a bad offset. An integrity or ownership refusal on a read that carried a `byteOffset` is no longer retried from the start; the model gets the generic "could not be read" answer and the cause goes to the host log. Probe reads are counted against the per-call byte limit exactly once. A seq far past the end of the conversation is answered with the highest retained seq whichever source serves the read, a page that is not the whole record says which call continues it, and an expired cursor's note says that earlier pages repeat. Nothing to do on upgrade.
+- 30654df: `read_conversation` no longer answers every failure with the same sentence. An offset inside a multi-byte character reads from that character, an offset past the end returns an empty complete page with `totalChars`, a record with no character index reads from the start, and an expired cursor restarts from the `seq`/`part` address; the page's new `note` says which. Other failures now name the cause and the next step (the highest retained `seq`, the parts that hold text, search again after a changed log, repeat the original offset with a cursor). Ownership and integrity checks are unchanged. Nothing to do on upgrade.
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [30654df]
+- Updated dependencies [5e9539a]
+  - @namzu/sdk@53.2.0
+
 ## 39.1.0
 
 ### Minor Changes
