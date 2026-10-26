@@ -322,3 +322,68 @@ describe('read_conversation after the log has grown', () => {
 		expect(page.complete).toBe(true)
 	})
 })
+
+describe('read_conversation over records that are hard to page', () => {
+	const pageAll = async (f: Awaited<ReturnType<typeof conversation>>, byteOffset?: number) => {
+		let r = await f.call({ seq: f.seq, part: f.part, ...(byteOffset ? { byteOffset } : {}) })
+		expect(r.ok).toBe(true)
+		let text = r.page.text
+		let pages = 1
+		while (r.page.nextCursor) {
+			r = await f.call({
+				seq: f.seq,
+				part: f.part,
+				...(byteOffset ? { byteOffset } : {}),
+				cursor: r.page.nextCursor,
+			})
+			expect(r.ok).toBe(true)
+			text += r.page.text
+			pages++
+		}
+		return { text, pages }
+	}
+
+	it('pages one huge line of four-byte characters to the end without splitting a pair', async () => {
+		const line = `NEEDLE${'\u{1F642}'.repeat(10_000)}`
+		const f = await conversation(line)
+
+		const { text, pages } = await pageAll(f)
+
+		expect(pages).toBeGreaterThan(2)
+		expect(text).toBe(line)
+		expect(text).not.toMatch(
+			/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+		)
+	})
+
+	it('pages a record with an unpaired surrogate and a run of replacement characters', async () => {
+		const odd = `NEEDLE a\uD800b${'\uFFFD'.repeat(7000)}c\uDC00d`
+		const f = await conversation(odd)
+
+		const { text } = await pageAll(f)
+
+		// A lone surrogate cannot be stored as UTF-8; it is kept as U+FFFD.
+		expect(text).toBe(odd.replace(/[\uD800-\uDFFF]/g, '\uFFFD'))
+	})
+
+	it('snaps an offset inside a replacement character in the same record', async () => {
+		const odd = `NEEDLE a\uD800b${'\uFFFD'.repeat(10)}`
+		const f = await conversation(odd)
+		const at = Buffer.byteLength('NEEDLE a')
+
+		const r = await f.call({ seq: f.seq, part: f.part, byteOffset: at + 1 })
+
+		expect(r.ok).toBe(true)
+		expect(r.page.note).toMatch(/inside a character/)
+		expect(r.page.text.startsWith('\uFFFDb')).toBe(true)
+	})
+
+	it('reads a record with lines ended by carriage returns exactly', async () => {
+		const crlf = `NEEDLE one\r\ntwo\rthree\r\n${'x'.repeat(7000)}`
+		const f = await conversation(crlf)
+
+		const { text } = await pageAll(f)
+
+		expect(text).toBe(crlf)
+	})
+})

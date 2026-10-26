@@ -3,8 +3,8 @@ import { resolve } from 'node:path'
 import {
 	EVIDENCE_RECORD_GUIDANCE,
 	type EvidenceRecordKind,
-	type SessionEvidenceScope,
 	SessionEvidenceOffsetError,
+	type SessionEvidenceScope,
 	type SessionId,
 	type SessionTextEvidenceReadResult,
 	type SessionTextEvidenceSource,
@@ -24,7 +24,7 @@ export const CONVERSATION_RETRIEVAL_TOOLS = ['read_conversation', 'search_conver
 /** Stable capability guidance; include only when this host mounts both tools. */
 export const CONVERSATION_EVIDENCE_GUIDANCE = `## Conversation evidence
 When a question asks about an earlier observation, use the evidence already in context. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only. New searches omit successful search_conversation/read_conversation outputs, which repeat earlier records. To inspect those outputs themselves, start a new search with includeRetrievalResults=true. excerptComplete=true means the entire full-retained text part is already shown: reading the same unchanged part adds no text or independent evidence. False or absent means partial or unknown. This does not establish the truth of a prior claim or exhaust the conversation.
-A path following "The full output was written to:" identifies an internal backing file, not a workspace file. Recover its contents through search_conversation and read_conversation, which verify ownership and retained-byte integrity. Do not use bash, read or grep to bypass a workspace-path refusal when recovering archived output.
+A path following "The full output was written to:" is a file of this conversation's own retained output. Open it with the read tool when that tool is available (offset and limit page through it); for anything else from earlier, use search_conversation and read_conversation, which verify ownership and retained-byte integrity. Do not use bash or grep to get around a workspace-path refusal when recovering archived output.
 recordedAt is the event recorder’s wall-clock time in Unix milliseconds, not the time its text became true. For compaction_shed it dates the copy, not the original observation. compaction_shed:summary identifies derived summary text, not an independent observation. Missing stamps stay unknown; clocks can move backwards or differ. seq orders the records of this conversation's log; it is not a clock.
 For what a file contained earlier, recover its earlier observation; reading or searching the current file cannot establish its past contents. For what is true now, inspect the current source when freshness matters. Do not substitute one time for the other. Report unavailable historical evidence honestly and never repeat a state-changing action to recover its output.`
 
@@ -743,7 +743,7 @@ async function explainMissingRecord(
 	throw new ConversationReadError(
 		`The requested record has no retained textual part: seq ${seq} holds no recorded text${
 			newest === undefined ? '' : ` (the highest retained seq is ${newest})`
-		}. Use search_conversation to find a record that does.`,
+		}. An image or document in a record is shown to the model when it arrives but is not kept as text. Use search_conversation to find a record that does hold text.`,
 	)
 }
 
@@ -904,6 +904,9 @@ export async function readConversationEvidence(
 			})
 	}
 	const address = state.address
+	// Only the first page of a read can be given an offset the record rejects; a
+	// later page's offset is one the reader itself handed back.
+	const firstPage = state.readOffset === undefined
 	// Every read this call makes is charged, whether it is kept or only probed.
 	const readAt = async (offset: number) => {
 		const remaining = SCAN_BYTES - result.scannedBytes
@@ -914,7 +917,25 @@ export async function readConversationEvidence(
 				signal,
 			)
 		} catch (error) {
-			if (error instanceof SessionEvidenceOffsetError) result.scannedBytes += error.scannedBytes
+			signal?.throwIfAborted()
+			if (error instanceof SessionEvidenceOffsetError) {
+				result.scannedBytes += error.scannedBytes
+				throw error
+			}
+			// The saved output is a file of its own; when it is gone, say which part is
+			// gone and what is still true, rather than that something "could not be read".
+			if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT')
+				throw new ConversationReadError(
+					`The saved output behind seq ${input.seq} part ${part} is no longer on disk (it was deleted or pruned), so only the preview in the log remains. Report the full output as unavailable.`,
+				)
+			// A later page of a read that fails was fine a moment ago, so the record
+			// is what changed. Restarting without the cursor says whether it still reads.
+			if (!firstPage && !(error instanceof ConversationReadError)) {
+				throw new ConversationReadError(
+					`Seq ${input.seq} part ${part} changed since the previous page, so reading stopped. Call read_conversation again without a cursor to start over, or run search_conversation for a fresh seq and part.`,
+					{ cause: error },
+				)
+			}
 			throw error
 		}
 		assertEvidenceReadPage(read, opened.owner, remaining, offset, signal)
@@ -925,12 +946,9 @@ export async function readConversationEvidence(
 		result.scannedBytes += read.scannedBytes
 		return read
 	}
-	// Only the first page of a read can be given an offset the record rejects; a
-	// later page's offset is one the reader itself handed back. Only the reader's
-	// own "this offset is not a place the text can start" answer is recovered
-	// from: an integrity or ownership refusal is not about the offset, so it
-	// surfaces as the refusal it is.
-	const firstPage = state.readOffset === undefined
+	// Only the reader's own "this offset is not a place the text can start" answer
+	// is recovered from: an integrity or ownership refusal is not about the
+	// offset, so it surfaces as the refusal it is.
 	const wanted = state.byteOffset ?? 0
 	let readFrom = wanted
 	let page: Awaited<ReturnType<typeof readAt>>
@@ -1060,11 +1078,13 @@ export function buildConversationReadTool(
 				}
 			} catch (error) {
 				context.abortSignal?.throwIfAborted()
-				if (!(error instanceof ConversationReadError))
+				// The model gets a safe sentence; the real cause goes to the host log.
+				const cause = error instanceof ConversationReadError ? error.cause : error
+				if (cause !== undefined)
 					context.log?.(
 						'warn',
 						`read_conversation could not read the retained text: ${
-							error instanceof Error ? error.message : String(error)
+							cause instanceof Error ? cause.message : String(cause)
 						}`,
 					)
 				return {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { SPILL_MARKER } from '../../runtime/query/tool-output-budget.js'
+import {
+	SPILL_MARKER,
+	describeRetainedOutputRecovery,
+} from '../../runtime/query/tool-output-budget.js'
 import type { Message } from '../../types/message/index.js'
 import { clearStaleToolResults, isClearedToolResult } from '../tool-result-editing.js'
 
@@ -44,7 +47,7 @@ describe('a spilled result', () => {
 		'first line of output',
 		'x'.repeat(5_000),
 		`${SPILL_MARKER} /runs/r1/tool-output/bash-1.txt`,
-		'Read a specific window with `read` (offset/limit) or search it with `grep`.',
+		describeRetainedOutputRecovery({ read: true }),
 		'y'.repeat(5_000),
 	].join('\n')
 
@@ -58,10 +61,24 @@ describe('a spilled result', () => {
 	it('tells the model to read it rather than re-run the tool', () => {
 		const { messages } = clear(history(spilled))
 		const text = clearedText(messages)
-		expect(text).toMatch(/read|grep/)
+		expect(text).toContain('open this file with the read tool')
 		// Re-running a tool that returned megabytes is the advice this
 		// replaces.
 		expect(text).not.toContain('do not repeat a state-changing action')
+	})
+
+	it('gives a pointer written without the sentence the neutral one, not a made-up route', () => {
+		const legacy = [
+			'x'.repeat(5_000),
+			`${SPILL_MARKER} /runs/r1/tool-output/bash-1.txt`,
+			'y'.repeat(5_000),
+		].join('\n')
+
+		const text = clearedText(clear(history(legacy)).messages)
+
+		expect(text).toContain('/runs/r1/tool-output/bash-1.txt')
+		expect(text).toContain('retained-output recovery tools')
+		expect(text).not.toMatch(/`read`|`grep`/)
 	})
 
 	it('still reclaims most of the content', () => {

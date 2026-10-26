@@ -540,6 +540,46 @@ describe('a read that cannot continue as asked says what to do next', () => {
 		expect(result.error).toMatch(/seq 99999 is past the end.*highest retained seq is \d+/)
 	})
 
+	it('names a vanished saved output instead of a generic failure', async () => {
+		const f = await fixture()
+		f.read.mockRejectedValue(Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }))
+
+		const result = await toolFor(f).execute({ seq: 2 }, contextFor(f))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/seq 2 part 0 is no longer on disk.*deleted or pruned/)
+		expect(result.error).not.toMatch(/ENOENT/)
+	})
+
+	it('logs the real cause when a later page fails, and tells the model only that it changed', async () => {
+		const f = await fixture()
+		const log = vi.fn()
+		f.read.mockImplementationOnce(async () => ({
+			...f.readPage,
+			text: 'first',
+			nextByteOffset: 5,
+			totalBytes: 10,
+		}))
+		const first = await toolFor(f).execute({ seq: 2 }, {
+			...(contextFor(f) as object),
+			log,
+		} as never)
+		f.read.mockRejectedValue(new Error('Retained output bytes changed.'))
+
+		const result = await toolFor(f).execute(
+			{ seq: 2, cursor: JSON.parse(first.output).nextCursor },
+			{ ...(contextFor(f) as object), log } as never,
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/changed since the previous page/)
+		expect(result.error).not.toMatch(/bytes changed/)
+		expect(log).toHaveBeenCalledWith(
+			'warn',
+			expect.stringContaining('Retained output bytes changed'),
+		)
+	})
+
 	it('does not retry a later page of a read with another offset', async () => {
 		const f = await fixture()
 		f.read.mockImplementationOnce(async () => ({
@@ -565,7 +605,7 @@ describe('a read that cannot continue as asked says what to do next', () => {
 				undefined,
 				f.active,
 			),
-		).rejects.toThrow('changed during read')
+		).rejects.toThrow(/changed since the previous page.*without a cursor/)
 		expect(f.read).toHaveBeenCalledTimes(2)
 	})
 })

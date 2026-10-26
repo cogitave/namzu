@@ -459,6 +459,14 @@ export interface ToolContext {
 	 */
 	additionalDirectories?: readonly string[]
 	/**
+	 * Absolute path of the directory holding THIS session's retained tool
+	 * output (the files an oversized result was saved to). The `read` tool may
+	 * open a regular file in it, and only that, without the path being a
+	 * reviewed or added directory: the model was already shown the path in the
+	 * result it came from. Set by the executor whenever the turn retains output.
+	 */
+	retainedOutputDirectory?: string
+	/**
 	 * Absolute paths outside the working directory and the added directories
 	 * that THIS call was approved to reach.
 	 *
