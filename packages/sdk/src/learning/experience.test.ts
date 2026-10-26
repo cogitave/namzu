@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { generateProjectId, generateTenantId } from '../utils/id.js'
+import { SqliteLearningExperienceStore } from './experience-store.js'
 import {
 	type LearningExperienceInput,
 	normalizeLearningExperience,
 	selectLearningExperience,
 } from './experience.js'
-import { SqliteLearningExperienceStore } from './experience-store.js'
 import { LearningLeakError, createLearningCanary } from './leak-tripwire.js'
 import { hashLearningSkill } from './skill.js'
 
@@ -44,6 +44,7 @@ const input = (over: Partial<LearningExperienceInput> = {}): LearningExperienceI
 			edits: [0],
 		},
 	],
+	leakGuard: {},
 	...over,
 })
 
@@ -75,6 +76,35 @@ describe('normalizeLearningExperience', () => {
 			}),
 		)
 		expect(entry.edits.map((e) => e.verdict)).toEqual(['confounded', 'confounded', 'confounded'])
+	})
+
+	it('treats two edits to one component as changed together', () => {
+		const entry = normalizeLearningExperience(
+			input({
+				edits: [
+					{ component: 'instruction-skill', change: 'One.', verdict: 'helped' },
+					{ component: 'instruction-skill', change: 'Two.', verdict: 'helped' },
+				],
+				lessons: [],
+			}),
+		)
+		expect(entry.edits.map((e) => e.verdict)).toEqual(['confounded', 'confounded'])
+	})
+
+	it('narrows a lesson that cites no edits as resting on all of them', () => {
+		const base = input().lessons?.[0]
+		if (!base) throw new Error('fixture')
+		const { edits: _omit, ...bare } = base
+		const entry = normalizeLearningExperience(
+			input({
+				edits: [
+					{ component: 'a', change: 'One.', verdict: 'helped' },
+					{ component: 'b', change: 'Two.', verdict: 'helped' },
+				],
+				lessons: [bare],
+			}),
+		)
+		expect(entry.lessons[0]?.confidence).toBe('low')
 	})
 
 	it('keeps the verdict of an edit that was tried alone', () => {
@@ -143,6 +173,7 @@ describe('SqliteLearningExperienceStore', () => {
 			domain: 'code-edit',
 			evaluatorRevision: 'eval-v1',
 			beforeOrdinal: recorded.ordinal + 1,
+			leakGuard: {},
 		})
 		expect(read?.candidate.body).toBe(candidate.body.trim())
 		expect(read?.candidate.description).toBe(candidate.description)
@@ -155,7 +186,7 @@ describe('SqliteLearningExperienceStore', () => {
 		await s.record(input({ evaluatorRevision: 'eval-v2', cycleId: randomUUID() }))
 		const c = await s.record(input({ decision: 'rejected', cycleId: randomUUID() }))
 		const later = await s.record(input({ cycleId: randomUUID() }))
-		const query = { domain: 'code-edit', evaluatorRevision: 'eval-v1' }
+		const query = { domain: 'code-edit', evaluatorRevision: 'eval-v1', leakGuard: {} }
 		const seenByC = await s.retrieve({ ...query, beforeOrdinal: c.ordinal })
 		expect(seenByC.map((e) => e.ordinal)).toEqual([a.ordinal])
 		const all = await s.retrieve({ ...query, beforeOrdinal: later.ordinal + 1 })
@@ -195,10 +226,98 @@ describe('SqliteLearningExperienceStore', () => {
 	})
 })
 
+describe('leak coverage and the required guard', () => {
+	const canary = createLearningCanary()
+	const guard = { canaries: [canary] }
+	const planted: [string, Partial<LearningExperienceInput>][] = [
+		[
+			'edit component',
+			{ edits: [{ component: `c ${canary}`, change: 'Read first.', verdict: 'helped' }] },
+		],
+		['evaluatorRevision', { evaluatorRevision: `rev ${canary}` }],
+		['candidate name', { candidate: { ...candidate, name: `n-${canary}` } }],
+		['domain', { domain: canary.toLowerCase() }],
+		[
+			'lesson evidence',
+			{
+				lessons: [
+					{
+						cue: 'cue',
+						lesson: 'lesson',
+						evidence: [{ key: 'k', source: `s ${canary}`, reason: 'r' }],
+						confidence: 'low',
+						confidenceReason: 'r',
+					},
+				],
+			},
+		],
+	]
+	for (const [field, over] of planted) {
+		it(`finds a canary in ${field}`, async () => {
+			await expect(store().record(input({ ...over, leakGuard: guard }))).rejects.toBeInstanceOf(
+				LearningLeakError,
+			)
+		})
+	}
+
+	it('refuses to record or retrieve without a guard', async () => {
+		const s = store()
+		const bad = input({ leakGuard: undefined as never })
+		await expect(s.record(bad)).rejects.toThrow(/leakGuard/)
+		await s.record(input())
+		await expect(
+			s.retrieve({
+				domain: 'code-edit',
+				evaluatorRevision: 'eval-v1',
+				beforeOrdinal: 99,
+				leakGuard: undefined as never,
+			}),
+		).rejects.toThrow(/leakGuard/)
+	})
+
+	it('scans again on retrieval, so an entry stored under a looser guard is not served', async () => {
+		const s = store()
+		await s.record(input({ reason: `saw ${canary}` }))
+		await expect(
+			s.retrieve({
+				domain: 'code-edit',
+				evaluatorRevision: 'eval-v1',
+				beforeOrdinal: 99,
+				leakGuard: guard,
+			}),
+		).rejects.toBeInstanceOf(LearningLeakError)
+	})
+
+	it('scopes nextOrdinal to the store scope', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-experience-'))
+		roots.push(root)
+		const databasePath = join(root, 'experience.sqlite')
+		const make = () =>
+			new SqliteLearningExperienceStore({
+				databasePath,
+				scope: {
+					tenantId: generateTenantId(),
+					projectId: generateProjectId(),
+					agentKey: 'default',
+				},
+			})
+		const a = make()
+		const b = make()
+		await a.record(input())
+		await a.record(input({ cycleId: randomUUID() }))
+		expect(await b.nextOrdinal()).toBe(1)
+	})
+})
+
 describe('selectLearningExperience', () => {
 	it('returns nothing when the reader is the first entry', () => {
 		expect(
-			selectLearningExperience([], { domain: 'a', evaluatorRevision: 'r', beforeOrdinal: 1 }),
+			selectLearningExperience([], {
+				domain: 'a',
+				evaluatorRevision: 'r',
+				beforeOrdinal: 1,
+				leakGuard: {},
+			}),
 		).toEqual([])
 	})
 })

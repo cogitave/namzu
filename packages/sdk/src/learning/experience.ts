@@ -42,7 +42,8 @@ const editSchema = z.object({
 	verdict: z.enum(LEARNING_EDIT_VERDICTS),
 	/**
 	 * True only when this edit was tried alone (an ablation), so its verdict is
-	 * separable even though the candidate changed several components.
+	 * separable even though the candidate changed several components. The store
+	 * trusts this flag from the caller; it does not check that an ablation ran.
 	 */
 	isolated: z.boolean().optional(),
 })
@@ -84,8 +85,11 @@ export interface LearningExperienceInput {
 	readonly candidate: LearningSkillCandidate
 	readonly edits: readonly LearningEditRow[]
 	readonly lessons?: readonly LearningLesson[]
-	/** Evaluator-side material to refuse in anything the entry would keep. */
-	readonly leakGuard?: LearningLeakGuard
+	/**
+	 * Evaluator-side material to refuse in anything the entry would keep. Required:
+	 * pass `{}` to apply only the built-in markers and secret shapes.
+	 */
+	readonly leakGuard: LearningLeakGuard
 }
 
 const inputSchema = z.object({
@@ -129,14 +133,16 @@ export function normalizeLearningExperience(
 	const { leakGuard: _guard, candidate: rawCandidate, ...rest } = input
 	const parsed = inputSchema.parse(rest)
 	const candidate = normalizeLearningSkill(rawCandidate)
-	const several = new Set(parsed.edits.map((edit) => edit.component)).size > 1
+	// More than one edit row changed together, whatever its component label.
+	const several = parsed.edits.length > 1
 	const edits: LearningEditRow[] = parsed.edits.map((edit) => {
 		const { isolated, ...row } = edit
 		if (several && isolated !== true) return { ...row, verdict: 'confounded' as const }
 		return isolated === true ? { ...row, isolated } : row
 	})
 	const lessons: LearningLesson[] = (parsed.lessons ?? []).map((lesson) => {
-		const refs = lesson.edits ?? []
+		// A lesson that cites no edits rests on all of them.
+		const refs = lesson.edits?.length ? lesson.edits : edits.map((_, index) => index)
 		for (const index of refs)
 			if (index >= edits.length) throw new Error(`Lesson refers to edit ${index}, which is absent.`)
 		const confounded = refs.filter((index) => edits[index]?.verdict === 'confounded').length
@@ -170,33 +176,33 @@ export function normalizeLearningExperience(
 	}
 }
 
-/** Refuse an entry that would keep evaluator-side material. Throws {@link LearningLeakError}. */
+function collectStrings(
+	value: unknown,
+	subject: string,
+	out: { subject: string; text: string }[],
+): void {
+	if (typeof value === 'string') out.push({ subject, text: value })
+	else if (Array.isArray(value)) value.forEach((v, i) => collectStrings(v, `${subject}[${i}]`, out))
+	else if (value && typeof value === 'object')
+		for (const [key, v] of Object.entries(value)) collectStrings(v, `${subject}.${key}`, out)
+}
+
+/**
+ * Refuse an entry that would keep evaluator-side material. Every string the
+ * entry holds is scanned, found by walking the entry rather than by naming
+ * fields; source keys are also tried as paths. Throws {@link LearningLeakError}.
+ */
 export function assertExperienceHasNoLeak(
 	entry: Omit<LearningExperienceEntry, 'ordinal'>,
 	guard: LearningLeakGuard | undefined,
 ): void {
-	assertNoLearningLeak(guard, [
-		{ subject: 'experience.reason', text: entry.reason },
-		{ subject: 'experience.candidate.description', text: entry.candidate.description },
-		{ subject: 'experience.candidate.body', text: entry.candidate.body },
-		...(entry.candidate.sources
-			? [
-					{
-						subject: 'experience.candidate.sources',
-						paths: entry.candidate.sources.map((s) => s.key),
-					},
-				]
-			: []),
-		...entry.edits.map((edit, i) => ({ subject: `experience.edits[${i}]`, text: edit.change })),
-		...entry.lessons.flatMap((lesson, i) => [
-			{
-				subject: `experience.lessons[${i}]`,
-				text: `${lesson.cue}\n${lesson.lesson}\n${lesson.confidenceReason}\n${lesson.evidence
-					.map((e) => `${e.key} ${e.source} ${e.reason}`)
-					.join('\n')}`,
-			},
-		]),
-	])
+	const subjects: { subject: string; text?: string; paths?: readonly string[] }[] = []
+	const texts: { subject: string; text: string }[] = []
+	collectStrings(entry, 'experience', texts)
+	subjects.push(...texts)
+	for (const [i, source] of (entry.candidate.sources ?? []).entries())
+		subjects.push({ subject: `experience.candidate.sources[${i}].path`, paths: [source.key] })
+	assertNoLearningLeak(guard, subjects)
 }
 
 /** @experimental Where retrieval may look. */
@@ -204,6 +210,8 @@ export interface LearningExperienceQuery {
 	readonly domain: string
 	/** The evaluator the reader is judged by; entries from another revision are not comparable. */
 	readonly evaluatorRevision: string
+	/** Evaluator-side material; entries are scanned again before they are returned. */
+	readonly leakGuard: LearningLeakGuard
 	/** Only entries recorded before this ordinal. The reader's own entry is never among them. */
 	readonly beforeOrdinal: number
 	readonly decision?: 'adopted' | 'rejected'

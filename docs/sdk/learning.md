@@ -99,19 +99,30 @@ content returns the stored entry, with different content is refused):
 - `lessons`: a `cue` (the shape of the situation), the `lesson`, `evidence`
   references, a `confidence` of `high`, `medium` or `low`, and the reason for it.
 
-Two rules keep the record honest. When a candidate changed more than one
-component, the outcome belongs to the whole change, so every row without
-`isolated: true` (an edit tried alone) is stored as `confounded`. A lesson that
-cites edits (`edits: [index]`) is capped at `medium` when any of them is
-confounded and at `low` when all are, and its reason says it was narrowed.
+Two rules keep the record honest. When a candidate has more than one edit row
+(two rows for the same component count too), the outcome belongs to the whole
+change, so every row without `isolated: true` (an edit tried alone) is stored as
+`confounded`. `isolated` is trusted from the caller: nothing checks that an
+ablation actually ran. A lesson that cites edits (`edits: [index]`) is capped at
+`medium` when any of them is confounded and at `low` when all are, and its
+reason says it was narrowed. A lesson that cites no edits is treated as resting
+on all of them.
+
+`evaluatorRevision` is stamped on every entry and required at retrieval, so a
+cycle judged under a new evaluator starts with an empty history. The store does
+not stop a domain from moving to a new evaluator; a host that wants that
+refused has to enforce it.
 
 `retrieve({ domain, evaluatorRevision, beforeOrdinal })` returns entries of
 that domain and evaluator revision recorded before `beforeOrdinal`, newest
 first. It never crosses a domain, an evaluator revision, or reaches an entry
 at or after the reader's own. `nextOrdinal()` gives the point just after
-everything recorded. `record` runs the leak tripwire over the entry (reason,
-artefact, edits, lessons) with an optional `leakGuard` and throws
-`LearningLeakError` without repeating the text.
+everything recorded in this store's scope. `leakGuard` is required on both
+`record` and `retrieve` (pass `{}` to apply only the built-in markers and secret
+shapes). Both walk every string the entry holds, including components, the
+evaluator revision, the artefact name and the evidence, and throw
+`LearningLeakError` without repeating the text. Retrieval scans again, so an
+entry recorded under a looser guard is not served to a generator.
 
 ## Old names
 

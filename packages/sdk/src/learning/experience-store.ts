@@ -124,6 +124,7 @@ export class SqliteLearningExperienceStore {
 
 	/** Record one finished cycle. Throws `LearningLeakError` when the entry carries evaluator-side material. */
 	async record(input: LearningExperienceInput): Promise<LearningExperienceEntry> {
+		if (!input.leakGuard) throw new Error('Recording an experience entry requires a leakGuard.')
 		const entry = normalizeLearningExperience(input)
 		assertExperienceHasNoLeak(entry, input.leakGuard)
 		const body = JSON.stringify(entry)
@@ -161,9 +162,11 @@ export class SqliteLearningExperienceStore {
 		return this.use(
 			false,
 			(db) => {
-				const row = db.prepare('SELECT MAX(ordinal) AS last FROM experience').get() as {
-					last: number | null
-				}
+				const row = db
+					.prepare(
+						'SELECT MAX(ordinal) AS last FROM experience WHERE tenant_id=? AND project_id=? AND agent_key=?',
+					)
+					.get(...this.scopeArgs()) as { last: number | null }
 				return (row.last ?? 0) + 1
 			},
 			() => 1,
@@ -187,9 +190,13 @@ export class SqliteLearningExperienceStore {
 					) as Row[],
 			() => [],
 		)
-		return selectLearningExperience(
+		if (!query.leakGuard) throw new Error('Retrieving experience entries requires a leakGuard.')
+		const selected = selectLearningExperience(
 			rows.map((row) => this.decode(row)),
 			query,
 		)
+		for (const { ordinal: _ordinal, ...entry } of selected)
+			assertExperienceHasNoLeak(entry, query.leakGuard)
+		return selected
 	}
 }
