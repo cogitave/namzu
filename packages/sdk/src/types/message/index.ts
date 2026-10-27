@@ -371,6 +371,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'step-context',
 	'structured-output',
 	'task-completion',
+	'turn-context',
 ] as const
 
 export type RuntimeContextMessageKind = (typeof RUNTIME_CONTEXT_MESSAGE_KINDS)[number]
@@ -381,7 +382,17 @@ export interface RuntimeContextMessageSource {
 	readonly kind: RuntimeContextMessageKind
 	/** Optional durable host delivery identity; it never grants operator authority. */
 	readonly deliveryRef?: InboundDeliveryRef
+	/**
+	 * What a `turn-context` entry reports (for example `repository`). A later
+	 * entry with the same key adds to or replaces what an earlier one said.
+	 */
+	readonly key?: string
 }
+
+/** The longest key a recorded context entry may carry. */
+export const MAX_TURN_CONTEXT_KEY_LENGTH = 64
+
+const TURN_CONTEXT_KEY = /^[a-z][a-z0-9-]*$/
 
 export type UserMessageSource =
 	| GoalRoundMessageSource
@@ -437,12 +448,14 @@ export function isRuntimeContextMessageSource(
 		readonly type?: unknown
 		readonly kind?: unknown
 		readonly deliveryRef?: unknown
+		readonly key?: unknown
 	}
 	return (
 		candidate.type === 'runtime-context' &&
 		typeof candidate.kind === 'string' &&
 		(RUNTIME_CONTEXT_MESSAGE_KINDS as readonly string[]).includes(candidate.kind) &&
-		(candidate.deliveryRef === undefined || isInboundDeliveryRef(candidate.deliveryRef))
+		(candidate.deliveryRef === undefined || isInboundDeliveryRef(candidate.deliveryRef)) &&
+		(candidate.key === undefined || isTurnContextKey(candidate.key))
 	)
 }
 
@@ -638,6 +651,100 @@ export function createRuntimeContextMessage(
 		type: 'runtime-context',
 		kind,
 	})
+}
+
+/** Whether `value` is a name a recorded context entry may be filed under. */
+export function isTurnContextKey(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.length <= MAX_TURN_CONTEXT_KEY_LENGTH &&
+		TURN_CONTEXT_KEY.test(value)
+	)
+}
+
+function localTime(at: Date): string {
+	const pad = (n: number) => String(n).padStart(2, '0')
+	return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+}
+
+/**
+ * Build a recorded context entry: text a step learned for this turn that
+ * stays in the conversation, after whatever came before it, so later requests
+ * keep beginning with it. The header is written into the content once and the
+ * entry is never edited afterwards; a later entry under the same key says what
+ * changed. It is not an operator message and carries no authority.
+ *
+ * The first entry under a key says that a later one adds to or replaces it;
+ * with `later` set, for an entry that follows another under the same key, the
+ * header leaves that sentence out, since the conversation already holds it.
+ */
+export function createTurnContextEntry(
+	key: string,
+	text: string,
+	at: Date = new Date(),
+	options: { readonly later?: boolean } = {},
+): UserMessage {
+	if (!isTurnContextKey(key))
+		throw new TypeError('A recorded context key is lowercase words joined by hyphens.')
+	const label = `Recorded context (runtime-generated; not a new user request) - ${key}, as of ${localTime(at)}`
+	return createUserMessage(
+		`${label}${options.later ? ':' : '. A later entry with this key adds to or replaces what it says:'}\n${text}`,
+		undefined,
+		{ type: 'runtime-context', kind: 'turn-context', key },
+	)
+}
+
+/** The key a recorded context entry is filed under, or undefined for any other message. */
+export function turnContextKey(message: { readonly role: string; readonly source?: unknown }):
+	| string
+	| undefined {
+	if (message.role !== 'user') return undefined
+	const source = message.source as RuntimeContextMessageSource | undefined
+	return source?.type === 'runtime-context' && source.kind === 'turn-context'
+		? source.key
+		: undefined
+}
+
+/** Whether `message` is a recorded context entry. */
+export function isTurnContextEntry(message: {
+	readonly role: string
+	readonly source?: unknown
+}): boolean {
+	if (message.role !== 'user') return false
+	const source = message.source as RuntimeContextMessageSource | undefined
+	return source?.type === 'runtime-context' && source.kind === 'turn-context'
+}
+
+/**
+ * What a step recorded under `key`, oldest first, without each entry's header.
+ * A history that was compacted holds only the entries the compaction kept, so
+ * an empty list means the step may say everything again.
+ */
+export function turnContextEntries(messages: readonly Message[], key: string): readonly string[] {
+	const bodies: string[] = []
+	for (const message of messages) {
+		if (turnContextKey(message) !== key || typeof message.content !== 'string') continue
+		bodies.push(message.content.slice(message.content.indexOf('\n') + 1))
+	}
+	return bodies
+}
+
+/**
+ * The text of the newest user-role message with plain text, skipping recorded
+ * context entries: a history that ends in one (a resumed session) must not
+ * take the host's own recalled text for the question.
+ */
+export function lastPromptText(messages: readonly Message[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (
+			message?.role === 'user' &&
+			typeof message.content === 'string' &&
+			!isTurnContextEntry(message)
+		)
+			return message.content
+	}
+	return ''
 }
 
 /** Build the retained user-context message that carries live project policy. */

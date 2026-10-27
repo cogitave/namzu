@@ -28,7 +28,7 @@ history and any step system guidance:
    number, and the non-empty results are joined into one labelled
    `step-context` message. See [the placements](#prompt-placements).
 3. **`PrepareStepResult.context`**, as above.
-4. **Derived work context**, described [below](#derived-work-context).
+4. **Derived work context** (the owned tasks still running), described [below](#derived-work-context).
 
 This is useful for a current context inventory, retrieved data or other changing
 observations that do not require system authority. `system` remains the field
@@ -79,7 +79,8 @@ The message is projected into the request, not appended to the turn's conversati
 history. It therefore does not accumulate, enter a later compaction as an
 operator message, or persist as conversation input on resume. A host can record
 provider requests separately; request-context digests can still describe its
-presence. A host answer reviewer can inspect the candidate request's transient
+presence. Text a step wants kept is returned as `recordedContext` instead and
+becomes a [recorded entry](recorded-context.md). A host answer reviewer can inspect the candidate request's transient
 context through [`AnswerReviewContext.requestMessages`](verification.md), without
 adding it to durable history. The runtime provenance must not be presented as
 text the operator typed.
@@ -156,40 +157,23 @@ model reads after it reframes the instruction to finish.
 
 ### Where the per-turn blocks sit
 
-The blocks that belong to the turn (what `context` contributions and
-`PrepareStepResult.context` render, including recalled memory and evidence)
-go just before the operator's new message the first time the model answers it,
-so the request is the last thing it reads and the long data comes first. The
-reminders and notices that follow the message stay after it.
+Request-only context goes last on every call, after the whole history (the tool
+results the turn has so far and any entry the loop has just recorded) and before
+any closing directive. It is placed again on each call and never sits inside the
+history, so the history before it only grows: the operator's message, the tool
+loop and the recorded entries stay inside the prefix a caching provider reads
+back, and a caching driver, which ends its cache breakpoint before the first
+`step-context` message, covers the whole history on every call of the turn
+whatever the request-only blocks say. A block that changes between calls costs
+its own tokens and nothing else.
 
-A block stays where it first went. A step that offers the same text again on a
-later call of the turn finds it in the same place, so each request of a turn
-(within one turn; the next turn takes its data afresh and its opening differs)
-begins with the whole of the one before it, up to the trailing run (the
-working-memory slot, step system guidance, the approval-policy notice) that
-every request rebuilds, and a caching driver keeps reading the same prefix
-instead of re-reading the turn from the operator's message on. The
-conversation-evidence step reads the archive once per turn, so what lands in
-the archive mid-turn does not change that block. A block that first appears
-after the model has moved on follows the history of that moment. A block whose
-text changed is withdrawn and the new text follows the history, except the work
-context below, which says of itself that a later block replaces it: there the
-earlier text stays as sent, the later one is appended, and a short block says
-so when the entries stop holding. Only the latest version and the two before it
-are carried (`EARLIER_VERSIONS_KEPT`), and an earlier version whose place a
-compaction removed is dropped, so the stale text stays small; the request that
-drops a version is the one point where its opening changes. A model can
-therefore still read an out-of-date file body that a later block supersedes;
-both work-context headings say that a later block with the heading replaces
-the earlier one. A position whose message a compaction removed
-is given up and the block follows the history. The working-memory slot and the
-approval-policy notice always follow the history. Blocks are not carried from
-one turn to the next: each turn takes its data afresh.
-
-The derived work context (owned delegated work and visible file evidence) is
-placed the same way as the other blocks, and is the one kind that is appended
-rather than withdrawn when it changes. Both headings tell the model that a
-later block with the heading replaces the earlier one.
+What a step wants the model to keep (the repository snapshot, recalled memory,
+conversation evidence, file evidence, finished delegated work) is not
+request-only. A step returns it as `PrepareStepResult.recordedContext` and the
+kernel appends it to the history as an entry that stays, written once and never
+edited, so the next turn also begins with it. See
+[recorded turn context](recorded-context.md). The working-memory slot and the
+approval-policy notice always follow the history.
 
 ### Prompt placements
 
@@ -200,7 +184,7 @@ later block with the heading replaces the earlier one.
 | `static` | once per invocation | the cached system prompt segment | system |
 | `dynamic` | once per invocation | the uncached system prompt segment | system |
 | `turn` | before every request, with `iteration` | the trailing system message | system |
-| `context` | before every request, with `iteration` | one `step-context` message, [before the operator's new message or after history](#where-the-per-turn-blocks-sit) | none, an observation |
+| `context` | before every request, with `iteration` | one `step-context` message, [after history](#where-the-per-turn-blocks-sit) | none, an observation |
 
 Choose `context` for an observation the model should read and weigh, such as a
 repository snapshot or a status. Choose `turn` only when the text must carry
@@ -216,11 +200,13 @@ host must bound its contribution; the field has no independent size cap. No
 automatic summarization or output eviction is introduced by the context field.
 
 The CLI uses this field for its bounded context inventory. It composes preceding
-context contributions and leaves system contributions untouched. It registers
-its turn-start repository snapshot (`git status` and recent commits, read once
-per turn and rendered with the same text on every iteration, so it keeps its place) under the `context` placement. The CLI's file-backed `USER.md`
-and `MEMORY.md`, its stored-memory index, and the SDK's automatic memory recall
-also use request-only step context. SDK tests check
+context contributions and leaves system contributions untouched. Its repository
+snapshot (`git status` and recent commits, read once per send) is recorded
+context: the whole snapshot the first time and only what changed afterwards,
+see [recorded turn context](recorded-context.md). The CLI's file-backed `USER.md`
+and `MEMORY.md` and its stored-memory index use request-only step context; the
+SDK's automatic memory and conversation-evidence recall do too unless `record`
+is set, which the CLI sets. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.
@@ -230,8 +216,10 @@ remain system guidance.
 
 ## Derived work context
 
-After compaction and request projection, the kernel can append two bounded
-runtime observations through the same request-only context channel:
+After compaction and request projection, the kernel can add two bounded
+runtime observations. File evidence and the owned tasks that have finished are
+[recorded](recorded-context.md) as entries that stay; the tasks still running
+are request-only. They are:
 
 - **Visible file evidence:** up to six references to complete built-in `write`
   inputs with unique successful receipts and a matching executor-owned file
@@ -283,8 +271,10 @@ runtime observations through the same request-only context channel:
   `readWitness`/`recordFullRead` methods establishes no read entries, and neither
   does a resumed conversation until something reads a file again: the replay
   below rebuilds bodies from `write` and `edit` calls only.
-- **Owned delegated work:** `CompletionInbox.describeOwnedWork()` observes up to
-  sixteen owned tasks without claiming or draining them. Tasks still running fill
+- **Owned delegated work:** `CompletionInbox.describeRunningWork()` (request-only)
+  and `describeSettledWork()` (recorded, once per task that finished) observe up
+  to sixteen owned tasks without claiming or draining them;
+  `describeOwnedWork()` is the older single snapshot, deprecated. Tasks still running fill
   these slots first, most recently launched first, so a long-running task stays
   named for as long as it keeps running regardless of how many other tasks this
   turn has since launched; the most recently settled tasks fill whatever slots

@@ -88,7 +88,7 @@ it.each(['prose', 'tool', 'native'] as const)(
 						m.source.kind === 'step-context',
 				),
 			).toBe(false)
-			// Just before the operator's message on the first request; after the
+			// Right after the operator's message on the first request; after the
 			// history once the model has answered and been sent back.
 			const asked = context.requestMessages?.findIndex(
 				(m) => m.role === 'user' && m.source === undefined,
@@ -96,7 +96,7 @@ it.each(['prose', 'tool', 'native'] as const)(
 			expect(asked).toBeGreaterThan(0)
 			expect(
 				context.requestMessages?.[
-					context.iteration === 1 ? (asked ?? 0) - 1 : -1 + (context.requestMessages?.length ?? 0)
+					context.iteration === 1 ? (asked ?? 0) + 1 : -1 + (context.requestMessages?.length ?? 0)
 				]?.content,
 			).toContain(`Request-only reference: ${expected}`)
 			requests.push(context.requestMessages ?? [])
@@ -121,7 +121,7 @@ it.each(['prose', 'tool', 'native'] as const)(
 		expect(review).toHaveBeenCalledTimes(2)
 		const justBeforeRequest = (request: readonly Message[] | undefined) => {
 			const asked = request?.findIndex((m) => m.role === 'user' && m.source === undefined) ?? -1
-			return request?.[asked - 1]?.content
+			return request?.[asked + 1]?.content
 		}
 		expect(justBeforeRequest(requests[0])).toContain('Request-only reference: A17')
 		expect(requests[1]?.at(-1)?.content).toContain('Request-only reference: B42')

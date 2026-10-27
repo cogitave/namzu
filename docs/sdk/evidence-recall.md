@@ -521,9 +521,15 @@ when the first call failed or timed out, so a tool result written to the
 archive mid-turn cannot change a block the model already has and the request
 keeps the opening of the one before it; the next turn, and a new operator input
 inside a turn, read the archive afresh. The resident hook is not held this way:
-a resident reads again on every iteration. A later call whose block reads
-exactly the same keeps the copy the model already has, in its place (see
-[where the per-turn blocks sit](step-context.md#where-the-per-turn-blocks-sit)).
+a resident reads again on every iteration. With `record: true` the passages are
+recorded as entries instead (see [recorded turn context](recorded-context.md)):
+a passage whose address an earlier entry carries is not offered again, the
+entries together hold at most `sessionMaxChars` (24,000 by default) of passages,
+and past that an entry only names the addresses of further relevant records for
+the conversation-history tools to open (a pointer says where to open the
+addresses only when no earlier entry carries the reading rules, and a later
+entry that carries passages has a short header in place of the full one). The
+notes about the search itself (unavailable, ambiguous) stay request-only. `record` defaults to `false`.
 The block is written in plain words: the opening paragraph names each JSON key
 it mentions once, in code style, and keeps jargon out of the prose; the
 availability note is two sentences saying what failed and what the model can do
@@ -531,9 +537,7 @@ instead, so it no longer carries `status`, `stage` or `reason` fields. The JSON
 no longer carries the byte count of the scan; whether the scan finished is
 still in `incomplete`. The opening paragraph is no longer than before. The
 evidence block is a block of its own in the request, apart from project memory
-and the repository snapshot, so a change in the evidence moves only that block.
-The words that open each block the step writes are constants of the step, and
-the splitter that separates the blocks cuts at those same constants.
+and the repository snapshot.
 The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
 conversation and reject stale turn ownership before and after asynchronous I/O.

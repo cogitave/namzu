@@ -189,6 +189,7 @@ import {
 	getMonitorTools,
 	isReviewExempt,
 	isTurnInProgressError,
+	lastPromptText,
 	mapTools,
 	query,
 	readyWhen,
@@ -261,7 +262,7 @@ import {
 	composeSessionSystemPrompt,
 	sessionPromptInput,
 } from '../context/system-prompt.js'
-import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-snapshot.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
 	maybeCreateDecisionModel,
@@ -3513,6 +3514,7 @@ export async function createAgentSession(
 						throw new Error('The requesting turn no longer owns this conversation.')
 				},
 				options.compaction?.resolveEvidenceQueries !== false,
+				true,
 			)
 			evidenceRecallSteps.set(sessionId, step)
 		}
@@ -4556,7 +4558,7 @@ export async function createAgentSession(
 		try {
 			const routed = await routeModel(
 				{
-					task: lastUserText(messages),
+					task: lastPromptText(messages),
 					config: routing,
 					features: {
 						conversationLength: messages.length,
@@ -4808,6 +4810,7 @@ export async function createAgentSession(
 									createMemoryRecallStep({
 										store: memoryStore,
 										identifierGrounding: options.memory?.identifierGrounding,
+										record: true,
 									}),
 								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
@@ -5659,21 +5662,11 @@ export async function createAgentSession(
 							},
 							{ stable: stableEnvironment },
 						)
-						// The repository as it stood when THIS turn began, through the
-						// SDK's `context` placement — request-only context after the
-						// history that never enters it. An observation, not an
-						// instruction: under `turn` it rode a system message the
-						// hoisting driver moves ahead of the conversation, so every
-						// new send's changed snapshot re-read the whole history
-						// uncached. Read once per turn and rendered on every iteration with the
-						// same text, so it keeps its place in the request and the turn's
-						// cached prefix is not broken when the second call drops it; the
-						// text itself says it does not update, and `git status` is the
-						// honest source for what the model changed since. A registry per
-						// turn, closed over this turn's snapshot, rather than one
-						// session-scoped holder every send overwrites: two overlapping
-						// sends would otherwise both render whichever ran second.
-						const turnSnapshotPrompt = turnSnapshot ? composeTurnSnapshot(turnSnapshot) : null
+						// The repository is recorded in the conversation (see
+						// `createRepositorySnapshotStep`), read once per send: the whole
+						// snapshot the first time, afterwards only what changed. It is an
+						// observation, not an instruction, and it stays in the history so
+						// every later request begins with the whole of the one before.
 						const promptContributions = new PromptContributionRegistry()
 						for (const contribution of pluginRuntime?.manager.promptContributions ?? []) {
 							promptContributions.register(contribution)
@@ -5705,11 +5698,6 @@ export async function createAgentSession(
 								placement: 'context',
 								render: () => projectGuidance,
 							})
-						promptContributions.register({
-							id: 'namzu.turn-snapshot',
-							placement: 'context',
-							render: () => turnSnapshotPrompt,
-						})
 						// The citation rules that come with the web tools, only when the
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
@@ -5840,7 +5828,7 @@ export async function createAgentSession(
 						)
 						lastSystemPromptText = systemPrompt
 						await announceSessionStart()
-						checkpoints.beginTurn(lastUserText(messages), turnId, {
+						checkpoints.beginTurn(lastPromptText(messages), turnId, {
 							promptOrdinal: Math.max(0, messages.filter((m) => m.role === 'user').length - 1),
 						})
 						if (opts?.goalRound) {
@@ -5994,6 +5982,7 @@ export async function createAgentSession(
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
+									createRepositorySnapshotStep(turnSnapshot),
 									...savedAgentsSteps(turnScope.sessionId),
 									// A host-supplied resident step may select the request model.
 									// Run it before every budgeted recall and memory admission.
@@ -6003,8 +5992,9 @@ export async function createAgentSession(
 										: [
 												createMemoryRecallStep({
 													store: memoryStore,
-													query: lastUserText(messages),
+													query: lastPromptText(messages),
 													identifierGrounding: options.memory?.identifierGrounding,
+													record: true,
 												}),
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
@@ -6750,14 +6740,6 @@ export function conversationDrovePc(messages: readonly Message[]): boolean {
 			return true
 	}
 	return false
-}
-
-function lastUserText(messages: readonly Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]
-		if (m?.role === 'user' && typeof m.content === 'string') return m.content
-	}
-	return ''
 }
 
 /**

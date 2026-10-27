@@ -4,6 +4,7 @@ import {
 	type TurnExecutionStatus,
 	isEntityId,
 	readSessionLog,
+	turnContextEntries,
 } from '@namzu/sdk'
 
 import {
@@ -17,7 +18,7 @@ import {
 export const MAX_LISTED_SAVED_AGENTS = 20
 /** Saved agents one listing reads from the index before it picks the newest. */
 const MAX_READ_SAVED_AGENTS = 200
-/** Earlier agents named in the system prompt of a later turn. */
+/** Earlier agents named in the record of a later turn. */
 const MAX_PROMPTED_SAVED_AGENTS = 8
 /** A description is a label, not a brief. */
 const MAX_DESCRIPTION_CODE_UNITS = 240
@@ -100,10 +101,48 @@ export function createSavedAgentHistory(scope: SavedChildScope): SavedAgentHisto
 	}
 }
 
+/** The name saved-agent entries are recorded under. */
+export const SAVED_AGENTS_KEY = 'saved-agents'
+
+const SAVED_AGENTS_ROWS =
+	'Each row gives the agent\'s session id, what it was asked to do, and its status. Rows are listed once, when they are new or their status changed; "omitted" counts older agents that are not listed.'
+
+interface PromptedRow {
+	readonly sessionId: string
+	readonly description: string
+	readonly status: string
+}
+
+/** The rows the entries already recorded say, newest status last. */
+function recordedRows(entries: readonly string[]): Map<string, string> {
+	const known = new Map<string, string>()
+	for (const entry of entries) {
+		const json = entry
+			.split('\n')
+			.filter((line) => line.startsWith('{'))
+			.at(-1)
+		if (!json) continue
+		try {
+			const parsed = JSON.parse(json) as { savedAgents?: readonly PromptedRow[] }
+			for (const row of parsed.savedAgents ?? []) known.set(row.sessionId, row.status)
+		} catch {
+			// An entry that does not parse says nothing; its rows are listed again.
+		}
+	}
+	return known
+}
+
 /**
- * Names the agents earlier turns of this conversation delegated to, in the
- * system prompt, so a turn that follows a restart or a long gap knows what
- * work already happened.
+ * Tells a turn which agents earlier turns of this conversation delegated to,
+ * so a turn that follows a restart or a long gap knows what work already
+ * happened.
+ *
+ * The listing is recorded in the conversation, not added to the system
+ * prompt: the first entry holds the agents and the guidance for reading them,
+ * and a later one lists only an agent that is new or whose status changed. What
+ * was already said is read back from the history, so a resumed or forked
+ * conversation says nothing twice, and a compaction that shed the entries
+ * brings the listing back whole.
  *
  * Children of the CURRENT turn are left out: they are live, and the live
  * tools answer for them. The listing is read once per step instance, the
@@ -111,24 +150,29 @@ export function createSavedAgentHistory(scope: SavedChildScope): SavedAgentHisto
  */
 export function createSavedAgentsStep(history: SavedAgentHistory): PrepareStep {
 	let snapshot: ReturnType<SavedAgentHistory['list']> | undefined
-	return async ({ prepared, turnId, contextBudget }) => {
+	return async ({ turnId, contextBudget, messages }) => {
 		if (contextBudget && contextBudget.remainingTokens < MIN_REMAINING_TOKENS) return undefined
 		snapshot ??= history.list()
 		const { agents, omitted } = await snapshot
 		const earlier = agents.filter((agent) => agent.parentTurnId !== turnId)
 		if (earlier.length === 0) return undefined
-		const rows = earlier
-			.slice(0, MAX_PROMPTED_SAVED_AGENTS)
+		const held = turnContextEntries(messages, SAVED_AGENTS_KEY)
+		const known = recordedRows(held)
+		const listed = earlier.slice(0, MAX_PROMPTED_SAVED_AGENTS)
+		const rows = listed
 			.map(({ sessionId, description, status }) => ({ sessionId, description, status }))
-		return {
-			system: [
-				prepared.system,
-				SAVED_AGENTS_GUIDANCE,
-				JSON.stringify({ savedAgents: rows, omitted: omitted + earlier.length - rows.length }),
-			]
-				.filter(Boolean)
-				.join('\n\n'),
-		}
+			.filter((row) => known.get(row.sessionId) !== row.status)
+		if (rows.length === 0) return undefined
+		const text = [
+			held.length === 0 ? `${SAVED_AGENTS_GUIDANCE} ${SAVED_AGENTS_ROWS}` : undefined,
+			JSON.stringify({
+				savedAgents: rows,
+				omitted: omitted + earlier.length - listed.length,
+			}),
+		]
+			.filter(Boolean)
+			.join('\n')
+		return { recordedContext: [{ key: SAVED_AGENTS_KEY, text }] }
 	}
 }
 

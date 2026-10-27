@@ -28,7 +28,6 @@ import {
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
-import { splitAtEvidenceBlocks } from '../../../turn/evidence-recall.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
@@ -58,7 +57,6 @@ import { createCallbackInference } from '../callback-inference.js'
 import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
-import { FILE_EVIDENCE_NONE } from '../file-evidence-context.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import {
@@ -103,17 +101,16 @@ import {
 	type TextOnlyModelRefusal,
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
+import { appendRecordedContext } from './recorded-context.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
-import { TurnContextCarry } from './step-context.js'
+import { placeRequestContext } from './step-context.js'
 import {
-	FILE_EVIDENCE_KEY,
 	type StepShaping,
-	appendWorkContext,
 	beforeStep,
 	prepareStep,
 	selectContextModel,
 	stepContextMessage,
-	workContextBlocks,
+	workContext,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
 
@@ -194,8 +191,7 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
-	/** Where this turn's request-only data first went, so it stays there. */
-	private readonly turnContext = new TurnContextCarry()
+	/** The previous request's context, so a pre-call hook is told what changed. */
 	private previousRequestContext: RequestContextSnapshot | undefined
 
 	private projectObservations(messages: Message[]): Message[] {
@@ -838,6 +834,11 @@ export class IterationOrchestrator {
 								'limit-finalization',
 							)
 						: undefined
+					// What the step asked to have kept in the conversation joins the
+					// history now, after its last message, so this request and every
+					// later one begin with it. Nothing is inserted ahead of a message
+					// that is already recorded.
+					appendRecordedContext(recorder, step.recordedContext, this.ctx.log)
 					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
@@ -911,24 +912,30 @@ export class IterationOrchestrator {
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
-					// The blocks of data that belong to this turn (recalled memory and
-					// evidence, the context contributions, the work context) sit just
-					// before the operator's latest message the first time the model
-					// answers it, so the request is the last thing it reads. They stay
-					// there on every later call of the turn, and a block that first
-					// appears on a later call follows the history of that moment, so each
-					// request begins with the whole of the one before it. The short
-					// reminders and notices stay after the history.
+					// Request-only data (the context contributions, notes about the
+					// search, the work context) goes last on every call, after the
+					// whole history, so the history a caching driver reads never
+					// changes shape from one call to the next. What a step wants
+					// kept is recorded in the history above instead. The short
+					// reminders and notices follow it.
 					const messages = [...projected]
-					this.turnContext.place(
+					// What the loop learns about files and finished work holds until it
+					// changes, so it is recorded, after the history as it stands, and
+					// carried in this request where it will sit in the next one's history.
+					const work = workContext(shaping, projected, iterationNum, step)
+					const recordedNow = appendRecordedContext(recorder, work.recorded, this.ctx.log)
+					placeRequestContext(
 						messages,
-						requestHistory,
-						workingMemory.history.at(-1),
-						[contextText, ...(step.context ? splitAtEvidenceBlocks(step.context) : [])]
-							.filter((text): text is string => Boolean(text))
-							.map(stepContextMessage),
-						workContextBlocks(shaping, projected, iterationNum, step),
-						{ [FILE_EVIDENCE_KEY]: stepContextMessage(FILE_EVIDENCE_NONE) },
+						recordedNow,
+						// The working-memory block and the policy notice already end the
+						// request; the entries just recorded belong ahead of them.
+						(workingMemory.context ? 1 : 0) + (policyNotice ? 1 : 0),
+						[
+							...[contextText, step.context]
+								.filter((text): text is string => Boolean(text))
+								.map(stepContextMessage),
+							...work.requestOnly,
+						],
 					)
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
@@ -2896,9 +2903,8 @@ export class IterationOrchestrator {
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 				{ imagesReadable: this.modelReadsImages(model) },
 			)
-			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
-			// the working memory and any work context above.
+			// the working memory above.
 			finalMessages.push(
 				createRuntimeContextMessage(
 					`[SYSTEM] Turn is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,

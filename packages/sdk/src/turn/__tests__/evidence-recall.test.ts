@@ -13,14 +13,11 @@ import {
 	generateTurnId,
 } from '../../utils/id.js'
 import {
-	EVIDENCE_BLOCK_LEADS,
-	EVIDENCE_HEADERS,
 	type EvidenceRecallBatch,
 	type EvidenceRecallCandidate,
 	type EvidenceRecallOptions,
 	type EvidenceRecallRequest,
 	createEvidenceRecallStep,
-	splitAtEvidenceBlocks,
 } from '../evidence-recall.js'
 
 const SESSION_ID = generateSessionId()
@@ -919,28 +916,4 @@ it('does not attach a failure note to parent cancellation during retrieval', asy
 	})
 	await expect(recall({ ...context(), signal: controller.signal })).rejects.toBe(stopped)
 	expect(stopped).not.toHaveProperty('context')
-})
-
-describe('the words that open an evidence block', () => {
-	it('are the ones the splitter cuts at, so a reworded lead cannot drift from it', async () => {
-		for (const kind of ['conversation', 'resident'] as const) {
-			const header = EVIDENCE_HEADERS[kind]
-			expect(EVIDENCE_BLOCK_LEADS.some((lead) => header.startsWith(lead))).toBe(true)
-			expect(splitAtEvidenceBlocks(`MEMORY\n\n${header}{}\n`)).toEqual(['MEMORY', `${header}{}\n`])
-		}
-		// Every other block the step writes opens with a lead on the list too.
-		const failing = createEvidenceRecallStep({
-			scope,
-			retrieve: async () => {
-				throw new Error('archive down')
-			},
-		})
-		const note = await Promise.resolve(failing(context())).then(
-			() => '',
-			(error: { context?: string }) => error.context ?? '',
-		)
-		expect(EVIDENCE_BLOCK_LEADS.some((lead) => note.startsWith(lead))).toBe(true)
-		for (const lead of EVIDENCE_BLOCK_LEADS)
-			expect(splitAtEvidenceBlocks(`MEMORY\n\n${lead} x`)).toHaveLength(2)
-	})
 })

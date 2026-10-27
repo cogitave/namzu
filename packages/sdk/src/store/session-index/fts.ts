@@ -55,6 +55,11 @@ function shedTexts(messages: unknown): ShedText[] {
 		const message = plainObject(value)
 		if (!message || typeof message.role !== 'string' || !ROLES.has(message.role)) continue
 		const role = message.role
+		// A recorded context entry is the host's own earlier look at the
+		// repository, memory or evidence; indexing it would let a search find
+		// its own earlier answer as if it were something said in the session.
+		const source = plainObject(message.source)
+		if (source?.type === 'runtime-context' && source.kind === 'turn-context') continue
 		const tool = metadata[index]
 		if (typeof message.content === 'string') {
 			const summary =

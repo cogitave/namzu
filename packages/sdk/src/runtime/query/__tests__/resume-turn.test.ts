@@ -12,6 +12,7 @@ import {
 	type SessionLease,
 	type SessionLog,
 } from '../../../store/session-log/index.js'
+import { heldFileEvidence } from '../../../test-support/file-evidence-held.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
@@ -516,12 +517,13 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 		)
 		expect(refusal).toBeDefined()
 		// The first request offered the body; the one after the refusal keeps
-		// that text as sent and ends with the block that says no entry holds.
+		// that text as sent and ends with the entry that says it no longer holds.
 		expect(requests[0]?.map((m) => String(m.content)).join('\n')).toContain('"bodyInCall":"w1"')
 		const afterRefusal = requests[1]?.map((m) => String(m.content)).join('\n') ?? ''
-		expect(afterRefusal.lastIndexOf('no entry holds any longer')).toBeGreaterThan(
+		expect(afterRefusal.lastIndexOf('No longer holds')).toBeGreaterThan(
 			afterRefusal.lastIndexOf('"bodyInCall":"w1"'),
 		)
+		expect(heldFileEvidence(requests[1])).toBeUndefined()
 		// Untouched: a refused edit writes nothing.
 		expect(await readFile(path, 'utf-8')).toBe('somebody else wrote this\n')
 	})

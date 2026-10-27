@@ -307,6 +307,8 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 				} else if (message.source?.type === 'goal-round') {
 					lines.push(...renderUser(message), '')
 				} else if (message.source?.type === 'runtime-context') {
+					// Recorded context is for the model; the transcript never showed it.
+					if (message.source.kind === 'turn-context') break
 					lines.push(
 						`## Runtime context — ${runtimeContextLabel(message.source.kind)}`,
 						'',

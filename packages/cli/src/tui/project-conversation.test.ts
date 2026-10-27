@@ -3,6 +3,7 @@ import {
 	createProjectInstructionMessage,
 	createRuntimeContextMessage,
 	createToolMessage,
+	createTurnContextEntry,
 	createUserMessage,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
@@ -11,6 +12,21 @@ import { projectConversation } from './App.js'
 import { tokenColor } from './theme.js'
 
 describe('conversation projection', () => {
+	it('draws no row for the context a turn recorded for the model', () => {
+		const messages = [
+			createUserMessage('inspect'),
+			createTurnContextEntry('repository', 'RECALLED BRANCH STATE'),
+			createAssistantMessage('Done.'),
+		]
+		let id = 0
+		const rows = projectConversation(messages, () => String(++id))
+		expect(rows.map((row) => [row.role, row.content])).toEqual([
+			['user', 'inspect'],
+			['assistant', 'Done.'],
+		])
+		expect(JSON.stringify(rows)).not.toContain('RECALLED')
+	})
+
 	it('omits empty tool-only assistant rows but keeps the call they made, without modifying model history', () => {
 		const call = createAssistantMessage(null, [
 			{ id: 'call', type: 'function', function: { name: 'read', arguments: '{}' } },

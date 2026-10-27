@@ -1,8 +1,8 @@
-import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
+import { createAssistantMessage, createTurnContextEntry, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import type { CheckpointTurn } from '../../checkpoints/store.js'
-import type { EditablePrompt } from '../edit-prompts.js'
+import { type EditablePrompt, editablePrompts } from '../edit-prompts.js'
 import {
 	ageText,
 	buildRewindRows,
@@ -90,6 +90,50 @@ describe('placing checkpoint turns on prompts', () => {
 			createUserMessage('two'),
 		]
 		expect(durableUsers(history).map((u) => u.ordinal)).toEqual([0, 1, 2])
+	})
+})
+
+describe('recorded context among the prompts', () => {
+	// An entry is a user row the person never wrote. It takes a position on
+	// both sides of the count (the recorded ordinal and this list), so a
+	// prompt still lands where its turn says it does, and it is no rewind point.
+	const withEntries = () => [
+		createUserMessage('one'),
+		createTurnContextEntry('repository', 'REPO STATE'),
+		createAssistantMessage('re: one'),
+		createUserMessage('two'),
+		createTurnContextEntry('memory', 'A RECORD'),
+		createAssistantMessage('re: two'),
+	]
+
+	it('counts entries in the positions and trusts a turn recorded with them counted', () => {
+		const history = withEntries()
+		const users = durableUsers(history)
+		expect(users.map((u) => u.ordinal)).toEqual([0, 1, 2, 3])
+		const placed = placeTurns([turn(1, 'one', 0), turn(2, 'two', 2)], users)
+		expect([...placed]).toEqual([
+			['t1', 0],
+			['t2', 2],
+		])
+	})
+
+	it('places a turn recorded before entries existed by its words', () => {
+		// Counted without entries, 'two' was position 1, which is an entry now.
+		const placed = placeTurns([turn(1, 'one', 0), turn(2, 'two', 1)], durableUsers(withEntries()))
+		expect(placed.get('t2')).toBe(2)
+	})
+
+	it('offers only what the person wrote, at the position the count gives it', () => {
+		const history = withEntries()
+		const transcript = [
+			{ role: 'user', content: 'one' },
+			{ role: 'user', content: 'two' },
+		] as never
+		const prompts = editablePrompts(history, transcript)
+		expect(prompts.map((p) => [p.userOrdinal, p.displayText])).toEqual([
+			[0, 'one'],
+			[2, 'two'],
+		])
 	})
 })
 

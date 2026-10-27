@@ -351,6 +351,12 @@ after conversation history as a labelled user-role `step-context` message;
 it does not grant system authority or enter saved conversation history.
 Earlier `prepared.system` guidance remains in the system message. Hosts that
 previously read the hook's returned `.system` must read `.context` instead.
+With `record: true` the selected records are instead kept in the conversation as
+[recorded entries](recorded-context.md) under the key `memory`: a record is
+offered again only when its `updatedAt` differs from the one an earlier entry
+carries, and once the entries hold `sessionMaxChars` (24,000 by default) recall
+adds nothing and the model reads records with `read_memory`. `record` defaults
+to `false`.
 Explicit `read_memory` results remain ordinary tool history and have their
 normal retention behavior. Stored text can still influence the model; this
 role separation is not a guarantee against prompt injection.
