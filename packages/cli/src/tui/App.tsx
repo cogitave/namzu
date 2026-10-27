@@ -8218,6 +8218,14 @@ function AppBody({
 		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
 	)
 	/**
+	 * The model proposed planning first and the person agreed (the question was
+	 * asked by the tool). The switch goes through the same path Shift+Tab uses,
+	 * so the next decision of the turn is made in plan mode.
+	 */
+	const enterPlanFromTool = useCallback((): void => {
+		commitPermissionMode('plan', true)
+	}, [commitPermissionMode])
+	/**
 	 * The card's answer. It answers from its own key handler, which Ink calls
 	 * before App's, so the card is taken down a tick later: clearing the ref
 	 * now would hand the same Esc or Ctrl+C to App, which reads it as an
@@ -9630,6 +9638,7 @@ function AppBody({
 							},
 							onQuestion: askQuestion,
 							onPlanExit: askPlanApproval,
+							onPlanEnter: enterPlanFromTool,
 							bypassAvailable: () => bypassAvailableRef.current,
 							onModelSwitch: requestModelSwitch,
 							inboundMessages: () => {

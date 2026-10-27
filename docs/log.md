@@ -2,6 +2,7 @@
 
 ## 2026-10-27
 
+- **Creation** [Plan mode](cli/plan-mode.md#proposing-plan-mode): the model can propose planning before a change that is not small with a deferred `enter_plan_mode` tool, which asks "Enter plan mode?" and switches the session only after a yes (Auto mode switches without asking, plan mode only reports it is on, headless runs never switch). `.changeset/enter-plan-mode-tool.md` (`@namzu/cli` minor).
 - **Update** [Provider credentials](cli/credentials.md): a free Zen model that is out of allowance says so plainly, when it should reset, and offers `/model` or another provider (a pause leads with those instead of "wait"); the provider's words stay behind `--debug`, and the `provider.rate_limit` hint stops advising lower concurrency. `.changeset/free-tier-quota-guidance-cli.md` (`@namzu/cli` patch), `.changeset/free-tier-quota-guidance-sdk.md` (`@namzu/sdk` patch).
 - **Update** [Slash commands](cli/slash-commands.md): the `/resume` list narrows as you type (name, first message, last message), switches between this folder and every folder with `ctrl+a`, renames the selected conversation with `ctrl+r`, and previews the first lines of the opening message. `.changeset/resume-search-folders-rename.md` (`@namzu/cli` minor).
 - **Creation** [Slash commands](cli/slash-commands.md): `/doctor` runs the existing health checks inside the terminal and shows them in plain words. `.changeset/doctor-in-the-terminal.md` (`@namzu/cli` minor).
