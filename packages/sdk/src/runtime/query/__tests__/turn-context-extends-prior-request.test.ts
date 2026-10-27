@@ -32,7 +32,7 @@ const isRequestOnly = (message: Message): boolean =>
 	message.source.kind === 'step-context'
 
 /** The messages a caching driver can read back: those before the first request-only one. */
-export function cacheable(messages: readonly Message[]): string[] {
+function cacheable(messages: readonly Message[]): string[] {
 	const end = messages.findIndex(isRequestOnly)
 	return (end < 0 ? messages : messages.slice(0, end)).map((m) => `${m.role}:${text(m)}`)
 }
