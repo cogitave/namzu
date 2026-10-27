@@ -203,7 +203,10 @@ export interface WebConfig {
 	readonly search?: 'off' | 'cached' | 'live'
 	/** Auto prefers declared native support, otherwise Exa. Explicit choices never silently switch. */
 	readonly backend?: 'auto' | 'exa' | 'native'
-	/** Mount `web_fetch` over the guarded provider. Default `false`. */
+	/**
+	 * Mount `web_fetch` over the guarded provider. Default `true`; each new domain is
+	 * asked once. `false` removes the tool.
+	 */
 	readonly fetch?: boolean
 }
 
