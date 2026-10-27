@@ -60,10 +60,10 @@ function setup() {
 }
 
 describe('a turn after another begins with what the earlier turn sent', () => {
-	// Request-only context, as steps offer it today: it sits before the
-	// operator message and is gone on the next turn, so the next request
-	// diverges at the first such block. Kept as a known failure until the
-	// recorded form (turn-context-entries.test.ts) replaces it.
+	// Request-only context goes at the tail of the history of the moment it
+	// first appears, so it no longer pushes the operator message and the tool
+	// loop out of the prefix a caching provider reads back. What a step wants
+	// kept for later turns is recorded instead (turn-context-entries.test.ts).
 	it('holds when a step offers request-only context', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
