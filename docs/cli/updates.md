@@ -76,7 +76,7 @@ In CI the terminal still looks, but it does not install unless you ask for it
    does not stop it half way; its process id is kept in the marker below, and the
    end of the log is kept with the last result.
 3. A copy of the version being replaced is kept first
-   (`updates/previous/<install>/<version>`, the two newest are kept).
+   (`.namzu-update/updates/previous/<install>/<version>` inside the install, the two newest are kept; in the install so that a process with another Namzu home can put it back).
 4. The installed version is read back, and the new copy is started and must
    answer with the version it should be and then load what a terminal session
    needs when it starts: the terminal interface, the runtime under it, and the
@@ -91,23 +91,24 @@ In CI the terminal still looks, but it does not install unless you ask for it
    start reads the installed version back, starts it, and puts the kept copy back
    when it does not answer. A marker older than fifteen minutes is treated as
    dead, a marker whose installer still runs is left alone, and only a copy under
-   `updates/previous` is ever put back. With installing switched off, nothing is
+   `updates/previous` in the install's `.namzu-update` folder is ever put back. With installing switched off, nothing is
    repaired or rewritten. The copy is restored by moving a fresh copy into
    place, so the package is never missing half way.
-   For pnpm the verified file is followed by `pnpm add --global --prefer-offline
+   For pnpm the verified file is followed by `pnpm add --global --offline
    @namzu/cli@<version>` (with the `@namzu` scope pinned to the same registry), which
-   links the bytes already in pnpm's store, so its global manifest names a
-   registry version and not a path to a file that no longer exists (pnpm would
-   otherwise skip Namzu in `pnpm update --global`). The installed version is read
-   back, but the second step resolves through the registry's listing, so for pnpm the
-   checksum guarantee covers the file Namzu installs first, not the by-name link.
+   links the bytes already in pnpm's store and never fetches, so its global manifest
+   names a registry version and not a path to a file that no longer exists (pnpm would
+   otherwise skip Namzu in `pnpm update --global`) and what is installed is the
+   checked file. When the store cannot serve it the update stands and the file entry
+   stays; `namzu upgrade` says so and names the one command that switches it.
    `namzu upgrade` runs these same steps, writes the same marker, and puts the
    previous version back the same way (offline from the store first, and it must start).
 6. If any step fails the previous copy is put back (pnpm installs the previous
    version again, offline from its store first and from the registry only if the
    store lacks it, and the result must start), so a failed update leaves a working Namzu. The outcome of the
-   last automatic attempt is kept in `updates/last-result.json` and `namzu upgrade
-   --check` says when it did not finish and where the installer's log is.
+   last automatic attempt is kept per install in `updates/last-result-<install>.json` and `namzu upgrade
+   --check` says when that attempt did not finish, and where the installer's log is,
+   only when it was for the version now offered.
 
 ## When a version did not work
 
@@ -115,7 +116,7 @@ If Namzu may not write to its folder, it does not try and shows the command
 instead.
 
 The version, the reason and the time of a failed attempt are kept in
-`updates/attempt.json`. Every later start, and every window open at the time,
+`updates/attempt-<install>.json` (one per install, so another install's failure does not hide an update here). Every later start, and every window open at the time,
 skips that version instead of swapping the package folder for it again under
 windows that are still open; the footer shows the plain command instead. It is
 tried again when a newer version is published. Two kinds of failure are different

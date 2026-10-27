@@ -205,7 +205,9 @@ export type PnpmRun = (args: readonly string[]) => Promise<number>
  * Record the registry's name for a version in pnpm's global manifest. A tarball path
  * leaves a `file:` entry that points at a file deleted afterwards, and pnpm then
  * skips the package on every later update. The verified bytes are already in the
- * store, so this links them rather than fetching again.
+ * store, so this links them from there and never fetches: offline, so that what ends
+ * up installed is the hashed copy. Resolves false when the store cannot serve it,
+ * and the caller then leaves the file entry as it is.
  */
 export async function settlePnpmByName(
 	run: PnpmRun,
@@ -213,7 +215,7 @@ export async function settlePnpmByName(
 	registry: string,
 ): Promise<boolean> {
 	try {
-		return (await run(pnpmInstallArgs(version, registry, undefined, 'prefer-offline'))) === 0
+		return (await run(pnpmInstallArgs(version, registry, undefined, 'offline'))) === 0
 	} catch {
 		return false
 	}
@@ -530,7 +532,7 @@ async function installFromTarball(
 	try {
 		writeInProgress(shared, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
-			backup = backupPackage(install.root, deps.home, onDisk, scope)
+			backup = backupPackage(install.root, shared, onDisk, scope)
 			writeInProgress(shared, { pid, to: release.version, from: onDisk, backup, at }, scope)
 		}
 	} catch {
@@ -623,18 +625,14 @@ async function installFromTarball(
 
 	// A tarball path leaves a `file:` entry in pnpm's global manifest that points at a file
 	// deleted below, and pnpm then skips the package on every later update. Record the
-	// registry's name for the version instead; the verified bytes are already in the store.
+	// registry's name for the version instead, from the store only. When the store cannot
+	// serve it the update stands as installed and the file entry stays.
 	if (install.kind === 'pnpm-global') {
-		const settled = await settlePnpmByName(
+		await settlePnpmByName(
 			pnpmRunner(deps, install.globalDir, logFile, noteInstaller),
 			release.version,
 			registry,
 		)
-		if (!settled) {
-			const restored = await restore()
-			if (restored) clearInProgress(shared, scope)
-			return fail('install_failed', restored, logFile)
-		}
 	}
 
 	let installed: string
@@ -660,7 +658,7 @@ async function installFromTarball(
 			// namzu.cmd still works.
 		}
 	}
-	pruneOlderPrevious(deps.home, 2, scope)
+	pruneOlderPrevious(sharedStateHome(install), 2, scope)
 	return { status: 'installed', from: onDisk, to: release.version }
 }
 
@@ -751,7 +749,7 @@ export async function repairInterruptedUpdate(
 			if (
 				install.kind === 'npm-global' &&
 				marker.backup &&
-				isKeptCopy(deps.home, marker.backup) &&
+				isKeptCopy(shared, marker.backup) &&
 				existsSync(marker.backup)
 			) {
 				restorePackage(install.root, marker.backup, own)

@@ -18,6 +18,7 @@ import {
 	describeFailure,
 	manualUpdateCommand,
 	repairInterruptedUpdate,
+	scopeOf,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import type { UpdatePolicy } from './policy.js'
@@ -179,10 +180,16 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 
 			// A version that already failed here is not tried again on every start: the package
 			// folder is not swapped under open windows for something that did not work.
-			const earlier = readAttempt(deps.home)
+			const earlier = readAttempt(deps.home, scopeOf(install, deps.platform))
 			if (earlier && earlier.version === release.version && !mayTryAgain(earlier, now())) {
 				const first = !earlier.shown
-				if (first) writeAttempt(deps.home, { ...earlier, shown: true }, deps.applyDeps.pid)
+				if (first)
+					writeAttempt(
+						deps.home,
+						scopeOf(install, deps.platform),
+						{ ...earlier, shown: true },
+						deps.applyDeps.pid,
+					)
 				emitAvailable(release.version, earlier.code as FailureStatus, first)
 				return
 			}
@@ -212,7 +219,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				case 'installed':
 					failures = 0
 					installedThisSession = true
-					writeLastResult(deps.home, {
+					writeLastResult(deps.home, scopeOf(install, deps.platform), {
 						at: stamp,
 						outcome: 'installed',
 						status: 'installed',
@@ -224,7 +231,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 					return
 				case 'failed':
 					failures = result.code === 'no_permission' ? MAX_CONSECUTIVE_FAILURES : failures + 1
-					writeLastResult(deps.home, {
+					writeLastResult(deps.home, scopeOf(install, deps.platform), {
 						at: stamp,
 						outcome: 'failed',
 						status: result.code,
@@ -236,6 +243,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 					})
 					writeAttempt(
 						deps.home,
+						scopeOf(install, deps.platform),
 						{ version: release.version, code: result.code, at: now(), shown: true },
 						deps.applyDeps.pid,
 					)
@@ -268,7 +276,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		const method = install.kind
 		const stamp = new Date(now()).toISOString()
 		if (result.status === 'completed') {
-			writeLastResult(deps.home, {
+			writeLastResult(deps.home, scopeOf(install, deps.platform), {
 				at: stamp,
 				outcome: 'installed',
 				status: 'installed',
@@ -284,10 +292,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		}
 		writeAttempt(
 			deps.home,
+			scopeOf(install, deps.platform),
 			{ version: result.to, code: 'verify_failed', at: now(), shown: false },
 			deps.applyDeps.pid,
 		)
-		writeLastResult(deps.home, {
+		writeLastResult(deps.home, scopeOf(install, deps.platform), {
 			at: stamp,
 			outcome: 'failed',
 			status: 'verify_failed',

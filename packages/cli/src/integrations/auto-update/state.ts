@@ -3,8 +3,8 @@
  *
  * - `locks/<install>/`  one process updating each install at a time
  * - `check.json`    when any Namzu process last looked, so two terminals do not both ask
- * - `last-result.json`  the outcome of the last automatic attempt
- * - `attempt.json`  the version the last failed attempt was for, so it is not tried again
+ * - `last-result-<install>.json`  the outcome of the last automatic attempt on one install
+ * - `attempt-<install>.json`  the version the last failed attempt on one install was for, so it is not tried again
  * - `previous/<install>/<version>/`  the copy of the package an update replaced
  * - `in-progress-<install>.json`  an update that has touched the package and is not yet verified
  *
@@ -96,17 +96,22 @@ export interface UpdateResult {
 	readonly log?: string
 }
 
-export function readLastResult(home: string): UpdateResult | undefined {
-	const value = readJson(join(updatesDir(home), 'last-result.json')) as
+export function readLastResult(home: string, scope: string): UpdateResult | undefined {
+	const value = readJson(join(updatesDir(home), `last-result-${scope}.json`)) as
 		| Partial<UpdateResult>
 		| undefined
 	if (!value || typeof value.at !== 'string' || typeof value.outcome !== 'string') return undefined
 	return value as UpdateResult
 }
 
-export function writeLastResult(home: string, result: UpdateResult, pid = process.pid): void {
+export function writeLastResult(
+	home: string,
+	scope: string,
+	result: UpdateResult,
+	pid = process.pid,
+): void {
 	try {
-		writeJsonAtomic(join(updatesDir(home), 'last-result.json'), result, pid)
+		writeJsonAtomic(join(updatesDir(home), `last-result-${scope}.json`), result, pid)
 	} catch {
 		// The record is a convenience; the update outcome does not depend on it.
 	}
@@ -127,8 +132,8 @@ export interface AttemptRecord {
 	readonly shown: boolean
 }
 
-export function readAttempt(home: string): AttemptRecord | undefined {
-	const value = readJson(join(updatesDir(home), 'attempt.json')) as
+export function readAttempt(home: string, scope: string): AttemptRecord | undefined {
+	const value = readJson(join(updatesDir(home), `attempt-${scope}.json`)) as
 		| Partial<AttemptRecord>
 		| undefined
 	if (
@@ -143,9 +148,14 @@ export function readAttempt(home: string): AttemptRecord | undefined {
 	return value as AttemptRecord
 }
 
-export function writeAttempt(home: string, record: AttemptRecord, pid = process.pid): void {
+export function writeAttempt(
+	home: string,
+	scope: string,
+	record: AttemptRecord,
+	pid = process.pid,
+): void {
 	try {
-		writeJsonAtomic(join(updatesDir(home), 'attempt.json'), record, pid)
+		writeJsonAtomic(join(updatesDir(home), `attempt-${scope}.json`), record, pid)
 	} catch {
 		// Not remembering costs one more attempt at the next start, never a wrong install.
 	}

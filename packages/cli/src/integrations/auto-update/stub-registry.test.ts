@@ -32,6 +32,7 @@ import {
 	applyUpdate,
 	npmInstallArgs,
 	scopeOf,
+	sharedStateHome,
 	smokeTestInstalled,
 } from './apply.js'
 import { classifyInstall } from './install-kind.js'
@@ -243,7 +244,14 @@ describe('updating through a real package manager', () => {
 			expect(readInstalledVersion(root)).toBe('2.0.0')
 			expect(
 				readFileSync(
-					join(previousDir(home, '1.0.0', scopeOf(applyDeps().install)), 'package.json'),
+					join(
+						previousDir(
+							sharedStateHome(applyDeps().install),
+							'1.0.0',
+							scopeOf(applyDeps().install),
+						),
+						'package.json',
+					),
 					'utf8',
 				),
 			).toContain('"1.0.0"')
@@ -401,7 +409,10 @@ describe('updating through a real package manager', () => {
 			})
 			await updater.runCycle()
 			expect(events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
-			expect(readLastResult(home)).toMatchObject({ outcome: 'installed', to: '2.0.0' })
+			expect(readLastResult(home, scopeOf(deps.install))).toMatchObject({
+				outcome: 'installed',
+				to: '2.0.0',
+			})
 		},
 		TIMEOUT,
 	)

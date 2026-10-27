@@ -197,7 +197,15 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 			}
 
 			if (flags.check) {
-				const last = deps.safety ? readLastResult(deps.safety.home) : undefined
+				// The record belongs to one install and to one offered version: an old
+				// failure for another version or another install says nothing about this one.
+				const checkPnpm = deps.platform === 'win32' ? null : pnpmGlobalDirFor(deps.packageRoot)
+				const checkPrefix = checkPnpm ? null : npmGlobalPrefixFor(deps.packageRoot, deps.platform)
+				const known = deps.safety && (checkPnpm || checkPrefix)
+				const earlier = known
+					? readLastResult(deps.safety?.home ?? '', scopeFor(deps.platform, checkPrefix, checkPnpm))
+					: undefined
+				const last = earlier?.to === latest ? earlier : undefined
 				ctx.formatter.print({
 					current: deps.currentVersion,
 					latest,
@@ -316,12 +324,14 @@ async function installVerified({
 	)
 
 	// The copy kept before the installer touches anything, so a failed update leaves a working Namzu.
+	// Where the lock lives too: inside the install, so every Namzu home sees it.
+	const shared = join(cwd, '.namzu-update')
 	let backup: string | undefined
 	if (deps.safety && prefix) {
 		try {
 			backup = backupPackage(
 				deps.packageRoot,
-				deps.safety.home,
+				shared,
 				deps.currentVersion,
 				scopeFor(deps.platform, prefix, pnpmDir),
 			)
@@ -332,8 +342,6 @@ async function installVerified({
 			return EXIT_FAIL
 		}
 	}
-	// Where the lock lives too: inside the install, so every Namzu home sees it.
-	const shared = join(cwd, '.namzu-update')
 	const scope = scopeFor(deps.platform, prefix, pnpmDir)
 	// The same marker a background update leaves, so an interrupted run is repaired on the next start.
 	const marking = deps.safety !== undefined
@@ -437,9 +445,11 @@ async function installVerified({
 		}
 
 		// A tarball path leaves a `file:` entry in pnpm's global manifest that points at a file
-		// deleted afterwards; record the registry's name for the version instead.
+		// deleted afterwards; record the registry's name for the version instead, from pnpm's
+		// store only, so what is installed is the checked copy.
+		let leftFileEntry = false
 		if (pnpmDir && !(await settlePnpmByName(pnpmRun, latest, PUBLIC_REGISTRY))) {
-			return await failWith('pnpm could not record the new version; Namzu was not verified.')
+			leftFileEntry = true
 		}
 
 		let installed: string
@@ -469,13 +479,16 @@ async function installVerified({
 
 		progress?.stop(true)
 		if (marking) clearInProgress(shared, scope)
-		if (deps.safety)
-			pruneOlderPrevious(deps.safety.home, 2, scopeFor(deps.platform, prefix, pnpmDir))
+		if (deps.safety) pruneOlderPrevious(shared, 2, scopeFor(deps.platform, prefix, pnpmDir))
 		ctx.formatter.print({
 			previous: deps.currentVersion,
 			current: installed,
 			updated: true,
-			text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
+			text: `Updated Namzu ${deps.currentVersion} → ${installed}.${
+				leftFileEntry
+					? ' pnpm still lists Namzu as a local file; run `pnpm add --global @namzu/cli` once to switch it to the registry.'
+					: ''
+			}`,
 		})
 		await deps.afterUpgrade?.().catch(() => undefined)
 		return EXIT_OK

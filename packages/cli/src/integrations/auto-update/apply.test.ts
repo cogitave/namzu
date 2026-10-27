@@ -110,7 +110,7 @@ describe('applying an update to an npm global installation', () => {
 			npmInstallArgs(prefix, '2.0.0', undefined, tarballPath(home, scope(), '2.0.0')),
 		)
 		expect(readInstalledVersion(root)).toBe('2.0.0')
-		expect(readFileSync(join(previousDir(home, '1.0.0', scope()), 'marker.txt'), 'utf8')).toBe(
+		expect(readFileSync(join(previousDir(shared(), '1.0.0', scope()), 'marker.txt'), 'utf8')).toBe(
 			'1.0.0',
 		)
 		expectUnlocked()
@@ -225,7 +225,7 @@ describe('applying an update to an npm global installation', () => {
 		const result = await applyUpdate(
 			deps({
 				smokeTest: async () => {
-					rmSync(previousDir(home, '1.0.0', scope()), { recursive: true, force: true })
+					rmSync(previousDir(shared(), '1.0.0', scope()), { recursive: true, force: true })
 					return false
 				},
 			}),
@@ -236,9 +236,8 @@ describe('applying an update to an npm global installation', () => {
 	})
 
 	it('does not install at all when a copy of the current version cannot be kept', async () => {
-		mkdirSync(home, { recursive: true })
-		mkdirSync(join(home, 'updates'), { recursive: true })
-		writeFileSync(join(home, 'updates', 'previous'), 'a file where the folder must go')
+		mkdirSync(join(shared(), 'updates'), { recursive: true })
+		writeFileSync(join(shared(), 'updates', 'previous'), 'a file where the folder must go')
 		const run = vi.fn(async () => 0)
 		const result = await applyUpdate(deps({ runInstaller: run }), release)
 		expect(result.status).toBe('failed')
@@ -247,11 +246,11 @@ describe('applying an update to an npm global installation', () => {
 
 	it('keeps only the two newest previous copies', async () => {
 		for (const version of ['0.8.0', '0.9.0']) {
-			mkdirSync(previousDir(home, version, scope()), { recursive: true })
+			mkdirSync(previousDir(shared(), version, scope()), { recursive: true })
 		}
 		await applyUpdate(deps(), release)
 		const kept = ['0.8.0', '0.9.0', '1.0.0'].filter((v) =>
-			existsSync(previousDir(home, v, scope())),
+			existsSync(previousDir(shared(), v, scope())),
 		)
 		expect(kept).toHaveLength(2)
 		expect(kept).toContain('1.0.0')
@@ -374,19 +373,16 @@ describe('applying an update to a pnpm global installation', () => {
 		)
 		expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
 		expect(requests).toHaveLength(2)
-		expect(requests[1]?.args).toEqual(
-			pnpmInstallArgs('2.0.0', undefined, undefined, 'prefer-offline'),
-		)
+		expect(requests[1]?.args).toEqual(pnpmInstallArgs('2.0.0', undefined, undefined, 'offline'))
 		expect(requests[1]?.args.at(-1)).toBe('@namzu/cli@2.0.0')
 	})
 
-	it('puts the previous version back when the follow-up by name fails', async () => {
+	it('keeps the checked install, with its file entry, when the store cannot serve the name', async () => {
 		writePackage(active(), '1.0.0')
 		let call = 0
 		const result = await applyUpdate(
 			deps(
 				{
-					smokeTest: async () => true,
 					runInstaller: async (request) => {
 						call += 1
 						if (call === 2) return 1
@@ -398,8 +394,9 @@ describe('applying an update to a pnpm global installation', () => {
 			),
 			release,
 		)
-		expect(result).toMatchObject({ status: 'failed', restored: true })
-		expect(readInstalledVersion(active())).toBe('1.0.0')
+		expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
+		expect(readInstalledVersion(active())).toBe('2.0.0')
+		expect(call).toBe(2)
 	})
 
 	it('falls back to the registry only when the store lacks the previous version', async () => {
@@ -477,7 +474,7 @@ describe('what a person is told to run', () => {
 	})
 
 	it('reads nothing from a record that was never written', () => {
-		expect(readLastResult(home)).toBeUndefined()
+		expect(readLastResult(home, scope())).toBeUndefined()
 	})
 })
 
@@ -525,6 +522,17 @@ describe('repairing an update that was interrupted', () => {
 		expect(existsSync(join(root, 'partial.txt'))).toBe(false)
 		expect(readInProgress(shared(), scope())).toBeUndefined()
 		expectUnlocked()
+	})
+
+	it('puts the kept copy back from a process with another Namzu home', async () => {
+		await interrupt()
+		const result = await repairInterruptedUpdate({
+			...deps({ pid: 5151, smokeTest: async (at) => !existsSync(join(at, 'partial.txt')) }),
+			home: join(dir, 'other-home'),
+		})
+		expect(result).toEqual({ status: 'restored', from: '1.0.0', to: '2.0.0' })
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+		expect(existsSync(join(root, 'partial.txt'))).toBe(false)
 	})
 
 	it('accepts the new version when the interrupted install actually finished and answers', async () => {

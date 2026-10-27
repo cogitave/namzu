@@ -4,7 +4,12 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DownloadError } from '../integrations/auto-update/download.js'
-import { acquireUpdateLock, installScope, previousDir } from '../integrations/auto-update/state.js'
+import {
+	acquireUpdateLock,
+	installScope,
+	previousDir,
+	writeLastResult,
+} from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
 	type NpmUpgradeRequest,
@@ -286,6 +291,57 @@ describe('namzu upgrade keeps a working Namzu', () => {
 		writeFileSync(join(root, 'marker.txt'), 'new')
 	}
 
+	describe('the remembered failure in --check', () => {
+		const failure = (to: string) => ({
+			at: '2026-10-27T10:00:00.000Z',
+			outcome: 'failed' as const,
+			status: 'install_failed',
+			method: 'npm-global',
+			from: '14.2.1',
+			to,
+			detail: 'The installer did not finish.',
+		})
+		const checkText = async (write: (l: ReturnType<typeof layout>) => void) => {
+			const l = layout()
+			try {
+				write(l)
+				const h = harness({
+					packageRoot: l.root,
+					safety: { home: l.home, smokeTest: async () => true },
+				})
+				expect(await h.invoke(['--check'])).toBe(0)
+				return (h.printed[0] as { text: string }).text
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		}
+
+		it('prints the last failure when it was for the version now offered', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), failure('14.3.0')),
+			)
+			expect(text).toContain('The last automatic update did not finish')
+		})
+
+		it('does not print a failure for another version', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), failure('14.2.9')),
+			)
+			expect(text).not.toContain('did not finish')
+		})
+
+		it('does not print a failure recorded for another install', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(
+					l.home,
+					installScope(join(l.base, 'elsewhere'), 'linux'),
+					failure('14.3.0'),
+				),
+			)
+			expect(text).not.toContain('did not finish')
+		})
+	})
+
 	it('puts the previous version back when the new one does not start', async () => {
 		const l = layout()
 		try {
@@ -346,7 +402,10 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			expect(await h.invoke()).toBe(0)
 			expect(
 				readFileSync(
-					join(previousDir(l.home, '14.2.1', installScope(l.prefix, 'linux')), 'marker.txt'),
+					join(
+						previousDir(join(l.prefix, '.namzu-update'), '14.2.1', installScope(l.prefix, 'linux')),
+						'marker.txt',
+					),
 					'utf8',
 				),
 			).toBe('old')
@@ -422,7 +481,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 				{
 					executable: 'pnpm',
 					prefix: globalDir,
-					args: ['add', '--global', '--prefer-offline', ...pinned, '@namzu/cli@14.3.0'],
+					args: ['add', '--global', '--offline', ...pinned, '@namzu/cli@14.3.0'],
 				},
 			])
 			expect(read).toHaveBeenCalledWith(linked)
@@ -431,7 +490,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 		}
 	})
 
-	it('puts the old pnpm version back, offline first and checked, when recording the new one fails', async () => {
+	it('keeps the checked install and says what is left when the store cannot record the name', async () => {
 		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-pnpm-'))
 		try {
 			const globalDir = join(base, 'pnpm', 'global', '5')
@@ -444,38 +503,23 @@ describe('namzu upgrade keeps a working Namzu', () => {
 				'cli',
 			)
 			const calls: string[][] = []
-			let version = '14.3.0'
-			const smokeTest = vi.fn(async () => true)
 			const h = harness({
 				packageRoot: storeRoot,
-				installedVersion: () => version,
-				safety: { home: join(base, 'home'), smokeTest },
+				installedVersion: () => '14.3.0',
 				runNpm: async (request) => {
 					calls.push([...request.args])
-					if (request.args.includes('--prefer-offline')) return 1
-					if (request.args.includes('--offline')) version = '14.2.1'
-					return 0
+					return request.args.includes('--offline') ? 1 : 0
 				},
 			})
-			expect(await h.invoke()).toBe(1)
-			expect(
-				calls.map((args) => args.find((a) => a.startsWith('--o') || a.startsWith('--p'))),
-			).toEqual([undefined, '--prefer-offline', '--offline'])
-			expect(smokeTest).toHaveBeenCalledWith(
-				join(globalDir, 'node_modules', '@namzu', 'cli'),
-				'14.2.1',
-				'version',
-			)
-			expect(h.errors).toEqual([
+			expect(await h.invoke()).toBe(0)
+			expect(calls).toHaveLength(2)
+			expect(calls[1]).toContain('--offline')
+			expect(h.printed).toEqual([
 				expect.objectContaining({
-					message: expect.stringContaining('The previous version was put back.'),
+					updated: true,
+					text: expect.stringContaining('pnpm still lists Namzu as a local file'),
 				}),
 			])
-			expect(existsSync(join(globalDir, '.namzu-update', 'updates'))).toBe(true)
-			const markers = (await import('node:fs'))
-				.readdirSync(join(globalDir, '.namzu-update', 'updates'))
-				.filter((n) => n.startsWith('in-progress'))
-			expect(markers).toEqual([])
 		} finally {
 			rmSync(base, { recursive: true, force: true })
 		}

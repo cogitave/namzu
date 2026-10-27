@@ -17,9 +17,11 @@ import {
 	installScope,
 	previousDir,
 	pruneOlderPrevious,
+	readAttempt,
 	readCheck,
 	readLastResult,
 	updatesDir,
+	writeAttempt,
 	writeCheck,
 	writeLastResult,
 } from './state.js'
@@ -139,6 +141,13 @@ describe('the kept records', () => {
 		expect(readCheck(home)).toBeUndefined()
 	})
 
+	it('keeps the failed attempt per install', () => {
+		const record = { version: '2.0.0', code: 'network', at: 1, shown: true }
+		writeAttempt(home, 'abc', record)
+		expect(readAttempt(home, 'abc')).toEqual(record)
+		expect(readAttempt(home, 'other')).toBeUndefined()
+	})
+
 	it('round-trips the last result', () => {
 		const result = {
 			at: '2026-10-27T10:00:00.000Z',
@@ -149,11 +158,12 @@ describe('the kept records', () => {
 			to: '2.0.0',
 			detail: 'x',
 		}
-		writeLastResult(home, result)
-		expect(readLastResult(home)).toEqual(result)
-		expect(readFileSync(join(updatesDir(home), 'last-result.json'), 'utf8').endsWith('\n')).toBe(
-			true,
-		)
+		writeLastResult(home, 'abc', result)
+		expect(readLastResult(home, 'abc')).toEqual(result)
+		expect(readLastResult(home, 'other')).toBeUndefined()
+		expect(
+			readFileSync(join(updatesDir(home), 'last-result-abc.json'), 'utf8').endsWith('\n'),
+		).toBe(true)
 	})
 })
 

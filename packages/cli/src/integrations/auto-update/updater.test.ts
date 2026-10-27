@@ -223,7 +223,11 @@ describe('installing, or telling', () => {
 		await tick(FIRST_CHECK_AFTER_MS)
 		expect(h.events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
 		expect(h.installs).toHaveLength(1)
-		expect(readLastResult(home)).toMatchObject({ outcome: 'installed', from: '1.0.0', to: '2.0.0' })
+		expect(readLastResult(home, scope())).toMatchObject({
+			outcome: 'installed',
+			from: '1.0.0',
+			to: '2.0.0',
+		})
 		await tick(CHECK_EVERY_MS * 3)
 		expect(h.fetchRelease).toHaveBeenCalledTimes(1)
 		expect(h.events).toHaveLength(1)
@@ -297,7 +301,10 @@ describe('when installing fails', () => {
 				failure: 'no_permission',
 			},
 		])
-		expect(readLastResult(home)).toMatchObject({ outcome: 'failed', status: 'no_permission' })
+		expect(readLastResult(home, scope())).toMatchObject({
+			outcome: 'failed',
+			status: 'no_permission',
+		})
 	})
 
 	it('does not try a version again that did not work, in this window or the next start', async () => {
@@ -308,7 +315,7 @@ describe('when installing fails', () => {
 		expect(first.installs).toHaveLength(1)
 		expect(first.events).toHaveLength(1)
 		expect(first.events[0]).toMatchObject({ type: 'available', failure: 'install_failed' })
-		expect(readAttempt(home)).toMatchObject({
+		expect(readAttempt(home, scope())).toMatchObject({
 			version: '2.0.0',
 			code: 'install_failed',
 			shown: true,
@@ -339,7 +346,7 @@ describe('when installing fails', () => {
 	it('tries a failure that says nothing about the version again after six hours, not before', async () => {
 		const first = harness({}, undefined, 'npm error code ETIMEDOUT')
 		await first.updater.runCycle()
-		expect(readAttempt(home)).toMatchObject({ code: 'network' })
+		expect(readAttempt(home, scope())).toMatchObject({ code: 'network' })
 		await tick(RETRY_AFTER_MS - 1)
 		const early = harness({}, undefined, 'npm error code ETIMEDOUT')
 		await early.updater.runCycle()
@@ -375,7 +382,7 @@ describe('when installing fails', () => {
 		await tick(SHARED_THROTTLE_MS)
 		const next = harness({}, undefined, 'npm error something odd')
 		await next.updater.runCycle()
-		expect(readLastResult(home)).toMatchObject({
+		expect(readLastResult(home, scope())).toMatchObject({
 			outcome: 'failed',
 			status: 'install_failed',
 			to: '2.0.0',
@@ -385,7 +392,7 @@ describe('when installing fails', () => {
 
 	it('does not try again a version whose update was interrupted and had to be put back', async () => {
 		mkdirSync(join(sharedStateHome(install()), 'updates'), { recursive: true })
-		const backup = join(home, 'updates', 'previous', scope(), '1.0.0')
+		const backup = join(sharedStateHome(install()), 'updates', 'previous', scope(), '1.0.0')
 		mkdirSync(backup, { recursive: true })
 		writeFileSync(
 			join(backup, 'package.json'),
@@ -414,7 +421,7 @@ describe('when installing fails', () => {
 		})
 		await h.updater.repair()
 		expect(readInstalledVersion(root)).toBe('1.0.0')
-		expect(readAttempt(home)).toMatchObject({
+		expect(readAttempt(home, scope())).toMatchObject({
 			version: '2.0.0',
 			code: 'verify_failed',
 			shown: false,
@@ -445,6 +452,6 @@ describe('repairing with installing switched off', () => {
 		expect(
 			existsSync(join(sharedStateHome(install()), 'updates', `in-progress-${scope()}.json`)),
 		).toBe(true)
-		expect(readLastResult(home)).toBeUndefined()
+		expect(readLastResult(home, scope())).toBeUndefined()
 	})
 })
