@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
 import { unknownProgramInLine } from '../../authorization/program.js'
@@ -1062,14 +1062,16 @@ export class ToolExecutor {
 		if ((response.message.toolCalls ?? []).length > 0) await this.awaitSandbox()
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
+		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
-			const call = await this.refusedBeforeReview(
-				await prepareDirectCall(
-					this.admissionHost(),
-					toolCall,
-					!hostModifiedCallIds?.has(toolCall.id),
-				),
+			const prepared = await prepareDirectCall(
+				this.admissionHost(),
+				toolCall,
+				!hostModifiedCallIds?.has(toolCall.id),
 			)
+			const call = await this.refusedBeforeReview(prepared, earlierPaths)
+			const path = inputPathOf(prepared)
+			if (path !== undefined) earlierPaths.push(path)
 			calls.set(toolCall.id, call)
 			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
@@ -1086,10 +1088,21 @@ export class ToolExecutor {
 	 * preparing it does: it reaches no reviewer, runs nothing and answers the
 	 * model with the tool's own text. A hook that throws objects to nothing.
 	 */
-	private async refusedBeforeReview(call: PreparedDirectCall): Promise<PreparedDirectCall> {
+	private async refusedBeforeReview(
+		call: PreparedDirectCall,
+		earlierPaths: readonly string[],
+	): Promise<PreparedDirectCall> {
 		if (call.kind !== 'ready') return call
 		const tool = this.config.tools.get(call.toolName)
 		if (!tool?.refuseBeforeReview) return call
+		// An earlier call in the same batch may read or write this path first,
+		// which can make the call valid by the time it runs; the tool's own
+		// check at run time answers it then.
+		const path = inputPathOf(call)
+		if (path !== undefined) {
+			const target = resolve(this.config.workingDirectory, path)
+			if (earlierPaths.some((p) => resolve(this.config.workingDirectory, p) === target)) return call
+		}
 		try {
 			const refusal = await tool.refuseBeforeReview(call.input, this.buildToolContext())
 			this.config.abortSignal.throwIfAborted()
@@ -1290,16 +1303,21 @@ export class ToolExecutor {
 		}
 		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
 		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
+		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
 				const call = await this.refusedBeforeReview(
 					await prepareDirectCall(this.admissionHost(), toolCall, false),
+					earlierPaths,
 				)
 				calls.set(toolCall.id, call)
 				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)
 			}
+			const prepared = calls.get(toolCall.id)
+			const path = prepared ? inputPathOf(prepared) : undefined
+			if (path !== undefined) earlierPaths.push(path)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
@@ -3454,4 +3472,12 @@ class Semaphore {
 		if (next) next()
 		else this.available++
 	}
+}
+
+/** The `path` argument a prepared call carries, when it has one. */
+function inputPathOf(call: PreparedDirectCall): string | undefined {
+	const input = call.input as { readonly path?: unknown } | null | undefined
+	return input !== null && typeof input === 'object' && typeof input.path === 'string'
+		? input.path
+		: undefined
 }

@@ -7,6 +7,7 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
+import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -33,15 +34,23 @@ function tracker(): FileReadTracker {
 }
 
 function respond(name: string, args: Record<string, unknown>): ChatCompletionResponse {
+	return respondMany([[name, args]])
+}
+
+function respondMany(
+	calls: readonly (readonly [string, Record<string, unknown>])[],
+): ChatCompletionResponse {
 	return {
 		id: 'r',
 		model: 'mock',
 		message: {
 			role: 'assistant',
 			content: null,
-			toolCalls: [
-				{ id: 'call_1', type: 'function', function: { name, arguments: JSON.stringify(args) } },
-			],
+			toolCalls: calls.map(([name, args], i) => ({
+				id: `call_${i + 1}`,
+				type: 'function' as const,
+				function: { name, arguments: JSON.stringify(args) },
+			})),
 		},
 		finishReason: 'tool_calls',
 		usage: {
@@ -57,7 +66,7 @@ function respond(name: string, args: Record<string, unknown>): ChatCompletionRes
 function setup(dir: string, ledger: FileReadTracker, events: unknown[] = []) {
 	const turnId = generateTurnId()
 	const tools = new ToolManager({
-		toolsets: [testToolset(EditTool, WriteFileTool)],
+		toolsets: [testToolset(EditTool, WriteFileTool, ReadFileTool)],
 		messages: () => [],
 	})
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -158,5 +167,26 @@ describe('a call on a file that moved since it was read', () => {
 			respond('write', { path: join(dir, 'old.ts'), content: 'y\n' }),
 		)
 		expect(unread.reviewCalls.map((c) => c.name)).toEqual(['write'])
+	})
+
+	it('reaches review when an earlier call in the same batch reads the file again', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-before-review-'))
+		const file = join(dir, 'd.ts')
+		const ledger = tracker()
+		writeFileSync(file, 'export const a = 1\n')
+		ledger.recordRead(file, 'export const a = 1\n')
+		writeFileSync(file, 'export const a = 100\n')
+		const executor = setup(dir, ledger)
+
+		const batch = await executor.prepareBatchForReview(
+			respondMany([
+				['read', { path: file }],
+				[
+					'edit',
+					{ path: file, old_string: 'export const a = 100', new_string: 'export const a = 2' },
+				],
+			]),
+		)
+		expect(batch.reviewCalls.map((c) => c.name)).toContain('edit')
 	})
 })
