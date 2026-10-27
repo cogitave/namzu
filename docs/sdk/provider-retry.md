@@ -20,7 +20,11 @@ context overflow are not. A response body the peer cut mid-stream (undici's
 dropped the socket error it carried. A response stream that closes without the
 provider's own end-of-response marker is reported by the driver as a network
 failure of the same kind, so it is retried rather than accepted as a finished
-answer. A certificate that fails verification (expired, self-signed, wrong host)
+answer. Every driver does this: a final finish reason on the OpenAI wire
+(OpenAI, OpenRouter, DeepSeek, Zen on every wire, and servers reached through
+`@namzu/http`), `message_stop` on the Anthropic wire, `done` for Ollama, a
+terminal finish reason for Google, and a stop reason for LM Studio (a reply that
+ends with none, or because the model failed or was unloaded, is cut). A certificate that fails verification (expired, self-signed, wrong host)
 is a network failure that is not retried. An abort is never retried.
 
 ## The options
@@ -63,7 +67,7 @@ restarted from the beginning and the notice carries `restart: true`. Whatever
 that attempt produced is void: the turn drops its own copy and a host that
 showed it must drop it too.
 
-A provider chain treats such pieces (reasoning, or a call still being written) as nothing produced: when a member spends its retries with only those, the chain moves on to the next member and the `fallback` notice carries `restart: true`, which the turn handles like a restarting retry.
+A provider chain treats such pieces (reasoning, or a call still being written) as nothing produced: when a member spends its retries with only those, the chain moves on to the next member and the `fallback` notice carries `restart: true`, which the turn handles like a restarting retry. The `provider_fallback` session event carries the same `restart: true`, so a host that draws the reply as it streams drops what the failed member showed.
 
 A tool call that is still being written when the connection drops is restarted
 too, whatever `retryMidStream` says, as long as no text has been shown: nothing
@@ -109,10 +113,15 @@ than a minute, the reply pauses ("Paused. … Press Enter to continue, or Esc to
 stop."), and a new message closes the pause.
 
 A pause that came from a connection that would not hold (no connection, a reset,
-a server fault) does not wait for you: "Paused. Namzu could not reach OpenAI. It
-tries again on its own. Press Enter to try now, or Esc to stop." The reply
+a server fault) does not wait for you: "Paused. Namzu could not reach OpenAI.
+Namzu tries again on its own. Press Enter to try now, or Esc to stop." A server
+fault reads the same ("Paused. OpenAI is having problems on its side. Namzu tries
+again on its own. …"). The reply
 continues from its checkpoint after 15 seconds, then 30 seconds, 1, 2 and 5
 minutes, and every 5 minutes after that, until it goes through; the hint line
-counts down, Enter tries at once and Esc stops it. A rejected key, a rate limit
+counts down, Enter tries at once and Esc stops it. A try that cannot start
+(the paused turn is gone, or no provider is ready yet) is followed by the next
+step of the same schedule, so the pause never sits without a timer. Sending a
+message or starting another conversation ends the run of tries. A rejected key, a rate limit
 and a tool waiting for a person do not mend themselves and wait for you. A
 certificate that fails verification is named as that and is not retried.
