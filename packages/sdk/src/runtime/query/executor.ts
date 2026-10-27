@@ -2618,6 +2618,8 @@ export class ToolExecutor {
 				input,
 				output: typeof modelContent === 'string' ? modelContent : output,
 				success: !effectiveIsError,
+				unchanged: result.facts?.kind === 'read' && result.facts.unchanged === true,
+				workingDirectory: this.config.workingDirectory,
 			})
 			for (const pin of this.config.abortSignal.aborted ? [] : (result.workingState ?? [])) {
 				this.workingStateManager.pin(pin.key, pin.text, toolName)

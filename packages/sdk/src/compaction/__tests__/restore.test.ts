@@ -102,6 +102,44 @@ describe('which bodies come back', () => {
 		expect(small.length).toBeLessThan(5_500)
 	})
 
+	it('keeps the real lines when a repeat read was answered as unchanged', () => {
+		const m = manager()
+		read(m, 'a.ts', 'export const a = 1')
+		recordRestorable(m, {
+			toolName: 'read',
+			input: { path: 'a.ts' },
+			output: 'Unchanged since your earlier read of the same lines.',
+			success: true,
+			unchanged: true,
+		})
+
+		const text = renderRestoredContext(m.getState()) ?? ''
+
+		expect(text).toContain('export const a = 1')
+		expect(text).not.toContain('Unchanged since')
+	})
+
+	it('forgets an edited file however its path was spelled', () => {
+		const m = manager()
+		const cwd = '/work/proj'
+		recordRestorable(m, {
+			toolName: 'read',
+			input: { path: 'src/a.ts' },
+			output: 'old body',
+			success: true,
+			workingDirectory: cwd,
+		})
+		recordRestorable(m, {
+			toolName: 'edit',
+			input: { path: '/work/proj/src/a.ts' },
+			output: 'ok',
+			success: true,
+			workingDirectory: cwd,
+		})
+
+		expect(renderRestoredContext(m.getState())).toBeUndefined()
+	})
+
 	it('brings back a skill that arrived in pages as one body', () => {
 		const m = manager()
 		recordRestorable(m, {

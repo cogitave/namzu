@@ -1,3 +1,5 @@
+import { resolve as resolvePath } from 'node:path'
+
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import type { WorkingStateManager } from './manager.js'
 import type { WorkingState } from './types.js'
@@ -39,6 +41,10 @@ function isInstructionPath(path: string): boolean {
 	return name === 'AGENTS.md' || name === 'AGENTS.local.md' || normal.includes('/.namzu/rules/')
 }
 
+function resolveAgainst(path: string, workingDirectory: string | undefined): string {
+	return workingDirectory ? resolvePath(workingDirectory, path) : path
+}
+
 function isPlanPath(path: string): boolean {
 	return /(^|\/)plans\/plan\.md$/.test(path.replace(/\\/g, '/'))
 }
@@ -54,6 +60,10 @@ export function recordRestorable(
 		readonly input: unknown
 		readonly output: string
 		readonly success: boolean
+		/** The read was answered as unchanged: the body is already stored from the earlier read. */
+		readonly unchanged?: boolean
+		/** Resolves a relative path, so one file is one entry however the model spelled it. */
+		readonly workingDirectory?: string
 	},
 ): void {
 	const input =
@@ -72,14 +82,14 @@ export function recordRestorable(
 	}
 	if (call.toolName === 'read') {
 		const path = typeof input.path === 'string' ? input.path : undefined
-		if (!path || !call.success) return
-		manager.recordFileText(path, call.output)
+		if (!path || !call.success || call.unchanged) return
+		manager.recordFileText(resolveAgainst(path, call.workingDirectory), call.output)
 		return
 	}
 	if (call.toolName === 'write' || call.toolName === 'edit') {
 		const path = typeof input.path === 'string' ? input.path : undefined
 		// The body a read showed is behind the file now.
-		if (path && call.success) manager.forgetFileText(path)
+		if (path && call.success) manager.forgetFileText(resolveAgainst(path, call.workingDirectory))
 	}
 }
 
