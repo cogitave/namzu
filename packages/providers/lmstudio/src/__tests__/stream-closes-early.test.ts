@@ -37,11 +37,18 @@ const drain = async (provider: LMStudioProvider) => {
 }
 
 describe('a reply that ends before it says it is over', () => {
-	it.each([undefined, 'failed', 'modelUnloaded'])(
-		'is a retryable network failure when the stop reason is %s',
+	it('is a retryable network failure when no stop reason arrives', async () => {
+		await expect(drain(providerAnswering(undefined))).rejects.toMatchObject({
+			kind: 'network',
+			providerId: 'lmstudio',
+		})
+	})
+
+	it.each(['failed', 'modelUnloaded'])(
+		'is the server failing, not a lost connection, when the stop reason is %s',
 		async (reason) => {
 			await expect(drain(providerAnswering(reason))).rejects.toMatchObject({
-				kind: 'network',
+				kind: 'server',
 				providerId: 'lmstudio',
 			})
 		},
