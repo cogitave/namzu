@@ -1656,6 +1656,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const compactionConfig = params.compactionConfig
 			? CompactionConfigSchema.parse(params.compactionConfig)
 			: undefined
+		// The live history, so a tool can ask whether an earlier receipt is still in it.
+		toolExecutor.setHistoryView(() => ctx.recorder.messages)
 		if (compactionConfig && compactionConfig.strategy !== 'disabled') {
 			workingStateManager = new WorkingStateManager(compactionConfig)
 			toolExecutor.setWorkingStateManager(workingStateManager)

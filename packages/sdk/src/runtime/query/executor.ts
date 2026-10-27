@@ -13,6 +13,7 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
 import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell.js'
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
@@ -700,6 +701,7 @@ export class ToolExecutor {
 	private emitEvent: EmitEvent
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
+	private historyView?: () => readonly Message[]
 	private probes: ProbeEnforcement
 	private parentSpan?: Span
 	private readonly toolCallBudget?: ToolCallBudget
@@ -747,6 +749,30 @@ export class ToolExecutor {
 
 	setWorkingStateManager(manager: WorkingStateManager): void {
 		this.workingStateManager = manager
+	}
+
+	/**
+	 * Read the conversation the model is shown, as it is now. Lets a tool ask
+	 * whether an earlier receipt is still there (see `ToolContext.receiptVisible`)
+	 * without being handed the history.
+	 */
+	setHistoryView(view: () => readonly Message[]): void {
+		this.historyView = view
+	}
+
+	private receiptVisible = (callId: string, renderedFingerprint: string): boolean => {
+		const history = this.historyView?.()
+		if (!history) return false
+		for (let index = history.length - 1; index >= 0; index -= 1) {
+			const message = history[index]
+			if (message?.role !== 'tool' || message.toolCallId !== callId) continue
+			return (
+				typeof message.content === 'string' &&
+				message.isError !== true &&
+				fingerprintContent(message.content) === renderedFingerprint
+			)
+		}
+		return false
 	}
 
 	setSandbox(sandbox: Sandbox): void {
@@ -2185,6 +2211,7 @@ export class ToolExecutor {
 				this.dispatchNested(name, input, context, recordObservation, undefined, options),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
+			receiptVisible: this.receiptVisible,
 			...(this.config.codeAnalysis ? { codeAnalysis: this.config.codeAnalysis } : {}),
 			// Bound to this turn, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there

@@ -162,6 +162,8 @@ export type ToolFacts =
 			readonly returnedLines?: number
 			/** Only a window of the file was returned. */
 			readonly partial?: boolean
+			/** The lines were not repeated: an earlier read of the same lines still holds. */
+			readonly unchanged?: boolean
 	  }
 	| {
 			readonly kind: 'search'

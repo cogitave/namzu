@@ -341,6 +341,19 @@ export interface FileReadTracker {
 	 * referencing a body it has been told is stale, without a check of its own.
 	 */
 	recordDriftObserved?(key: string): void
+	/**
+	 * Optional note of the last read of one window of a file: the call whose
+	 * receipt shows it, the fingerprint of that receipt, and the fingerprint of
+	 * the whole body at the time.
+	 *
+	 * Lets a repeat read of the same window answer "unchanged" instead of
+	 * returning the lines again. Only the read tool writes it, and it is only
+	 * trusted together with {@link ToolContext.receiptVisible}: a receipt that
+	 * has since been cleared, summarised away or edited is no answer.
+	 */
+	recordReadWindow?(key: string, window: string, entry: ReadWindowEntry): void
+	/** What {@link recordReadWindow} last noted for this window of this file. */
+	readWindow?(key: string, window: string): ReadWindowEntry | undefined
 	/** Whether a refused mutation has reported this path stale since the last observation. */
 	driftObserved?(key: string): boolean
 	/**
@@ -354,6 +367,15 @@ export interface FileReadTracker {
 	 * refusal the agent can act on by re-reading.
 	 */
 	fingerprint?(key: string): string | undefined
+}
+
+/** The last read of one window of a file; see {@link FileReadTracker.recordReadWindow}. */
+export interface ReadWindowEntry {
+	readonly callId: string
+	/** Fingerprint of the exact text the read returned. */
+	readonly renderedFingerprint: string
+	/** Fingerprint of the whole file body at that read. */
+	readonly contentFingerprint: string
 }
 
 export interface ToolPauseOption {
@@ -533,6 +555,12 @@ export interface ToolContext {
 	 */
 	codeAnalysis?: CodeAnalysisProvider
 	fileReadTracker?: FileReadTracker
+	/**
+	 * Whether the receipt of an earlier call is still, byte for byte, in the
+	 * conversation the model is shown. Absent when the host cannot say; a tool
+	 * must then treat the answer as no.
+	 */
+	receiptVisible?: (callId: string, renderedFingerprint: string) => boolean
 
 	/**
 	 * Where work that outlives this call is held.
