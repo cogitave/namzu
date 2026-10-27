@@ -1,5 +1,15 @@
 # Changelog
 
+## 56.1.0
+
+### Minor Changes
+
+- 33969f4: A tool definition can now declare `refuseBeforeReview(input, context)`, an optional hook the executor asks while preparing a batch, after the arguments are valid and before a reviewer is asked. Returning `{ error, facts? }` answers the model with that refusal and shows nobody a question. `edit` and `write` use it: a file that changed on disk after the session read it is refused up front, so no approval is requested for a change that would be refused on approval. Nothing changes for a tool that does not declare it; `execute` keeps its own checks.
+
+### Patch Changes
+
+- 33969f4: `edit` now refuses a file that changed on disk after the model read it, with the same message `write` gives, whatever the replacement is. Before, a replacement whose `old_string` still matched uniquely was applied, which could write into a value that had changed (read `a = 1`, file now `a = 100`, replacing `a = 1` with `a = 2` wrote `a = 200`). A caller that relied on the recovery reads the file again and repeats the edit; a host that supplies no read ledger is unaffected.
+
 ## 56.0.1
 
 ### Patch Changes
