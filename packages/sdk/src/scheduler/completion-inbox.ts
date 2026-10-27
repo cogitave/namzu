@@ -31,10 +31,11 @@ const UNOWNED_BUFFER_LIMIT = 32
  * once.
  *
  * Unrelated to {@link UNOWNED_BUFFER_LIMIT} — that one bounds a memory leak;
- * this one bounds a request payload. `describeOwnedWork`'s output is admitted
- * into the request through `appendWorkContext`'s 8,000-character / ~2,000-token
- * gate (`runtime/query/iteration/index.ts`), and 16 tasks' worth of scheduler
- * state fits that with room to spare, including the overflow note below.
+ * this one bounds a request payload. What the inbox describes is admitted
+ * into the request through the work-context gate of 8,000 characters and
+ * about 2,000 tokens (`runtime/query/iteration/step-shaping.ts`), and 16
+ * tasks' worth of scheduler state fits that with room to spare, including the
+ * overflow note below.
  *
  * Running tasks fill these slots first — see {@link CompletionInbox.runningOwned}
  * — so a task still going is never bumped out by launch count alone the way a
@@ -42,6 +43,31 @@ const UNOWNED_BUFFER_LIMIT = 32
  * task has a slot do the most recently SETTLED tasks take what is left.
  */
 const OWNED_WORK_DISPLAY_LIMIT = 16
+
+/** What the model is told about owned work, wherever it is shown. */
+const OWNED_WORK_GUIDANCE =
+	'Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.'
+
+/**
+ * The ids of the tasks that earlier recorded entries name, read from the
+ * entries' text, so what is recorded is known from the conversation alone.
+ */
+export function recordedOwnedTaskIds(entries: readonly string[]): Set<string> {
+	const ids = new Set<string>()
+	for (const entry of entries) {
+		for (const line of entry.split('\n')) {
+			if (!line.startsWith('{')) continue
+			try {
+				const parsed = JSON.parse(line) as { tasks?: { taskId?: unknown }[] }
+				for (const task of Array.isArray(parsed.tasks) ? parsed.tasks : [])
+					if (typeof task?.taskId === 'string') ids.add(task.taskId)
+			} catch {
+				// a line of the entry that is not the task list
+			}
+		}
+	}
+	return ids
+}
 
 export interface CompletionInboxOptions {
 	/** See {@link CompletionInbox.holdsTurnOpen}. Default `true`. */
@@ -451,6 +477,10 @@ export class CompletionInbox {
 	 * model once — but a RUNNING task that does not fit is: the preamble
 	 * says exactly how many, so the model never mistakes the cap for the
 	 * task having ended.
+	 *
+	 * @deprecated The query loop reads {@link describeRunningWork} for the
+	 * request and {@link describeSettledWork} for what it records. This single
+	 * snapshot is kept for hosts that read it themselves.
 	 */
 	describeOwnedWork(): string | undefined {
 		if (this.ours.size === 0) return
@@ -460,26 +490,63 @@ export class CompletionInbox {
 		const settled = [...this.settledOwned].reverse()
 		const shownSettled = settled.slice(0, OWNED_WORK_DISPLAY_LIMIT - shownRunning.length)
 		const ids = [...shownRunning, ...shownSettled]
-		const tasks = ids.map((taskId) => {
-			let handle = this.unheard.get(taskId)
-			try {
-				handle = this.gateway?.getTask(taskId) ?? handle
-			} catch {
-				// A broken observation must not block execution or invent a task state.
-			}
-			return {
-				taskId,
-				state: handle?.state ?? 'unknown',
-				...(handle?.result?.status ? { turnStatus: handle.result.status } : {}),
-				...(handle?.result?.stopReason ? { stopReason: handle.result.stopReason } : {}),
-				resultDelivery: this.claimed.has(taskId) ? 'delivered-to-history' : 'not-delivered',
-			}
-		})
+		const tasks = ids.map((taskId) => this.observe(taskId))
 		const overflow =
 			stillRunningNotShown > 0
 				? ` ${shownRunning.length} running tasks are shown below, and ${stillRunningNotShown} more still running.`
 				: ''
-		return `Owned delegated work (current scheduler observations; a later block with this heading replaces this one).${overflow} Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
+		return `Owned delegated work (current scheduler observations).${overflow} ${OWNED_WORK_GUIDANCE}\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
+	}
+
+	/**
+	 * The tasks this turn launched that are still going, for the request that
+	 * is about to be sent and for no other: running state changes, so it is
+	 * never recorded. Most recently launched first; a task that does not fit
+	 * is counted, so the model never mistakes the cap for the task having
+	 * ended. Undefined when nothing is running.
+	 */
+	describeRunningWork(): string | undefined {
+		if (this.runningOwned.size === 0) return
+		const running = [...this.runningOwned].reverse()
+		const shown = running.slice(0, OWNED_WORK_DISPLAY_LIMIT)
+		const notShown = running.length - shown.length
+		const overflow =
+			notShown > 0 ? ` ${shown.length} running tasks are shown below, and ${notShown} more.` : ''
+		return `Owned delegated work still running (current scheduler observations).${overflow} ${OWNED_WORK_GUIDANCE}\n${JSON.stringify({ tasks: shown.map((taskId) => this.observe(taskId)) })}`
+	}
+
+	/**
+	 * The tasks this turn launched that have reached a terminal state and are
+	 * not yet in `recorded` (the ids earlier entries name), oldest first, as
+	 * text to record. A terminal state does not change, so an entry is never
+	 * out of date and is written once per task. Tasks that settled and fell
+	 * out of the bounded list before they were recorded are counted. Undefined
+	 * when no task has newly settled.
+	 */
+	describeSettledWork(recorded: ReadonlySet<string>): string | undefined {
+		const fresh = this.settledOwned.filter((taskId) => !recorded.has(taskId))
+		if (fresh.length === 0) return
+		const accounted = new Set<string>([...this.runningOwned, ...fresh])
+		for (const taskId of recorded) if (this.ours.has(taskId as TaskId)) accounted.add(taskId)
+		const omitted = this.ours.size - accounted.size
+		const tasks = fresh.map((taskId) => this.observe(taskId))
+		return `Owned delegated work that has finished (as observed when this entry was written; a finished task does not change).${omitted > 0 ? ` ${omitted} more finished tasks are not listed.` : ''} ${OWNED_WORK_GUIDANCE}\n${JSON.stringify({ tasks })}`
+	}
+
+	private observe(taskId: TaskId) {
+		let handle = this.unheard.get(taskId)
+		try {
+			handle = this.gateway?.getTask(taskId) ?? handle
+		} catch {
+			// A broken observation must not block execution or invent a task state.
+		}
+		return {
+			taskId,
+			state: handle?.state ?? 'unknown',
+			...(handle?.result?.status ? { turnStatus: handle.result.status } : {}),
+			...(handle?.result?.stopReason ? { stopReason: handle.result.stopReason } : {}),
+			resultDelivery: this.claimed.has(taskId) ? 'delivered-to-history' : 'not-delivered',
+		}
 	}
 
 	/**

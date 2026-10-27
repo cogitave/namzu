@@ -29,14 +29,13 @@ import {
  */
 const MAX_RECEIPT_UNITS = 32_000
 
-/** The heading of the file-evidence block; a later block under it replaces an earlier one. */
-export const FILE_EVIDENCE_HEADING =
-	'Visible file evidence (as of this step; a later block with this heading replaces this one)'
+/** The words every file-evidence entry opens with. */
+export const FILE_EVIDENCE_HEADING = 'Visible file evidence'
 
-/** Said when the entries of an earlier block no longer hold and none replaces them. */
-export const FILE_EVIDENCE_NONE = `${FILE_EVIDENCE_HEADING}: no entry holds any longer.`
+/** Starts the line of an entry that names the paths whose earlier entries no longer hold. */
+const NO_LONGER_HOLDS = 'No longer holds: '
 
-interface FileEvidence {
+export interface FileEvidence {
 	readonly path: string
 	/** Absent on the write-rooted entries; `'read'` on a body that is a receipt. */
 	readonly kind?: 'read'
@@ -46,14 +45,14 @@ interface FileEvidence {
 }
 
 /** Join visible call bodies, successful receipts and this executor's observation ledger. */
-export function describeVisibleFileEvidence(
+export function visibleFileEvidence(
 	messages: readonly Message[],
 	tracker: FileReadTracker,
 	workingDirectory: string,
 	sandboxed: boolean,
-): string | undefined {
+): FileEvidence[] {
 	// Execution-owned witnesses survive transparent wrappers; a name alone proves nothing.
-	if (!tracker.writeCallId || !tracker.fingerprint) return
+	if (!tracker.writeCallId || !tracker.fingerprint) return []
 	// Lexical, as this projection has always looked entries up: a spelling that
 	// does not resolve to the tool's canonical key finds nothing and the path is
 	// simply not admitted. Writing the ledger is the side that has to key the
@@ -85,8 +84,77 @@ export function describeVisibleFileEvidence(
 			// Malformed retained inputs or a custom tracker cannot establish evidence.
 		}
 	}
-	if (files.size === 0) return
-	return `${FILE_EVIDENCE_HEADING}: each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. An entry marked kind:"read" instead names a successful read call whose own receipt shows the file WHOLE, rendered with every line behind its own N<tab> prefix; that receipt is the body, and such an entry never carries editsInCalls. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
+	return [...files.values()]
+}
+
+const FILE_EVIDENCE_GUIDANCE = `each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. An entry marked kind:"read" instead names a successful read call whose own receipt shows the file WHOLE, rendered with every line behind its own N<tab> prefix; that receipt is the body, and such an entry never carries editsInCalls. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing. An entry for a path replaces every earlier entry for that path, and a path listed under "No longer holds" has no entry any more.`
+
+/** The whole of what holds now: every entry, with the guidance for reading them. */
+export function describeVisibleFileEvidence(
+	messages: readonly Message[],
+	tracker: FileReadTracker,
+	workingDirectory: string,
+	sandboxed: boolean,
+): string | undefined {
+	const entries = visibleFileEvidence(messages, tracker, workingDirectory, sandboxed)
+	if (entries.length === 0) return
+	return `${FILE_EVIDENCE_HEADING}: ${FILE_EVIDENCE_GUIDANCE}\n${JSON.stringify(entries)}`
+}
+
+/**
+ * The entries an earlier record still holds, by path, as the JSON each was
+ * written with. Read from the record's text, in order, so a later entry for a
+ * path replaces an earlier one and a retracted path is gone.
+ */
+function heldFileEvidence(recorded: readonly string[]): Map<string, string> {
+	const held = new Map<string, string>()
+	for (const text of recorded) {
+		for (const line of text.split('\n')) {
+			try {
+				if (line.startsWith(NO_LONGER_HOLDS)) {
+					const paths: unknown = JSON.parse(line.slice(NO_LONGER_HOLDS.length))
+					if (Array.isArray(paths))
+						for (const path of paths) if (typeof path === 'string') held.delete(path)
+				} else if (line.startsWith('[')) {
+					const entries: unknown = JSON.parse(line)
+					if (Array.isArray(entries))
+						for (const entry of entries)
+							if (typeof entry?.path === 'string') held.set(entry.path, JSON.stringify(entry))
+				}
+			} catch {
+				// a line of the record that is not an entry list
+			}
+		}
+	}
+	return held
+}
+
+/**
+ * What to record now about the files, given what holds (`current`) and what
+ * the entries already in the conversation say (`recorded`, oldest first):
+ * only the entries that are new or changed, and the paths whose earlier entry
+ * no longer holds. An earlier entry is never edited; this says what replaces
+ * it. The first record of a conversation carries the guidance for reading
+ * entries, later ones do not repeat it. Nothing to say returns undefined.
+ */
+export function recordFileEvidence(
+	current: readonly FileEvidence[],
+	recorded: readonly string[],
+): string | undefined {
+	const held = heldFileEvidence(recorded)
+	const changed = current.filter((entry) => held.get(entry.path) !== JSON.stringify(entry))
+	const now = new Set(current.map((entry) => entry.path))
+	const gone = [...held.keys()].filter((path) => !now.has(path))
+	if (changed.length === 0 && gone.length === 0) return
+	const lead =
+		recorded.length === 0
+			? `${FILE_EVIDENCE_HEADING}: ${FILE_EVIDENCE_GUIDANCE}`
+			: `${FILE_EVIDENCE_HEADING}, changed since the last entry. An entry for a path replaces the earlier entries for that path.`
+	return [
+		lead,
+		...(gone.length > 0 ? [`${NO_LONGER_HOLDS}${JSON.stringify(gone)}`] : []),
+		...(changed.length > 0 ? [JSON.stringify(changed)] : []),
+	].join('\n')
 }
 
 /** A full body that arrived whole in one call and is still the file's body. */

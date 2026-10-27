@@ -72,7 +72,11 @@ import {
 	runPreToolHook,
 	unknownToolMessage,
 } from './executor/tool-call-admission.js'
-import { describeVisibleFileEvidence } from './file-evidence-context.js'
+import {
+	type FileEvidence,
+	describeVisibleFileEvidence,
+	visibleFileEvidence,
+} from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
 import { declaredWriteEscalation, shellEscalations } from './path-escalation.js'
@@ -845,7 +849,21 @@ export class ToolExecutor {
 		})
 	}
 
-	/** Request-only evidence from the same ledger used by mutation admission. No filesystem I/O. */
+	/**
+	 * The entries that hold now, from the same ledger used by mutation
+	 * admission. No filesystem I/O. The loop records the difference from what
+	 * the conversation already says.
+	 */
+	fileEvidenceEntries(messages: readonly Message[]): FileEvidence[] {
+		return visibleFileEvidence(
+			messages,
+			this.fileReadTracker,
+			this.config.workingDirectory,
+			this.sandboxed,
+		)
+	}
+
+	/** The whole of the evidence as one text, from the same ledger. No filesystem I/O. */
 	describeFileEvidence(messages: readonly Message[]): string | undefined {
 		return describeVisibleFileEvidence(
 			messages,

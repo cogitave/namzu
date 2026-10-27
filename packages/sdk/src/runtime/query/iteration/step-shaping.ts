@@ -2,11 +2,13 @@ import { resolveContextWindow } from '../../../compaction/context-window.js'
 import { estimateMessageTokens, estimateTextTokens } from '../../../compaction/token-estimate.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
+import { recordedOwnedTaskIds } from '../../../scheduler/completion-inbox.js'
 import { PreparationContextError } from '../../../turn/preparation-context-error.js'
 import {
 	type Message,
 	type UserMessage,
 	createSystemMessage,
+	turnContextEntries,
 } from '../../../types/message/index.js'
 import type { ToolChoice } from '../../../types/provider/chat.js'
 import type {
@@ -19,9 +21,10 @@ import type {
 import type { Skill } from '../../../types/skills/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
+import { recordFileEvidence } from '../file-evidence-context.js'
 import { measureContext } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
-import { type ReplaceableBlock, stepContextMessage } from './step-context.js'
+import { stepContextMessage } from './step-context.js'
 
 /**
  * How the next request is shaped: admission, preparation, and the context
@@ -45,55 +48,68 @@ export interface StepShaping {
 
 export { stepContextMessage }
 
-/** Derived after request projection; never accumulates in canonical history or replaces operator intent. */
-export function appendWorkContext(
-	shaping: StepShaping,
-	messages: Message[],
-	stepNumber: number,
-	prepared: PrepareStepResult,
-): void {
-	// Request-only data goes at the tail, like the other blocks of it.
-	messages.push(
-		...workContextBlocks(shaping, messages, stepNumber, prepared).map((block) => block.message),
-	)
-}
-
-/** What the two work-context blocks report; each tells the model a later one replaces it. */
+/** The names the two kinds of recorded work context are filed under. */
 export const OWNED_WORK_KEY = 'owned-work'
 export const FILE_EVIDENCE_KEY = 'file-evidence'
 
+/** What the work context says for one request. */
+export interface WorkContext {
+	/** Facts that do not change once true, to be kept in the conversation. */
+	readonly recorded: RecordedContextItem[]
+	/** Facts about now, shown with this request only. */
+	readonly requestOnly: Message[]
+}
+
 /**
- * The work-context blocks for a request whose projected messages are
- * `messages`, each under the name of what it reports.
+ * The work context for a request whose projected messages are `messages`.
+ *
+ * Two kinds of fact, each where it belongs. What holds until something
+ * changes it, or never changes, is recorded: the file entries that are new or
+ * changed since the last record (with the paths whose entry no longer holds),
+ * and each owned task once it has finished. What is true only now, the tasks
+ * still running, goes with this request alone. Each text is admitted whole or
+ * not at all, within the room the request has left.
  */
-export function workContextBlocks(
+export function workContext(
 	shaping: StepShaping,
 	messages: readonly Message[],
 	stepNumber: number,
 	prepared: PrepareStepResult,
-): ReplaceableBlock[] {
+): WorkContext {
 	const { ctx } = shaping
+	const held = (key: string) => turnContextEntries(ctx.recorder.messages, key)
+	const inbox = ctx.completionInbox
 
-	const contributions = (
-		[
-			[OWNED_WORK_KEY, ctx.completionInbox?.describeOwnedWork()],
-			[FILE_EVIDENCE_KEY, ctx.toolExecutor.describeFileEvidence(messages)],
-		] as [string, string | undefined][]
-	).filter((entry): entry is [string, string] => Boolean(entry[1]))
-	if (contributions.length === 0) return []
-	const placed: ReplaceableBlock[] = []
+	const contributions: { content: string | undefined; key?: string }[] = [
+		{ content: inbox?.describeRunningWork() },
+		{
+			content: inbox?.describeSettledWork(recordedOwnedTaskIds(held(OWNED_WORK_KEY))),
+			key: OWNED_WORK_KEY,
+		},
+		{
+			content: recordFileEvidence(
+				ctx.toolExecutor.fileEvidenceEntries(messages),
+				held(FILE_EVIDENCE_KEY),
+			),
+			key: FILE_EVIDENCE_KEY,
+		},
+	]
+	const present = contributions.filter((entry) => Boolean(entry.content))
+	const work: WorkContext = { recorded: [], requestOnly: [] }
+	if (present.length === 0) return work
 	let room = stepContext(shaping, stepNumber, prepared).contextBudget?.remainingTokens ?? 0
 	// Leave room for the actual task; admit whole contributions, never dangling partial references.
-	if (room < 1_500) return []
-	for (const [key, content] of contributions) {
+	if (room < 1_500) return work
+	for (const { content, key } of present) {
 		if (!content || content.length > 8_000) continue
 		const message = stepContextMessage(content)
 		const tokens = estimateMessageTokens(message)
 		if (tokens > Math.min(2_000, room - 1_000)) continue
-		placed.push({ key, message })
+		if (key) work.recorded.push({ key, text: content })
+		else work.requestOnly.push(message)
 		room -= tokens
 	}
-	return placed
+	return work
 }
 
 export function stepContext(

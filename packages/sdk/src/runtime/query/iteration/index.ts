@@ -57,7 +57,6 @@ import { createCallbackInference } from '../callback-inference.js'
 import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
-import { FILE_EVIDENCE_NONE } from '../file-evidence-context.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import {
@@ -106,14 +105,12 @@ import { appendRecordedContext } from './recorded-context.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import { TurnContextCarry } from './step-context.js'
 import {
-	FILE_EVIDENCE_KEY,
 	type StepShaping,
-	appendWorkContext,
 	beforeStep,
 	prepareStep,
 	selectContextModel,
 	stepContextMessage,
-	workContextBlocks,
+	workContext,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
 
@@ -923,16 +920,21 @@ export class IterationOrchestrator {
 					// step wants kept is recorded in the history above instead. The
 					// short reminders and notices stay after the history.
 					const messages = [...projected]
-					this.turnContext.place(
-						messages,
-						requestHistory,
-						workingMemory.history.at(-1),
-						[contextText, step.context]
+					// Taken before anything is recorded below: with no working-memory
+					// slot the history IS the live array.
+					const historyEnd = workingMemory.history.at(-1)
+					// What the loop learns about files and finished work holds until it
+					// changes, so it is recorded, after the history as it stands, and
+					// carried in this request where it will sit in the next one's history.
+					const work = workContext(shaping, projected, iterationNum, step)
+					const recordedNow = appendRecordedContext(recorder, work.recorded, this.ctx.log)
+					this.turnContext.place(messages, requestHistory, historyEnd, [
+						...[contextText, step.context]
 							.filter((text): text is string => Boolean(text))
 							.map(stepContextMessage),
-						workContextBlocks(shaping, projected, iterationNum, step),
-						{ [FILE_EVIDENCE_KEY]: stepContextMessage(FILE_EVIDENCE_NONE) },
-					)
+						...work.requestOnly,
+						...recordedNow,
+					])
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()
@@ -2899,9 +2901,8 @@ export class IterationOrchestrator {
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 				{ imagesReadable: this.modelReadsImages(model) },
 			)
-			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
-			// the working memory and any work context above.
+			// the working memory above.
 			finalMessages.push(
 				createRuntimeContextMessage(
 					`[SYSTEM] Turn is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,

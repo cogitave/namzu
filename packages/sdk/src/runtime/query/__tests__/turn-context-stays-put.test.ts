@@ -13,11 +13,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
-import {
-	EARLIER_VERSIONS_KEPT,
-	TurnContextCarry,
-	stepContextMessage,
-} from '../iteration/step-context.js'
+import { TurnContextCarry, stepContextMessage } from '../iteration/step-context.js'
 
 /**
  * The request-only data a turn carries goes after the history of the moment
@@ -172,84 +168,35 @@ describe('TurnContextCarry', () => {
 		expect(request.map(text)).toEqual(['summary', expect.stringContaining('A')])
 	})
 
-	it('keeps an earlier version of a replaceable block as sent and appends the later one', () => {
+	it('withdraws a block that changed and puts the new text after the history of that moment', () => {
 		const carry = new TurnContextCarry()
 		const ask = user('ask')
-		const one = [ask]
-		carry.place(one, [ask], ask, [], [{ key: 'files', message: block('FILES v1') }])
-		expect(one.map(text)).toEqual(['ask', expect.stringContaining('FILES v1')])
-
+		carry.place([ask], [ask], ask, [block('RUNNING 2 tasks')])
 		const reply = assistant('reply')
 		const history = [ask, reply]
-		const two = [...history]
-		carry.place(two, history, reply, [], [{ key: 'files', message: block('FILES v2') }])
-		expect(two.map(text)).toEqual([
+		const request = [...history]
+		carry.place(request, history, reply, [block('RUNNING 1 task')])
+		expect(request.map(text)).toEqual(['ask', 'reply', expect.stringContaining('RUNNING 1 task')])
+	})
+
+	it('keeps a block offered last where the next request finds it in the history', () => {
+		// A request-only block first, then an entry the loop has just recorded:
+		// the entry joins the history at the end of this call, and the next
+		// request, which then finds it there, must read both in the same order.
+		const carry = new TurnContextCarry()
+		const ask = user('ask')
+		const recorded = block('RECORDED')
+		const first = [ask]
+		carry.place(first, [ask], ask, [block('RUNNING'), recorded])
+		expect(first.map(text)).toEqual([
 			'ask',
-			expect.stringContaining('FILES v1'),
-			'reply',
-			expect.stringContaining('FILES v2'),
+			expect.stringContaining('RUNNING'),
+			expect.stringContaining('RECORDED'),
 		])
-		// And the request after that begins with all of this one.
-		const more = assistant('more')
-		const longer = [ask, reply, more]
-		const three = [...longer]
-		carry.place(three, longer, more, [], [{ key: 'files', message: block('FILES v2') }])
-		expect(three.map(text).slice(0, 4)).toEqual(two.map(text))
-	})
 
-	it('says so, once, when a replaceable block stops holding', () => {
-		const carry = new TurnContextCarry()
-		const ask = user('ask')
-		const gone = { files: block('NOTHING HOLDS') }
-		carry.place([ask], [ask], ask, [], [{ key: 'files', message: block('FILES v1') }], gone)
-		const reply = assistant('reply')
-		const history = [ask, reply]
-		const two = [...history]
-		carry.place(two, history, reply, [], [], gone)
-		expect(two.map(text)).toEqual([
-			'ask',
-			expect.stringContaining('FILES v1'),
-			'reply',
-			expect.stringContaining('NOTHING HOLDS'),
-		])
-		const three = [...history]
-		carry.place(three, history, reply, [], [], gone)
-		expect(three.map(text)).toEqual(two.map(text))
-	})
-
-	it('carries the latest version and only a few earlier ones across many changes', () => {
-		const carry = new TurnContextCarry()
-		const ask = user('ask')
-		let history: Message[] = [ask]
-		let end: Message = ask
-		let request: Message[] = []
-		for (let n = 1; n <= 12; n++) {
-			request = [...history]
-			carry.place(request, history, end, [], [{ key: 'files', message: block(`FILES v${n}`) }])
-			const reply = assistant(`reply ${n}`)
-			history = [...history, reply]
-			end = reply
-		}
-		const versions = request.map(text).filter((t) => t.includes('FILES v'))
-		expect(versions).toHaveLength(EARLIER_VERSIONS_KEPT + 1)
-		expect(versions.at(-1)).toContain('FILES v12')
-	})
-
-	it('drops earlier versions whose place a compaction rewrote and keeps the latest', () => {
-		const carry = new TurnContextCarry()
-		const ask = user('ask')
-		const reply = assistant('reply')
-		carry.place([ask], [ask], ask, [], [{ key: 'files', message: block('FILES v1') }])
-		carry.place(
-			[ask, reply],
-			[ask, reply],
-			reply,
-			[],
-			[{ key: 'files', message: block('FILES v2') }],
-		)
-		const summary = assistant('summary')
-		const request = [summary]
-		carry.place(request, [summary], summary, [], [{ key: 'files', message: block('FILES v2') }])
-		expect(request.map(text)).toEqual(['summary', expect.stringContaining('FILES v2')])
+		const history = [ask, recorded]
+		const second = [...history]
+		carry.place(second, history, recorded, [block('RUNNING')])
+		expect(second.map(text)).toEqual(first.map(text))
 	})
 })

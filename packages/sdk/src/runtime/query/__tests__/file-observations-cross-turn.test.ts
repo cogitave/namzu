@@ -5,13 +5,14 @@ import { expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { heldFileEvidence } from '../../../test-support/file-evidence-held.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
-import type { Message } from '../../../types/message/index.js'
+import { type Message, isTurnContextEntry } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
 
 it('carries a wrapped successful write across query turns and refuses an edit after external drift', async () => {
@@ -66,9 +67,7 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 			false,
 		)
 		expect(requests[1]?.at(-1)?.content).toContain('"bodyInCall":"w"')
-		expect(first.messages.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
-			false,
-		)
+		expect(first.messages.filter(isTurnContextEntry)).toHaveLength(1)
 		expect(await readFile(path, 'utf8')).toBe('alpha\nbeta\n')
 		await writeFile(path, 'alpha\nBETA\n')
 		const second = await drainQuery({
@@ -121,18 +120,8 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 	}
 })
 
-/** The JSON payload of a request's file-evidence message, if it carries one. */
-function entriesIn(messages: Message[] | undefined): unknown {
-	// A later block with this heading replaces an earlier one.
-	const content = String(
-		messages?.filter((m) => String(m.content).includes('Visible file evidence')).at(-1)?.content ??
-			'',
-	)
-	if (!content) return undefined
-	const last = content.split('\n').at(-1) as string
-	// The block that says nothing holds any longer carries no entries.
-	return last.startsWith('[') ? JSON.parse(last) : undefined
-}
+/** The entries the history of a request holds for files. */
+const entriesIn = heldFileEvidence
 
 it('carries a write and the edits on top of it into the next turn, and withdraws the path when a mutation is refused for drift', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-cross-turn-chain-'))
@@ -200,9 +189,8 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 			},
 		])
 		expect(String(requests[2]?.at(-1)?.content)).not.toContain('gamma')
-		expect(first.messages.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
-			false,
-		)
+		// Two records, not one per call: the write, then the edit that moved it.
+		expect(first.messages.filter(isTurnContextEntry)).toHaveLength(2)
 		// Someone else writes between the turns. The ledger does not know yet,
 		// and the projection is not going to find out by reading the disk —
 		// admission is, and the refusal it returns is what tells the ledger.

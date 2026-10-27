@@ -6,7 +6,11 @@ import { type ReadWindowRequest, renderNumberedRead } from '../../../tools/built
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
 import type { Message, ToolMessage } from '../../../types/message/index.js'
 import type { FileReadTracker } from '../../../types/tool/index.js'
-import { describeVisibleFileEvidence } from '../file-evidence-context.js'
+import {
+	type FileEvidence,
+	describeVisibleFileEvidence,
+	recordFileEvidence,
+} from '../file-evidence-context.js'
 import { applyToolOutputBudget } from '../tool-output-budget.js'
 
 const cwd = resolve('workspace')
@@ -710,5 +714,64 @@ describe('a read that returned the whole file', () => {
 			writeCallId: () => undefined,
 		}
 		expect(describeVisibleFileEvidence(readHistory('read-1'), older, cwd, false)).toBeUndefined()
+	})
+})
+
+describe('what is recorded about files', () => {
+	const entry = (path: string, call = 'write-1', fingerprint = 'f1'): FileEvidence => ({
+		path,
+		bodyInCall: call,
+		observedFingerprint: fingerprint,
+	})
+	/** What the model reads of earlier records: the entry lines of each, replayed in order. */
+	const entries = (record: string | undefined): FileEvidence[] =>
+		JSON.parse(record?.split('\n').find((line) => line.startsWith('[')) ?? '[]')
+
+	it('opens with the guidance for reading entries, and later records do not repeat it', () => {
+		const first = recordFileEvidence([entry('a.txt')], []) as string
+		expect(first).toContain('each entry')
+		expect(first).toContain('replaces every earlier entry for that path')
+		expect(entries(first)).toEqual([entry('a.txt')])
+
+		const later = recordFileEvidence([entry('a.txt'), entry('b.txt', 'w2')], [first]) as string
+		expect(later).not.toContain('each entry')
+		expect(later).toContain('replaces the earlier entries for that path')
+		expect(entries(later)).toEqual([entry('b.txt', 'w2')])
+	})
+
+	it('says nothing when what holds is what the record already says', () => {
+		const first = recordFileEvidence([entry('a.txt')], []) as string
+		expect(recordFileEvidence([entry('a.txt')], [first])).toBeUndefined()
+		expect(recordFileEvidence([], [])).toBeUndefined()
+	})
+
+	it('records a changed entry for a path, and only that one', () => {
+		const first = recordFileEvidence([entry('a.txt'), entry('b.txt', 'w2')], []) as string
+		const moved: FileEvidence = {
+			...entry('a.txt'),
+			editsInCalls: ['e1'],
+			observedFingerprint: 'f2',
+		}
+		const later = recordFileEvidence([moved, entry('b.txt', 'w2')], [first]) as string
+		expect(entries(later)).toEqual([moved])
+		// And once it is recorded, the next request has nothing to add.
+		expect(recordFileEvidence([moved, entry('b.txt', 'w2')], [first, later])).toBeUndefined()
+	})
+
+	it('names a path that no longer holds, once, without editing the earlier record', () => {
+		const first = recordFileEvidence([entry('a.txt'), entry('b.txt', 'w2')], []) as string
+		const later = recordFileEvidence([entry('b.txt', 'w2')], [first]) as string
+		expect(later).toContain('No longer holds: ["a.txt"]')
+		expect(entries(later)).toEqual([])
+		expect(recordFileEvidence([entry('b.txt', 'w2')], [first, later])).toBeUndefined()
+		// A path that comes back is recorded again.
+		const back = recordFileEvidence([entry('a.txt', 'w3'), entry('b.txt', 'w2')], [first, later])
+		expect(entries(back)).toEqual([entry('a.txt', 'w3')])
+	})
+
+	it('offers everything again when the earlier records are gone', () => {
+		const again = recordFileEvidence([entry('a.txt')], []) as string
+		expect(entries(again)).toEqual([entry('a.txt')])
+		expect(again).toContain('each entry')
 	})
 })

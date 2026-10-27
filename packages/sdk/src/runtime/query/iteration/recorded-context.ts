@@ -1,6 +1,7 @@
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import {
+	type Message,
 	createTurnContextEntry,
 	isTurnContextKey,
 	turnContextEntries,
@@ -16,15 +17,17 @@ import type { Logger } from '../../../utils/logger.js'
  * put the live array out of log order, and the recorder would then write a
  * whole compaction record to re-base it on every turn. An item adds nothing
  * when its text is empty or equals the last entry under its key, so a step
- * that offers the same text on every call records it once.
+ * that offers the same text on every call records it once. Returns the
+ * entries it added, so a request built before they were added can carry them
+ * at the place they will hold.
  */
 export function appendRecordedContext(
 	recorder: Pick<TurnRecorder, 'messages' | 'pushMessage' | 'turnId'>,
 	items: readonly RecordedContextItem[] | undefined,
 	log: Pick<Logger, 'warn'>,
 	at: Date = new Date(),
-): number {
-	let appended = 0
+): Message[] {
+	const appended: Message[] = []
 	for (const item of items ?? []) {
 		const text = item.text.trim()
 		if (text.length === 0) continue
@@ -37,8 +40,9 @@ export function appendRecordedContext(
 		}
 		const earlier = turnContextEntries(recorder.messages, item.key)
 		if (earlier.at(-1) === text) continue
-		recorder.pushMessage(createTurnContextEntry(item.key, text, at))
-		appended += 1
+		const entry = createTurnContextEntry(item.key, text, at)
+		recorder.pushMessage(entry)
+		appended.push(entry)
 	}
 	return appended
 }

@@ -4,7 +4,11 @@ import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 
 import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
-import { CompletionInbox, formatCompletionNotification } from '../completion-inbox.js'
+import {
+	CompletionInbox,
+	formatCompletionNotification,
+	recordedOwnedTaskIds,
+} from '../completion-inbox.js'
 
 /**
  * `wrapUntrusted`'s real closing tag now carries a per-render nonce
@@ -46,6 +50,74 @@ function handleFor(taskId: string, result?: string): TaskHandle {
 			: {}),
 	}
 }
+
+describe('owned work, split into what is true now and what has finished', () => {
+	it('shows running tasks for this request and finished tasks once, oldest first', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		const running = handleFor('still-going')
+		f.record({ ...running, state: 'running' })
+		inbox.launched(running.taskId)
+		for (const id of ['first', 'second']) {
+			inbox.launched(id as TaskId)
+			f.settle(handleFor(id, `RESULT ${id}`))
+		}
+
+		const now = inbox.describeRunningWork() as string
+		expect(now).toContain('still running')
+		expect(now).toContain('still-going')
+		expect(now).not.toContain('first')
+		expect(now).not.toContain('RESULT')
+
+		const finished = inbox.describeSettledWork(new Set()) as string
+		expect(finished).toContain('has finished')
+		expect(finished.indexOf('"first"')).toBeGreaterThan(-1)
+		expect(finished.indexOf('"first"')).toBeLessThan(finished.indexOf('"second"'))
+		expect(finished).not.toContain('still-going')
+		expect(finished).not.toContain('RESULT')
+	})
+
+	it('reports only tasks not already named by a recorded entry, and none when all are', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		for (const id of ['a', 'b']) {
+			inbox.launched(id as TaskId)
+			f.settle(handleFor(id))
+		}
+		const first = inbox.describeSettledWork(new Set()) as string
+		const named = recordedOwnedTaskIds([first])
+		expect([...named].sort()).toEqual(['a', 'b'])
+		expect(inbox.describeSettledWork(named)).toBeUndefined()
+
+		inbox.launched('c' as TaskId)
+		f.settle(handleFor('c'))
+		const next = inbox.describeSettledWork(named) as string
+		expect(next).toContain('"c"')
+		expect(next).not.toContain('"a"')
+		expect([...recordedOwnedTaskIds([first, next])].sort()).toEqual(['a', 'b', 'c'])
+	})
+
+	it('counts finished tasks that left the bounded list before they were recorded', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		for (let i = 0; i < 20; i++) {
+			inbox.launched(`t${i}` as TaskId)
+			f.settle(handleFor(`t${i}`))
+		}
+		const entry = inbox.describeSettledWork(new Set()) as string
+		expect(entry.match(/"taskId"/g)).toHaveLength(16)
+		expect(entry).toContain('4 more finished tasks are not listed')
+	})
+
+	it('has nothing to say about tasks it does not own, or before anything runs', () => {
+		const inbox = new CompletionInbox()
+		expect(inbox.describeRunningWork()).toBeUndefined()
+		expect(inbox.describeSettledWork(new Set())).toBeUndefined()
+	})
+})
 
 describe('owned-work request projection', () => {
 	it('distinguishes scheduler state from delivery without draining or claiming results', () => {
@@ -178,7 +250,7 @@ describe('owned-work request projection', () => {
 	})
 
 	it('keeps the projection under the request-context size gate at the display cap with overflow', () => {
-		// Mirrors appendWorkContext's admission gate (runtime/query/iteration/index.ts):
+		// Mirrors the work-context admission gate (runtime/query/iteration/step-shaping.ts):
 		// a contribution over 8,000 UTF-16 units is dropped outright rather than truncated.
 		const f = fakeGateway()
 		const inbox = new CompletionInbox()
