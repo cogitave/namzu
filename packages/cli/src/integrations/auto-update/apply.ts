@@ -17,6 +17,7 @@ import type { InstallKind } from './install-kind.js'
 import {
 	LOCK_STALE_MS,
 	type UpdateLock,
+	updatesDir,
 	acquireUpdateLock,
 	clearInProgress,
 	installScope,
@@ -66,6 +67,8 @@ export type ApplyResult =
 			readonly status: 'failed'
 			readonly code: FailureStatus
 			readonly detail: string
+			/** The installer's log, when one was written. */
+			readonly log?: string
 			/** The previous version is in place and works. */
 			readonly restored: boolean
 	  }
@@ -75,6 +78,12 @@ export interface InstallerRequest {
 	readonly args: readonly string[]
 	readonly cwd: string
 	readonly onOutput: (text: string) => void
+	/**
+	 * Where the installer's output goes while it runs, and where the end of it is read
+	 * back from. A file keeps the installer alive when this process (and its terminal)
+	 * goes away first; a pipe would end it with a broken-pipe error.
+	 */
+	readonly logFile?: string
 	/** Kill the installer after this long. */
 	readonly timeoutMs: number
 	/** Called with the installer's process id once it has started. */
@@ -279,11 +288,22 @@ export async function applyUpdate(deps: ApplyDeps, release: Release): Promise<Ap
 	}
 }
 
-function fail(code: FailureStatus, restored: boolean): ApplyResult {
+function fail(code: FailureStatus, restored: boolean, log?: string): ApplyResult {
 	const lost = restored
 		? ''
 		: ' The previous version could not be put back; reinstall Namzu if it does not start.'
-	return { status: 'failed', code, detail: `${describeFailure(code)}${lost}`, restored }
+	return {
+		status: 'failed',
+		code,
+		detail: `${describeFailure(code)}${lost}`,
+		restored,
+		...(log ? { log } : {}),
+	}
+}
+
+/** Where an install's output is kept: one file per install, replaced on each run. */
+export function installLogPath(home: string, scope: string, name = 'install'): string {
+	return join(updatesDir(home), `${name}-${scope}.log`)
 }
 
 async function applyLocked(
@@ -297,6 +317,7 @@ async function applyLocked(
 	const pid = deps.pid ?? process.pid
 	const at = (deps.now ?? Date.now)()
 	const scope = scopeOf(install, deps.platform)
+	const logFile = installLogPath(deps.home, scope)
 	try {
 		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
@@ -324,6 +345,7 @@ async function applyLocked(
 				onOutput: (text) => {
 					output = (output + text).slice(-4_096)
 				},
+				logFile: installLogPath(deps.home, scope, 'restore'),
 				timeoutMs: deps.installTimeoutMs ?? 300_000,
 			})
 			return code === 0 && deps.installedVersion(activeRoot(install)) === onDisk
@@ -366,6 +388,7 @@ async function applyLocked(
 							output = (output + text).slice(-16_384)
 						},
 						timeoutMs: deps.installTimeoutMs ?? 300_000,
+						logFile,
 						onSpawn: noteInstaller,
 					}
 				: {
@@ -376,6 +399,7 @@ async function applyLocked(
 							output = (output + text).slice(-16_384)
 						},
 						timeoutMs: deps.installTimeoutMs ?? 300_000,
+						logFile,
 						onSpawn: noteInstaller,
 					},
 		)
@@ -387,7 +411,7 @@ async function applyLocked(
 		const kind = classifyInstallerFailure(output)
 		const restored = await restoreIfChanged(deps, onDisk, restore)
 		if (restored) clearInProgress(deps.home, scope)
-		return fail(kind, restored)
+		return fail(kind, restored, logFile)
 	}
 
 	let installed: string
@@ -402,7 +426,7 @@ async function applyLocked(
 	if (!healthy) {
 		const restored = await restore()
 		if (restored) clearInProgress(deps.home, scope)
-		return fail('verify_failed', restored)
+		return fail('verify_failed', restored, logFile)
 	}
 	clearInProgress(deps.home, scope)
 
@@ -512,6 +536,7 @@ export async function repairInterruptedUpdate(
 					args: pnpmInstallArgs(marker.from, deps.registry ?? PUBLIC_REGISTRY),
 					cwd: install.globalDir,
 					onOutput: () => undefined,
+					logFile: installLogPath(deps.home, scope, 'restore'),
 					timeoutMs: deps.installTimeoutMs ?? 300_000,
 				})
 				restored = code === 0 && deps.installedVersion(root) === marker.from

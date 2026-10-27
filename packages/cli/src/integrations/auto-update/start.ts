@@ -61,6 +61,7 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 					args: request.args,
 					prefix: request.cwd,
 					onOutput: request.onOutput,
+					...(request.logFile ? { logFile: request.logFile } : {}),
 					background: true,
 					timeoutMs: request.timeoutMs,
 					...(request.onSpawn ? { onSpawn: request.onSpawn } : {}),

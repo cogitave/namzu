@@ -178,6 +178,7 @@ function applyDeps(over: Partial<ApplyDeps> = {}): ApplyDeps {
 				args: request.args,
 				prefix: request.cwd,
 				onOutput: request.onOutput,
+				...(request.logFile ? { logFile: request.logFile } : {}),
 				background: true,
 			}),
 		...over,

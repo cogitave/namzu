@@ -90,6 +90,8 @@ export interface UpdateResult {
 	readonly to: string
 	/** Plain-words reason, kept for `namzu upgrade --check`. */
 	readonly detail?: string
+	/** The installer's output for that attempt, for the person who wants the details. */
+	readonly log?: string
 }
 
 export function readLastResult(home: string): UpdateResult | undefined {

@@ -1,6 +1,15 @@
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync } from 'node:fs'
-import { join, posix, win32 } from 'node:path'
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	statSync,
+	unlinkSync,
+	readSync,
+} from 'node:fs'
+import { dirname, join, posix, win32 } from 'node:path'
 
 import { resolveNpmInvocation } from './npm-invocation.js'
 
@@ -9,6 +18,13 @@ export interface NpmUpgradeRequest {
 	readonly args: readonly string[]
 	readonly prefix: string
 	readonly onOutput?: (text: string) => void
+	/**
+	 * Where a background run writes what the package manager prints (both streams,
+	 * replaced each run). A file, not a pipe: the package manager outlives this
+	 * process, and a pipe whose reader is gone would end its install half way.
+	 * `onOutput` then gets the last part of the file once the run ends.
+	 */
+	readonly logFile?: string
 	/** Run without a terminal: nothing is read from the person's stdin and nothing is written to it. */
 	readonly background?: boolean
 	/** Kill the package manager after this many milliseconds. */
@@ -59,30 +75,75 @@ export function npmGlobalPrefixFor(packageRoot: string, platform: NodeJS.Platfor
 	return prefix.length > 0 ? prefix : paths.parse(root).root
 }
 
+/** How much of the end of a background run's log is handed back. */
+const LOG_TAIL_BYTES = 16_384
+
+function readTail(path: string): string {
+	let fd: number | undefined
+	try {
+		fd = openSync(path, 'r')
+		const size = statSync(path).size
+		const length = Math.min(size, LOG_TAIL_BYTES)
+		const buffer = Buffer.alloc(length)
+		readSync(fd, buffer, 0, length, size - length)
+		return buffer.toString('utf8')
+	} catch {
+		return ''
+	} finally {
+		if (fd !== undefined) closeSync(fd)
+	}
+}
+
 export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 	return new Promise((resolveRun, reject) => {
 		const invocation = resolveNpmInvocation(request.executable, request.args)
-		const child = spawn(invocation.executable, [...invocation.args], {
-			cwd: request.prefix,
-			env: process.env,
-			stdio: request.background
-				? ['ignore', 'pipe', 'pipe']
-				: request.onOutput
-					? ['inherit', 'pipe', 'pipe']
-					: 'inherit',
-			...(request.timeoutMs !== undefined ? { timeout: request.timeoutMs } : {}),
-			shell: false,
-			windowsHide: true,
-			// Its own process group: closing the terminal or pressing Ctrl+C must not
-			// stop the package manager half way through replacing the package.
-			...(request.background ? { detached: true } : {}),
-		})
+		let logFd: number | undefined
+		if (request.background && request.logFile) {
+			mkdirSync(dirname(request.logFile), { recursive: true })
+			logFd = openSync(request.logFile, 'w')
+		}
+		const closeLog = () => {
+			if (logFd !== undefined) closeSync(logFd)
+			logFd = undefined
+		}
+		let child: ReturnType<typeof spawn>
+		try {
+			child = spawn(invocation.executable, [...invocation.args], {
+				cwd: request.prefix,
+				env: process.env,
+				stdio: request.background
+					? logFd !== undefined
+						? ['ignore', logFd, logFd]
+						: ['ignore', 'ignore', 'ignore']
+					: request.onOutput
+						? ['inherit', 'pipe', 'pipe']
+						: 'inherit',
+				...(request.timeoutMs !== undefined ? { timeout: request.timeoutMs } : {}),
+				shell: false,
+				windowsHide: true,
+				// Its own process group: closing the terminal or pressing Ctrl+C must not
+				// stop the package manager half way through replacing the package.
+				...(request.background ? { detached: true } : {}),
+			})
+		} catch (error) {
+			closeLog()
+			reject(error)
+			return
+		}
+		// The child has its own copy of the descriptor now.
+		closeLog()
 		if (child.pid !== undefined) request.onSpawn?.(child.pid)
-		if (request.onOutput) {
+		if (request.onOutput && !request.background) {
 			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
 			child.stderr?.setEncoding('utf8').on('data', request.onOutput)
 		}
 		child.once('error', reject)
-		child.once('close', (code) => resolveRun(code ?? 1))
+		child.once('close', (code) => {
+			if (request.background && request.logFile && request.onOutput) {
+				const tail = readTail(request.logFile)
+				if (tail) request.onOutput(tail)
+			}
+			resolveRun(code ?? 1)
+		})
 	})
 }

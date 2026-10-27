@@ -182,7 +182,9 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 					upToDate: false,
 					text: `Namzu ${latest} is available (current: ${deps.currentVersion}). Run \`namzu upgrade\` to install it.${
 						last?.outcome === 'failed' && last.detail
-							? `\nThe last automatic update did not finish: ${last.detail}`
+							? `\nThe last automatic update did not finish: ${last.detail}${
+									last.log ? `\nWhat the installer printed is in ${last.log}` : ''
+								}`
 							: ''
 					}`,
 				})

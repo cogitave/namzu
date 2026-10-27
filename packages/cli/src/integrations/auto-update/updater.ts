@@ -190,6 +190,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 						from: deps.currentVersion,
 						to: release.version,
 						detail: result.detail,
+						...(result.log ? { log: result.log } : {}),
 					})
 					emitAvailable(release.version, result.code)
 					return

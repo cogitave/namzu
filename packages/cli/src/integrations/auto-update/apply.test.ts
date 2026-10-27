@@ -8,6 +8,7 @@ import {
 	type InstallerRequest,
 	applyUpdate,
 	classifyInstallerFailure,
+	installLogPath,
 	manualUpdateCommand,
 	npmInstallArgs,
 	pnpmInstallArgs,
@@ -425,6 +426,41 @@ describe('repairing an update that was interrupted', () => {
 		const result = await repairInterruptedUpdate(repairDeps(5151))
 		expect(result.status).toBe('unrepaired')
 		expect(readInProgress(home, scope())).toBeDefined()
+	})
+})
+
+describe('where the installer writes', () => {
+	it('is given a log file of its own under the update folder, one per install', async () => {
+		const requests: InstallerRequest[] = []
+		await applyUpdate(
+			deps({
+				runInstaller: async (request) => {
+					requests.push(request)
+					writePackage(root, '2.0.0')
+					return 0
+				},
+			}),
+			release,
+		)
+		expect(requests[0]?.logFile).toBe(installLogPath(home, scope()))
+		expect(requests[0]?.logFile?.startsWith(join(home, 'updates'))).toBe(true)
+	})
+
+	it('names the log in the failure, with what the installer printed read back for the cause', async () => {
+		const result = await applyUpdate(
+			deps({
+				runInstaller: async (request) => {
+					request.onOutput('npm error code EACCES\nnpm error permission denied')
+					return 1
+				},
+			}),
+			release,
+		)
+		expect(result).toMatchObject({
+			status: 'failed',
+			code: 'no_permission',
+			log: installLogPath(home, scope()),
+		})
 	})
 })
 
