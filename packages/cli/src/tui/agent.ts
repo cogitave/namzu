@@ -744,6 +744,8 @@ export type AgentEvent =
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
 			/** Ids of the tasks this one waits on, when the store reported any. */
 			readonly blockedBy?: readonly string[]
+			/** The present-continuous form the model gave ("Running the tests"), when it gave one. */
+			readonly activeForm?: string
 			/** The task left the plan; the checklist drops it. */
 			readonly removed?: true
 	  }
@@ -7876,6 +7878,7 @@ export function toAgentEvent(
 				subject: event.subject,
 				status: event.status,
 				...(event.blockedBy ? { blockedBy: event.blockedBy.map(String) } : {}),
+				...(event.activeForm ? { activeForm: event.activeForm } : {}),
 				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':

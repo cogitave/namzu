@@ -75,7 +75,7 @@ import {
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
-import { runtimeContextLabel } from '../context/runtime-message.js'
+import { isModelOnlyContext, runtimeContextLabel } from '../context/runtime-message.js'
 import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
 import type { Pal } from '../pals/store.js'
 import {
@@ -496,6 +496,7 @@ import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
+import { workingLabel } from './working-label.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
@@ -1103,10 +1104,7 @@ export function projectConversation(
 			}
 			// A hidden reminder, and the context a turn recorded for the model, are for
 			// the model; the live transcript never showed them.
-			if (
-				message.source?.type === 'runtime-context' &&
-				(message.source.kind === 'reminder' || message.source.kind === 'turn-context')
-			) {
+			if (isModelOnlyContext(message)) {
 				return []
 			}
 			if (message.source?.type === 'runtime-context') {
@@ -6232,6 +6230,8 @@ function AppBody({
 	const fullTaskFurniture = taskListRows(liveTasks)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
+	// The working row names the step in progress, in the model's own words.
+	const workingStepLabel = workingLabel(tasks, terminal.columns ?? 80)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
@@ -8646,6 +8646,14 @@ function AppBody({
 							: (() => {
 									const known = tasksRef.current.find((task) => task.id === event.taskId)?.blockedBy
 									return known ? { blockedBy: known } : {}
+								})()),
+						...(event.activeForm
+							? { activeForm: event.activeForm }
+							: (() => {
+									const known = tasksRef.current.find(
+										(task) => task.id === event.taskId,
+									)?.activeForm
+									return known ? { activeForm: known } : {}
 								})()),
 					}
 					// A reply in progress ends here, as it does at a tool call, so
@@ -14207,7 +14215,11 @@ function AppBody({
 						scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
-								{...(compacting || summarising ? { activityLabel: COMPACTING_LABEL } : {})}
+								{...(compacting || summarising
+									? { activityLabel: COMPACTING_LABEL }
+									: workingStepLabel
+										? { activityLabel: workingStepLabel }
+										: {})}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								compacting={compacting}
