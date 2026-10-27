@@ -1,5 +1,17 @@
 # Changelog
 
+## 56.0.0
+
+### Major Changes
+
+- 4ef7f2d: A failing `bash` result no longer ends with the line "NOTE: N credential-shaped environment variables were removed ..."; its `output` is only what the command printed, and the count is in `data.withheldEnv`. The kernel now tells the model in a framed user-role notice of its own after the tool batch, once, and again only when the count changes. If your host parsed that line out of `output`, read `result.data.withheldEnv` instead; `describeWithheldEnv` now returns the notice sentence without the "NOTE:" prefix.
+
+### Patch Changes
+
+- 4ef7f2d: The compaction summary's `## Current Goal` section is written only when the newest request says something the `## Task` entry does not; it no longer repeats the task word for word. Nothing to do on upgrade.
+- 4ef7f2d: The summary a compaction leaves reads more plainly. The files list gives one line per file, the path then what was done to it ("read; changed"), instead of repeating "read: read". The heading for details the summary check adds is now `## Missing Details`, and the newest request is restated under `## Current Goal` (the task when nothing newer was asked) just before the open items; the `Latest request:` prefix inside `## User Requirements` is gone. The `edit` tool's description now gives the reason for its 12000 character budget. A host that matches these headings in a summary should read the new names; the saved working state itself is unchanged.
+- 4ef7f2d: A turn's request-only data (repository snapshot, recalled memory, conversation evidence, file evidence) now keeps the place it first had on every later call of the turn, instead of moving from before your message to after the tool results, so within a turn each request begins with the whole of the one before it and a caching provider keeps reading the same prefix. This holds for the calls of one turn only: the next turn takes its data afresh, so its opening differs from the previous turn's. The conversation-evidence step reads the archive once per turn: a tool result written to the archive mid-turn no longer changes the block, and the next turn (or a new message from the person) reads afresh. File evidence and the owned-work block, when they change, are appended as a later block, as their headings say, instead of replacing the earlier one in place; this is a behaviour change: the model can still read the earlier, out of date text of a file body, so only the latest version and the two before it are carried, and versions a compaction displaced are dropped. Other data whose text changed is replaced. The conversation-evidence opening paragraph is no longer than before, names each JSON key it mentions once in code style, and no longer prints internal kind names; its JSON no longer carries the scan byte count. The note that evidence is unavailable is now two plain sentences, not JSON, so it no longer carries the status, stage or reason as fields. Nothing to change in your code; a host that matches the old wording of the evidence block, reads `scannedBytes` from it, parses the availability note's fields, or expects one file-evidence block per request should read the new text and take the last block.
+
 ## 55.1.0
 
 ### Minor Changes
