@@ -131,6 +131,21 @@ describe('the five modes', () => {
 		expect(prompt).not.toHaveBeenCalled()
 	})
 
+	it('accept-edits approves a write although a write is always flagged destructive, unless it crosses a boundary', async () => {
+		const prompt = vi.fn(async () => ({ kind: 'approve' as const }))
+		const decide = createReviewHandler({ mode: 'accept-edits', prompt })
+		expect(await decide(review(call('write', { isDestructive: true })))).toEqual({
+			action: 'approve_tools',
+		})
+		expect(prompt).not.toHaveBeenCalled()
+		await decide(
+			review(
+				call('write', { isDestructive: true, escalation: { outsidePaths: ['/etc/x'] } as never }),
+			),
+		)
+		expect(prompt).toHaveBeenCalledTimes(1)
+	})
+
 	it('accept-edits approves a batch of plain edits and asks when a shell call rides along', async () => {
 		const prompt = vi.fn(async () => ({ kind: 'approve' as const }))
 		const decide = createReviewHandler({ mode: 'accept-edits', prompt })

@@ -8,7 +8,7 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { resolveRetainedOutput } from '../retained-output.js'
 import { looksBinary } from '../text-window.js'
 import { fingerprintContent } from './content-fingerprint.js'
-import { type RenderedRead, renderCappedRead } from './read-render.js'
+import { type RenderedRead, humanBytes, renderCappedRead } from './read-render.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
@@ -98,6 +98,7 @@ export const ReadFileTool = defineTool({
 				}
 			}
 			const content = buffer.toString('utf-8')
+			if (looksBinary(content)) return unreadableAsText(input.path, buffer.length, true)
 			const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
 			if (!capped.ok) return refusedRead(input.path, buffer.length, capped.message, true)
 			const rendered = capped.rendered
@@ -144,6 +145,7 @@ export const ReadFileTool = defineTool({
 			}
 		}
 		const content = buffer.toString('utf-8')
+		if (looksBinary(content)) return unreadableAsText(filePath, buffer.length, false)
 		const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
 		if (!capped.ok) return refusedRead(filePath, buffer.length, capped.message, false)
 		const rendered = capped.rendered
@@ -176,6 +178,19 @@ function capOptions(
 	}
 }
 
+/**
+ * A file whose bytes are not text. The model gets a short note with the size
+ * and the next step, never the numbered garbage a decode would produce.
+ */
+function unreadableAsText(path: string, bytes: number, sandboxed: boolean) {
+	return {
+		success: false as const,
+		output: `This file is not readable as text (${humanBytes(bytes)} of binary or non-UTF-8 data). Inspect it with a shell command such as file or xxd, or use a tool made for its format.`,
+		data: { path, binary: true, ...(sandboxed ? { sandboxed: true } : {}) },
+		facts: { kind: 'read' as const, path, binary: true, bytes },
+	}
+}
+
 function refusedRead(path: string, bytes: number, message: string, sandboxed: boolean) {
 	return {
 		success: false as const,
@@ -202,12 +217,8 @@ function readFacts(
 		path,
 		bytes: buffer.length,
 		...(looksBinary(content) ? { binary: true } : {}),
-		// A final newline ends a line; it does not start another.
-		totalLines: content.endsWith('\n') ? rendered.totalLines - 1 : rendered.totalLines,
-		returnedLines:
-			content.endsWith('\n') && !rendered.partial
-				? rendered.returnedLines - 1
-				: rendered.returnedLines,
+		totalLines: rendered.totalLines,
+		returnedLines: rendered.returnedLines,
 		...(rendered.partial ? { partial: true } : {}),
 	}
 }

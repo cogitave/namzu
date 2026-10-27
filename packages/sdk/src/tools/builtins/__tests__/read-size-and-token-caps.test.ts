@@ -85,7 +85,7 @@ describe('read token cap', () => {
 		expect(result.success).toBe(true)
 		const output = result.output
 		expect(output).toContain('[Truncated: PARTIAL view')
-		const shown = Number(/showing lines 1-(\d+) of 2401 total/.exec(output)?.[1])
+		const shown = Number(/showing lines 1-(\d+) of 2400 total/.exec(output)?.[1])
 		expect(shown).toBeGreaterThan(1)
 		expect(shown).toBeLessThan(2000)
 		// 0-indexed offset, the way this tool's `offset` is.

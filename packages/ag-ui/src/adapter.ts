@@ -222,6 +222,13 @@ interface PreparedRequest {
 	readonly controller: AbortController
 	/** The request's own cancellation: the HTTP connection or `run`'s signal. */
 	readonly signal: AbortSignal
+	/**
+	 * Kept only so the Request stays reachable for as long as the run is. Its
+	 * own signal follows the caller's signal through a weak reference, so a
+	 * Request nobody holds can be collected mid-run and the caller's abort then
+	 * never arrives.
+	 */
+	readonly request?: Request
 	/** Stop closing `ui` on request cancellation; the run owns it from here. */
 	readonly adopt: () => void
 }
@@ -500,7 +507,17 @@ export class AGUIAdapter {
 				fresh.ui = ui
 				if (params.signal !== fresh.signal) fresh.follow(params.signal)
 			}
-			return { input, plan, turn, params: turnParams, ui, controller, signal, adopt }
+			return {
+				input,
+				plan,
+				turn,
+				params: turnParams,
+				ui,
+				controller,
+				signal,
+				adopt,
+				...(request ? { request } : {}),
+			}
 		} catch (error) {
 			controller.abort(error)
 			ui.close()
