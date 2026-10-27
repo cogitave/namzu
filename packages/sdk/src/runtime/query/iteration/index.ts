@@ -58,6 +58,7 @@ import { createCallbackInference } from '../callback-inference.js'
 import { SandboxAcquisitionStopped } from '../deferred-sandbox.js'
 import { deliverDurableInbound } from '../durable-inbound.js'
 import type { ToolCallOutcome } from '../executor.js'
+import { FILE_EVIDENCE_NONE } from '../file-evidence-context.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import {
@@ -114,7 +115,6 @@ import {
 	stepContextMessage,
 	workContextBlocks,
 } from './step-shaping.js'
-import { FILE_EVIDENCE_NONE } from '../file-evidence-context.js'
 import { streamProviderTurn } from './stream-turn.js'
 
 type ReviewRequest = Pick<AnswerReviewContext, 'requestMessages' | 'latestUserMessage'>
