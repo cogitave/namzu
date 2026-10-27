@@ -2,7 +2,7 @@ import { tokenize } from '../compaction/salience/tokenize.js'
 import { matchesMemoryIdentifier } from '../store/memory/index.js'
 import { MEMORY_VERIFY_NOTICE, describeMemoryAge } from '../store/memory/links.js'
 import type { MemoryStore } from '../types/memory/index.js'
-import type { Message } from '../types/message/index.js'
+import { type Message, turnContextEntries } from '../types/message/index.js'
 import type { PrepareStep } from '../types/session/prepare-step.js'
 
 export interface MemoryRecallOptions {
@@ -28,6 +28,43 @@ export interface MemoryRecallOptions {
 	readonly ageNoticeAfterMs?: number
 	/** Clock for ages; defaults to `Date.now`. */
 	readonly now?: () => number
+	/**
+	 * Keep what is recalled in the conversation instead of showing it for one
+	 * request. A recalled record is then recorded once, as an entry under the
+	 * key `memory`, and offered again only when its `updatedAt` differs from
+	 * the one an earlier entry carried, so each request keeps beginning with
+	 * the whole of the one before it. Default false: the block is request-only
+	 * context, as before.
+	 */
+	readonly record?: boolean
+	/**
+	 * With `record`: the most characters of recalled records the conversation
+	 * holds, counted from the entries still in the history. Once reached,
+	 * recall adds nothing and the model reads records with `read_memory`.
+	 * Default 24,000. A compaction that drops the entries frees the budget.
+	 */
+	readonly sessionMaxChars?: number
+}
+
+/** The key recalled records are recorded under. */
+export const RECALLED_MEMORY_ENTRY_KEY = 'memory'
+
+/** The `id@updatedAt` of every record the entries still in the history carry. */
+function recordedRecords(entries: readonly string[]): Set<string> {
+	const seen = new Set<string>()
+	for (const entry of entries) {
+		for (const line of entry.split('\n')) {
+			if (!line.startsWith('{')) continue
+			try {
+				const parsed = JSON.parse(line) as { id?: unknown; updatedAt?: unknown }
+				if (typeof parsed.id === 'string' && typeof parsed.updatedAt === 'number')
+					seen.add(`${parsed.id}@${parsed.updatedAt}`)
+			} catch {
+				// a line of the entry that is not a record
+			}
+		}
+	}
+	return seen
 }
 
 // Bound optional reads across hooks using the same store instance. A timeout
@@ -156,6 +193,8 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 	const timeoutMs = positive(options.timeoutMs ?? 1_000, 'timeoutMs')
 	const ageNoticeAfterMs = positive(options.ageNoticeAfterMs ?? 86_400_000, 'ageNoticeAfterMs')
 	const now = options.now ?? Date.now
+	const record = options.record === true
+	const sessionMaxChars = positive(options.sessionMaxChars ?? 24_000, 'sessionMaxChars')
 	return async ({ messages, prepared, latestUserMessage, contextBudget, signal }) => {
 		signal?.throwIfAborted()
 		// Leave room for the current request and response. The kernel supplies
@@ -182,6 +221,9 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 			.filter((term) => term.length > 1 && !GLUE.has(term))
 			.slice(0, 32)
 		if (terms.length === 0 || charBudget <= HEADER.length) return undefined
+		const held = record ? turnContextEntries(messages, RECALLED_MEMORY_ENTRY_KEY) : []
+		if (held.reduce((sum, entry) => sum + entry.length, 0) >= sessionMaxChars) return undefined
+		const known = recordedRecords(held)
 		if (pendingRecalls.has(options.store)) return undefined
 		let expired = false
 		let anyAged = false
@@ -189,13 +231,16 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 			const page = await options.store.list({
 				query: terms.join(' '),
 				status: 'active',
-				limit: maxMemories,
+				// Records an earlier entry already carries still rank among the
+				// matches; ask for enough to find the new ones behind them.
+				limit: Math.min(maxScanned, maxMemories + known.size),
 				maxScanned,
 				...(anchors.size ? { requiredIdentifiers: [...anchors] } : {}),
 			})
 			let block = HEADER
 			const entries = page.entries
 				.filter((entry) => entry.status === 'active')
+				.filter((entry) => !known.has(`${entry.id}@${entry.updatedAt}`))
 				.slice(0, maxMemories)
 			for (let i = 0; i < entries.length && !expired; i++) {
 				const selected = entries[i]
@@ -280,7 +325,10 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 					}, timeoutMs)
 				}),
 			])
-			return block ? { context: [prepared.context, block].filter(Boolean).join('\n\n') } : undefined
+			if (!block) return undefined
+			return record
+				? { recordedContext: [{ key: RECALLED_MEMORY_ENTRY_KEY, text: block }] }
+				: { context: [prepared.context, block].filter(Boolean).join('\n\n') }
 		} finally {
 			if (timer) clearTimeout(timer)
 			if (onAbort) signal?.removeEventListener('abort', onAbort)

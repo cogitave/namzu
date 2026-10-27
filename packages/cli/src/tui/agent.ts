@@ -4801,6 +4801,7 @@ export async function createAgentSession(
 									createMemoryRecallStep({
 										store: memoryStore,
 										identifierGrounding: options.memory?.identifierGrounding,
+										record: true,
 									}),
 								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
@@ -5984,6 +5985,7 @@ export async function createAgentSession(
 													store: memoryStore,
 													query: lastPromptText(messages),
 													identifierGrounding: options.memory?.identifierGrounding,
+													record: true,
 												}),
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
