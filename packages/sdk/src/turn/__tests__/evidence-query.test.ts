@@ -410,7 +410,7 @@ describe('grounded conversation query resolution', () => {
 		for (const stepNumber of [1, 2]) {
 			const result = await recall({ ...ctx, stepNumber })
 			expect(result?.context).toContain('DELTA takip A17 depo B42')
-			expect(result?.context).toContain('query interpretation, not proof')
+			expect(result?.context).toContain('interpretation of the question, not proof')
 			expect(result?.context?.length).toBeLessThanOrEqual(6000)
 		}
 		expect(retrieve).toHaveBeenCalledTimes(2)

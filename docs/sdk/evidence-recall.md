@@ -516,13 +516,20 @@ status and selected current data for a past-observation question. Availability
 reporting does not certify the model's recovery decision.
 
 Every request revalidates its source; recalled bytes are not cached for a
-later step. The immutable bound scope prevents changing an options object
+later step. A later step whose block reads exactly the same keeps the copy the
+model already has, in its place, instead of adding a second one (see
+[where the per-turn blocks sit](step-context.md#where-the-per-turn-blocks-sit)).
+The block is written in plain words: the opening paragraph names no field of
+the JSON that follows, and the availability note is two sentences saying what
+failed and what the model can do instead. The JSON no longer carries the byte
+count of the scan, which changed on every request and told the model nothing it
+could act on; whether the scan finished is still in `incomplete`. The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
 conversation and reject stale turn ownership before and after asynchronous I/O.
 
 ## Historical and current facts
 
-The context labels passages as historical records and untrusted reference
+The context labels passages as earlier records and untrusted reference
 data, not instructions or verified current state. Producer labels distinguish
 assistant claims from tool results without certifying either as true. A past file observation may
 answer what was seen earlier. It cannot establish what is in the file now.

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-27
+
+- **Update** [Request-only step context](sdk/step-context.md), [Evidence recall](sdk/evidence-recall.md): the per-turn blocks (repository snapshot, recalled memory, conversation evidence, file evidence) keep the place they first had on every later call of a turn, so each request begins with the whole of the one before it; data that changed is withdrawn and the new text follows the history. The repository snapshot is rendered on every iteration with the same text. The conversation-evidence block is written in plain words, names no internal field, and no longer carries the scan byte count. `.changeset/turn-context-placement.md` (`@namzu/sdk` patch, `@namzu/cli` patch).
+
 ## 2026-10-26
 
 - **Update** [Learning in the CLI](cli/learning.md): merged with the per-call review and the one prompt composer. A call the review did not let run (your No, or a call that went with the turn your No ended) is not recorded as a failed tool; the background cycle neither starts nor makes a model call while a question waits on you; the learned guidance still rides the per-turn context placement (never the cached system prompt) and now says Namzu learned it, since the background cycle activates it without a confirmation. `.changeset/learning-refusals-and-questions.md` (`@namzu/cli` patch, `@namzu/sdk` minor).

@@ -195,7 +195,7 @@ describe('grounded query focus', () => {
 				incomplete,
 				queryFocus: { terms: ['SIGMA'], matchedTerms: [] },
 			})
-			expect(result?.context).toContain('do not prove the requested record is absent')
+			expect(result?.context).toContain('does not prove the record is absent')
 			expect(result?.context).not.toContain('"excerpt":')
 			if (incomplete) expect(result?.context).toContain('host-cursor')
 		},
