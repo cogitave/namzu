@@ -3,15 +3,16 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { updaterEventAmbient } from '../../tui/update-notice.js'
 import { type InstallerRequest, type Release, scopeOf } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
 import type { UpdatePolicy } from './policy.js'
-import { acquireUpdateLock, readCheck, readLastResult } from './state.js'
+import { acquireUpdateLock, readAttempt, readCheck, readLastResult } from './state.js'
 import {
 	CHECK_EVERY_MS,
 	FIRST_CHECK_AFTER_MS,
-	MAX_CONSECUTIVE_FAILURES,
+	RETRY_AFTER_MS,
 	SHARED_THROTTLE_MS,
 	type UpdaterDeps,
 	type UpdaterEvent,
@@ -291,16 +292,129 @@ describe('when installing fails', () => {
 		expect(readLastResult(home)).toMatchObject({ outcome: 'failed', status: 'no_permission' })
 	})
 
-	it('tries a few times for other failures, then stops until the next start', async () => {
-		const h = harness({}, undefined, 'npm error something odd')
-		const updater = h.updater
-		for (let i = 0; i < MAX_CONSECUTIVE_FAILURES + 2; i += 1) {
-			await updater.runCycle()
-			await tick(SHARED_THROTTLE_MS)
+	it('does not try a version again that did not work, in this window or the next start', async () => {
+		const first = harness({}, undefined, 'npm error something odd')
+		await first.updater.runCycle()
+		await tick(CHECK_EVERY_MS)
+		await first.updater.runCycle()
+		expect(first.installs).toHaveLength(1)
+		expect(first.events).toHaveLength(1)
+		expect(first.events[0]).toMatchObject({ type: 'available', failure: 'install_failed' })
+		expect(readAttempt(home)).toMatchObject({
+			version: '2.0.0',
+			code: 'install_failed',
+			shown: true,
+		})
+
+		// Another start, an hour and then a day later: the package folder is left alone.
+		for (const later of [60 * 60_000, 24 * 60 * 60_000]) {
+			await tick(later)
+			const next = harness({}, undefined, 'npm error something odd')
+			await next.updater.runCycle()
+			expect(next.installs).toEqual([])
+			expect(readInstalledVersion(root)).toBe('1.0.0')
 		}
-		expect(h.installs).toHaveLength(MAX_CONSECUTIVE_FAILURES)
-		expect(h.events).toHaveLength(1)
-		expect(h.events[0]).toMatchObject({ type: 'available', failure: 'install_failed' })
+	})
+
+	it('tries again as soon as a newer version is published', async () => {
+		const first = harness({}, undefined, 'npm error something odd')
+		await first.updater.runCycle()
+		expect(first.installs).toHaveLength(1)
+		await tick(SHARED_THROTTLE_MS)
+		const next = harness({}, { version: '2.0.1', integrity: 'sha512-AAAA' })
+		await next.updater.runCycle()
+		// It is the newer version that is installed (its files come from the stub installer).
+		expect(next.installs).toHaveLength(1)
+		expect(next.installs[0]?.args.at(-1)).toContain('2.0.1')
+	})
+
+	it('tries a failure that says nothing about the version again after six hours, not before', async () => {
+		const first = harness({}, undefined, 'npm error code ETIMEDOUT')
+		await first.updater.runCycle()
+		expect(readAttempt(home)).toMatchObject({ code: 'network' })
+		await tick(RETRY_AFTER_MS - 1)
+		const early = harness({}, undefined, 'npm error code ETIMEDOUT')
+		await early.updater.runCycle()
+		expect(early.installs).toEqual([])
+		await tick(1)
+		const later = harness()
+		await later.updater.runCycle()
+		expect(later.installs).toHaveLength(1)
+		expect(later.events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
+	})
+
+	it('says it could not update on its own once per version, then only that a version is available', async () => {
+		const first = harness({}, undefined, 'npm error code EACCES')
+		await first.updater.runCycle()
+		const command = `sudo npm install --global --prefix ${join(dir, 'prefix')} @namzu/cli@2.0.0`
+		expect(first.events).toEqual([
+			{ type: 'available', latest: '2.0.0', command, failure: 'no_permission' },
+		])
+		await tick(SHARED_THROTTLE_MS)
+		const second = harness({}, undefined, 'npm error code EACCES')
+		await second.updater.runCycle()
+		expect(second.installs).toEqual([])
+		// The same command, without the wording about failing.
+		expect(second.events).toEqual([{ type: 'available', latest: '2.0.0', command }])
+		expect(updaterEventAmbient(second.events[0] as UpdaterEvent).text).toBe(
+			`Update available! Run: ${command}`,
+		)
+	})
+
+	it('keeps the last failed attempt where `namzu upgrade --check` reads it', async () => {
+		const h = harness({}, undefined, 'npm error something odd')
+		await h.updater.runCycle()
+		await tick(SHARED_THROTTLE_MS)
+		const next = harness({}, undefined, 'npm error something odd')
+		await next.updater.runCycle()
+		expect(readLastResult(home)).toMatchObject({
+			outcome: 'failed',
+			status: 'install_failed',
+			to: '2.0.0',
+			detail: expect.stringContaining('did not finish'),
+		})
+	})
+
+	it('does not try again a version whose update was interrupted and had to be put back', async () => {
+		mkdirSync(join(home, 'updates'), { recursive: true })
+		const backup = join(home, 'updates', 'previous', scope(), '1.0.0')
+		mkdirSync(backup, { recursive: true })
+		writeFileSync(
+			join(backup, 'package.json'),
+			JSON.stringify({ name: '@namzu/cli', version: '1.0.0' }),
+		)
+		writePackage('2.0.0')
+		writeFileSync(
+			join(home, 'updates', `in-progress-${scope()}.json`),
+			JSON.stringify({
+				pid: 99_999_999,
+				from: '1.0.0',
+				to: '2.0.0',
+				backup,
+				at: Date.now() - 60_000,
+			}),
+		)
+		const h = harness({
+			applyDeps: {
+				installedVersion: readInstalledVersion,
+				smokeTest: async (at, version) =>
+					readInstalledVersion(at) === version && version === '1.0.0',
+				pid: 4242,
+				isAlive: () => false,
+				runInstaller: async () => 0,
+			},
+		})
+		await h.updater.repair()
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+		expect(readAttempt(home)).toMatchObject({
+			version: '2.0.0',
+			code: 'verify_failed',
+			shown: false,
+		})
+
+		await h.updater.runCycle()
+		expect(h.installs).toEqual([])
+		expect(h.events[0]).toMatchObject({ type: 'available', failure: 'verify_failed' })
 	})
 
 	it('does not install a version the registry gave no checksum for', async () => {

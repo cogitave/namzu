@@ -21,11 +21,37 @@ import {
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import type { UpdatePolicy } from './policy.js'
-import { type CheckRecord, readCheck, writeCheck, writeLastResult } from './state.js'
+import {
+	type AttemptRecord,
+	type CheckRecord,
+	readAttempt,
+	readCheck,
+	writeAttempt,
+	writeCheck,
+	writeLastResult,
+} from './state.js'
 
 export const FIRST_CHECK_AFTER_MS = 10_000
 export const CHECK_EVERY_MS = 30 * 60_000
 export const SHARED_THROTTLE_MS = 5 * 60_000
+/**
+ * Failures that say nothing about the version itself: a download that broke off, a
+ * file another program held, a full disk. They are tried again after this long.
+ * Every other failure (no permission, a copy that did not start, a checksum that did
+ * not match) is final for that version until a newer one is published.
+ */
+export const RETRY_AFTER_MS = 6 * 60 * 60_000
+const PASSING_FAILURES: ReadonlySet<string> = new Set([
+	'network',
+	'in_use',
+	'disk_full',
+	'backup_failed',
+])
+
+function mayTryAgain(attempt: AttemptRecord, now: number): boolean {
+	return PASSING_FAILURES.has(attempt.code) && now - attempt.at >= RETRY_AFTER_MS
+}
+
 /** After this many failed installs in a row the loop stops trying until the next start. */
 export const MAX_CONSECUTIVE_FAILURES = 3
 
@@ -80,7 +106,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 	let failures = 0
 	let announced: string | undefined
 
-	const emitAvailable = (latest: string, failure?: FailureStatus) => {
+	/**
+	 * Tell the person a newer version exists. `cause` is why Namzu did not install it;
+	 * it decides which command is right, and is only named in the event the first time.
+	 */
+	const emitAvailable = (latest: string, cause?: FailureStatus, nameCause = true) => {
 		if (announced === latest) return
 		announced = latest
 		deps.onEvent({
@@ -88,13 +118,13 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			latest,
 			command: manualUpdateCommand(
 				// A refused write means the plain command would be refused again.
-				failure === 'no_permission' && 'writable' in deps.install
+				cause === 'no_permission' && 'writable' in deps.install
 					? { ...deps.install, writable: false }
 					: deps.install,
 				latest,
 				deps.platform,
 			),
-			...(failure ? { failure } : {}),
+			...(cause && nameCause ? { failure: cause } : {}),
 		})
 	}
 
@@ -147,6 +177,16 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				return
 			}
 
+			// A version that already failed here is not tried again on every start: the package
+			// folder is not swapped under open windows for something that did not work.
+			const earlier = readAttempt(deps.home)
+			if (earlier && earlier.version === release.version && !mayTryAgain(earlier, now())) {
+				const first = !earlier.shown
+				if (first) writeAttempt(deps.home, { ...earlier, shown: true }, deps.applyDeps.pid)
+				emitAvailable(release.version, earlier.code as FailureStatus, first)
+				return
+			}
+
 			const result = await applyUpdate(
 				{
 					...deps.applyDeps,
@@ -194,6 +234,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 						detail: result.detail,
 						...(result.log ? { log: result.log } : {}),
 					})
+					writeAttempt(
+						deps.home,
+						{ version: release.version, code: result.code, at: now(), shown: true },
+						deps.applyDeps.pid,
+					)
 					emitAvailable(release.version, result.code)
 					return
 			}
@@ -237,6 +282,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			}
 			return
 		}
+		writeAttempt(
+			deps.home,
+			{ version: result.to, code: 'verify_failed', at: now(), shown: false },
+			deps.applyDeps.pid,
+		)
 		writeLastResult(deps.home, {
 			at: stamp,
 			outcome: 'failed',

@@ -4,6 +4,7 @@
  * - `locks/<install>/`  one process updating each install at a time
  * - `check.json`    when any Namzu process last looked, so two terminals do not both ask
  * - `last-result.json`  the outcome of the last automatic attempt
+ * - `attempt.json`  the version the last failed attempt was for, so it is not tried again
  * - `previous/<install>/<version>/`  the copy of the package an update replaced
  * - `in-progress-<install>.json`  an update that has touched the package and is not yet verified
  *
@@ -108,6 +109,45 @@ export function writeLastResult(home: string, result: UpdateResult, pid = proces
 		writeJsonAtomic(join(updatesDir(home), 'last-result.json'), result, pid)
 	} catch {
 		// The record is a convenience; the update outcome does not depend on it.
+	}
+}
+
+// ---------------------------------------------------------- failed attempt
+
+/**
+ * The version an automatic install gave up on, so the next start does not swap
+ * the package folder for it all over again under windows that are still open.
+ */
+export interface AttemptRecord {
+	readonly version: string
+	/** Why it failed (a `FailureStatus`). */
+	readonly code: string
+	readonly at: number
+	/** The person has been told about this version. */
+	readonly shown: boolean
+}
+
+export function readAttempt(home: string): AttemptRecord | undefined {
+	const value = readJson(join(updatesDir(home), 'attempt.json')) as
+		| Partial<AttemptRecord>
+		| undefined
+	if (
+		!value ||
+		typeof value.version !== 'string' ||
+		typeof value.code !== 'string' ||
+		typeof value.at !== 'number' ||
+		typeof value.shown !== 'boolean'
+	) {
+		return undefined
+	}
+	return value as AttemptRecord
+}
+
+export function writeAttempt(home: string, record: AttemptRecord, pid = process.pid): void {
+	try {
+		writeJsonAtomic(join(updatesDir(home), 'attempt.json'), record, pid)
+	} catch {
+		// Not remembering costs one more attempt at the next start, never a wrong install.
 	}
 }
 
