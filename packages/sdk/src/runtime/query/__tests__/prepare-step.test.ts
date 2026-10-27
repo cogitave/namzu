@@ -273,9 +273,12 @@ it('replaces request-only context without changing history or operator intent', 
 			// Just before the operator's message, so the request is read last.
 			const asked = request.messages.findIndex((m) => m.role === 'user' && m.source === undefined)
 			// Before the operator's message while it is what the model answers,
-			// after the history once a tool has run.
+			// right after the history once a tool has run.
 			if (index === 0) expect(request.messages[asked - 1]).toBe(observations[0])
-			else expect(request.messages.at(-1)).toBe(observations[0])
+			else {
+				const lastTool = request.messages.map((m) => m.role).lastIndexOf('tool')
+				expect(request.messages[lastTool + 1]).toBe(observations[0])
+			}
 			expect(observations[0]!.content).toContain('runtime-generated; not a new user request')
 			expect(observations[0]!.content).toContain(`OBSERVATION-${index + 1}`)
 			expect(

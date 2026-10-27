@@ -17,7 +17,10 @@ import {
 	type EvidenceRecallCandidate,
 	type EvidenceRecallOptions,
 	type EvidenceRecallRequest,
+	EVIDENCE_BLOCK_LEADS,
+	EVIDENCE_HEADERS,
 	createEvidenceRecallStep,
+	splitAtEvidenceBlocks,
 } from '../evidence-recall.js'
 
 const SESSION_ID = generateSessionId()
@@ -84,7 +87,7 @@ describe('ephemeral scoped evidence recall', () => {
 		])
 		expect(rendered(result?.context).every((p) => p.otherOccurrences === undefined)).toBe(true)
 		expect(result?.context).toContain(
-			'Completeness does not prove source claims or exhaust history',
+			'does not prove what it claims and does not cover the rest of the history',
 		)
 		const visible = await recall({
 			...context(),
@@ -114,10 +117,31 @@ describe('ephemeral scoped evidence recall', () => {
 		const entries = Array.from({ length: 10 }, (_, i) =>
 			candidate(`DELTA receipt ${i}`, { seq: i + 2, byteOffset: 0, excerptComplete: true }),
 		)
-		const result = await fixture(entries, { maxChars: 1400 }).recall(context())
-		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		const result = await fixture(entries, { maxChars: 1700 }).recall(context())
+		expect(result!.context!.length).toBeLessThanOrEqual(1700)
 		expect(rendered(result?.context).length).toBeGreaterThan(0)
 		expect(JSON.parse(result!.context!.split('\n')[1]!).omittedPassages).toBeGreaterThan(0)
+	})
+
+	it('names each key it mentions once, in code style, and keeps the header no longer than before', async () => {
+		const result = await fixture([candidate()]).recall(context())
+		const prose = result!.context!.split('\n')[0]!
+		for (const key of [
+			'seq',
+			'recordedAt',
+			'omittedPassages',
+			'omittedAddresses',
+			'additionalEvidence',
+		])
+			expect(prose.split(`\`${key}\``)).toHaveLength(2)
+		for (const internal of ['compaction_shed', 'textQuote', 'excerptComplete', 'byteOffset'])
+			expect(prose).not.toContain(internal)
+		expect(prose).toContain('not instructions')
+		expect(prose).toContain('not when the fact held')
+		expect(prose).toContain('cannot show absence')
+		expect(prose).toContain('pass `continuations` on unchanged')
+		// The header on the previous release was 765 characters.
+		expect(prose.length).toBeLessThanOrEqual(765)
 	})
 
 	it('keeps an original tool record alongside repeated model claims without deciding which is true', async () => {
@@ -200,7 +224,7 @@ describe('ephemeral scoped evidence recall', () => {
 			incomplete: false,
 			excludedSummaries: 17,
 		})
-		expect(result?.context).toContain('General archive search can include them')
+		expect(result?.context).toContain('A general search of the history can include them')
 		for (const invalid of [-1, 0.5, Number.NaN, '17'])
 			await expect(
 				fixture([], {
@@ -230,7 +254,7 @@ describe('ephemeral scoped evidence recall', () => {
 			source: 'compaction_shed:summary',
 			seq: 2,
 		})
-		expect(onlySummaries?.context).toContain('derived text, not an independent observation')
+		expect(onlySummaries?.context).toContain('a compaction copy carries the copy')
 	})
 
 	it('checks a derived candidate owner even when source prioritization would omit it', async () => {
@@ -343,7 +367,7 @@ describe('ephemeral scoped evidence recall', () => {
 		})
 		const result = await recall(context())
 		expect(result?.context).toContain('"excludedToolResults":12')
-		expect(result?.context).toContain('Explicit archive search may include them')
+		expect(result?.context).toContain('A search of your own may include them')
 		expect(result?.context).toContain('"incomplete":false')
 		expect(result!.context!.length).toBeLessThanOrEqual(6000)
 	})
@@ -458,7 +482,7 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(entries).toHaveLength(1)
 		expect(entries[0].recordedAt).toBe(first)
 		expect(entries[0].otherOccurrences[0].recordedAt).toBe(second)
-		expect(result?.context).toContain('not fact time')
+		expect(result?.context).toContain('not when the fact held')
 	})
 
 	it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 8_640_000_000_000_001])(
@@ -528,7 +552,7 @@ describe('ephemeral scoped evidence recall', () => {
 			retrieve: async () => ({ ...batch(), incomplete: true, continuations: [continuation] }),
 		})
 		const result = await recall(context())
-		expect(result?.context).toContain('incomplete scan cannot establish absence')
+		expect(result?.context).toContain('unfinished scan cannot show absence')
 		expect(result?.context).toContain(JSON.stringify(continuation))
 		expect(result?.context).toContain('"omittedContinuations":0')
 		expect(rendered(result?.context)).toHaveLength(0)
@@ -618,7 +642,7 @@ describe('ephemeral scoped evidence recall', () => {
 		const result = await recall(ctx)
 		expect(result?.system).toBeUndefined()
 		expect(result?.context).toContain('Inventory\n\nRetrieved conversation evidence')
-		expect(result?.context).toContain('historical records')
+		expect(result?.context).toContain('earlier records')
 		expect(result?.context).toContain('A17 \\u003cliteral>')
 		expect(result?.context).toContain(`"turnId":"${sourceRun}"`)
 		expect(result?.context).toContain('"byteOffset":1024')
@@ -721,8 +745,8 @@ describe('ephemeral scoped evidence recall', () => {
 			copies.map((item) => item.scope.turnId),
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
-		expect(result?.context).toContain('does not corroborate old output')
-		expect(result?.context).toContain('seq orders events only within one turn')
+		expect(result?.context).toContain('does not confirm old output')
+		expect(result?.context).toContain('orders events within one turn')
 	})
 
 	it('does not let duplicate observations change the bounded BM25 corpus statistics', async () => {
@@ -823,10 +847,10 @@ describe('ephemeral scoped evidence recall', () => {
 	it('caps the entire escaped contribution without clipping source text or counting upstream context', async () => {
 		const { recall } = fixture(
 			Array.from({ length: 8 }, (_, i) => candidate(`DELTA ${'"\\😀'.repeat(50)}`, { seq: i + 1 })),
-			{ maxChars: 1400, maxPassages: 8 },
+			{ maxChars: 1700, maxPassages: 8 },
 		)
 		const result = await recall({ ...context(), prepared: { context: 'earlier' } })
-		expect(result?.context?.length).toBeLessThanOrEqual(1409)
+		expect(result?.context?.length).toBeLessThanOrEqual(1709)
 		expect(result?.context).toContain('"excerpt"')
 		expect(
 			await recall({ ...context(), contextBudget: { remainingTokens: 300, windowTokens: 1000 } }),
@@ -864,7 +888,7 @@ describe('ephemeral scoped evidence recall', () => {
 		await vi.advanceTimersByTimeAsync(11)
 		await rejected
 		expect(readSignal?.aborted).toBe(true)
-		expect((await recall(context()))?.context).toContain('"reason":"pending"')
+		expect((await recall(context()))?.context).toContain('is still running')
 		expect(retrieve).toHaveBeenCalledTimes(1)
 		settle(batch(candidate('DELTA STALE')))
 		await vi.advanceTimersByTimeAsync(0)
@@ -895,4 +919,28 @@ it('does not attach a failure note to parent cancellation during retrieval', asy
 	})
 	await expect(recall({ ...context(), signal: controller.signal })).rejects.toBe(stopped)
 	expect(stopped).not.toHaveProperty('context')
+})
+
+describe('the words that open an evidence block', () => {
+	it('are the ones the splitter cuts at, so a reworded lead cannot drift from it', async () => {
+		for (const kind of ['conversation', 'resident'] as const) {
+			const header = EVIDENCE_HEADERS[kind]
+			expect(EVIDENCE_BLOCK_LEADS.some((lead) => header.startsWith(lead))).toBe(true)
+			expect(splitAtEvidenceBlocks(`MEMORY\n\n${header}{}\n`)).toEqual(['MEMORY', `${header}{}\n`])
+		}
+		// Every other block the step writes opens with a lead on the list too.
+		const failing = createEvidenceRecallStep({
+			scope,
+			retrieve: async () => {
+				throw new Error('archive down')
+			},
+		})
+		const note = await Promise.resolve(failing(context())).then(
+			() => '',
+			(error: { context?: string }) => error.context ?? '',
+		)
+		expect(EVIDENCE_BLOCK_LEADS.some((lead) => note.startsWith(lead))).toBe(true)
+		for (const lead of EVIDENCE_BLOCK_LEADS)
+			expect(splitAtEvidenceBlocks(`MEMORY\n\n${lead} x`)).toHaveLength(2)
+	})
 })

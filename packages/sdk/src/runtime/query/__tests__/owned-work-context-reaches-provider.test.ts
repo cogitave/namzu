@@ -90,6 +90,8 @@ it.each([100_000, 1_000])(
 			expect(context?.role).toBe('user')
 			expect(context?.content).toContain('delivered-to-history')
 			expect(context?.content).toContain('"state":"completed"')
+			// A turn can carry several of these as the work changes; the heading says the last one holds.
+			expect(context?.content).toContain('a later block with this heading replaces this one')
 		} else expect(context).toBeUndefined()
 		expect(next.some((m) => String(m.content).includes('Worker result: Ece'))).toBe(true)
 		expect(latest.at(-1)).toBe('What did we add earlier?')

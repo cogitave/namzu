@@ -32,8 +32,10 @@ import { WORKING_MEMORY_HEADER } from '../iteration/phases/working-memory.js'
  * The blocks that belong to the turn (what a `context` contribution renders)
  * are the exception while the operator's new message is what the model is
  * about to answer: they sit just before it, so the request is the last thing
- * read. Once the turn has called a tool they stay after the history, where the
- * breakpoint keeps the tool loop cached.
+ * read. A block the step offers again with the same text keeps that place on
+ * every later call of the turn; a block that first appears after a tool has
+ * run goes after the history of that moment, where the breakpoint keeps the
+ * tool loop cached.
  */
 
 registerMock()
@@ -246,7 +248,14 @@ describe('a context contribution', () => {
 		const slotAt = tail.findIndex(isSlot)
 		const contextAt = tail.findIndex((t) => t.includes('CONTEXT TEXT'))
 		expect(slotAt).toBeGreaterThanOrEqual(0)
-		expect(contextAt).toBeGreaterThan(slotAt)
+		// The context text first appeared before the operator's message and stays
+		// there, ahead of the trailing slot, so it is not in the trailing run.
+		expect(contextAt).toBe(-1)
+		const placedAt = messages.findIndex((m) => text(m).includes('CONTEXT TEXT'))
+		expect(placedAt).toBeGreaterThanOrEqual(0)
+		expect(placedAt).toBeLessThan(
+			messages.findIndex((m) => m.role === 'user' && m.source === undefined),
+		)
 		// `turn` keeps its documented system authority.
 		expect(
 			messages
@@ -289,7 +298,8 @@ describe('recalled context from preparation', () => {
 			expect(messages.findIndex((m) => text(m) === 'earlier question')).toBeLessThan(recalled)
 		}
 
-		// After the tool call the model has moved on: the block follows the history, as before.
+		// After the tool call the same block keeps its place before the operator's
+		// message, and the second request begins with the whole of the first.
 		const later = provider.requests[1]?.messages as Message[]
 		const indexOfLast = (predicate: (m: Message) => boolean) => {
 			for (let i = later.length - 1; i >= 0; i--) if (predicate(later[i] as Message)) return i
@@ -297,6 +307,13 @@ describe('recalled context from preparation', () => {
 		}
 		const lastRecalled = indexOfLast((m) => text(m).includes('RECALLED MEMORY BODY'))
 		const lastUser = indexOfLast((m) => m.role === 'user' && m.source === undefined)
-		expect(lastRecalled).toBeGreaterThan(lastUser)
+		expect(lastRecalled).toBeLessThan(lastUser)
+		const firstMessages = request!.messages as Message[]
+		// Everything the first request held before its trailing notices is still
+		// at the head of the second, so a cached prefix keeps reading.
+		const conversation = (messages: readonly Message[]) =>
+			messages.filter((m) => m.role !== 'system')
+		const stable = conversation(firstMessages)
+		expect(conversation(later).slice(0, stable.length).map(text)).toEqual(stable.map(text))
 	})
 })

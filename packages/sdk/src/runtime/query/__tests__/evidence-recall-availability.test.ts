@@ -94,12 +94,14 @@ it.each(['query_planning', 'retrieval'] as const)(
 			.map((m) => m.content)
 			.join('\n')
 		expect(context).toContain('Earlier stage context.')
-		expect(context).toContain('"status":"unavailable"')
-		expect(context).toContain(`"stage":"${stage}"`)
+		expect(context).toContain('evidence is not available for this request')
+		expect(context).toContain(
+			stage === 'query_planning' ? 'planning the search failed' : 'reading the records failed',
+		)
 		if (stage === 'query_planning') {
-			expect(context).toContain('"fallback":"literal_query"')
+			expect(context).toContain('used only the words of the current question')
 			expect(context).toContain('VERIFIED-789')
-		} else expect(context).toContain('does not establish that earlier records are absent')
+		} else expect(context).toContain('does not mean earlier records are absent')
 		expect(JSON.stringify(request)).not.toContain(privateDetail)
 		expect(request.messages).toContainEqual(expect.objectContaining({ content: operator.content }))
 		expect(
@@ -107,8 +109,8 @@ it.each(['query_planning', 'retrieval'] as const)(
 				.filter((m) => m.role === 'system')
 				.map((m) => m.content)
 				.join('\n'),
-		).not.toContain('"status":"unavailable"')
-		expect(JSON.stringify(result.messages)).not.toContain('"status":"unavailable"')
+		).not.toContain('evidence is not available')
+		expect(JSON.stringify(result.messages)).not.toContain('evidence is not available')
 		expect(retrievals).toBe(1)
 	},
 )
