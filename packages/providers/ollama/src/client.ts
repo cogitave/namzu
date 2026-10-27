@@ -9,7 +9,12 @@ import type {
 	TokenUsage,
 } from '@namzu/sdk'
 import { toolResultToText } from '@namzu/sdk'
-import { isCallerAbortError, isProviderRequestError, providerVendorError } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerVendorError,
+} from '@namzu/sdk'
 import {
 	type AbortableAsyncIterator,
 	type ChatResponse,
@@ -198,6 +203,9 @@ export class OllamaProvider implements LLMProvider {
 		else signal?.addEventListener('abort', onAbort, { once: true })
 
 		const id = randomUUID()
+		// The server's final message arrived. A stream that closes without it
+		// was cut by the connection.
+		let finished = false
 
 		try {
 			for await (const chunk of stream) {
@@ -211,6 +219,7 @@ export class OllamaProvider implements LLMProvider {
 				}
 
 				if (chunk.done === true) {
+					finished = true
 					const usage = buildUsage(chunk)
 					yield {
 						id,
@@ -225,6 +234,13 @@ export class OllamaProvider implements LLMProvider {
 						usage,
 					}
 				}
+			}
+			if (!finished) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'ollama',
+					detail: 'the connection closed before the response finished',
+				})
 			}
 		} catch (err) {
 			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err

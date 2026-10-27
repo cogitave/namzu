@@ -34,6 +34,7 @@ function providerCapturing(seen: {
 						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
 					}
 					yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } }
+					yield { type: 'message_stop' }
 				})()
 			}),
 		},
