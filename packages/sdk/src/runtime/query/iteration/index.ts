@@ -28,7 +28,6 @@ import {
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
-import { splitAtEvidenceBlocks } from '../../../turn/evidence-recall.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
@@ -917,20 +916,18 @@ export class IterationOrchestrator {
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
-					// The blocks of data that belong to this turn (recalled memory and
-					// evidence, the context contributions, the work context) sit just
-					// before the operator's latest message the first time the model
-					// answers it, so the request is the last thing it reads. They stay
-					// there on every later call of the turn, and a block that first
-					// appears on a later call follows the history of that moment, so each
-					// request begins with the whole of the one before it. The short
-					// reminders and notices stay after the history.
+					// Request-only data (the context contributions, notes about the
+					// search, the work context) follows the history of the moment it
+					// first appears and stays there on every later call of the turn, so
+					// each request begins with the whole of the one before it. What a
+					// step wants kept is recorded in the history above instead. The
+					// short reminders and notices stay after the history.
 					const messages = [...projected]
 					this.turnContext.place(
 						messages,
 						requestHistory,
 						workingMemory.history.at(-1),
-						[contextText, ...(step.context ? splitAtEvidenceBlocks(step.context) : [])]
+						[contextText, step.context]
 							.filter((text): text is string => Boolean(text))
 							.map(stepContextMessage),
 						workContextBlocks(shaping, projected, iterationNum, step),

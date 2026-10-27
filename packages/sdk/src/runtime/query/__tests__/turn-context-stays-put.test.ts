@@ -112,26 +112,6 @@ describe('per-turn request context across the calls of one turn', () => {
 		}
 	})
 
-	it('keeps project memory in place when only the evidence block after it changes', async () => {
-		const provider = twoCalls()
-		await drainQuery({
-			...setup(),
-			provider,
-			prepareStep: ({ stepNumber }) => ({
-				context: `MEMORY TEXT\n\nRetrieved conversation evidence: version ${stepNumber}\n{}`,
-			}),
-			messages: [{ role: 'user', content: 'go' }],
-		})
-		const shape = (messages: readonly Message[]) => messages.map((m) => `${m.role}:${text(m)}`)
-		const first = shape(provider.requests[0]?.messages as Message[])
-		const second = shape(provider.requests[1]?.messages as Message[])
-		const memoryAt = first.findIndex((line) => line.includes('MEMORY TEXT'))
-		expect(memoryAt).toBeGreaterThanOrEqual(0)
-		expect(second.slice(0, memoryAt + 1)).toEqual(first.slice(0, memoryAt + 1))
-		expect(second.some((line) => line.includes('version 1'))).toBe(false)
-		expect(second.some((line) => line.includes('version 2'))).toBe(true)
-	})
-
 	it('withdraws a block whose text changed and places the new text after the history', async () => {
 		const provider = twoCalls()
 		await drainQuery({

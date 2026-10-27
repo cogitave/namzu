@@ -3514,6 +3514,7 @@ export async function createAgentSession(
 						throw new Error('The requesting turn no longer owns this conversation.')
 				},
 				options.compaction?.resolveEvidenceQueries !== false,
+				true,
 			)
 			evidenceRecallSteps.set(sessionId, step)
 		}

@@ -99,11 +99,13 @@ export function createConversationEvidenceRecall(
 	sessionId: SessionId,
 	assertOwner: (turnId: string | undefined) => void,
 	resolveQuery = false,
+	record = false,
 ): PrepareStep {
 	const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId }
 	return createEvidenceRecallStep({
 		scope,
 		resolveQuery,
+		record,
 		async retrieve(request: ConversationRecallRequest): Promise<ConversationRecallBatch> {
 			const { turnId, terms, signal, maxReadBytes, maxCandidates, captureSessionEvidence } = request
 			assertOwner(turnId)
