@@ -21,9 +21,10 @@ describe('the network row', () => {
 		)
 		expect(result.status).toBe('pass')
 		expect(result.message).toBe(
-			'Requests go through the proxy at proxy.corp:3128, except for localhost,.corp.',
+			'Requests go through the proxy at proxy.corp:3128, except for localhost,.corp. Amazon Bedrock and LM Studio requests do not use it.',
 		)
 		expect(result.message).not.toContain('pw')
+		expect(result.message).toContain('Amazon Bedrock and LM Studio requests do not use it.')
 	})
 
 	it('says the extra authorities are trusted when the file can be read', () => {

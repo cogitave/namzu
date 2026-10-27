@@ -51,8 +51,11 @@ export function describeNetworkStatus(
 				'Fix or unset the variable named above, then start Namzu again. Proxy addresses look like http://host:3128; HTTPS_PROXY, HTTP_PROXY and NO_PROXY are read as written.',
 		}
 	}
+	const proxied = describeNetwork(settings)
 	const parts = [
-		describeNetwork(settings) ?? 'No proxy is set; requests go out directly.',
+		proxied ?? 'No proxy is set; requests go out directly.',
+		// Two clients keep their own connections, so the proxy above is not theirs.
+		proxied ? 'Amazon Bedrock and LM Studio requests do not use it.' : null,
 		authorities ? 'Extra certificate authorities are trusted from NODE_EXTRA_CA_CERTS.' : null,
 	]
 	return { status: 'pass', message: parts.filter(Boolean).join(' ') }
