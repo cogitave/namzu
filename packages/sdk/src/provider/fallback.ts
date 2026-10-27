@@ -225,6 +225,24 @@ function isOutputChunk(chunk: StreamChunk): boolean {
 	)
 }
 
+/**
+ * Output the consumer can take back: reasoning, or the pieces of a tool call
+ * that is still being written (nothing runs before the response settles).
+ * A finished call, text, a citation, a hosted tool or a finish reason is real.
+ */
+function isVoidable(chunk: StreamChunk): boolean {
+	const { content, toolCallEnd, citation, hostedTool, textPart } = chunk.delta
+	return !(
+		content ||
+		toolCallEnd ||
+		citation !== undefined ||
+		hostedTool !== undefined ||
+		textPart !== undefined ||
+		chunk.textParts !== undefined ||
+		chunk.finishReason !== undefined
+	)
+}
+
 /** Read one member's canonical menu, adapting the one-release legacy member. */
 function memberReasoningEffortLevels(
 	member: ProviderChainMember,
@@ -405,9 +423,20 @@ export function withProviderFallback(
 			assertNativeStructuredOutputSupported(member.provider, request)
 			assertHostedWebSearchSupported(member.provider, request)
 			let produced = false
+			let fragments = false
 			try {
 				for await (const chunk of member.provider.chatStream(request)) {
-					if (isOutputChunk(chunk)) produced = true
+					// The retry notice that restarts a request voids what the failed
+					// attempt wrote, and the consumer drops it: nothing real was produced.
+					if (chunk.retry?.restart) {
+						produced = false
+						fragments = false
+					} else if (isOutputChunk(chunk)) {
+						// Pieces the consumer can drop on a notice (a call still being
+						// written, reasoning) are not output a swap would duplicate.
+						if (isVoidable(chunk)) fragments = true
+						else produced = true
+					}
 					yield chunk
 				}
 				return
@@ -464,6 +493,7 @@ export function withProviderFallback(
 						code: classified.code,
 						...(classified.status !== undefined ? { status: classified.status } : {}),
 						reason: classified.message,
+						...(fragments ? { restart: true } : {}),
 					},
 				}
 			}

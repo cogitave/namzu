@@ -397,6 +397,36 @@ export async function* streamProviderTurn(
 			})
 		: undefined
 
+	/**
+	 * Drop everything the failed attempt wrote, so the request starts over under
+	 * the same message: after a restarting retry, or a swap that says the same.
+	 * The failed attempt's text, reasoning and tool calls are void. A call is
+	 * restarted only while still being written and nothing runs before the
+	 * response settles, so a half-written call never reaches the model.
+	 */
+	const discardAttempt = () => {
+		toolBuckets.clear()
+		toolIndexer = new ToolCallIndexer()
+		framingViolated = false
+		text = new StreamTextAccumulator()
+		reasoningBuckets.clear()
+		citations.length = 0
+		replayState = undefined
+		id = ''
+		finishReason = 'stop'
+		reportedFinishReason = undefined
+		finishDetail = undefined
+		streamedLength = 0
+		lastOutputCall = undefined
+		usage = {
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+	}
+
 	try {
 		for (;;) {
 			const next = it.next()
@@ -426,33 +456,7 @@ export async function* streamProviderTurn(
 					...(chunk.retry.restart ? { restart: true } : {}),
 				})
 				yield* drainPending()
-				if (chunk.retry.restart) {
-					// The failed attempt's text, reasoning and tool calls are void: the
-					// request starts over under the same message. The decorator
-					// restarts a call still being written only while no call has
-					// finished, and nothing runs before the response settles, so a
-					// half-written call is dropped here and never reaches the model.
-					toolBuckets.clear()
-					toolIndexer = new ToolCallIndexer()
-					framingViolated = false
-					text = new StreamTextAccumulator()
-					reasoningBuckets.clear()
-					citations.length = 0
-					replayState = undefined
-					id = ''
-					finishReason = 'stop'
-					reportedFinishReason = undefined
-					finishDetail = undefined
-					streamedLength = 0
-					lastOutputCall = undefined
-					usage = {
-						promptTokens: 0,
-						completionTokens: 0,
-						totalTokens: 0,
-						cachedTokens: 0,
-						cacheWriteTokens: 0,
-					}
-				}
+				if (chunk.retry.restart) discardAttempt()
 				continue
 			}
 
@@ -479,6 +483,7 @@ export async function* streamProviderTurn(
 					reason: chunk.fallback.reason,
 				})
 				yield* drainPending()
+				if (chunk.fallback.restart) discardAttempt()
 				continue
 			}
 

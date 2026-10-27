@@ -173,4 +173,20 @@ describe('a stream that drops while a tool call is being written', () => {
 			providerError: { kind: 'network' },
 		})
 	})
+
+	it('records a text answer that was cut as a partial message with the refusal stop and pauses', async () => {
+		const provider = new DroppingProvider([
+			[{ id: 'x', delta: { content: 'The answer begins' } }, 'drop'],
+		])
+		const { result, events } = await run(provider, 1)
+
+		expect(result.stopReason).toBe('paused')
+		// Text is not restarted by default: the request is not sent a second time.
+		expect(provider.calls).toBe(1)
+		const completed = events.filter((e) => e.type === 'message_completed')
+		expect(completed).toMatchObject([{ stopReason: 'refusal', content: 'The answer begins' }])
+		expect(events.find((e) => e.type === 'turn_paused')).toMatchObject({
+			providerError: { kind: 'network' },
+		})
+	})
 })

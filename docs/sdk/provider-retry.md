@@ -63,6 +63,8 @@ restarted from the beginning and the notice carries `restart: true`. Whatever
 that attempt produced is void: the turn drops its own copy and a host that
 showed it must drop it too.
 
+A provider chain treats such pieces (reasoning, or a call still being written) as nothing produced: when a member spends its retries with only those, the chain moves on to the next member and the `fallback` notice carries `restart: true`, which the turn handles like a restarting retry.
+
 A tool call that is still being written when the connection drops is restarted
 too, whatever `retryMidStream` says, as long as no text has been shown: nothing
 runs before the response is settled, so the half-written call is dropped on the
