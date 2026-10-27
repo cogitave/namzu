@@ -1,9 +1,8 @@
 import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } from '@namzu/sdk'
 
 import type { NamzuCliConfig } from '../config/schema.js'
-import { builtInDoctorChecks } from '../doctor/checks/index.js'
-import { sessionExportCheck } from '../doctor/checks/session-export.js'
-import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
+import { buildDoctorRegistry } from '../doctor/live.js'
+import { type RunDoctorOptions, runDoctor } from '../doctor/registry.js'
 import { EXIT_USAGE } from '../exit-codes.js'
 import { CLI_VERSION } from '../version.js'
 import type { CommandDef } from './types.js'
@@ -257,13 +256,7 @@ export async function runDoctorCommand(
 		return 0
 	}
 
-	const registry = createDoctorRegistry()
-	for (const check of builtInDoctorChecks) registry.register(check)
-	// Config-dependent, so it is constructed here rather than sitting in
-	// `builtInDoctorChecks`: what it reports is a property of THIS
-	// invocation's resolved config, and a check registered without one could
-	// only report "unknown", which is the answer nobody runs `doctor` for.
-	registry.register(sessionExportCheck(config))
+	const registry = buildDoctorRegistry(config)
 
 	const opts: RunDoctorOptions = {
 		registry,

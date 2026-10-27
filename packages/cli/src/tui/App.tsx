@@ -6636,6 +6636,30 @@ function AppBody({
 		[ensureSessions, pushMessage, resumeActiveTurn],
 	)
 
+	/** `/doctor`: run the health checks once and show the result in plain words. */
+	const doctorRunningRef = useRef(false)
+	const runDoctorInSession = useCallback(async () => {
+		if (doctorRunningRef.current) {
+			pushMessage('system', 'The health check is already running.')
+			return
+		}
+		doctorRunningRef.current = true
+		pushMessage('system', 'Checking…')
+		try {
+			const { runLiveDoctor } = await import('../doctor/live.js')
+			const { describePlainDoctor } = await import('../doctor/plain-report.js')
+			const report = await runLiveDoctor({
+				...(ctxRef.current.telemetry ? { telemetry: ctxRef.current.telemetry } : {}),
+			})
+			const plain = describePlainDoctor(report)
+			pushSystem(plain.level, plain.content, { detail: plain.detail })
+		} catch (err) {
+			pushSystem('error', explainFailure(err, 'Could not run the health check.'))
+		} finally {
+			doctorRunningRef.current = false
+		}
+	}, [pushMessage, pushSystem])
+
 	/** The picker's folder switch: this folder's conversations, or every folder's. */
 	const toggleResumeScope = useCallback(async () => {
 		if (resumeScope === 'all') {
@@ -10515,6 +10539,10 @@ function AppBody({
 							.catch((error) =>
 								pushSystem('error', explainFailure(error, 'Could not read the workflows.')),
 							)
+						return
+					}
+					case 'doctor': {
+						void runDoctorInSession()
 						return
 					}
 					case 'jobs': {
