@@ -71,6 +71,9 @@ export interface ReplaceableBlock {
 	readonly message: Message
 }
 
+/** How many superseded versions of a replaceable block still go with the latest. */
+export const EARLIER_VERSIONS_KEPT = 2
+
 interface VersionedBlock extends PlacedBlock {
 	readonly message: Message
 }
@@ -91,7 +94,10 @@ interface VersionedBlock extends PlacedBlock {
  * evidence) is never taken back. When its text changes, the earlier text stays
  * where it went and the new text follows the history of that moment, which is
  * how the block itself tells the model to read it; when it stops holding, a
- * short block says so. So no request of the turn rewrites the one before it.
+ * short block says so. Only the latest version and the last
+ * `EARLIER_VERSIONS_KEPT` before it are carried, and an earlier version whose
+ * place a compaction rewrote is dropped, so the stale text stays small. Until
+ * a version is dropped no request of the turn rewrites the one before it.
  *
  * One carry per turn. A position whose message has left the history (a
  * compaction rewrote it) is given up and the block follows the history.
@@ -150,8 +156,19 @@ export class TurnContextCarry {
 					// follows the history, after the one it replaces.
 					at: last === undefined && operator ? { before: operator } : { after: end },
 				})
-			this.versions.set(key, held)
-			for (const version of held) {
+			// An earlier version whose place a compaction rewrote is given up: the
+			// request is rewritten at that point anyway, and stacking stale copies
+			// at the end would only add bulk. The latest version is never given up.
+			const kept = held.filter((version, i) => {
+				if (i === held.length - 1) return true
+				const anchor = anchorOf(version)
+				return !anchor || index(anchor) >= 0
+			})
+			// Only the latest and a few earlier versions are carried, so a long turn
+			// does not grow by a full copy per change.
+			kept.splice(0, Math.max(0, kept.length - (EARLIER_VERSIONS_KEPT + 1)))
+			this.versions.set(key, kept)
+			for (const version of kept) {
 				const anchor = anchorOf(version)
 				if (anchor && index(anchor) < 0) version.at = { after: end }
 				inserts.push({ at: positionOf(version), message: version.message })

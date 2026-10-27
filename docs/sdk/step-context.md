@@ -164,6 +164,7 @@ reminders and notices that follow the message stay after it.
 
 A block stays where it first went. A step that offers the same text again on a
 later call of the turn finds it in the same place, so each request of a turn
+(within one turn; the next turn takes its data afresh and its opening differs)
 begins with the whole of the one before it, up to the trailing run (the
 working-memory slot, step system guidance, the approval-policy notice) that
 every request rebuilds, and a caching driver keeps reading the same prefix
@@ -174,14 +175,21 @@ after the model has moved on follows the history of that moment. A block whose
 text changed is withdrawn and the new text follows the history, except the work
 context below, which says of itself that a later block replaces it: there the
 earlier text stays as sent, the later one is appended, and a short block says
-so when the entries stop holding. A position whose message a compaction removed
+so when the entries stop holding. Only the latest version and the two before it
+are carried (`EARLIER_VERSIONS_KEPT`), and an earlier version whose place a
+compaction removed is dropped, so the stale text stays small; the request that
+drops a version is the one point where its opening changes. A model can
+therefore still read an out-of-date file body that a later block supersedes;
+both work-context headings say that a later block with the heading replaces
+the earlier one. A position whose message a compaction removed
 is given up and the block follows the history. The working-memory slot and the
 approval-policy notice always follow the history. Blocks are not carried from
 one turn to the next: each turn takes its data afresh.
 
 The derived work context (owned delegated work and visible file evidence) is
 placed the same way as the other blocks, and is the one kind that is appended
-rather than withdrawn when it changes.
+rather than withdrawn when it changes. Both headings tell the model that a
+later block with the heading replaces the earlier one.
 
 ### Prompt placements
 

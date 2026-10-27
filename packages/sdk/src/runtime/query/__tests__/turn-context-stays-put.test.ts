@@ -13,7 +13,11 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
-import { TurnContextCarry, stepContextMessage } from '../iteration/step-context.js'
+import {
+	EARLIER_VERSIONS_KEPT,
+	TurnContextCarry,
+	stepContextMessage,
+} from '../iteration/step-context.js'
 
 /**
  * The data a turn carries (project memory, conversation evidence, the
@@ -232,5 +236,41 @@ describe('TurnContextCarry', () => {
 		const three = [...history]
 		carry.place(three, history, reply, [], [], gone)
 		expect(three.map(text)).toEqual(two.map(text))
+	})
+
+	it('carries the latest version and only a few earlier ones across many changes', () => {
+		const carry = new TurnContextCarry()
+		const ask = user('ask')
+		let history: Message[] = [ask]
+		let end: Message = ask
+		let request: Message[] = []
+		for (let n = 1; n <= 12; n++) {
+			request = [...history]
+			carry.place(request, history, end, [], [{ key: 'files', message: block(`FILES v${n}`) }])
+			const reply = assistant(`reply ${n}`)
+			history = [...history, reply]
+			end = reply
+		}
+		const versions = request.map(text).filter((t) => t.includes('FILES v'))
+		expect(versions).toHaveLength(EARLIER_VERSIONS_KEPT + 1)
+		expect(versions.at(-1)).toContain('FILES v12')
+	})
+
+	it('drops earlier versions whose place a compaction rewrote and keeps the latest', () => {
+		const carry = new TurnContextCarry()
+		const ask = user('ask')
+		const reply = assistant('reply')
+		carry.place([ask], [ask], ask, [], [{ key: 'files', message: block('FILES v1') }])
+		carry.place(
+			[ask, reply],
+			[ask, reply],
+			reply,
+			[],
+			[{ key: 'files', message: block('FILES v2') }],
+		)
+		const summary = assistant('summary')
+		const request = [summary]
+		carry.place(request, [summary], summary, [], [{ key: 'files', message: block('FILES v2') }])
+		expect(request.map(text)).toEqual(['summary', expect.stringContaining('FILES v2')])
 	})
 })
