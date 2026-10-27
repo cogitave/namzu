@@ -111,7 +111,7 @@ describe('a running foreground command the person hands to the background', () =
 			backgroundedBy: 'user',
 		})
 		expect(result.data).not.toHaveProperty('timedOut')
-		expect(result.facts).toMatchObject({ kind: 'command', background: true })
+		expect(result.facts).toMatchObject({ kind: 'command', background: true, continued: true })
 		expect(stopTree).not.toHaveBeenCalled()
 		// Taken over: the offer is gone and the owner is told once more.
 		expect(registry.foregroundCommands('turn-1')).toHaveLength(0)

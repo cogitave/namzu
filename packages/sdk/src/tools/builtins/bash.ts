@@ -850,7 +850,7 @@ const BashToolBase = defineTool({
 						movedToBackground: true,
 						...(backgroundedBy ? { backgroundedBy } : {}),
 					},
-					facts: { kind: 'command', command: input.command, background: true },
+					facts: { kind: 'command', command: input.command, background: true, continued: true },
 				}
 			}
 			return {

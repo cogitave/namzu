@@ -114,7 +114,7 @@ A foreground command can also be handed to the job registry by the person, where
 - **A message must reach the model.** `backgroundForeground(owner, 'message')`; the CLI does it when the person sends a message while the command runs, so the message is not held until the command ends.
 - **The person interrupts the turn.** An abort whose reason is a user cancellation (`TurnCancelled('user')`: Esc in the CLI) hands the process over instead of killing it, at any time, and a command that is only a `sleep` moves too. An abort that a parent, a budget or a hook caused still kills the command.
 
-The call returns normally with what the command printed so far and a line saying why it moved (`handedOffMessage`); `data` carries `jobId`, `background: true`, `movedToBackground: true` and `backgroundedBy` (`user`, `message`, `interrupt` or `timeout`), without `timedOut` unless the deadline moved it. If the owner is at its job limit or the host cannot take the process over, the command stays where it is, and an interrupt kills it as before. `NAMZU_DISABLE_BACKGROUND_TASKS` turns all of this off.
+The call returns normally with what the command printed so far and a line saying why it moved (`handedOffMessage`); `data` carries `jobId`, `background: true`, `movedToBackground: true` and `backgroundedBy` (`user`, `message`, `interrupt` or `timeout`), without `timedOut` unless the deadline moved it; the typed `facts` carry `background: true` and `continued: true`, which a host draws as "continues in the background". If the owner is at its job limit or the host cannot take the process over, the command stays where it is, and an interrupt kills it as before. `NAMZU_DISABLE_BACKGROUND_TASKS` turns all of this off.
 
 ## Git Bash on Windows
 
