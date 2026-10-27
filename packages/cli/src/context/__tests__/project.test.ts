@@ -15,12 +15,12 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
+import { loadProjectInstructions } from '../instruction-scope.js'
 import {
 	MAX_BYTES_TO_READ,
 	MAX_CHARS_PER_FILE,
 	composeProjectInstructionsPrompt,
 	instructionSearchPath,
-	loadProjectInstructions,
 } from '../project.js'
 
 let root: string

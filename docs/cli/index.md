@@ -16,6 +16,7 @@
 * [Startup time](startup.md) - What loads before the first screen or request, the lazy command list, the compile cache, how `exec` treats piped input, and `scripts/bench-startup.mjs` with reference numbers.
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
+* [Project instructions](project-instructions.md) - Your own file, each directory's AGENTS.md, rule files and the private AGENTS.local.md, the order they apply in, @path includes, conditional rules and what is refused.
 * [Plan mode](plan-mode.md) - The plan file, the exit_plan_mode tool and its approval box, the mode the approval switches to, and the hidden reminders (plan mode's and the task-list nudge).
 * [Delegated work](delegated-work.md) - Background child sessions, queued corrections, completion, ownership and replay from child logs.
 * [Workflows in the CLI](workflows.md) - The workflow tool: when the model is offered it, the review before it starts, how its agents run and appear, how to stop or skip, and what the model is told when it ends.
