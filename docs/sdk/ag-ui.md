@@ -106,7 +106,9 @@ and the same stored transcript.
 `context.signal` belongs to the turn the request starts: it aborts when the
 request is cancelled while a run is reading the turn, and it does not abort
 because a request that ended with an interrupt later closes. Passing it on as
-`params.signal` is safe.
+`params.signal` is safe. The adapter keeps the `Request` for as long as the run
+lasts, so a cancel from the client reaches the turn even when nothing else in
+the host holds the request.
 
 ## Convert admitted messages
 
