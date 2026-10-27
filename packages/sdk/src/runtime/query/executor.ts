@@ -703,6 +703,7 @@ export class ToolExecutor {
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
 	private historyView?: () => readonly Message[]
+	private systemPromptView?: () => string | undefined
 	private probes: ProbeEnforcement
 	private parentSpan?: Span
 	private readonly toolCallBudget?: ToolCallBudget
@@ -759,6 +760,11 @@ export class ToolExecutor {
 	 */
 	setHistoryView(view: () => readonly Message[]): void {
 		this.historyView = view
+	}
+
+	/** The system prompt assembled for the current iteration, for `ToolContext.conversation`. */
+	setSystemPromptView(view: () => string | undefined): void {
+		this.systemPromptView = view
 	}
 
 	private receiptVisible = (callId: string, renderedFingerprint: string): boolean => {
@@ -2213,6 +2219,14 @@ export class ToolExecutor {
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			receiptVisible: this.receiptVisible,
+			...(this.historyView
+				? {
+						conversation: {
+							messages: () => this.historyView?.() ?? [],
+							systemPrompt: () => this.systemPromptView?.(),
+						},
+					}
+				: {}),
 			...(this.config.codeAnalysis ? { codeAnalysis: this.config.codeAnalysis } : {}),
 			// Bound to this turn, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there

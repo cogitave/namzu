@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-28
+
+- **Update** [Delegated work](cli/delegated-work.md#forks), [Delegation events](sdk/delegation-events.md#starting-a-child-from-a-conversation): the `Agent` tool offers `subagent_type: "fork"`, a worker that starts from the caller's conversation and system prompt on the same model, never forks again, is asked about like any change-making child, and returns its report like other children; `ToolContext.conversation` and `CreateTaskOptions.inheritedMessages` let a host do the same. `.changeset/fork-subagent-sdk.md` (`@namzu/sdk` minor), `.changeset/fork-subagent-cli.md` (`@namzu/cli` minor).
+
 ## 2026-10-27
 
 - **Update** [Slash commands](cli/slash-commands.md): `/doctor` rows give a plain reason for each check that needs attention, with the original wording behind the row's details. `.changeset/doctor-plain-rows.md` (`@namzu/cli` patch).

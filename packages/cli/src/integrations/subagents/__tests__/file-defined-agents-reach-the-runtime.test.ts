@@ -110,6 +110,7 @@ describe('a file-defined agent', () => {
 			GENERAL_PURPOSE_SUBAGENT,
 			EXPLORE_SUBAGENT,
 			PLAN_SUBAGENT,
+			'fork',
 			'reviewer',
 			'auditor',
 		])

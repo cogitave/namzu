@@ -132,6 +132,15 @@ export interface CreateTaskOptions {
 
 	prompt: string
 
+	/**
+	 * Messages the child starts from, placed before {@link prompt}. A host that
+	 * delegates work which continues the caller's conversation passes that
+	 * conversation here; the prompt then arrives as the last user message.
+	 * Absent, the child sees only the prompt. The caller is responsible for the
+	 * list being a valid conversation (every tool call answered).
+	 */
+	readonly inheritedMessages?: readonly import('../message/index.js').Message[]
+
 	workingDirectory: string
 
 	runtimeContext?: AgentRuntimeContext
