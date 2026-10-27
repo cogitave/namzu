@@ -966,13 +966,14 @@ async function runCompactionCheckInner(
 	// there is no such model, or its call does not give a summary, the
 	// extracted state below is used, with its verifier step where that applies.
 	let modelRoute: { providerId: string; model: string } | undefined
-	const modelWritten = await summarizeWithModel({
-		manager,
-		olderMessages,
-		previousSummaries: replaceableSummaries(systemMessages),
-		config,
-		resolveRoute: ctx.compactionSummaryRoute
-			? async (signal) => {
+	const modelWritten = !ctx.compactionSummaryRoute
+		? undefined
+		: await summarizeWithModel({
+				manager,
+				olderMessages,
+				previousSummaries: replaceableSummaries(systemMessages),
+				config,
+				resolveRoute: async (signal) => {
 					const route = await ctx.compactionSummaryRoute?.(signal)
 					if (route) {
 						modelRoute = {
@@ -981,27 +982,26 @@ async function runCompactionCheckInner(
 						}
 					}
 					return route
-				}
-			: undefined,
-		onUsage: (usage) => {
-			if (modelRoute) ctx.recorder.accumulateUsage(usage, modelRoute)
-		},
-		signal: ctx.abortController.signal,
-		onFallback: (reason, error) => {
-			if (reason === 'no_route') return
-			if (error !== undefined) noteCompactionError(ctx, error)
-			ctx.log.warn(
-				'The model-written compaction summary was not used — using the extracted state',
-				{
-					[NAMZU.TURN_ID]: ctx.recorder.turnId,
-					'namzu.runtime.reason': reason,
-					...(error !== undefined
-						? { 'exception.message': error instanceof Error ? error.message : String(error) }
-						: {}),
 				},
-			)
-		},
-	})
+				onUsage: (usage) => {
+					if (modelRoute) ctx.recorder.accumulateUsage(usage, modelRoute)
+				},
+				signal: ctx.abortController.signal,
+				onFallback: (reason, error) => {
+					if (reason === 'no_route') return
+					if (error !== undefined) noteCompactionError(ctx, error)
+					ctx.log.warn(
+						'The model-written compaction summary was not used — using the extracted state',
+						{
+							[NAMZU.TURN_ID]: ctx.recorder.turnId,
+							'namzu.runtime.reason': reason,
+							...(error !== undefined
+								? { 'exception.message': error instanceof Error ? error.message : String(error) }
+								: {}),
+						},
+					)
+				},
+			})
 
 	if (modelWritten !== undefined) {
 		compactedContent = modelWritten
