@@ -45,7 +45,7 @@ Some gateways only accept a connection that presents a certificate. Set `NAMZU_C
 
 ## Checking it
 
-`namzu doctor` has a row for the network (category `runtime`): it says whether requests go through a proxy (the host and port, never the credentials), names the `NO_PROXY` hosts, and warns about an address it cannot use, an authority file or certificate file that cannot be read, and a key set without its certificate.
+`namzu doctor` has a row for the network (category `runtime`): it says whether requests go through a proxy (the host and port, never the credentials), names the `NO_PROXY` hosts, says that Amazon Bedrock and LM Studio requests do not use the proxy (see below), and warns about an address it cannot use, an authority file or certificate file that cannot be read, and a key set without its certificate.
 
 ## What is not covered
 
