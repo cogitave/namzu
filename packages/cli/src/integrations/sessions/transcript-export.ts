@@ -13,7 +13,7 @@ import type {
 	UserMessage,
 } from '@namzu/sdk'
 import { visibleProjectInstructionPath } from '../../context/project-path.js'
-import { runtimeContextLabel } from '../../context/runtime-message.js'
+import { isModelOnlyContext, runtimeContextLabel } from '../../context/runtime-message.js'
 import {
 	describeCapabilityNotice,
 	describeHistoryRepairNotice,
@@ -307,8 +307,8 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 				} else if (message.source?.type === 'goal-round') {
 					lines.push(...renderUser(message), '')
 				} else if (message.source?.type === 'runtime-context') {
-					// Recorded context is for the model; the transcript never showed it.
-					if (message.source.kind === 'turn-context') break
+					// Reminders and recorded context are for the model; the transcript never showed them.
+					if (isModelOnlyContext(message)) break
 					lines.push(
 						`## Runtime context — ${runtimeContextLabel(message.source.kind)}`,
 						'',
@@ -365,6 +365,8 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 					fromProviderId: record.fromProviderId,
 					toProviderId: record.toProviderId,
 					reason: record.reason,
+					...(record.fromModel ? { fromModel: record.fromModel } : {}),
+					...(record.toModel ? { toModel: record.toModel } : {}),
 				}),
 			)
 			break
@@ -384,6 +386,9 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 					duplicateResults: record.duplicateToolResultsRemoved,
 					orphanedResults: record.orphanedToolResultsRemoved,
 					interruptedCalls: record.syntheticToolResultsInserted,
+					...(record.neverRanToolResultsInserted !== undefined
+						? { neverRanCalls: record.neverRanToolResultsInserted }
+						: {}),
 					...(record.providerRejectedImagesSuppressed !== undefined
 						? { rejectedImages: record.providerRejectedImagesSuppressed }
 						: {}),

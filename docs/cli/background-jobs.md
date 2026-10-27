@@ -14,6 +14,16 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/jobs` and the shells count show it like any other. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
+# Moving a running command to the background
+
+A command the model started in the foreground does not have to be waited on or stopped. After it has run for two seconds its row gains a dim `(ctrl+b to run in background)` (inside tmux, which keeps the first press, `(ctrl+b ctrl+b (twice) to run in background)`). Three things move it to a background job, which keeps running, shows under `/jobs` and the shells count, and is announced when it ends:
+
+- **Ctrl+B** while it is offered. With no command to move, Ctrl+B is the cursor-left key it always was.
+- **A message** sent while it runs (Enter, not Tab): the command moves so the message reaches the model at once instead of waiting for it.
+- **Esc**, which interrupts the turn: the row says `Interrupted · The command continues in the background` and the command is not killed. This holds for any command running at that moment, a `sleep` included; Ctrl+C still leaves Namzu.
+
+The model is told the command moved, why, and that it will be told when the command ends. When the session is at its job limit, runs in a sandbox or has `NAMZU_DISABLE_BACKGROUND_TASKS` set, the command is not offered and Esc stops it as before. See [The bash tool](../sdk/bash-tool.md#moving-a-running-command-to-the-background).
+
 # A job that cannot start
 
 A job and a foreground `bash` call start through the same function, `spawnHostShell` (`packages/sdk/src/tools/command-shell.ts`), so they cannot disagree about the shell. On Windows that is Git Bash (`bash.exe -c`, hidden, stdin from the null device, killed as a tagged tree, see [The bash tool](../sdk/bash-tool.md#git-bash-on-windows)) and, only when Git for Windows is not found, `cmd.exe /d /s /c` run under UTF-8: an outer cmd switches the console to code page 65001 and starts the real cmd, with the command carried in the environment so that letters the OEM page lacks (`ğ`, `ş` on CP850) are not flattened to `g` and `s` before the command runs; quoting, `%`, `&`, `|`, redirection and the exit code behave as in a plain `cmd /c`. `windowsHide` is set and no `detached` (that flag opens a console window there); elsewhere it is `<shell> -c`, in its own process group.

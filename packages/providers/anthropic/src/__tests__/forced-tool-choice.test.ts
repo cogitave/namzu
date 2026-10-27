@@ -46,6 +46,7 @@ function providerWithCapturedRequest(): {
 				type: 'message_start',
 				message: { id: 'b3c5d0e2-6f41-4c8e-9a37-2f1d8e6b4a90' },
 			}
+			yield { type: 'message_stop' }
 		})()
 	})
 	;(provider as unknown as { client: { messages: { create: unknown } } }).client = {

@@ -134,7 +134,7 @@ describe('native Gemini transport', () => {
 						response([{ candidates: [{ content: { parts: [{ text: 'partial' }] } }] }]),
 				}),
 			),
-		).rejects.toThrow('terminal finish')
+		).rejects.toMatchObject({ kind: 'network', providerId: 'google' })
 		await expect(
 			collect(
 				new GoogleProvider({
@@ -305,5 +305,19 @@ describe('native Gemini transport', () => {
 		expect(request.contents[1]?.parts[0]).toEqual({
 			functionResponse: { id: 'google-call', name: 'read', response: { output: 'ok' } },
 		})
+	})
+})
+
+describe('a stream that closes before it says it is over', () => {
+	it('is not an error once a finish reason arrived', async () => {
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValue(
+				response([
+					{ candidates: [{ content: { parts: [{ text: 'Done' }] }, finishReason: 'STOP' }] },
+				]),
+			)
+		const chunks = await collect(new GoogleProvider({ apiKey: 'key', fetch }))
+		expect(chunks.at(-1)?.finishReason).toBe('stop')
 	})
 })

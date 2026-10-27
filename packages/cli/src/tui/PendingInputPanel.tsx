@@ -111,7 +111,7 @@ function holdText(held: NonNullable<PendingInputPanelProps['held']>): string {
 	if (held.source === 'operator-interrupt') {
 		return 'Held after you stopped the reply · your next message runs first, then these'
 	}
-	if (held.outcome === 'paused') return 'Held while the reply is paused'
+	if (held.outcome === 'paused') return 'Waiting for the paused reply to continue, then these run'
 	return `Paused after the ${held.outcome === 'failed' ? 'failed' : 'stopped'} reply · send a message to run them`
 }
 

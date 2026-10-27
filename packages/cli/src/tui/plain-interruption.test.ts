@@ -7,6 +7,7 @@ import {
 	describePlainInterruption,
 	describeProviderWait,
 	describeProviderWaitClock,
+	isSelfMending,
 } from './plain-interruption.js'
 import type { Interruption } from './turn-interruption.js'
 
@@ -254,6 +255,69 @@ describe('a local server that cannot be reached', () => {
 	})
 })
 
+describe('a connection failure that is not a dropped connection', () => {
+	it('names a certificate that does not check out, with something to check', () => {
+		const text = describePlainInterruption(
+			paused({
+				explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+				providerError: {
+					kind: 'network',
+					providerId: 'openai',
+					providerCode: 'SELF_SIGNED_CERT_IN_CHAIN',
+				},
+			}),
+		)
+		expect(text).toContain('could not verify the security certificate of OpenAI')
+		expect(text).not.toContain('tries again on its own')
+		expectPlain(text)
+	})
+
+	it('does not try a refused certificate again by itself, whatever the code', () => {
+		for (const providerCode of [
+			'SELF_SIGNED_CERT_IN_CHAIN',
+			'CERT_HAS_EXPIRED',
+			'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+			'ERR_TLS_CERT_ALTNAME_INVALID',
+		]) {
+			expect(
+				isSelfMending(
+					paused({
+						explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+						providerError: { kind: 'network', providerId: 'openai', providerCode },
+					}),
+				),
+			).toBe(false)
+		}
+	})
+
+	it('tries a dropped connection and a provider fault again by itself', () => {
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+					providerError: { kind: 'network', providerId: 'openai', providerCode: 'ECONNRESET' },
+				}),
+			),
+		).toBe(true)
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.unavailable', message: 'x', hint: 'y' },
+					providerError: { kind: 'server', providerId: 'openai' },
+				}),
+			),
+		).toBe(true)
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.auth', message: 'x', hint: 'y' },
+					providerError: { kind: 'auth', providerId: 'openai' },
+				}),
+			),
+		).toBe(false)
+	})
+})
+
 describe('a paused reply in the terminal app', () => {
 	const unavailable = {
 		explanation: { id: 'provider.unavailable', message: 'x', hint: 'y' },
@@ -275,12 +339,12 @@ describe('a paused reply in the terminal app', () => {
 		[
 			'server error',
 			unavailable,
-			'Paused. OpenAI is having problems on its side. Press Enter to continue, or Esc to stop.',
+			'Paused. OpenAI is having problems on its side. Namzu tries again on its own. Press Enter to try now, or Esc to stop.',
 		],
 		[
 			'offline',
 			offline,
-			'Paused. Namzu could not reach OpenAI. Press Enter to continue, or Esc to stop.',
+			'Paused. Namzu could not reach OpenAI. Namzu tries again on its own. Press Enter to try now, or Esc to stop.',
 		],
 		[
 			'rate limited',
@@ -408,6 +472,72 @@ describe('Zen declining a free model that carried no key', () => {
 	})
 })
 
+describe('a free Zen model with no allowance left', () => {
+	const limited = {
+		providerError: {
+			kind: 'throttle',
+			providerId: 'zen',
+			status: 429,
+			retryAfterMs: 15 * 3_600_000,
+			detail: 'FreeUsageLimitError: Rate limit exceeded. Please try again later.',
+		},
+		explanation: {
+			id: 'provider.rate_limit',
+			message: 'The provider is rate limiting this turn.',
+			hint: 'wait',
+		},
+	}
+
+	it('says the allowance is used up, when it resets, and offers /model or another provider', () => {
+		const text = describePlainInterruption(failed(limited), { model: 'space-bunny-free' })
+		expect(text).toBe(
+			'The free allowance for this model is used up for now. It should reset in about 15h 00m. Pick another model with /model, or choose another provider. A Zen API key also works.',
+		)
+		expectPlain(text)
+		expect(text).not.toMatch(/concurrency|Wait a moment|limiting requests/i)
+	})
+
+	it('keeps the provider’s own words for debug only', () => {
+		const plain = describePlainInterruption(failed(limited), { model: 'space-bunny-free' })
+		expect(plain).not.toContain('FreeUsageLimitError')
+		const debug = describePlainInterruption(failed(limited), {
+			model: 'space-bunny-free',
+			debug: true,
+		})
+		expect(debug).toContain('Provider detail: FreeUsageLimitError')
+	})
+
+	it('leads a pause with the ways on rather than with waiting', () => {
+		const text = describePlainInterruption(paused({ ...limited, reason: 'rate limited' }), {
+			model: 'space-bunny-free',
+		})
+		expect(text).toBe(
+			'Paused. The free allowance for this model is used up for now. It should reset in about 15h 00m. Pick another model with /model, or choose another provider. A Zen API key also works. Press Enter to continue, or Esc to stop.',
+		)
+	})
+
+	it('names no reset time when the provider gave none', () => {
+		const { retryAfterMs: _omit, ...providerError } = limited.providerError
+		const text = describePlainInterruption(failed({ ...limited, providerError }), {
+			model: 'space-bunny-free',
+		})
+		expect(text).toBe(
+			'The free allowance for this model is used up for now. Pick another model with /model, or choose another provider. A Zen API key also works.',
+		)
+	})
+
+	it('leaves a paid model and other providers on the ordinary wording', () => {
+		const paid = describePlainInterruption(failed(limited), { model: 'claude-sonnet-4-5' })
+		expect(paid).toContain('Zen is limiting requests right now.')
+		const other = describePlainInterruption(
+			failed({ ...limited, providerError: { ...limited.providerError, providerId: 'openai' } }),
+			{ model: 'space-bunny-free' },
+		)
+		expect(other).toContain('OpenAI is limiting requests right now.')
+		expect(describePlainInterruption(failed(limited))).toContain('Zen is limiting requests')
+	})
+})
+
 describe('a message refused because the conversation still holds a turn', () => {
 	const refused = (state: 'running' | 'paused' | 'interrupted'): Interruption =>
 		failed({
@@ -429,5 +559,26 @@ describe('a message refused because the conversation still holds a turn', () => 
 
 	it('tells a paused one to be continued or closed', () => {
 		expect(describePlainInterruption(refused('paused'))).toMatch(/Enter.*\/abandon/)
+	})
+})
+
+describe('a conversation another window is still answering', () => {
+	const elsewhere = (freeInMinutes: number): Interruption =>
+		failed({
+			message: 'This conversation already has a running reply.',
+			turnInProgress: { sessionId: 's', activeTurnId: '', state: 'running', freeInMinutes },
+		})
+
+	it('says whose it is and when it is free, instead of telling this window to stop it', () => {
+		const text = describePlainInterruption(elsewhere(5))
+		expect(text).toBe(
+			'This conversation is in use by another window. It is available again in about 5 minutes.',
+		)
+		expect(text).not.toMatch(/Esc/)
+		expectPlain(text)
+	})
+
+	it('counts one minute in the singular', () => {
+		expect(describePlainInterruption(elsewhere(1))).toContain('about 1 minute.')
 	})
 })

@@ -137,6 +137,14 @@ describe('the legend and header', () => {
 		)
 	})
 
+	it('shows the prompt cache lifetime only when one was given, in the view and its text', () => {
+		expect(view(breakdown).cacheNote).toBeUndefined()
+		expect(view(breakdown).text).not.toContain('Prompt cache')
+		const shown = view(breakdown, { cacheLifetime: '5 minutes' })
+		expect(shown.cacheNote).toEqual({ label: 'Prompt cache lifetime: ', value: '5 minutes' })
+		expect(shown.text).toContain('Prompt cache lifetime: 5 minutes')
+	})
+
 	it('draws the manual-compaction room as an ordinary line', () => {
 		const off = analyzeContextUsage({
 			windowTokens: 200_000,

@@ -172,12 +172,19 @@ export function autoAvailable(opts: {
 }
 
 /** The behavior shown by both the permission selector and the session report. */
-export function permissionModeDescription(mode: PermissionMode): string {
+export function permissionModeDescription(
+	mode: PermissionMode,
+	options: { readonly sandboxedShell?: boolean } = {},
+): string {
 	switch (mode) {
 		case 'prompt':
-			return 'Ask before changes and shell commands.'
+			return options.sandboxedShell === true
+				? 'Ask before changes. Shell commands inside the sandbox run without asking; leaving it always asks.'
+				: 'Ask before changes and shell commands.'
 		case 'accept-edits':
-			return 'Allow file edits and simple file commands in your folders; ask before anything else.'
+			return options.sandboxedShell === true
+				? 'Allow file edits and simple file commands in your folders, and shell commands inside the sandbox; ask before anything else. Leaving the sandbox always asks.'
+				: 'Allow file edits and simple file commands in your folders; ask before anything else.'
 		case 'plan':
 			return 'Read-only: block changes until you leave plan mode.'
 		case 'bypass':

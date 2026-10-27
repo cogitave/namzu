@@ -74,6 +74,24 @@ export interface TuiConfig {
 	readonly spinnerTips?: boolean
 }
 
+/** Release channel the background updater follows. */
+export type UpdateChannel = 'latest' | 'stable'
+
+/** See `NamzuCliConfig.updates`. */
+export interface UpdatesConfig {
+	/**
+	 * Install a newer version in the background. Absent means on for a person
+	 * at a terminal and off in CI; `true` asks for it everywhere the terminal
+	 * runs, `false` leaves only the footer notice. `NAMZU_AUTO_UPDATE`
+	 * overrides this either way.
+	 */
+	readonly auto?: boolean
+	/** `latest` (default) or `stable`. `NAMZU_UPDATE_CHANNEL` overrides it. */
+	readonly channel?: UpdateChannel
+	/** `false` stops the background look for a newer version altogether, notice included. */
+	readonly check?: boolean
+}
+
 /** Where the CLI may discover executable plugin bundles. */
 export type PluginScope = 'project' | 'user'
 
@@ -94,6 +112,14 @@ export interface TurnLimitsConfig {
 	readonly tokenBudget?: number
 	/** Total turn duration in milliseconds. Omitted or 0 means unlimited. */
 	readonly timeoutMs?: number
+	/**
+	 * Dollars one turn may spend, priced from the model's rates, before it stops
+	 * with `cost_limit`. Omitted or 0 means unlimited. `namzu exec
+	 * --max-budget-usd` overrides it for one run. The check runs between model
+	 * calls, so the last call can finish past the limit. A model with no known
+	 * rate is refused rather than allowed to spend unmeasured.
+	 */
+	readonly costLimitUsd?: number
 	/**
 	 * Milliseconds a headless `namzu exec` may spend waiting out provider
 	 * pauses — a rate limit, an outage — resuming from its checkpoint after
@@ -203,7 +229,10 @@ export interface WebConfig {
 	readonly search?: 'off' | 'cached' | 'live'
 	/** Auto prefers declared native support, otherwise Exa. Explicit choices never silently switch. */
 	readonly backend?: 'auto' | 'exa' | 'native'
-	/** Mount `web_fetch` over the guarded provider. Default `false`. */
+	/**
+	 * Mount `web_fetch` over the guarded provider. Default `true`; each new domain is
+	 * asked once. `false` removes the tool.
+	 */
 	readonly fetch?: boolean
 }
 
@@ -460,6 +489,14 @@ export interface NamzuCliConfig {
 	readonly telemetry?: TelemetryConfig
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
+	/**
+	 * How the terminal keeps Namzu itself up to date. Absent means the
+	 * defaults: check in the background, install quietly where Namzu may,
+	 * `latest` channel, and no installing in CI. Your own config files only
+	 * can turn installing on or pick a channel; a project file can only turn
+	 * checking or installing off.
+	 */
+	readonly updates?: UpdatesConfig
 	/**
 	 * Refresh provider model catalogues in the background on every launch.
 	 *

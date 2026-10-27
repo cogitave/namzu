@@ -5,6 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toCodexInput, toCodexTools, webSearchDetail } from '../codex.js'
 import { CODEX_CAPABILITIES, CodexProvider, registerCodex } from '../index.js'
 
+/**
+ * The shortest stream that ends the way a real one does. Tests that only
+ * observe the request need no body, but a stream that closes without a
+ * terminal event is a dropped connection and is reported as one.
+ */
+const finishedStream = () =>
+	(async function* () {
+		yield { type: 'response.completed', response: { id: 'resp_fixture', output: [], usage: {} } }
+	})()
+
 const ROUTE: ProviderRoute = {
 	providerId: 'codex',
 	model: 'gpt-5.6-sol',
@@ -146,7 +156,7 @@ describe('Codex provider registration', () => {
 
 describe('Codex request projection', () => {
 	it('uses refreshed catalogue metadata for admission and leaves unknown effort to the backend', async () => {
-		const create = vi.fn(async (_request: unknown) => (async function* () {})())
+		const create = vi.fn(async (_request: unknown) => finishedStream())
 		const provider = new CodexProvider({
 			accessToken: 'fixture',
 			accountId: 'fixture',
@@ -177,7 +187,7 @@ describe('Codex request projection', () => {
 	})
 
 	it('leaves an omitted discovered-model effort to the backend default', async () => {
-		const create = vi.fn(async (_request: unknown) => (async function* () {})())
+		const create = vi.fn(async (_request: unknown) => finishedStream())
 		const provider = new CodexProvider({
 			accessToken: 'fixture',
 			accountId: 'fixture',
@@ -204,7 +214,7 @@ describe('Codex request projection', () => {
 	it.each(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
 		'forwards discovered subscription effort %s unchanged',
 		async (effort) => {
-			const create = vi.fn(async (_request: unknown) => (async function* () {})())
+			const create = vi.fn(async (_request: unknown) => finishedStream())
 			const provider = new CodexProvider({
 				accessToken: 'fixture',
 				accountId: 'fixture',
@@ -266,11 +276,7 @@ describe('Codex request projection', () => {
 	)
 
 	it('admits an advanced subscription level and refuses a false no-reasoning level', async () => {
-		const create = vi.fn(async (_request: unknown) =>
-			(async function* () {
-				// Empty response is sufficient: this observer owns request admission.
-			})(),
-		)
+		const create = vi.fn(async (_request: unknown) => finishedStream())
 		const provider = new CodexProvider({
 			accessToken: 'access',
 			accountId: 'account',
@@ -516,11 +522,7 @@ describe('Codex request projection', () => {
 })
 
 it('sends rich user and tool images on the complete subscription request', async () => {
-	const create = vi.fn(async (_request: unknown) =>
-		(async function* () {
-			// Request projection is the observation; no response body is needed.
-		})(),
-	)
+	const create = vi.fn(async (_request: unknown) => finishedStream())
 	const provider = new CodexProvider({
 		accessToken: 'secret-access',
 		accountId: 'account-1',
@@ -714,7 +716,7 @@ describe('Codex native response format', () => {
 	it.each([true, false])(
 		'preserves schema and strict=%s in Responses text.format',
 		async (strict) => {
-			const create = vi.fn(async (_request: unknown) => (async function* () {})())
+			const create = vi.fn(async (_request: unknown) => finishedStream())
 			const provider = new CodexProvider({
 				accessToken: 'fixture',
 				accountId: 'fixture',

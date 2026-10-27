@@ -1,7 +1,8 @@
-import { loadConfig } from '../config/load.js'
+import { loadConfig, pendingProjectMcpServers } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { clearMcpOAuthCredentials, isSecureMcpOAuthUrl } from '../integrations/mcp/oauth-store.js'
+import { approveProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import {
 	type McpServerSpec,
 	connectDeadlineFor,
@@ -15,13 +16,14 @@ import {
 	removeUserMcpServer,
 	summarizeUserMcpServer,
 } from '../integrations/mcp/user-config.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { loginMcpServer } from './mcp-oauth-login.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 const HELP = [
-	'Usage: namzu mcp <list|get|add|remove|test|login|logout> [arguments]',
+	'Usage: namzu mcp <list|get|add|remove|approve|test|login|logout> [arguments]',
 	'',
 	'Manage tool servers in your user config (~/.namzu/config.yaml).',
 	'Project and managed config can override these entries.',
@@ -31,6 +33,7 @@ const HELP = [
 	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
 	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
 	'  namzu mcp remove <name>',
+	"  namzu mcp approve [name...]    Start this project's .mcp.json servers (all when no name)",
 	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
 	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
 	'  namzu mcp logout <name>',
@@ -51,7 +54,57 @@ type McpAction =
 			readonly timeoutMs: number
 	  }
 	| { readonly kind: 'logout'; readonly name: string }
+	| { readonly kind: 'approve'; readonly names: readonly string[] }
 	| { readonly kind: 'error'; readonly message: string }
+
+/** Answer yes for the servers this project's `.mcp.json` declares, as it reads now. */
+function approveProjectServers(names: readonly string[], ctx: CommandContext): number {
+	try {
+		const cwd = process.cwd()
+		const { declared, pending } = pendingProjectMcpServers({ cwd })
+		const known = Object.keys(declared)
+		if (known.length === 0) {
+			ctx.formatter.print({
+				approved: [],
+				text: "This project's .mcp.json declares no tool servers.",
+			})
+			return EXIT_OK
+		}
+		const missing = names.filter((name) => !known.includes(name))
+		if (missing.length > 0) {
+			ctx.formatter.error({
+				message: `.mcp.json has no tool server named ${missing.map(oneLine).join(', ')}.`,
+			})
+			return EXIT_USAGE
+		}
+		const chosen = names.length > 0 ? names : pending
+		if (chosen.length === 0) {
+			ctx.formatter.print({
+				approved: [],
+				text: 'Every tool server in .mcp.json is already approved.',
+			})
+			return EXIT_OK
+		}
+		const approved = approveProjectMcpServers(resolveNamzuHome(), cwd, declared, chosen)
+		const lines = approved.map((name) => {
+			const entry = declared[name] as { command?: string; url?: string }
+			return `  ${oneLine(name)}: ${oneLine(entry.command ?? entry.url ?? 'invalid entry')}`
+		})
+		ctx.formatter.print({
+			approved,
+			text: [
+				`Approved ${approved.length === 1 ? '1 tool server' : `${approved.length} tool servers`}:`,
+				...lines,
+			].join('\n'),
+		})
+		return EXIT_OK
+	} catch (error) {
+		ctx.formatter.error({
+			message: error instanceof Error ? oneLine(error.message) : 'Could not read .mcp.json.',
+		})
+		return EXIT_BAD_CONFIG
+	}
+}
 
 export const mcpCommand: CommandDef = {
 	name: 'mcp',
@@ -64,6 +117,7 @@ export const mcpCommand: CommandDef = {
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
 		}
+		if (action.kind === 'approve') return approveProjectServers(action.names, ctx)
 		if (action.kind === 'test') {
 			return testMcpServer(action.name, action.trust, ctx)
 		}
@@ -374,6 +428,13 @@ function canSignInToMcpUrl(raw: string | undefined): boolean {
 
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
+	if (verb === 'approve') {
+		const names = args.slice(1)
+		const flag = names.find((entry) => entry.startsWith('-'))
+		return flag
+			? { kind: 'error', message: `Unknown mcp approve option: ${oneLine(flag)}` }
+			: { kind: 'approve', names }
+	}
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
 	if (verb === 'logout' && args.length === 2 && name && !name.startsWith('-')) {
 		return { kind: 'logout', name }

@@ -8,6 +8,7 @@
 
 import { asSessionId, isEntityId, jsonLinesSink } from '@namzu/sdk'
 
+import { isModelOnlyContext } from '../context/runtime-message.js'
 import {
 	closeSessions,
 	findMappedConversation,
@@ -61,7 +62,10 @@ export const historyCommand: CommandDef = {
 			// (a guardrail rewrite) reads as replaced, never as the raw text.
 			const messages = await loadConversation(cli, existing).finally(() => closeSessions(cli))
 			const out = messages
-				.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
+				.filter(
+					(m) =>
+						(m.role === 'user' || m.role === 'assistant') && m.content && !isModelOnlyContext(m),
+				)
 				.map((m) => ({ role: m.role, content: m.content }))
 			process.stdout.write(`${JSON.stringify(out)}\n`)
 			return 0

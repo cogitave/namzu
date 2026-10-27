@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Turn limits
-description: Limits for interactive and headless turns, headless override flags, explicit reasoning effort and budget enforcement.
+description: Limits for interactive and headless turns, headless override flags, the spend limit in dollars, explicit reasoning effort and budget enforcement.
 resource: packages/cli/src/commands/exec-flags.ts
 tags: [cli, limits, config]
 status: stable
@@ -14,6 +14,7 @@ CLI turns default to unlimited main-loop iterations, turn duration and cumulativ
 
 - **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000, "timeoutMs": 3600000 }`. Keys may be omitted. Nonnegative safe integers; `0` disables the corresponding turn guard. A positive `timeoutMs` must be at most 2,147,483,647 milliseconds to fit platform timers.
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `namzu exec` (either mode) override the file for one invocation.
+- **`limits.costLimitUsd`** and **`--max-budget-usd <amount>`** on `namzu exec` set a spend limit in dollars, counted from the model's price on file and checked between model calls. See [Spend limit](#spend-limit).
 
 To remove all three caps explicitly, put this in the workspace's
 `namzu.config.json` (or the equivalent `limits` mapping in the user YAML file):
@@ -61,6 +62,16 @@ without those settings their turn guards are unlimited. Their tokens
 remain constrained by any finite ancestor allowance. File-defined specialist
 agents retain their own iteration configuration. Context size is separate and
 is governed by [compaction](context-and-compaction.md).
+
+## Spend limit
+
+A turn can be stopped by what it has spent as well as by how long it ran. `limits.costLimitUsd` (a number of dollars, `0` or omitted for none) applies to interactive turns and to `exec` and `drain` (a scheduled run keeps the budget of its job), and `namzu exec --max-budget-usd 2.50` sets it for one run, `exec --json` included. The flag takes a number above zero; the config key takes `0` to lift a limit a lower layer set.
+
+- **What is counted.** The turn's priced spend: tokens at the model's list price, cache reads and writes at theirs. The check runs between model calls, so the call that crosses the limit finishes and the turn stops after it; the spend can end a little past the limit.
+- **A command is one budget.** When a finished workflow or a monitor makes `exec` run a reporting turn, that turn gets what is left of the limit, and none is started once it is used up.
+- **When it stops.** The turn ends with the stop reason `cost_limit`. `namzu exec` prints what it has, says `stopped at the spend limit of $2.50; raise it with --max-budget-usd to let the run go on` on stderr and exits 1, like any turn that did not finish. In `exec --json` the `done` event carries `stopReason: "cost_limit"`.
+- **A model with no price.** A limit cannot be counted against a model Namzu has no price for, because its tokens would never add up. The turn is refused before it spends anything, with `Namzu has no price on file for <model>, so it cannot count spend against the limit.` and a pointer to a token limit (`--token-budget`) instead. A fallback model with no price stops the turn with `cost_unmeasurable` the moment it takes over.
+- **Children and the interactive session.** Delegated agents are each held to the same limit; the limit is not shared across them. The interactive session reads `limits.costLimitUsd` but has no flag for it: `--max-budget-usd` before the command is refused and points at `namzu exec`.
 
 ## Editing limits in the TUI
 

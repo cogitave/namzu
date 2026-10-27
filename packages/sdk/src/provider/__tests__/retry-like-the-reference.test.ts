@@ -194,7 +194,7 @@ describe('a stream that dies after some text', () => {
 		expect(inner.calls).toBe(1)
 	})
 
-	it('is never restarted once a tool call has begun', async () => {
+	it('is restarted while a tool call is still being written, until the retries are spent', async () => {
 		const { sleepFn } = recorder()
 		let calls = 0
 		const inner = {
@@ -215,7 +215,7 @@ describe('a stream that dies after some text', () => {
 		await expect(
 			collect(withProviderRetry(inner, { config: REFERENCE, sleepFn })),
 		).rejects.toMatchObject({ code: 'network' })
-		expect(calls).toBe(1)
+		expect(calls).toBe((REFERENCE.maxRetries ?? 0) + 1)
 	})
 })
 

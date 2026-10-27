@@ -89,9 +89,26 @@ export const MAX_CHARS_PER_FILE = 32_000
  */
 export const MAX_BYTES_TO_READ = 4 * 1024 * 1024
 
+/**
+ * Why a file is in the set.
+ *
+ * - `project`: the directory's `AGENTS.md`.
+ * - `rule`: a file under the directory's `.namzu/rules/`.
+ * - `local`: the directory's private `AGENTS.local.md`, kept out of version control.
+ * - `user`: the person's own file under the Namzu home, for every project.
+ * - `import`: a file an instruction file pulled in with `@path`.
+ */
+export type ProjectInstructionKind = 'project' | 'rule' | 'local' | 'user' | 'import'
+
 export interface ProjectInstructionFile {
 	/** Absolute path of the file that was read. */
 	readonly path: string
+	/** Defaults to `project` when absent. */
+	readonly kind?: ProjectInstructionKind
+	/** The directory whose scope the file belongs to; absent for `user`. */
+	readonly scopeDir?: string
+	/** For an `import`, the file that named it. */
+	readonly importedBy?: string
 	/** The text that will be injected — already cut to the budget. */
 	readonly text: string
 	/** Characters the budget dropped. `0` when the file was taken whole. */
@@ -147,12 +164,14 @@ export function instructionSearchPath(cwd: string): string[] {
  * path when the two are on different Windows drives — which is the case a
  * `startsWith('..')` check alone reads as "contained".
  */
-function isContainedBy(candidate: string, root: string): boolean {
-	const realRoot = realpathIfPossible(root)
-	const rel = relative(realRoot, candidate)
-	if (rel === '') return true
-	if (isAbsolute(rel)) return false
-	return rel !== '..' && !rel.startsWith(`..${sep}`)
+export function isContainedBy(candidate: string, root: string | readonly string[]): boolean {
+	for (const one of typeof root === 'string' ? [root] : root) {
+		const rel = relative(realpathIfPossible(one), candidate)
+		if (rel === '') return true
+		if (isAbsolute(rel)) continue
+		if (rel !== '..' && !rel.startsWith(`..${sep}`)) return true
+	}
+	return false
 }
 
 function realpathIfPossible(path: string): string {
@@ -163,13 +182,20 @@ function realpathIfPossible(path: string): string {
 	}
 }
 
-type ReadOutcome =
+export type ReadOutcome =
 	| { readonly kind: 'loaded'; readonly file: ProjectInstructionFile }
 	| { readonly kind: 'skipped'; readonly file: SkippedInstructionFile }
 	| { readonly kind: 'absent' }
 
-function readInstructionFile(dir: string, searchRoot: string): ReadOutcome {
-	const path = join(dir, INSTRUCTIONS_FILENAME)
+/**
+ * Read one instruction file under the same refusals as the project file:
+ * containment of a symlink target, the size ceiling, and an honest report of
+ * anything that is not "the file is not there".
+ */
+export function readInstructionAt(
+	path: string,
+	searchRoot: string | readonly string[],
+): ReadOutcome {
 	let raw: string
 	try {
 		// `lstat`, not `stat`: `stat` follows a symlink, so a link pointing at a
@@ -208,13 +234,13 @@ function readInstructionFile(dir: string, searchRoot: string): ReadOutcome {
 		// else — a permissions error, a broken link, a read that failed — is a
 		// fact about the disk, and reporting it as "no file here" is a lie.
 		const code = (err as NodeJS.ErrnoException).code
-		if (code === 'ENOENT') return { kind: 'absent' }
+		if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'absent' }
 		return {
 			kind: 'skipped',
 			file: { path, reason: `it could not be read (${code ?? 'unknown error'})` },
 		}
 	}
-	const text = raw.trim()
+	const text = stripHtmlComments(raw).trim()
 	if (text.length === 0) return { kind: 'absent' }
 	if (text.length <= MAX_CHARS_PER_FILE) {
 		return { kind: 'loaded', file: { path, text, omittedChars: 0 } }
@@ -268,16 +294,70 @@ export function composeProjectInstructionsPrompt(
 	].join('\n')
 }
 
-/** Walk, read, compose. The only entry point a caller needs. */
-export function loadProjectInstructions(cwd: string): ProjectInstructions {
-	const searchPath = instructionSearchPath(cwd)
-	const searchRoot = searchPath[0] ?? resolve(cwd)
-	const files: ProjectInstructionFile[] = []
-	const skipped: SkippedInstructionFile[] = []
-	for (const dir of searchPath) {
-		const outcome = readInstructionFile(dir, searchRoot)
-		if (outcome.kind === 'loaded') files.push(outcome.file)
-		else if (outcome.kind === 'skipped') skipped.push(outcome.file)
+/**
+ * Drop `<!-- ... -->` comments that sit outside code. A comment is a note to
+ * the people editing the file; sending it to the model every turn spends
+ * budget on text nobody meant as policy. Fenced blocks and inline code keep
+ * theirs, because there a comment is something being shown.
+ */
+export function stripHtmlComments(text: string): string {
+	if (!text.includes('<!--')) return text
+	const out: string[] = []
+	let fence: string | null = null
+	let inComment = false
+	for (const line of text.split('\n')) {
+		if (!inComment) {
+			const marker = /^\s*(```+|~~~+)/.exec(line)?.[1]
+			if (marker) {
+				if (fence === null) fence = marker.charAt(0)
+				else if (marker.startsWith(fence)) fence = null
+				out.push(line)
+				continue
+			}
+			if (fence !== null) {
+				out.push(line)
+				continue
+			}
+		}
+		out.push(
+			stripCommentsFromLine(line, inComment, (open) => {
+				inComment = open
+			}),
+		)
 	}
-	return { files, skipped, prompt: composeProjectInstructionsPrompt(files) }
+	return out.join('\n')
+}
+
+function stripCommentsFromLine(
+	line: string,
+	startsInside: boolean,
+	setOpen: (open: boolean) => void,
+): string {
+	let result = ''
+	let i = 0
+	let inside = startsInside
+	let code = false
+	while (i < line.length) {
+		if (inside) {
+			const end = line.indexOf('-->', i)
+			if (end === -1) {
+				i = line.length
+				break
+			}
+			i = end + 3
+			inside = false
+			continue
+		}
+		const ch = line[i]
+		if (ch === '`') code = !code
+		if (!code && line.startsWith('<!--', i)) {
+			inside = true
+			i += 4
+			continue
+		}
+		result += ch
+		i += 1
+	}
+	setOpen(inside)
+	return result
 }

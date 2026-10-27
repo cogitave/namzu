@@ -256,6 +256,24 @@ describe('toAgentEvent', () => {
 			expect(switched.text).toContain('Namzu used')
 			expect(switched.text).not.toMatch(/HTTP 429|rate_limit|Provider chain|fallback #/i)
 		})
+
+		it('carries the order to drop the failed attempt’s pieces, and nothing otherwise', () => {
+			const swap = (extra: Record<string, unknown>) =>
+				toAgentEvent(
+					event({
+						type: 'provider_fallback',
+						fromIndex: 0,
+						fromProviderId: 'openai',
+						toIndex: 1,
+						toProviderId: 'anthropic',
+						code: 'network',
+						...extra,
+					}),
+					presenter,
+				) as { restart?: boolean }
+			expect(swap({ restart: true }).restart).toBe(true)
+			expect(swap({})).not.toHaveProperty('restart')
+		})
 	})
 
 	it('maps tool_executing to tool-start with a command summary', () => {

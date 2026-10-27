@@ -151,6 +151,8 @@ export type ToolFacts =
 			readonly binary?: { readonly bytes: number }
 			/** The command was handed to a background job instead of being waited on. */
 			readonly background?: true
+			/** The command was already running when it was handed over (a key, a message, an interrupt or its timeout). */
+			readonly continued?: true
 	  }
 	| {
 			readonly kind: 'read'
@@ -162,6 +164,8 @@ export type ToolFacts =
 			readonly returnedLines?: number
 			/** Only a window of the file was returned. */
 			readonly partial?: boolean
+			/** The lines were not repeated: an earlier read of the same lines still holds. */
+			readonly unchanged?: boolean
 	  }
 	| {
 			readonly kind: 'search'

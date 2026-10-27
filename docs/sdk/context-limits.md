@@ -162,6 +162,10 @@ unresolved errors, bugs and open questions, open items and the next step, and
 the specific names, values and commands that step needs, and to list everything
 missing, because trimming can happen later and a gap cannot be recovered.
 
+## What a pass puts back
+
+Verbatim text the summary cannot carry is restored after it, under `## Restored after compaction`: the skills the conversation loaded (the `skill` tool's body, every page of it) and the files it read (the `read` tool's text), recorded as the calls finish in `WorkingState.restorable` and carried in the working-state snapshot. At most 8 skills at 5,000 tokens each (25,000 together) and 5 files at 5,000 tokens each (50,000 together), newest first, and no more than 5% (skills) and 10% (files) of the window. Instruction files and plan files (`plans/plan.md`) are skipped, a file written or edited after it was read is forgotten, and a failed call records nothing. A host adds a line of its own through `QueryParams.postCompactionContext` (asked once per pass; an error leaves it out) or, for a host-triggered pass, `CompactNowInput.restoreNote`; the CLI uses it for the plan. `compactNow` and `compactRegion` restore the same bodies from the span they summarise.
+
 ## `compactNow` instructions
 
 `CompactNowInput.instructions` (and `CompactSessionParams.instructions`) carries

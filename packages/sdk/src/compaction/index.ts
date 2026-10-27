@@ -4,6 +4,9 @@ export type {
 	FileSlot,
 	PinSlot,
 	PlanSlot,
+	RestorableFile,
+	RestorableSkill,
+	RestorableState,
 	ToolResultSlot,
 	WorkingState,
 	WorkingStatePin,
@@ -11,6 +14,7 @@ export type {
 
 export type {
 	DanglingResult,
+	ToolHistoryRepairOptions,
 	ToolHistoryRepairReport,
 	ToolHistoryRepairResult,
 } from './dangling.js'

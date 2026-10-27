@@ -38,7 +38,12 @@ async function capture(
 	;(provider as unknown as { client: unknown }).client = {
 		send: async (command: { input: Record<string, unknown> }) => {
 			commandInput = command.input
-			return { $metadata: { requestId: 'request-test' }, stream: (async function* () {})() }
+			return {
+				$metadata: { requestId: 'request-test' },
+				stream: (async function* () {
+					yield { messageStop: { stopReason: 'end_turn' } }
+				})(),
+			}
 		},
 	}
 

@@ -211,7 +211,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 
 	it('does not require optional web tools when selecting the eager core', async () => {
 		mockProvider(() => response())
-		const session = await open({ toolLoading: 'deferred', web: { search: 'off' } })
+		const session = await open({ toolLoading: 'deferred', web: { search: 'off', fetch: false } })
 		try {
 			for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
 				// No network capability is configured for this send.

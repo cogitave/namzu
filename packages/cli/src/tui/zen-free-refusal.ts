@@ -5,6 +5,10 @@
  * service's own words for the Details / debug view.
  */
 
+import { isExperimentalFreeZenModel } from '@namzu/zen/catalogue'
+
+import { findActiveZenModel } from '../integrations/providers/zen-catalogue.js'
+
 /** What happened, in the words a person reads. */
 export const ZEN_FREE_REFUSED_WHAT = 'Zen didn’t accept the free model right now.'
 
@@ -21,4 +25,21 @@ export function isZenFreeTierRefusal(facts: {
 	return (
 		facts.providerId === 'zen' && facts.status === 403 && /free[- ]?tier/i.test(facts.detail ?? '')
 	)
+}
+
+/** What a person reads when a free Zen model has no allowance left for now. */
+export const ZEN_FREE_LIMITED_WHAT = 'The free allowance for this model is used up for now.'
+
+/**
+ * Zen answered a free model with a rate limit. The allowance is per model, so
+ * another free model, another provider or a Zen API key is the way on, and
+ * waiting is the other. False when the model is not known to be a free one: a
+ * paid model's rate limit keeps the ordinary wording.
+ */
+export function isZenFreeTierLimit(facts: {
+	readonly providerId?: string | undefined
+	readonly model?: string | undefined
+}): boolean {
+	if (facts.providerId !== 'zen' || !facts.model) return false
+	return isExperimentalFreeZenModel('zen', findActiveZenModel('zen', facts.model))
 }

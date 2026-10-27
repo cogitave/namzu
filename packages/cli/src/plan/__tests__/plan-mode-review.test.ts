@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { PLAN_MODE_REFUSAL } from '../../permissions/mode.js'
 import { makeResumeHandler, reviewExemptionFor } from '../../tui/agent.js'
+import { buildEnterPlanModeTool } from '../enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../exit-plan-mode-tool.js'
 import { isPlanFileWrite } from '../plan-file.js'
 
@@ -79,5 +80,25 @@ describe('plan mode in the terminal', () => {
 		// Without the tool mounted the name is just a name.
 		const bare = new ToolManager({ toolsets: [], messages: () => [] })
 		expect(reviewExemptionFor('plan', bare, () => false)('exit_plan_mode', {})).toBe(false)
+	})
+
+	it('does not put a second question in front of the proposal to plan first', () => {
+		const manager = new ToolManager({
+			toolsets: [
+				toolset('plan-mode-entry', [
+					buildEnterPlanModeTool({
+						mode: () => 'prompt',
+						planPath: () => PLAN,
+						ask: () => undefined,
+						enter: () => {},
+					}),
+				]),
+			],
+			messages: () => [],
+		})
+		for (const mode of ['prompt', 'accept-edits', 'plan', 'bypass', 'classify'] as const) {
+			expect(reviewExemptionFor(mode, manager, () => false)('enter_plan_mode', {}), mode).toBe(true)
+		}
+		expect(reviewExemptionFor('strict', manager, () => false)('enter_plan_mode', {})).toBe(true)
 	})
 })

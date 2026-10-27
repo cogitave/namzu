@@ -11,7 +11,8 @@ import { withProviderRetry } from '../retry.js'
 /**
  * A stream that has yielded only reasoning has shown the consumer nothing it
  * cannot take back, so a connection reset there is retried like a failure
- * before the first chunk. Text and tool calls keep the old rule.
+ * before the first chunk. So is a half-written tool call; text needs
+ * `retryMidStream`, and a finished call is never restarted.
  */
 
 const PARAMS = { model: 'm', messages: [] } as unknown as ChatCompletionParams
@@ -99,7 +100,7 @@ describe('a stream that fails after reasoning only', () => {
 		expect(inner.calls).toBe(1)
 	})
 
-	it('is not retried once a tool-call delta came before the error', async () => {
+	it('is retried, with a restart, when only a half-written tool call came before the error', async () => {
 		const inner = scripted([
 			[
 				reasoning('x'),
@@ -107,6 +108,29 @@ describe('a stream that fails after reasoning only', () => {
 					id: 'a',
 					delta: { toolCalls: [{ index: 0, id: 't1', function: { name: 'x', arguments: '{' } }] },
 				},
+				reset(),
+			],
+			[{ id: 'b', delta: { content: 'done' }, finishReason: 'stop' }],
+		])
+		const seen: StreamChunk[] = []
+		for await (const c of withProviderRetry(inner, {
+			config: { maxRetries: 3 },
+			sleepFn,
+		}).chatStream(PARAMS)) {
+			seen.push(c)
+		}
+		expect(inner.calls).toBe(2)
+		expect(seen.filter((c) => c.retry).map((c) => c.retry?.restart)).toEqual([true])
+	})
+
+	it('is not retried once a tool call finished before the error', async () => {
+		const inner = scripted([
+			[
+				{
+					id: 'a',
+					delta: { toolCalls: [{ index: 0, id: 't1', function: { name: 'x', arguments: '{}' } }] },
+				},
+				{ id: 'a', delta: { toolCallEnd: { id: 't1', index: 0 } } },
 				reset(),
 			],
 		])
@@ -119,6 +143,24 @@ describe('a stream that fails after reasoning only', () => {
 			),
 		).rejects.toMatchObject({ code: 'network' })
 		expect(inner.calls).toBe(1)
+	})
+
+	it('is not retried after text without retryMidStream, and is with it', async () => {
+		const withText = () =>
+			scripted([
+				[{ id: 'a', delta: { content: 'par' } }, reset()],
+				[{ id: 'b', delta: { content: 'whole' }, finishReason: 'stop' }],
+			])
+		const pipe = withText()
+		await expect(
+			collect(withProviderRetry(pipe, { config: { maxRetries: 3 }, sleepFn })),
+		).rejects.toMatchObject({ code: 'network' })
+		expect(pipe.calls).toBe(1)
+		const screen = withText()
+		await collect(
+			withProviderRetry(screen, { config: { maxRetries: 3, retryMidStream: true }, sleepFn }),
+		)
+		expect(screen.calls).toBe(2)
 	})
 
 	it('control: a throw before anything is yielded is retried up to maxRetries, with no restart', async () => {

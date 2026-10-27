@@ -10,7 +10,6 @@ import {
 	TurnCancelled,
 	createUserMessage,
 	drainQuery,
-	generateTurnId,
 	untrustedEnvelopeBody,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'

@@ -598,6 +598,9 @@ export class BedrockProvider implements LLMProvider {
 
 		const activeToolCalls = new Map<number, { id: string; name: string; args: string }>()
 		let toolCallIndex = 0
+		// The stop event arrived. A stream that closes without it was cut by the
+		// connection.
+		let finished = false
 
 		try {
 			for await (const event of response.stream as AsyncIterable<ConverseStreamOutput>) {
@@ -681,6 +684,7 @@ export class BedrockProvider implements LLMProvider {
 					}
 
 					if ('messageStop' in event && event.messageStop) {
+						finished = true
 						yield {
 							id: requestId,
 							delta: {},
@@ -709,6 +713,13 @@ export class BedrockProvider implements LLMProvider {
 						detail: 'the provider stream returned malformed data',
 					})
 				}
+			}
+			if (!finished) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'bedrock',
+					detail: 'the connection closed before the response finished',
+				})
 			}
 		} catch (err) {
 			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err

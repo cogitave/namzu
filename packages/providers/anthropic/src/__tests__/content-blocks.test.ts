@@ -32,6 +32,7 @@ function bodyCapturer() {
 						type: 'message_start',
 						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
 					}
+					yield { type: 'message_stop' }
 				})()
 			}),
 		},

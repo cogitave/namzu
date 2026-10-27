@@ -120,10 +120,12 @@ describe('a permissions rule written in a config file', () => {
 
 		expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		// The operator's rule first; behind it only the session's own remembered-allows rule.
+		// The operator's rule first; behind it the session's own remembered-allows rule.
 		expect(gate?.rules).toEqual([
 			{ type: 'deny_by_name', toolNames: ['bash'] },
 			expect.objectContaining({ type: 'predicate' }),
+			// Last of the rules: search runs unasked unless a rule above says otherwise.
+			{ type: 'allow_by_name', toolNames: ['web_search'] },
 		])
 	})
 
@@ -153,10 +155,12 @@ describe('a permissions rule written in a config file', () => {
 		}
 
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		// The operator's rule first; behind it only the session's own remembered-allows rule.
+		// The operator's rule first; behind it the session's own remembered-allows rule.
 		expect(gate?.rules).toEqual([
 			{ type: 'deny_by_name', toolNames: ['bash'] },
 			expect.objectContaining({ type: 'predicate' }),
+			// Last of the rules: search runs unasked unless a rule above says otherwise.
+			{ type: 'allow_by_name', toolNames: ['web_search'] },
 		])
 	})
 })

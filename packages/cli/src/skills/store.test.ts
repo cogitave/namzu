@@ -263,7 +263,23 @@ describe('frontmatter the operator listing reads', () => {
 		const parsed = parseSkillMarkdown(
 			'---\nname: pr\ndescription: reviews\nargument-hint: [pr-number]\nhooks:\n  PreToolUse:\n    - matcher: Bash\nmodel: opus\n---\nBody',
 		)
-		expect(parsed).toEqual({ name: 'pr', description: 'reviews', body: 'Body' })
+		// The hint is read (it is shown after `/pr `); the hooks block and the
+		// model key are skipped whole.
+		expect(parsed).toEqual({
+			name: 'pr',
+			description: 'reviews',
+			argumentHint: 'pr-number',
+			body: 'Body',
+		})
+	})
+
+	it('reads user-invocable: false as no command for the person', () => {
+		expect(parseSkillMarkdown('---\nname: a\nuser-invocable: false\n---\nB').userInvocable).toBe(
+			false,
+		)
+		expect(parseSkillMarkdown('---\nname: a\nuser-invocable: true\n---\nB').userInvocable).toBe(
+			undefined,
+		)
 	})
 
 	it('maps disable-model-invocation: true to operator-only', () => {

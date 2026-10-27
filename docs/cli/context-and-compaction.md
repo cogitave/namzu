@@ -77,6 +77,16 @@ and the raw JSONL storage shape. Oversized archival failures still preserve the
 history, but 3 MiB is now an offloading threshold rather than the previous manual
 compaction refusal limit.
 
+# After a compaction
+
+A summary says that a skill was loaded and a file was read; it cannot give the next step the skill's instructions or the file's lines. So each pass puts the most recent of both back, verbatim, under `## Restored after compaction` at the end of the summary:
+
+- the skills the conversation loaded, newest first, up to 8, at most 5,000 tokens each and 25,000 together;
+- the files it read, newest first, up to 5, at most 5,000 tokens each and 50,000 together. Instruction files (`AGENTS.md`, `AGENTS.local.md`, rule files) and the plan file are not repeated, a file that was changed after it was read is left out because its text is behind the disk, and a read that failed has nothing to restore;
+- the plan from plan mode, when there is one: where the file is and what it says now (cut at about 5,000 tokens).
+
+The caps shrink on a small window: files may take at most a tenth of it and skills a twentieth, so a 100,000-token window restores about 10,000 and 5,000 tokens. A body that does not fit is cut and says so. What was restored survives a resumed session and the next compaction, and the model is told a file may have changed since it was read. `/compact` and `/compact <what to keep>` restore the same things.
+
 # The `compaction` key
 
 In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from the environment:
@@ -97,7 +107,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 | `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
 | `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
-| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
+| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. `/context` shows the lifetime in use under the legend (only with a provider that can be asked), and `namzu doctor` has a `providers.cache-lifetime` row that reports it and, with the default, suggests `1h` for long sessions or frequent pauses of more than five minutes. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
@@ -227,6 +237,8 @@ System prompt, System tools, MCP tools, MCP server instructions, Custom agents,
 Memory files, Skills and Messages, then Free space. A category with nothing in
 it is left out. Messages is what is left of the provider's measured size once
 the other categories are taken out, so the lines add up to the window.
+
+When the provider lets the prompt cache lifetime be chosen, `Prompt cache lifetime: 5 minutes` (or `1 hour`) follows the legend.
 
 The Autocompact buffer (the room kept for a reply plus 13,000 tokens, 33,000 on
 a 200,000-token window) and an `Auto-compact window:` line appear only when the

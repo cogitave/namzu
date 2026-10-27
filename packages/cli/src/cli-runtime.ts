@@ -17,6 +17,7 @@ export {
 	loadBootstrapConfigWithProvenance,
 	loadConfigWithProvenance,
 } from './config/load.js'
+export { resolveRunFlags } from './commands/run-flags.js'
 export { startZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
 export { resolveNamzuHome } from './integrations/state/home.js'
 export {

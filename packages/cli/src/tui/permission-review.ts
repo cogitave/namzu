@@ -802,7 +802,7 @@ function summarizeKnownCall(
 					...(known.run_in_background !== undefined
 						? [`Execution: ${known.run_in_background ? 'background' : 'wait for result'}`]
 						: []),
-					...(known.subagent_type === 'explore'
+					...(known.subagent_type === 'explore' || known.subagent_type === 'plan'
 						? ['Tools: reading and searching only']
 						: known.subagent_type === undefined || known.subagent_type === 'general-purpose'
 							? ['Tools: files and commands, subject to approval rules']
@@ -1208,7 +1208,7 @@ function compactAgentPlan(calls: readonly { input: unknown; isDestructive: boole
 		}
 		const type = input.subagent_type
 		const access =
-			type === 'explore'
+			type === 'explore' || type === 'plan'
 				? 'read-only'
 				: type === undefined || type === 'general-purpose'
 					? 'files + commands'
@@ -1229,6 +1229,7 @@ function compactAgentPlan(calls: readonly { input: unknown; isDestructive: boole
 function agentTypeLabel(type: string | undefined): string {
 	if (type === undefined) return 'general-purpose (default)'
 	if (type === 'explore') return 'explore (read-only tools)'
+	if (type === 'plan') return 'plan (read-only tools)'
 	return type
 }
 

@@ -30,7 +30,7 @@ import type {
 	ReasoningBlock,
 	ToolInputError,
 } from '../../../types/message/index.js'
-import { ProviderError } from '../../../types/provider/errors.js'
+import { ProviderError, classifyProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -298,7 +298,7 @@ export async function* streamProviderTurn(
 	let streamedLength = 0
 	const toolBuckets = new Map<number, ToolCallBucket>()
 	// Places a fragment that came without an index; see `ToolCallIndexer`.
-	const toolIndexer = new ToolCallIndexer()
+	let toolIndexer = new ToolCallIndexer()
 	// The call the model's latest output went to, or `undefined` once text,
 	// reasoning or a hosted tool followed it. An output limit, a content
 	// filter or a dropped stream stops the response wherever it is, so this
@@ -397,6 +397,36 @@ export async function* streamProviderTurn(
 			})
 		: undefined
 
+	/**
+	 * Drop everything the failed attempt wrote, so the request starts over under
+	 * the same message: after a restarting retry, or a swap that says the same.
+	 * The failed attempt's text, reasoning and tool calls are void. A call is
+	 * restarted only while still being written and nothing runs before the
+	 * response settles, so a half-written call never reaches the model.
+	 */
+	const discardAttempt = () => {
+		toolBuckets.clear()
+		toolIndexer = new ToolCallIndexer()
+		framingViolated = false
+		text = new StreamTextAccumulator()
+		reasoningBuckets.clear()
+		citations.length = 0
+		replayState = undefined
+		id = ''
+		finishReason = 'stop'
+		reportedFinishReason = undefined
+		finishDetail = undefined
+		streamedLength = 0
+		lastOutputCall = undefined
+		usage = {
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+	}
+
 	try {
 		for (;;) {
 			const next = it.next()
@@ -426,28 +456,7 @@ export async function* streamProviderTurn(
 					...(chunk.retry.restart ? { restart: true } : {}),
 				})
 				yield* drainPending()
-				if (chunk.retry.restart) {
-					// The failed attempt's text and reasoning are void: the request
-					// starts over under the same message. The decorator never
-					// restarts once a tool call began, so no bucket is left behind.
-					text = new StreamTextAccumulator()
-					reasoningBuckets.clear()
-					citations.length = 0
-					replayState = undefined
-					id = ''
-					finishReason = 'stop'
-					reportedFinishReason = undefined
-					finishDetail = undefined
-					streamedLength = 0
-					lastOutputCall = undefined
-					usage = {
-						promptTokens: 0,
-						completionTokens: 0,
-						totalTokens: 0,
-						cachedTokens: 0,
-						cacheWriteTokens: 0,
-					}
-				}
+				if (chunk.retry.restart) discardAttempt()
 				continue
 			}
 
@@ -472,8 +481,10 @@ export async function* streamProviderTurn(
 					code: chunk.fallback.code,
 					...(chunk.fallback.status !== undefined ? { status: chunk.fallback.status } : {}),
 					reason: chunk.fallback.reason,
+					...(chunk.fallback.restart ? { restart: true } : {}),
 				})
 				yield* drainPending()
+				if (chunk.fallback.restart) discardAttempt()
 				continue
 			}
 
@@ -947,10 +958,21 @@ export async function* streamProviderTurn(
 
 	// Not after a framing violation: the calls it would recover are the ones
 	// the stream was just refused for garbling.
+	//
+	// Nor when the stream was cut by a connection that may come back and no
+	// call came through whole: the retries are spent, the half-written call is
+	// not the model's mistake, and telling the model about it would spend a
+	// turn on a fault it cannot fix. The failure goes up and the turn pauses.
+	const cutByConnection =
+		streamError !== undefined &&
+		streamCause !== undefined &&
+		classifyProviderError(streamCause).retryable
 	const recoveredToolInputFromStreamError =
 		streamError !== undefined &&
 		!framingViolated &&
-		toolCalls.some((tc) => tc.id && tc.function.name)
+		toolCalls.some(
+			(tc) => tc.id && tc.function.name && (!cutByConnection || !tc.metadata?.inputError),
+		)
 	const effectiveFinishReason: ChatCompletionResponse['finishReason'] =
 		recoveredToolInputFromStreamError ? 'tool_calls' : finishReason
 

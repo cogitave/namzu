@@ -1,5 +1,6 @@
 export { debugRequested } from '../debug-requested.js'
 import { isImageInputRefusalMessage } from '@namzu/sdk'
+import { conversationInUseSentence } from './conversation-in-use.js'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import {
@@ -8,7 +9,12 @@ import {
 	detailLabel,
 	retryAfterMs,
 } from './turn-interruption.js'
-import { ZEN_FREE_REFUSED_WHAT, isZenFreeTierRefusal } from './zen-free-refusal.js'
+import {
+	ZEN_FREE_LIMITED_WHAT,
+	ZEN_FREE_REFUSED_WHAT,
+	isZenFreeTierLimit,
+	isZenFreeTierRefusal,
+} from './zen-free-refusal.js'
 
 /**
  * What the terminal app tells a person when a reply fails or pauses.
@@ -144,6 +150,23 @@ interface Copy {
 	readonly next: string
 }
 
+/** The failure is a certificate that does not check out, which no number of tries mends. */
+function refusedCertificate(event: Interruption): boolean {
+	return /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|HOSTNAME_MISMATCH/.test(
+		event.providerError?.providerCode ?? '',
+	)
+}
+
+/**
+ * A pause that passes by itself: the provider could not be reached or had
+ * trouble on its side, and nothing about the failure says another try meets
+ * the same refusal. A refused certificate is not one of these.
+ */
+export function isSelfMending(event: Interruption): boolean {
+	const kind = classifyInterruption(event)
+	return (kind === 'network' || kind === 'server') && !refusedCertificate(event)
+}
+
 function copyFor(
 	kind: InterruptionKind,
 	name: string,
@@ -178,6 +201,14 @@ function copyFor(
 				next: 'Try again in a minute.',
 			}
 		case 'network':
+			// The server answered, but its certificate does not check out: the
+			// connection is fine, and trying again meets the same refusal.
+			if (refusedCertificate(event)) {
+				return {
+					what: `Namzu could not verify the security certificate of ${name}.`,
+					next: 'Check the date on this computer and any proxy or custom certificate settings, then try again.',
+				}
+			}
 			return localAt
 				? {
 						what: `Namzu could not reach ${name} at ${localAt}.`,
@@ -232,6 +263,9 @@ function copyFor(
 /** What every pause ends with: one way on, one way out. */
 export const PAUSE_ACTIONS = 'Press Enter to continue, or Esc to stop.'
 
+/** What a pause that mends itself ends with: Enter does not wait for the next try. */
+export const AUTO_PAUSE_ACTIONS = 'Press Enter to try now, or Esc to stop.'
+
 /**
  * The one wording of a pause: `Paused. <what you need to do>. Press Enter to
  * continue, or Esc to stop.` `what` may be a sentence or a clause; its closing
@@ -240,6 +274,15 @@ export const PAUSE_ACTIONS = 'Press Enter to continue, or Esc to stop.'
 export function pauseSentence(what: string): string {
 	const body = what.trim().replace(/[.:;,\s]+$/u, '')
 	return body.length === 0 ? `Paused. ${PAUSE_ACTIONS}` : `Paused. ${body}. ${PAUSE_ACTIONS}`
+}
+
+/**
+ * The pause for a connection that would not hold: what happened, that Namzu
+ * keeps trying by itself, and the two things a person can do.
+ */
+function selfMendingPause(what: string): string {
+	const body = what.trim().replace(/[.:;,\s]+$/u, '')
+	return `Paused. ${body}. Namzu tries again on its own. ${AUTO_PAUSE_ACTIONS}`
 }
 
 const SAYS_IT_ALL: ReadonlySet<InterruptionKind> = new Set([
@@ -296,6 +339,11 @@ export function describePlainInterruption(
 		// The conversation still holds an open turn. In words, never its id.
 		switch (event.turnInProgress.state) {
 			case 'running':
+				// A reply of another window cannot be stopped from here; say whose it is
+				// and when the conversation is free again.
+				if (event.turnInProgress.freeInMinutes !== undefined) {
+					return conversationInUseSentence(event.turnInProgress.freeInMinutes)
+				}
 				return 'A reply is still running in this conversation. Wait for it to finish, or press Esc to stop it.'
 			case 'paused':
 				return 'The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message.'
@@ -325,6 +373,18 @@ export function describePlainInterruption(
 			next: 'Try again in a while, or choose another provider with /model. A Zen API key also works.',
 		}
 	}
+	// A free Zen model with no allowance left: the wait is long and the way on is
+	// another model or provider, so say that instead of "wait a moment".
+	const freeLimited =
+		kind === 'rate_limit' &&
+		isZenFreeTierLimit({ providerId: providerIdOf(event), model: options.model })
+	if (freeLimited) {
+		const wait = retryAfterMs(event)
+		copy = {
+			what: ZEN_FREE_LIMITED_WHAT,
+			next: `${wait === undefined ? '' : `It should reset in about ${formatSpan(wait)}. `}Pick another model with /model, or choose another provider. A Zen API key also works.`,
+		}
+	}
 	// The provider's own sentence: its detail field, or a message inside a JSON
 	// body in the raw reason. A raw reason with no body is only our own wrapper.
 	const vendor =
@@ -332,6 +392,7 @@ export function describePlainInterruption(
 		(rawReason.includes('{') || kind === 'unknown' ? cleanVendorMessage(rawReason) : undefined)
 	const informative =
 		!freeRefused &&
+		!freeLimited &&
 		vendor !== undefined &&
 		!sameIdea(vendor, copy.what) &&
 		!sameIdea(vendor, copy.next) &&
@@ -344,9 +405,17 @@ export function describePlainInterruption(
 		const what = kind === 'unknown' && vendor ? `${capitalise(stem(vendor))}.` : copy.what
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
 		rows.push(
-			pauseSentence(
-				wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
-			),
+			isSelfMending(event)
+				? selfMendingPause(what)
+				: pauseSentence(
+						freeLimited
+							? // The wait is long and retrying sooner fails the same way, so the
+								// sentence leads with the ways on rather than with "wait".
+								`${stem(what)}. ${copy.next.replace(/\.$/, '')}`
+							: wait === undefined
+								? stem(what)
+								: `${stem(what)}. Wait about ${formatSpan(wait)}`,
+					),
 		)
 	} else if (kind === 'unknown' && vendor) {
 		// The failure's own sentence. It already says what to do when it names an

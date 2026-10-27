@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentManager, MockLLMProvider, generateTurnId, untrustedEnvelopeBody } from '@namzu/sdk'
+import { AgentManager, MockLLMProvider, untrustedEnvelopeBody } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'

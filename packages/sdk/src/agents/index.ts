@@ -34,3 +34,4 @@ export type {
 	SkippedAgentFile,
 } from './file-definitions.js'
 export { EXPLORE_AGENT_DESCRIPTION, EXPLORE_AGENT_ID, EXPLORE_AGENT_PROMPT } from './explore.js'
+export { PLAN_AGENT_DESCRIPTION, PLAN_AGENT_ID, PLAN_AGENT_PROMPT } from './plan.js'

@@ -48,6 +48,8 @@ type Record_ = Readonly<Record<string, unknown>>
 interface CallTrail {
 	start?: Record_
 	end?: Record_
+	/** The call was put to the operator for approval. */
+	asked?: true
 }
 
 interface TurnTrail {
@@ -58,6 +60,8 @@ interface TurnTrail {
 	budget?: unknown
 	/** Launches of the `Agent` tool in this turn, and whether each failed. */
 	agents: boolean[]
+	/** The journal holds this turn's tool starts or approval questions, so a call without a start never ran. */
+	journaled?: true
 }
 
 /** What the journal remembers about the calls and turns of one conversation. */
@@ -125,6 +129,7 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 				if (typeof record.toolUseId !== 'string' || record.via) break
 				const key = callKey(turnId, record.toolUseId)
 				calls.set(key, { ...calls.get(key), start: record })
+				if (turnId) turn(turnId).journaled = true
 				if (turnId && String(record.toolName).toLowerCase() === 'agent')
 					turn(turnId).agents.push(false)
 				break
@@ -133,6 +138,17 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 				if (typeof record.toolUseId !== 'string' || record.via) break
 				const key = callKey(turnId, record.toolUseId)
 				calls.set(key, { ...calls.get(key), end: record })
+				break
+			}
+			case 'tool_review_requested': {
+				if (turnId) turn(turnId).journaled = true
+				const asked = Array.isArray(record.toolCalls) ? record.toolCalls : []
+				for (const entry of asked) {
+					const id = (entry as { id?: unknown } | null)?.id
+					if (typeof id !== 'string') continue
+					const key = callKey(turnId, id)
+					calls.set(key, { ...calls.get(key), asked: true })
+				}
 				break
 			}
 			default:
@@ -246,6 +262,25 @@ function interruptedRows(label: string): ToolRow[] {
 	]
 }
 
+/** Rows a call leaves when the session ended before it started: it never ran. */
+function notRunRows(label: string, asked: boolean): ToolRow[] {
+	return [
+		{
+			role: 'tool',
+			content: label,
+			glyph: '○',
+			glyphColor: tokenColor('text.muted'),
+		},
+		{
+			role: 'tool',
+			content: asked
+				? 'Not run · it was waiting for approval when the session ended'
+				: 'Not run · the session ended before it started',
+			glyph: '⎿',
+		},
+	]
+}
+
 /** The rows one saved tool call leaves, as the live run drew them. */
 export function restoredToolRows(
 	turnId: string | undefined,
@@ -273,7 +308,13 @@ export function restoredToolRows(
 	const text = resultText(message)
 	const interrupted = saved?.end === undefined && (!message || text.startsWith(INTERRUPTED_RESULT))
 	const start = startOf(started)
-	if (interrupted) return interruptedRows(start.label)
+	if (interrupted) {
+		// A call the journal shows never started ran nothing: say that rather than "Interrupted".
+		const journaled = turnId !== undefined && trail.turns.get(turnId)?.journaled === true
+		return saved?.start === undefined && (saved?.asked === true || journaled)
+			? notRunRows(start.label, saved?.asked === true)
+			: interruptedRows(start.label)
+	}
 	const isError = message?.role === 'tool' && message.isError === true
 	const facts = saved?.end ? undefined : factsFromReceipt(presenter, call, text, isError)
 	const endRecord = (saved?.end ??

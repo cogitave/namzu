@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import type { CommandContext } from '../../commands/types.js'
 import { cliLogger } from '../../logging.js'
+import { usesCustomNetwork } from '../../network/settings.js'
 import { type ZenCatalogueRefresh, startZenCatalogueRefresh } from '../providers/zen-catalogue.js'
 import { openSessions } from '../sessions/store.js'
 import { resolveNamzuHome } from '../state/home.js'
@@ -13,6 +14,11 @@ import { lookupResident } from './storage.js'
 // Internal child entrypoint. Launch parameters arrive only through the parent's
 // IPC channel; credentials and resolved configuration are never copied to disk.
 async function main(): Promise<number> {
+	// The worker is a process of its own: the proxy and client certificate the
+	// environment names apply to its requests too.
+	if (usesCustomNetwork(process.env)) {
+		await (await import('../../network/install.js')).installNetwork()
+	}
 	if (!process.send)
 		throw new Error('Resident workers must be started through namzu resident start.')
 	const controller = new AbortController()

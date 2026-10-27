@@ -60,6 +60,7 @@ import {
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { createLiveModeControl } from '../permissions/live-mode.js'
 import { PLAN_MODE_REFUSAL, type PermissionMode } from '../permissions/mode.js'
+import { cliGate } from '../permissions/read-only-gate.js'
 import {
 	type AgentSession,
 	type AgentSessionOptions,
@@ -739,13 +740,7 @@ export async function createPalAgentSession(
 				assertActive()
 				return undefined
 			},
-			authorizationGate: {
-				enabled: true,
-				allowReadOnlyTools: true,
-				denyDangerousPatterns: true,
-				logDecisions: false,
-				rules: [...(opts?.rules ?? options.rules ?? [])],
-			},
+			authorizationGate: cliGate(opts?.rules ?? options.rules),
 			resumeHandler: modeControl.handler,
 			approvalPolicyName: modeControl.initialName,
 			onApprovalPolicy: (box) => modeControl.attach(box),

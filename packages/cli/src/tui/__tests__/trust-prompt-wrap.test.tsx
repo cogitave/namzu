@@ -98,7 +98,7 @@ describe('what the folder pre-approves is said before the choice', () => {
 	it('draws nothing for a folder that grants nothing', async () => {
 		const { trustGrantLines } = await import('../TrustPrompt.js')
 		expect(trustGrantLines(undefined, 80)).toEqual([])
-		expect(trustGrantLines({ allowRules: [], directories: [] }, 80)).toEqual([])
+		expect(trustGrantLines({ allowRules: [], directories: [], toolServers: [] }, 80)).toEqual([])
 	})
 
 	it('lists at most eight rules, counts the rest, and names the added folders', async () => {
@@ -107,6 +107,7 @@ describe('what the folder pre-approves is said before the choice', () => {
 			{
 				allowRules: Array.from({ length: 10 }, (_, i) => `rule${i}`),
 				directories: ['../shared'],
+				toolServers: [],
 			},
 			80,
 		)
@@ -118,11 +119,29 @@ describe('what the folder pre-approves is said before the choice', () => {
 		expect(lines.join(' ')).toContain('These will apply without asking.')
 	})
 
+	it('names the tool servers the folder would start', async () => {
+		const { trustGrantLines } = await import('../TrustPrompt.js')
+		const lines = trustGrantLines(
+			{
+				allowRules: [],
+				directories: [],
+				toolServers: [
+					{ name: 'tickets', runs: 'node ./tickets-server.js --port 3000', fingerprint: 'a' },
+					{ name: 'docs', runs: 'https://d.example/mcp', fingerprint: 'b' },
+				],
+			},
+			80,
+		)
+		expect(lines).toContain('This folder starts 2 tool servers:')
+		expect(lines).toContain('  tickets: node ./tickets-server.js --port 3000')
+		expect(lines).toContain('  docs: https://d.example/mcp')
+	})
+
 	it('is drawn above the choice', async () => {
 		const screen = await renderToScreen(
 			<TrustPrompt
 				cwd="/srv/app"
-				grants={{ allowRules: ['bash(git status *)'], directories: [] }}
+				grants={{ allowRules: ['bash(git status *)'], directories: [], toolServers: [] }}
 			/>,
 			{ cols: 100, rows: 30 },
 		)

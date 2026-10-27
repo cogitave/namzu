@@ -459,6 +459,15 @@ export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsToolResultDocuments: false,
 }
 
+/** The stream ended, or said it was done, without the marker that says the response is whole. */
+function streamCutShort(): ProviderRequestError {
+	return new ProviderRequestError({
+		kind: 'network',
+		providerId: 'http',
+		detail: 'the connection closed before the response finished',
+	})
+}
+
 export class HttpProvider implements LLMProvider {
 	readonly id = 'http'
 	readonly name = 'HTTP'
@@ -580,12 +589,18 @@ export class HttpProvider implements LLMProvider {
 		const decoder = new TextDecoder()
 		let buffer = ''
 		let firstFrame = true
+		// A choice reported why it stopped. Without one, `[DONE]` or a plain close
+		// means the connection cut the response.
+		let finished = false
 
 		try {
 			while (true) {
 				signal?.throwIfAborted()
 				const { done, value } = await this.readStream(reader, signal)
-				if (done) break
+				if (done) {
+					if (!finished) throw streamCutShort()
+					break
+				}
 
 				buffer += decoder.decode(value, { stream: true })
 				const lines = buffer.split('\n')
@@ -595,7 +610,10 @@ export class HttpProvider implements LLMProvider {
 					const trimmed = line.trim()
 					if (!trimmed || !trimmed.startsWith('data: ')) continue
 					const data = trimmed.slice(6)
-					if (data === '[DONE]') return
+					if (data === '[DONE]') {
+						if (!finished) throw streamCutShort()
+						return
+					}
 
 					let parsed: unknown
 					try {
@@ -649,6 +667,7 @@ export class HttpProvider implements LLMProvider {
 
 					const choice = obj.choices[0]
 					if (!choice) continue
+					if (choice.finish_reason) finished = true
 
 					yield {
 						id: obj.id ?? '',
@@ -690,7 +709,8 @@ export class HttpProvider implements LLMProvider {
 			while (true) {
 				signal?.throwIfAborted()
 				const { done, value } = await this.readStream(reader, signal)
-				if (done) break
+				// The loop returns at `message_stop`; a close without it cut the response.
+				if (done) throw streamCutShort()
 
 				buffer += decoder.decode(value, { stream: true })
 				// Anthropic SSE frames are separated by blank lines.

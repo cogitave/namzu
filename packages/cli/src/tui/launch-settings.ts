@@ -1,5 +1,6 @@
 import type { ReasoningEffort } from '@namzu/sdk'
 import { applyProviderFlags } from '../commands/exec-flags.js'
+import { applyFallbackFlag } from '../integrations/providers/fallback-flag.js'
 import type { Preferences } from '../integrations/providers/index.js'
 import type { PermissionMode } from '../permissions/mode.js'
 
@@ -15,6 +16,8 @@ export interface TuiLaunchSettings {
 	readonly model?: string
 	readonly effort?: ReasoningEffort
 	readonly permissionMode?: PermissionMode
+	/** `--fallback-model`: models to fall over to, in order, for this launch. */
+	readonly fallbackModels?: readonly string[]
 	/**
 	 * `--message`: the first message of this launch, sent once when the composer is
 	 * ready. A plain prompt, not a slash command, and never sent again on a resume
@@ -23,9 +26,9 @@ export interface TuiLaunchSettings {
 	readonly message?: string
 }
 
-/** Whether any flag changes which provider or model the session starts on. */
+/** Whether any flag changes which providers or models the session starts on. */
 export function choosesModel(settings: TuiLaunchSettings | undefined): boolean {
-	return Boolean(settings?.provider || settings?.model)
+	return Boolean(settings?.provider || settings?.model || settings?.fallbackModels?.length)
 }
 
 /**
@@ -33,8 +36,9 @@ export function choosesModel(settings: TuiLaunchSettings | undefined): boolean {
  *
  * `--provider` replaces the chain with that provider alone; `--model` alone
  * re-models the saved primary (the same reading `exec` has, through the same
- * function). Null when the flags cannot name a provider: `--model` with nothing
- * saved to apply it to.
+ * function). `--fallback-model` then sets the models after the first, for this
+ * launch only. Null when the flags cannot name a provider: `--model` or
+ * `--fallback-model` with nothing saved to apply it to.
  */
 export function launchPreferences(
 	saved: Preferences | null,
@@ -45,5 +49,6 @@ export function launchPreferences(
 		provider: settings.provider ?? null,
 		model: settings.model ?? null,
 	})
-	return applied.providers.length > 0 ? applied : null
+	const chained = applyFallbackFlag(applied, settings.fallbackModels ?? [])
+	return chained.providers.length > 0 ? chained : null
 }

@@ -231,6 +231,8 @@ export interface ToolHistoryRepairReport {
 	readonly orphanedToolResultsRemoved: number
 	/** Error results inserted for calls whose durable outcome is unavailable. */
 	readonly syntheticToolResultsInserted: number
+	/** Of those, the results that say the call never started. Absent when none. */
+	readonly neverRanToolResultsInserted?: number
 }
 
 /** A repaired copy and the exact changes made to it. */
@@ -274,7 +276,30 @@ function validateToolCallIds(messages: readonly Message[]): void {
 	}
 }
 
-function unknownOutcomeResult(call: ToolCall, assistant: AssistantMessage): ToolMessage {
+/** What is known about the unanswered calls of a history being repaired. */
+export interface ToolHistoryRepairOptions {
+	/**
+	 * Ids of calls known never to have started (queued, or waiting for a
+	 * person's approval, when the session ended). Their synthetic result says
+	 * nothing ran, instead of calling the outcome unknown.
+	 */
+	readonly neverRan?: ReadonlySet<string>
+}
+
+function unknownOutcomeResult(
+	call: ToolCall,
+	assistant: AssistantMessage,
+	neverRan: boolean,
+): ToolMessage {
+	if (neverRan) {
+		return {
+			role: CONSTANTS.TOOL_ROLE,
+			toolCallId: call.id,
+			isError: true,
+			content: `The \`${call.function.name}\` call did not run: the session ended before it started (it may have been waiting for the user's approval, which was never given). Nothing was changed. If it is still needed, call it again.`,
+			...(assistant.timestamp !== undefined ? { timestamp: assistant.timestamp } : {}),
+		}
+	}
 	return {
 		role: CONSTANTS.TOOL_ROLE,
 		toolCallId: call.id,
@@ -294,13 +319,17 @@ function unknownOutcomeResult(call: ToolCall, assistant: AssistantMessage): Tool
  * fail closed: changing ids or tool calls would invalidate opaque native replay
  * state carried by the assistant message.
  */
-export function repairToolMessageHistory(messages: readonly Message[]): ToolHistoryRepairResult {
+export function repairToolMessageHistory(
+	messages: readonly Message[],
+	options: ToolHistoryRepairOptions = {},
+): ToolHistoryRepairResult {
 	validateToolCallIds(messages)
 
 	const repaired: Message[] = []
 	let duplicateToolResultsRemoved = 0
 	let orphanedToolResultsRemoved = 0
 	let syntheticToolResultsInserted = 0
+	let neverRanToolResultsInserted = 0
 	let index = 0
 
 	while (index < messages.length) {
@@ -352,8 +381,10 @@ export function repairToolMessageHistory(messages: readonly Message[]): ToolHist
 
 		for (const call of calls) {
 			if (answered.has(call.id)) continue
-			repaired.push(unknownOutcomeResult(call, assistant))
+			const neverRan = options.neverRan?.has(call.id) === true
+			repaired.push(unknownOutcomeResult(call, assistant, neverRan))
 			syntheticToolResultsInserted++
+			if (neverRan) neverRanToolResultsInserted++
 		}
 		index = resultEnd
 	}
@@ -364,6 +395,7 @@ export function repairToolMessageHistory(messages: readonly Message[]): ToolHist
 			duplicateToolResultsRemoved,
 			orphanedToolResultsRemoved,
 			syntheticToolResultsInserted,
+			...(neverRanToolResultsInserted > 0 ? { neverRanToolResultsInserted } : {}),
 		},
 	}
 }

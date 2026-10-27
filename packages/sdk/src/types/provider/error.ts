@@ -51,4 +51,11 @@ export interface ProviderRequestErrorInit extends ProviderErrorInfo {
 	 * is believed over the status code, so the retry loop leaves it alone.
 	 */
 	readonly shouldRetry?: boolean
+	/**
+	 * Which part of the network path the request tripped on (a proxy that wants a
+	 * sign-in, a certificate nobody trusts), when the vendor error's causes say.
+	 * Data and not a `cause`: the raw error is never attached, but the diagnosis
+	 * has to survive the wrapping or no one downstream can act on it.
+	 */
+	readonly transport?: import('./errors.js').TransportCause
 }

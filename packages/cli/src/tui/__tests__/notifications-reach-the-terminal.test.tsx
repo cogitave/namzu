@@ -438,7 +438,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await frameShows(harness, 'OpenAI said: organization window exhausted')
 	expect(harness.lastFrame()).not.toContain('[provider.rate_limit]')
 	expect(harness.lastFrame()).not.toContain('7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
-	await frameShows(harness, 'Held while the reply is paused')
+	await frameShows(harness, 'Waiting for the paused reply to continue')
 	await tick(100)
 
 	expect(sendCalls, 'the dependent prompt ran after a resumable stop').toBe(1)

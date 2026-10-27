@@ -85,10 +85,27 @@ export function compareVersions(a: string, b: string): number {
 export interface LatestNamzuVersionOptions {
 	readonly fetch?: typeof fetch
 	readonly timeoutMs?: number
+	/** Which dist-tag to follow. Default `latest`. */
+	readonly channel?: 'latest' | 'stable'
+	/** Registry base URL; only tests pass anything but the public registry. */
+	readonly registry?: string
 }
 
-/** Exact latest published CLI version, or an error when it cannot be established. */
-export async function latestNamzuVersion(options: LatestNamzuVersionOptions = {}): Promise<string> {
+/** What the registry says about one published CLI version. */
+export interface NamzuRelease {
+	readonly version: string
+	/** The registry's `sha512-…` digest of the tarball, when it gave one. */
+	readonly integrity?: string
+	/** Where the registry says the tarball is. Only ever fetched from the registry's own origin. */
+	readonly tarball?: string
+}
+
+const PUBLIC_REGISTRY = 'https://registry.npmjs.org'
+
+/** The version a channel points at, and its tarball digest, or an error when that cannot be established. */
+export async function fetchNamzuRelease(
+	options: LatestNamzuVersionOptions = {},
+): Promise<NamzuRelease> {
 	const controller = new AbortController()
 	const timeoutMs = options.timeoutMs ?? NPM_TIMEOUT_MS
 	const timeout = Object.assign(
@@ -97,28 +114,50 @@ export async function latestNamzuVersion(options: LatestNamzuVersionOptions = {}
 	)
 	const timer = setTimeout(() => controller.abort(timeout), timeoutMs)
 	try {
+		const base = (options.registry ?? PUBLIC_REGISTRY).replace(/\/+$/, '')
 		const res = await withSignal(
-			(options.fetch ?? fetch)('https://registry.npmjs.org/@namzu/cli/latest', {
+			(options.fetch ?? fetch)(`${base}/@namzu/cli/${options.channel ?? 'latest'}`, {
 				signal: controller.signal,
 				headers: { accept: 'application/json' },
 			}),
 			controller.signal,
 		)
 		if (!res.ok) throw new Error(`npm registry returned HTTP ${res.status}`)
-		const data = (await withSignal(res.json(), controller.signal)) as { version?: unknown }
+		const data = (await withSignal(res.json(), controller.signal)) as {
+			version?: unknown
+			dist?: { integrity?: unknown; tarball?: unknown }
+		}
 		if (typeof data.version !== 'string' || parseVersion(data.version) === null) {
 			throw new Error('npm registry returned an invalid @namzu/cli version')
 		}
-		return data.version.replace(/^v/, '')
+		const integrity =
+			typeof data.dist?.integrity === 'string' &&
+			/^sha512-[A-Za-z0-9+/]+=*$/.test(data.dist.integrity)
+				? data.dist.integrity
+				: undefined
+		const tarball = typeof data.dist?.tarball === 'string' ? data.dist.tarball : undefined
+		return {
+			version: data.version.replace(/^v/, ''),
+			...(integrity ? { integrity } : {}),
+			...(tarball ? { tarball } : {}),
+		}
 	} finally {
 		clearTimeout(timer)
 	}
 }
 
+/** Exact latest published CLI version, or an error when it cannot be established. */
+export async function latestNamzuVersion(options: LatestNamzuVersionOptions = {}): Promise<string> {
+	return (await fetchNamzuRelease(options)).version
+}
+
 /** Newer @namzu/cli on npm, or null when up to date / unreachable. */
-export async function checkNamzuUpdate(current: string): Promise<UpdateInfo | null> {
+export async function checkNamzuUpdate(
+	current: string,
+	options: LatestNamzuVersionOptions = {},
+): Promise<UpdateInfo | null> {
 	try {
-		const latest = await latestNamzuVersion()
+		const latest = await latestNamzuVersion(options)
 		if (compareVersions(latest, current) <= 0) return null
 		return { name: 'namzu', current, latest, how: 'namzu upgrade' }
 	} catch {

@@ -17,6 +17,7 @@ import {
 	describeCompactionFailure,
 } from './compaction-rows.js'
 import { connectorCallSummary } from './connector-label.js'
+import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
@@ -81,6 +82,8 @@ import {
 	DiskSessionLog,
 	DiskTaskStore,
 	EVENT_NAME_ATTRIBUTE,
+	type ForegroundCommand,
+	type ForegroundHandoffReason,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
 	type HITLResumeDecision,
@@ -187,6 +190,7 @@ import {
 	getBuiltinTools,
 	getCodeAnalysisTools,
 	getMonitorTools,
+	isNamzuError,
 	isReviewExempt,
 	isTurnInProgressError,
 	lastPromptText,
@@ -196,6 +200,7 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	toPlatformError,
 	toolset,
 	untrustedEnvelopeBody,
 	webGuidanceContribution,
@@ -299,6 +304,7 @@ import {
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
+import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -418,11 +424,14 @@ import {
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { cliGate } from '../permissions/read-only-gate.js'
+import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
+import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
-import { isPlanFileWrite } from '../plan/plan-file.js'
+import { isPlanFileWrite, planCarriedAcrossCompaction } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
 import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
@@ -698,7 +707,7 @@ export type AgentEvent =
 	 * operator did not choose has succeeded while not doing what they asked,
 	 * which is the defect class this package keeps removing.
 	 */
-	| { readonly kind: 'provider-fallback'; readonly text: string }
+	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
 	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
@@ -728,6 +737,7 @@ export type AgentEvent =
 			readonly duplicateResults: number
 			readonly orphanedResults: number
 			readonly interruptedCalls: number
+			readonly neverRanCalls?: number
 			readonly rejectedImages?: number
 			/** The wording the kernel's counts produce. Shown only under `--debug`. */
 			readonly text: string
@@ -744,6 +754,8 @@ export type AgentEvent =
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
 			/** Ids of the tasks this one waits on, when the store reported any. */
 			readonly blockedBy?: readonly string[]
+			/** The present-continuous form the model gave ("Running the tests"), when it gave one. */
+			readonly activeForm?: string
 			/** The task left the plan; the checklist drops it. */
 			readonly removed?: true
 	  }
@@ -801,6 +813,11 @@ export type AgentEvent =
 				readonly sessionId: string
 				readonly activeTurnId: string
 				readonly state: 'running' | 'paused' | 'interrupted'
+				/**
+				 * A running turn that belongs to another process: whole minutes until
+				 * its lease lapses. Absent for this process's own turn.
+				 */
+				readonly freeInMinutes?: number
 			}
 	  }
 
@@ -895,6 +912,11 @@ export interface SendOptions {
 	 * tool tells the model so and the model ends its reply with the plan.
 	 */
 	readonly onPlanExit?: PlanApprovalFn
+	/**
+	 * Switch the session to plan mode after the person agreed to it
+	 * (`enter_plan_mode`). Absent means the model cannot enter plan mode itself.
+	 */
+	readonly onPlanEnter?: () => void | Promise<void>
 	/** Whether the session may run without asking; changes the dialog's first row. */
 	readonly bypassAvailable?: () => boolean
 	/** Request a model change owned by this turn; the host publishes it after settlement. */
@@ -1314,6 +1336,16 @@ export interface AgentSession {
 	readonly presenter: ToolPresenter
 	/** This session's background jobs, running and ended. Absent on a session with no registry. */
 	readonly jobs?: () => readonly BackgroundJob[]
+	/**
+	 * Foreground shell commands of this session that can be moved to a
+	 * background job now (they have run for a couple of seconds). `background`
+	 * moves them all and says how many it took over.
+	 */
+	readonly foreground?: {
+		readonly commands: () => readonly ForegroundCommand[]
+		readonly background: (reason: ForegroundHandoffReason) => number
+		readonly onChange: (listener: () => void) => () => void
+	}
 	/** Read retained output from a job owned by this session; foreign ids are unknown. */
 	readonly readJob?: (id: string, fromOffset?: number) => BackgroundJobOutput
 	/** Stop a job owned by this session, including its child process tree. */
@@ -2342,6 +2374,12 @@ export interface AgentSessionOptions {
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one turn may spend. */
 	readonly limits?: TurnLimitsConfig
+	/**
+	 * Standing instructions for every turn of this session, from
+	 * `--append-system-prompt`. Rendered in the uncached tail of the system
+	 * prompt, so the cached prefix stays byte-identical with or without them.
+	 */
+	readonly appendSystem?: string
 	/** See `NamzuCliConfig.workflow`: the caps a workflow run is held to. */
 	readonly workflow?: WorkflowCliConfig
 	/**
@@ -2464,7 +2502,9 @@ export async function createAgentSession(
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
 	})
-	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
+	// The operator's rules and the remembered answers; the in-sandbox shell
+	// allowance is added behind them once the sandbox below is resolved.
+	let sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
 	 * This process's observation ledger for one conversation, seeded from that
@@ -2933,6 +2973,10 @@ export async function createAgentSession(
 		})
 		throw err
 	}
+	// Shell commands inside a sandbox that confines the file system and the
+	// process table run without a question; behind every rule the operator
+	// wrote and every answer given at a prompt. An escape still asks.
+	sessionRules = withSandboxShell(sessionRules, sandbox)
 	// AFTER resolveSandbox returns — the honest report of what THIS turn got,
 	// never what was attempted. `unconfined` decides the severity: per the
 	// design, this is "the single highest-value line in the whole design,
@@ -3387,34 +3431,36 @@ export async function createAgentSession(
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
 	let learning: SideLearningModel | undefined
-	const webCapability = options.web?.fetch
-		? {
-				// A page may be ten mebibytes; the guard's own
-				// default is two.
-				fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
-				// The answer to a prompt about a page comes from the small model. It is
-				// read at call time: the model exists once the delegation runtime does,
-				// and a page fetched without one is returned as markdown instead.
-				extract: {
-					extract: async (request: {
-						readonly signal?: AbortSignal
-						readonly sessionId: string
-						readonly turnId: string
-						readonly instruction: string
-						readonly body: string
-					}) =>
-						sideModel?.ask({
-							sessionId: request.sessionId as SessionId,
-							turnId: request.turnId as TurnId,
-							instruction: request.instruction,
-							body: request.body,
-							maxTokens: WEB_EXTRACT_MAX_TOKENS,
-							signal: request.signal ?? new AbortController().signal,
-							timing: 'in-turn',
-						}),
-				},
-			}
-		: undefined
+	// On unless the config says `web.fetch: false`; every new domain is asked once.
+	const webCapability =
+		options.web?.fetch !== false
+			? {
+					// A page may be ten mebibytes; the guard's own
+					// default is two.
+					fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
+					// The answer to a prompt about a page comes from the small model. It is
+					// read at call time: the model exists once the delegation runtime does,
+					// and a page fetched without one is returned as markdown instead.
+					extract: {
+						extract: async (request: {
+							readonly signal?: AbortSignal
+							readonly sessionId: string
+							readonly turnId: string
+							readonly instruction: string
+							readonly body: string
+						}) =>
+							sideModel?.ask({
+								sessionId: request.sessionId as SessionId,
+								turnId: request.turnId as TurnId,
+								instruction: request.instruction,
+								body: request.body,
+								maxTokens: WEB_EXTRACT_MAX_TOKENS,
+								signal: request.signal ?? new AbortController().signal,
+								timing: 'in-turn',
+							}),
+					},
+				}
+			: undefined
 	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
@@ -4082,6 +4128,7 @@ export async function createAgentSession(
 				readonly mode: () => PermissionMode
 				readonly planPath: string
 				readonly approval: PlanApprovalFn | undefined
+				readonly enter: (() => void | Promise<void>) | undefined
 				readonly bypassAvailable: () => boolean
 		  }
 		| undefined
@@ -4096,6 +4143,25 @@ export async function createAgentSession(
 					approval: () => currentPlanHost?.approval,
 				}),
 			]),
+		)
+		// `enter_plan_mode`: the model proposes planning first and the person
+		// decides. Deferred, because most turns never need it; the question it
+		// asks goes through this turn's answerer, and the switch through the
+		// host's own mode change.
+		toolsets.push(
+			deferred(
+				toolset('plan-mode-entry', [
+					buildEnterPlanModeTool({
+						mode: () => currentPlanHost?.mode() ?? 'prompt',
+						planPath: () =>
+							currentPlanHost?.planPath ?? paths.planFile({ sessionId: scope.sessionId }),
+						ask: () => currentOnQuestion,
+						enter: async () => {
+							await currentPlanHost?.enter?.()
+						},
+					}),
+				]),
+			),
 		)
 	}
 	// The host's own additions, to this session only: `buildTools` above
@@ -4260,9 +4326,16 @@ export async function createAgentSession(
 	const hasSaveSkillTool = (options.extraTools ?? []).some(
 		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
 	)
+	// What a hook's stdin says about the session: the newest turn's live mode,
+	// and the transcript of a durable session.
+	let readHookMode: (() => PermissionMode) | undefined
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks)
+		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks, {
+			permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
+			transcriptPath: (sessionId) =>
+				options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
+		})
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(
@@ -4821,6 +4894,9 @@ export async function createAgentSession(
 						? { consolidateInto: memoryStore }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
+					...(resumePlanPath
+						? { postCompactionContext: () => planCarriedAcrossCompaction(resumePlanPath) }
+						: {}),
 					paths,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 					...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -4847,7 +4923,10 @@ export async function createAgentSession(
 					// The gate's deny rules still apply.
 					resumeHandler,
 					approvalPolicyName: modeControl.initialName,
-					onApprovalPolicy: (box) => modeControl.attach(box),
+					onApprovalPolicy: (box) => {
+						readHookMode = () => modeControl.current()
+						modeControl.attach(box)
+					},
 					reviewAllowedCalls,
 					signal: ownedSignal,
 					// Attribution comes from the ENTRY, not from this session: the turn
@@ -5039,8 +5118,13 @@ export async function createAgentSession(
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
+				const planNote =
+					options.planApproval && !options.ephemeral
+						? await planCarriedAcrossCompaction(paths.planFile({ sessionId }))
+						: undefined
 				const common = {
 					config: compactionConfigFor(options.compaction),
+					...(planNote ? { restoreNote: planNote } : {}),
 					provider: providerForSession(sessionId),
 					model,
 					signal,
@@ -5159,6 +5243,19 @@ export async function createAgentSession(
 		currentTaskStore,
 		resetTaskStore,
 		jobs: () => ownedJobs?.list() ?? [],
+		...(jobRegistry
+			? {
+					foreground: {
+						commands: () => jobRegistry.foregroundCommands(jobOwner),
+						background: (reason: ForegroundHandoffReason) =>
+							jobRegistry.backgroundForeground(jobOwner, reason),
+						onChange: (listener: () => void) =>
+							jobRegistry.onForegroundChange((owner) => {
+								if (owner === jobOwner) listener()
+							}),
+					},
+				}
+			: {}),
 		...(ownedJobs
 			? {
 					readJob: (id: string, fromOffset?: number) =>
@@ -5638,6 +5735,7 @@ export async function createAgentSession(
 									mode: () => modeControl.current(),
 									planPath,
 									approval: opts?.onPlanExit,
+									enter: opts?.onPlanEnter,
 									bypassAvailable: opts?.bypassAvailable ?? (() => false),
 								}
 							: undefined
@@ -5671,6 +5769,12 @@ export async function createAgentSession(
 						for (const contribution of pluginRuntime?.manager.promptContributions ?? []) {
 							promptContributions.register(contribution)
 						}
+						if (options.appendSystem)
+							promptContributions.register({
+								id: 'namzu.cli.append-system',
+								placement: 'dynamic',
+								render: () => options.appendSystem ?? null,
+							})
 						for (const [serverName, spec] of Object.entries(options.mcpServers ?? {})) {
 							if (spec?.instructions !== true) continue
 							promptContributions.register({
@@ -6011,10 +6115,16 @@ export async function createAgentSession(
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
+								...(planPath
+									? { postCompactionContext: () => planCarriedAcrossCompaction(planPath) }
+									: {}),
 								opts: turnOpts,
 								resumeHandler,
 								approvalPolicyName: modeControl.initialName,
-								onApprovalPolicy: (box) => modeControl.attach(box),
+								onApprovalPolicy: (box) => {
+									readHookMode = () => modeControl.current()
+									modeControl.attach(box)
+								},
 								reviewAllowedCalls: modeControl.reviewAllowedCalls,
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
@@ -6764,16 +6874,10 @@ function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 // Pre-execution safety gate: hard-deny catastrophic shell patterns
 // (`rm -rf /`, mkfs, `curl … | sh`, sudo, fork bombs — the SDK's narrow
 // DANGEROUS_PATTERNS list, which does NOT match e.g. `rm -rf node_modules`),
-// auto-allow read-only tools, and send everything else to the permission
+// auto-allow read-only tools that reach nothing outside (a network tool is
+// asked about, see permissions/read-only-gate.ts), and send everything else to the permission
 // prompt (`review` → our resumeHandler). The deny rule applies even in
 // --yolo mode, so bypass never lets the model brick the machine.
-const VERIFICATION_GATE = {
-	enabled: true,
-	allowReadOnlyTools: true,
-	denyDangerousPatterns: true,
-	logDecisions: false,
-	rules: [] as AuthorizationRule[],
-}
 
 /**
  * The gate for this session, with the operator's rules in it.
@@ -6786,7 +6890,7 @@ const VERIFICATION_GATE = {
  * `read = "ask"` is reachable instead of silently unreachable.
  */
 function gateFor(rules: readonly AuthorizationRule[] | undefined) {
-	return { ...VERIFICATION_GATE, rules: [...(rules ?? [])] }
+	return cliGate(rules)
 }
 
 // Automatic context compression for long, tool-heavy turns: the structured
@@ -7181,20 +7285,33 @@ async function* runTurn({
 		}
 	} catch (err) {
 		if (isTurnInProgressError(err)) {
+			const freeInMinutes =
+				err.state === 'running'
+					? minutesUntilFree(
+							await (sessionLog ?? DiskSessionLog.at(paths, { sessionId: scope.sessionId }))
+								.lease()
+								.catch(() => null),
+							Date.now(),
+						)
+					: undefined
 			// Nothing was begun: the conversation already has an active turn. Said
 			// by name, with the turn and its state, because the ways out differ —
 			// a paused turn is resumed or abandoned, a running one is waited for.
 			yield {
 				kind: 'error',
-				message: `This conversation already has a ${err.state} reply. ${
-					err.state === 'running'
-						? 'Wait for it to finish.'
-						: 'Resume it with /resume, or close it with /abandon.'
-				}`,
+				message:
+					freeInMinutes !== undefined
+						? conversationInUseSentence(freeInMinutes)
+						: `This conversation already has a ${err.state} reply. ${
+								err.state === 'running'
+									? 'Wait for it to finish.'
+									: 'Resume it with /resume, or close it with /abandon.'
+							}`,
 				turnInProgress: {
 					sessionId: String(err.sessionId),
 					activeTurnId: String(err.activeTurnId),
 					state: err.state,
+					...(freeInMinutes !== undefined ? { freeInMinutes } : {}),
 				},
 			}
 			return
@@ -7202,6 +7319,9 @@ async function* runTurn({
 		yield {
 			kind: 'error',
 			message: err instanceof Error ? err.message : String(err),
+			// A refusal Namzu raised before the turn began carries its facts (which
+			// model, which limit), so a screen can say it in plain words.
+			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
 		turnManager.dispose()
@@ -7824,7 +7944,11 @@ export function toAgentEvent(
 				...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
 			}
 		case 'provider_fallback':
-			return { kind: 'provider-fallback', text: describeFallback(event) }
+			return {
+				kind: 'provider-fallback',
+				text: describeFallback(event),
+				...(event.restart ? { restart: true } : {}),
+			}
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',
@@ -7863,6 +7987,9 @@ export function toAgentEvent(
 				duplicateResults: event.duplicateToolResultsRemoved,
 				orphanedResults: event.orphanedToolResultsRemoved,
 				interruptedCalls: event.syntheticToolResultsInserted,
+				...(event.neverRanToolResultsInserted
+					? { neverRanCalls: event.neverRanToolResultsInserted }
+					: {}),
 				text: `Tool history repaired before the model call: ${changes.join('; ')}. Verify external state before retrying non-idempotent tools.`,
 			}
 		}
@@ -7876,6 +8003,7 @@ export function toAgentEvent(
 				subject: event.subject,
 				status: event.status,
 				...(event.blockedBy ? { blockedBy: event.blockedBy.map(String) } : {}),
+				...(event.activeForm ? { activeForm: event.activeForm } : {}),
 				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':
@@ -8014,6 +8142,8 @@ function describeFallback(event: {
 			fromProviderId: event.fromProviderId,
 			toProviderId: event.toProviderId,
 			reason: event.code,
+			...(event.fromModel ? { fromModel: event.fromModel } : {}),
+			...(event.toModel ? { toModel: event.toModel } : {}),
 		}),
 		raw,
 		debugRequested(),

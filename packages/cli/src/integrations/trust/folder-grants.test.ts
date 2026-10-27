@@ -37,19 +37,62 @@ describe('what a folder pre-approves', () => {
 		expect(readFolderGrants(root)).toEqual({
 			allowRules: ['read', 'bash(git status *)', 'web_fetch'],
 			directories: ['../shared', '/data'],
+			toolServers: [],
 		})
 	})
 
 	it('grants nothing from a file that is missing, broken or not an object', () => {
-		expect(readFolderGrants(folder({}))).toEqual({ allowRules: [], directories: [] })
+		expect(readFolderGrants(folder({}))).toEqual({
+			allowRules: [],
+			directories: [],
+			toolServers: [],
+		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '{ nope' }))).toEqual({
 			allowRules: [],
 			directories: [],
+			toolServers: [],
 		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '[1]' }))).toEqual({
 			allowRules: [],
 			directories: [],
+			toolServers: [],
 		})
+	})
+
+	it('lists the tool servers the shared file declares', () => {
+		const root = folder({
+			'.mcp.json': JSON.stringify({
+				mcpServers: { tickets: { command: 'node' }, docs: { url: 'https://d.example/mcp' } },
+			}),
+		})
+		const servers = readFolderGrants(root).toolServers
+		expect(servers.map((server) => server.name)).toEqual(['tickets', 'docs'])
+		expect(servers.map((server) => server.runs)).toEqual(['node', 'https://d.example/mcp'])
+	})
+
+	it('shows what each server runs, without environment values, headers or a token in the address', () => {
+		const root = folder({
+			'.mcp.json': JSON.stringify({
+				mcpServers: {
+					local: {
+						command: 'npx',
+						args: ['-y', 'some-server', '--flag'],
+						env: { API_KEY: 'secret-value' },
+					},
+					remote: {
+						url: 'https://user:pw@tools.example/mcp/v1?token=abc',
+						headers: { Authorization: 'Bearer secret-value' },
+					},
+				},
+			}),
+		})
+		const shown = readFolderGrants(root).toolServers
+		expect(shown.map((server) => server.runs)).toEqual([
+			'npx -y some-server --flag',
+			'https://tools.example/mcp/v1',
+		])
+		expect(JSON.stringify(shown)).not.toContain('secret-value')
+		expect(JSON.stringify(shown)).not.toContain('token=abc')
 	})
 
 	it('keeps the cap the trust screen shows', () => {

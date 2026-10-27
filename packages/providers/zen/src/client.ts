@@ -737,7 +737,15 @@ export class ZenProvider implements LLMProvider {
 						throw new Error('Unsupported model output part.')
 				}
 			}
-			if (!finish) throw new Error('The model stream ended before its final outcome.')
+			// A stream that closes without its final outcome, or whose outcome names no
+			// finish reason at all, was cut by the connection. It is a lost
+			// connection to try again, not an answer to accept as complete.
+			if (!finish || (finish.finishReason.unified === 'other' && !finish.finishReason.raw))
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: this.id,
+					detail: `model "${model}": the connection closed before the response finished`,
+				})
 			if (finish.finishReason.unified === 'error' || finish.finishReason.unified === 'other')
 				throw new Error('The model did not report a successful finish reason.')
 			const finishReason =

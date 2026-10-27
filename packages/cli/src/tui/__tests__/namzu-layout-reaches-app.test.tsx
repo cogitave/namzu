@@ -201,7 +201,8 @@ function expectActiveLayout(screen: Screen): void {
 	// Check every size even if one fails, so the same turn records all affected layouts.
 	expect.soft(viewport).toContain('Check keyboard')
 	expect.soft(viewport).toContain('then compare output')
-	expect.soft(viewport).toContain('Working')
+	// The working row names the step in progress (clipped on a narrow screen).
+	expect.soft(viewport).toMatch(/Review lay/)
 	expect.soft(viewport).toContain('Read(')
 	expect.soft(viewport).toContain('Review layout constraints')
 	expect

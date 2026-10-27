@@ -1,6 +1,7 @@
 import {
 	PluginLifecycleManager,
 	PluginRegistry,
+	type ShellHookOptions,
 	SkillRegistry,
 	attachShellHooks,
 	discoverAllPluginDirs,
@@ -65,6 +66,8 @@ export async function createCliPluginRuntime(
 	 * installed, and `pluginCount` honestly 0.
 	 */
 	hooks?: HooksConfig,
+	/** What a hook's stdin says about the session; each is read at every hook run. */
+	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode'>,
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
@@ -82,7 +85,7 @@ export async function createCliPluginRuntime(
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, { cwd, log })
+	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, { cwd, log, ...hookHost })
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {

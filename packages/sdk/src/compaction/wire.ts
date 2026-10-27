@@ -1,6 +1,13 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { WorkingStateManager } from './manager.js'
-import type { FileSlot, PinSlot, PlanSlot, ToolResultSlot, WorkingState } from './types.js'
+import type {
+	FileSlot,
+	PinSlot,
+	PlanSlot,
+	RestorableState,
+	ToolResultSlot,
+	WorkingState,
+} from './types.js'
 
 /**
  * The working state in a form that survives a process boundary.
@@ -42,6 +49,8 @@ export interface WorkingStateSnapshot {
 	 * completeness it does not have.
 	 */
 	readonly evicted: Readonly<Record<string, number>>
+	/** Absent in snapshots written before bodies were restored; restored as none. */
+	readonly restorable?: RestorableState
 }
 
 export function snapshotWorkingState(manager: WorkingStateManager): WorkingStateSnapshot {
@@ -59,6 +68,14 @@ export function snapshotWorkingState(manager: WorkingStateManager): WorkingState
 		userRequirements: [...state.userRequirements],
 		assistantNotes: [...state.assistantNotes],
 		evicted: { ...state.evicted },
+		...(state.restorable
+			? {
+					restorable: {
+						skills: state.restorable.skills.map((skill) => ({ ...skill })),
+						files: state.restorable.files.map((file) => ({ ...file })),
+					},
+				}
+			: {}),
 	}
 }
 
@@ -89,6 +106,14 @@ export function restoreWorkingState(
 		userRequirements: [...snapshot.userRequirements],
 		assistantNotes: [...snapshot.assistantNotes],
 		evicted: { ...snapshot.evicted },
+		...(snapshot.restorable
+			? {
+					restorable: {
+						skills: snapshot.restorable.skills.map((skill) => ({ ...skill })),
+						files: snapshot.restorable.files.map((file) => ({ ...file })),
+					},
+				}
+			: {}),
 	}
 	manager.replaceState(state)
 	return manager

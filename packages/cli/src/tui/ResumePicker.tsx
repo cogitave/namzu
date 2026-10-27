@@ -10,6 +10,7 @@ import { displayConversationTitle } from '../integrations/sessions/display-title
 import type { RecentConversation } from '../integrations/sessions/store.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import { plural } from './person-terms.js'
+import { type ResumeScope, openingLines, resumeScopeLabel } from './resume-picker-state.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
@@ -17,9 +18,25 @@ export interface ResumePickerProps {
 	readonly conversations: readonly RecentConversation[]
 	readonly selected: number
 	readonly mode?: 'resume' | 'restore'
+	/** What the person has typed to narrow the list. */
+	readonly query?: string
+	/** Which conversations are listed; the folder switch is offered only in `resume`. */
+	readonly scope?: ResumeScope
+	/** The name being typed for the selected conversation, or `null` when not renaming. */
+	readonly renaming?: string | null
+	/** A short plain line under the list, such as why Enter did nothing. */
+	readonly notice?: string
 }
 
-export function ResumePicker({ conversations, selected, mode = 'resume' }: ResumePickerProps) {
+export function ResumePicker({
+	conversations,
+	selected,
+	mode = 'resume',
+	query = '',
+	scope = 'folder',
+	renaming = null,
+	notice,
+}: ResumePickerProps) {
 	const { stdout } = useStdout()
 	const showPreview = (stdout.rows ?? 24) >= 20
 	const { start, items: visible } = selectionWindow(conversations, selected)
@@ -33,6 +50,33 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 					{selected + 1}/{conversations.length}
 				</Text>
 			</Box>
+			{renaming !== null ? (
+				<Text color={theme.text.primary} wrap="truncate-end">
+					<Text color={theme.accent.user}>Name: </Text>
+					{renaming}
+					<Text color={theme.text.muted}>▏</Text>
+				</Text>
+			) : (
+				<Text color={theme.text.primary} wrap="truncate-end">
+					<Text color={theme.accent.user}>Search: </Text>
+					{query.length > 0 ? (
+						<>
+							{query}
+							<Text color={theme.text.muted}>▏</Text>
+						</>
+					) : (
+						<Text color={theme.text.muted}>type to search</Text>
+					)}
+				</Text>
+			)}
+			{mode === 'resume' && <Text color={theme.text.muted}>{resumeScopeLabel(scope)}</Text>}
+			{conversations.length === 0 && (
+				<Box paddingTop={1}>
+					<Text color={theme.text.secondary}>
+						{query.length > 0 ? 'No conversation matches.' : 'No conversations to show.'}
+					</Text>
+				</Box>
+			)}
 			<Box flexDirection="column" paddingTop={1}>
 				{visible.map((c, visibleIndex) => {
 					const index = start + visibleIndex
@@ -60,6 +104,7 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 										: displayConversationTitle(c.title)}
 								</Text>
 							</Box>
+							{c.folder !== undefined && <Text color={theme.text.muted}> {c.folder}</Text>}
 							<Text color={theme.text.muted}> {relativeTime(c.updatedAt)}</Text>
 						</Box>
 					)
@@ -67,6 +112,16 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 			</Box>
 			{showPreview && conversations[selected] && (
 				<Box flexDirection="column" paddingTop={1}>
+					{openingLines(conversations[selected]?.firstPrompt).map((line, lineIndex) => (
+						<Text
+							// biome-ignore lint/suspicious/noArrayIndexKey: the lines are a fixed prefix of one prompt
+							key={lineIndex}
+							color={theme.text.secondary}
+							wrap="truncate-end"
+						>
+							{lineIndex === 0 ? `Started with: ${line}` : `              ${line}`}
+						</Text>
+					))}
 					<Text color={theme.text.secondary} wrap="truncate-end">
 						{conversations[selected]?.preview
 							? `Last prompt: ${conversations[selected]?.preview}`
@@ -77,16 +132,36 @@ export function ResumePicker({ conversations, selected, mode = 'resume' }: Resum
 					</Text>
 				</Box>
 			)}
+			{notice !== undefined && (
+				<Text color={theme.status.warn} wrap="wrap">
+					{notice}
+				</Text>
+			)}
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
 					{fitHints(
-						[
-							{ text: '↑↓ select', rank: 5 },
-							{ text: 'PgUp/PgDn jump', rank: 1 },
-							{ text: 'Home/End', rank: 1 },
-							{ text: `enter ${mode}`, rank: 5 },
-							{ text: 'esc cancel', short: 'esc', rank: 5 },
-						],
+						renaming !== null
+							? [
+									{ text: 'enter save', rank: 5 },
+									{ text: 'esc cancel', short: 'esc', rank: 5 },
+								]
+							: [
+									{ text: '↑↓ select', rank: 5 },
+									{ text: `enter ${mode}`, rank: 5 },
+									...(mode === 'resume'
+										? [
+												{
+													text: scope === 'all' ? 'ctrl+a this folder' : 'ctrl+a all folders',
+													short: 'ctrl+a',
+													rank: 4,
+												},
+												{ text: 'ctrl+r rename', short: 'ctrl+r', rank: 3 },
+											]
+										: []),
+									{ text: 'PgUp/PgDn jump', rank: 1 },
+									{ text: 'Home/End', rank: 1 },
+									{ text: 'esc cancel', short: 'esc', rank: 5 },
+								],
 						boxedHintWidth(stdout.columns),
 					)}
 				</Text>

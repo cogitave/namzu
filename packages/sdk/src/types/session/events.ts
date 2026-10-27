@@ -447,6 +447,12 @@ type CoreSessionEvent =
 			status?: number
 			/** The classified failure's own sentence. */
 			reason: string
+			/**
+			 * The member that failed had streamed only pieces that can be taken
+			 * back (reasoning, or a tool call still being written): drop what this
+			 * message showed so far, as for a restarting retry.
+			 */
+			restart?: boolean
 	  }
 	| {
 			type: 'tool_completed'
@@ -800,6 +806,8 @@ type CoreSessionEvent =
 			duplicateToolResultsRemoved: number
 			orphanedToolResultsRemoved: number
 			syntheticToolResultsInserted: number
+			/** Of those, how many say the call never started. Absent when none. */
+			neverRanToolResultsInserted?: number
 			/** Exact number of durable image occurrences withheld from later requests. */
 			providerRejectedImagesSuppressed?: number
 	  }

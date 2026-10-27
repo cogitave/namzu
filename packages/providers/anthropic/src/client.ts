@@ -1528,6 +1528,13 @@ export class AnthropicProvider implements LLMProvider {
 					})
 				}
 			}
+			// The loop above returns at `message_stop`; reaching here means the
+			// connection closed without it, so what arrived is not a whole response.
+			throw new ProviderRequestError({
+				kind: 'network',
+				providerId: 'anthropic',
+				detail: 'the connection closed before the response finished',
+			})
 		} catch (err) {
 			// A mid-stream failure arrives AFTER a 200, so the create-call wrap above
 			// never sees it: the vendor SDK's SSE reader throws its own APIError for

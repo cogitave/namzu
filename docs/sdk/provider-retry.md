@@ -17,7 +17,26 @@ before it reaches the turn. `query()` applies it to every chain member unless
 reset, a DNS failure and a timeout are retryable; 400, 401, 403, 404 and a
 context overflow are not. A response body the peer cut mid-stream (undici's
 `TypeError: terminated`) counts as a socket reset, also when a vendor wrapper
-dropped the socket error it carried. An abort is never retried.
+dropped the socket error it carried. A response stream that closes without the
+provider's own end-of-response marker is reported by the driver as a network
+failure of the same kind, so it is retried rather than accepted as a finished
+answer. Every driver does this: a final finish reason on the OpenAI wire
+(OpenAI, OpenRouter, DeepSeek, Zen on every wire, and servers reached through
+`@namzu/http`), `message_stop` on the Anthropic wire, `done` for Ollama, a
+terminal finish reason for Google, and a stop reason for LM Studio (a reply that
+ends with none, or because the model failed or was unloaded, is cut). A certificate that fails verification (expired, self-signed, wrong host)
+is a network failure that is not retried. An abort is never retried.
+
+Two failures on the way to the provider are classified as `network` but are not
+retried, because the same request meets the same obstacle again: a proxy that
+answered the tunnel request with a refusal (a 407 asks for credentials) and a
+certificate that does not chain to an authority the process trusts. They are
+read off the failure's cause chain with `readTransportCause`, which returns
+`'proxy_auth_required'`, `'proxy_refused'` or `'untrusted_certificate'`, and the
+error catalog explains each in its own words (`provider.proxy_auth`,
+`provider.proxy_refused`, `provider.untrusted_certificate`) instead of the
+general `provider.network` advice. `ErrorFacts.transport` carries the same
+value to a custom rule.
 
 ## The options
 
@@ -31,7 +50,7 @@ dropped the socket error it carried. An abort is never retried.
 | `maxRetryAfterMs` | `60000` | A wait the provider names that is longer than this is not slept: the error is surfaced at once and the turn settles (it pauses, when the failure is recoverable). |
 | `jitter` | `'full'` | `'full'` sleeps a random amount between zero and the step. `'proportional'` sleeps the step plus up to a quarter of it, never less. |
 | `retryAfter` | `'exact'` | `'exact'` sleeps what `Retry-After` said. `'floor'` sleeps the longer of that and this attempt's backoff. |
-| `retryMidStream` | `false` | Also retry a stream that failed after it produced text. Off, such a failure ends the call, because the consumer has already seen the text. A stream that produced only reasoning is retried whatever this says. |
+| `retryMidStream` | `false` | Also retry a stream that failed after it produced text. Off, such a failure ends the call, because the consumer has already seen the text. A stream that produced only reasoning, or only the start of a tool call, is retried whatever this says. |
 
 A provider that sends `x-should-retry: false` is believed: the failure is not
 retried whatever its status. `true` is not acted on, because a retryable status
@@ -57,8 +76,20 @@ live indicator, so nothing it printed needs taking back, including under
 With `retryMidStream`, a stream that produced output and then failed is
 restarted from the beginning and the notice carries `restart: true`. Whatever
 that attempt produced is void: the turn drops its own copy and a host that
-showed it must drop it too. A stream that has begun a tool call, or a hosted
-tool, is never restarted, because the call may already be under way.
+showed it must drop it too.
+
+A provider chain treats such pieces (reasoning, or a call still being written) as nothing produced: when a member spends its retries with only those, the chain moves on to the next member and the `fallback` notice carries `restart: true`, which the turn handles like a restarting retry. The `provider_fallback` session event carries the same `restart: true`, so a host that draws the reply as it streams drops what the failed member showed. Its `fromModel` is the model the request asked for when the head of the chain was declared without one, so a host can say which model failed.
+
+A tool call that is still being written when the connection drops is restarted
+too, whatever `retryMidStream` says, as long as no text has been shown: nothing
+runs before the response is settled, so the half-written call is dropped on the
+`restart` notice and the same request is sent again. The model never sees the
+fragment. A stream in which a call finished (`toolCallEnd`), a hosted tool ran
+or a finish reason arrived is never restarted, because that work is real; the
+turn keeps what finished. When the tries are spent and no call came through
+whole, the failure pauses the turn (see below), and a call cut off by the
+connection reaches the model only as "the connection dropped, send the same call
+again", with no size named. The output-limit advice is unchanged.
 
 ## The terminal's policy
 
@@ -91,3 +122,17 @@ the cause in plain words. Esc during the wait interrupts the turn as it does at
 any other time. When the tries run out, or the provider asks for a wait longer
 than a minute, the reply pauses ("Paused. … Press Enter to continue, or Esc to
 stop."), and a new message closes the pause.
+
+A pause that came from a connection that would not hold (no connection, a reset,
+a server fault) does not wait for you: "Paused. Namzu could not reach OpenAI.
+Namzu tries again on its own. Press Enter to try now, or Esc to stop." A server
+fault reads the same ("Paused. OpenAI is having problems on its side. Namzu tries
+again on its own. …"). The reply
+continues from its checkpoint after 15 seconds, then 30 seconds, 1, 2 and 5
+minutes, and every 5 minutes after that, until it goes through; the hint line
+counts down, Enter tries at once and Esc stops it. A try that cannot start
+(the paused turn is gone, or no provider is ready yet) is followed by the next
+step of the same schedule, so the pause never sits without a timer. Sending a
+message or starting another conversation ends the run of tries. A rejected key, a rate limit
+and a tool waiting for a person do not mend themselves and wait for you. A
+certificate that fails verification is named as that and is not retried.

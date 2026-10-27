@@ -256,6 +256,28 @@ describe('withProviderFallback', () => {
 		})
 	})
 
+	it('names the model the head of the chain was asked for when it was declared without one', async () => {
+		const primary = member('primary', [
+			() => {
+				throw httpError(500)
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('ok')
+			},
+		])
+		const wrapped = withProviderFallback([
+			{ provider: primary },
+			{ provider: fallback, model: 'small' },
+		])
+
+		const notices = (await collectChunks(wrapped.chatStream(PARAMS))).flatMap((c) =>
+			c.fallback ? [c.fallback] : [],
+		)
+		expect(notices[0]).toMatchObject({ fromModel: PARAMS.model, toModel: 'small' })
+	})
+
 	it('asks each member for ITS model, not the request’s', async () => {
 		const primary = member('primary', [
 			() => {
@@ -639,6 +661,32 @@ describe('withProviderFallback over withProviderRetry', () => {
 		expect(chunks.some((c) => c.retry !== undefined)).toBe(true)
 		expect(chunks.some((c) => c.fallback !== undefined)).toBe(true)
 		expect(chunks.map((c) => c.delta.content ?? '').join('')).toBe('swapped anyway')
+	})
+
+	it('moves on when the primary spends its retries on half-written output that was voided', async () => {
+		const primary = member('primary', [
+			async function* () {
+				yield { id: 'c', delta: { toolCalls: [{ index: 0, id: 'a', function: { name: 'w' } }] } }
+				throw new TypeError('terminated')
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('served by the next')
+			},
+		])
+		const wrapped = withProviderFallback([
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 1 },
+				}),
+			},
+			{ provider: fallback },
+		])
+		const chunks = await collectChunks(wrapped.chatStream(PARAMS))
+		expect(chunks.find((c) => c.fallback !== undefined)?.fallback?.restart).toBe(true)
+		expect(chunks.map((c) => c.delta.content ?? '').join('')).toBe('served by the next')
 	})
 
 	/**

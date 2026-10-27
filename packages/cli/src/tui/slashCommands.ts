@@ -52,6 +52,7 @@ import {
 	permissionModeFromName,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
@@ -86,6 +87,8 @@ export type SlashAction =
 	| { kind: 'workflows' }
 	/** Open the session's interactive background shell list. */
 	| { kind: 'jobs' }
+	/** `/doctor`: run the health checks and show the result in plain words. */
+	| { kind: 'doctor' }
 	| { kind: 'settings-picker' }
 	| TurnLimitsAction
 	| { kind: 'provider-setup' }
@@ -505,7 +508,11 @@ export function matchSlashCommands(
 	// it prints the problem, which is how its author finds out.
 	const own: SlashCommand[] = userCommands.map((c) => ({
 		name: c.name,
-		description: c.problem ? `Unavailable: ${c.problem}` : c.description,
+		description: c.problem
+			? `Unavailable: ${c.problem}`
+			: c.argumentHint
+				? `${c.argumentHint} ${c.description}`
+				: c.description,
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
@@ -700,11 +707,11 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 					? []
 					: [
 							'Usage:',
-							`  /${user.name}${acceptsArguments ? ' [arguments]' : ''}`,
+							`  /${user.name}${acceptsArguments ? ` ${user.argumentHint ?? '[arguments]'}` : ''}`,
 							'',
 							'Running this command sends its saved prompt to the model.',
 						]),
-				`${user.source === 'project' ? 'Project command' : 'User command (all projects)'}: ${user.path}`,
+				`${userCommandOrigin(user)}: ${user.path}`,
 				...(user.problem ? [`Unavailable: ${user.problem}`] : []),
 			].join('\n'),
 		}
@@ -1295,6 +1302,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
 	},
 	{
+		name: 'doctor',
+		help: { usage: ['/doctor'] },
+		description: 'Check that Namzu, its providers and the sandbox are working.',
+		action: (_ctx, args) =>
+			args.length === 0
+				? { kind: 'doctor' }
+				: { kind: 'message', role: 'system', content: 'Usage: /doctor' },
+	},
+	{
 		name: 'jobs',
 		description: 'See background shells, read output, stop one.',
 		help: { usage: ['/jobs', '/jobs list'] },
@@ -1472,7 +1488,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: renderPermissions(ctx.permissions, true),
+					content: renderPermissions(
+						ctx.permissions,
+						true,
+						sandboxRunsShellUnasked(ctx.sandbox ?? undefined),
+					),
 				}
 			}
 			const chosen = permissionModeFromName(mode)
@@ -2053,7 +2073,11 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 			([key, value]) => `${key}: ${key === 'Executable' ? homePath(value) : value}`,
 		),
 		...(ctx.sessionId ? [`Conversation: ${ctx.sessionId}`] : []),
-		...renderPermissions(ctx.permissions, details).split('\n'),
+		...renderPermissions(
+			ctx.permissions,
+			details,
+			sandboxRunsShellUnasked(ctx.sandbox ?? undefined),
+		).split('\n'),
 	]
 	const sandbox = ctx.sandbox
 	if (!sandbox) {
@@ -2089,11 +2113,12 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 export function renderPermissions(
 	permissions: SlashContext['permissions'],
 	details = false,
+	sandboxedShell = false,
 ): string {
 	const current = permissions.currentMode()
 	const effective = current.mode
 	const lines = [
-		`Permissions: ${permissionModeLabel(effective)}. ${permissionModeDescription(effective)}`,
+		`Permissions: ${permissionModeLabel(effective)}. ${permissionModeDescription(effective, { sandboxedShell })}`,
 	]
 	if (!details) return lines.join('\n')
 	if (current.source === 'launch-bypass')
@@ -2232,6 +2257,26 @@ export function renderAgents(ids: readonly string[]): string {
 		'define a specialist for a single task, which is not listed here because',
 		'it does not exist until the agent asks for it.',
 	].join('\n')
+}
+
+function userCommandOrigin(command: UserCommand): string {
+	if (command.source === 'skill') return 'Skill'
+	return command.source === 'project' ? 'Project command' : 'User command (all projects)'
+}
+
+/**
+ * The hint to show after a command name the person has finished typing.
+ *
+ * Only for `/<name> ` with nothing after the space: once an argument starts,
+ * the hint has done its job. A command with no `argument-hint` shows none.
+ */
+export function argumentHintFor(
+	value: string,
+	userCommands: readonly UserCommand[],
+): string | undefined {
+	const m = /^\/([\w-]+) $/.exec(value)
+	if (!m) return undefined
+	return userCommands.find((command) => command.name === m[1])?.argumentHint
 }
 
 export function runSlash(

@@ -63,6 +63,12 @@ export interface StatusBarProps {
 	readonly dialogOpen?: boolean
 	/** The mode governing undecided tool calls. Omitted or 'prompt' shows the quiet cycle reminder instead of a badge. */
 	readonly permissionMode?: PermissionMode
+	/**
+	 * Shell commands inside the sandbox run without asking (a sandbox that
+	 * confines the file system and the process table is on). In `prompt` mode
+	 * the resting hint says so.
+	 */
+	readonly sandboxShell?: boolean
 	/** Whether Shift+Tab actually reaches `permissionMode` here, so the footer never advertises a dead key. */
 	readonly canCycleMode?: boolean
 	/**
@@ -140,6 +146,7 @@ export function modeGlyph(mode: PermissionMode): {
 }
 
 const QUIET_MODE_HINT = 'shift+tab to cycle'
+const QUIET_SANDBOX_HINT = 'sandbox commands run unasked · shift+tab to cycle'
 const CYCLE_SUFFIX = ' (shift+tab to cycle)'
 const INTERRUPT_HINT = 'esc to interrupt'
 const MANAGE_HINT = '↓ to manage'
@@ -184,6 +191,7 @@ export function StatusBar({
 	dialogOpen = false,
 	permissionMode,
 	canCycleMode,
+	sandboxShell = false,
 	composerMounted = true,
 	restingHint = true,
 	shellCount = 0,
@@ -230,7 +238,9 @@ export function StatusBar({
 		modeLabel: activeMode
 			? `${activeMode.icon} ${activeMode.label} on`
 			: composerMounted && !dialogOpen && restingHint && !working && nothingElse
-				? QUIET_MODE_HINT
+				? sandboxShell
+					? QUIET_SANDBOX_HINT
+					: QUIET_MODE_HINT
 				: '',
 		// The cycle key is dropped as soon as a background task is on
 		// the row: the pill is what the row is about then.
@@ -541,7 +551,7 @@ export function fitStatusLine(input: {
 	if (over()) shells = null
 	if (over()) pr = null
 	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
-	if (over() && mode === QUIET_MODE_HINT) mode = null
+	if (over() && (mode === QUIET_MODE_HINT || mode === QUIET_SANDBOX_HINT)) mode = null
 	if (over() && mode) {
 		const whole: string = mode
 		mode = null

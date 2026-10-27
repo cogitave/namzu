@@ -60,8 +60,13 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 * Off by default, because the decorator cannot un-emit: the consumer has
 	 * already seen those deltas. When on, the retry notice carries
 	 * `restart: true` and the consumer must discard what the failed attempt
-	 * produced; the runtime does this itself. A stream that has begun a tool
-	 * call is never restarted, because the call may already be underway.
+	 * produced; the runtime does this itself.
+	 *
+	 * A stream that has so far produced only tool-call fragments (no text) is
+	 * restarted whatever this says: nothing runs before the response settles,
+	 * and the half-written call is discarded on the same notice. A stream in
+	 * which a call finished, or the provider ran a hosted tool, is never
+	 * restarted, because that work is real.
 	 */
 	readonly retryMidStream?: boolean
 }
@@ -113,9 +118,11 @@ function isReasoningOnly(chunk: StreamChunk): boolean {
  * blocks by index, and clears them on a restart). Once a text or tool-call delta has been
  * yielded the consumer has already emitted `text_delta` events and
  * appended to its buffer, so restarting the request would duplicate
- * output. A mid-stream failure is therefore surfaced, not retried — the
- * existing stream-error path in `streamProviderTurn` handles it (and can
- * still salvage a truncated tool call). This is the whole reason the
+ * output. A mid-stream failure after text is therefore surfaced, not retried,
+ * unless `retryMidStream` — the existing stream-error path in
+ * `streamProviderTurn` handles it (and can still salvage a finished call).
+ * A stream that has only begun tool calls has shown no text, so it is retried
+ * too, the half-written call dropped. This is the whole reason the
  * retry lives in a decorator rather than inside the loop: the loop cannot
  * un-emit.
  *
@@ -158,8 +165,13 @@ export function withProviderRetry(
 			// this is retryable without `retryMidStream`; the notice says
 			// `restart` so a host that showed the thinking drops it.
 			let reasoned = false
-			// A tool call or hosted tool began: past this point a restart could
-			// repeat work that is already underway, so it is never offered.
+			// Text, a citation or a part reached the consumer: a pipe cannot take
+			// that back, so a restart needs `retryMidStream`.
+			let printed = false
+			// A call finished (its arguments are whole) or the provider ran a hosted
+			// tool: that work is real, so a restart is never offered. A call still
+			// being written is not work: nothing runs before the response settles,
+			// and the consumer drops the half-written call on `restart`.
 			let acted = false
 			try {
 				for await (const chunk of provider.chatStream(params)) {
@@ -173,9 +185,16 @@ export function withProviderRetry(
 						if (isReasoningOnly(chunk)) reasoned = true
 						else produced = true
 					}
-					if (chunk.delta.toolCalls?.length || chunk.delta.toolCallEnd || chunk.delta.hostedTool) {
-						acted = true
+					if (
+						chunk.delta.content ||
+						chunk.delta.textPart !== undefined ||
+						chunk.textParts !== undefined ||
+						chunk.delta.citation !== undefined
+					) {
+						printed = true
 					}
+					// A reported finish means the response was whole.
+					if (chunk.delta.toolCallEnd || chunk.delta.hostedTool || chunk.finishReason) acted = true
 
 					if (isErrorOnly && !produced && attempt < config.maxRetries) {
 						throw new Error(chunk.error)
@@ -203,7 +222,8 @@ export function withProviderRetry(
 				const exhausted = attempt >= config.maxRetries
 
 				const restartable =
-					(produced && config.retryMidStream === true && !acted) || (!produced && reasoned)
+					(produced && !acted && (config.retryMidStream === true || !printed)) ||
+					(!produced && reasoned)
 				if ((produced && !restartable) || !classified.retryable || exhausted) {
 					log?.warn('Provider call failed', {
 						[GENAI.SYSTEM]: provider.id,

@@ -358,12 +358,111 @@ function groupAlive(pid: number | undefined): boolean {
 
 const GROUP_POLL_MS = 250
 
+/**
+ * Why a command that was running in the foreground moved to the background:
+ * the person asked (`user`), or the person sent a message that has to reach
+ * the model while the command is still running (`message`).
+ */
+export type ForegroundHandoffReason = 'user' | 'message'
+
+/** A foreground command that can be moved to the background right now. */
+export interface ForegroundCommand {
+	readonly id: string
+	readonly owner: string
+	readonly command: string
+	readonly startedAt: number
+}
+
+interface ForegroundEntry extends ForegroundCommand {
+	readonly background: (reason: ForegroundHandoffReason) => boolean
+}
+
 export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
 	private readonly exitListeners = new Set<(job: BackgroundJob) => void>()
 	private readonly monitorListeners = new Set<(event: MonitorEvent) => void>()
 	private outputWaiters = 0
 	private readonly outputWaitersByOwner = new Map<string, number>()
+	private readonly foreground = new Map<string, ForegroundEntry>()
+	private readonly foregroundListeners = new Set<(owner: string) => void>()
+	private foregroundSeq = 0
+
+	/**
+	 * A foreground command a tool is waiting on, offered for hand-over: while it
+	 * is registered, {@link backgroundForeground} can move it to a job. The tool
+	 * registers once the command has run long enough that moving it is worth
+	 * offering, and unregisters (the returned function) when the call settles.
+	 * `background` returns whether the command was taken over.
+	 */
+	registerForeground(
+		owner: string,
+		entry: {
+			readonly command: string
+			readonly background: (reason: ForegroundHandoffReason) => boolean
+		},
+	): () => void {
+		const id = `fg-${++this.foregroundSeq}`
+		this.foreground.set(id, {
+			id,
+			owner,
+			command: entry.command,
+			startedAt: Date.now(),
+			background: entry.background,
+		})
+		this.announceForeground(owner)
+		return () => {
+			if (this.foreground.delete(id)) this.announceForeground(owner)
+		}
+	}
+
+	/** Foreground commands of one owner that can be moved to the background, oldest first. */
+	foregroundCommands(owner: string): readonly ForegroundCommand[] {
+		return [...this.foreground.values()]
+			.filter((entry) => entry.owner === owner)
+			.map(({ id, command, startedAt }) => ({ id, owner, command, startedAt }))
+	}
+
+	/**
+	 * Move every foreground command of `owner` to the background. Returns how
+	 * many were taken over; a command that ended or could not be taken over
+	 * keeps its own outcome and is not counted.
+	 */
+	backgroundForeground(owner: string, reason: ForegroundHandoffReason): number {
+		let moved = 0
+		for (const entry of [...this.foreground.values()]) {
+			if (entry.owner !== owner) continue
+			let taken = false
+			try {
+				taken = entry.background(reason)
+			} catch {
+				// A command that cannot be handed over keeps running where it is.
+			}
+			if (taken) {
+				moved += 1
+				this.foreground.delete(entry.id)
+			}
+		}
+		if (moved > 0) this.announceForeground(owner)
+		return moved
+	}
+
+	/** Be told when the set of hand-over-able foreground commands of any owner changes. */
+	onForegroundChange(listener: (owner: string) => void): () => void {
+		this.foregroundListeners.add(listener)
+		return () => {
+			this.foregroundListeners.delete(listener)
+		}
+	}
+
+	private announceForeground(owner: string): void {
+		for (const listener of this.foregroundListeners) {
+			try {
+				listener(owner)
+			} catch {
+				// A listener that throws is its owner's problem.
+			}
+		}
+	}
 
 	/**
 	 * Be told when a job ends, whoever owns it. A job outlives the call that
@@ -1257,6 +1356,12 @@ export function bindOwner(
 				hostOutput: true,
 				...(params.initialOutput ? { initialOutput: params.initialOutput } : {}),
 			}),
+		// The owner is bound here, so a tool can offer its own waiting command and
+		// no other turn's.
+		registerForeground: (entry: {
+			command: string
+			background: (reason: ForegroundHandoffReason) => boolean
+		}) => registry.registerForeground(owner, entry),
 		get: (id: string) => mine(id),
 		awaitStarted: (id: string) => {
 			mine(id)

@@ -46,7 +46,7 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
 
 /** What the model is told about owned work, wherever it is shown. */
 const OWNED_WORK_GUIDANCE =
-	'Each task gives its id (taskId), its state, how its turn ended (turnStatus), why it stopped (stopReason), and whether its result has reached this conversation (resultDelivery: delivered-to-history, or not-delivered). Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.'
+	'Each task gives its id (taskId), its state, how its turn ended (turnStatus), why it stopped (stopReason), and whether its result has reached this conversation (resultDelivery: delivered-to-history, or not-delivered). Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Results reach you and not the user, so before you end a reply check that the result of every finished task has been reported to the user, once. Do not repeat a synthesis already given.'
 
 /**
  * The ids of the tasks that earlier recorded entries name, read from the
@@ -809,8 +809,8 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 
 	const preamble =
 		handles.length === 1
-			? 'A task you launched has finished. This is its result — you were not waiting on it, so it arrives here rather than as a tool result.'
-			: `${handles.length} tasks you launched have finished. These are their results — you were not waiting on them, so they arrive here rather than as tool results.`
+			? 'A task you launched has finished. This is its result — you were not waiting on it, so it arrives here rather than as a tool result. The user has not seen it; tell them what it found in your next message.'
+			: `${handles.length} tasks you launched have finished. These are their results — you were not waiting on them, so they arrive here rather than as tool results. The user has not seen them; tell them what each found in your next message.`
 
 	return `${preamble}\n\n${blocks.join('\n\n')}`
 }

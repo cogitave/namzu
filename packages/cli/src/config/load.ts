@@ -30,7 +30,13 @@ import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
 import { parse as yamlParse } from 'yaml'
 
+import { splitProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import {
+	McpServerFileError,
+	PROJECT_MCP_FILE,
+	readMcpServerFile,
+} from '../integrations/mcp/shared-file.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { isWorkflowSizeGuideline } from '../integrations/workflows/size.js'
 import { isFormatName } from '../output/index.js'
@@ -77,6 +83,8 @@ import type {
 	TerminalNotificationEvent,
 	TuiConfig,
 	TurnLimitsConfig,
+	UpdateChannel,
+	UpdatesConfig,
 	WorkflowCliConfig,
 } from './schema.js'
 import {
@@ -233,6 +241,7 @@ function resolveConfigWithProvenance(
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
 	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
+	const sharedMcpPath = resolve(cwd, PROJECT_MCP_FILE)
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
@@ -257,6 +266,22 @@ function resolveConfigWithProvenance(
 				'smallModel',
 			])
 		: {}
+	// `.mcp.json`: the project's shared tool servers. Read under the same trust
+	// as `namzu.config.json`, so a folder nobody has trusted starts none of
+	// them. A server the project file also names keeps the project file's
+	// entry; the rest are added.
+	// A server in it starts only once the person approved that server for this
+	// folder (and the entry still reads as it did then).
+	const sharedServers = mode.includeProject
+		? approvedSharedServers(
+				readSharedMcpServers(sharedMcpPath),
+				resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
+				cwd,
+			)
+		: undefined
+	if (sharedServers && projectCfg.mcpServers !== undefined) {
+		projectCfg.mcpServers = { ...sharedServers, ...projectCfg.mcpServers }
+	}
 	// The project's own file that git ignores: a person's answers for this
 	// folder. Read under the same trust as the project file and held to the
 	// same limits, since a folder that arrives as an archive can carry one.
@@ -284,6 +309,14 @@ function resolveConfigWithProvenance(
 	const merged = mergeConfigs(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
+		...(sharedServers && projectCfg.mcpServers === undefined
+			? [
+					constantLayer(
+						asConfigObject(sharedMcpPath, { mcpServers: sharedServers }, SHARED_MCP_LABEL),
+						{ kind: 'project-file', path: sharedMcpPath },
+					),
+				]
+			: []),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
 		constantLayer(localCfg, { kind: 'local-file', path: localPath }),
 		// After both files and before the environment. A profile is a
@@ -526,6 +559,47 @@ function readYamlIfExists(path: string): MutableConfig {
 
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
 const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+const SHARED_MCP_LABEL = '.mcp.json in this project'
+
+function approvedSharedServers(
+	declared: McpServersConfig | undefined,
+	namzuHome: string,
+	cwd: string,
+): McpServersConfig | undefined {
+	if (!declared) return undefined
+	const { approved } = splitProjectMcpServers(namzuHome, cwd, declared)
+	return Object.keys(approved).length > 0 ? approved : undefined
+}
+
+/**
+ * The servers `.mcp.json` declares and the person has not yet approved for
+ * this folder, with the declared table so a caller can record an answer.
+ */
+export function pendingProjectMcpServers(opts: {
+	readonly cwd: string
+	readonly home?: string
+	readonly env?: NodeJS.ProcessEnv
+}): { readonly declared: McpServersConfig; readonly pending: readonly string[] } {
+	const declared = readSharedMcpServers(resolve(opts.cwd, PROJECT_MCP_FILE)) ?? {}
+	const namzuHome = resolveNamzuHome({
+		...(opts.home ? { home: opts.home } : {}),
+		env: opts.env ?? process.env,
+	})
+	return { declared, pending: splitProjectMcpServers(namzuHome, opts.cwd, declared).pending }
+}
+
+/** The servers `.mcp.json` declares, or undefined when it has none or is absent. */
+function readSharedMcpServers(path: string): McpServersConfig | undefined {
+	try {
+		const servers = readMcpServerFile(path, SHARED_MCP_LABEL)
+		return servers && Object.keys(servers).length > 0 ? servers : undefined
+	} catch (cause) {
+		if (cause instanceof McpServerFileError) {
+			throw new ConfigLoadError(path, cause.message, { cause, complete: true })
+		}
+		throw cause
+	}
+}
 
 /**
  * The project's local config: the same settings as the project file, kept out
@@ -735,6 +809,29 @@ const CONFIG_READERS: ConfigReaders = {
 	hypermode: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	updates: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw)) {
+			if (key !== 'auto' && key !== 'channel' && key !== 'check')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not an updates setting (auto, channel, check)',
+				)
+		}
+		if (raw.auto !== undefined && typeof raw.auto !== 'boolean')
+			return invalidConfigValue(context, ['auto'], 'must be true or false')
+		if (raw.check !== undefined && typeof raw.check !== 'boolean')
+			return invalidConfigValue(context, ['check'], 'must be true or false')
+		if (raw.channel !== undefined && raw.channel !== 'latest' && raw.channel !== 'stable')
+			return invalidConfigValue(context, ['channel'], 'must be "latest" or "stable"')
+		return {
+			...(raw.auto !== undefined ? { auto: raw.auto as boolean } : {}),
+			...(raw.channel !== undefined ? { channel: raw.channel as UpdateChannel } : {}),
+			...(raw.check !== undefined ? { check: raw.check as boolean } : {}),
+		}
 	},
 	learningObservations: (v, context) => {
 		if (typeof v === 'boolean') return v
@@ -1222,13 +1319,26 @@ const CONFIG_READERS: ConfigReaders = {
 	limits: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (!['maxIterations', 'tokenBudget', 'timeoutMs', 'waitForProviderMs'].includes(key))
+			if (
+				![
+					'maxIterations',
+					'tokenBudget',
+					'timeoutMs',
+					'waitForProviderMs',
+					'costLimitUsd',
+				].includes(key)
+			)
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs)',
+					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
+			if (key === 'costLimitUsd') {
+				if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+					return invalidConfigValue(context, [key], 'must be a number of dollars, 0 or more')
+				continue
+			}
 			const minimum = key === 'waitForProviderMs' ? 1 : 0
 			if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
 				return invalidConfigValue(context, [key], `must be a safe whole number at least ${minimum}`)
@@ -1861,6 +1971,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	statusLine: undefined,
 	// Changes what the model is told on every turn; a file decision, never a variable a shell profile could carry invisibly.
 	hypermode: undefined,
+	// Installs software on this machine; read from `NAMZU_AUTO_UPDATE` and
+	// `NAMZU_UPDATE_CHANNEL` by the updater itself, not carried as a config field.
+	updates: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
 	learningObservations: undefined,
 	// Spends tokens in the background and changes what conversations are told; a file decision.
@@ -2083,6 +2196,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'codeAnalysis' && layer.config.codeAnalysis) {
 				// `enabled: false` holds: a later file may turn the tool off, never back on.
 				out.codeAnalysis = mergeCodeAnalysisConfig(out.codeAnalysis, layer.config.codeAnalysis)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'updates' && layer.config.updates !== undefined) {
+				// A project layer only lowers. See `mergeUpdatesConfig`.
+				out.updates = mergeUpdatesConfig(
+					out.updates,
+					layer.config.updates,
+					isProjectSource(layer.sourceFor(key)),
+				)
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
@@ -2337,6 +2460,24 @@ export function mergeTuiConfig(
 ): TuiConfig {
 	const { theme: _theme, reducedMotion: _motion, ...rest } = layer
 	return { ...below, ...(fromProject ? rest : layer) }
+}
+
+/**
+ * `updates` from one more layer. Installing software and choosing what to
+ * install are the operator's: a project file may turn checking or installing
+ * off for its own runs, never on, and never picks the channel.
+ */
+export function mergeUpdatesConfig(
+	below: UpdatesConfig | undefined,
+	layer: UpdatesConfig,
+	fromProject: boolean,
+): UpdatesConfig {
+	if (!fromProject) return { ...below, ...layer }
+	return {
+		...below,
+		...(layer.auto === false ? { auto: false } : {}),
+		...(layer.check === false ? { check: false } : {}),
+	}
 }
 
 function isProjectSource(source: ConfigSource): boolean {

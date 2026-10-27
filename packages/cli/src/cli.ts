@@ -8,6 +8,7 @@
  */
 
 import { resolve } from 'node:path'
+import { usesCustomNetwork } from './network/settings.js'
 import { formatUsageError } from './usage-error.js'
 
 import { Command, CommanderError, Option } from 'commander'
@@ -55,6 +56,20 @@ import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { PERMISSION_MODE_NAMES } from './permissions/mode-names.js'
 import { CLI_VERSION } from './version.js'
+
+/** The root options that only `exec` takes after the command name. */
+const PER_RUN_FLAG_KEYS: ReadonlySet<string> = new Set([
+	'appendSystemPrompt',
+	'allowedTools',
+	'disallowedTools',
+	'fallbackModel',
+	'maxBudgetUsd',
+])
+
+/** A repeatable option's accumulator: each use adds one value. */
+function collectFlagValue(value: string, previous: string[] | undefined): string[] {
+	return [...(previous ?? []), value]
+}
 
 /** sysexits EX_USAGE — command-line argument error. */
 const EX_USAGE = 64
@@ -201,6 +216,31 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			).choices(PERMISSION_MODE_NAMES),
 		)
 		.option(
+			'--append-system-prompt <text|@file>',
+			'Add standing instructions for this launch only; @file reads them from a file. They go after the cached part of the prompt, so the cache is untouched.',
+		)
+		.option(
+			'--allowed-tools <list>',
+			'Allow these tools without asking for this launch, e.g. "edit bash(git status*)"; repeatable. A deny rule still wins.',
+			collectFlagValue,
+		)
+		.option(
+			'--disallowed-tools <list>',
+			'Refuse these tools for this launch, e.g. "bash(rm *)"; repeatable.',
+			collectFlagValue,
+		)
+		.option(
+			'--fallback-model <provider/model[,…]>',
+			'Models to fall over to, in order, when the first cannot answer; replaces the saved fallbacks for this launch.',
+			collectFlagValue,
+		)
+		.addOption(
+			new Option(
+				'--max-budget-usd <amount>',
+				'Spend limit in dollars. It belongs to a headless run: pass it after exec.',
+			).hideHelp(),
+		)
+		.option(
 			'--message <text>',
 			'Send this text as the first message once the interactive session is ready, for this launch only. It runs as a plain prompt, never a slash command, and is not sent again on resume.',
 		)
@@ -223,15 +263,36 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', async (command, action) => {
 			rt ??= await import('./cli-runtime.js')
+			// The proxy and client certificate the environment names, for every
+			// request this process makes. Only a machine that sets one pays for
+			// loading the HTTP client library.
+			if (usesCustomNetwork(process.env)) {
+				await (await import('./network/install.js')).installNetwork()
+			}
 			const launchOnly = (
-				['provider', 'model', 'effort', 'permissionMode', 'message', 'continue', 'resume'] as const
+				[
+					'provider',
+					'model',
+					'effort',
+					'permissionMode',
+					'message',
+					'continue',
+					'resume',
+					'appendSystemPrompt',
+					'allowedTools',
+					'disallowedTools',
+					'fallbackModel',
+					'maxBudgetUsd',
+				] as const
 			).filter((key) => command.opts()[key] !== undefined)
 			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
 				const flags = launchOnly.map(
-					(key) => `--${key === 'permissionMode' ? 'permission-mode' : key}`,
+					(key) => `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
 				)
+				// `drain` takes the model and mode flags after it, not the per-run ones.
+				const perRun = launchOnly.some((key) => PER_RUN_FLAG_KEYS.has(key))
 				command.error(
-					action.name() === 'exec' || action.name() === 'drain'
+					action.name() === 'exec' || (action.name() === 'drain' && !perRun)
 						? `${flags.join(', ')} before the command apply to the interactive TUI; for ${action.name()}, pass them after it: namzu ${action.name()} ${flags[0]} <value> "<prompt>".`
 						: `${flags.join(', ')} apply to the interactive TUI, not this subcommand.`,
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
@@ -484,6 +545,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
+				appendSystemPrompt?: string
+				allowedTools?: string[]
+				disallowedTools?: string[]
+				fallbackModel?: string[]
+				maxBudgetUsd?: string
 				continue?: boolean
 				resume?: string | true
 			}>()
@@ -529,6 +595,32 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						resolve(process.cwd(), launchOpts.outputSchema),
 					)
 				: undefined
+			// A spend limit stops a headless run; nothing here would honour it, and a
+			// limit that is accepted and ignored is worse than a refusal.
+			if (launchOpts.maxBudgetUsd !== undefined) {
+				getBootstrapContext().formatter.error({
+					message:
+						'--max-budget-usd stops a headless run at a dollar amount; pass it after the command: namzu exec --max-budget-usd <amount> "<prompt>".',
+				})
+				setExitCode(EX_USAGE)
+				return
+			}
+			// The four per-run flags are read once, here, so a bad value is refused
+			// before the screen opens rather than reported inside it.
+			const runFlags = runtime().resolveRunFlags(
+				{
+					appendSystemPrompt: launchOpts.appendSystemPrompt ?? null,
+					allowedTools: launchOpts.allowedTools ?? [],
+					disallowedTools: launchOpts.disallowedTools ?? [],
+					fallbackModels: launchOpts.fallbackModel ?? [],
+				},
+				{ version: 3, providers: [], subagents: { active: [] } },
+			)
+			if ('error' in runFlags) {
+				getBootstrapContext().formatter.error({ message: runFlags.error })
+				setExitCode(EX_USAGE)
+				return
+			}
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			// What the command line and the configuration let this launch start in.
 			// A mode that stops asking is refused here, in plain words, before
@@ -571,6 +663,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					? { permissionMode: launchPlan.mode }
 					: {}),
 				...(launchOpts.message?.trim() ? { message: launchOpts.message } : {}),
+				...(launchOpts.fallbackModel?.length ? { fallbackModels: launchOpts.fallbackModel } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing
@@ -580,7 +673,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
 				runtime().warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
 				const permissions = runtime().compilePermissionLayers(
-					runtime().permissionLayersOf(resolvedCtx.config),
+					[...runtime().permissionLayersOf(resolvedCtx.config), ...runFlags.permissionLayers],
 					resolvedCtx.config.permissionChecks,
 				)
 				for (const d of permissions.diagnostics) {
@@ -611,6 +704,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { allowDangerouslySkipPermissions: true }
 						: {}),
 					permissionSource: launchPlan.source,
+					...(runFlags.appendSystem ? { appendSystem: runFlags.appendSystem } : {}),
 					// The project's own file may close bypass or auto for its folder, so the
 					// door is recomputed from the full configuration.
 					bypassAvailable: (() => {
@@ -642,6 +736,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.learningGenerator !== undefined
 						? { learningGenerator: resolvedCtx.config.learningGenerator }
 						: {}),
+					...(resolvedCtx.config.telemetry ? { telemetry: resolvedCtx.config.telemetry } : {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
@@ -674,6 +769,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { toolResultScreens: resolvedCtx.config.toolResultScreens }
 						: {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
+					...(resolvedCtx.config.updates ? { updates: resolvedCtx.config.updates } : {}),
 				}
 			}
 			const tuiCtx = buildTuiContext(commandCtx, process.cwd())

@@ -42,7 +42,11 @@ returns a failure with retry guidance, not fabricated results. This limits local
 bursts; it does not guarantee availability or coordinate separate CLI processes.
 Responses are bounded to 1 MiB and retain source links and untrusted provenance.
 
-`web.fetch` remains off by default and independently enables guarded URL fetching.
+`web.fetch` is on by default and independently controls guarded URL fetching. Every new
+domain is asked about once, with three answers: "Yes", "Yes, and don't ask again for <host> in
+this project" (saved to the project's local config, and covering that host only, over http and
+https), and "No". Set `web.fetch: false`
+in `config.yaml` to remove the tool, which was the behaviour before it became the default.
 `web_fetch` takes a `url` and a `prompt`: the page is converted to markdown and the
 [small model](small-model.md) answers the prompt from it; a redirect to another
 host is returned to the model rather than followed, and a page is cached for 15

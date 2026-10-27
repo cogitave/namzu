@@ -239,8 +239,9 @@ describe('unreadableToolInputMessage', () => {
 		expect(cutOffMessage).toMatch(/ Write a long note as several notes\.$/)
 		expect(cutOffMessage).not.toContain('JSON array')
 
+		// A dropped connection is not a size problem: the tool's size hint stays out.
 		const droppedMessage = unreadableToolInputMessage('note', cutOff(10), tool)
-		expect(droppedMessage).toMatch(/ Write a long note as several notes\.$/)
+		expect(droppedMessage).not.toContain('several notes')
 	})
 
 	it("falls back to the tool's validation hint for a malformed call that declares no malformed hint", () => {
@@ -290,10 +291,34 @@ describe('unreadableToolInputMessage', () => {
 		expect(message).not.toMatch(/Send|under \d+/)
 	})
 
-	it('says the stream ended when it reported no finish reason', () => {
+	it('says the connection dropped when the stream reported no finish reason', () => {
 		const message = unreadableToolInputMessage('ask', cutOff(300))
-		expect(message).toContain('the response stream ended after 300 characters')
-		expect(message).toMatch(/Send the call again\.$/)
+		expect(message).toContain('the connection dropped after 300 characters')
+		expect(message).toMatch(/Send the same call again, unchanged\.$/)
+	})
+
+	it('gives no size budget to a call a dropped connection cut, however small or large the tool declares', () => {
+		// 1165 characters against a 20000 budget, and 18118 against 12000: neither
+		// call was too big, so neither is told to be smaller.
+		for (const [length, budget] of [
+			[1_165, 20_000],
+			[18_118, 12_000],
+		] as const) {
+			const message = unreadableToolInputMessage('workflow', cutOff(length), {
+				largeStringArguments: { script: budget },
+				truncatedInputHint: 'Write a shorter script.',
+			})
+			expect(message).not.toMatch(/\d+ characters\.|under|keep|shorter|less in one call/)
+			expect(message).toContain(`after ${length} characters of its arguments`)
+			expect(message).toContain('Send the same call again, unchanged.')
+		}
+	})
+
+	it('keeps the output-limit advice for a call the limit cut', () => {
+		const message = unreadableToolInputMessage('workflow', cutOff(1_165, 'length'), {
+			largeStringArguments: { script: 20_000 },
+		})
+		expect(message).toContain('keep `script` under 500 characters')
 	})
 
 	it('answers a call an older runtime marked, with no reason recorded, without guessing one', () => {
