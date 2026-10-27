@@ -24,6 +24,8 @@ import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
 import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import { McpServerFileError, mergeLaunchMcpServers } from '../integrations/mcp/shared-file.js'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { REASONING_EFFORT_LEVELS } from './effort-levels.js'
 import { durationMs } from './provider-wait.js'
@@ -110,6 +112,12 @@ export interface ExecFlags {
 	 */
 	outputSchema: string | null
 	/**
+	 * `--mcp-config <file>`, repeatable: tool servers for this run, in the same
+	 * `{ "mcpServers": { ... } }` shape a project's `.mcp.json` uses. The paths
+	 * as given; the command resolves them against the process's directory.
+	 */
+	mcpConfigs: string[]
+	/**
 	 * `--flags` this parser does not know.
 	 *
 	 * Collected rather than folded into `rest`, because `rest` becomes the
@@ -141,6 +149,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		gateRetries: null,
 		json: false,
 		outputSchema: null,
+		mcpConfigs: [],
 		unknown: [],
 		rest: [],
 	}
@@ -250,6 +259,18 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 				trimmed((v) => {
 					out.outputSchema = v
 				}),
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'mcp-config',
+				(v) => {
+					const file = v.trim()
+					if (file) out.mcpConfigs.push(file)
+				},
 				idx,
 			)
 		)
@@ -524,4 +545,19 @@ export function applyProviderFlags(
 	// where neither flag was given, and the branch above covers `--provider`.
 	const remodelled: ProviderChoice = { id: head.id, model: flags.model as string }
 	return { ...prefs, providers: [remodelled, ...rest] }
+}
+
+/** The tool servers this run starts: the config's, plus each `--mcp-config` file's. */
+export function launchMcpServers(
+	configured: McpServersConfig | undefined,
+	files: readonly string[],
+): { readonly servers: McpServersConfig | undefined } | { readonly error: string } {
+	try {
+		return {
+			servers: mergeLaunchMcpServers(configured, files, (file) => resolve(process.cwd(), file)),
+		}
+	} catch (error) {
+		if (error instanceof McpServerFileError) return { error: error.message }
+		throw error
+	}
 }

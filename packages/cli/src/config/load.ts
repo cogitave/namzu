@@ -31,6 +31,11 @@ import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 import { parse as yamlParse } from 'yaml'
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import {
+	McpServerFileError,
+	PROJECT_MCP_FILE,
+	readMcpServerFile,
+} from '../integrations/mcp/shared-file.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { isWorkflowSizeGuideline } from '../integrations/workflows/size.js'
 import { isFormatName } from '../output/index.js'
@@ -233,6 +238,7 @@ function resolveConfigWithProvenance(
 	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
 	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
+	const sharedMcpPath = resolve(cwd, PROJECT_MCP_FILE)
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
@@ -257,6 +263,14 @@ function resolveConfigWithProvenance(
 				'smallModel',
 			])
 		: {}
+	// `.mcp.json`: the project's shared tool servers. Read under the same trust
+	// as `namzu.config.json`, so a folder nobody has trusted starts none of
+	// them. A server the project file also names keeps the project file's
+	// entry; the rest are added.
+	const sharedServers = mode.includeProject ? readSharedMcpServers(sharedMcpPath) : undefined
+	if (sharedServers && projectCfg.mcpServers !== undefined) {
+		projectCfg.mcpServers = { ...sharedServers, ...projectCfg.mcpServers }
+	}
 	// The project's own file that git ignores: a person's answers for this
 	// folder. Read under the same trust as the project file and held to the
 	// same limits, since a folder that arrives as an archive can carry one.
@@ -284,6 +298,14 @@ function resolveConfigWithProvenance(
 	const merged = mergeConfigs(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
+		...(sharedServers && projectCfg.mcpServers === undefined
+			? [
+					constantLayer(
+						asConfigObject(sharedMcpPath, { mcpServers: sharedServers }, SHARED_MCP_LABEL),
+						{ kind: 'project-file', path: sharedMcpPath },
+					),
+				]
+			: []),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
 		constantLayer(localCfg, { kind: 'local-file', path: localPath }),
 		// After both files and before the environment. A profile is a
@@ -526,6 +548,20 @@ function readYamlIfExists(path: string): MutableConfig {
 
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
 const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+const SHARED_MCP_LABEL = '.mcp.json in this project'
+
+/** The servers `.mcp.json` declares, or undefined when it has none or is absent. */
+function readSharedMcpServers(path: string): McpServersConfig | undefined {
+	try {
+		const servers = readMcpServerFile(path, SHARED_MCP_LABEL)
+		return servers && Object.keys(servers).length > 0 ? servers : undefined
+	} catch (cause) {
+		if (cause instanceof McpServerFileError) {
+			throw new ConfigLoadError(path, cause.message, { cause, complete: true })
+		}
+		throw cause
+	}
+}
 
 /**
  * The project's local config: the same settings as the project file, kept out

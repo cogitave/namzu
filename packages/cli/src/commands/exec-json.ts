@@ -100,6 +100,7 @@ import {
 	type ExecFlags,
 	applyProviderFlags,
 	buildGate,
+	launchMcpServers,
 	loadSkillsContext,
 	resolveWorkingDirectory,
 	unknownOptionMessage,
@@ -210,6 +211,8 @@ export async function execJson(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	if ('error' in mcpServers) return fail(mcpServers.error)
 
 	// Project command discovery belongs behind the target folder's trust
 	// gate, alongside project config and instructions.
@@ -353,7 +356,7 @@ export async function execJson(
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
 		...(ctx.config.permissionSettings ? { permissionSettings: ctx.config.permissionSettings } : {}),
-		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+		...(mcpServers.servers ? { mcpServers: mcpServers.servers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),

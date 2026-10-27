@@ -61,6 +61,18 @@ namzu mcp test tickets
 namzu --profile work --format json mcp test tickets --trust
 ```
 
+## Share servers with the project
+
+A `.mcp.json` at the root of a project declares servers for everyone who works in it:
+
+```json
+{ "mcpServers": { "tickets": { "command": "node", "args": ["tickets.js"] } } }
+```
+
+It is read exactly when `namzu.config.json` is, which is after you have trusted the folder. Until then no server in it is read, let alone started: trusting the folder is your approval, and `--trust` on `exec` is the same decision for one run. A server that `namzu.config.json` also names keeps the config entry; the rest are added. A `type` key (`stdio`, `http`) is accepted and ignored, because the entry's `command` or `url` already says which it is; servers that need Server-Sent Events are not supported. A file that is not valid JSON stops the start with its name. `${VAR:-default}` and variables outside `env` and `headers` are not expanded, as in the config.
+
+For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the servers in that file, which has the same shape. The option repeats; a later file wins over an earlier one and over the config for a server of the same name. A missing or unreadable file stops the run with a usage error naming it.
+
 ## One entry
 
 ```json
