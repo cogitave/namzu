@@ -26,4 +26,19 @@ describe('a path as a person reads it', () => {
 	it('leaves an address alone', () => {
 		expect(displayPath('https://example.com/a', cwd, home)).toBe('https://example.com/a')
 	})
+
+	it('calls a session plan file the plan, wherever the session folder is', () => {
+		const plan = '/tmp/scratch/home/projects/-tmp-x-proje/01a17cc7-7d58/plans/plan.md'
+		expect(displayPath(plan, cwd, home)).toBe('the plan')
+		expect(displayPath(plan, undefined, home)).toBe('the plan')
+		expect(displayPath('C:\\Users\\me\\.namzu\\projects\\p\\s\\plans\\plan.md', cwd, home)).toBe(
+			'the plan',
+		)
+	})
+
+	it('leaves a plan.md of the project alone', () => {
+		expect(displayPath('/home/me/work/app/docs/plans/plan.md', cwd, home)).toBe(
+			'docs/plans/plan.md',
+		)
+	})
 })

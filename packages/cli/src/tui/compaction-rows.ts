@@ -8,6 +8,8 @@
  * the summary itself, what the reducer threw) is reachable but not in the way.
  */
 
+import type { Message } from '@namzu/sdk'
+
 import { withDebugDetail } from './capability-notice.js'
 
 /** The live row while a compaction runs. */
@@ -21,6 +23,38 @@ export const COMPACTED_HINT = '(ctrl+o for history)'
 /** The result of `/compact`: the summary sits behind Ctrl+O. */
 export const COMPACT_RESULT_TEXT = 'Compacted'
 export const COMPACT_RESULT_HINT = '(ctrl+o to see full summary)'
+
+/** A rough size of a conversation in tokens: its text over four characters per token. */
+export function estimateHistoryTokens(messages: readonly Message[]): number {
+	let chars = 0
+	for (const message of messages) {
+		if (typeof message.content === 'string') chars += message.content.length
+		else if (message.content) {
+			for (const block of message.content) if (block.type === 'text') chars += block.text.length
+		}
+	}
+	return Math.ceil(chars / 4)
+}
+
+/**
+ * The `/compact` result: what was summarised and how much smaller the
+ * conversation got, in short humanised figures. The sizes are estimates, so
+ * they read "about"; when nothing got smaller only the message count shows.
+ */
+export function compactResultLine(input: {
+	readonly shed: number
+	readonly tokensBefore: number
+	readonly tokensAfter: number
+}): string {
+	const parts: string[] = [COMPACT_RESULT_TEXT]
+	if (input.shed > 0) parts.push(`${input.shed} message${input.shed === 1 ? '' : 's'} summarized`)
+	if (input.tokensBefore > input.tokensAfter) {
+		parts.push(
+			`context about ${approximate(input.tokensBefore)} to ${approximate(input.tokensAfter)} tokens`,
+		)
+	}
+	return parts.join(' · ')
+}
 
 /** What `/compact` says when there is nothing worth summarising. */
 export const NOTHING_TO_COMPACT_TEXT =

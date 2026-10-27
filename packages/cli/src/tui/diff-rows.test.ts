@@ -11,6 +11,20 @@ import { spansText } from './diff-view.js'
 describe('the body under an edit or a write', () => {
 	const hunks = [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 2, lines: ['+a', '+b'] }]
 
+	it('names the session plan file as the plan, not by its folder', () => {
+		const body = diffBodyFromFacts(
+			{
+				kind: 'write',
+				path: '/h/.namzu/projects/p/s/plans/plan.md',
+				operation: 'created',
+				added: 2,
+				hunks,
+			},
+			'/p',
+		)
+		expect(spansText(body?.diff.summary ?? [])).toBe('Wrote 2 lines to the plan')
+	})
+
 	it('shows a created file as its first lines, said as Wrote N lines to <path>', () => {
 		const facts: ToolFacts = {
 			kind: 'write',

@@ -60,11 +60,12 @@ async function press(h: ReturnType<typeof mount>, ...keys: string[]) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('the plan approval box', () => {
-	it('shows the plan, where it is kept, and the three rows in order', () => {
+	it('shows the plan and the three rows in order, never the folder the plan is kept in', () => {
 		const h = mount()
 		const frame = h.lastFrame() ?? ''
 		expect(frame).toContain('Plan ready for review')
-		expect(frame).toContain('/h/.namzu/projects/p/s/plans/plan.md')
+		expect(frame).not.toContain('plans/plan.md')
+		expect(frame).not.toContain('.namzu')
 		expect(frame).toContain('Add a hello line.')
 		expect(frame).toMatch(
 			/1\. Yes, and auto-approve edits[\s\S]*2\. Yes, and ask before each edit[\s\S]*3\. No, keep planning/,
