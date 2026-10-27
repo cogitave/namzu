@@ -11,7 +11,7 @@ import { removeOwnPowerShellShim, runNpmUpgrade } from '../npm-global.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { fetchNamzuRelease } from '../updates.js'
 import { type InstallerRequest, PUBLIC_REGISTRY } from './apply.js'
-import { classifyInstall, realRoot } from './install-kind.js'
+import { type InstallKind, classifyInstall, realRoot } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
 import { type UpdatePolicy, resolveUpdatePolicy } from './policy.js'
 import { type Updater, type UpdaterEvent, createUpdater } from './updater.js'
@@ -25,6 +25,26 @@ export interface StartAutoUpdateOptions {
 
 const PACKAGE_ROOT = realRoot(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'))
 
+/** Where this copy lives and which Namzu home its update files are in; null without a home. */
+export function currentInstall(
+	env: NodeJS.ProcessEnv = process.env,
+): { readonly install: InstallKind; readonly home: string } | null {
+	let home: string
+	try {
+		home = resolveNamzuHome({ env })
+	} catch {
+		return null
+	}
+	const install = classifyInstall({
+		packageRoot: PACKAGE_ROOT,
+		platform: process.platform,
+		namzuHome: home,
+		env,
+		isElectron: process.versions.electron !== undefined,
+	})
+	return { install, home }
+}
+
 /** Start the loop; returns its stop function. The terminal UI is the one caller. */
 export function startAutoUpdate(options: StartAutoUpdateOptions): {
 	stop(): void
@@ -34,19 +54,9 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 	const policy = resolveUpdatePolicy({ config: options.config, env, interactive: true })
 	const noop = { stop() {}, policy }
 	if (!policy.check) return noop
-	let home: string
-	try {
-		home = resolveNamzuHome({ env })
-	} catch {
-		return noop
-	}
-	const install = classifyInstall({
-		packageRoot: PACKAGE_ROOT,
-		platform: process.platform,
-		namzuHome: home,
-		env,
-		isElectron: process.versions.electron !== undefined,
-	})
+	const found = currentInstall(env)
+	if (!found) return noop
+	const { home, install } = found
 	const updater: Updater = createUpdater({
 		currentVersion: options.currentVersion,
 		install,

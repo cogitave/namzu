@@ -112,22 +112,29 @@ In CI the terminal still looks, but it does not install unless you ask for it
 
 ## When a version did not work
 
-If Namzu may not write to its folder, it does not try and shows the command
-instead.
+If Namzu may not write to its folder, it does not try. The footer says
+`Update available, can't install here. See namzu doctor`, short enough to read
+whole at any width, and `namzu doctor` shows the reason, the folder and the full
+command (`sudo npm install --global --prefix … @namzu/cli@X`; on Windows the same
+command without `sudo`).
 
 The version, the reason and the time of a failed attempt are kept in
 `updates/attempt-<install>.json` (one per install, so another install's failure does not hide an update here). Every later start, and every window open at the time,
 skips that version instead of swapping the package folder for it again under
-windows that are still open; the footer shows the plain command instead. It is
-tried again when a newer version is published. Two kinds of failure are different
-because they say nothing about the version: an interrupted download, a file in
-use by another program and a full disk are tried again after six hours.
+windows that are still open. It is tried again when a newer version is published.
+Two kinds of failure are different because they say nothing about the version: an
+interrupted download, a file in use by another program and a full disk are tried
+again after six hours, and the footer says `Couldn't update Namzu on its own. Run:
+<command>` once for them.
 
-`Couldn't update Namzu on its own. Run: <command>` is shown once for each version;
-after that the footer says `Update available! Run: <command>` with the same
-command. After a refused write the command is the one that needs administrator
-rights (`sudo npm install --global --prefix … @namzu/cli@X`), and Namzu does not
-try that version again.
+For a version that failed for any other reason (it did not start, did not match its
+checksum, the installer did not finish) the footer says once `Namzu X could not
+start here; staying on Y` (or `could not be installed`) and offers nothing for that
+version: the command would fail the same way. `namzu doctor` keeps saying so, with
+the log of the attempt, until a newer version is published.
+
+`namzu upgrade` keeps the installer's own output out of the way: nothing of it is
+shown on success, and after a failure it follows the error under `Details:`.
 
 On Windows a `node_modules\@namzu\cli` folder is only treated as a global
 install when `namzu.cmd` sits beside it (or it is Namzu's own folder); a copy

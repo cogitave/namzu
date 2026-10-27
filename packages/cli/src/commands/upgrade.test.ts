@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DownloadError } from '../integrations/auto-update/download.js'
 import {
@@ -575,5 +575,72 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			rawArgs: ['--check'],
 		} as never)
 		expect(errors[0]?.message).toMatch(/No stable release has been published yet/)
+	})
+
+	describe('what an upgrade prints of the installer', () => {
+		afterEach(() => {
+			vi.restoreAllMocks()
+			vi.unstubAllEnvs()
+		})
+
+		/** A terminal on stderr, so the activity indicator runs and the installer's output is collected. */
+		function onTerminal() {
+			vi.stubEnv('TERM', 'xterm-256color')
+			vi.stubEnv('NO_COLOR', undefined as never)
+			Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true })
+			Object.defineProperty(process.stderr, 'columns', { value: 80, configurable: true })
+			const order: string[] = []
+			vi.spyOn(process.stderr, 'write').mockImplementation(((text: string) => {
+				if (/changed 1 package|Details:/.test(String(text)))
+					order.push(`stderr:${String(text).trim()}`)
+				return true
+			}) as never)
+			return order
+		}
+
+		it('shows npm output only after the error, under details, when the update fails', async () => {
+			const order = onTerminal()
+			const l = layout()
+			try {
+				const h = harness({
+					packageRoot: l.root,
+					runNpm: async (request) => {
+						request.onOutput?.('changed 1 package in 2s\n')
+						install(l.root, '14.3.0')
+						return 0
+					},
+					safety: { home: l.home, smokeTest: async () => false },
+				})
+				const original = h.errors.push.bind(h.errors)
+				h.errors.push = (...items) => {
+					order.push('error')
+					return original(...items)
+				}
+				expect(await h.invoke()).toBe(1)
+				expect(order).toEqual(['error', 'stderr:Details:\nchanged 1 package in 2s'])
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		})
+
+		it('keeps npm output out of a successful update', async () => {
+			const order = onTerminal()
+			const l = layout()
+			try {
+				const h = harness({
+					packageRoot: l.root,
+					runNpm: async (request) => {
+						request.onOutput?.('changed 1 package in 2s\n')
+						install(l.root, '14.3.0')
+						return 0
+					},
+					safety: { home: l.home, smokeTest: async () => true },
+				})
+				expect(await h.invoke()).toBe(0)
+				expect(order).toEqual([])
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		})
 	})
 })

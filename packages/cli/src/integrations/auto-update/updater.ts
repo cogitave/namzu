@@ -49,6 +49,11 @@ const PASSING_FAILURES: ReadonlySet<string> = new Set([
 	'backup_failed',
 ])
 
+/** A failure that stays true for that version: nothing is offered for it. */
+function isFinal(code: string): boolean {
+	return !PASSING_FAILURES.has(code)
+}
+
 function mayTryAgain(attempt: AttemptRecord, now: number): boolean {
 	return PASSING_FAILURES.has(attempt.code) && now - attempt.at >= RETRY_AFTER_MS
 }
@@ -67,6 +72,21 @@ export type UpdaterEvent =
 			readonly command: string | null
 			/** Set when an automatic install was attempted and failed. */
 			readonly failure?: FailureStatus
+			/**
+			 * Namzu cannot write to the folder it is installed in, so the command needs
+			 * administrator rights; `namzu doctor` shows it in full.
+			 */
+			readonly blocked?: true
+	  }
+	/**
+	 * A version that already failed on this install. Namzu stays on the current
+	 * version and offers nothing for it; said once, until a newer one is published.
+	 */
+	| {
+			readonly type: 'failed'
+			readonly latest: string
+			readonly current: string
+			readonly code: FailureStatus
 	  }
 
 export interface UpdaterDeps {
@@ -114,9 +134,12 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 	const emitAvailable = (latest: string, cause?: FailureStatus, nameCause = true) => {
 		if (announced === latest) return
 		announced = latest
+		const blocked =
+			cause === 'no_permission' || ('writable' in deps.install && !deps.install.writable)
 		deps.onEvent({
 			type: 'available',
 			latest,
+			...(blocked ? { blocked: true as const } : {}),
 			command: manualUpdateCommand(
 				// A refused write means the plain command would be refused again.
 				cause === 'no_permission' && 'writable' in deps.install
@@ -127,6 +150,12 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			),
 			...(cause && nameCause ? { failure: cause } : {}),
 		})
+	}
+
+	const emitFailed = (latest: string, code: FailureStatus) => {
+		if (announced === latest) return
+		announced = latest
+		deps.onEvent({ type: 'failed', latest, current: deps.currentVersion, code })
 	}
 
 	async function learnRelease(): Promise<{ release: Release; fresh: boolean } | null> {
@@ -190,7 +219,13 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 						{ ...earlier, shown: true },
 						deps.applyDeps.pid,
 					)
-				emitAvailable(release.version, earlier.code as FailureStatus, first)
+				const code = earlier.code as FailureStatus
+				if (isFinal(code) && code !== 'no_permission') {
+					// Offering a command for a version that did not work here would fail again.
+					if (first) emitFailed(release.version, code)
+					return
+				}
+				emitAvailable(release.version, code, first)
 				return
 			}
 
@@ -247,7 +282,11 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 						{ version: release.version, code: result.code, at: now(), shown: true },
 						deps.applyDeps.pid,
 					)
-					emitAvailable(release.version, result.code)
+					if (isFinal(result.code) && result.code !== 'no_permission') {
+						emitFailed(release.version, result.code)
+					} else {
+						emitAvailable(release.version, result.code)
+					}
 					return
 			}
 		} finally {

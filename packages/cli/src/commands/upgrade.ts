@@ -400,24 +400,24 @@ async function installVerified({
 			? startUpgradeProgress()
 			: undefined
 	let output = ''
-	const stop = () => {
-		progress?.stop()
-		if (output)
-			process.stderr.write(
-				`${Array.from(stripVTControlCharacters(output))
-					.filter(
-						(char) =>
-							char === '\n' ||
-							char === '\t' ||
-							(char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
-					)
-					.join('')}\n`,
+	// The installer's own words are for the failure details only; a success never shows them.
+	const details = () => {
+		const text = Array.from(stripVTControlCharacters(output))
+			.filter(
+				(char) =>
+					char === '\n' ||
+					char === '\t' ||
+					(char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
 			)
+			.join('')
+			.trim()
+		if (text) process.stderr.write(`Details:\n${text}\n`)
 	}
 	const failWith = async (message: string): Promise<number> => {
-		stop()
+		progress?.stop()
 		const restored = await putBackOldVersion()
 		ctx.formatter.error({ message: `${message}${restored}` })
+		details()
 		return EXIT_FAIL
 	}
 	try {

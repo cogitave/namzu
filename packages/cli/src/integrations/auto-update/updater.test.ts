@@ -252,6 +252,7 @@ describe('installing, or telling', () => {
 				type: 'available',
 				latest: '2.0.0',
 				command: 'sudo npm install --global --prefix /usr @namzu/cli@2.0.0',
+				blocked: true,
 			},
 		])
 	})
@@ -299,6 +300,7 @@ describe('when installing fails', () => {
 					' @namzu/cli@2.0.0',
 				),
 				failure: 'no_permission',
+				blocked: true,
 			},
 		])
 		expect(readLastResult(home, scope())).toMatchObject({
@@ -314,7 +316,12 @@ describe('when installing fails', () => {
 		await first.updater.runCycle()
 		expect(first.installs).toHaveLength(1)
 		expect(first.events).toHaveLength(1)
-		expect(first.events[0]).toMatchObject({ type: 'available', failure: 'install_failed' })
+		expect(first.events[0]).toEqual({
+			type: 'failed',
+			latest: '2.0.0',
+			current: '1.0.0',
+			code: 'install_failed',
+		})
 		expect(readAttempt(home, scope())).toMatchObject({
 			version: '2.0.0',
 			code: 'install_failed',
@@ -329,6 +336,18 @@ describe('when installing fails', () => {
 			expect(next.installs).toEqual([])
 			expect(readInstalledVersion(root)).toBe('1.0.0')
 		}
+	})
+
+	it('offers nothing for a version that failed, and speaks again when a newer one is published', async () => {
+		const first = harness({}, undefined, 'npm error something odd')
+		await first.updater.runCycle()
+		expect(first.events.map((e) => e.type)).toEqual(['failed'])
+		await tick(SHARED_THROTTLE_MS)
+		const next = harness({}, { version: '2.0.1', integrity: 'sha512-AAAA' }, 'npm error again')
+		await next.updater.runCycle()
+		expect(next.events).toEqual([
+			{ type: 'failed', latest: '2.0.1', current: '1.0.0', code: 'install_failed' },
+		])
 	})
 
 	it('tries again as soon as a newer version is published', async () => {
@@ -363,16 +382,17 @@ describe('when installing fails', () => {
 		await first.updater.runCycle()
 		const command = `sudo npm install --global --prefix ${join(dir, 'prefix')} @namzu/cli@2.0.0`
 		expect(first.events).toEqual([
-			{ type: 'available', latest: '2.0.0', command, failure: 'no_permission' },
+			{ type: 'available', latest: '2.0.0', command, failure: 'no_permission', blocked: true },
 		])
 		await tick(SHARED_THROTTLE_MS)
 		const second = harness({}, undefined, 'npm error code EACCES')
 		await second.updater.runCycle()
 		expect(second.installs).toEqual([])
 		// The same command, without the wording about failing.
-		expect(second.events).toEqual([{ type: 'available', latest: '2.0.0', command }])
+		expect(second.events).toEqual([{ type: 'available', latest: '2.0.0', command, blocked: true }])
+		// The footer stays short and points to `namzu doctor` for the command and the reason.
 		expect(updaterEventAmbient(second.events[0] as UpdaterEvent).text).toBe(
-			`Update available! Run: ${command}`,
+			"Update available, can't install here. See namzu doctor",
 		)
 	})
 
@@ -429,14 +449,23 @@ describe('when installing fails', () => {
 
 		await h.updater.runCycle()
 		expect(h.installs).toEqual([])
-		expect(h.events[0]).toMatchObject({ type: 'available', failure: 'verify_failed' })
+		// Said once, with no command to run for a version that did not start here.
+		expect(h.events).toEqual([
+			{ type: 'failed', latest: '2.0.0', current: '1.0.0', code: 'verify_failed' },
+		])
+		await tick(SHARED_THROTTLE_MS)
+		const next = harness()
+		await next.updater.runCycle()
+		expect(next.installs).toEqual([])
+		expect(next.events).toEqual([])
+		expect(readAttempt(home, scope())).toMatchObject({ shown: true })
 	})
 
 	it('does not install a version the registry gave no checksum for', async () => {
 		const h = harness({}, { version: '2.0.0' })
 		await h.updater.runCycle()
 		expect(h.installs).toEqual([])
-		expect(h.events[0]).toMatchObject({ type: 'available', failure: 'unverifiable' })
+		expect(h.events[0]).toMatchObject({ type: 'failed', code: 'unverifiable' })
 	})
 })
 

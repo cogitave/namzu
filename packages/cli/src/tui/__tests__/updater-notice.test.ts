@@ -25,13 +25,36 @@ describe('the footer line the background updater leaves', () => {
 		const line = updaterEventAmbient({
 			type: 'available',
 			latest: '2.0.0',
-			command: 'sudo npm install --global --prefix /usr @namzu/cli@2.0.0',
-			failure: 'no_permission',
+			command: 'namzu upgrade',
+			failure: 'network',
 		})
-		expect(line.text).toBe(
-			"Couldn't update Namzu on its own. Run: sudo npm install --global --prefix /usr @namzu/cli@2.0.0",
-		)
+		expect(line.text).toBe("Couldn't update Namzu on its own. Run: namzu upgrade")
 		expect(line.tone).toBe('warn')
+	})
+
+	it('keeps the footer short for an install folder Namzu cannot write, and points to doctor', () => {
+		const line = updaterEventAmbient({
+			type: 'available',
+			latest: '2.0.0',
+			command: 'sudo npm install --global --prefix /usr/local @namzu/cli@2.0.0',
+			failure: 'no_permission',
+			blocked: true,
+		})
+		expect(line.text).toBe("Update available, can't install here. See namzu doctor")
+		expect(line.text.length).toBeLessThanOrEqual(60)
+		expect(line.text).not.toContain('sudo')
+		expect(line.strong).toBe('namzu doctor')
+	})
+
+	it('says once that a version could not start, offers nothing for it, and stays on the current one', () => {
+		const line = updaterEventAmbient({
+			type: 'failed',
+			latest: '2.0.0',
+			current: '1.0.0',
+			code: 'verify_failed',
+		})
+		expect(line.text).toBe('Namzu 2.0.0 could not start here; staying on 1.0.0')
+		expect(line.text).not.toContain('Run:')
 	})
 
 	it('has no command to offer for a layout it cannot update', () => {

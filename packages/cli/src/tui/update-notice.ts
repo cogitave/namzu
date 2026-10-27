@@ -30,6 +30,22 @@ export function updaterEventAmbient(event: UpdaterEvent): AmbientLine {
 	if (event.type === 'installed') {
 		return { text: `Updated to ${event.to}, restart to use it`, tone: 'dim', strong: event.to }
 	}
+	if (event.type === 'failed') {
+		const what = event.code === 'verify_failed' ? 'could not start here' : 'could not be installed'
+		return {
+			text: `Namzu ${event.latest} ${what}; staying on ${event.current}`,
+			tone: 'dim',
+			strong: event.latest,
+		}
+	}
+	if (event.blocked) {
+		// The full command does not fit the footer; `namzu doctor` shows it with the reason.
+		return {
+			text: "Update available, can't install here. See namzu doctor",
+			tone: 'warn',
+			strong: 'namzu doctor',
+		}
+	}
 	if (event.command === null) {
 		return {
 			text: `Namzu ${event.latest} is available. Reinstall Namzu to get it`,

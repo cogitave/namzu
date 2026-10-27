@@ -12,6 +12,7 @@ import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
 import { schedulerCheck } from './scheduler.js'
 import { describeInstalledPackage, telemetryInstalledCheck } from './telemetry.js'
+import { updatesCheck } from './updates.js'
 import { vaultRegisteredCheck } from './vault.js'
 
 /**
@@ -65,6 +66,7 @@ export {
 	sandboxPlatformCheck,
 	schedulerCheck,
 	telemetryInstalledCheck,
+	updatesCheck,
 	vaultRegisteredCheck,
 }
 
@@ -89,6 +91,7 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	codeAnalysisCheck,
 	telemetryInstalledCheck,
 	schedulerCheck,
+	updatesCheck,
 	// Last, deliberately: it reports what the pipeline did to the records
 	// every check above it just produced, so running it first would report a
 	// process that had barely logged anything yet.
