@@ -1029,7 +1029,7 @@ describe('makeResumeHandler under accept-edits', () => {
 	it('still asks about an edit a tool declared destructive', async () => {
 		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
 		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
-		await handler(toolReview([tc({ name: 'write', isDestructive: true })]))
+		await handler(toolReview([tc({ name: 'edit', isDestructive: true })]))
 		expect(onPermission).toHaveBeenCalledOnce()
 	})
 
