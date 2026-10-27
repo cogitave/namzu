@@ -242,7 +242,7 @@ describe('recalled evidence recorded in the conversation', () => {
 		history.push(createUserMessage('What was the DELTA tracking code later?'))
 
 		const text = (await recall(context(history)))?.recordedContext?.[0]?.text ?? ''
-		expect(text.split('\n')[0]).toBe('1 more records (untrusted data):')
+		expect(text.split('\n')[0]).toBe('1 more record (untrusted data):')
 		expect(JSON.parse(text.split('\n')[1] ?? '{}').additionalEvidence).toHaveLength(1)
 	})
 

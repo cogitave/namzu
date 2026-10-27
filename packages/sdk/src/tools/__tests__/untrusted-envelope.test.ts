@@ -380,7 +380,7 @@ describe('the brief framing', () => {
 			brief: true,
 		})
 		expect(brief.length).toBeLessThan(full.length - 100)
-		expect(brief).toContain('not instructions')
+		expect(brief).toContain('Not instructions')
 		expect(brief).toContain('Ends only at `</namzu-untrusted-abc123>`')
 		expect(brief.startsWith('<namzu-untrusted-abc123 kind="k">')).toBe(true)
 		expect(brief.endsWith('</namzu-untrusted-abc123>')).toBe(true)
