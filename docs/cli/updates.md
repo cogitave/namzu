@@ -49,24 +49,41 @@ In CI the terminal still looks, but it does not install unless you ask for it
 
 ## How an update stays safe
 
-1. One update at a time: a lock under `updates/` keeps two Namzu processes from
-   installing together. A second one waits quietly and tries again later. A lock
-   whose process is gone, or that is older than fifteen minutes, is taken over.
-2. The registry must give a checksum for the version. Without one nothing is
-   installed. The package manager checks the download against the digest the
-   registry publishes; Namzu does not compare it a second time. The package
-   manager runs the package's own install steps, as `npm install --global` does
-   for you, so the optional terminal-session module is built again for the new
-   version. It runs in its own process group, so closing the terminal does not
-   stop it half way; its process id is kept in the marker below.
-3. A copy of the version being replaced is kept first (`updates/previous/<version>`,
-   the two newest are kept).
-4. The installed version is read back, and the new copy is started once and must
-   answer with the version it should be.
-5. Before the folder is touched, `updates/in-progress.json` records the version,
-   the kept copy and the process. If that process is gone before the update was
-   verified (the terminal was closed, the machine lost power), the next start
-   reads the installed version back, starts it once, and puts the kept copy back
+1. One update at a time per install: a lock under `updates/locks/` keeps two
+   Namzu processes from changing the same install together, while two different
+   installs (two npm prefixes, or npm and pnpm) never wait on each other. A second
+   process waits quietly and tries again later. A lock whose process is gone, or
+   that is older than fifteen minutes, is taken over, and taking it over is
+   atomic: when two processes both find the same stale lock, exactly one of them
+   gets it.
+2. The registry must give a checksum and an address for the version. Namzu
+   downloads that file itself, from the registry it asked, and compares its
+   sha512 with the registry's digest before anything on your disk is touched. A
+   download that is interrupted, comes from another address, or does not match is
+   thrown away and nothing is installed. The package manager is then handed that
+   verified file, not a version name, so a registry setting on your machine
+   cannot change which files get installed (the `@namzu` scope is pinned to the
+   registry the release came from; the package's own dependencies still follow
+   your package manager's settings). The package manager runs the package's own
+   install steps, as `npm install --global` does for you, so the optional
+   terminal-session module is built again for the new version. It runs in its own
+   process group with its output going to a log file
+   (`updates/install-<install>.log`), not to a pipe, so closing the terminal
+   does not stop it half way; its process id is kept in the marker below, and the
+   end of the log is kept with the last result.
+3. A copy of the version being replaced is kept first
+   (`updates/previous/<install>/<version>`, the two newest are kept).
+4. The installed version is read back, and the new copy is started and must
+   answer with the version it should be and then load what a terminal session
+   needs when it starts: the terminal interface, the runtime under it, and the
+   terminal-session module where one is installed (`namzu --start-check`, which
+   prints `ok` and starts nothing). A release with a missing file or a native
+   module that will not load is rolled back here, not found by the next person who
+   opens Namzu.
+5. Before the folder is touched, `updates/in-progress-<install>.json` records the
+   version, the kept copy and the process. If that process is gone before the
+   update was verified (the terminal was closed, the machine lost power), the next
+   start reads the installed version back, starts it, and puts the kept copy back
    when it does not answer. A marker older than fifteen minutes is treated as
    dead, a marker whose installer still runs is left alone, and only a copy under
    `updates/previous` is ever put back. With installing switched off, nothing is
@@ -75,16 +92,35 @@ In CI the terminal still looks, but it does not install unless you ask for it
 6. If any step fails the previous copy is put back (pnpm installs the previous
    version again), so a failed update leaves a working Namzu. The outcome of the
    last automatic attempt is kept in `updates/last-result.json` and `namzu upgrade
-   --check` says when it did not finish.
+   --check` says when it did not finish and where the installer's log is.
+
+## When a version did not work
+
+If Namzu may not write to its folder, it does not try and shows the command
+instead.
+
+The version, the reason and the time of a failed attempt are kept in
+`updates/attempt.json`. Every later start, and every window open at the time,
+skips that version instead of swapping the package folder for it again under
+windows that are still open; the footer shows the plain command instead. It is
+tried again when a newer version is published. Two kinds of failure are different
+because they say nothing about the version: an interrupted download, a file in
+use by another program and a full disk are tried again after six hours.
+
+`Couldn't update Namzu on its own. Run: <command>` is shown once for each version;
+after that the footer says `Update available! Run: <command>` with the same
+command. After a refused write the command is the one that needs administrator
+rights (`sudo npm install --global --prefix … @namzu/cli@X`), and Namzu does not
+try that version again.
 
 On Windows a `node_modules\@namzu\cli` folder is only treated as a global
 install when `namzu.cmd` sits beside it (or it is Namzu's own folder); a copy
 inside a project is never updated. `namzu upgrade --check` says so when
 `channel: stable` is set and no stable release has been published.
 
-If Namzu may not write to its folder, it does not try and shows the command
-instead. A refused write is not retried for the rest of that session; other
-failures are tried at most three times.
+pnpm global installs are recognised in the layouts pnpm has used: the store
+inside `…/pnpm/global/<n>/.pnpm`, the store under `…/pnpm/global/<n>/node_modules/.pnpm`
+(older pnpm) and the link `…/pnpm/global/<n>/node_modules/@namzu/cli`.
 
 A window that was already open keeps running the code it started with. Restart it
 to use the new version.
@@ -112,7 +148,9 @@ cannot turn installing on or pick a channel.
 ## `namzu upgrade`
 
 `namzu upgrade` runs the same code once, in the foreground, with the same lock,
-the same kept copy and the same start-up check, and shows progress. It follows the
+the same checked download, the same kept copy and the same start check, and shows
+progress. It ignores a version the background update gave up on: asking for it
+is a request to try again. It follows the
 configured channel. `namzu upgrade --check` reports what is available without
 changing anything. It also updates pnpm global installs; it refuses a layout it
 does not recognise instead of guessing.
@@ -122,5 +160,11 @@ does not recognise instead of guessing.
 - Replacing the package while a window is open can break something that window
   loads later; restart the window after an update.
 - A Windows copy that is running can be locked by the system. The update then
-  fails quietly, keeps the old version and is tried again at the next look.
+  fails quietly, keeps the old version and is tried again after six hours.
 - Homebrew, winget, scoop and distro packages do not exist for Namzu today.
+- TODO: the look at the registry and the download do not follow a proxy
+  configured in the environment (`HTTPS_PROXY`, `NO_PROXY`) yet; behind a proxy
+  that blocks direct connections the terminal stays silent and `namzu upgrade`
+  reports that it could not check. The package manager it starts does follow
+  your own proxy settings. Proxy support for the CLI's network calls lands
+  separately, and these two calls should use it when it does.

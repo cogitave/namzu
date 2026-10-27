@@ -114,7 +114,8 @@ them. Its items are joined by a dim ` · `, left to right:
   `Updated to 41.3.0, restart to use it`. When Namzu may not or could not do it
   itself it is yellow with the exact command bold: `Update available! Run: namzu
   upgrade`, or `Couldn't update Namzu on its own. Run: <command>` after a failed
-  attempt. Nothing is shown while it checks or installs, and a source checkout,
+  attempt (once per version; later starts say `Update available!` with the same
+  command). Nothing is shown while it checks or installs, and a source checkout,
   `npx` and the Desktop copy show nothing at all.
 - **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
   on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
