@@ -28,3 +28,15 @@ export function hookPermissionMode(mode: ReviewMode): string {
 			return 'default'
 	}
 }
+
+/**
+ * The word a hook is told before any turn has attached the live mode control:
+ * the mode the session was configured with, else the one an interactive
+ * session starts in (it asks), never a mode that stops asking.
+ */
+export function hookSessionMode(
+	live: ReviewMode | undefined,
+	configured: ReviewMode | undefined,
+): string {
+	return hookPermissionMode(live ?? configured ?? 'prompt')
+}

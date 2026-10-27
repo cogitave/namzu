@@ -299,7 +299,7 @@ import {
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
-import { hookPermissionMode } from '../integrations/plugins/hook-host.js'
+import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -4267,8 +4267,7 @@ export async function createAgentSession(
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks, {
-			permissionMode: () =>
-				hookPermissionMode(readHookMode?.() ?? options.permissionMode ?? 'auto'),
+			permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
 			transcriptPath: (sessionId) =>
 				options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
 		})

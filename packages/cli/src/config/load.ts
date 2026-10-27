@@ -30,6 +30,7 @@ import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
 import { parse as yamlParse } from 'yaml'
 
+import { splitProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import {
 	McpServerFileError,
@@ -267,7 +268,15 @@ function resolveConfigWithProvenance(
 	// as `namzu.config.json`, so a folder nobody has trusted starts none of
 	// them. A server the project file also names keeps the project file's
 	// entry; the rest are added.
-	const sharedServers = mode.includeProject ? readSharedMcpServers(sharedMcpPath) : undefined
+	// A server in it starts only once the person approved that server for this
+	// folder (and the entry still reads as it did then).
+	const sharedServers = mode.includeProject
+		? approvedSharedServers(
+				readSharedMcpServers(sharedMcpPath),
+				resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
+				cwd,
+			)
+		: undefined
 	if (sharedServers && projectCfg.mcpServers !== undefined) {
 		projectCfg.mcpServers = { ...sharedServers, ...projectCfg.mcpServers }
 	}
@@ -549,6 +558,33 @@ function readYamlIfExists(path: string): MutableConfig {
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
 const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
 const SHARED_MCP_LABEL = '.mcp.json in this project'
+
+function approvedSharedServers(
+	declared: McpServersConfig | undefined,
+	namzuHome: string,
+	cwd: string,
+): McpServersConfig | undefined {
+	if (!declared) return undefined
+	const { approved } = splitProjectMcpServers(namzuHome, cwd, declared)
+	return Object.keys(approved).length > 0 ? approved : undefined
+}
+
+/**
+ * The servers `.mcp.json` declares and the person has not yet approved for
+ * this folder, with the declared table so a caller can record an answer.
+ */
+export function pendingProjectMcpServers(opts: {
+	readonly cwd: string
+	readonly home?: string
+	readonly env?: NodeJS.ProcessEnv
+}): { readonly declared: McpServersConfig; readonly pending: readonly string[] } {
+	const declared = readSharedMcpServers(resolve(opts.cwd, PROJECT_MCP_FILE)) ?? {}
+	const namzuHome = resolveNamzuHome({
+		...(opts.home ? { home: opts.home } : {}),
+		env: opts.env ?? process.env,
+	})
+	return { declared, pending: splitProjectMcpServers(namzuHome, opts.cwd, declared).pending }
+}
 
 /** The servers `.mcp.json` declares, or undefined when it has none or is absent. */
 function readSharedMcpServers(path: string): McpServersConfig | undefined {

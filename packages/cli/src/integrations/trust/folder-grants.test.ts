@@ -37,19 +37,35 @@ describe('what a folder pre-approves', () => {
 		expect(readFolderGrants(root)).toEqual({
 			allowRules: ['read', 'bash(git status *)', 'web_fetch'],
 			directories: ['../shared', '/data'],
+			toolServers: [],
 		})
 	})
 
 	it('grants nothing from a file that is missing, broken or not an object', () => {
-		expect(readFolderGrants(folder({}))).toEqual({ allowRules: [], directories: [] })
+		expect(readFolderGrants(folder({}))).toEqual({
+			allowRules: [],
+			directories: [],
+			toolServers: [],
+		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '{ nope' }))).toEqual({
 			allowRules: [],
 			directories: [],
+			toolServers: [],
 		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '[1]' }))).toEqual({
 			allowRules: [],
 			directories: [],
+			toolServers: [],
 		})
+	})
+
+	it('lists the tool servers the shared file declares', () => {
+		const root = folder({
+			'.mcp.json': JSON.stringify({
+				mcpServers: { tickets: { command: 'node' }, docs: { url: 'https://d.example/mcp' } },
+			}),
+		})
+		expect(readFolderGrants(root).toolServers).toEqual(['tickets', 'docs'])
 	})
 
 	it('keeps the cap the trust screen shows', () => {

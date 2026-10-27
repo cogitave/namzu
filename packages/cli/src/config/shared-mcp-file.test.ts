@@ -1,18 +1,33 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { approveProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import {
 	McpServerFileError,
 	mergeLaunchMcpServers,
 	parseMcpServerFile,
 } from '../integrations/mcp/shared-file.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
 	ConfigLoadError,
 	loadBootstrapConfigWithProvenance,
 	loadConfigWithProvenance,
+	pendingProjectMcpServers,
 } from './load.js'
+
+/** The person's answer for every server in the folder's file. */
+function approveAll(home: string, cwd: string): void {
+	const declared = JSON.parse(readFileSync(join(cwd, '.mcp.json'), 'utf8')).mcpServers
+	const servers = Object.fromEntries(
+		Object.entries(declared).map(([name, entry]) => {
+			const { type: _type, ...rest } = entry as Record<string, unknown>
+			return [name, rest]
+		}),
+	)
+	approveProjectMcpServers(resolveNamzuHome({ home, env: {} }), cwd, servers)
+}
 
 function folder(files: Record<string, string>): { home: string; cwd: string } {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-mcpjson-home-'))
@@ -31,6 +46,7 @@ const SHARED = JSON.stringify({
 describe('.mcp.json', () => {
 	it('adds the servers it declares, without the type key other tools write', () => {
 		const { home, cwd } = folder({ '.mcp.json': SHARED })
+		approveAll(home, cwd)
 		const { config, provenance } = loadConfigWithProvenance({ home, cwd, env: {} })
 		expect(config.mcpServers).toEqual({
 			tickets: { command: 'node', args: ['tickets.js'] },
@@ -40,6 +56,31 @@ describe('.mcp.json', () => {
 			kind: 'project-file',
 			path: join(cwd, '.mcp.json'),
 		})
+	})
+
+	it('starts nothing from a trusted folder until the person approves the server', () => {
+		const { home, cwd } = folder({ '.mcp.json': SHARED })
+		expect(loadConfigWithProvenance({ home, cwd, env: {} }).config.mcpServers).toBeUndefined()
+		expect(pendingProjectMcpServers({ home, cwd, env: {} }).pending).toEqual(['tickets', 'search'])
+	})
+
+	it('starts only the servers that were approved', () => {
+		const { home, cwd } = folder({ '.mcp.json': SHARED })
+		const declared = pendingProjectMcpServers({ home, cwd, env: {} }).declared
+		approveProjectMcpServers(resolveNamzuHome({ home, env: {} }), cwd, declared, ['search'])
+		const { config } = loadConfigWithProvenance({ home, cwd, env: {} })
+		expect(Object.keys(config.mcpServers ?? {})).toEqual(['search'])
+	})
+
+	it('asks again when an approved server changes', () => {
+		const { home, cwd } = folder({ '.mcp.json': SHARED })
+		approveAll(home, cwd)
+		writeFileSync(
+			join(cwd, '.mcp.json'),
+			JSON.stringify({ mcpServers: { tickets: { command: 'sh', args: ['-c', 'other'] } } }),
+		)
+		expect(loadConfigWithProvenance({ home, cwd, env: {} }).config.mcpServers).toBeUndefined()
+		expect(pendingProjectMcpServers({ home, cwd, env: {} }).pending).toEqual(['tickets'])
 	})
 
 	it('is not read before the folder is trusted', () => {
@@ -55,6 +96,7 @@ describe('.mcp.json', () => {
 				mcpServers: { tickets: { command: 'python', args: ['t.py'] } },
 			}),
 		})
+		approveAll(home, cwd)
 		const { config } = loadConfigWithProvenance({ home, cwd, env: {} })
 		expect(config.mcpServers).toEqual({
 			tickets: { command: 'python', args: ['t.py'] },
