@@ -17,16 +17,28 @@ import type {
 	ResidentHistorySource,
 } from './history.js'
 
-/** @experimental Host authority for one pursuit, project and admission boundary. */
+/**
+ * @experimental Host authority for one pursuit, project and admission boundary.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceScope extends ResidentHistoryScope {
 	readonly projectId: string
 }
-/** @experimental Identity of an agenda-verified settlement, not a fabricated transcript. */
+/**
+ * @experimental Identity of an agenda-verified settlement, not a fabricated transcript.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentSettledInvocation = Pick<
 	ResidentHistoryMatch,
 	'revision' | 'claimId' | 'step' | 'kind'
 >
-/** @experimental Settlement is checked before the host resolves the attempt's invocation. */
+/**
+ * @experimental Settlement is checked before the host resolves the attempt's invocation.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceOptions {
 	readonly history: ResidentHistorySource
 	readonly projectId: string
@@ -45,7 +57,11 @@ export interface ResidentToolEvidenceOptions {
 		signal?: AbortSignal,
 	) => Promise<SessionEvidenceSource>
 }
-/** @experimental An optional shared ceiling covers history, resolution and turn evidence. */
+/**
+ * @experimental An optional shared ceiling covers history, resolution and turn evidence.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceSearchOptions {
 	readonly query?: string
 	/** Token discovery: 1–16 terms, matched case-insensitively. Combined query/filter JSON ≤512 UTF-8 bytes. */
@@ -60,7 +76,11 @@ export interface ResidentToolEvidenceSearchOptions {
 	readonly refineTerms?: readonly string[]
 	readonly maxReadBytes?: number
 }
-/** @experimental Tool records from at most one settled invocation per bounded search page. */
+/**
+ * @experimental Tool records from at most one settled invocation per bounded search page.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceSearchResult {
 	readonly scope: ResidentToolEvidenceScope
 	readonly revision: number | null
@@ -75,20 +95,32 @@ export interface ResidentToolEvidenceSearchResult {
 	 */
 	readonly chargedBytes?: number
 }
-/** @experimental The revision is authorized anew on every read, including after restart. */
+/**
+ * @experimental The revision is authorized anew on every read, including after restart.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceReadOptions
 	extends Omit<SessionEvidenceReadOptions, 'maxReadBytes'> {
 	readonly revision: number
 	/** Shared operation ceiling, at most 8 MiB; reserves at least 1 MiB for turn evidence reads. */
 	readonly maxReadBytes?: number
 }
-/** @experimental Exact invocation text plus the settled claim that authorized access. */
+/**
+ * @experimental Exact invocation text plus the settled claim that authorized access.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceReadResult extends SessionEvidenceReadResult {
 	readonly revision: number
 	readonly claimId: string
 	readonly chargedBytes?: number
 }
-/** @experimental A host must bind tool access to the executing turn, not just this source. */
+/**
+ * @experimental A host must bind tool access to the executing turn, not just this source.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentToolEvidenceSource {
 	readonly scope: ResidentToolEvidenceScope
 	readonly supportsTermRefinement?: boolean
@@ -102,7 +134,11 @@ export interface ResidentToolEvidenceSource {
 	): Promise<ResidentToolEvidenceReadResult>
 }
 
-/** @experimental Reuses the immutable agenda boundary; it never enumerates arbitrary sessions. */
+/**
+ * @experimental Reuses the immutable agenda boundary; it never enumerates arbitrary sessions.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export function createResidentToolEvidenceSource(
 	options: ResidentToolEvidenceOptions,
 ): ResidentToolEvidenceSource {

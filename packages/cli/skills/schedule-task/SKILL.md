@@ -13,7 +13,7 @@ to survive when Namzu closes. For a repeat in this same conversation **only
 while the TUI is open**, use `session_loop` (or tell the operator `/loop`). It
 re-sends the prompt between turns under the conversation's current permission
 mode. It stops firing when the TUI closes; resuming the conversation later
-restores an unexpired loop. Never describe `/loop` as a background service.
+restores an unexpired loop. Describe `/loop` as a repeat that lives only while the TUI is open.
 
 For a durable task, use `schedule`. It runs later with **nobody watching**,
 including while Namzu is closed when the scheduler service is installed. The
@@ -33,7 +33,7 @@ the user did not ask for.
 Check the tools actually offered in this session before proposing the work.
 Permission rules authorize tools; they do not install or mount them. For example,
 allowing `web_fetch` does not make it available when only `web_search` is offered.
-Do not investigate installed package files to invent an unavailable output tool.
+Work from the tools this session offers; an output tool it lacks cannot be conjured from package files.
 If the requested page or artifact service is absent, explain that gap and agree
 on a supported output before promising the job. A local HTML file written with
 `write` is a file, not an integrated artifact page.
@@ -45,15 +45,7 @@ context-window size. A long series of broad searches can exhaust it before any
 output file is written. Tool calls made together belong to one model iteration;
 do not equate the iteration budget with the number of tool calls.
 
-If the task needs no project files, do not create a visible project folder
-merely because the current directory is home, root or `NAMZU_HOME`. Use the
-job's `workspace: "none"` option with `kind: "script"`, and omit `folder`.
-The scheduler makes a private working directory after confirmation. This
-changes the working directory, not the script's authority: it still runs as
-the operator on the host, and the directory is not a write boundary. The
-source conversation can receive the significant result. If a task does
-need project files, use the actual existing project folder; ask the user when
-the project cannot be identified.
+A task that needs no project files uses `workspace: "none"` with `kind: "script"` and no `folder` (section 5). A task that needs project files uses the actual existing project folder; ask the user when the project cannot be identified.
 
 ## 0. Choosing a kind
 
@@ -99,16 +91,7 @@ nothing can wait for the operator mid-script; use `park` only on a
 wakes it. `execution: "sandbox"` is not yet supported for the script/gate
 phase; leave `execution` unset (host).
 
-For a pure `"script"` job, normally pass
-`permissions: {"rules": {}, "unmatched": "deny"}` with no preset. The
-explicit empty `rules` object is required: there is no default permission
-set. Add only intentional `deny` rules. The `"read-only"` preset includes
-`bash: deny`, which refuses **every** script command during the static
-check, regardless of what that command does. Changing the script text
-cannot fix that rule.
-The `"edit-in-folder"` preset avoids the blanket denial, but its `write`,
-`edit` and `bash: ask` permissions are for agent tool calls, which a pure
-script never makes. They do not confine a host script to the working folder.
+For a pure `"script"` job pass `permissions: {"rules": {}, "unmatched": "deny"}` with no preset and add only intentional `deny` rules. The `"read-only"` preset includes `bash: deny`, which refuses every script command during the static check, so changing the script text cannot fix it. The `"edit-in-folder"` preset's `write`, `edit` and `bash: ask` rules are for agent tool calls, which a pure script never makes.
 
 When a polling script sends its own notification only on a change, set
 `notifyOnFinish: false` in the proposal. Otherwise Namzu also sends a
@@ -276,13 +259,7 @@ anything."
 
 Call `schedule` with `name` (lowercase, digits, dashes), `when` and
 `permissions`, plus `prompt` (unless `kind` is `"script"`) and `script`
-(when `kind` is not `"agent"`). For a job that needs project files, leave
-`folder` unset only when the session's folder is the actual project and a
-valid job folder. The file system root, the operator's home directory itself,
-`NAMZU_HOME`, and any folder containing `NAMZU_HOME` are refused. In those
-locations, set `folder` to the actual existing project directory. For a
-project-free pure script, set `workspace: "none"` and omit `folder` instead
-of making a directory for the job. Leave `tz`, `execution`, `budget` and
+(when `kind` is not `"agent"`). For a job that needs project files, leave `folder` unset only when the session's folder is the actual project; the file system root, the operator's home directory, `NAMZU_HOME` and any folder containing it are refused, so set `folder` to the project directory there. For a project-free pure script, set `workspace: "none"` and omit `folder`. Leave `tz`, `execution`, `budget` and
 `headed` unset unless the user asked for them. The operator sees one
 confirmation screen with the job
 as it will run, and every value you set that differs from the default is
@@ -290,12 +267,7 @@ marked as yours. Do not ask them to confirm again in chat. Afterwards,
 `schedule` with `action: "list"` shows every job, in any folder, and the
 operator manages them with `/schedule` or `namzu schedule list`.
 
-To change a job, call `schedule` with `action: "update"`, `job` (its name)
-and only the fields that change (`prompt`, `when`, `folder`, `workspace`,
-`kind`, `script`, `tz`, `budget`, `notifyOnFinish`, or `permissions` as the
-whole new set). The operator sees what changes and confirms it; the job
-keeps its history. Never delete a job and create it again to change it: its
-history is lost. Jobs run only when the scheduler service is installed: if
+To change a job, call `schedule` with `action: "update"`, `job` (its name) and only the fields that change (`permissions` as the whole new set). The operator confirms what changes and the job keeps its history, which a delete and re-create would lose. Jobs run only when the scheduler service is installed: if
 the result says none is installed, tell the user to run
 `namzu schedule install`; do not say the job is set up and running.
 

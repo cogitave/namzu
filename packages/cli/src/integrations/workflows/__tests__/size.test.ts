@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { workflowToolDescription } from '../offering.js'
+import { WORKFLOW_TOOL_DESCRIPTION } from '../offering.js'
 import {
 	guidelineAgents,
 	isLargeRun,
 	isWorkflowSizeGuideline,
 	parseTokenTarget,
+	sessionWorkflowSizeAdvice,
 	workflowSizeAdvice,
 	workflowTokenCeiling,
 } from '../size.js'
@@ -37,10 +38,16 @@ describe('workflowSizeAdvice', () => {
 		expect(isWorkflowSizeGuideline('large')).toBe(true)
 		expect(isWorkflowSizeGuideline('huge')).toBe(false)
 	})
-	it('is appended to the tool description after a blank line', () => {
-		const advice = workflowSizeAdvice('large', true)
-		expect(workflowToolDescription(advice).endsWith(`\n\n${advice}`)).toBe(true)
-		expect(workflowToolDescription()).toBe(workflowToolDescription(''))
+	it('is the same for the default and for a configured guideline, per session', () => {
+		expect(sessionWorkflowSizeAdvice(undefined)).toBe(workflowSizeAdvice('medium', false))
+		expect(sessionWorkflowSizeAdvice({})).toBe(workflowSizeAdvice('medium', false))
+		expect(sessionWorkflowSizeAdvice({ sizeGuideline: 'large' })).toBe(
+			workflowSizeAdvice('large', true),
+		)
+		expect(sessionWorkflowSizeAdvice({ sizeGuideline: 'unrestricted' })).toBe('')
+	})
+	it('stays out of the tool description, so a setting never rewrites the tool definitions', () => {
+		expect(WORKFLOW_TOOL_DESCRIPTION).not.toMatch(/size guideline/i)
 	})
 })
 

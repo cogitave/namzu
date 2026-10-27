@@ -148,7 +148,14 @@ const lastText = (request: Record<string, any>): string => {
 			? m.content
 			: (m.content as { text?: string }[]).map((part) => part.text ?? '').join(''),
 	)
-	return parts.filter((text) => text && !text.startsWith('Current step context')).at(-1) ?? ''
+	return (
+		parts
+			.filter(
+				(text) =>
+					text && !text.startsWith('Current step context') && !text.startsWith('<system-reminder'),
+			)
+			.at(-1) ?? ''
+	)
 }
 
 describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(

@@ -1,4 +1,8 @@
-import { type ChatCompletionParams, createRuntimeContextMessage } from '@namzu/sdk'
+import {
+	type ChatCompletionParams,
+	createRuntimeContextMessage,
+	createTurnContextEntry,
+} from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
@@ -309,4 +313,100 @@ it('does not anchor after the first transient context even if more text follows'
 		],
 	})
 	expect(JSON.stringify(body.messages)).not.toContain('cache_control')
+})
+
+it('ends the cached prefix before a request-only block that sits ahead of the operator message', async () => {
+	// The breakpoint stops at the first request-only block, so the operator
+	// message and the tool loop that follow it are outside the cached prefix.
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Earlier question' },
+			{ role: 'assistant', content: 'Earlier answer' },
+			createRuntimeContextMessage('Repository snapshot', 'step-context'),
+			{ role: 'user', content: 'The new request' },
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			},
+			{ role: 'tool', toolCallId: 'c', content: 'Observed text' },
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+	const snapshot = messages.findIndex((m) => JSON.stringify(m).includes('Repository snapshot'))
+	expect(anchored).toBe(snapshot - 1)
+	const request = messages.findIndex((m) => JSON.stringify(m).includes('The new request'))
+	expect(request).toBeGreaterThan(anchored)
+})
+
+it('keeps recorded context inside the cached prefix and ends it before request-only context', async () => {
+	// A recorded entry is ordinary history that stays, so the anchor falls on
+	// it (or on what follows it) rather than ahead of it; only a trailing
+	// request-only block is left outside.
+	const entry = createTurnContextEntry('repository', 'RECORDED STATE')
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Original task' },
+			entry,
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			},
+			{ role: 'tool', toolCallId: 'c', content: 'Observed text' },
+			createRuntimeContextMessage('Inventory snapshot', 'step-context'),
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+	const recorded = messages.findIndex((m) => JSON.stringify(m).includes('RECORDED STATE'))
+	const inventory = messages.findIndex((m) => JSON.stringify(m).includes('Inventory snapshot'))
+	expect(recorded).toBeGreaterThanOrEqual(0)
+	expect(anchored).toBeGreaterThanOrEqual(recorded)
+	expect(anchored).toBe(inventory - 1)
+	expect(JSON.stringify(messages[inventory])).not.toContain('cache_control')
+})
+
+it('does not stop the cached prefix at recorded context that ends the history', async () => {
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Original task' },
+			createTurnContextEntry('repository', 'RECORDED STATE'),
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const last = messages.at(-1)
+	expect(JSON.stringify(last)).toContain('RECORDED STATE')
+	expect(JSON.stringify(last)).toContain('cache_control')
+})
+
+it('anchors the last history message on every call of a turn, whatever the request-only blocks say', async () => {
+	const history: ChatCompletionParams['messages'] = [{ role: 'user', content: 'go' }]
+	let last = 'go'
+	for (let call = 1; call <= 3; call++) {
+		const body = await bodyFor({
+			messages: [
+				...history,
+				createRuntimeContextMessage('Work list', 'step-context'),
+				createRuntimeContextMessage(`Note for call ${call}`, 'step-context'),
+			],
+		})
+		const messages = body.messages as { role: string; content: string | Block[] }[]
+		const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+		expect(JSON.stringify(messages[anchored])).toContain(last)
+		const firstBlock = messages.findIndex((m) => JSON.stringify(m).includes('Work list'))
+		expect(anchored).toBe(firstBlock - 1)
+		for (const m of messages.slice(firstBlock))
+			expect(JSON.stringify(m)).not.toContain('cache_control')
+		history.push({
+			role: 'assistant',
+			content: '',
+			toolCalls: [
+				{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+			],
+		})
+		history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` })
+		last = `RESULT-${call}`
+	}
 })

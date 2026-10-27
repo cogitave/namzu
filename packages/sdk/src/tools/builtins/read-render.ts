@@ -54,14 +54,37 @@ export interface RenderedRead {
  */
 export function renderNumberedRead(content: string, input: ReadWindowRequest): RenderedRead {
 	const lines = content.split('\n')
-	const { start, end } = resolveReadWindow(input, lines.length)
-	const selected = lines.slice(start, end)
+	// One definition of a file's length for the header, the notice and the
+	// past-end warning: a final newline ends a line, it does not start another.
+	const lineCount = countFileLines(content)
+	const { start, end } = resolveReadWindow(input, lineCount)
+	// A file with no text in it, or a window that opens after its last line,
+	// has nothing to number. Say that in words instead of printing a numbered
+	// empty line or a "PARTIAL view" range that runs backwards.
+	if (content === '') {
+		return {
+			output: 'Warning: the file exists but is empty.',
+			totalLines: 0,
+			returnedLines: 0,
+			partial: false,
+		}
+	}
+	if (start >= lineCount) {
+		return {
+			output: `Warning: the file is shorter than the requested start (line ${start + 1}). It has ${lineCount} ${lineCount === 1 ? 'line' : 'lines'}.`,
+			totalLines: lineCount,
+			returnedLines: 0,
+			// Nothing of the file was shown, so this must never stand in for it.
+			partial: true,
+		}
+	}
+	const selected = lines.slice(start, Math.min(end, lineCount))
 	const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 	return {
-		output: numbered + partialViewNotice(start, selected.length, lines.length),
-		totalLines: lines.length,
+		output: numbered + partialViewNotice(start, selected.length, lineCount),
+		totalLines: lineCount,
 		returnedLines: selected.length,
-		partial: selected.length < lines.length,
+		partial: selected.length < lineCount,
 	}
 }
 
@@ -83,6 +106,13 @@ function partialViewNotice(start: number, returned: number, total: number): stri
 		`[PARTIAL view — lines ${start + 1}-${shownTo} of ${total}.`,
 		`Continue with read({ offset: ${shownTo}, limit: N }), or narrow with grep.]`,
 	].join('\n')
+}
+
+/** The number of lines a file has: a final newline ends a line, it does not start another. */
+export function countFileLines(content: string): number {
+	if (content === '') return 0
+	const parts = content.split('\n').length
+	return content.endsWith('\n') ? parts - 1 : parts
 }
 
 export function resolveReadWindow(
@@ -153,7 +183,7 @@ export function estimateReadTokens(text: string, ext: string): number {
 	return Math.round(text.length / perToken)
 }
 
-function humanBytes(n: number): string {
+export function humanBytes(n: number): string {
 	if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`
 	if (n >= 1024) return `${Math.round(n / 1024)} KiB`
 	return `${n} B`
@@ -200,8 +230,9 @@ export function renderCappedRead(
 	}
 
 	const lines = content.split('\n')
-	const { start, end } = resolveReadWindow(input, lines.length)
-	const selected = lines.slice(start, end)
+	const lineCount = countFileLines(content)
+	const { start, end } = resolveReadWindow(input, lineCount)
+	const selected = lines.slice(start, Math.min(end, lineCount))
 	const selectedText = selected.join('\n')
 
 	const selectedBytes = Buffer.byteLength(selectedText, 'utf8')
@@ -226,7 +257,7 @@ export function renderCappedRead(
 	}
 	return {
 		ok: true,
-		rendered: trimFirstPage(selected, lines.length, selectedText, tokens, maxTokens, options.path),
+		rendered: trimFirstPage(selected, lineCount, selectedText, tokens, maxTokens, options.path),
 	}
 }
 

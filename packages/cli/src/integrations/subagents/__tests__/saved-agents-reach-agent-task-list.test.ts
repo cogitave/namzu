@@ -1,4 +1,4 @@
-import { generateTurnId } from '@namzu/sdk'
+import { generateTurnId, untrustedEnvelopeBody } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -59,6 +59,9 @@ it('answers agent_task_list history from the logs without launching or listing a
 		)
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('SAVED_CHILD_RESULT_712')
+		// A saved answer is a child's text: it sits in a marked block, as a live one does.
+		const saved = JSON.parse(result.output) as { agents: { output?: string }[] }
+		expect(untrustedEnvelopeBody(saved.agents[0]?.output ?? '')).toBe('SAVED_CHILD_RESULT_712')
 		expect(result.output).toContain('historical evidence from earlier turns')
 		expect((await runtime.gatewayForTurn(scope.scope.turnId)).listTasks()).toEqual([])
 		expect(providers).toBe(0)

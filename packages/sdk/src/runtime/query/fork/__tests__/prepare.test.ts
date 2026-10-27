@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { CheckpointId } from '../../../../types/hitl/index.js'
 import type { ToolCallId } from '../../../../types/ids/index.js'
-import type { AssistantMessage, Message, ToolMessage } from '../../../../types/message/index.js'
+import {
+	type AssistantMessage,
+	type Message,
+	type ToolMessage,
+	createTurnContextEntry,
+	isTurnContextEntry,
+	turnContextEntries,
+} from '../../../../types/message/index.js'
 import type { Mutation } from '../../../../types/session/fork.js'
 import { TEST_SCOPE } from '../../__tests__/support/session.js'
 import {
@@ -112,5 +119,23 @@ describe('prepareForkState', () => {
 		expect(appended.toolCallId).toBe('call_a')
 		expect(appended.content).toBe('mocked-a')
 		expect(prepared.mutations).toEqual(mutations)
+	})
+
+	it('seeds a fork with the recorded context the source held, so a step does not say it again', async () => {
+		const entry = createTurnContextEntry('repository', 'REPO STATE')
+		const session = await sessionWithCheckpoint({
+			messages: [{ role: 'user', content: 'start' }, entry, { role: 'assistant', content: 'ok' }],
+		})
+
+		const prepared = await prepareForkState({
+			...source(session),
+			fromCheckpoint: session.checkpointId,
+		})
+
+		const held = prepared.messages.filter(isTurnContextEntry)
+		expect(held).toHaveLength(1)
+		expect(held[0]?.content).toBe(entry.content)
+		// What a producer reads from the history it is handed.
+		expect(turnContextEntries(prepared.messages, 'repository')).toHaveLength(1)
 	})
 })

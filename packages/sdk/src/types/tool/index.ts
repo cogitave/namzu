@@ -1051,6 +1051,24 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 */
 	pathArgument?: string
 	/**
+	 * A refusal that needs no person's answer: the call cannot run as it stands,
+	 * and the tool can already tell.
+	 *
+	 * Asked once the arguments are valid and BEFORE the call is put to a
+	 * reviewer, so a person is never asked to approve a change that would be
+	 * refused the moment they said yes. A file tool answers here when the file
+	 * moved on disk after the session read it. Returning `undefined` means no
+	 * objection; the call goes on to review and `execute`, which keep their own
+	 * checks, since the state may move again in between. A hook that throws is
+	 * read as no objection too.
+	 */
+	refuseBeforeReview?(
+		input: TInput,
+		context: ToolContext,
+	): Promise<
+		{ readonly error: string; readonly facts?: import('./presentation.js').ToolFacts } | undefined
+	>
+	/**
 	 * The argument that holds an absolute URL the tool has already
 	 * canonicalised in its input schema — one spelling, no whitespace.
 	 *

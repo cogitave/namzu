@@ -106,10 +106,12 @@ it('discovers nested policy in request two, publishes one snapshot, and rehydrat
 	expect(projectSnapshots(firstRequest)).toHaveLength(1)
 	expect(projectSnapshots(firstRequest)[0]?.content).toContain('Root policy.')
 	expect(projectSnapshots(firstRequest)[0]?.content).not.toContain('Nested policy v1.')
-	expect(projectSnapshots(secondRequest)).toHaveLength(1)
-	expect(projectSnapshots(secondRequest)[0]?.content).toContain('Nested policy v1.')
-	expect(projectSnapshots(settled)).toHaveLength(1)
-	expect(projectSnapshots(settled)[0]?.source).toMatchObject({
+	// The root copy keeps its place; the nested policy arrives as one update.
+	expect(projectSnapshots(secondRequest)).toHaveLength(2)
+	expect(projectSnapshots(secondRequest)[0]?.content).toContain('Root policy.')
+	expect(projectSnapshots(secondRequest)[1]?.content).toContain('Nested policy v1.')
+	expect(projectSnapshots(settled)).toHaveLength(2)
+	expect(projectSnapshots(settled)[1]?.source).toMatchObject({
 		files: ['AGENTS.md', 'packages/a/AGENTS.md'],
 	})
 
@@ -129,7 +131,7 @@ it('discovers nested policy in request two, publishes one snapshot, and rehydrat
 		await resumed.close()
 	}
 	const resumedRequest = secondProvider.requests[0]?.messages as Message[]
-	expect(projectSnapshots(resumedRequest)).toHaveLength(1)
-	expect(projectSnapshots(resumedRequest)[0]?.content).toContain('Nested policy v2.')
-	expect(projectSnapshots(resumedRequest)[0]?.content).not.toContain('Nested policy v1.')
+	expect(projectSnapshots(resumedRequest)).toHaveLength(2)
+	expect(projectSnapshots(resumedRequest)[1]?.content).toContain('Nested policy v2.')
+	expect(JSON.stringify(resumedRequest)).not.toContain('Nested policy v1.')
 })

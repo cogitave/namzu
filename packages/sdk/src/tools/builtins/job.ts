@@ -44,7 +44,7 @@ type JobInput = z.infer<typeof inputSchema>
 export const JobTool = defineTool({
 	name: 'job',
 	description:
-		'Reads, lists and stops background jobs started by bash with run_in_background, and monitors started by monitor (whose stderr, which is not an event, is read here). Do NOT call action "read" in a loop to find out whether a job finished: use wait_for_job instead — it blocks until the job ends (or goes quiet, or runs long) and returns the output in one call, with no waiting turns spent checking. Use "read" to see output while a job keeps running, or to pick up after a wait_for_job call gave up, passing the previous call\'s next_offset to see only new output.',
+		'Reads, lists and stops background jobs started by bash with run_in_background, and monitors started by monitor (whose stderr, which is not an event, is read here). To find out whether a job finished, use wait_for_job: it blocks until the job ends (or goes quiet, or runs long) and returns the output in one call, while repeated "read" calls spend turns checking. Use "read" to see output while a job keeps running, or to pick up after a wait_for_job call gave up, passing the previous call\'s next_offset to see only new output.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],

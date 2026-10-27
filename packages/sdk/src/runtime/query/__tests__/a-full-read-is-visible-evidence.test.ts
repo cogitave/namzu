@@ -4,13 +4,14 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { heldFileEvidence } from '../../../test-support/file-evidence-held.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
-import type { Message } from '../../../types/message/index.js'
+import { type Message, isTurnContextEntry } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -21,12 +22,8 @@ import { drainQuery } from '../index.js'
  * receipt by hand would be asserting its own arithmetic.
  */
 
-/** The JSON payload of a request's file-evidence message, if it carries one. */
-function entriesIn(messages: Message[] | undefined): unknown {
-	const content = String(messages?.at(-1)?.content ?? '')
-	if (!content.includes('Visible file evidence')) return undefined
-	return JSON.parse(content.split('\n').at(-1) as string)
-}
+/** The entries the history of a request holds for files. */
+const entriesIn = heldFileEvidence
 
 it('carries a whole-file read into the next turn, and withdraws it when the file moves underneath', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-read-evidence-'))
@@ -72,7 +69,9 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 		])
 		// The body is referenced, not copied: it is already in the request, in
 		// the receipt the entry names.
-		expect(String(requests[1]?.at(-1)?.content)).not.toContain('alpha')
+		const recorded = requests[1]?.filter(isTurnContextEntry) ?? []
+		expect(recorded).toHaveLength(1)
+		expect(String(recorded[0]?.content)).not.toContain('alpha')
 		// And the entry's claim about that receipt, asserted against the very
 		// array the provider was handed: still byte-for-byte what the tool
 		// fingerprinted, so a later stage that decorated a tool result after the
@@ -81,9 +80,9 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 		expect(fingerprintContent(String(receipt?.content))).toBe(
 			fileReadTracker.readWitness?.(await realpath(path))?.renderedFingerprint,
 		)
-		expect(first.messages.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
-			false,
-		)
+		// The entry is part of the conversation the turn returns, so the next
+		// turn finds it where it was and the opening of its request is unchanged.
+		expect(first.messages.filter(isTurnContextEntry)).toHaveLength(1)
 
 		// Someone else writes between the turns. The ledger does not know yet,
 		// and the projection is not going to find out by reading the disk.
@@ -117,6 +116,12 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 				observedFingerprint: expect.any(String),
 			},
 		])
+		// The earlier entry stays where it was recorded, ahead of the new
+		// operator message, so that message does not move what came before it.
+		const sent = afterDrift[0] ?? []
+		const askedAt = sent.findIndex((m) => m.content === 'Change beta to gamma')
+		expect(askedAt).toBeGreaterThan(-1)
+		expect(sent.findIndex(isTurnContextEntry)).toBeLessThan(askedAt)
 		// Admission is what finds out, and its refusal is what tells the ledger.
 		const refusal = second.messages.find((m) => m.role === 'tool' && m.toolCallId === 'e')
 		expect(refusal?.content).toContain('changed on disk')

@@ -12,6 +12,8 @@ generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 
 `ask_user_question` turns a turn around to face the person: the model asks one question, or up to four related ones, each with two to four options, the turn parks through the host's `ResumeHandler`, and the answer comes back as the tool's result. `buildAskUserQuestionTool({ resumeHandler })` builds it on its own; `buildCoordinatorTools` includes it when it is given a `resumeHandler` and a turn.
 
+The description tells the model that plan ratification does not go through this tool. It names the host's approval tool only when the host says which one is mounted (`planApprovalTool`; the coordinator passes `approve_plan` when it mounts that tool, the terminal passes `exit_plan_mode` when plan mode can be approved); with none given it says "the plan-approval tool", so the description never names a tool the model does not have.
+
 ## What the model sends
 
 ```ts sketch

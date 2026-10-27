@@ -144,6 +144,26 @@ async function fixture(): Promise<{ sessions: Sessions; sessionId: SessionId }> 
 	return { sessions, sessionId: await startConversation(sessions) }
 }
 
+describe('recalled evidence in the conversation', () => {
+	it('is kept in the conversation only when the host asks for it', async () => {
+		const { sessions, sessionId } = await fixture()
+		const options = (record?: boolean) =>
+			(record === undefined
+				? createConversationEvidenceRecall(sessions, sessionId, () => {})
+				: createConversationEvidenceRecall(
+						sessions,
+						sessionId,
+						() => {},
+						false,
+						record,
+					)) as unknown as {
+				record: boolean
+			}
+		expect(options().record).toBe(false)
+		expect(options(true).record).toBe(true)
+	})
+})
+
 afterEach(() => {
 	opened.length = 0
 	passages = []

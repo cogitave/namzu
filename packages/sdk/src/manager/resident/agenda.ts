@@ -20,6 +20,19 @@ import {
 	wakeResidentState,
 } from './store.js'
 
+import {
+	type LearningEvidence,
+	type LearningProfileUpdate,
+	type LearningSkillCandidate,
+	type LearningSkillEvaluation,
+	type LearningState,
+	freezeLearning,
+	learningEvidenceSchema,
+	learningSchema,
+	promoteLearningSkill,
+	restoreLearningSkill,
+	reviseLearningProfile,
+} from '../../learning/skill.js'
 import { type ResidentActivitySource, createResidentActivitySource } from './activity.js'
 import { readResidentHistoryRecord } from './history-disk.js'
 import { type ResidentHistorySource, createResidentHistorySource } from './history.js'
@@ -31,19 +44,6 @@ import {
 	residentFeedbackSchema,
 	residentObservationSchema,
 } from './initiative.js'
-import {
-	type ResidentLearningEvidence,
-	type ResidentLearningState,
-	type ResidentProfileUpdate,
-	type ResidentSkillCandidate,
-	type ResidentSkillEvaluation,
-	freezeResidentLearning,
-	promoteResidentSkill,
-	residentLearningEvidenceSchema,
-	residentLearningSchema,
-	restoreResidentSkill,
-	reviseResidentProfile,
-} from './learning.js'
 import {
 	type ResidentDeliveryOutcome,
 	type ResidentMessageInput,
@@ -74,7 +74,7 @@ const agendaSchema = z
 		paused: z.boolean(),
 		pauseGeneration: z.number().int().nonnegative().safe().optional(),
 		archiveHead: z.number().int().min(2).safe().optional(),
-		learning: residentLearningSchema.optional(),
+		learning: learningSchema.optional(),
 		outbox: z.array(residentOutboxMessageSchema).max(128).optional(),
 		pursuits: z
 			.array(
@@ -136,7 +136,11 @@ const agendaSchema = z
 			})
 	})
 
-/** @experimental One pursuit shares its agent's identity, but has its own lifecycle. */
+/**
+ * @experimental One pursuit shares its agent's identity, but has its own lifecycle.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentPursuit {
 	readonly id: string
 	readonly state: ResidentState
@@ -146,7 +150,11 @@ export interface ResidentPursuit {
 	readonly retiredChildren?: number
 }
 
-/** @experimental Bounded shared admission record; at most one pursuit may be running. */
+/**
+ * @experimental Bounded shared admission record; at most one pursuit may be running.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentAgendaState {
 	readonly tenantId: string
 	readonly agentKey: string
@@ -158,29 +166,45 @@ export interface ResidentAgendaState {
 	readonly pursuits: readonly ResidentPursuit[]
 	readonly outbox?: readonly ResidentOutboxMessage[]
 	readonly archiveHead?: number
-	readonly learning?: ResidentLearningState
+	readonly learning?: LearningState
 }
 
-/** @experimental Explicit terminal entries to retire from active capacity together. */
+/**
+ * @experimental Explicit terminal entries to retire from active capacity together.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveRequest {
 	readonly pursuitIds?: readonly string[]
 	readonly messageIds?: readonly string[]
 }
 
-/** @experimental A committed removal, whose immutable predecessor preserves the full records. */
+/**
+ * @experimental A committed removal, whose immutable predecessor preserves the full records.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveEntry {
 	readonly revision: number
 	readonly pursuits: readonly ResidentPursuit[]
 	readonly messages: readonly ResidentOutboxMessage[]
 }
 
-/** @experimental Pages count archive events; each event contains at most 32 pursuits and 128 messages. */
+/**
+ * @experimental Pages count archive events; each event contains at most 32 pursuits and 128 messages.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchivePage {
 	readonly entries: readonly ResidentArchiveEntry[]
 	readonly nextBeforeRevision: number | null
 }
 
-/** @experimental The cursor is the next archive-event revision returned by a previous page. */
+/**
+ * @experimental The cursor is the next archive-event revision returned by a previous page.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentArchiveListOptions {
 	readonly beforeRevision?: number
 	/** Number of archive events to inspect; defaults to 8 and cannot exceed 32. */
@@ -204,7 +228,11 @@ const archiveRequestSchema = z.object({
 	messageIds: z.array(z.string().uuid()).max(128).default([]),
 })
 
-/** @experimental Atomic whole-agent admission plus independently addressable pursuits. */
+/**
+ * @experimental Atomic whole-agent admission plus independently addressable pursuits.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentAgendaStore {
 	read(): Promise<ResidentAgendaState | null>
 	create(identity: string): Promise<ResidentAgendaState>
@@ -251,6 +279,8 @@ export interface ResidentAgendaStore {
  * @experimental One immutable revision contains identity, pause state and all
  * pursuits. Admission therefore serializes this agent even across processes
  * choosing different pursuits. Trusted local filesystems only; no lease expiry.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export class DiskResidentAgenda implements ResidentAgendaStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentAgendaState>(
@@ -284,7 +314,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 			throw new Error('Agenda does not match the bound tenant and agent.')
 		return Object.freeze({
 			...agenda,
-			...(agenda.learning ? { learning: freezeResidentLearning(agenda.learning) } : {}),
+			...(agenda.learning ? { learning: freezeLearning(agenda.learning) } : {}),
 			...(agenda.outbox
 				? { outbox: Object.freeze(agenda.outbox.map((message) => Object.freeze(message))) }
 				: {}),
@@ -596,7 +626,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 
 	private async learn(
 		expected: ResidentAgendaState,
-		learning: ResidentLearningState,
+		learning: LearningState,
 	): Promise<ResidentAgendaState> {
 		return this.change(expected, (state) => {
 			if (state.pursuits.some((pursuit) => pursuit.state.phase === 'running'))
@@ -609,22 +639,22 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 	/** Append a host-evidenced correction only while pursuit admission is idle. */
 	async updateProfile(
 		expected: ResidentAgendaState,
-		input: ResidentProfileUpdate,
+		input: LearningProfileUpdate,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const learning = reviseResidentProfile(snapshot.learning, input)
+		const learning = reviseLearningProfile(snapshot.learning, input)
 		return this.learn(snapshot, learning)
 	}
 
 	/** Bind evaluated guidance to the current learning version and an idle agenda. */
 	async promoteSkill(
 		expected: ResidentAgendaState,
-		candidate: ResidentSkillCandidate,
-		evaluation: ResidentSkillEvaluation,
-		evidence: ResidentLearningEvidence,
+		candidate: LearningSkillCandidate,
+		evaluation: LearningSkillEvaluation,
+		evidence: LearningEvidence,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const learning = promoteResidentSkill(snapshot.learning, candidate, evaluation, evidence)
+		const learning = promoteLearningSkill(snapshot.learning, candidate, evaluation, evidence)
 		return this.learn(snapshot, learning)
 	}
 
@@ -633,17 +663,17 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		expected: ResidentAgendaState,
 		name: string,
 		fromRevision: number,
-		evidence: ResidentLearningEvidence,
+		evidence: LearningEvidence,
 	): Promise<ResidentAgendaState> {
 		const snapshot = this.checked(expected)
-		const checkedEvidence = residentLearningEvidenceSchema.parse(evidence)
+		const checkedEvidence = learningEvidenceSchema.parse(evidence)
 		z.number().int().positive().safe().max(snapshot.revision).parse(fromRevision)
 		z.string()
 			.regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
 			.parse(name)
 		const historical = await this.readRevision(fromRevision)
 		if (!historical) throw new Error('Resident skill rollback revision is missing.')
-		const learning = restoreResidentSkill(
+		const learning = restoreLearningSkill(
 			snapshot.learning,
 			historical.learning,
 			name,

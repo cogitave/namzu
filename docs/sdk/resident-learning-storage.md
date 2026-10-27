@@ -2,22 +2,22 @@
 type: Reference
 title: Durable resident learning records
 description: SQLite experiment authority, immutable JSON artifacts, scoped inspection and explicit host execution.
-resource: packages/sdk/src/manager/resident/learning-store.ts
+resource: packages/sdk/src/learning/store.ts
 tags: [sdk, agents, learning, sqlite, storage]
 status: draft
 ---
 
 # Durable resident learning records
 
-`SqliteResidentLearningStore` retains the [learning cycle](resident-learning-cycle.md)
-without introducing another model executor. `runStoredResidentLearningCycle`
+`SqliteLearningStore` retains the [learning cycle](resident-learning-cycle.md)
+without introducing another model executor. `runStoredLearningCycle`
 supplies its durable event callback and saves the full verification and confirmation
 batches. The caller still owns generation, independent evaluation, authorization,
 execution limits and the agenda. Both APIs are experimental and opt-in.
 
 [Learning discovery](resident-learning-discovery.md) adds host-scored observations
 and per-task attempt claims in the same database. A host can let the SDK select
-an eligible retained failure through `runStoredResidentLearningFromObservations`.
+an eligible retained failure through `runStoredLearningFromObservations`.
 Both host paths require a predeclared `protection` plan under the
 [learning-cycle contract](resident-learning-cycle.md). The `started` event
 retains its exact selection before generation; evaluation artifacts retain the
@@ -49,23 +49,23 @@ keep their existing boundaries.
 
 ```ts
 import {
-  SqliteResidentLearningStore,
-  runStoredResidentLearningCycle,
-  type ResidentLearningCycleOptions,
-  type SqliteResidentLearningStoreOptions,
+  SqliteLearningStore,
+  runStoredLearningCycle,
+  type LearningCycleOptions,
+  type SqliteLearningStoreOptions,
 } from '@namzu/sdk'
 
 async function learn(
-  storage: SqliteResidentLearningStoreOptions,
-  host: Omit<ResidentLearningCycleOptions, 'record'>,
+  storage: SqliteLearningStoreOptions,
+  host: Omit<LearningCycleOptions, 'record'>,
 ) {
-  const store = new SqliteResidentLearningStore(storage)
-  const result = await runStoredResidentLearningCycle(store, host)
+  const store = new SqliteLearningStore(storage)
+  const result = await runStoredLearningCycle(store, host)
   return { result, artifacts: await store.artifacts(result.cycleId) }
 }
 
-async function inspect(storage: SqliteResidentLearningStoreOptions) {
-  const store = new SqliteResidentLearningStore({ ...storage, readOnly: true })
+async function inspect(storage: SqliteLearningStoreOptions) {
+  const store = new SqliteLearningStore({ ...storage, readOnly: true })
   const cycles = await store.list({ limit: 20 })
   const first = cycles[0]
   return first ? { cycle: first, events: await store.events(first.cycleId, { limit: 32 }) } : null

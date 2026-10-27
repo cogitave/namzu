@@ -21,6 +21,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 import type { ProjectInstructionContext, ToolResultObservation } from '../project-instructions.js'
 import {
+	PROJECT_INSTRUCTION_UPDATE_HEADER,
 	collapseProjectInstructionSnapshots,
 	replaceProjectInstructionSnapshot,
 } from '../project-instructions.js'
@@ -575,7 +576,7 @@ describe('live project instruction context', () => {
 })
 
 describe('project instruction snapshot history', () => {
-	it('replaces older snapshots before the newest human input', () => {
+	it('keeps the first snapshot and adds the change as an update before the newest human input', () => {
 		const old = createProjectInstructionMessage('old', ['AGENTS.md'])
 		const current = createProjectInstructionMessage('current', ['pkg/AGENTS.md'])
 		const human = createUserMessage('continue')
@@ -594,7 +595,12 @@ describe('project instruction snapshot history', () => {
 						? `user:${message.content}`
 						: message.role,
 			),
-		).toEqual(['user:earlier', 'policy:current', 'user:continue'])
+		).toEqual([
+			'policy:old',
+			'user:earlier',
+			`policy:${PROJECT_INSTRUCTION_UPDATE_HEADER}current`,
+			'user:continue',
+		])
 	})
 
 	it('collapses append-only persisted snapshots to the latest retained one', () => {

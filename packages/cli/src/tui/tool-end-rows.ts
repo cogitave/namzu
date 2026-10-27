@@ -10,7 +10,7 @@ import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
 import { isTaskTool } from './task-activity.js'
 import { tokenColor } from './theme.js'
-import { declinedLine } from './tidy-tool-output.js'
+import { TURN_STOPPED_LINE, declinedLine } from './tidy-tool-output.js'
 import { firstLineOf, toolFailureText } from './tool-failure-text.js'
 import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
@@ -146,7 +146,8 @@ function failedCallRows(event: ToolEndEvent, start: ToolEndStart | undefined): r
 					event.plainFailureTone === 'muted'
 						? tokenColor('text.muted')
 						: tokenColor('status.error'),
-				...(said !== undefined && said.trim().length > 0
+				// A call that never started has nothing behind its sentence.
+				...(said !== undefined && said.trim().length > 0 && event.plainFailure !== TURN_STOPPED_LINE
 					? { detail: full, meta: EXPAND_HINT, activity: 'agent-result' as const }
 					: {}),
 			},
@@ -285,9 +286,11 @@ export function toolEndRows(
 	}
 	if (event.declined) {
 		// The person's own No: neither a failure nor a mystery. The model's
-		// refusal text is for the model and is not shown. A refused edit or
-		// write shows what it would have changed, dimmed.
-		const refused = proposedBody(start?.proposed, ctx.cwd)
+		// refusal text is for the model and is not shown. A refused edit shows
+		// what it would have changed, dimmed; a refused write shows only that it
+		// was declined, since the file it proposed is not something to read.
+		const refused =
+			start?.proposed?.kind === 'edit' ? proposedBody(start.proposed, ctx.cwd) : undefined
 		return rows([
 			{
 				role: 'tool',

@@ -12,6 +12,25 @@ function renderPlan(plan: PlanSlot[]): string {
 	return plan.map((slot) => `- ${PLAN_STATUS_ICONS[slot.status]} ${slot.label}`).join('\n')
 }
 
+/** What one recorded action says, in words a reader needs no key for. */
+function describeAction(action: { type: string; summary?: string; detail?: string }): string {
+	switch (action.type) {
+		case 'read':
+			return 'read'
+		case 'delete':
+			return 'deleted'
+		case 'create':
+		case 'edit': {
+			const verb = action.type === 'create' ? 'created' : 'changed'
+			const detail = action.detail?.replace(/\s+/g, ' ').trim()
+			return detail && detail !== 'modified' ? `${verb} (${detail})` : verb
+		}
+		default:
+			return action.type
+	}
+}
+
+/** One line per file: the path, then what was done to it, each distinct step once and in order. */
 function renderFiles(
 	files: Map<
 		string,
@@ -20,15 +39,8 @@ function renderFiles(
 ): string {
 	const lines: string[] = []
 	for (const [, slot] of files) {
-		lines.push(`- \`${slot.path}\``)
-		for (const action of slot.actions) {
-			if (action.type === 'delete') {
-				lines.push('  - deleted')
-			} else {
-				const desc = 'detail' in action ? action.detail : action.summary
-				lines.push(`  - ${action.type}: ${desc ?? ''}`)
-			}
-		}
+		const done = [...new Set(slot.actions.map(describeAction))]
+		lines.push(`- \`${slot.path}\`: ${done.join('; ')}`)
 	}
 	return lines.join('\n')
 }
@@ -72,6 +84,17 @@ export function renderPins(state: WorkingState): string | null {
 	return `${SECTION_HEADERS.pins}\n\n${lines.join('\n')}`
 }
 
+/**
+ * An assistant note that says what is still to be done. The summary keeps
+ * these apart from the narration so the step that comes next is the last
+ * thing the model reads after a compaction.
+ */
+export function isOpenItem(note: string): boolean {
+	return /^(?:next[,:]\s|to-?do\b)|\b(?:i(?:'ll| will| am going to| plan to)|we(?:'ll| will| are going to| need to)|still needs? to|(?:remaining|left) to|have yet to|next step)\b/i.test(
+		note,
+	)
+}
+
 export function serializeState(state: WorkingState): string {
 	const sections: string[] = []
 
@@ -107,9 +130,11 @@ export function serializeState(state: WorkingState): string {
 		)
 	}
 
-	if (state.assistantNotes.length > 0) {
+	const openItems = state.assistantNotes.filter(isOpenItem)
+	const narration = state.assistantNotes.filter((note) => !isOpenItem(note))
+	if (narration.length > 0) {
 		sections.push(
-			`${SECTION_HEADERS.assistantNotes}\n\n${renderList(state.assistantNotes, state.evicted.assistantNotes)}`,
+			`${SECTION_HEADERS.assistantNotes}\n\n${renderList(narration, state.evicted.assistantNotes)}`,
 		)
 	}
 
@@ -129,6 +154,18 @@ export function serializeState(state: WorkingState): string {
 		sections.push(
 			`${SECTION_HEADERS.discoveries}\n\n${renderList(state.discoveries, state.evicted.discoveries)}`,
 		)
+	}
+
+	// The goal is restated near the end, where recency keeps it in view: the
+	// newest request, and only when it says something the Task entry does not.
+	const goal = state.userRequirements[state.userRequirements.length - 1]
+	if (goal && goal.trim() !== state.task?.trim()) {
+		sections.push(`${SECTION_HEADERS.goal}\n\n${goal}`)
+	}
+
+	// Last, where recency keeps it in view: what is still to do.
+	if (openItems.length > 0) {
+		sections.push(`${SECTION_HEADERS.openItems}\n\n${renderList(openItems)}`)
 	}
 
 	return sections.join('\n\n')

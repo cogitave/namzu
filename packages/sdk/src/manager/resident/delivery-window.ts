@@ -1,6 +1,10 @@
 import type { ResidentDeliveryGate } from './outbox.js'
 
-/** @experimental A daily allowed delivery window in an explicit named time zone. */
+/**
+ * @experimental A daily allowed delivery window in an explicit named time zone.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentDeliveryWindowConfig {
 	readonly timeZone: string
 	/** Inclusive local minute of the day, from 0 through 1439. */
@@ -22,6 +26,8 @@ const searchMinutes = 72 * 60
  * is bounded to 72 hours and the Date range; no opening returns nextCheckAt:null.
  * Historic time zones with second-based offsets may defer up to one extra minute.
  * This gate does not schedule a timer, authorize a destination or send a message.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentDeliveryWindow(
 	config: ResidentDeliveryWindowConfig,

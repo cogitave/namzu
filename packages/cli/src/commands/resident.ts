@@ -27,8 +27,8 @@ import { loadResidentVerification } from '../integrations/resident/verification.
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
+import { runLearningCommand } from './learning.js'
 import { parseResidentFlags } from './resident-flags.js'
-import { residentLearningCommand } from './resident-learning.js'
 import type { CommandDef } from './types.js'
 
 const line = (value: string) => stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}]/gu, ' ')
@@ -119,17 +119,24 @@ async function closeAdmission(resident: CliResident, initial: ResidentAgendaStat
 	}
 }
 
+/** The single line every `namzu resident` action prints before it does anything. */
+export const RESIDENT_DEPRECATION =
+	'namzu resident is deprecated and will be removed in the next major release. Use namzu schedule for recurring work, /goal for work that spans turns, and background agents in the terminal app; namzu learn keeps working.'
+
 export const residentCommand: CommandDef = {
 	name: 'resident',
-	description: 'Manage persistent work and explicitly authorized resident runners (experimental)',
+	description:
+		'Deprecated: persistent resident work, removed in the next major release (namzu learn stays)',
 	passThrough: true,
 	help: [
 		'Usage: namzu resident <action> [options]',
 		'',
+		`Deprecated. ${RESIDENT_DEPRECATION}`,
+		'',
 		'  add <objective>          Save work without starting a model',
 		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
-		'  learn <file.learning.js> Run one explicitly selected executable learning experiment (--trust, --cwd, --agent)',
-		'  learning [cycle-id]      Inspect experiments or --observations (--events, --after, --before, --limit)',
+		'  learn <file.learning.js> Same as `namzu learn`: run one explicitly selected learning experiment (--trust, --cwd, --agent)',
+		'  learning [cycle-id]      Same as `namzu learning`: inspect experiments or --observations (--events, --after, --before, --limit)',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
 		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',
@@ -174,8 +181,9 @@ export const residentCommand: CommandDef = {
 		'  130 for cancellation. A clean run does not mean every pursuit is complete.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrap, rawArgs }) => {
+		bootstrap.formatter.info(RESIDENT_DEPRECATION)
 		if (rawArgs[0] === 'learn' || rawArgs[0] === 'learning')
-			return residentLearningCommand({ ctx: bootstrap, rawArgs })
+			return runLearningCommand({ ctx: bootstrap, rawArgs })
 		let flags: ReturnType<typeof parseResidentFlags>
 		try {
 			flags = parseResidentFlags(rawArgs)

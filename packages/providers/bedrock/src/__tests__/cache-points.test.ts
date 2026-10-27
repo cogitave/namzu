@@ -1,4 +1,4 @@
-import type { ChatCompletionParams } from '@namzu/sdk'
+import { type ChatCompletionParams, createTurnContextEntry } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { BedrockProvider } from '../client.js'
@@ -333,5 +333,82 @@ describe('consecutive same-role messages are merged for Converse', () => {
 
 		const roles = (input.messages as { role: string }[]).map((m) => m.role)
 		for (let i = 1; i < roles.length; i++) expect(roles[i]).not.toBe(roles[i - 1])
+	})
+})
+
+/**
+ * A recorded context entry stays in the history from the call that wrote it
+ * onward, so a point after it is read back by the next request. Only the
+ * request-only blocks behind the history are left outside.
+ */
+describe('recorded context is history, not request-only context', () => {
+	const stepContext = (content: string) =>
+		({
+			role: 'user',
+			content,
+			source: { type: 'runtime-context', kind: 'step-context' },
+		}) as ChatCompletionParams['messages'][number]
+
+	it('puts the point after the entry and before a trailing step-context', async () => {
+		const entry = createTurnContextEntry('repository', 'RECORDED STATE')
+		const input = await capture({
+			cacheControl: { type: 'auto' },
+			messages: [{ role: 'user', content: 'go' }, entry, stepContext('PIN')],
+		})
+		const messages = input.messages as { role: string; content: Record<string, unknown>[] }[]
+		expect(messages).toHaveLength(1)
+		const blocks = messages[0]?.content ?? []
+		const at = blocks.findIndex((block) => block.cachePoint !== undefined)
+		expect(at).toBeGreaterThan(-1)
+		expect(JSON.stringify(blocks.slice(0, at))).toContain('RECORDED STATE')
+		expect(JSON.stringify(blocks.slice(at))).toContain('PIN')
+		expect(countCachePoints(input.messages)).toBe(1)
+	})
+
+	it('sets the point on the entry when nothing follows it', async () => {
+		const input = await capture({
+			cacheControl: { type: 'auto' },
+			messages: [{ role: 'user', content: 'go' }, createTurnContextEntry('memory', 'A RECORD')],
+		})
+		const blocks = (input.messages as { content: Record<string, unknown>[] }[])[0]?.content ?? []
+		expect(blocks[blocks.length - 1]).toEqual(CACHE_POINT)
+		expect(JSON.stringify(blocks)).toContain('A RECORD')
+	})
+})
+
+describe('the cache point across the calls of a turn', () => {
+	it('follows the last history message on every call, whatever the request-only blocks say', async () => {
+		const stepContext = (content: string) =>
+			({
+				role: 'user',
+				content,
+				source: { type: 'runtime-context', kind: 'step-context' },
+			}) as ChatCompletionParams['messages'][number]
+		const history: ChatCompletionParams['messages'] = [{ role: 'user', content: 'go' }]
+		let last = 'go'
+		for (let call = 1; call <= 3; call++) {
+			const input = await capture({
+				cacheControl: { type: 'auto' },
+				messages: [...history, stepContext('Work list'), stepContext(`Note for call ${call}`)],
+			})
+			const text = JSON.stringify(input.messages)
+			const at = text.indexOf('"cachePoint"')
+			expect(at).toBeGreaterThan(-1)
+			// Everything before the point includes the last history message; the
+			// request-only blocks are all after it.
+			expect(text.slice(0, at)).toContain(last)
+			expect(text.slice(0, at)).not.toContain('Work list')
+			expect(text.slice(at)).toContain('Work list')
+			expect(countCachePoints(input.messages)).toBe(1)
+			history.push({
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+				],
+			})
+			history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` })
+			last = `RESULT-${call}`
+		}
 	})
 })

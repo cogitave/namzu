@@ -57,10 +57,29 @@ export const execCommand = lazyCommand(
 export const residentCommand = lazyCommand(
 	{
 		name: 'resident',
-		description: 'Manage persistent work and explicitly authorized resident runners (experimental)',
+		description:
+			'Deprecated: persistent resident work, removed in the next major release (namzu learn stays)',
 		passThrough: true,
 	},
 	async () => (await import('./resident.js')).residentCommand,
+)
+
+export const learnCommand = lazyCommand(
+	{
+		name: 'learn',
+		description: 'Learn from what conversations kept, now; list or undo what was learned',
+		passThrough: true,
+	},
+	async () => (await import('./learn.js')).learnCommand,
+)
+
+export const learningCommand = lazyCommand(
+	{
+		name: 'learning',
+		description: 'Inspect learning experiments and the observations they start from',
+		passThrough: true,
+	},
+	async () => (await import('./learn.js')).learningCommand,
 )
 
 export const loginCommand = lazyCommand(

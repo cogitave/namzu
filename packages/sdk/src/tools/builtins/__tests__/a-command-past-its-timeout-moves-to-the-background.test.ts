@@ -78,7 +78,8 @@ describe('a foreground command that outruns its timeout', () => {
 		expect(result.output).toContain('STDERR:\nwarning: slow')
 		expect(result.output).toContain(movedToBackgroundMessage(job?.id ?? '', 120_000))
 		expect(result.output).toContain('120s timeout')
-		expect(result.output).toContain('wait_for_job')
+		// The result states what happened; how to wait, read or stop is in the job tools' descriptions.
+		expect(result.output).not.toContain('wait_for_job')
 		expect(result.data).toMatchObject({
 			jobId: job?.id,
 			background: true,

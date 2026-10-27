@@ -11,6 +11,7 @@ import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { staleBeforeReview } from './stale-before-review.js'
 
 const inputSchema = z
 	.object({
@@ -30,13 +31,13 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `edit` with insertLine: "end" to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the complete intended content for this bounded chunk, not a diff. Keep it under 12000 characters; the tool description says how to build a longer file.',
 			),
 		newStr: z
 			.string()
 			.optional()
 			.describe(
-				'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
+				'Alias for content. Useful for hosts that expose create/write operations as newStr. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 	})
 	.strict()
@@ -63,7 +64,7 @@ const modelInputSchema: Record<string, unknown> = {
 		content: {
 			type: 'string',
 			description:
-				'Complete file body. Use "" only for an intentionally empty file. Keep under 12000 characters.',
+				'Complete file body. Use "" only for an intentionally empty file. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 		},
 	},
 	required: ['path', 'content'],
@@ -73,7 +74,7 @@ const modelInputSchema: Record<string, unknown> = {
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- To modify an existing file, use `edit`: it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Chaining several `write` calls to one path loses content, because each overwrites the previous.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -94,6 +95,10 @@ export const WriteFileTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// An overwrite of a file that moved since the read is refused when it runs,
+	// so the person is not asked to approve one that cannot.
+	refuseBeforeReview: (input: WriteInput, context) =>
+		staleBeforeReview(context, input.path, 'write'),
 	// The classifier judges where a file is written and how much, not the body.
 	classifierInput: (input: WriteInput) => {
 		const body = input.content ?? input.newStr ?? ''

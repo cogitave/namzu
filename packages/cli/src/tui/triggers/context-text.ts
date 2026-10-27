@@ -17,7 +17,7 @@ import { triggerDefinition } from './registry.js'
 const TEXTS: Readonly<Record<ContextTextId, string>> = {
 	hypermode: HYPERMODE_KEYWORD_TEXT,
 	workflow:
-		'The operator asked for a workflow for THIS turn only: their message named it, and it is not on for the session. This opts the turn into the `workflow` tool. When the work is large enough to split into phases of agents, write one workflow script for it; the operator reads the script and approves it before anything starts. For a small piece of work, answer or use the Agent tool as usual.',
+		'The operator asked for a workflow for this turn only: their message named it, and it is not on for the session. This opts the turn into the `workflow` tool. When the work is large enough to split into phases of agents, write one workflow script for it; the operator reads the script and approves it before anything starts. For a small piece of work, answer or use the Agent tool as usual.',
 	'save-skill':
 		"The operator asked namzu to save this work as a skill after this turn. namzu runs /skills save itself once the turn ends, and that ends on the operator's own confirmation screen. Finish the task; do not call save_skill in this turn.",
 	schedule:

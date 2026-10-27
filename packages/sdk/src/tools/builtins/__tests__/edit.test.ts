@@ -39,7 +39,7 @@ describe('EditTool', () => {
 				new_string: {
 					type: 'string',
 					description:
-						'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+						'Exact replacement text. May be empty to delete old_string. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 				},
 				insertLine: {
 					anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
@@ -411,5 +411,14 @@ describe('EditTool', () => {
 
 		expect(result.success).toBe(true)
 		expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\nomega\n')
+	})
+})
+
+describe('the edit description gives the reason for its size budget', () => {
+	it('says why the payload stays under 12000 characters', () => {
+		expect(EditTool.description).toContain(
+			'under 12000 characters, because a longer payload can be cut off mid-call and fail',
+		)
+		expect(EditTool.description).not.toContain('Self-budget')
 	})
 })

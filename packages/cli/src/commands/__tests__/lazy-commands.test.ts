@@ -133,6 +133,8 @@ describe('the command manifest', () => {
 				'eval',
 				'exec',
 				'history',
+				'learn',
+				'learning',
 				'login',
 				'logout',
 				'mcp',

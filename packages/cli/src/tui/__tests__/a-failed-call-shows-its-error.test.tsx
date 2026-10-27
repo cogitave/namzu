@@ -205,9 +205,18 @@ describe('the short text of a refused file, search or language call', () => {
 			tone: 'muted',
 		})
 		expect(text('edit', 'not_found')?.text).toBe('File not found')
-		for (const reason of ['changed_on_disk', 'text_not_found', 'not_unique']) {
+		for (const reason of ['text_not_found', 'not_unique']) {
 			expect(text('edit', reason)).toEqual({
 				text: 'Error editing file',
+				tone: 'error',
+			})
+		}
+	})
+
+	it('says a file changed since it was read, for an edit and an overwrite alike', () => {
+		for (const tool of ['edit', 'write']) {
+			expect(text(tool, 'changed_on_disk')).toEqual({
+				text: 'File changed since it was read, nothing written',
 				tone: 'error',
 			})
 		}
@@ -231,5 +240,28 @@ describe('the short text of a refused file, search or language call', () => {
 		expect(text('write', 'not_found')).toBeUndefined()
 		expect(text('bash', 'invalid_input')).toBeUndefined()
 		expect(text('mcp__files__read', 'not_found')).toBeUndefined()
+	})
+})
+
+describe('a call that never started because the turn stopped', () => {
+	const stopped = failedCall(
+		'bash',
+		'An earlier call in this batch was refused and the turn was stopped, so this call was not run.',
+		{ plainFailure: 'Not run: an earlier call was declined and the turn stopped.' },
+	)
+
+	it('is its sentence alone, with no hint and nothing behind it', () => {
+		const rows = rowsOf(stopped)
+		const row = rows[1]
+		expect(row?.content).toBe('Not run: an earlier call was declined and the turn stopped.')
+		expect(row?.meta).toBeUndefined()
+		expect(row?.detail).toBeUndefined()
+	})
+
+	it('still offers the hint on a short failure label that hides the tool message', () => {
+		const rows = rowsOf(
+			failedCall('bash', 'No such file\nmore', { plainFailure: 'File not found' }),
+		)
+		expect(rows[1]?.meta).toBe('(ctrl+o to expand)')
 	})
 })

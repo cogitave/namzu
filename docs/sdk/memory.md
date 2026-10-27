@@ -328,8 +328,10 @@ operations available to the model.
 The `save_memory` description tells the model what belongs in a memory: what is
 true now and cannot be worked out from the code, git history or files; for
 `feedback` and `project` memories, the rule first, then a `Why:` line and a
-`How to apply:` line; `[[name]]` links to related memories; and an update
-instead of a duplicate.
+`How to apply:` line; `[[name]]` links to related memories; an update
+instead of a duplicate; and that the model saves one itself, without waiting to
+be asked, when it learns something durable (a correction, a rule about how to
+work here, a hard-won fix).
 
 Saving through the tool records `metadata.source: 'agent-memory'` and the
 calling `sessionId` and `turnId`; updates preserve that creation metadata and
@@ -349,6 +351,12 @@ after conversation history as a labelled user-role `step-context` message;
 it does not grant system authority or enter saved conversation history.
 Earlier `prepared.system` guidance remains in the system message. Hosts that
 previously read the hook's returned `.system` must read `.context` instead.
+With `record: true` the selected records are instead kept in the conversation as
+[recorded entries](recorded-context.md) under the key `memory`: a record is
+offered again only when its `updatedAt` differs from the one an earlier entry
+carries, and once the entries hold `sessionMaxChars` (24,000 by default) recall
+adds nothing and the model reads records with `read_memory`. `record` defaults
+to `false`.
 Explicit `read_memory` results remain ordinary tool history and have their
 normal retention behavior. Stored text can still influence the model; this
 role separation is not a guarantee against prompt injection.
@@ -364,7 +372,7 @@ fall back to surviving history. This is a host-policy input, not an extra copy
 of the entire user message automatically inserted into every model request.
 New operator arrivals queued for resume take precedence over the checkpoint's
 older intent. Earlier surviving history does not overwrite a newer checkpoint.
-Inbound messages and tool-attached steering also refresh the bounded task and
+Inbound messages and steering sent during a tool batch also refresh the bounded task and
 requirements extracted into working state, so its compaction summary can retain
 the changed direction. Runtime worker reports do not become operator intent.
 `options.query` is a fallback

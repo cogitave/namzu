@@ -534,8 +534,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	 * tool that could help it.
 	 */
 	const listingAdvice = completionInbox
-		? "Do NOT call this to find out whether work finished: a blocking create_task has already returned each worker's output, and a backgrounded one arrives as a task notification. Use it when you need to see what is still running, or to re-read the output of a task whose launch you stopped waiting for."
-		: "A blocking create_task already returns each worker's output, so do not call this in a loop to find out whether work finished. Nothing announces a completion on this configuration, so this listing and wait_for_task are how you reach the output of a task whose launch you stopped waiting for."
+		? "To find out whether work finished, wait for the result instead of calling this: a blocking create_task has already returned each worker's output, and a backgrounded one arrives as a task notification. Use it when you need to see what is still running, or to re-read the output of a task whose launch you stopped waiting for."
+		: "A blocking create_task already returns each worker's output, so calling this in a loop to find out whether work finished only spends turns. Nothing announces a completion on this configuration, so this listing and wait_for_task are how you reach the output of a task whose launch you stopped waiting for."
 
 	const createTask = defineTool({
 		name: 'create_task',
@@ -1519,7 +1519,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	if (resumeHandler && sessionId && turnId) {
 		tools.push(
-			buildAskUserQuestionTool({ resumeHandler, sessionId, turnId, questionParks, pendingAnswers }),
+			buildAskUserQuestionTool({
+				resumeHandler,
+				sessionId,
+				turnId,
+				questionParks,
+				pendingAnswers,
+				...(getPlanManager ? { planApprovalTool: 'approve_plan' } : {}),
+			}),
 		)
 	}
 

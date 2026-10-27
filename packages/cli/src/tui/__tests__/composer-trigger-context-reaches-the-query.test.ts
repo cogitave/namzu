@@ -80,9 +80,9 @@ it('sends the trigger text as request-only context and leaves the system prompt 
 	const [without, withTriggers] = queryCalls
 	expect(typeof without?.systemPrompt).toBe('string')
 	expect(withTriggers?.systemPrompt).toBe(without?.systemPrompt)
-	expect(String(withTriggers?.systemPrompt)).not.toContain('THIS turn only')
+	expect(String(withTriggers?.systemPrompt)).not.toContain('this turn only')
 	expect(String(withTriggers?.systemPrompt)).not.toContain('This session has hypermode on')
-	expect(contextOf(without).join('\n')).not.toContain('THIS turn only')
+	expect(contextOf(without).join('\n')).not.toContain('this turn only')
 	const context = contextOf(withTriggers).join('\n')
 	for (const text of texts) expect(context).toContain(text)
 	expect(

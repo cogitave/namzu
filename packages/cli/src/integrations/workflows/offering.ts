@@ -16,7 +16,7 @@ export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background (↓ to manag
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. ONLY call it after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Call it only after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',
@@ -35,15 +35,10 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Quality patterns, when hypermode is on or the task is large: adversarial verify (a second agent tries to disprove each finding), a judge panel (several agents score the same candidates, keep the consensus), loop until dry (repeat a sweep until a pass finds nothing new), and a completeness critic (a last agent lists what the others missed). Pick what fits; skip them for trivial or already verified work.',
 	'',
+	'Example call, one agent per package and one pass over what they found: {"script":"export const meta = { name: \\"audit\\", description: \\"Check each package for stale settings\\", phases: [{ title: \\"Scan\\" }] }\\nconst found = await parallel(args.packages.map((p) => () => agent(\\"List stale settings in \\" + p, { label: p, phase: \\"Scan\\" })))\\nreturn found.filter(Boolean)","args":{"packages":["core","web"]}}.',
+	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')
-
-/** The tool's description with the session's size advice (if any) after it. */
-export function workflowToolDescription(sizeAdvice = ''): string {
-	return sizeAdvice === ''
-		? WORKFLOW_TOOL_DESCRIPTION
-		: `${WORKFLOW_TOOL_DESCRIPTION}\n\n${sizeAdvice}`
-}
 
 /**
  * Why a turn may not start a workflow, or `undefined` when it may.

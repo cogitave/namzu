@@ -4,10 +4,12 @@ title: Resident step context
 description: Stable resident guidance and captured continuation state through the existing SDK prompt contribution registry.
 resource: packages/sdk/src/prompt/resident-step.ts
 tags: [sdk, agents, context, continuity]
-status: draft
+status: deprecated
 ---
 
 # Resident step context
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning (see [learning](learning.md)) keeps working through `namzu learn`, but `runLearningCycle` still takes a resident agenda as its activation target until learning gets its own in the next major release, so the resident agenda store stays in use for learning until then. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 For on-demand learned guidance, use `createResidentStepContext(options)`. Mount
 **both** its `tools` and `contributions` on the admitted step's turn. It accepts
@@ -80,18 +82,18 @@ then allowed and appears at the end of rendering order.
 
 `ResidentStepPromptOptions` requires `state: ResidentState` and
 `outputInstructions: string`. Optional fields are the admission's approved
-`learning: ResidentLearningState`, `history: ResidentHistoryScope`, host-loaded `skillsContext: string`, and
+`learning: LearningState`, `history: ResidentHistoryScope`, host-loaded `skillsContext: string`, and
 `readOnly: boolean` (default false).
 
 ```ts
 import {
   PromptContributionRegistry,
   createResidentStepContributions,
-  type ResidentLearningState,
+  type LearningState,
   type ResidentState,
 } from '@namzu/sdk'
 
-export function promptForStep(state: ResidentState, learning?: ResidentLearningState) {
+export function promptForStep(state: ResidentState, learning?: LearningState) {
   const contributions = new PromptContributionRegistry()
   for (const contribution of createResidentStepContributions({
     state,
@@ -140,6 +142,9 @@ IDs. Replacing a registry, skill body or host contract under an existing name
 cannot silently reuse old instructions. Full-prompt cache validation renders
 once per lookup; it does not skip local rendering on a cache hit. Dynamic,
 turn and context content do not invalidate the segmented static prefix.
+`PromptBuilder.build()` is the static segment, the separator and the dynamic
+segment exactly as a request sends them (it is derived from `buildSegmented`),
+so the whole-prompt validation covers what the model reads.
 
 Both contributions capture text when the factory is called. Later mutation of
 the supplied objects cannot change an admitted invocation's context. Create
@@ -176,7 +181,7 @@ A bounded step can leave useful work for the next admission; completion refers
 to the whole authorized objective. The host supplies its own response format
 and owns answer validation and durable settlement.
 
-[Approved learning](resident-learning.md) uses `projectResidentLearning` with a
+[Approved learning](resident-learning.md) uses `projectLearning` with a
 12,000-character projection bound and all task skills present in that approved
 snapshot selected; exploration policies are withheld. The projection reports omitted entries and never emits a
 partial learning entry. That limit applies to learning, not to the entire prompt

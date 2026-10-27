@@ -101,14 +101,16 @@ import {
 	type TextOnlyModelRefusal,
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
+import { appendRecordedContext } from './recorded-context.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
+import { placeRequestContext } from './step-context.js'
 import {
 	type StepShaping,
-	appendWorkContext,
 	beforeStep,
 	prepareStep,
 	selectContextModel,
 	stepContextMessage,
+	workContext,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
 
@@ -189,6 +191,7 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
+	/** The previous request's context, so a pre-call hook is told what changed. */
 	private previousRequestContext: RequestContextSnapshot | undefined
 
 	private projectObservations(messages: Message[]): Message[] {
@@ -831,6 +834,11 @@ export class IterationOrchestrator {
 								'limit-finalization',
 							)
 						: undefined
+					// What the step asked to have kept in the conversation joins the
+					// history now, after its last message, so this request and every
+					// later one begin with it. Nothing is inserted ahead of a message
+					// that is already recorded.
+					appendRecordedContext(recorder, step.recordedContext, this.ctx.log)
 					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
@@ -853,8 +861,8 @@ export class IterationOrchestrator {
 					// there is no length check here — a second guard for the same
 					// case is one more thing to keep in agreement with the first.
 					const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
-					// A supervision change rides the same ephemeral slot, and for
-					// the same reason: it applies to what happens next, not to the
+					// A supervision change is request-only context, and for the
+					// same reason: it applies to what happens next, not to the
 					// run's history. The model plans around how closely it is being
 					// watched — a turn that silently stops asking a human leaves it
 					// batching destructive calls it expects to be reviewed, and one
@@ -879,7 +887,7 @@ export class IterationOrchestrator {
 
 					// Request-only context: observations that need no system
 					// authority and change from request to request. They ride
-					// runtime-context messages of kind `step-context` after the
+					// runtime-context messages of kind `step-context`, most of them after the
 					// history, which every driver keeps there and a caching driver
 					// ends its breakpoint before — so a changed pin or a new turn
 					// snapshot costs its own tokens, not a re-read of the history.
@@ -887,22 +895,48 @@ export class IterationOrchestrator {
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
-					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
+					const stepPreamble = [step.system, stepSkills, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
 					const requestHistory = stepPreamble
 						? [...workingMemory.history, createSystemMessage(stepPreamble)]
 						: [...workingMemory.history]
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
-					if (contextText) requestHistory.push(stepContextMessage(contextText))
-					if (step.context) requestHistory.push(stepContextMessage(step.context))
-					const messages = projectRequestRichContent(
+					// After the history, never ahead of it: a system message in front
+					// of the conversation moves the prefix every cached request shares,
+					// and a mode change would re-key the whole conversation.
+					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
+					const projected = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
-					appendWorkContext(shaping, messages, iterationNum, step)
+					// Request-only data (the context contributions, notes about the
+					// search, the work context) goes last on every call, after the
+					// whole history, so the history a caching driver reads never
+					// changes shape from one call to the next. What a step wants
+					// kept is recorded in the history above instead. The short
+					// reminders and notices follow it.
+					const messages = [...projected]
+					// What the loop learns about files and finished work holds until it
+					// changes, so it is recorded, after the history as it stands, and
+					// carried in this request where it will sit in the next one's history.
+					const work = workContext(shaping, projected, iterationNum, step)
+					const recordedNow = appendRecordedContext(recorder, work.recorded, this.ctx.log)
+					placeRequestContext(
+						messages,
+						recordedNow,
+						// The working-memory block and the policy notice already end the
+						// request; the entries just recorded belong ahead of them.
+						(workingMemory.context ? 1 : 0) + (policyNotice ? 1 : 0),
+						[
+							...[contextText, step.context]
+								.filter((text): text is string => Boolean(text))
+								.map(stepContextMessage),
+							...work.requestOnly,
+						],
+					)
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()
@@ -2869,9 +2903,8 @@ export class IterationOrchestrator {
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 				{ imagesReadable: this.modelReadsImages(model) },
 			)
-			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
-			// the working memory and any work context above.
+			// the working memory above.
 			finalMessages.push(
 				createRuntimeContextMessage(
 					`[SYSTEM] Turn is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,

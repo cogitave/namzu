@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Message } from '../../types/message/index.js'
+import { type Message, createTurnContextEntry } from '../../types/message/index.js'
 import { analyzeContextUsage, describeToolCatalogTokens } from '../context-breakdown.js'
 import { estimateTextTokens } from '../token-estimate.js'
 
@@ -129,6 +129,30 @@ describe('analyzeContextUsage', () => {
 		expect(messageBreakdown.toolResultsByType).toEqual({ bash: 200, read: 10 })
 		expect(messageBreakdown.toolCallsByType.read).toBe(estimateTextTokens('read{"path":"a"}'))
 		expect(messageBreakdown.userTokens).toBe(1)
+	})
+})
+
+describe('recorded context entries in the breakdown', () => {
+	const entry = createTurnContextEntry('repository', 'x'.repeat(400))
+	const messages: Message[] = [{ role: 'user', content: 'go' }, entry]
+
+	it('are counted as memory, not as what the operator said', () => {
+		const withEntry = analyzeContextUsage({ ...base, messages })
+		const without = analyzeContextUsage({ ...base, messages: [messages[0] as Message] })
+		expect(withEntry.messageBreakdown.userTokens).toBe(without.messageBreakdown.userTokens)
+		const memory = withEntry.categories.find((c) => c.id === 'memory')?.tokens ?? 0
+		expect(memory).toBeGreaterThan(100)
+		// The conversation itself is the same size either way.
+		expect(withEntry.categories.find((c) => c.id === 'messages')?.tokens).toBe(
+			without.categories.find((c) => c.id === 'messages')?.tokens,
+		)
+	})
+
+	it('are taken out of Messages when the size was measured', () => {
+		const measured = analyzeContextUsage({ ...base, contextTokens: 10_000, messages })
+		const tokens = (id: string) => measured.categories.find((c) => c.id === id)?.tokens ?? 0
+		expect(tokens('memory') + tokens('messages')).toBe(10_000)
+		expect(tokens('memory')).toBeGreaterThan(100)
 	})
 })
 

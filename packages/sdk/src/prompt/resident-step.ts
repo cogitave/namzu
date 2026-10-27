@@ -1,10 +1,10 @@
-import type { ResidentHistoryScope } from '../manager/resident/history.js'
 import {
-	type ResidentLearningSource,
-	type ResidentLearningState,
-	freezeResidentLearning,
-	projectResidentLearning,
-} from '../manager/resident/learning.js'
+	type LearningSource,
+	type LearningState,
+	freezeLearning,
+	projectLearning,
+} from '../learning/skill.js'
+import type { ResidentHistoryScope } from '../manager/resident/history.js'
 import type { ResidentState } from '../manager/resident/store.js'
 import type { PromptContribution } from './contributions.js'
 
@@ -34,13 +34,17 @@ Use permitted reads and analysis. Do not change files, persistent memory or exte
 const HISTORY_GUIDANCE = `## Resident recall
 When the saved summary lacks an earlier decision or accepted input, use search_resident_history, then read_resident_history for exact retained text. Search without a query to browse recent steps. Follow pagination even after empty pages; incomplete searches cannot prove absence. Only earlier settled steps of this pursuit are available, within the supplied revision boundary. Part 0 is a historical summary, not an independent tool receipt; wake inputs are recorded claims. Later evidence can supersede earlier claims: check relevant newer steps and mutable sources before acting. Do not repeat an effect to recover its output. These tools do not restore unrecorded tool transcripts.`
 
-/** @experimental Host-selected context for one admitted resident step. */
+/**
+ * @experimental Host-selected context for one admitted resident step.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepPromptOptions {
 	readonly state: ResidentState
 	/** The host-approved learning snapshot bound to this admission. */
-	readonly learning?: ResidentLearningState
+	readonly learning?: LearningState
 	/** Host resolves current dependency revisions for each model request. No model-generated revisions. */
-	readonly resolveLearningSources?: () => readonly ResidentLearningSource[]
+	readonly resolveLearningSources?: () => readonly LearningSource[]
 	/** Bound historical source whose read-only tools the host has mounted. */
 	readonly history?: ResidentHistoryScope
 	/** The host mounted scoped search_resident_tools/read_resident_tool capabilities. */
@@ -64,6 +68,8 @@ export interface ResidentStepPromptOptions {
  *
  * Project instructions and authorization remain on their existing host/runtime
  * paths. These contributions neither load project files nor authorize work.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContributions(
 	options: ResidentStepPromptOptions,
@@ -76,11 +82,11 @@ export function createResidentStepContributions(
 			options.history.pursuitId !== state.pursuitId)
 	)
 		throw new Error('Resident history context belongs to a different pursuit.')
-	const admittedLearning = options.learning ? freezeResidentLearning(options.learning) : undefined
+	const admittedLearning = options.learning ? freezeLearning(options.learning) : undefined
 	const boundNames =
 		admittedLearning?.skills.filter((skill) => skill.sources?.length).map((skill) => skill.name) ??
 		[]
-	const learning = projectResidentLearning(admittedLearning, {
+	const learning = projectLearning(admittedLearning, {
 		maxChars: 12_000,
 		skillNames:
 			admittedLearning?.skills
@@ -137,13 +143,13 @@ export function createResidentStepContributions(
 						id: 'namzu.resident-step.source-bound-learning',
 						placement: 'context' as const,
 						render: () => {
-							let sources: readonly ResidentLearningSource[] = []
+							let sources: readonly LearningSource[] = []
 							try {
 								sources = resolveSources?.() ?? []
 							} catch {
 								/* Unavailable evidence withholds bound instructions. */
 							}
-							const projection = projectResidentLearning(
+							const projection = projectLearning(
 								admittedLearning
 									? { ...admittedLearning, identity: undefined, preferences: [] }
 									: undefined,

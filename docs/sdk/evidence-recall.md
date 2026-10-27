@@ -109,7 +109,7 @@ request removed by compaction or enlarge the history scan.
 
 When the retained `latestUserMessage` is the same object as a visible message,
 that message locates the boundary. A retained input can instead live outside
-the visible array, as with tool-result steering or checkpoint hydration. In
+the visible array, as with the plain text of steering sent during a tool batch, which the history holds inside its notice frame, or checkpoint hydration. In
 that case the planner considers the bounded recent visible history, without
 mistaking an older equal string for the new input. This view is not guaranteed
 to precede the original acceptance time: no missing position is invented from
@@ -234,8 +234,8 @@ A `none` plan skips optional recall without a note. Malformed or ungrounded
 plans remain failed-stage diagnostics. With enough context room, retrieval still
 runs once using the unchanged current-query tokens and the same byte, candidate
 and deadline limits. No terms or references from the rejected plan are used.
-Temporary context identifies `status: "unavailable"`, `stage: "query_planning"`,
-`reason: "failed"` and `fallback: "literal_query"` alongside any fully validated
+Temporary context says in two plain sentences that planning the search failed
+and that only the words of the question were used, alongside any fully validated
 retrieved records. The note does not claim a referent or temporal intent was
 resolved. No plan text, exception body or source data enters the note itself.
 The main task and explicit archive tools remain available. The previous operator
@@ -243,8 +243,8 @@ query is never used just because literal retrieval was empty.
 
 One plan promise is cached for the same turn and operator-message identity, also
 keyed by question text. New turns or steering input invalidate it. A failed plan
-is not retried on every iteration. Evidence bytes are still retrieved and
-revalidated on every pass. This cache is local to the hook, not durable memory.
+is not retried on every iteration. Evidence bytes are retrieved and
+revalidated on the first call of each turn (see below for the later calls). This cache is local to the hook, not durable memory.
 The planning call permits at most 512 output tokens and ten seconds, sharing the
 turn's provider chain, token ledger and cancellation. Those tokens count toward
 the turn; the subsequent retrieval deadline is separate. These are bounded
@@ -491,9 +491,9 @@ are discarded, and another hook using the same callback skips retrieval
 until the original operation settles. An uncooperative callback therefore
 cannot accumulate overlapping reads through this hook. Timeout/error uses
 the runtime's existing prepare-step diagnostic and fail-open policy, with a
-temporary availability note (`stage: "retrieval"`, `reason: "timeout"` or
-`"failed"`). While an earlier uncooperative read remains unsettled, later passes
-report `reason: "pending"` without launching overlapping retrieval. The note
+temporary availability note (plain words: reading the records ran out of time
+or failed). While an earlier uncooperative read remains unsettled, later passes
+say the read is still running without launching overlapping retrieval. The note
 never includes rejected candidates, paths, raw errors or invented evidence.
 Parent cancellation still rejects without a note and cannot revive model work.
 
@@ -515,14 +515,36 @@ records actual CLI and terminal checks, including a live model that ignored this
 status and selected current data for a past-observation question. Availability
 reporting does not certify the model's recovery decision.
 
-Every request revalidates its source; recalled bytes are not cached for a
-later step. The immutable bound scope prevents changing an options object
+The first call of a turn retrieves and revalidates its source. The later calls
+of the same turn reuse that block unchanged, including the availability note
+when the first call failed or timed out, so a tool result written to the
+archive mid-turn cannot change a block the model already has and the request
+keeps the opening of the one before it; the next turn, and a new operator input
+inside a turn, read the archive afresh. The resident hook is not held this way:
+a resident reads again on every iteration. With `record: true` the passages are
+recorded as entries instead (see [recorded turn context](recorded-context.md)):
+a passage whose address an earlier entry carries is not offered again, the
+entries together hold at most `sessionMaxChars` (24,000 by default) of passages,
+and past that an entry only names the addresses of further relevant records for
+the conversation-history tools to open (a pointer says where to open the
+addresses only when no earlier entry carries the reading rules, and a later
+entry that carries passages has a short header in place of the full one). The
+notes about the search itself (unavailable, ambiguous) stay request-only. `record` defaults to `false`.
+The block is written in plain words: the opening paragraph names each JSON key
+it mentions once, in code style, and keeps jargon out of the prose; the
+availability note is two sentences saying what failed and what the model can do
+instead, so it no longer carries `status`, `stage` or `reason` fields. The JSON
+no longer carries the byte count of the scan; whether the scan finished is
+still in `incomplete`. The opening paragraph is no longer than before. The
+evidence block is a block of its own in the request, apart from project memory
+and the repository snapshot.
+The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
 conversation and reject stale turn ownership before and after asynchronous I/O.
 
 ## Historical and current facts
 
-The context labels passages as historical records and untrusted reference
+The context labels passages as earlier records and untrusted reference
 data, not instructions or verified current state. Producer labels distinguish
 assistant claims from tool results without certifying either as true. A past file observation may
 answer what was seen earlier. It cannot establish what is in the file now.

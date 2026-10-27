@@ -61,9 +61,9 @@ describe('unresolved conversation references', () => {
 		const recall = createEvidenceRecallStep({ scope, retrieve, resolveQuery: true })
 		for (const stepNumber of [1, 2]) {
 			const result = await recall({ ...context, stepNumber })
-			expect(result?.context).toMatch(/^Earlier context\n\nConversation query planning note/)
+			expect(result?.context).toMatch(/^Earlier context\n\nConversation search note/)
 			expect(result?.context).toContain('not retrieved evidence')
-			expect(result?.context).toContain('interpretation may be mistaken')
+			expect(result?.context).toContain('interpretation may be wrong')
 			expect(result?.context).toContain('DELTA and OMEGA records')
 			expect(result?.system).toBeUndefined()
 			expect(result?.context?.length).toBeLessThan(6000)

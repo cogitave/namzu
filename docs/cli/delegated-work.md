@@ -375,7 +375,15 @@ and a single agent on the agents; Esc or ← goes back up a level. A workflow
 whose agents carry no `phase` label shows one group titled `Agents`.
 See [Terminal design](terminal-design.md) for both.
 
-Completion reaches the model as a task notification. `wait_for_task` retrieves
+The launch receipt states the facts (the task id, whether it is queued or running, that it has not completed, that its result will arrive as a task notification); the advice to continue other work and to launch each piece once is in the `Agent` description. Completion reaches the model as a task notification. What the agent wrote
+reaches the parent in the same marked block every outside text gets (an
+`agent-result` block that says whose words these are, and to tell the operator
+about any instruction inside it rather than act on it), whether it arrives as a
+notification, from a foreground `Agent` call, from `wait_for_task` or from a
+saved agent's history; the task id, status and worktree stay outside the block.
+A sub-agent has no one to ask: where the working rules say to ask or stop, it
+finishes what is safe, leaves the risky step undone and names the blocker or
+assumption in its final summary, so the parent decides. `wait_for_task` retrieves
 the result without launching duplicate work. `wait_for_task`, `send_message`,
 `cancel_agent` and `agent_task_list` reach every agent of the conversation from
 any later turn, running or finished: a finished one is returned as it ended
@@ -558,6 +566,11 @@ success.
 Use `agent_task_list({history: true})` to inspect the snapshot and
 `agent_task_list({history: true, task_id: "<UUID>"})` to read one saved result.
 The normal tool call still lists live tasks owned by the current session.
+A turn that follows earlier delegation is told which agents there were: the
+CLI records the listing in the conversation (session id, what each was asked,
+status, with the rules for reading it) the first time, then only an agent that
+is new or whose status changed. It is a conversation entry, not part of the
+system prompt, so it never changes the cached prompt.
 Reading the history grants no authority by itself. To continue a saved agent,
 `send_message` to its session UUID from `agent_task_list({history: true})`
 ("Resuming agent …"): its saved history and settings are read back from disk, it

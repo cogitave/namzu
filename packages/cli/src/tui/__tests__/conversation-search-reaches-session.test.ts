@@ -1,8 +1,14 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, ProviderRegistry, createUserMessage } from '@namzu/sdk'
-import { afterEach, expect, it, vi } from 'vitest'
+import {
+	COMPACTION_RECOVERY_NOTE,
+	MockLLMProvider,
+	ProviderRegistry,
+	createAssistantMessage,
+	createUserMessage,
+} from '@namzu/sdk'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
@@ -192,4 +198,59 @@ it('finds and reads an earlier answer in the session log a real turn wrote', asy
 	})
 	expect(exact).toMatchObject({ text: 'The receipt number is ORCHID-4417.', complete: true })
 	expect(found.incomplete).toBe(false)
+})
+
+describe('the pointer at the end of a compaction summary the host asks for', () => {
+	const history = () => [
+		createUserMessage('first question'),
+		createAssistantMessage('first answer'),
+		createUserMessage('second question'),
+		createAssistantMessage('second answer'),
+		createUserMessage('third question'),
+		createAssistantMessage('third answer'),
+		createUserMessage('fourth question'),
+		createAssistantMessage('fourth answer'),
+	]
+
+	it('names the conversation tools exactly when the host mounts them', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-note-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		catalogues.push(sessions)
+		const sessionId = await startConversation(sessions)
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({
+			provider: new MockLLMProvider({ turns: [] }),
+		} as never)
+		const mounted = await createAgentSession(preferences, detected, {
+			cwd,
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			ephemeral: true,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			sandbox: { enabled: false },
+			memory: { recall: false },
+		})
+		opened.push(mounted)
+		const bare = await createAgentSession(preferences, detected, {
+			cwd,
+			sandbox: { enabled: false },
+			ephemeral: true,
+		})
+		opened.push(bare)
+
+		for (const tool of CONVERSATION_RETRIEVAL_TOOLS) expect(mounted.toolNames()).toContain(tool)
+		for (const tool of CONVERSATION_RETRIEVAL_TOOLS) expect(bare.toolNames()).not.toContain(tool)
+		const withTools = await mounted.compact(history())
+		const without = await bare.compact(history())
+
+		expect(String(withTools?.summary.content).endsWith(`\n\n${COMPACTION_RECOVERY_NOTE}`)).toBe(
+			true,
+		)
+		expect(String(without?.summary.content)).not.toContain(COMPACTION_RECOVERY_NOTE)
+	})
 })

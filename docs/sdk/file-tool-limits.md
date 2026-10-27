@@ -36,6 +36,16 @@ does not apply; the token rule does.
 - `allow_large: true` lifts both caps for that one call to four times their size. The kernel does not track the room left in the context, so the factor is
   fixed. A read still over the lifted caps is refused and says so.
 - `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
+- A window that opens after the last line is a successful result that says so: `Warning: the file is
+  shorter than the requested start (line 5001). It has 1502 lines.` It is not a partial view, and the
+  session's read ledger does not take it for the file. An empty file answers `Warning: the file exists but
+  is empty.`
+- A file's line count is one number everywhere: a final newline ends a line and does not start another, so the
+  header data, the `of N` in the partial-view note and the past-end warning agree, and no empty numbered row
+  follows the last line.
+- A file whose bytes are not text (a NUL, or a share of control or replacement characters) is not numbered.
+  The result is a short note with the size that names `file` or `xxd` as the next step; it reports as a
+  failed read, like the Office and image notes.
 
 `read` declares `selfLimitingOutput: true` ([ToolDefinition](tool-execution.md)): the turn's default per-result
 cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its
@@ -49,11 +59,18 @@ turn's `fileReadTracker`; a host that supplies none is not refused, because it h
 read counts as a read here (the ledger records the whole body); an edit after a partial view is not refused.
 
 A file that changed since the read is compared by content fingerprint, not by modification time, so a touch
-that leaves the bytes alone is not drift. When the content did change, an `edit` whose every operation is a
-text replacement is still applied if `old_string` still matches the current content uniquely (or, with
-`replace_all`, still matches). Otherwise it is refused as stale and the model is told to read again. An
-insertion by line number is never recovered, because the line it named may be a different line now. `write`
-has no `old_string` and is always refused on drift.
+that leaves the bytes alone is not drift. When the content did change, `edit` and `write` are both refused:
+`<path> changed on disk after you read it, so this edit was based on a stale copy and was not applied. Read the
+file again and redo the edit against its current contents. Nothing was written.` An `edit` is not applied even
+when its `old_string` still matches uniquely, because the match can land somewhere the model never meant: the
+model read `a = 1`, the file now says `a = 100`, and replacing `a = 1` with `a = 2` would write `a = 200`. The
+ledger keeps a fingerprint of what was read, not the text, so there is nothing to show where the text belongs.
+
+The same refusal is also given before anyone is asked. `edit` and `write` declare `ToolDefinition.refuseBeforeReview`,
+which the executor asks while it prepares a batch, once the arguments are valid and before the call is put to a
+reviewer. A call on a file that changed since the read therefore reaches no approval box and runs nothing; the model
+gets the same text with the failure kind `changed_on_disk`. A path that is missing, outside the roots or never read
+is left to the tool, and `execute` repeats the check, because the file can move again between the question and the run.
 
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
 the text, only about one interchangeable detail — the cases below, tried in this

@@ -29,6 +29,25 @@ const NOT_THIS_QUESTION =
 	'That answer was not an answer to a question about a tool call, so this call was not run.'
 
 /** The audit trail keeps a person's reason, cut short and without control characters. */
+/**
+ * Whether a tool result is the answer to a call that never ran because the
+ * review did not let it: the person's No, a refusal that ended the turn, or a
+ * question that went unanswered. Such a result records a choice or an
+ * interruption, not a tool that failed, so a host counting failures leaves it
+ * out. Policy refusals and failed runs are not matched.
+ */
+export function isReviewRefusalResult(output: string): boolean {
+	if (!output.startsWith('Error: Tool "')) return false
+	return [
+		DECLINED_TOOL_CALL_FEEDBACK,
+		REFUSED_WITH_THE_TURN,
+		UNANSWERED_CALL,
+		EDIT_NOT_OFFERED,
+		PAUSED_CALL,
+		NOT_THIS_QUESTION,
+	].some((reason) => output.endsWith(` was not executed. ${reason}`) || output.endsWith(reason))
+}
+
 const AUDIT_NOTE_MAX_CHARS = 500
 
 /**

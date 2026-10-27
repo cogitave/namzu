@@ -1,0 +1,626 @@
+import { describe, expect, it } from 'vitest'
+import type { HarnessTrial, HarnessVerificationBatch } from '../eval/harness-verification.js'
+import type { CaseResult } from '../eval/types.js'
+import {
+	type LearningSkillCandidate,
+	type LearningSkillEvaluation,
+	hashLearningSkill,
+	projectLearning,
+	promoteLearningSkill,
+	restoreLearningSkill,
+	reviseLearningProfile,
+} from './skill.js'
+
+function evidence(key: string) {
+	return { key, source: 'host:fixture', reason: 'Checked against the retained fixture evidence.' }
+}
+
+function skill(body = 'Read the source and cite the observed result.') {
+	return { name: 'careful-research', description: 'Ground a finding in its source.', body }
+}
+
+function result(task: string, passed: boolean): CaseResult {
+	return {
+		case: task,
+		status: passed ? 'passed' : 'failed',
+		passed,
+		mean: Number(passed),
+		scores: { exact: { score: Number(passed), reason: 'Observed deterministic fixture outcome.' } },
+		turn: {
+			output: passed ? 'Verified' : 'Missing evidence',
+			steps: [],
+			toolCalls: [],
+			stopReason: 'end_turn',
+			totalTokens: 0,
+			totalCostUsd: 0,
+			durationMs: 1,
+		},
+	}
+}
+
+function batch(
+	prefix: string,
+	baselineRevision: string,
+	candidateRevision: string,
+): HarnessVerificationBatch {
+	const baseline: HarnessTrial[] = []
+	const candidate: HarnessTrial[] = []
+	for (let task = 0; task < 5; task++) {
+		for (let trial = 0; trial < 2; trial++) {
+			const shared = {
+				taskId: `${prefix}-${task}`,
+				trial,
+				conditions: `${prefix}-${task}-${trial}`,
+			}
+			baseline.push({
+				...shared,
+				trajectoryId: `baseline-${shared.conditions}`,
+				result: result(shared.taskId, task > 0),
+			})
+			candidate.push({
+				...shared,
+				trajectoryId: `candidate-${shared.conditions}`,
+				result: result(shared.taskId, true),
+			})
+		}
+	}
+	const improvedTask = `${prefix}-0`
+	return {
+		baselineRevision,
+		candidateRevision,
+		baseline,
+		candidate,
+		attributions: [
+			{
+				taskId: improvedTask,
+				effect: 'improvement',
+				reason: 'The candidate retains source evidence that the baseline omitted.',
+				baselineTrajectories: baseline
+					.filter((trial) => trial.taskId === improvedTask)
+					.map((trial) => trial.trajectoryId),
+				candidateTrajectories: candidate
+					.filter((trial) => trial.taskId === improvedTask)
+					.map((trial) => trial.trajectoryId),
+			},
+		],
+	}
+}
+
+function evaluation(candidate: LearningSkillCandidate = skill(), baselineRevision = 'none') {
+	const digest = hashLearningSkill(candidate)
+	return {
+		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
+		verification: batch('verification', baselineRevision, digest),
+		confirmation: batch('confirmation', baselineRevision, digest),
+	}
+}
+
+describe('source-bound learning', () => {
+	it('binds exploration purpose to its digest and requires explicit projection', () => {
+		const task = skill()
+		const policy = { ...task, purpose: 'exploration' as const }
+		expect(hashLearningSkill(task)).toBe(hashLearningSkill({ ...task, purpose: 'task' }))
+		expect(hashLearningSkill(policy)).not.toBe(hashLearningSkill(task))
+		const state = promoteLearningSkill(undefined, policy, evaluation(policy), evidence('policy'))
+		const options = { maxChars: 10_000, skillNames: [task.name] }
+		const ordinary = projectLearning(state, options)
+		expect(ordinary.text).toBe('')
+		expect(ordinary.withheldSkills).toEqual([
+			{ name: task.name, reason: 'different-purpose', sourceKeys: [] },
+		])
+		expect(projectLearning(state, { ...options, purpose: 'exploration' }).includedSkills).toEqual([
+			task.name,
+		])
+		const tampered = {
+			...state,
+			skills: state.skills.map((s) => ({ ...s, purpose: 'task' as const })),
+		}
+		expect(() => projectLearning(tampered, options)).toThrow()
+		expect(() =>
+			promoteLearningSkill(
+				state,
+				task,
+				evaluation(task, hashLearningSkill(policy)),
+				evidence('repurpose'),
+			),
+		).toThrow('purpose')
+	})
+	it('retains source freshness checks for explicitly selected exploration policies', () => {
+		const policy = {
+			...skill(),
+			purpose: 'exploration' as const,
+			sources: [{ key: 'service', revision: 'v1' }],
+		}
+		const state = promoteLearningSkill(
+			undefined,
+			policy,
+			evaluation(policy),
+			evidence('sourced-policy'),
+		)
+		const options = { maxChars: 10_000, skillNames: [policy.name], purpose: 'exploration' as const }
+		expect(projectLearning(state, options).withheldSkills[0]?.reason).toBe('unverified-source')
+		expect(projectLearning(state, { ...options, sources: policy.sources }).includedSkills).toEqual([
+			policy.name,
+		])
+	})
+	it('cannot bypass protection through direct promotion or omit a failed control from the selection', () => {
+		const candidate = skill()
+		const measured = evaluation(candidate)
+		expect(() =>
+			promoteLearningSkill(
+				undefined,
+				candidate,
+				{ ...measured, protection: undefined as unknown as LearningSkillEvaluation['protection'] },
+				evidence('absent'),
+			),
+		).toThrow()
+		expect(() =>
+			promoteLearningSkill(
+				undefined,
+				candidate,
+				{
+					...measured,
+					protection: { verification: ['missing'], confirmation: ['confirmation-1'] },
+				},
+				evidence('missing'),
+			),
+		).toThrow('inconclusive')
+		const control = measured.confirmation.candidate[2]
+		if (!control) throw new Error('Missing control.')
+		control.result = result('confirmation-1', false)
+		expect(() => promoteLearningSkill(undefined, candidate, measured, evidence('loss'))).toThrow(
+			'reject',
+		)
+	})
+	const a = { key: 'workspace-file:map.json', revision: 'v1' }
+	const b = { key: 'database:policy', revision: 'revision-2' }
+	const candidate = { ...skill(), sources: [a, b] }
+	const active = () =>
+		promoteLearningSkill(undefined, candidate, evaluation(candidate), evidence('bound'))
+	it('binds canonical dependencies to approval and rejects duplicate identities', () => {
+		expect(hashLearningSkill(candidate)).toBe(hashLearningSkill({ ...candidate, sources: [b, a] }))
+		expect(hashLearningSkill(candidate)).not.toBe(hashLearningSkill(skill()))
+		expect(() => hashLearningSkill({ ...candidate, sources: [a, a] })).toThrow()
+		expect(() =>
+			promoteLearningSkill(
+				undefined,
+				{ ...candidate, sources: [b] },
+				evaluation(candidate),
+				evidence('wrong'),
+			),
+		).toThrow('digests')
+	})
+	it('withholds unavailable and changed dependencies, including after a JSON round trip', () => {
+		const state = JSON.parse(JSON.stringify(active()))
+		const options = { maxChars: 10000, skillNames: [candidate.name] }
+		for (const sources of [undefined, [a], [a, { ...b, revision: 'revision-3' }]]) {
+			const result = projectLearning(state, { ...options, sources })
+			expect(result.text).not.toContain(candidate.body)
+			expect(result.includedSkills).toEqual([])
+			expect(result.withheldSkills).toHaveLength(1)
+			expect(result.omitted).toBe(1)
+		}
+		expect(projectLearning(state, { ...options, sources: [b, a] }).includedSkills).toEqual([
+			candidate.name,
+		])
+		expect(state.skills[0].body).toBe(candidate.body)
+		expect(Object.isFrozen(active().skills[0]?.sources?.[0])).toBe(true)
+	})
+})
+
+describe('versioned resident preferences', () => {
+	it('corrects the named previous evidence without mutating the original profile', () => {
+		const first = reviseLearningProfile(undefined, {
+			identity: 'A careful research assistant.',
+			preferences: [{ key: 'response-language', value: 'English', supersedes: null }],
+			evidence: evidence('operator-1'),
+		})
+		const next = reviseLearningProfile(first, {
+			preferences: [{ key: 'response-language', value: 'Turkish', supersedes: 'operator-1' }],
+			evidence: evidence('operator-2'),
+		})
+
+		expect(first.revision).toBe(1)
+		expect(next.revision).toBe(2)
+		expect(first.preferences[0]).toMatchObject({
+			value: 'English',
+			evidence: { key: 'operator-1' },
+		})
+		expect(next.preferences[0]).toMatchObject({ value: 'Turkish', evidence: { key: 'operator-2' } })
+		expect(next.identity).toEqual(first.identity)
+		expect(next.lastChange.key).toBe('operator-2')
+	})
+
+	it('refuses an unacknowledged correction, stale supersession and recycled evidence', () => {
+		const current = reviseLearningProfile(undefined, {
+			identity: 'A careful researcher.',
+			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
+			evidence: evidence('observed-style'),
+		})
+		for (const supersedes of [null, 'another-observation']) {
+			expect(() =>
+				reviseLearningProfile(current, {
+					preferences: [{ key: 'style', value: 'Detailed', supersedes }],
+					evidence: evidence('new-style'),
+				}),
+			).toThrow()
+		}
+		expect(() =>
+			reviseLearningProfile(current, {
+				preferences: [{ key: 'style', value: 'Detailed', supersedes: 'observed-style' }],
+				evidence: evidence('observed-style'),
+			}),
+		).toThrow()
+		expect(() =>
+			reviseLearningProfile(current, {
+				identity: 'A completely different role.',
+				evidence: evidence('observed-style'),
+			}),
+		).toThrow()
+		expect(() =>
+			reviseLearningProfile(current, {
+				preferences: [{ key: 'new-preference', value: 'Value', supersedes: 'absent-fact' }],
+				evidence: evidence('new-fact'),
+			}),
+		).toThrow()
+	})
+
+	it('refuses duplicate keys and bounds preferences, identity and values', () => {
+		const proof = evidence('bounded-profile')
+		expect(() =>
+			reviseLearningProfile(undefined, {
+				preferences: [
+					{ key: 'style', value: 'Short', supersedes: null },
+					{ key: 'style', value: 'Long', supersedes: null },
+				],
+				evidence: proof,
+			}),
+		).toThrow()
+		const preferences = Array.from({ length: 32 }, (_, index) => ({
+			key: `preference-${index}`,
+			value: `value-${index}`,
+			supersedes: null,
+		}))
+		const full = reviseLearningProfile(undefined, { preferences, evidence: proof })
+		expect(full.preferences).toHaveLength(32)
+		expect(() =>
+			reviseLearningProfile(full, {
+				preferences: [{ key: 'overflow', value: 'No room', supersedes: null }],
+				evidence: evidence('overflow'),
+			}),
+		).toThrow()
+		expect(() =>
+			reviseLearningProfile(undefined, { identity: 'x'.repeat(4_001), evidence: proof }),
+		).toThrow()
+		expect(() =>
+			reviseLearningProfile(undefined, {
+				preferences: [{ key: 'oversized', value: 'x'.repeat(1_001), supersedes: null }],
+				evidence: proof,
+			}),
+		).toThrow()
+	})
+
+	it.each(['key', 'source', 'reason'] as const)('requires a nonempty evidence %s', (field) => {
+		expect(() =>
+			reviseLearningProfile(undefined, {
+				identity: 'A careful assistant.',
+				evidence: { ...evidence('observation'), [field]: '   ' },
+			}),
+		).toThrow()
+	})
+
+	it('owns a defensive snapshot of incoming preference and evidence objects', () => {
+		const input = {
+			identity: 'A careful assistant.',
+			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
+			evidence: evidence('source-before'),
+		}
+		const retained = reviseLearningProfile(undefined, input)
+		const preference = input.preferences[0]
+		if (!preference) throw new Error('Missing preference fixture.')
+		preference.value = 'Changed after commit'
+		input.evidence.key = 'source-after'
+		input.evidence.source = 'unrelated-source'
+		expect(retained.preferences[0]).toMatchObject({
+			value: 'Concise',
+			evidence: { key: 'source-before' },
+		})
+		expect(retained.identity?.evidence.key).toBe('source-before')
+		expect(retained.lastChange.source).toBe('host:fixture')
+	})
+})
+
+describe('evaluated resident skills', () => {
+	it('hashes the validated named content deterministically and detects content changes', () => {
+		const candidate = skill()
+		const hash = hashLearningSkill(candidate)
+		expect(hash).toMatch(/^[a-f0-9]{64}$/)
+		expect(
+			hashLearningSkill({
+				body: candidate.body,
+				name: candidate.name,
+				description: candidate.description,
+			}),
+		).toBe(hash)
+		expect(hashLearningSkill(skill('A different instruction.'))).not.toBe(hash)
+		expect(() => hashLearningSkill({ ...candidate, name: '   ' })).toThrow()
+		expect(() => hashLearningSkill({ ...candidate, body: '   ' })).toThrow()
+	})
+
+	it('activates only the exact evaluated content and keeps independent snapshots', () => {
+		const candidate = skill()
+		const proof = evidence('verified-candidate')
+		const profile = reviseLearningProfile(undefined, {
+			identity: 'Research assistant',
+			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
+			evidence: evidence('profile'),
+		})
+		const original = structuredClone(profile)
+		const expectedHash = hashLearningSkill(candidate)
+		const promoted = promoteLearningSkill(profile, candidate, evaluation(candidate), proof)
+		expect(promoted.revision).toBe(profile.revision + 1)
+		expect(promoted.skills).toHaveLength(1)
+		expect(promoted.skills[0]).toMatchObject({ ...candidate, hash: expectedHash, evidence: proof })
+		expect(promoted.preferences).toEqual(profile.preferences)
+		expect(promoted.identity).toEqual(profile.identity)
+		expect(profile).toEqual(original)
+		candidate.body = 'Changed after validation'
+		proof.key = 'changed-proof'
+		expect(promoted.skills[0]?.body).toBe(skill().body)
+		expect(promoted.skills[0]?.evidence.key).toBe('verified-candidate')
+	})
+
+	it.each(['verification', 'confirmation'] as const)(
+		'rejects %s evidence for another candidate hash',
+		(phase) => {
+			const candidate = skill()
+			const tested = evaluation(candidate)
+			tested[phase].candidateRevision = hashLearningSkill(skill('An unrelated candidate.'))
+			expect(() =>
+				promoteLearningSkill(undefined, candidate, tested, evidence('wrong-digest')),
+			).toThrow()
+		},
+	)
+
+	it('requires comparisons against the currently active skill in both evidence rounds', () => {
+		const original = skill()
+		const active = promoteLearningSkill(
+			undefined,
+			original,
+			evaluation(original),
+			evidence('first'),
+		)
+		const replacement = skill('Read, cross-check and cite the source.')
+		const baseline = hashLearningSkill(original)
+		for (const phase of ['verification', 'confirmation'] as const) {
+			const stale = evaluation(replacement, baseline)
+			stale[phase].baselineRevision = 'none'
+			expect(() => promoteLearningSkill(active, replacement, stale, evidence('stale'))).toThrow()
+		}
+		const updated = promoteLearningSkill(
+			active,
+			replacement,
+			evaluation(replacement, baseline),
+			evidence('second'),
+		)
+		expect(updated.skills).toHaveLength(1)
+		expect(updated.skills[0]?.hash).toBe(hashLearningSkill(replacement))
+		expect(active.skills[0]?.hash).toBe(baseline)
+	})
+
+	it.each(['missing-confirmation', 'regression', 'unavailable', 'unattributed'] as const)(
+		'leaves promotion inactive when the existing harness review reports %s',
+		(fault) => {
+			const candidate = skill()
+			const tested = evaluation(candidate)
+			if (fault === 'missing-confirmation') {
+				expect(() =>
+					promoteLearningSkill(
+						undefined,
+						candidate,
+						{ verification: tested.verification, protection: tested.protection },
+						evidence('inconclusive'),
+					),
+				).toThrow()
+				return
+			}
+			if (fault === 'regression') {
+				for (const trial of tested.verification.candidate.filter(
+					(trial) => trial.taskId === 'verification-1',
+				)) {
+					trial.result = result(trial.taskId, false)
+				}
+			} else if (fault === 'unavailable') {
+				const score = tested.verification.candidate[0]?.result.scores.exact
+				if (!score) throw new Error('Missing candidate measurement fixture.')
+				score.unavailable = true
+			} else {
+				tested.verification.attributions = []
+			}
+			expect(() =>
+				promoteLearningSkill(undefined, candidate, tested, evidence('rejected')),
+			).toThrow()
+		},
+	)
+
+	it('rolls back as a new revision while preserving current preferences and identity', () => {
+		const original = skill()
+		const first = promoteLearningSkill(undefined, original, evaluation(original), evidence('first'))
+		const replacement = skill('A verified revised procedure.')
+		const second = promoteLearningSkill(
+			first,
+			replacement,
+			evaluation(replacement, hashLearningSkill(original)),
+			evidence('second'),
+		)
+		const current = reviseLearningProfile(second, {
+			identity: 'The current research identity.',
+			preferences: [{ key: 'language', value: 'Turkish', supersedes: null }],
+			evidence: evidence('new-profile'),
+		})
+		const restored = restoreLearningSkill(current, first, original.name, evidence('rollback'))
+		expect(restored.revision).toBe(current.revision + 1)
+		expect(restored.skills[0]?.hash).toBe(first.skills[0]?.hash)
+		expect(restored.preferences).toEqual(current.preferences)
+		expect(restored.identity).toEqual(current.identity)
+		expect(restored.lastChange.key).toBe('rollback')
+		expect(current.skills[0]?.hash).toBe(hashLearningSkill(replacement))
+		const removed = restoreLearningSkill(restored, undefined, original.name, evidence('disable'))
+		expect(removed.revision).toBe(restored.revision + 1)
+		expect(removed.skills).toEqual([])
+		expect(removed.preferences).toEqual(current.preferences)
+		expect(removed.identity).toEqual(current.identity)
+	})
+})
+
+describe('bounded resident learning projection', () => {
+	it('includes only named skills and counts missing selections even without a profile', () => {
+		expect(projectLearning(undefined, { maxChars: 1_000, skillNames: ['missing'] })).toEqual({
+			text: '',
+			revision: null,
+			includedSkills: [],
+			omitted: 1,
+			withheldSkills: [],
+		})
+		const candidate = skill()
+		const current = promoteLearningSkill(
+			undefined,
+			candidate,
+			evaluation(candidate),
+			evidence('selected'),
+		)
+		const unselected = projectLearning(current, { maxChars: 10_000, skillNames: [] })
+		expect(unselected).toMatchObject({ text: '', includedSkills: [], omitted: 0 })
+		const selected = projectLearning(current, {
+			maxChars: 10_000,
+			skillNames: [candidate.name, 'missing'],
+		})
+		expect(selected.revision).toBe(current.revision)
+		expect(selected.includedSkills).toEqual([candidate.name])
+		expect(selected.omitted).toBe(1)
+		expect(JSON.parse(selected.text)).toMatchObject({
+			kind: 'evaluated-guidance',
+			name: candidate.name,
+			body: candidate.body,
+			hash: hashLearningSkill(candidate),
+		})
+	})
+
+	it('honors the exact UTF-16 character boundary without emitting partial instructions', () => {
+		const candidate = skill('Önce kanıtı oku. 🔎\nSonra sonucu doğrula; belirsizse dur.')
+		const current = promoteLearningSkill(
+			undefined,
+			candidate,
+			evaluation(candidate),
+			evidence('unicode'),
+		)
+		const full = projectLearning(current, {
+			maxChars: 10_000,
+			skillNames: [candidate.name],
+		})
+		const exact = projectLearning(current, {
+			maxChars: full.text.length,
+			skillNames: [candidate.name],
+		})
+		expect(exact.text).toBe(full.text)
+		expect(JSON.parse(exact.text).body).toBe(candidate.body)
+		expect(exact.omitted).toBe(0)
+		const short = projectLearning(current, {
+			maxChars: full.text.length - 1,
+			skillNames: [candidate.name],
+		})
+		expect(short).toMatchObject({ text: '', includedSkills: [], omitted: 1 })
+	})
+
+	it('keeps a smaller selected skill when an earlier instruction does not fit', () => {
+		const large = { ...skill('x'.repeat(3_500)), name: 'large-guidance' }
+		const small = { ...skill('Verify first.'), name: 'small-guidance' }
+		const first = promoteLearningSkill(undefined, large, evaluation(large), evidence('large'))
+		const current = promoteLearningSkill(first, small, evaluation(small), evidence('small'))
+		const smallOnly = projectLearning(current, {
+			maxChars: 10_000,
+			skillNames: [small.name],
+		})
+		const projected = projectLearning(current, {
+			maxChars: smallOnly.text.length,
+			skillNames: [large.name, small.name],
+		})
+		expect(projected.text).toBe(smallOnly.text)
+		expect(projected.includedSkills).toEqual([small.name])
+		expect(projected.omitted).toBe(1)
+		expect(projected.text.length).toBeLessThanOrEqual(smallOnly.text.length)
+	})
+
+	it('counts all omitted profile entries at zero budget and refreshes after correction and rollback', () => {
+		const candidate = skill()
+		const learned = promoteLearningSkill(
+			undefined,
+			candidate,
+			evaluation(candidate),
+			evidence('skill'),
+		)
+		const current = reviseLearningProfile(learned, {
+			identity: 'A careful assistant.',
+			preferences: [{ key: 'language', value: 'English', supersedes: null }],
+			evidence: evidence('old-profile'),
+		})
+		expect(
+			projectLearning(current, { maxChars: 0, skillNames: [candidate.name, 'missing'] }),
+		).toMatchObject({
+			text: '',
+			includedSkills: [],
+			omitted: 4,
+		})
+		const corrected = reviseLearningProfile(current, {
+			preferences: [{ key: 'language', value: 'Turkish', supersedes: 'old-profile' }],
+			evidence: evidence('corrected-profile'),
+		})
+		const removed = restoreLearningSkill(
+			corrected,
+			undefined,
+			candidate.name,
+			evidence('disable-skill'),
+		)
+		const projected = projectLearning(removed, {
+			maxChars: 10_000,
+			skillNames: [candidate.name],
+		})
+		const entries = projected.text.split('\n').map((line) => JSON.parse(line))
+		expect(entries.find((entry) => entry.kind === 'preference')).toMatchObject({
+			value: 'Turkish',
+			evidence: { key: 'corrected-profile' },
+		})
+		expect(projected.revision).toBe(removed.revision)
+		expect(projected.text).not.toContain('English')
+		expect(projected.text).not.toContain(candidate.body)
+		expect(projected.includedSkills).toEqual([])
+		expect(projected.omitted).toBe(1)
+	})
+
+	it('rejects invalid budgets, duplicate selections and tampered evaluated content', () => {
+		for (const maxChars of [-1, 1.5, Number.POSITIVE_INFINITY, 64_001]) {
+			expect(() => projectLearning(undefined, { maxChars, skillNames: [] })).toThrow()
+		}
+		expect(() =>
+			projectLearning(undefined, { maxChars: 100, skillNames: ['same', 'same'] }),
+		).toThrow()
+		const candidate = skill()
+		const current = promoteLearningSkill(
+			undefined,
+			candidate,
+			evaluation(candidate),
+			evidence('verified'),
+		)
+		const tampered = structuredClone(current)
+		const substituted = {
+			...tampered,
+			skills: tampered.skills.map((entry) => ({
+				...entry,
+				body: 'Different untested instructions.',
+			})),
+		}
+		expect(() =>
+			projectLearning(substituted, { maxChars: 10_000, skillNames: [candidate.name] }),
+		).toThrow()
+	})
+})

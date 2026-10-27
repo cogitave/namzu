@@ -64,6 +64,7 @@ import {
 	type AssistantMessage,
 	type Message,
 	createSystemMessage,
+	lastPromptText,
 } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
@@ -786,6 +787,15 @@ export interface QueryParams {
 	 * See {@link ReminderSource}.
 	 */
 	reminders?: import('./reminders.js').ReminderSource
+	/**
+	 * Whether the kernel tells the model, once, that the approval policy
+	 * changed ("Approval policy changed from X to Y ..."), as request-only
+	 * context after the history. Default `true`. A host that already tells the
+	 * model about a mode change itself (through `reminders`) sets `false` so
+	 * the model hears it once; the `approval_policy_changed` event is
+	 * recorded either way.
+	 */
+	announceApprovalPolicyChange?: boolean
 
 	/**
 	 * Wake a background-task hold when operator input is available, without draining it.
@@ -1780,7 +1790,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Read through the box on every call, so a swap lands on the next
 			// question rather than the next turn.
 			resumeHandler: (request, context) => approvalPolicy.current.handler(request, context),
-			takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
+			takeApprovalPolicyChange: () => {
+				// Taken either way, so the change is not left pending for a later turn.
+				const change = approvalPolicy.takeUnannouncedChange()
+				return params.announceApprovalPolicyChange === false ? undefined : change
+			},
 			promptContributions,
 			...(params.steering ? { steering: params.steering } : {}),
 			...(jobNotices ? { jobNotices } : {}),
@@ -2015,7 +2029,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						{
 							turnId: ctx.turnId,
 							sessionId: params.sessionId,
-							prompt: lastUserPrompt(initialMessages),
+							prompt: lastPromptText(initialMessages),
 							signal: ctx.abortController.signal,
 						},
 						eventTranslator.emitEvent,
@@ -2878,15 +2892,6 @@ async function settleAbandonedTurn(
 			'exception.message': err instanceof Error ? err.message : String(err),
 		})
 	}
-}
-
-/** The text of the newest user turn, which is what a prompt hook is asked about. */
-function lastUserPrompt(messages: readonly Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]
-		if (m?.role === 'user' && typeof m.content === 'string') return m.content
-	}
-	return ''
 }
 
 type DrainQueryParams = Omit<QueryParams, 'resumeHandler'> & {

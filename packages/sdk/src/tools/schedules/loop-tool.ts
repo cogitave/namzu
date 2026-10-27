@@ -7,7 +7,9 @@ import type { SessionLoopHost } from './types.js'
 export const SESSION_LOOP_TOOL_NAME = 'session_loop'
 
 const inputSchema = z.object({
-	action: z.enum(['create', 'list', 'delete']),
+	action: z
+		.enum(['create', 'list', 'delete'])
+		.describe("create a loop, list this session's loops, or delete one or all of them"),
 	interval: z
 		.string()
 		.optional()
@@ -30,7 +32,7 @@ export function buildSessionLoopTools(host: SessionLoopHost): ToolDefinition[] {
 		defineTool({
 			name: SESSION_LOOP_TOOL_NAME,
 			description:
-				'Re-send a prompt to this conversation on an interval while the session stays open (between turns only; stops when the session closes; expires after 7 days). Use only when the user asks for something to repeat. Minimum interval one minute.',
+				"Re-send a prompt to this conversation on an interval while the session stays open (between turns only; stops when the session closes; expires after 7 days). Use only when the user asks for something to repeat. Minimum interval one minute. Returns the new loop's id on create, this session's loops on list, and how many loops were stopped on delete.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

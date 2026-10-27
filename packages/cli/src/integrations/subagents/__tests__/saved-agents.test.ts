@@ -1,6 +1,7 @@
 import {
 	type ChildSessionSummary,
 	type PrepareStepContext,
+	createTurnContextEntry,
 	generateSessionId,
 	generateTurnId,
 } from '@namzu/sdk'
@@ -18,6 +19,7 @@ import type { SavedChildIndex } from '../replay.js'
 import {
 	MAX_LISTED_SAVED_AGENTS,
 	MAX_SAVED_OUTPUT_CODE_UNITS,
+	SAVED_AGENTS_KEY,
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../saved-agents.js'
@@ -102,17 +104,19 @@ it('reports the real final status of a child whose own log settled although the 
 	expect((await history.read(finished.sessionId)).status).toBe('completed')
 })
 
-it('names earlier turns’ agents in the system prompt, leaving out this turn’s and stepping aside under pressure', async () => {
+it('records earlier turns’ agents once, then only an agent that is new or changed, leaving out this turn’s and stepping aside under pressure', async () => {
 	const fixture = await home()
 	const parent = await parentSession(fixture)
-	await spawnChild(fixture, parent, { description: 'previous check' })
-	const step = createSavedAgentsStep(
-		createSavedAgentHistory({
-			index: await fixture.index(),
-			paths: fixture.paths,
-			session: { sessionId: parent.sessionId },
-		}),
-	)
+	const previous = await spawnChild(fixture, parent, { description: 'previous check' })
+	const index = await fixture.index()
+	const stepFor = () =>
+		createSavedAgentsStep(
+			createSavedAgentHistory({
+				index,
+				paths: fixture.paths,
+				session: { sessionId: parent.sessionId },
+			}),
+		)
 	const context = {
 		sessionId: parent.sessionId,
 		turnId: generateTurnId(),
@@ -122,15 +126,38 @@ it('names earlier turns’ agents in the system prompt, leaving out this turn’
 		stepNumber: 1,
 	} as unknown as PrepareStepContext
 
-	const result = await step(context)
-	expect(result?.system).toContain('existing rules')
-	expect(result?.system).toContain('previous check')
-	expect(result?.system).toContain('unresolved')
+	// Recorded in the conversation; the system prompt is left alone.
+	const first = await stepFor()(context)
+	expect(first?.system).toBeUndefined()
+	const [entry] = first?.recordedContext ?? []
+	expect(entry?.key).toBe(SAVED_AGENTS_KEY)
+	expect(entry?.text).toContain('previous check')
+	expect(entry?.text).toContain('unresolved')
+	// The first entry explains how to read the rows.
+	expect(entry?.text).toContain('session id')
+	expect(entry?.text).toContain('send_message')
+
+	// The same listing, already in the history: nothing more to say.
+	const recorded = createTurnContextEntry(SAVED_AGENTS_KEY, entry?.text ?? '')
+	expect(await stepFor()({ ...context, messages: [recorded] })).toBeUndefined()
+
+	// A new agent: only its row, and no guidance again.
+	await spawnChild(fixture, parent, { description: 'later check' })
+	const next = await stepFor()({ ...context, messages: [recorded] })
+	const [delta] = next?.recordedContext ?? []
+	expect(delta?.text).toContain('later check')
+	expect(delta?.text).not.toContain('previous check')
+	expect(delta?.text).not.toContain('send_message')
+
+	// A status change lists that row again.
+	await endChild(parent, previous.sessionId, 'completed', 1)
+	const changed = await stepFor()({ ...context, messages: [recorded] })
+	expect(changed?.recordedContext?.[0]?.text).toContain('previous check')
 
 	// The turn that spawned it is the current one: its children are live.
-	expect(await step({ ...context, turnId: parent.turnId })).toBeUndefined()
+	expect(await stepFor()({ ...context, turnId: parent.turnId })).toBeUndefined()
 	expect(
-		await step({ ...context, contextBudget: { remainingTokens: 100, windowTokens: 1000 } }),
+		await stepFor()({ ...context, contextBudget: { remainingTokens: 100, windowTokens: 1000 } }),
 	).toBeUndefined()
 })
 

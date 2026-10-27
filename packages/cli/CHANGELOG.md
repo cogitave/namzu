@@ -1,5 +1,149 @@
 # @namzu/cli
 
+## 41.2.2
+
+### Patch Changes
+
+- a3fa0f3: A step can now keep text in the conversation instead of showing it for one request. `PrepareStepResult.recordedContext` takes `{ key, text }` items; the loop appends each as a history entry (a user-role message whose source is `{ type: 'runtime-context', kind: 'turn-context', key }`) after whatever the history ends with, once, and never edits it. `turnContextEntries(messages, key)` reads what a step already said, so it adds only what is new; `createTurnContextEntry`, `isTurnContextEntry`, `turnContextKey`, `isTurnContextKey` and `lastPromptText` are exported beside it. `createMemoryRecallStep` and `createEvidenceRecallStep` take `record` (default `false`, so their behaviour is unchanged) and `sessionMaxChars` (default 24,000). The CLI turns `record` on and records the repository, file evidence and finished delegated work the same way, so each request begins with the whole of the one before it, across turns, and a caching provider keeps reading the same prefix. The CLI's per-turn text now follows your message instead of coming before it.
+
+  What to check when you take this upgrade:
+
+  - `'turn-context'` is a new member of `RUNTIME_CONTEXT_MESSAGE_KINDS` and of the `RuntimeContextMessageKind` union. An exhaustive `switch` over the kind stops compiling until it has a case; the new kind is ordinary history, never shown to a person.
+  - Sessions written from this version on cannot be read by earlier builds, which reject the unknown message kind. A session you open with this version and then open with an older one fails to load in the older one.
+  - Request-only context (`PrepareStepResult.context`, `context` contributions, the running-task list) now goes last on every call, after the whole history, instead of ahead of the operator's message or where it first appeared. A host that read its position in the request should read the end.
+  - `createTurnContextEntry` takes a fourth argument `{ later?: boolean }`; with it set the header leaves out the sentence about later entries. `wrapUntrusted` takes `brief` for a shorter framing of a block that follows one the reader already has. Both are optional.
+  - The CLI records the saved-agents listing as a conversation entry instead of adding it to the system prompt, and the recorded file-evidence and owned-work entries now explain their fields in the text above them.
+  - `CompletionInbox.describeOwnedWork()` is deprecated; the loop reads `describeRunningWork()` and `describeSettledWork()`. The replaceable-block helpers behind the old placement are internal and gone.
+
+  The CLI change is wiring only; nothing to change in your configuration.
+
+- Updated dependencies [a3fa0f3]
+  - @namzu/sdk@56.2.0
+
+## 41.2.1
+
+### Patch Changes
+
+- 33969f4: The approval box for an edit now shows the whole lines the replacement touches as they are on disk when the box opens, and says when the text to replace is no longer in the file or now appears more than once, instead of drawing the model's own copy of the text.
+- 33969f4: A change to a file that moved after it was read is refused before any approval box opens, instead of asking you to approve it and then refusing. The refused row says "File changed since it was read, nothing written". The plan file's row head says "the plan" even for a long path, and only a plan inside a real session folder is called the plan: a `plans/plan.md` in your own `projects` folder shows as a path again. Text and ordering only; nothing to change.
+- 33969f4: Plain rows in the terminal. The plan file is called "the plan" on screen (the tool row, "Wrote N lines to the plan", the approval box and the approval note) instead of printing its session folder. `/compact` now reads "Compacted · N messages summarized · context about 190k to 20k tokens" with estimated sizes. `/resume` says "The only conversation in this folder is the one already open." when that is the case, instead of claiming there are none. A declined write shows only that it was declined, not the file it proposed. Text only; nothing to change in how you use Namzu.
+- Updated dependencies [33969f4]
+- Updated dependencies [33969f4]
+  - @namzu/sdk@56.1.0
+
+## 41.2.0
+
+### Minor Changes
+
+- 320881f: A prompt to write a file, whether the file is new or replaced, now offers "Yes, and switch to accept edits for this session" and Shift+Tab answers it, as it already did for an edit. Accept edits mode now runs a file write inside your folders without asking; a path outside them, a protected file and a rule that asks still ask, and a write too long to show in full stays a one-time yes. If you relied on being asked for every write in Accept edits mode, stay in the default mode. The "Not run: an earlier call was declined and the turn stopped." row no longer says "(ctrl+o to expand)", because nothing is hidden behind it.
+
+### Patch Changes
+
+- 320881f: A failed tool result no longer ends with a second, generic "Error: Tool execution failed" when the tool already explained itself in its output, so the model and the terminal see the message once. A `read` of a file that ends with a newline now reports the same line count in its header data, its partial-view note and its past-end warning, and no longer returns an empty numbered row after the last line.
+- 320881f: `read` no longer prints a backwards "PARTIAL view" banner when the window starts after the last line. It succeeds with a note that the file is shorter than the requested start and how many lines it has, and an empty file says it is empty. Binary or non-UTF-8 content gets a short note with its size and the next step instead of numbered garbage; a caller that matched on the old output needs no change. In the terminal, a summary of a selected range now ends with the pointer to the conversation tools, and only when both are mounted.
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+  - @namzu/sdk@56.0.1
+
+## 41.1.1
+
+### Patch Changes
+
+- 4ef7f2d: When the permission mode changes, the model now hears one notice that says which mode ended and which began, the ending first; leaving bypass for auto used to say nothing about bypass, and moving from plan mode to bypass announced bypass before plan mode's end. Nothing to change in your setup.
+- 4ef7f2d: When plan mode ends and another permission mode begins in the same turn, the notice for the new mode says only that it is on, since plan mode's own note already says plan mode was left. Nothing to do on upgrade.
+- 4ef7f2d: A sub-agent now reads one consistent brief: it reports to the session that started it, the report is complete and free of filler, and it no longer gets the section about keeping the person informed. The environment block opens with its "facts about right now" line instead of ending with it, and the `workflow` tool description includes a sample call.
+- 4ef7f2d: A turn's request-only data (repository snapshot, recalled memory, conversation evidence, file evidence) now keeps the place it first had on every later call of the turn, instead of moving from before your message to after the tool results, so within a turn each request begins with the whole of the one before it and a caching provider keeps reading the same prefix. This holds for the calls of one turn only: the next turn takes its data afresh, so its opening differs from the previous turn's. The conversation-evidence step reads the archive once per turn: a tool result written to the archive mid-turn no longer changes the block, and the next turn (or a new message from the person) reads afresh. File evidence and the owned-work block, when they change, are appended as a later block, as their headings say, instead of replacing the earlier one in place; this is a behaviour change: the model can still read the earlier, out of date text of a file body, so only the latest version and the two before it are carried, and versions a compaction displaced are dropped. Other data whose text changed is replaced. The conversation-evidence opening paragraph is no longer than before, names each JSON key it mentions once in code style, and no longer prints internal kind names; its JSON no longer carries the scan byte count. The note that evidence is unavailable is now two plain sentences, not JSON, so it no longer carries the status, stage or reason as fields. Nothing to change in your code; a host that matches the old wording of the evidence block, reads `scannedBytes` from it, parses the availability note's fields, or expects one file-evidence block per request should read the new text and take the last block.
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+  - @namzu/sdk@56.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@31.0.0
+
+## 41.1.0
+
+### Minor Changes
+
+- 5aae7c4: New `namzu learn` and `namzu learning` commands: the same as `namzu resident learn` and `namzu resident learning`, which keep working. Conversations in the terminal and `namzu exec` now keep failed tool calls, provider errors, turns that stopped early and the recoveries Namzu already makes (a provider retry or fallback, a history repair, a failed compaction pass) as local learning observations (a reference to the turn and one fixed sentence naming the tool, stop reason or error code, never the failure message, your prompt or the answer; your own cancel, a rejected plan or a plain approval pause is not recorded, stored under the project's state directory and dropped after 30 days). Nothing is uploaded. Read them with `namzu learning --sessions`; `namzu learn` does not use them yet and still needs an agent in the folder to activate into. To turn it off, set `learningObservations: false` in your config.
+- 5aae7c4: `namzu learn --sessions <module> --trust` now starts from the failures your conversations in this folder kept and needs no agent: the module you supply generates and evaluates a candidate, Namzu runs the independent check and the confirmation, and only the exact revision that passed becomes this project's guidance. New conversations in that folder then start with the active guidance as advice (it grants no permission and runs nothing; ephemeral conversations skip it). Nothing runs it for you, and a module is still required. Recorded failure excerpts also mask drive-letter and network paths. Without `--sessions` nothing changes. If you do not want conversations here to use learned guidance, do not run `namzu learn --sessions`; delete `learning/guidance` under the project's state directory to remove it.
+- 5aae7c4: Namzu now learns from the failures and recoveries your conversations keep, by itself, in the background of the interactive terminal. It is on by default and makes background model calls that spend your provider's tokens, with no prompt before each cycle. To turn it off, set `learningGenerator: false` in your user config. The caps below limit the spend. When at least 5 new observations have accumulated, 6 hours have passed since the last cycle and the daily token allowance is not used up, one cycle proposes a revision of the folder's guidance, checks it against fixed scenarios (blind grading, tasks that must not regress, a fresh confirmation round) and activates it only for the exact revision that passed; most cycles end rejected, which is the gate working. Each cycle stops at 120,000 recorded tokens and all cycles at 300,000 per day (`learningGenerator: { cycleTokens, dailyTokens }` changes them; a project file can only lower them). It uses the configured `smallModel`, else the cheapest text model of the active provider. `exec`, scheduled runs and sub-agents never start it. `namzu learn` with no module runs one cycle now, `namzu learn --list` shows what was learned and `namzu learn --undo` restores the guidance an activation replaced. Passing a module to `namzu learn` works as before. If you do not want conversations to spend tokens on this, set `learningGenerator: false`; setting `learningObservations: false` also stops it because nothing is kept to learn from.
+- 5aae7c4: When Namzu's own learning activates a revision of a folder's guidance, the terminal now shows one dim row saying what was learned and how to take it back (`namzu learn --undo`); a rejected or inconclusive cycle shows nothing. The row stays in the transcript because the undo instruction must not disappear after a few seconds. Learned guidance is presented to the model as advice, and where it disagrees with a stored memory the memory wins. The read-first guard on edits (shown as "File must be read first") is not recorded as a learning observation. Nothing to change on upgrade; `learningGenerator: false` still turns learning off.
+- 5aae7c4: `namzu resident` is deprecated and will be removed in the next major release. Every action (`add`, `status`, `run`, `start`, `learn` and the rest) now prints one line saying so, and still does what it did. Use `namzu schedule` for recurring work, `/goal` for work that spans turns and background agents in the terminal app. `namzu learn` and `namzu learning` are not affected.
+
+### Patch Changes
+
+- 5aae7c4: Learning by itself no longer counts a refused tool call as a failure: the answer to a call you declined, to a call that went with the turn your No ended, and to a call whose question went unanswered records nothing, because those are your choices, not a tool that broke. The background learning cycle also stays still while any question about a tool call waits on you, and goes on once it closes. The guidance a project learned now opens with "Namzu learned" instead of claiming you confirmed it, since the background cycle activates it without a prompt; a stored memory still wins where the two disagree. `@namzu/sdk` adds `isReviewRefusalResult(output)`, which says whether a tool result answers a call the review did not let run, so a host that counts failures can leave those out. Nothing to change on upgrade.
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+  - @namzu/sdk@55.1.0
+
+## 41.0.0
+
+### Major Changes
+
+- c1b7b6c: The terminal now asks about one tool call at a time instead of showing one prompt for a whole batch. Reads and other calls that are safe to run together each open their own prompt and start as soon as you answer; a call that changes something waits for the calls before it, then asks, then runs. Three things change for anyone who drives or scripts the terminal:
+
+  - There is one prompt per call, so a model response with three calls opens three prompts in turn. "Do you want to run these N tools?" and the "N more awaiting approval" line are gone; a dim `2 of 3` on the title row says where you are when two or more questions are open.
+  - A plain No (or Esc) now ends the turn: what is running is cancelled, calls that have not started are refused without being asked, and the model is not called again. Before, the model was told the call was declined and carried on. To refuse one call and let the agent carry on, press Tab on the No row, type the reason and press Enter; the reason reaches the model.
+  - Pressing "Yes, and don't ask again" or the accept-edits answer now re-checks every question still open and lets through the ones the new rule or mode covers, without showing them. A call that leaves the working directory, always needs a person or was too large to show in full is still asked.
+
+  A script that answered the batch prompt with a single key must now answer each call's prompt; the "don't ask again" answer passes a repeated command. Questions from other agents queue behind your own and say which agent is asking. A connector's tool is named by its server and tool (`slack · post`) in the prompt. Desktop, ACP and `namzu exec` are unchanged.
+
+### Minor Changes
+
+- e25dd2a: Plan mode, the date and the permission mode no longer change the cached system prompt, so toggling plan mode, a new day or a Shift+Tab keeps the prompt cache warm. Plan mode's instructions now arrive only as the plan-mode reminder, the date and branch arrive as an environment reminder (with a short notice, that needs no announcement, when either changes), and `auto`, `accept-edits` and `bypass` are announced when they start and when they end. Queued operator messages and background-job notices are wrapped so they are labelled as what they are. Nothing to change in your setup; a prompt override that looked for plan-mode text in the system prompt should read the reminder instead.
+
+### Patch Changes
+
+- e25dd2a: Compaction no longer treats text the runtime put in the user role as something the operator asked for. Project instructions, step context and reminders are skipped when the summary's task and requirements are extracted, and are left out of the excerpt the summary check reads, so a compacted conversation no longer lists the project's rules as the user's requests. The project instructions are still kept whole, once, and re-read fresh on the next turn. The project instructions message now also says that project rules win over Namzu's default style and workflow, and never over safety or permission rules. Nothing to do on upgrade.
+- e25dd2a: The model is now told when Auto (and Strict) mode starts and ends, like Accept edits and Bypass, and hears about a mode change once, after the conversation, instead of also through a system message that re-read the whole conversation on every Shift+Tab. The end of a mode is worded for the mode you land in, and a sub-agent is told its calls follow the session that started it, with that session's person deciding, rather than that it may ask the user. Nothing to change in your setup.
+- e25dd2a: A delegated turn that resumes (for example after a permission answer) now gets the same system prompt a new turn gets: plan-mode instructions when the turn is in plan mode, the note on loading deferred tools, and the delegation advice only when the session has the Agent tool. The resumed turn also keeps the skills the operator has on, and it is told about delegating only when the Agent tool is available (before, it was told unconditionally). Before, the resumed turn was built from a shorter second list and lacked those sections. Nothing to do on upgrade.
+- e25dd2a: Prompt wording. The plan-mode reminder now says why plan mode exists and what is allowed (read and search freely, write only the plan file), asks for approval by calling `exit_plan_mode` because a plain-text question cannot be answered in the approval screen, and no longer says it overrides every other instruction. Coming back into plan mode with a plan for a different task says to write the new plan over the old one, not to start over. The opening line of the system prompt calls Namzu an AI kernel. Nothing to do on upgrade.
+- e25dd2a: Prompt wording. The working rules, the identity block and the tool descriptions say what to do and why instead of stacking prohibitions and capitals; a tool-specific rule (changing a file, building a long file, waiting for a job, when to call `workflow`) now lives only in that tool's description, and the workflow opt-in list is in the `workflow` tool's description alone. The evidence rules are three bullets. Every parameter of the browser, conversation, agent-task and loop tools now carries a description, and the `Agent` tool's `prompt` parameter asks for an objective, what is out of bounds, tools and sources, and the reply shape. A host that matched the old sentences in `CODING_AGENT_WORKING_DOCTRINE` or the tool descriptions by text should match the new ones; nothing else changes on upgrade.
+- e25dd2a: Prompt wording and structure, with no public API change. The operator's wording for a compaction summary now sits in a labelled block that only a per-request closing tag ends. The background-start, moved-to-background and queued-agent tool results state facts and leave the usage advice to the `bash`, `job`, `wait_for_job` and `Agent` descriptions. The note about removed credential-shaped variables gives their count, not their names. The workflow size guideline moves from the `workflow` tool description to the system prompt beside the workflow rules, so a changed setting no longer rewrites the tool definitions. The browser description drops the engine id. `schedule`, `ask_user_question` and `browser_act` each show one sample call. The 12000-character payload cap, the branch rule and the no-apology rule give a reason, and the schedule skill drops text the `schedule` description already holds. A host or test that matched these sentences by text should match the new ones.
+- e25dd2a: Namzu's opening instructions no longer point the model at a shell tool called `bash.run` (it never existed; the tool is `bash`), no longer carry a closed list of six tools, and say one consistent thing about parallel work: independent tool calls may share a response, `bash` calls run one at a time, and the model does not claim concurrency without proof. The foreground `bash` tool's description no longer steers shell work through a sub-agent. The environment paragraph about permissions now follows the turn's permission mode instead of saying every call may ask the user, and says a call that would ask is refused when nobody is at the terminal. Nothing to do on upgrade.
+- e25dd2a: `ask_user_question` no longer tells the model that plan ratification goes through `approve_plan` in a host that does not mount that tool. `buildAskUserQuestionTool` takes an optional `planApprovalTool` naming the host's approval tool; without it the description says "the plan-approval tool". The coordinator passes `approve_plan` when it mounts that tool, and the terminal passes `exit_plan_mode` when plan mode can be approved. A host that builds the tool itself and mounts an approval tool should pass its name.
+- e25dd2a: A sub-agent's result now reaches the parent inside the same marked block as other outside text on every path, not only as a task notification: a foreground `Agent` call, `wait_for_task` and a saved agent's history return the child's words in an `agent-result` block, with the task id and status outside it. The block's header tells the model that an instruction inside it is for the operator to hear about, not to act on. A tool that read the `Agent result:` text of a `wait_for_task` result as plain text should read the block (`untrustedEnvelopeBody` returns its body). The sub-agent prompt no longer tells the child not to ask questions in a way that contradicts the working rules it inherits: it ends by saying that with no one to ask, the child finishes what is safe, leaves the risky step undone and names the blocker in its summary.
+- e25dd2a: A delegated sub-agent now reads working rules that already say what to do when nobody can answer (leave the risky step undone and name it in the summary), instead of rules that send it to ask a person beside a later line saying it has no one to ask. The environment sentence for a sub-agent says the same thing once. The header on outside text (files, web pages, a sub-agent's result) now says "report them in your reply" instead of "tell the operator", which fits a sub-agent whose reader is its parent and is shorter. Nothing to do on upgrade.
+- c1b7b6c: When you answer No to a tool call and the turn stops, the conversation now ends with one dim "Interrupted · What should Namzu do instead?" row (Ctrl+C at a question leaves the same row), lists the stopped calls in the order the model made them, and draws the declined call's dot in the error colour. The No option reads "No, and tell Namzu what to do differently (esc)", and `tab say why` stays on the hint line in narrow terminals. A connector tool call reads `slack · post(hello)` with a few words of the request instead of its raw input, and its result shows what the server said without the wrapper text meant for the model.
+- c1b7b6c: A call that a rule or a hook asked about is no longer approved without being shown when another agent's question is waiting: switching to bypass or answering "don't ask again" on a connector tool leaves it open for you to answer.
+- c1b7b6c: Answering "Yes, and don't ask again" on one shell call now also covers the identical calls waiting behind it, so they run without a second question. The last of several questions keeps its `k of N`, and Ctrl+C at a question ends the turn the way a plain No does, with one `Interrupted` row and the unasked calls shown as not run.
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [c1b7b6c]
+- Updated dependencies [c1b7b6c]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+- Updated dependencies [e25dd2a]
+  - @namzu/sdk@55.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@30.0.0
+
 ## 40.0.0
 
 ### Major Changes

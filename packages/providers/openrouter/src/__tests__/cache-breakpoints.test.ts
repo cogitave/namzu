@@ -126,3 +126,29 @@ describe('OpenRouter cache breakpoints', () => {
 		expect(parts).toEqual([{ type: 'text', text: 'rich' }])
 	})
 })
+
+describe('OpenRouter cache breakpoints across the calls of a turn', () => {
+	it('marks the last history message on every call, whatever the request-only blocks say', () => {
+		const history: ChatCompletionParams['messages'] = [{ role: 'user', content: 'go' }]
+		let last = 'go'
+		for (let call = 1; call <= 3; call++) {
+			const sent = body({
+				messages: [...history, context('Work list'), context(`Note for call ${call}`)],
+			})
+			const firstBlock = sent.messages.findIndex((m) => JSON.stringify(m).includes('Work list'))
+			expect(JSON.stringify(sent.messages[firstBlock - 1])).toContain(last)
+			expect(JSON.stringify(sent.messages[firstBlock - 1])).toContain('cache_control')
+			for (const m of sent.messages.slice(firstBlock))
+				expect(JSON.stringify(m)).not.toContain('cache_control')
+			history.push({
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+				],
+			})
+			history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` })
+			last = `RESULT-${call}`
+		}
+	})
+})

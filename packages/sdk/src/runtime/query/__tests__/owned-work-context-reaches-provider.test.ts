@@ -8,6 +8,7 @@ import { fixtureId } from '../../../test-support/ids.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
+import { type Message, isTurnContextEntry, turnContextKey } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
 
@@ -61,10 +62,10 @@ it.each([100_000, 1_000])(
 			steering,
 			agentId: 'parent',
 			agentName: 'parent',
-			tenantId: fixtureId.tenant('owned-context'),
-			projectId: fixtureId.project('owned-context'),
-			sessionId: fixtureId.session('owned-context'),
-			topicId: fixtureId.topic('owned-context'),
+			tenantId: fixtureId.tenant(`owned-context-${window}`),
+			projectId: fixtureId.project(`owned-context-${window}`),
+			sessionId: fixtureId.session(`owned-context-${window}`),
+			topicId: fixtureId.topic(`owned-context-${window}`),
 			messages: [
 				{ role: 'user', content: 'Ask a worker for the meeting details and report them.' },
 			],
@@ -86,14 +87,23 @@ it.each([100_000, 1_000])(
 		})
 		const next = provider.requests[1]?.messages ?? []
 		const context = next.find((m) => String(m.content).includes('Owned delegated work'))
+		const recorded = run.messages.filter(isTurnContextEntry)
 		if (window > 1_500) {
 			expect(context?.role).toBe('user')
 			expect(context?.content).toContain('delivered-to-history')
 			expect(context?.content).toContain('"state":"completed"')
-		} else expect(context).toBeUndefined()
+			// A finished task does not change, so it is recorded once and read
+			// from the conversation afterwards.
+			expect(context?.content).toContain('has finished')
+			expect(turnContextKey(context as Message)).toBe('owned-work')
+			expect(recorded).toHaveLength(1)
+			expect(recorded[0]).toBe(run.messages.find((m) => m === context || m.id === context?.id))
+		} else {
+			expect(context).toBeUndefined()
+			expect(recorded).toHaveLength(0)
+		}
 		expect(next.some((m) => String(m.content).includes('Worker result: Ece'))).toBe(true)
 		expect(latest.at(-1)).toBe('What did we add earlier?')
-		expect(run.messages.some((m) => String(m.content).includes('Owned delegated work'))).toBe(false)
 		expect(run.stopReason).toBe('end_turn')
 		inbox.close()
 	},
@@ -152,7 +162,7 @@ it('keeps a task launched before the turn visible after the turn launches many m
 			{ text: 'Done.' },
 		],
 	})
-	await drainQuery({
+	const run = await drainQuery({
 		provider,
 		toolsets: [tools],
 		completionInbox: inbox,
@@ -176,12 +186,19 @@ it('keeps a task launched before the turn visible after the turn launches many m
 		}),
 	})
 	const next = provider.requests[1]?.messages ?? []
-	const context = next.find((m) => String(m.content).includes('Owned delegated work'))
+	const context = next.find((m) => String(m.content).includes('Owned delegated work still running'))
 	expect(context?.role).toBe('user')
 	// Still named, even though 20 more tasks launched after it — the old FIFO
 	// would have evicted it from the projection by now.
 	expect(context?.content).toContain(`"taskId":"${runningId}"`)
 	// Genuinely unresolved: the stub gateway has nothing recorded for it.
 	expect(context?.content).toContain('"state":"unknown"')
+	// What is running is true only now, so it is never recorded; the sixteen
+	// that finished are, once, in one entry.
+	expect(run.messages.some((m) => String(m.content).includes('still running'))).toBe(false)
+	const finished = run.messages.filter(isTurnContextEntry)
+	expect(finished).toHaveLength(1)
+	expect(String(finished[0]?.content).match(/"taskId"/g)).toHaveLength(16)
+	expect(String(finished[0]?.content)).toContain('4 more finished tasks are not listed')
 	inbox.close()
 })

@@ -211,14 +211,15 @@ export function declinedLine(note: string | undefined): string {
 /** What the kernel tells a call that never started because an earlier refusal stopped the turn. */
 const TURN_STOPPED_TEXT = 'An earlier call in this batch was refused and the turn was stopped'
 
+/** The row for a call that never started; it is the whole of what that call has to say. */
+export const TURN_STOPPED_LINE = 'Not run: an earlier call was declined and the turn stopped.'
+
 /**
  * The sentence for a call that was not run because an earlier call was refused
  * and the turn stopped, or `undefined` for any other result.
  */
 export function turnStoppedLine(result: string): string | undefined {
-	return result.includes(TURN_STOPPED_TEXT)
-		? 'Not run: an earlier call was declined and the turn stopped.'
-		: undefined
+	return result.includes(TURN_STOPPED_TEXT) ? TURN_STOPPED_LINE : undefined
 }
 
 /**
@@ -278,6 +279,9 @@ export function failureFactsLine(
 	}
 }
 
+/** A file edit or overwrite refused because the file moved after it was read. */
+const FILE_CHANGED_LINE = 'File changed since it was read, nothing written'
+
 /**
  * The short text a refused call of a file, search or language tool reads as,
  * only where a refusal is worth a label of its own: a missing file, a file
@@ -307,6 +311,10 @@ export function shortToolFailure(
 	if (name === 'read') {
 		if (missing) return error('File not found')
 		return refused ? error('Error reading file') : undefined
+	}
+	// A copy gone stale says so: the person can see nothing was written and why.
+	if ((name === 'edit' || name === 'write') && reason === 'changed_on_disk') {
+		return error(FILE_CHANGED_LINE)
 	}
 	if (name === 'edit') {
 		if (reason === 'not_read') return { text: 'File must be read first', tone: 'muted' }

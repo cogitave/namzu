@@ -333,6 +333,7 @@ export { drainQuery, query } from './runtime/query/index.js'
 export {
 	collapseProjectInstructionSnapshots,
 	isProjectInstructionMessage,
+	projectInstructionBody,
 	replaceProjectInstructionSnapshot,
 } from './runtime/query/project-instructions.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
@@ -1226,6 +1227,13 @@ export {
 	selectAssistantText,
 	createProjectInstructionMessage,
 	createRuntimeContextMessage,
+	createTurnContextEntry,
+	isTurnContextEntry,
+	lastPromptText,
+	turnContextEntries,
+	isTurnContextKey,
+	turnContextKey,
+	MAX_TURN_CONTEXT_KEY_LENGTH,
 	createSystemMessage,
 	createToolMessage,
 	hasNonTextBlocks,
@@ -1473,6 +1481,8 @@ export {
 } from './runtime/query/auto-review/index.js'
 // What the model is told when a person declines a call without words of their own.
 export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
+// Whether a tool result answers a call the review did not let run, so a host counting failures can leave it out.
+export { isReviewRefusalResult } from './runtime/query/iteration/phases/per-call-review.js'
 
 // The system prompt is open: a contribution registry the assembler
 // consumes, with skills as its first contributor. See `prompt/contributions.ts`.
@@ -1651,11 +1661,31 @@ export { validateResidentProposal } from './manager/resident/proposal.js'
 export { deliverResidentMessage } from './manager/resident/outbox.js'
 export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
 
+export { hashLearningSkill, projectLearning } from './learning/skill.js'
+export { runLearningCycle } from './learning/cycle.js'
 export {
-	hashResidentSkill,
-	projectResidentLearning,
-} from './manager/resident/learning.js'
-export { runResidentLearningCycle } from './manager/resident/learning-cycle.js'
+	LEARNING_FLOOR_COMPONENTS,
+	LEARNING_SURFACE_KINDS,
+	learningExperienceFromCycle,
+	proposeLearningCandidate,
+	resolveLearningSurface,
+} from './learning/generator.js'
+export {
+	LEARNING_CONFIDENCE_LEVELS,
+	LEARNING_EDIT_VERDICTS,
+	normalizeLearningExperience,
+	selectLearningExperience,
+} from './learning/experience.js'
+export {
+	LEARNING_EXPERIENCE_STORE_VERSION,
+	SqliteLearningExperienceStore,
+} from './learning/experience-store.js'
+export {
+	LearningLeakError,
+	assertNoLearningLeak,
+	createLearningCanary,
+	scanForLearningLeak,
+} from './learning/leak-tripwire.js'
 
 export {
 	createSessionEvidenceSource,
@@ -1671,10 +1701,18 @@ export { createResidentToolEvidenceSource } from './manager/resident/tool-eviden
 export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
 
 export {
+	SqliteLearningStore,
+	runStoredLearningCycle,
+	runStoredLearningFromObservations,
+} from './learning/store.js'
+export {
 	SqliteResidentLearningStore,
+	hashResidentSkill,
+	projectResidentLearning,
+	runResidentLearningCycle,
 	runStoredResidentLearningCycle,
 	runStoredResidentLearningFromObservations,
-} from './manager/resident/learning-store.js'
+} from './learning/deprecated.js'
 
 // ─── sessions, turns and the session log ─────────────────────────────────
 //

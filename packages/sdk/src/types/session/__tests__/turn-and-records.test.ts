@@ -346,6 +346,19 @@ describe('cross-field record rules', () => {
 		)
 	})
 
+	it('accepts a recorded context entry as an ordinary user message record', () => {
+		const record = (source: unknown) =>
+			inTurn('message', {
+				messageId: fixtureId.message('entry'),
+				role: 'user',
+				content: { role: 'user', content: 'Recorded context', source },
+			})
+		const entry = { type: 'runtime-context', kind: 'turn-context', key: 'repository' }
+		expect(accepts(record(entry))).toBe(true)
+		expect(accepts(record({ ...entry, key: 'Not A Key' }))).toBe(false)
+		expect(accepts(record({ ...entry, kind: 'unknown-kind' }))).toBe(false)
+	})
+
 	it('keeps a checkpoint behind its own record', () => {
 		const written = (throughSeq: number) =>
 			inTurn('checkpoint_written', {

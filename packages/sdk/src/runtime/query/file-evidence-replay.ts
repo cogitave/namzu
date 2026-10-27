@@ -716,17 +716,20 @@ function observeRead(
  * compared, which is also what makes the figure above exact.
  */
 function wholeFileRenderUnits(body: string, window: ReadWindowRequest): number | undefined {
+	if (body === '') return undefined
 	const lines = countLines(body)
 	const { start, end } = resolveReadWindow(window, lines)
 	if (start !== 0 || end < lines) return undefined
-	return body.length + lines + lineNumberUnits(lines)
+	// The rendering numbers each line and joins them, so a final newline is not
+	// a row of its own and is not carried as a trailing separator.
+	return body.length - (body.endsWith('\n') ? 1 : 0) + lines + lineNumberUnits(lines)
 }
 
-/** Lines the way `String.split('\n')` counts them, without building the array. */
+/** Lines the way a read counts them, without building the array: a final newline ends a line. */
 function countLines(body: string): number {
 	let lines = 1
 	for (let at = body.indexOf('\n'); at !== -1; at = body.indexOf('\n', at + 1)) lines++
-	return lines
+	return body.endsWith('\n') ? lines - 1 : lines
 }
 
 /** Units the line numbers `1..lines` occupy, counted by decade rather than one by one. */

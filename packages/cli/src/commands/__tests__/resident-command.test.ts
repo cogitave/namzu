@@ -19,7 +19,7 @@ import { EXIT_BAD_CONFIG, EXIT_UNTRUSTED, EXIT_USAGE } from '../../exit-codes.js
 import { readRunner, reserveRunner } from '../../integrations/resident/runner-store.js'
 import type { ResidentSessionStepOptions } from '../../integrations/resident/session-step.js'
 import { lookupResident } from '../../integrations/resident/storage.js'
-import { residentCommand } from '../resident.js'
+import { RESIDENT_DEPRECATION, residentCommand } from '../resident.js'
 import type { CommandContext } from '../types.js'
 
 const adapter = vi.hoisted(() => ({
@@ -179,6 +179,31 @@ describe('resident commands reach durable project state', () => {
 		const result = await cli(['start', '--trust', '--max-steps', '2', '--cwd', workspace])
 		expect(result.code).toBe(EXIT_BAD_CONFIG)
 		expect(readRunner(resident)).toBeNull()
+	})
+
+	it('prints one plain deprecation line for every action and still runs it', async () => {
+		for (const action of ['status', 'inspect', 'learning']) {
+			const info: string[] = []
+			const printed: unknown[] = []
+			const code = await residentCommand.handler({
+				ctx: {
+					config: {},
+					formatter: {
+						name: 'json',
+						print: (value) => printed.push(value),
+						info: (message) => info.push(message),
+						error: () => {},
+					},
+				},
+				rawArgs: [action, '--cwd', workspace],
+			})
+			expect(code).toBe(0)
+			expect(info).toEqual([RESIDENT_DEPRECATION])
+			expect(printed).toHaveLength(1)
+		}
+		expect(RESIDENT_DEPRECATION).toContain('next major release')
+		expect(RESIDENT_DEPRECATION).toContain('namzu learn')
+		expect(residentCommand.help).toContain(RESIDENT_DEPRECATION)
 	})
 
 	it('shows help and default status without trusting the project, reading malformed config or creating state', async () => {

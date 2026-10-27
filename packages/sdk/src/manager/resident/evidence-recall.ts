@@ -13,7 +13,11 @@ import { evidenceTokenKey } from '../../utils/evidence-tokens.js'
 import { type ResidentState, residentStateSchema } from './store.js'
 import type { ResidentToolEvidenceSource } from './tool-evidence.js'
 
-/** @experimental Automatic original-tool recall for exactly one admitted resident turn. */
+/**
+ * @experimental Automatic original-tool recall for exactly one admitted resident turn.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentEvidenceRecallOptions {
 	readonly source: ResidentToolEvidenceSource
 	/** Already admitted state; summaries supply search words, never new observations. */
@@ -74,6 +78,8 @@ function residentQueryWords(text: string): string[] {
  * Reuses the shared bounded ranking/rendering engine while retaining the
  * pursuit's settlement authority. No arbitrary Session discovery, saved fact
  * cache, inference, workspace reread or action replay is performed here.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentEvidenceRecallStep(
 	options: ResidentEvidenceRecallOptions,

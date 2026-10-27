@@ -25,6 +25,12 @@
  * rarely, so those two are cheap to carry — and `git status` is one tool call
  * away for an agent that actually needs it, which is the right place to pay.
  *
+ * In the interactive terminal the date and branch no longer ride in the
+ * system prompt at all (`stable` below): they arrive as an environment reminder,
+ * said once and again only when they change, so even that once-a-day re-key is
+ * gone. The paragraph above explains why they were cheap enough to carry; the
+ * reminder makes them free.
+ *
  * Read fresh each turn for the same reason the branch is worth having at all: a
  * session that crosses midnight, or in which the agent checks out a branch
  * itself, must not keep asserting what was true when it started. Because the
@@ -35,6 +41,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { promisify } from 'node:util'
+import type { PermissionMode } from '../permissions/mode.js'
 
 const run = promisify(execFile)
 
@@ -65,6 +72,16 @@ export interface ExecutionBoundary {
 	readonly escape: 'ask' | 'unattended' | 'refused'
 	/** Whether a person answers the permission prompts in this session. */
 	readonly interactive: boolean
+	/**
+	 * The permission mode the turn starts under. Absent leaves the sentence
+	 * about permissions general, as it was before the mode was passed.
+	 */
+	readonly mode?: PermissionMode
+	/**
+	 * This prompt is a sub-agent's. It has no operator of its own and is told
+	 * nothing about the mode: its calls follow the session that started it.
+	 */
+	readonly delegated?: boolean
 }
 
 /** What the model needs to know about running under WSL. */
@@ -247,7 +264,22 @@ export async function readEnvironmentFacts(
 	}
 }
 
-export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
+/** How {@link composeEnvironmentPrompt} is read. */
+export interface EnvironmentPromptOptions {
+	/**
+	 * Leave out what changes while a session runs: the date, the branch and
+	 * the permission mode's wording. The text then belongs in the cached
+	 * prefix, because nothing in it is re-keyed by a new day, a checkout or a
+	 * mode switch. Those facts ride in reminders instead (see
+	 * `reminders/environment.ts` and `reminders/mode.ts`).
+	 */
+	readonly stable?: boolean
+}
+
+/** The date and branch sentences, the facts that change under a running session. */
+export function environmentFactLines(
+	facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>,
+): string[] {
 	const lines = [`Today's date is ${facts.today}.`]
 	if (!facts.isRepository) {
 		lines.push('The working directory is not a git repository.')
@@ -258,27 +290,74 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 	} else {
 		lines.push(`The working directory is a git repository on branch \`${facts.branch}\`.`)
 	}
+	return lines
+}
+
+const FACTS_FRAMING =
+	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
+
+export function composeEnvironmentPrompt(
+	facts: EnvironmentFacts,
+	options: EnvironmentPromptOptions = {},
+): string {
+	const stable = options.stable === true
+	// The framing line leads the block, so the facts below are read as facts.
+	const lines = stable ? [] : [FACTS_FRAMING, ...environmentFactLines(facts)]
 	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
 		)
 	}
-	if (facts.boundary) lines.push(...boundaryLines(facts.boundary))
+	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
-	lines.push(
-		'These are facts about right now. Prefer them over any date or branch you would otherwise assume.',
-	)
 	return `## Environment\n\n${lines.join('\n')}`
 }
 
+/**
+ * What the permission mode does to a call on the host, said per mode and never
+ * more than the mode does: the safety rules that no mode relaxes are named as
+ * such, so a mode that stops asking is not read as one that stops checking.
+ */
+export function permissionSentence(boundary: ExecutionBoundary, stable = false): string {
+	if (stable) {
+		return 'Shell commands and file changes go through the permission settings. Whether the user is asked first depends on the permission mode; you are told whenever the mode is anything but the usual one, and when it ends (plan mode has its own notices).'
+	}
+	if (boundary.delegated) {
+		return 'Your shell commands and file changes follow the permission mode of the session that started you. You have no one to ask yourself, and a refused call stays refused.'
+	}
+	const noOneAsks = boundary.interactive
+		? ''
+		: ' Nobody is at the terminal, so a call that would ask is refused.'
+	switch (boundary.mode) {
+		case undefined:
+			return 'Shell commands and file changes go through the permission settings, which may ask the user before they run.'
+		case 'prompt':
+			return `Shell commands and file changes the user's rules do not already allow are put to the user before they run.${noOneAsks}`
+		case 'accept-edits':
+			return `File edits and simple file commands in the working directory run without asking; any other shell command or change is put to the user first.${noOneAsks}`
+		case 'plan':
+			return 'This is plan mode: reading is allowed and every change is refused, except to the plan file, until the user leaves plan mode.'
+		case 'bypass':
+			return "Permission prompts are off in this mode, so calls run without asking. What always needs the user still does: removing a home or top-level directory, leaving a sandbox, and anything the user's rules say to ask about. Protected files and the safety rules apply as usual."
+		case 'classify':
+			return `Calls that would otherwise ask the user are checked automatically instead, and some may still be refused. A refused call is a decision, not an error to route around.${noOneAsks}`
+		case 'strict':
+			return 'Only preapproved tools run; any other call is refused without asking.'
+		case 'auto':
+			return 'Nobody is asked: routine calls run and anything out of bounds is refused.'
+	}
+}
+
 /** The boundary, and the way past it, in the words the model acts on. */
-function boundaryLines(boundary: ExecutionBoundary): string[] {
+function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 	if (!boundary.sandbox) {
-		const outside = boundary.interactive
-			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
-			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
+		const outside = boundary.delegated
+			? 'A path anywhere else is refused, or decided by the session that started you, and you cannot approve it yourself. If you needed a directory, name it in your summary.'
+			: boundary.interactive
+				? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+				: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
-			'Tools run on this machine, not in a sandbox: shell commands and file changes go through the permission settings, which may ask the user before they run.',
+			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary, stable)}`,
 			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
 		]
 	}
@@ -301,7 +380,11 @@ function boundaryLines(boundary: ExecutionBoundary): string[] {
 		: ' It does not confine the file system here, so commands can still see files outside the working directory.'
 	return [
 		`Shell commands run in a sandbox (${environment}${enforced.length > 0 ? `, enforcing ${enforced.join(', ')}` : ', enforcing nothing on this platform'}).${files}${network} The file tools reach only the working directory and the added directories.`,
-		`To reach another directory, ask the user to add it with \`/add-dir <path>\` (the next turn binds it). ${escapeRoute}`,
+		`${
+			boundary.delegated
+				? 'To reach another directory, name it in your summary; the session that started you decides whether to add it.'
+				: 'To reach another directory, ask the user to add it with `/add-dir <path>` (the next turn binds it).'
+		} ${escapeRoute}`,
 	]
 }
 

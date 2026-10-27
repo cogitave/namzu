@@ -35,5 +35,7 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Asked again for the required format'
 		case 'task-completion':
 			return 'Task finished'
+		case 'turn-context':
+			return 'Earlier context'
 	}
 }

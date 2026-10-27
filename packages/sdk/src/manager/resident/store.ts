@@ -28,7 +28,11 @@ export const residentDecisionSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('blocked'), summary: text }),
 ])
 
-/** @experimental One bounded step's durable disposition; silence is not completion. */
+/**
+ * @experimental One bounded step's durable disposition; silence is not completion.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentDecision = z.infer<typeof residentDecisionSchema>
 
 export const residentStateSchema = z
@@ -69,7 +73,11 @@ export const residentStateSchema = z
 		}
 	})
 
-/** @experimental Persisted identity and one pursuit, independent of a conversation. */
+/**
+ * @experimental Persisted identity and one pursuit, independent of a conversation.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentState = Readonly<z.infer<typeof residentStateSchema>>
 
 /** Bounded addressing for local resident state. Stored scope is still validated. */
@@ -80,10 +88,18 @@ export function residentKeySegment(key: string): string {
 		: `~sha256-${createHash('sha256').update(encoded).digest('hex')}`
 }
 
-/** @experimental Minimal atomic contract needed to execute an existing pursuit. */
+/**
+ * @experimental Minimal atomic contract needed to execute an existing pursuit.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentExecutionStore = Pick<ResidentStore, 'read' | 'claim' | 'settle'>
 
-/** @experimental Backends must atomically compare revisions and publish admission before work. */
+/**
+ * @experimental Backends must atomically compare revisions and publish admission before work.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStore {
 	read(): Promise<ResidentState | null>
 	create(identity: string, objective: string): Promise<ResidentState>
@@ -92,7 +108,11 @@ export interface ResidentStore {
 	wake(expected: ResidentState, reason: string, now: number): Promise<ResidentState>
 }
 
-/** A competing owner advanced this resident's immutable revision. */
+/**
+ * A competing owner advanced this resident's immutable revision.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export class ResidentConflictError extends Error {
 	constructor() {
 		super('Resident state changed; read the current state before retrying.')
@@ -104,6 +124,8 @@ export class ResidentConflictError extends Error {
  * @experimental Local-filesystem state for one tenant/agent key and one pursuit.
  * A running claim never expires automatically: a crashed step may have effects.
  * Uses exclusive immutable revision publication, not a read/rename lock.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export class DiskResidentStore implements ResidentStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentState>(

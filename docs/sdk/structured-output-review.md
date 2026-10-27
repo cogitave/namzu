@@ -65,8 +65,8 @@ properties supply the marker. Legacy completions without it are not
 reclassified from their text.
 
 Before publishing an accepted tool-mode candidate, the loop checks for inbound
-messages and steering, including steering already attached to that tool's
-result. A new input gets another model turn with a fresh candidate and review.
+messages and steering, including steering that arrived with that tool's
+batch. A new input gets another model turn with a fresh candidate and review.
 The old candidate's review remains bound to its dispatch input. This also works
 without a host reviewer. Forced finalization and existing turn limits still apply;
 an interrupted turn does not publish a pending candidate as completed output.

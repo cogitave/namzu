@@ -18,7 +18,7 @@ import {
 	createResidentEvidenceRecallStep,
 	generateSessionId,
 	generateTurnId,
-	projectResidentLearning,
+	projectLearning,
 } from '@namzu/sdk'
 
 import {
@@ -39,12 +39,12 @@ import {
 } from '../../permissions/rules.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
 import { describeTurnInterruption } from '../../tui/turn-interruption.js'
+import { learningSources } from '../learning/sources.js'
 import type { DetectedProvider, Preferences } from '../providers/index.js'
 import type { CliSessions } from '../sessions/store.js'
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type AttachedSessionExport, attachSessionExport } from '../telemetry/session-export.js'
-import { residentLearningSources } from './learning-sources.js'
 import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
 import { residentToolEvidence } from './tool-evidence.js'
 import {
@@ -186,7 +186,7 @@ function residentSnapshotContext(
 	history?: ResidentHistoryScope,
 ): string {
 	const { state } = pursuit
-	const learning = projectResidentLearning(context.learning, {
+	const learning = projectLearning(context.learning, {
 		maxChars: 12_000,
 		skillNames: context.learning?.skills.map((skill) => skill.name) ?? [],
 	})
@@ -469,7 +469,7 @@ export function createResidentSessionStep(
 								residentContext: {
 									state: pursuit.state,
 									learning: context.learning,
-									resolveLearningSources: residentLearningSources(cwd, context.learning),
+									resolveLearningSources: learningSources(cwd, context.learning),
 									history: history?.scope,
 									toolEvidence: !!toolEvidence,
 									readOnly: mode.mode === 'plan',

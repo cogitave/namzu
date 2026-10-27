@@ -2,32 +2,32 @@
 type: Design
 title: Evaluating exploration policies
 description: Purpose-bound learned instructions for the procedure that acquires evidence, evaluated separately from task knowledge.
-resource: packages/sdk/src/manager/resident/learning.ts
+resource: packages/sdk/src/learning/skill.ts
 tags: [sdk, resident, learning, exploration]
 status: draft
 ---
 
 # Evaluating exploration policies
 
-A `ResidentSkillCandidate` may declare `purpose: 'exploration'`. Its body then
+A `LearningSkillCandidate` may declare `purpose: 'exploration'`. Its body then
 describes how an explorer chooses experiments. A host can measure whether those
 instructions improve later acquisition of useful evidence, using the existing
 [learning cycle](resident-learning-cycle.md) and independent evaluator. This is
 different from storing a rule learned about one particular environment.
 
-`runResidentLearningCycle` accepts the same optional `purpose`. The host declares
+`runLearningCycle` accepts the same optional `purpose`. The host declares
 it before generation; generation/exploration receive the admitted value. A candidate
 with a different effective purpose is refused before evaluation. An existing skill
 cannot be repurposed under its current name, including through direct promotion.
 Use a distinct name and new evaluation for another purpose.
 
 Omission and explicit `task` mean ordinary task guidance. Existing hashes stay
-unchanged. Exploration purpose is bound into `hashResidentSkill`, so copying its
+unchanged. Exploration purpose is bound into `hashLearningSkill`, so copying its
 proof while changing it into task guidance fails validation. Normalization,
 immutable agenda revisions, SQLite artifacts, acceptance and rollback retain
 the field through their existing paths.
 
-`projectResidentLearning(state, { maxChars, skillNames })` selects task guidance.
+`projectLearning(state, { maxChars, skillNames })` selects task guidance.
 An explicit `purpose: 'exploration'` selects exploration policies instead. A named
 skill for another purpose appears in `withheldSkills` with reason
 `different-purpose` and empty `sourceKeys`; it counts as omitted. Matching purpose

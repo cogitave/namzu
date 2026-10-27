@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/sdk",
-	"version": "54.0.0",
+	"version": "56.2.0",
 	"description": "Open-source AI kernel for TypeScript: runs an agent the way an operating system runs a process, with an identity and a budget, scheduled tool calls and checkpointed turns.",
 	"license": "FSL-1.1-MIT",
 	"engines": {

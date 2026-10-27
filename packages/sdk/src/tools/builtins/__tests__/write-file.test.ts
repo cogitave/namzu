@@ -52,7 +52,7 @@ describe('WriteFileTool — the published contract', () => {
 				content: {
 					type: 'string',
 					description:
-						'Complete file body. Use "" only for an intentionally empty file. Keep under 12000 characters.',
+						'Complete file body. Use "" only for an intentionally empty file. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 				},
 			},
 			required: ['path', 'content'],

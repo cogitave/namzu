@@ -20,7 +20,7 @@ import {
 	withoutBashStartup,
 } from '../command-shell.js'
 import { defineTool } from '../defineTool.js'
-import { scrubInheritedEnv } from '../env-scrub.js'
+import { scrubInheritedEnv, withheldEnvNoticeText } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
 import { looksBinary, windowText } from '../text-window.js'
 import { judgeExit } from './exit-semantics.js'
@@ -90,7 +90,7 @@ function startsWithSleep(command: string): boolean {
  */
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
-	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Await it with wait_for_job: {"id":"${jobId}"}, read its output with job action "read" (id "${jobId}"), or stop it with job action "kill". Its output so far is above.`
+	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above.`
 }
 
 const inputSchema = z.object({
@@ -104,7 +104,7 @@ const inputSchema = z.object({
 			isWindowsBash(hostCommandShell()) ? rewriteWindowsNullRedirect(command) : command,
 		)
 		.describe(
-			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be created with `write`, then extended with `edit` insertLine: "end", not piped into bash.',
+			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Large file content belongs in `write` (see its description), not in a heredoc.',
 		),
 	timeout: z
 		.preprocess(
@@ -122,7 +122,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Do NOT use `cmd &` as a substitute for a registered job: strict execution ownership can retire the allocation when the launcher exits with live descendants. An interactive application may belong to a dedicated computer only when that computer explicitly supports application lifetime; its launch result is not a registered job or proof the application has finished.',
+			'Start the command as a background job and return its id immediately. For a finite build, await completion with `wait_for_job`. For a persistent server, use `wait_for_job` with output_contains and optional output_stream to observe its literal readiness marker without waiting for exit; verify health separately. Use `job` action "read" for incremental output or after a wait times out. Background a command with this parameter, since `cmd &` is not a registered job: strict execution ownership can retire the allocation when the launcher exits with live descendants. An interactive application may belong to a dedicated computer only when that computer explicitly supports application lifetime; its launch result is not a registered job or proof the application has finished.',
 		),
 	dangerously_disable_sandbox: z
 		.boolean()
@@ -459,7 +459,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
 const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.'
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required, so every call carries one. Long file content goes through `write`, not a heredoc, so it cannot hit the output token limit mid-stream.'
 
 const BashToolBase = defineTool({
 	name: 'bash',
@@ -598,7 +598,7 @@ const BashToolBase = defineTool({
 				}
 				return {
 					success: true,
-					output: `Started background job ${job.id}. For finite work, await completion with wait_for_job: {"id":"${job.id}"}. For a persistent server, observe its literal readiness marker with wait_for_job: {"id":"${job.id}","output_contains":"<expected marker>","output_stream":"stdout"}; this leaves it running and does not prove health. Use job with action "read" for incremental output.`,
+					output: `Started background job ${job.id}; state: running.`,
 					data: { jobId: job.id, background: true },
 					facts: { kind: 'command', command: input.command, background: true },
 				}
@@ -802,10 +802,10 @@ const BashToolBase = defineTool({
 				failure.stdoutTruncated ? 'stdout' : '',
 				failure.stderrTruncated ? 'stderr' : '',
 			].filter(Boolean)
-			// Only on the failure path. A successful command did not need to know,
-			// and appending this to every result would make the common case noisy
-			// to buy nothing. A failing one is exactly where "authentication
-			// failed" has to be distinguishable from "the variable was withheld".
+			// Only the failure path reports removed variables (in `data`, for the
+			// kernel's notice). A successful command did not need to know; a failing
+			// one is where "authentication failed" has to be distinguishable from
+			// "the variable was withheld".
 			// A status the command uses to answer (no match, files differ) is a
 			// result, not a failure; the model sees it as an ordinary call.
 			const judged =
@@ -816,7 +816,6 @@ const BashToolBase = defineTool({
 				clipped.length > 0
 					? `[${clipped.join(' and ')} ${clipped.length === 1 ? 'was' : 'were'} truncated by the host output cap. The omitted output is unavailable in this result.]`
 					: '',
-				answered ? '' : describeWithheldEnv(inherited.dropped),
 			]
 				.filter(Boolean)
 				.join('\n\n')
@@ -827,6 +826,11 @@ const BashToolBase = defineTool({
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
 					...(judged?.note ? { exitNote: judged.note } : {}),
+					// How many variables were removed, for the kernel's own notice; the
+					// model's result stays what the command printed.
+					...(!answered && inherited.dropped.length > 0
+						? { withheldEnv: inherited.dropped.length }
+						: {}),
 					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
 					timedOut,
 					stdoutTruncated: failure.stdoutTruncated ?? false,
@@ -903,23 +907,13 @@ function formatShellOutput(stdout: string | undefined, stderr: string | undefine
 		.join('\n\n')
 }
 
-/** How many withheld names to print before summarising the rest. */
-const WITHHELD_ENV_PREVIEW = 10
-
 /**
- * Name the credential-shaped variables this command did not inherit.
- *
- * Names only, never values. A command that failed because it wanted
- * `FOO_TOKEN` otherwise reports an authentication error pointing nowhere; the
- * next move — have the host pass it explicitly through `context.env` — is only
- * available to a reader who knows it was withheld rather than unset.
+ * The notice text for the credential-shaped variables left out of a command's
+ * environment (see {@link withheldEnvNoticeText}). It is sent as a notice after
+ * the tool batch, never written into the command's result.
  */
-function describeWithheldEnv(dropped: readonly string[]): string {
-	if (dropped.length === 0) return ''
-	const shown = dropped.slice(0, WITHHELD_ENV_PREVIEW).join(', ')
-	const rest = dropped.length - WITHHELD_ENV_PREVIEW
-	const names = rest > 0 ? `${shown}, and ${rest} more` : shown
-	return `NOTE: ${dropped.length} credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: ${names}. A host that means this command to have one passes it explicitly.`
+export function describeWithheldEnv(dropped: readonly string[]): string {
+	return withheldEnvNoticeText(dropped.length)
 }
 
 /**

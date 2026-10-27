@@ -17,6 +17,7 @@ import {
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
+import { staleBeforeReview } from './stale-before-review.js'
 
 /**
  * Two schemas, on purpose.
@@ -53,13 +54,13 @@ const inputSchema = z
 			.string()
 			.optional()
 			.describe(
-				'The replacement string. Self-budget this payload under 12000 characters before calling.',
+				'The replacement string. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		newStr: z
 			.string()
 			.optional()
 			.describe(
-				'Alias for new_string. Also used as inserted content when insertLine is provided. Self-budget this payload under 12000 characters before calling.',
+				'Alias for new_string. Also used as inserted content when insertLine is provided. Keep this payload under 12000 characters, because a longer one can be cut off mid-call and fail.',
 			),
 		insertLine: z
 			.union([z.coerce.number().int().min(0), z.string().min(1)])
@@ -204,7 +205,7 @@ const modelInputSchema: Record<string, unknown> = {
 		new_string: {
 			type: 'string',
 			description:
-				'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+				'Exact replacement text. May be empty to delete old_string. Keep it under 12000 characters, because a longer one can be cut off mid-call and fail.',
 		},
 		insertLine: {
 			// The union the execution schema already accepts, stated so a
@@ -351,11 +352,13 @@ type EditAdmission =
  * 1. A file the session never read is refused. The model is about to rewrite
  *    text it has not seen, which is the commonest source of a wrong patch. A
  *    host that supplies no tracker has no ledger to ask and is not refused.
- * 2. A file that moved since the read is refused UNLESS every operation is a
- *    text replacement that still applies to the current body — uniquely,
- *    unless `replace_all` was asked for. A formatter run between the read and
- *    the edit then costs nothing. An insertion by line number is never
- *    recovered: the line it named may now be a different line.
+ * 2. A file that moved since the read is refused, whatever the operations are.
+ *    There is no recovery: a replacement that "still applies" to the moved body
+ *    can apply somewhere the model never meant (the read said `a = 1`, the file
+ *    now says `a = 100`, and the replacement of `a = 1` by `a = 2` lands inside
+ *    the new number and writes `a = 200`). Only the body the model read can
+ *    show where its text belongs, and the ledger keeps a fingerprint of it, not
+ *    the body. The refusal tells the model to read the file again.
  */
 function admitAgainstRead(
 	context: ToolContext,
@@ -373,19 +376,16 @@ function admitAgainstRead(
 		}
 	}
 	const seen = tracker?.fingerprint?.(key)
-	const applied = applyEdit(content, operations)
 	if (seen !== undefined && seen !== fingerprintContent(content)) {
-		const recoverable = applied.success && operations.every((o) => o.operation === 'replace')
-		if (!recoverable) {
-			recordDrift(context, key)
-			return {
-				success: false,
-				output: '',
-				error: staleFileError(key),
-				facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
-			}
+		recordDrift(context, key)
+		return {
+			success: false,
+			output: '',
+			error: staleFileError(key),
+			facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
 		}
 	}
+	const applied = applyEdit(content, operations)
 	return { success: true, result: applied }
 }
 
@@ -428,7 +428,7 @@ function refusedEdit(result: EditApplyFailure, path: string) {
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to ONE file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -444,6 +444,9 @@ export const EditTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// A file that moved since the read is refused whatever the replacement is,
+	// so the person is not asked to approve one that cannot run.
+	refuseBeforeReview: (input: EditInput, context) => staleBeforeReview(context, input.path, 'edit'),
 	// The classifier judges which file changes and in what way, in a line.
 	classifierInput: (input: EditInput) => {
 		if (input.edits !== undefined) {

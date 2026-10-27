@@ -149,6 +149,16 @@ async function send(
 			)
 			.map((message) => message.content)
 			.join('\n'),
+		// What a step recorded in the conversation (recalled project memory).
+		recorded: request.messages
+			.filter(
+				(message) =>
+					message.role === 'user' &&
+					message.source?.type === 'runtime-context' &&
+					message.source.kind === 'turn-context',
+			)
+			.map((message) => message.content)
+			.join('\n'),
 		request,
 	}
 }
@@ -212,11 +222,11 @@ it.each([undefined, false])('recalls a persisted body-only fact with recall=%s',
 	const result = await send(session, 'What is the expiry for cerulean-cache?')
 	if (recall === false) {
 		expect(result.system).not.toContain('14 hours')
-		expect(result.context).not.toContain('Retrieved project memory')
+		expect(result.recorded).not.toContain('Retrieved project memory')
 	} else {
-		expect(result.context).toContain('14 hours')
-		expect(result.context).toContain('historical claims')
-		expect(result.context).toContain('Retrieved project memory')
+		expect(result.recorded).toContain('14 hours')
+		expect(result.recorded).toContain('historical claims')
+		expect(result.recorded).toContain('Retrieved project memory')
 		expect(result.system).not.toContain('Retrieved project memory')
 	}
 })
@@ -237,12 +247,12 @@ it('keeps automatic recall inside its owning project under the same application 
 	expect(other.state.projectId).not.toBe(owner.state.projectId)
 	const query = 'What is the expiry for cerulean-cache?'
 	const ownerResponse = await send(owner.session, query)
-	expect(ownerResponse.context).toContain('14 hours')
-	expect(ownerResponse.context).toContain('Retrieved project memory')
+	expect(ownerResponse.recorded).toContain('14 hours')
+	expect(ownerResponse.recorded).toContain('Retrieved project memory')
 	expect(ownerResponse.context).toContain('## Stored memories (index)')
 	const unrelated = await send(other.session, query)
-	expect(unrelated.context).not.toContain('14 hours')
-	expect(unrelated.context).not.toContain('Retrieved project memory')
+	expect(unrelated.recorded).not.toContain('14 hours')
+	expect(unrelated.recorded).not.toContain('Retrieved project memory')
 })
 
 it('carries stored memory under its own heading, and copies project notes only when asked, never changing the file', async () => {
@@ -656,12 +666,6 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 		residentEvidenceRecall: () => ({ model: 'narrow' }),
 	})
 	const store = new MarkdownMemoryStore({ directory: state.paths.memoryDir() })
-	await store.create({
-		title: 'cedargraph model selection',
-		summary: 'cedargraph recall fixture',
-		content: 'NARROW_MODEL_RECALLED_CLAIM belongs to cedargraph.',
-		description: 'cedargraph recall fixture',
-	})
 	for (let index = 0; index < 20; index++) {
 		await store.create({
 			title: `Switch item ${index}`,
@@ -670,6 +674,14 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 			description: `SWITCH_INDEX_${index}_${'x'.repeat(80)}`,
 		})
 	}
+	// Created last so the index lists it first: the fixture is about the window the
+	// selected model leaves, and must not depend on how many older rows fit in it.
+	await store.create({
+		title: 'cedargraph model selection',
+		summary: 'cedargraph recall fixture',
+		content: 'NARROW_MODEL_RECALLED_CLAIM belongs to cedargraph.',
+		description: 'cedargraph recall fixture',
+	})
 	const result = await send(
 		session,
 		`Inspect the selected window. ${'history '.repeat(historyWords)} cedargraph`,
@@ -677,7 +689,7 @@ it('re-bounds memory against a smaller model selected by a later preparation sta
 	expect(result.request.model).toBe('narrow')
 	expect(result.context).toContain('## About the user')
 	expect(result.context).toContain('## Stored memories (index)')
-	expect(result.context).toContain('NARROW_MODEL_RECALLED_CLAIM')
+	expect(`${result.context}\n${result.recorded}`).toContain('NARROW_MODEL_RECALLED_CLAIM')
 	expect(result.context).toContain('Further memory text omitted')
 	expect(result.system).not.toContain('PROFILE_FOR_MODEL_SWITCH')
 })

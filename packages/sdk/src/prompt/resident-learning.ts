@@ -1,17 +1,25 @@
 import { z } from 'zod'
-import { freezeResidentLearning, projectResidentLearning } from '../manager/resident/learning.js'
+import { freezeLearning, projectLearning } from '../learning/skill.js'
 import { defineTool } from '../tools/defineTool.js'
 import type { ToolContext, ToolDefinition } from '../types/tool/index.js'
 import type { PromptContribution } from './contributions.js'
 import { type ResidentStepPromptOptions, createResidentStepContributions } from './resident-step.js'
 
-/** @experimental One admission's context and read-only access to its evaluated guidance. */
+/**
+ * @experimental One admission's context and read-only access to its evaluated guidance.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepContextBundle {
 	readonly contributions: readonly PromptContribution[]
 	readonly tools: readonly ToolDefinition[]
 }
 
-/** @experimental The host must reject reads from runs outside the admitted scope. */
+/**
+ * @experimental The host must reject reads from runs outside the admitted scope.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
 	readonly authorizeLearningRead: (context: ToolContext) => boolean
 }
@@ -20,11 +28,13 @@ export interface ResidentStepContextOptions extends ResidentStepPromptOptions {
  * @experimental List guidance descriptions first; disclose complete bodies only
  * when requested. Selection is local to this admission, never persisted as a
  * preference or inferred from keywords. Mount both returned tools and context.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentStepContext(
 	options: ResidentStepContextOptions,
 ): ResidentStepContextBundle {
-	const learning = options.learning ? freezeResidentLearning(options.learning) : undefined
+	const learning = options.learning ? freezeLearning(options.learning) : undefined
 	const contributions = createResidentStepContributions({
 		...options,
 		learning: learning ? { ...learning, skills: [] } : undefined,
@@ -35,8 +45,7 @@ export function createResidentStepContext(
 	const authorize = options.authorizeLearningRead
 	const resolveSources = options.resolveLearningSources
 	const selected = new Set<string>()
-	const profileChars = projectResidentLearning(learning, { maxChars: 12_000, skillNames: [] }).text
-		.length
+	const profileChars = projectLearning(learning, { maxChars: 12_000, skillNames: [] }).text.length
 	const project = (names: readonly string[], maxChars = 12_000) => {
 		let sources: ReturnType<NonNullable<typeof resolveSources>> = []
 		try {
@@ -44,7 +53,7 @@ export function createResidentStepContext(
 		} catch {
 			// Unavailable observations cannot establish a dependency match.
 		}
-		return projectResidentLearning(
+		return projectLearning(
 			{ ...learning, identity: undefined, preferences: [] },
 			{ maxChars, skillNames: names, sources },
 		)

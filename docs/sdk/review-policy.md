@@ -28,6 +28,8 @@ const policy = createReviewPolicy({ mode: 'accept-edits', prompt, registry })
 
 `policy` is an `ApprovalPolicy` whose `name` is the mode, so a durable log can say which one approved a call. Swap it on a turn's `SessionApprovalPolicy` to change mode without ending the turn. `createReviewHandler` returns only the `ResumeHandler`.
 
+When the policy changes, the model hears it once: the next request carries "Approval policy changed from X to Y" as request-only context after the history (never a system message ahead of it, which would change the prefix every cached request shares). `QueryParams.announceApprovalPolicyChange: false` turns that notice off for a host that already tells the model itself, for example through `reminders`; the `approval_policy_changed` event is recorded either way.
+
 The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can use this exact identifier to attribute concurrent child reviews; tool names or arguments are not ownership evidence. The field is optional for custom prompt callers, but `createReviewHandler` always supplies it.
 
 # The modes
@@ -36,7 +38,7 @@ The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can us
 | --- | --- |
 | `prompt` | Ask the person. The default when a `prompt` is supplied. |
 | `auto` | Approve. The default without one. |
-| `accept-edits` | Approve a batch of non-destructive `edit` and `write` calls, and shell lines that only run `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` or `sed` on paths inside the roots (see below); ask when anything else rides along, because the batch is reviewed as a unit. |
+| `accept-edits` | Approve a batch of `edit` and `write` calls (a `write` is always flagged destructive because its input cannot say whether the file exists, so for `write` the flag alone does not stop the mode; a path outside the roots, a protected file and a rule's ask still do), and shell lines that only run `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` or `sed` on paths inside the roots (see below); ask when anything else rides along, because the batch is reviewed as a unit. |
 | `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. A batch of reads that is here only for a path outside the roots is asked about instead, as in `prompt`. The kernel's `permissionMode: 'plan'` is the floor under this. |
 | `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
 | `bypass` | Run everything except the short list in [Bypass and classify](#bypass-and-classify). |

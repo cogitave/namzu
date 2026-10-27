@@ -23,6 +23,7 @@ import {
 } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { PLAN_MODE_REFUSAL } from '../permissions/mode.js'
+import { planApprovalRows } from '../plan/approval.js'
 
 import {
 	type PermissionDecision,
@@ -1029,7 +1030,38 @@ describe('makeResumeHandler under accept-edits', () => {
 	it('still asks about an edit a tool declared destructive', async () => {
 		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
 		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
-		await handler(toolReview([tc({ name: 'write', isDestructive: true })]))
+		await handler(toolReview([tc({ name: 'edit', isDestructive: true })]))
+		expect(onPermission).toHaveBeenCalledOnce()
+	})
+
+	it('lets the mode a plan approval leaves for cover a write over an existing file', async () => {
+		// `write` declares every call destructive, because its input cannot say
+		// whether the file exists. The row "Yes, and auto-approve edits" must not
+		// leave a replaced file as the one write that still asks.
+		const row = planApprovalRows(false).find((r) => r.id === 'approve-accept-edits')
+		expect(row?.mode).toBe('accept-edits')
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, row?.mode)
+		const decision = await handler(
+			toolReview([tc({ name: 'write', isDestructive: true, input: { path: 'README.md' } })]),
+		)
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission).not.toHaveBeenCalled()
+	})
+
+	it('still asks about a write that leaves the folders', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
+		await handler(
+			toolReview([
+				tc({
+					name: 'write',
+					isDestructive: true,
+					input: { path: '/etc/hosts' },
+					escalation: { outsidePaths: ['/etc/hosts'] } as never,
+				}),
+			]),
+		)
 		expect(onPermission).toHaveBeenCalledOnce()
 	})
 

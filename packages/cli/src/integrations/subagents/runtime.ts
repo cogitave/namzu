@@ -91,11 +91,12 @@ import {
 	requireOpenProject,
 	toToolSourceRef,
 	toolset,
+	wrapUntrusted,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import { resolveTurnGuards } from '../../config/turn-guards.js'
-import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
+import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
@@ -147,7 +148,7 @@ export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
  */
 export const EXPLORE_SUBAGENT = EXPLORE_AGENT_ID
 
-const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('\n')
+export const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_CHILD_WORKING_DOCTRINE].join('\n')
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
@@ -175,21 +176,24 @@ function fileAgentTools(
 	}
 }
 
-const SUBAGENT_PROMPT = [
-	'You are a focused sub-agent dispatched by namzu to complete one self-contained task and report back.',
+export const SUBAGENT_PROMPT = [
+	'You are a focused sub-agent dispatched by namzu, an AI kernel, to complete one self-contained task and report back to the session that started you.',
 	'You cannot see the parent conversation — work only from the prompt you were given.',
-	'Use your tools to actually do the work, then end with a concise summary of what you did and any results the parent needs.',
-	'Be thorough but do not ask the parent questions; make reasonable assumptions and state them.',
+	'Use your tools to actually do the work, and finish the whole task. Then end with a report to your parent: what you did, the results and key findings it needs, and every assumption you made. Give the essentials and leave out filler, because your parent relays the report onward.',
 	'',
-	'Never fabricate. Only report results you actually produced via tool calls:',
-	'- If you create a file, create it with the `write` tool; if you change an existing one, use `edit`. Report the real path either way; never claim a file exists without a tool having written it.',
-	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat — do not invent sources, data, or URLs.',
-	'- Do not invent command output or results. If you cannot complete the task, say what blocked you.',
+	'Report only results you produced through tool calls, because your parent acts on them:',
+	'- Create a file with the `write` tool and change an existing one with `edit`. Report the real path, and say a file exists only after a tool has written it.',
+	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat; take sources, data and URLs from tool results only.',
+	'- Take command output and results from tool results only. If you cannot complete the task, say what blocked you.',
 	'',
 	// The same working rules the parent sessions under. A delegated task edits the
 	// same repository, and a child that reads a file before editing it while
 	// the parent does not is the same defect in the other direction.
-	NAMZU_WORKING_DOCTRINE,
+	NAMZU_CHILD_WORKING_DOCTRINE,
+	'',
+	// Last: this agent has no one to ask, and the parent reads its summary, which
+	// is where a blocker goes. The working rules above already say it per rule.
+	'You have no one to ask, and your parent cannot answer while you work. Finish whatever is safe, leave a risky step undone, and name the blocker or the assumption in your final summary, so your parent can decide.',
 ].join('\n')
 
 export interface SubagentParent {
@@ -1576,8 +1580,8 @@ export async function createSubagentRuntime(
 		name: 'Agent',
 		description: [
 			opts.backgroundByDefault === true
-				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so do not sleep, poll or check on its progress; continue with other work or answer the user instead. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.'
-				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
+				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so continue with other work or answer the user instead of sleeping, polling or checking on its progress. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.'
+				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.',
 			opts.backgroundByDefault === true
 				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
 				: 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
@@ -1588,7 +1592,7 @@ export async function createSubagentRuntime(
 			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
 			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
-			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution; do not relaunch them.",
+			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution and start by themselves, so launch each once.",
 			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit. For work with several phases or many agents, use the `workflow` tool instead when it is in your tool list, and keep these labels for a small fan-out.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
 			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
@@ -1604,7 +1608,8 @@ export async function createSubagentRuntime(
 				},
 				prompt: {
 					type: 'string',
-					description: 'Self-contained task with all the context the sub-agent needs.',
+					description:
+						'The whole brief, because the sub-agent starts with none of your context: the objective; what is out of bounds; which tools and sources to use; and the shape of the reply you want, such as a short summary with a file path for anything long.',
 				},
 				run_in_background: {
 					type: 'boolean',
@@ -1702,7 +1707,7 @@ export async function createSubagentRuntime(
 					outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 				return {
 					success: true,
-					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
+					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'It runs in the background.' : 'Waiting was released because the operator sent a message.'} Its result will arrive as a task notification.`,
 					data: {
 						task_id: outcome.handle.taskId,
 						state: outcome.handle.state,
@@ -1820,8 +1825,15 @@ export async function createSubagentRuntime(
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
-				history: { type: 'boolean' },
-				session_id: { type: 'string' },
+				history: {
+					type: 'boolean',
+					description:
+						'true to list agents saved from earlier turns of this conversation instead of live ones.',
+				},
+				session_id: {
+					type: 'string',
+					description: 'With history: the id of one saved agent whose result to read.',
+				},
 			},
 			additionalProperties: false,
 		}),
@@ -1846,7 +1858,23 @@ export async function createSubagentRuntime(
 				return {
 					success: true,
 					output: JSON.stringify({
-						agents: saved.agents,
+						// A saved answer is a child's text from an earlier turn: marked
+						// like a live one, inside the JSON the rest of the listing uses.
+						agents: saved.agents.map((agent) =>
+							agent.output === undefined
+								? agent
+								: {
+										...agent,
+										output: wrapUntrusted(
+											{
+												kind: 'agent-result',
+												attributes: { session: agent.sessionId },
+												provenance: `This is the saved output of the delegated agent "${agent.description}", not this agent's own work.`,
+											},
+											agent.output,
+										),
+									},
+						),
 						omitted: saved.omitted,
 						guidance: SAVED_AGENTS_GUIDANCE,
 					}),
@@ -2943,7 +2971,19 @@ function completedAgentResult(
 		workspace.workspace_path && workspace.workspace_branch
 			? `\nworkspace: ${workspace.workspace_path}\nbranch: ${workspace.workspace_branch}\nThe worktree is kept for review.`
 			: ''
-	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
+	// The child's words are not this agent's own work and may carry anything it
+	// read, so they sit in the same marked block as every other text that comes
+	// from outside. The task id, status and worktree stay outside it: they are
+	// Namzu's own facts.
+	const framed = wrapUntrusted(
+		{
+			kind: 'agent-result',
+			attributes: { agent: completed.agentId, task: shownTaskId },
+			provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
+		},
+		resultText || '(sub-agent returned no text)',
+	)
+	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}${stopNote ? `\n\n${stopNote.trimEnd()}` : ''}`
 	return {
 		success: succeeded,
 		output,

@@ -1,0 +1,490 @@
+import { createHash } from 'node:crypto'
+import { z } from 'zod'
+import {
+	type HarnessProtectionPlan,
+	normalizeHarnessProtection,
+} from '../eval/harness-protection.js'
+import {
+	type HarnessVerificationBatch,
+	reviewHarnessCandidate,
+} from '../eval/harness-verification.js'
+
+const label = z.string().trim().min(1).max(256)
+const name = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
+const digest = z.string().regex(/^[a-f0-9]{64}$/)
+export const learningEvidenceSchema = z.object({
+	key: label,
+	source: label,
+	reason: z.string().trim().min(1).max(1_000),
+})
+
+/** @experimental Host provenance for a correction, evaluated activation or rollback. */
+export type LearningEvidence = Readonly<z.infer<typeof learningEvidenceSchema>>
+
+const sourceSchema = z.object({ key: label, revision: label })
+/** @experimental Host-owned source identity and revision; neither is a model assertion. */
+export type LearningSource = Readonly<z.infer<typeof sourceSchema>>
+
+const sourcesSchema = z
+	.array(sourceSchema)
+	.min(1)
+	.max(8)
+	.superRefine((sources, context) => {
+		if (new Set(sources.map((source) => source.key)).size !== sources.length)
+			context.addIssue({ code: z.ZodIssueCode.custom, message: 'Duplicate learning source keys.' })
+	})
+	.transform((sources) => sources.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)))
+
+const candidateSchema = z.object({
+	name,
+	/** Omitted means ordinary task guidance; exploration policies require explicit projection. */
+	purpose: z.enum(['task', 'exploration']).optional(),
+	description: z.string().trim().min(1).max(1_000),
+	body: z.string().trim().min(1).max(4_000),
+	/** Optional dependencies whose revisions must still match before projection. */
+	sources: sourcesSchema.optional(),
+})
+
+/** @experimental Instructional guidance only; never executable assets or tool permissions. */
+export type LearningSkillCandidate = Readonly<Omit<z.infer<typeof candidateSchema>, 'sources'>> & {
+	readonly sources?: readonly LearningSource[]
+}
+
+/** Internal canonical snapshot, including immutable source bindings. */
+export function normalizeLearningSkill(input: LearningSkillCandidate): LearningSkillCandidate {
+	const candidate = candidateSchema.parse(input)
+	return Object.freeze({
+		...candidate,
+		...(candidate.sources
+			? { sources: Object.freeze(candidate.sources.map((source) => Object.freeze(source))) }
+			: {}),
+	})
+}
+
+const learnedSkillSchema = candidateSchema.extend({
+	hash: digest,
+	evidence: learningEvidenceSchema,
+	verification: z.object({
+		baselineHash: z.union([digest, z.literal('none')]),
+		candidateHash: digest,
+		evidenceDigest: digest,
+		verificationTasks: z.number().int().min(5).max(64),
+		confirmationTasks: z.number().int().min(5).max(64),
+		/** Absent only on historical activations made before protection was required. */
+		protection: z
+			.object({
+				verificationTasks: z.number().int().min(1).max(63),
+				confirmationTasks: z.number().int().min(1).max(63),
+				planDigest: digest,
+			})
+			.optional(),
+	}),
+})
+
+/** @experimental Immutable evaluated content and evidence identity. */
+export type LearnedSkill = Readonly<Omit<z.infer<typeof learnedSkillSchema>, 'sources'>> & {
+	readonly sources?: readonly LearningSource[]
+}
+
+export const learningSchema = z
+	.object({
+		revision: z.number().int().positive().safe(),
+		identity: z
+			.object({
+				text: z.string().trim().min(1).max(4_000),
+				evidence: learningEvidenceSchema,
+			})
+			.optional(),
+		preferences: z
+			.array(
+				z.object({
+					key: name,
+					value: z.string().trim().min(1).max(1_000),
+					evidence: learningEvidenceSchema,
+				}),
+			)
+			.max(32),
+		skills: z.array(learnedSkillSchema).max(16),
+		lastChange: learningEvidenceSchema,
+	})
+	.superRefine((state, context) => {
+		if (
+			new Set(state.preferences.map((p) => p.key)).size !== state.preferences.length ||
+			new Set(state.skills.map((s) => s.name)).size !== state.skills.length ||
+			state.skills.some(
+				(skill) =>
+					skill.hash !== hashLearningSkill(skill) ||
+					skill.verification.candidateHash !== skill.hash,
+			)
+		)
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: 'Invalid resident learning identity or content digest.',
+			})
+	})
+
+/** @experimental Versioned behavioral overlay; the original resident mandate remains unchanged. */
+export interface LearningState {
+	readonly revision: number
+	readonly identity?: { readonly text: string; readonly evidence: LearningEvidence }
+	readonly preferences: readonly {
+		readonly key: string
+		readonly value: string
+		readonly evidence: LearningEvidence
+	}[]
+	readonly skills: readonly LearnedSkill[]
+	readonly lastChange: LearningEvidence
+}
+
+/** @experimental Corrections name the current preference evidence they supersede. */
+export interface LearningProfileUpdate {
+	readonly identity?: string
+	readonly preferences?: readonly {
+		readonly key: string
+		readonly value: string
+		readonly supersedes: string | null
+	}[]
+	readonly evidence: LearningEvidence
+}
+
+/** @experimental Recorded paired runs; hosts own execution, scoring and independent attribution. */
+export interface LearningSkillEvaluation {
+	/** Host-owned task selection fixed before generating the candidate. */
+	readonly protection: HarnessProtectionPlan
+	readonly verification: HarnessVerificationBatch
+	readonly confirmation?: HarnessVerificationBatch
+}
+
+/** Internal immutable snapshot used by storage and admitted context. */
+export function freezeLearning(input: LearningState): LearningState {
+	const state = learningSchema.parse(input)
+	return Object.freeze({
+		...state,
+		...(state.identity
+			? {
+					identity: Object.freeze({
+						...state.identity,
+						evidence: Object.freeze(state.identity.evidence),
+					}),
+				}
+			: {}),
+		preferences: Object.freeze(
+			state.preferences.map((p) => Object.freeze({ ...p, evidence: Object.freeze(p.evidence) })),
+		),
+		skills: Object.freeze(
+			state.skills.map((skill) =>
+				Object.freeze({
+					...skill,
+					...(skill.sources
+						? { sources: Object.freeze(skill.sources.map((source) => Object.freeze(source))) }
+						: {}),
+					evidence: Object.freeze(skill.evidence),
+					verification: Object.freeze({
+						...skill.verification,
+						...(skill.verification.protection
+							? { protection: Object.freeze(skill.verification.protection) }
+							: {}),
+					}),
+				}),
+			),
+		),
+		lastChange: Object.freeze(state.lastChange),
+	})
+}
+
+function evidenceFor(
+	current: LearningState | undefined,
+	input: LearningEvidence,
+): LearningEvidence {
+	const evidence = learningEvidenceSchema.parse(input)
+	const used = [
+		current?.lastChange,
+		current?.identity?.evidence,
+		...(current?.preferences.map((p) => p.evidence) ?? []),
+		...(current?.skills.map((s) => s.evidence) ?? []),
+	]
+	if (used.some((old) => old?.key === evidence.key))
+		throw new Error('A learning change requires a fresh evidence key.')
+	return evidence
+}
+
+function base(current: LearningState | undefined, evidence: LearningEvidence): LearningState {
+	const checked = current ? freezeLearning(current) : undefined
+	return {
+		...checked,
+		revision: (checked?.revision ?? 0) + 1,
+		preferences: checked?.preferences ?? [],
+		skills: checked?.skills ?? [],
+		lastChange: evidence,
+	}
+}
+
+/** Internal pure profile transition; storage owns exact agenda CAS and idle admission. */
+export function reviseLearningProfile(
+	current: LearningState | undefined,
+	input: LearningProfileUpdate,
+): LearningState {
+	const checked = z
+		.object({
+			identity: z.string().trim().min(1).max(4_000).optional(),
+			preferences: z
+				.array(
+					z.object({
+						key: name,
+						value: z.string().trim().min(1).max(1_000),
+						supersedes: label.nullable(),
+					}),
+				)
+				.max(32)
+				.optional(),
+			evidence: learningEvidenceSchema,
+		})
+		.parse(input)
+	if (checked.identity === undefined && !checked.preferences?.length)
+		throw new Error('A profile change must change identity or preferences.')
+	if (
+		new Set(checked.preferences?.map((p) => p.key)).size !== checked.preferences?.length &&
+		checked.preferences !== undefined
+	)
+		throw new Error('Duplicate preference corrections are not allowed.')
+	const evidence = evidenceFor(current, checked.evidence)
+	const next = base(current, evidence)
+	const preferences = [...next.preferences]
+	for (const change of checked.preferences ?? []) {
+		const index = preferences.findIndex((p) => p.key === change.key)
+		const previous = index >= 0 ? preferences[index] : undefined
+		if (change.supersedes !== (previous?.evidence.key ?? null))
+			throw new Error('Preference correction does not supersede its current evidence.')
+		const updated = { key: change.key, value: change.value, evidence }
+		if (index < 0) preferences.push(updated)
+		else preferences[index] = updated
+	}
+	return freezeLearning({
+		...next,
+		preferences,
+		...(checked.identity !== undefined ? { identity: { text: checked.identity, evidence } } : {}),
+	})
+}
+
+/** @experimental Bind evaluation to normalized content and any declared source dependencies. */
+export function hashLearningSkill(input: LearningSkillCandidate): string {
+	const candidate = candidateSchema.parse(input)
+	return createHash('sha256')
+		.update(
+			JSON.stringify([
+				candidate.name,
+				candidate.description,
+				candidate.body,
+				...(candidate.sources ? [candidate.sources] : []),
+				...(candidate.purpose === 'exploration' ? [{ purpose: candidate.purpose }] : []),
+			]),
+		)
+		.digest('hex')
+}
+
+/** Internal pure activation; reuse the kernel's conservative two-round verification gate. */
+export function promoteLearningSkill(
+	current: LearningState | undefined,
+	input: LearningSkillCandidate,
+	evaluation: LearningSkillEvaluation,
+	inputEvidence: LearningEvidence,
+): LearningState {
+	const protection = normalizeHarnessProtection(evaluation.protection)
+	const candidate = candidateSchema.parse(input)
+	const hash = hashLearningSkill(candidate)
+	const baseline = current?.skills.find((s) => s.name === candidate.name)
+	if (baseline && (baseline.purpose ?? 'task') !== (candidate.purpose ?? 'task'))
+		throw new Error('A skill cannot change learning purpose; use a distinct skill name.')
+	const baselineHash = baseline?.hash ?? 'none'
+	const evidence = evidenceFor(current, inputEvidence)
+	for (const batch of [evaluation.verification, evaluation.confirmation]) {
+		if (!batch) continue
+		if (batch.baselineRevision !== baselineHash || batch.candidateRevision !== hash)
+			throw new Error('Skill evaluation does not match the active baseline and candidate digests.')
+		if (
+			batch.baseline.length > 128 ||
+			batch.candidate.length > 128 ||
+			batch.attributions.length > 128
+		)
+			throw new Error('Resident skill evaluation is bounded to 64 tasks per round.')
+		// Recorded evidence must consistently identify success and complete measurements.
+		for (const trial of [...batch.baseline, ...batch.candidate]) {
+			if (
+				trial.result.passed !== (trial.result.status === 'passed') ||
+				(trial.result.status === 'passed' && trial.result.failedGates?.length)
+			)
+				throw new Error('Inconsistent recorded skill evaluation outcome.')
+		}
+	}
+	const review = reviewHarnessCandidate(
+		evaluation.verification,
+		evaluation.confirmation,
+		protection,
+	)
+	if (review.decision !== 'accept')
+		throw new Error(`Resident skill promotion ${review.decision}: ${review.reason}`)
+	const skill: LearnedSkill = {
+		...candidate,
+		hash,
+		evidence,
+		verification: {
+			baselineHash,
+			candidateHash: hash,
+			evidenceDigest: createHash('sha256')
+				.update(JSON.stringify({ ...evaluation, protection }))
+				.digest('hex'),
+			verificationTasks: review.verification.tasks.length,
+			confirmationTasks: review.confirmation?.tasks.length ?? 0,
+			protection: {
+				verificationTasks: protection.verification.length,
+				confirmationTasks: protection.confirmation.length,
+				planDigest: createHash('sha256').update(JSON.stringify(protection)).digest('hex'),
+			},
+		},
+	}
+	const next = base(current, evidence)
+	return freezeLearning({
+		...next,
+		skills: [...next.skills.filter((s) => s.name !== candidate.name), skill],
+	})
+}
+
+/** Internal rollback appends a new learning version while preserving current profile values. */
+export function restoreLearningSkill(
+	current: LearningState | undefined,
+	historical: LearningState | undefined,
+	skillName: string,
+	inputEvidence: LearningEvidence,
+): LearningState {
+	name.parse(skillName)
+	if (!current?.skills.some((s) => s.name === skillName))
+		throw new Error('No active resident skill to roll back.')
+	const next = base(current, evidenceFor(current, inputEvidence))
+	const previous = historical
+		? freezeLearning(historical).skills.find((s) => s.name === skillName)
+		: undefined
+	return freezeLearning({
+		...next,
+		skills: [...next.skills.filter((s) => s.name !== skillName), ...(previous ? [previous] : [])],
+	})
+}
+
+/** @experimental Exact skill selection and a character cap, independent of provider token budgets. */
+export interface LearningProjectionOptions {
+	readonly maxChars: number
+	readonly skillNames: readonly string[]
+	/** Defaults to task guidance. Exploration policies never enter ordinary task context. */
+	readonly purpose?: 'task' | 'exploration'
+	/** Fresh host observations for this projection; absent/mismatched dependencies withhold guidance. */
+	readonly sources?: readonly LearningSource[]
+}
+
+/** @experimental Omitted entries are counted; no partial skill instruction is emitted. */
+export interface LearningProjection {
+	readonly text: string
+	readonly revision: number | null
+	readonly includedSkills: readonly string[]
+	readonly omitted: number
+	readonly withheldSkills: readonly {
+		readonly name: string
+		readonly reason: 'changed-source' | 'unverified-source' | 'different-purpose'
+		readonly sourceKeys: readonly string[]
+	}[]
+}
+
+/** @experimental Bounded context data; never registers tools, loads files or executes a skill. */
+export function projectLearning(
+	current: LearningState | undefined,
+	options: LearningProjectionOptions,
+): LearningProjection {
+	if (!Number.isSafeInteger(options.maxChars) || options.maxChars < 0 || options.maxChars > 64_000)
+		throw new TypeError('Resident learning context requires maxChars between 0 and 64000.')
+	const selected = z.array(name).max(16).parse(options.skillNames)
+	const purpose = z.enum(['task', 'exploration']).parse(options.purpose ?? 'task')
+	if (new Set(selected).size !== selected.length) throw new Error('Duplicate selected skill names.')
+	const sources = z
+		.array(sourceSchema)
+		.max(128)
+		.parse(options.sources ?? [])
+	if (new Set(sources.map((source) => source.key)).size !== sources.length)
+		throw new Error('Duplicate observed learning source keys.')
+	const observed = new Map(sources.map((source) => [source.key, source.revision]))
+	if (!current)
+		return Object.freeze({
+			text: '',
+			revision: null,
+			includedSkills: Object.freeze([]),
+			omitted: selected.length,
+			withheldSkills: Object.freeze([]),
+		})
+	const state = freezeLearning(current)
+	const pieces: string[] = []
+	const includedSkills: string[] = []
+	const withheldSkills: LearningProjection['withheldSkills'][number][] = []
+	let omitted = 0
+	let length = 0
+	const add = (value: unknown): boolean => {
+		const part = JSON.stringify(value)
+		const size = part.length + (pieces.length ? 1 : 0)
+		if (length + size > options.maxChars) {
+			omitted++
+			return false
+		}
+		pieces.push(part)
+		length += size
+		return true
+	}
+	if (state.identity) add({ kind: 'self-description', ...state.identity })
+	for (const preference of state.preferences) add({ kind: 'preference', ...preference })
+	for (const skillName of selected) {
+		const skill = state.skills.find((s) => s.name === skillName)
+		if (!skill) {
+			omitted++
+			continue
+		}
+		if ((skill.purpose ?? 'task') !== purpose) {
+			omitted++
+			withheldSkills.push(
+				Object.freeze({
+					name: skill.name,
+					reason: 'different-purpose',
+					sourceKeys: Object.freeze([]),
+				}),
+			)
+			continue
+		}
+		const mismatched =
+			skill.sources?.filter((source) => observed.get(source.key) !== source.revision) ?? []
+		if (mismatched.length) {
+			omitted++
+			withheldSkills.push(
+				Object.freeze({
+					name: skill.name,
+					reason: mismatched.some((source) => observed.has(source.key))
+						? 'changed-source'
+						: 'unverified-source',
+					sourceKeys: Object.freeze(mismatched.map((source) => source.key)),
+				}),
+			)
+			continue
+		}
+		if (
+			add({
+				kind: 'evaluated-guidance',
+				name: skill.name,
+				description: skill.description,
+				body: skill.body,
+				hash: skill.hash,
+				evidence: skill.evidence,
+			})
+		)
+			includedSkills.push(skill.name)
+	}
+	return Object.freeze({
+		text: pieces.join('\n'),
+		revision: state.revision,
+		includedSkills: Object.freeze(includedSkills),
+		omitted,
+		withheldSkills: Object.freeze(withheldSkills),
+	})
+}

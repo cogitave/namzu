@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
 import { unknownProgramInLine } from '../../authorization/program.js'
@@ -72,7 +72,11 @@ import {
 	runPreToolHook,
 	unknownToolMessage,
 } from './executor/tool-call-admission.js'
-import { describeVisibleFileEvidence } from './file-evidence-context.js'
+import {
+	type FileEvidence,
+	describeVisibleFileEvidence,
+	visibleFileEvidence,
+} from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
 import { declaredWriteEscalation, shellEscalations } from './path-escalation.js'
@@ -845,7 +849,21 @@ export class ToolExecutor {
 		})
 	}
 
-	/** Request-only evidence from the same ledger used by mutation admission. No filesystem I/O. */
+	/**
+	 * The entries that hold now, from the same ledger used by mutation
+	 * admission. No filesystem I/O. The loop records the difference from what
+	 * the conversation already says.
+	 */
+	fileEvidenceEntries(messages: readonly Message[]): FileEvidence[] {
+		return visibleFileEvidence(
+			messages,
+			this.fileReadTracker,
+			this.config.workingDirectory,
+			this.sandboxed,
+		)
+	}
+
+	/** The whole of the evidence as one text, from the same ledger. No filesystem I/O. */
 	describeFileEvidence(messages: readonly Message[]): string | undefined {
 		return describeVisibleFileEvidence(
 			messages,
@@ -1062,18 +1080,64 @@ export class ToolExecutor {
 		if ((response.message.toolCalls ?? []).length > 0) await this.awaitSandbox()
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
+		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
-			const call = await prepareDirectCall(
+			const prepared = await prepareDirectCall(
 				this.admissionHost(),
 				toolCall,
 				!hostModifiedCallIds?.has(toolCall.id),
 			)
+			const call = await this.refusedBeforeReview(prepared, earlierPaths)
+			const path = inputPathOf(prepared)
+			if (path !== undefined) earlierPaths.push(path)
 			calls.set(toolCall.id, call)
 			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
+	}
+
+	/**
+	 * A ready call the tool already knows cannot run, answered now instead of
+	 * after a reviewer has been asked about it (`ToolDefinition.refuseBeforeReview`).
+	 *
+	 * The refusal takes the place of the call, as any other refusal found while
+	 * preparing it does: it reaches no reviewer, runs nothing and answers the
+	 * model with the tool's own text. A hook that throws objects to nothing.
+	 */
+	private async refusedBeforeReview(
+		call: PreparedDirectCall,
+		earlierPaths: readonly string[],
+	): Promise<PreparedDirectCall> {
+		if (call.kind !== 'ready') return call
+		const tool = this.config.tools.get(call.toolName)
+		if (!tool?.refuseBeforeReview) return call
+		// An earlier call in the same batch may read or write this path first,
+		// which can make the call valid by the time it runs; the tool's own
+		// check at run time answers it then.
+		const path = inputPathOf(call)
+		if (path !== undefined) {
+			const target = resolve(this.config.workingDirectory, path)
+			if (earlierPaths.some((p) => resolve(this.config.workingDirectory, p) === target)) return call
+		}
+		try {
+			const refusal = await tool.refuseBeforeReview(call.input, this.buildToolContext())
+			this.config.abortSignal.throwIfAborted()
+			if (!refusal) return call
+			return {
+				kind: 'synthetic',
+				toolCall: call.toolCall,
+				toolName: call.toolName,
+				input: call.input,
+				message: formatFailedToolOutput(undefined, refusal.error),
+				isError: true,
+				...(refusal.facts ? { facts: refusal.facts } : {}),
+			}
+		} catch {
+			this.config.abortSignal.throwIfAborted()
+			return call
+		}
 	}
 
 	/**
@@ -1257,14 +1321,21 @@ export class ToolExecutor {
 		}
 		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
 		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
+		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				const call = await prepareDirectCall(this.admissionHost(), toolCall, false)
+				const call = await this.refusedBeforeReview(
+					await prepareDirectCall(this.admissionHost(), toolCall, false),
+					earlierPaths,
+				)
 				calls.set(toolCall.id, call)
 				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)
 			}
+			const prepared = calls.get(toolCall.id)
+			const path = prepared ? inputPathOf(prepared) : undefined
+			if (path !== undefined) earlierPaths.push(path)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
@@ -3419,4 +3490,12 @@ class Semaphore {
 		if (next) next()
 		else this.available++
 	}
+}
+
+/** The `path` argument a prepared call carries, when it has one. */
+function inputPathOf(call: PreparedDirectCall): string | undefined {
+	const input = call.input as { readonly path?: unknown } | null | undefined
+	return input !== null && typeof input === 'object' && typeof input.path === 'string'
+		? input.path
+		: undefined
 }

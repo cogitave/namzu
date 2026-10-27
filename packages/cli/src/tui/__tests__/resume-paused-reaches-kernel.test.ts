@@ -16,6 +16,7 @@ import { type SessionEvent, asTurnId, generateMessageId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { NAMZU_PLAN_MODE_DOCTRINE } from '../../context/doctrine.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import {
 	conversationLogPath,
@@ -199,6 +200,52 @@ describe('resuming this session’s own paused turn', () => {
 		// The conversation's own log, and its checkpoints beside it.
 		expect(call.sessionLog.file).toBe(conversationLogPath(conversations, scope.sessionId))
 		expect(call.checkpointStore.constructor.name).toBe('DiskSessionCheckpointStore')
+	})
+
+	describe('the system prompt the resumed turn is given', () => {
+		const resumeAndRead = async (
+			open: Parameters<typeof openSession>[0],
+			params: Record<string, unknown> = {},
+		) => {
+			const { session } = await openSession(open)
+			try {
+				for await (const event of session.resumePaused({
+					turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+					checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+					...params,
+				})) {
+					if (event.kind === 'error') throw new Error(event.message)
+				}
+			} finally {
+				await session.close()
+			}
+			return String((resumeCalls[0] as { systemPrompt?: string }).systemPrompt ?? '')
+		}
+
+		it('carries the plan-mode instructions when the session starts in plan mode', async () => {
+			const text = await resumeAndRead({ permissionMode: 'plan' })
+			expect(text).toContain(NAMZU_PLAN_MODE_DOCTRINE)
+		})
+
+		it('carries them when the caller hands the resume plan mode', async () => {
+			const text = await resumeAndRead({}, { permissionMode: 'plan' })
+			expect(text).toContain(NAMZU_PLAN_MODE_DOCTRINE)
+		})
+
+		it('has none outside plan mode', async () => {
+			const text = await resumeAndRead({ permissionMode: 'auto' })
+			expect(text).not.toContain(NAMZU_PLAN_MODE_DOCTRINE)
+		})
+
+		it('keeps the skills and the note the caller hands it', async () => {
+			const text = await resumeAndRead(
+				{},
+				{ extraSystem: 'ACTIVE SKILL TEXT', systemNote: 'WHY NOW' },
+			)
+			expect(text).toContain('ACTIVE SKILL TEXT')
+			expect(text).toContain('WHY NOW')
+			expect(text.indexOf('ACTIVE SKILL TEXT')).toBeLessThan(text.indexOf('WHY NOW'))
+		})
 	})
 
 	it('ends with an error, not silence, when the checkpoint is not there', async () => {

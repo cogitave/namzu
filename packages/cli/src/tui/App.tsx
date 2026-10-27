@@ -89,6 +89,10 @@ import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '..
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
+	type QuestionGate,
+	createQuestionGate,
+} from '../integrations/learning/generator-trigger.js'
+import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
 	writeTerminalNotification,
@@ -328,15 +332,17 @@ import {
 	COMPACTING_LABEL,
 	COMPACT_NOT_SAVED_TEXT,
 	COMPACT_RESULT_HINT,
-	COMPACT_RESULT_TEXT,
 	NOTHING_TO_COMPACT_TEXT,
+	compactResultLine,
 	compactionSummaryLines,
+	estimateHistoryTokens,
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { buildContextRow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
+import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
@@ -408,6 +414,7 @@ import {
 	withTakenOverRow,
 	withoutQueuedRow,
 } from './queued-calls.js'
+import { noResumeText } from './resume-empty.js'
 import {
 	REWIND_COUNT_BUDGET_MS,
 	type RewindOption,
@@ -513,6 +520,7 @@ import {
 	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
+	readReviewedFile,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import type { FoldOp } from './read-search-group.js'
@@ -1094,8 +1102,12 @@ export function projectConversation(
 					},
 				]
 			}
-			// A hidden reminder is for the model; the live transcript never showed it.
-			if (message.source?.type === 'runtime-context' && message.source.kind === 'reminder') {
+			// A hidden reminder, and the context a turn recorded for the model, are for
+			// the model; the live transcript never showed them.
+			if (
+				message.source?.type === 'runtime-context' &&
+				(message.source.kind === 'reminder' || message.source.kind === 'turn-context')
+			) {
 				return []
 			}
 			if (message.source?.type === 'runtime-context') {
@@ -1412,6 +1424,27 @@ function AppBody({
 	/** For the scheduler integration's loop timer, which reads it outside render. */
 	const stateRef = useRef(state)
 	stateRef.current = state
+	/** Learned-by-itself notices waiting for the turn in flight to end. */
+	const learnedQueueRef = useRef<string[]>([])
+	const flushLearnedRef = useRef<() => void>(() => {})
+	flushLearnedRef.current = () => {
+		if (stateRef.current !== 'idle' || abortRef.current !== null) return
+		const lines = learnedQueueRef.current.splice(0)
+		if (lines.length === 0) return
+		setMessages((prev) => [
+			...prev,
+			...lines.map((content) => ({
+				id: nextId(),
+				role: 'system' as const,
+				content,
+				glyph: systemRowStyle('notice').glyph,
+				glyphColor: systemRowStyle('notice').color,
+			})),
+		])
+	}
+	useEffect(() => {
+		if (state === 'idle') flushLearnedRef.current()
+	}, [state])
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	// True when the sentence that stopped startup already says what to do next, so
 	// the screen adds no second line of advice under it.
@@ -2490,6 +2523,10 @@ function AppBody({
 	}
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
+	/** Open while any question waits on the person; the background learning cycle reads it. */
+	const learningQuestionsRef = useRef<QuestionGate | null>(null)
+	if (learningQuestionsRef.current === null) learningQuestionsRef.current = createQuestionGate()
+	const learningQuestions = learningQuestionsRef.current
 	/** The questions waiting on the person, one on screen at a time. */
 	const permissionAsksRef = useRef<AskQueue<PendingPermission> | null>(null)
 	if (permissionAsksRef.current === null) {
@@ -2515,7 +2552,11 @@ function AppBody({
 					setState((current) => (current === 'awaiting-permission' ? 'thinking' : current))
 				}
 			},
-			() => setPermissionCount(permissionAsksRef.current?.count()),
+			() => {
+				setPermissionCount(permissionAsksRef.current?.count())
+				// The background learning cycle holds still while any question is open.
+				learningQuestions.set((permissionAsksRef.current?.open ?? 0) > 0)
+			},
 		)
 	}
 	const permissionAsks = permissionAsksRef.current
@@ -5353,6 +5394,20 @@ function AppBody({
 								? { additionalDirectories: activeCtx.additionalDirectories }
 								: {}),
 							...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
+							learningObservations: activeCtx.learningObservations !== false,
+							// Learn by itself in the background of this conversation, unless the
+							// config key turned it off.
+							backgroundLearning: {
+								config: activeCtx.learningGenerator,
+								questions: learningQuestions,
+								// One dim row when a revision was activated; the cycle never
+								// asks, and the row names how to undo it.
+								// Held until no turn is streaming, so the row never lands mid-turn.
+								onLearned: (line) => {
+									learnedQueueRef.current.push(line)
+									flushLearnedRef.current()
+								},
+							},
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.
@@ -6459,6 +6514,8 @@ function AppBody({
 								permissionMode: permissionModeRef.current,
 								currentPermissionMode: () => permissionModeRef.current,
 								onAutoModeLimit: handleAutoModeLimit,
+								// The skills the operator has on, as a new turn carries them.
+								extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 								...(resume?.handoffReason
 									? {
 											systemNote: handoffContinuationNote(resume.handoffReason),
@@ -6501,6 +6558,7 @@ function AppBody({
 			return true
 		},
 		[
+			activeSkills,
 			advanceQueueContinuation,
 			detected,
 			finalizeMessage,
@@ -6566,9 +6624,7 @@ function AppBody({
 				if (others.length === 0) {
 					pushMessage(
 						'system',
-						needle
-							? `No conversation in this folder matches "${query?.trim()}". /resume lists them all.`
-							: 'No past conversations to resume in this folder yet.',
+						noResumeText({ query: query?.trim() ?? '', anyHere: recent.length > 0 }),
 					)
 					return
 				}
@@ -7881,6 +7937,7 @@ function AppBody({
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
+				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 				withheld: review.withheld,
 			})
@@ -8068,7 +8125,13 @@ function AppBody({
 							`Plan approved · ${permissionModeLabel(answer.mode)}`,
 							false,
 							'✓',
-							[`Saved to ${request.planPath}`, '', ...request.plan.trimEnd().split('\n')],
+							[
+								isSessionPlanPath(request.planPath)
+									? 'Saved as the plan'
+									: `Saved to ${request.planPath}`,
+								'',
+								...request.plan.trimEnd().split('\n'),
+							],
 						)
 					} else if (answer.feedback) {
 						// The tool's own row already says the plan was not approved.
@@ -11482,7 +11545,8 @@ function AppBody({
 								// The same lossless record `runTurn` reads — including an earlier
 								// compaction summary and attachments. The transcript is only its
 								// rendered view and is never rebuilt into history.
-								const result = await session.compact(modelHistoryRef.current, slash.instructions)
+								const historyBefore = modelHistoryRef.current
+								const result = await session.compact(historyBefore, slash.instructions)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
@@ -11510,15 +11574,18 @@ function AppBody({
 								// result where /compact ran. Rows dropped from the front are already
 								// printed by `<Static>`, so remount the projection just as `/resume`
 								// does when it replaces the log.
+								const resultLine = compactResultLine({
+									shed: result.shed,
+									tokensBefore: estimateHistoryTokens(historyBefore),
+									tokensAfter: estimateHistoryTokens(result.messages),
+								})
 								resetTranscript()
 								setMessages((prev) => {
 									const kept = keepRecentRows(prev, keptTurns)
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: durable
-											? COMPACT_RESULT_TEXT
-											: `${COMPACT_RESULT_TEXT}. ${COMPACT_NOT_SAVED_TEXT}`,
+										content: durable ? resultLine : `${resultLine}. ${COMPACT_NOT_SAVED_TEXT}`,
 										glyph: CLOSING_GLYPH,
 										glyphColor: tokenColor('text.muted'),
 										meta: COMPACT_RESULT_HINT,

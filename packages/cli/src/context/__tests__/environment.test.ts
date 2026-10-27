@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import type { PermissionMode } from '../../permissions/mode.js'
 
 import {
 	type EnvironmentFacts,
@@ -106,5 +107,75 @@ describe('what the block does not claim', () => {
 		const prompt = composeEnvironmentPrompt(await readEnvironmentFacts(repo))
 
 		expect(prompt).not.toMatch(/uncommitted|modified file|dirty/i)
+	})
+})
+
+describe('what the permission sentence says per mode', () => {
+	const facts: EnvironmentFacts = { today: '2026-10-26', branch: 'main', isRepository: true }
+	const host = (mode: PermissionMode | undefined, interactive = true): string =>
+		composeEnvironmentPrompt({
+			...facts,
+			boundary: { escape: 'refused', interactive, ...(mode ? { mode } : {}) },
+		})
+
+	it('stays general when the mode is not known', () => {
+		expect(host(undefined)).toContain('which may ask the user before they run')
+	})
+
+	it('does not say a mode that never asks may ask', () => {
+		for (const mode of ['bypass', 'strict', 'auto', 'plan'] as const) {
+			expect(host(mode), mode).not.toContain('may ask the user before they run')
+		}
+	})
+
+	it('tells a sub-agent whose decision a call is, not that it may ask the user', () => {
+		const text = composeEnvironmentPrompt({
+			...facts,
+			boundary: { escape: 'refused', interactive: true, delegated: true },
+		})
+		expect(text).toContain('follow the permission mode of the session that started you')
+		expect(text).toContain('You have no one to ask yourself')
+		expect(text).not.toContain('may ask the user')
+		expect(text).not.toContain('/add-dir')
+		expect(text).toContain('name it in your summary')
+	})
+
+	it('says each mode in its own words', () => {
+		expect(host('prompt')).toContain('put to the user before they run')
+		expect(host('accept-edits')).toContain('run without asking')
+		expect(host('plan')).toContain('plan mode')
+		expect(host('classify')).toContain(
+			'checked automatically instead, and some may still be refused',
+		)
+		expect(host('strict')).toContain('Only preapproved tools run')
+		expect(host('auto')).toContain('Nobody is asked')
+	})
+
+	it('keeps the safety rules in view when prompts are off', () => {
+		const text = host('bypass')
+		expect(text).toContain('calls run without asking')
+		expect(text).toContain('What always needs the user still does')
+		expect(text).toContain('safety rules apply as usual')
+	})
+
+	it('says a call that would ask is refused when nobody is at the terminal', () => {
+		for (const mode of ['prompt', 'accept-edits', 'classify'] as const) {
+			expect(host(mode, false), mode).toContain('Nobody is at the terminal')
+			expect(host(mode, true), mode).not.toContain('Nobody is at the terminal')
+		}
+	})
+
+	it('leaves the sandbox sentence to the backend, not the mode', () => {
+		const text = composeEnvironmentPrompt({
+			...facts,
+			boundary: {
+				sandbox: { environment: 'linux-bwrap', enforced: ['filesystem'] },
+				escape: 'ask',
+				interactive: true,
+				mode: 'bypass',
+			},
+		})
+		expect(text).toContain('Shell commands run in a sandbox (linux-bwrap')
+		expect(text).not.toContain('Tools run on this machine')
 	})
 })
