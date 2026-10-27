@@ -1633,6 +1633,20 @@ function AppBody({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
+	// The shell commands running in the foreground that Ctrl+B can move to the
+	// background; each is offered once it has run for a couple of seconds.
+	const [offeredCommands, setOfferedCommands] = useState<ReadonlySet<string>>(new Set())
+	useEffect(() => {
+		const foreground = session?.foreground
+		if (!foreground) {
+			setOfferedCommands(new Set())
+			return
+		}
+		const read = () =>
+			setOfferedCommands(new Set(foreground.commands().map((item) => item.command)))
+		read()
+		return foreground.onChange(read)
+	}, [session])
 	const snapshotIdleJobNotices = (): {
 		readonly ids: readonly string[]
 		readonly text?: string
@@ -6804,17 +6818,27 @@ function AppBody({
 			options?: { readonly steered?: boolean; readonly always?: boolean },
 		) => {
 			const callRunning = activeToolsRef.current.length > 0
+			// An interrupt moves a running command to a job instead of stopping
+			// it, and does so before this returns: a job that was not there
+			// before is the command that carries on.
+			const jobsBefore = new Set((session?.jobs?.() ?? []).map((job) => job.id))
 			const interrupted = interruptTurn(recoverInput)
+			const movedToBackground = (session?.jobs?.() ?? []).some(
+				(job) => job.status === 'running' && !jobsBefore.has(job.id),
+			)
+			if (movedToBackground)
+				setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 			if (interrupted || options?.always === true) {
 				const row = interruptionRow({
 					callRunning,
 					...(options?.steered ? { steered: true } : {}),
+					...(movedToBackground ? { movedToBackground: true } : {}),
 				})
 				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage],
+		[interruptTurn, pushMessage, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
@@ -6826,6 +6850,13 @@ function AppBody({
 		interruptWithRow(true, { steered: true, always: true })
 		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
 	}, [interruptWithRow, setQueuePause])
+
+	/** Ctrl+B: move the running shell command to the background. False when none can be moved. */
+	const backgroundRunningCommand = useCallback((): boolean => {
+		const foreground = session?.foreground
+		if (!foreground || foreground.commands().length === 0) return false
+		return foreground.background('user') > 0
+	}, [session])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -11823,6 +11854,9 @@ function AppBody({
 						})
 					) {
 						bindSteeredTriggers(armedTriggers)
+						// A command still running would hold the message until it ends:
+						// it moves to the background so the message reaches the model now.
+						session?.foreground?.background('message')
 						return
 					}
 				}
@@ -13865,14 +13899,20 @@ function AppBody({
 	// tool-end hand-off. The monitor publishes terminal state synchronously,
 	// while the provider event that removes the generic tool row arrives on the
 	// next tick; filtering only live children made that raw row flash back.
-	const visibleActiveTools = activeTools.filter(
-		(tool) =>
-			tool.fold === undefined &&
-			(tool.toolName.toLowerCase() !== 'agent' ||
-				!(tool.turnId
-					? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
-					: representedUnscopedSubagentToolUseIds.has(tool.id))),
-	)
+	const visibleActiveTools = activeTools
+		.filter(
+			(tool) =>
+				tool.fold === undefined &&
+				(tool.toolName.toLowerCase() !== 'agent' ||
+					!(tool.turnId
+						? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
+						: representedUnscopedSubagentToolUseIds.has(tool.id))),
+		)
+		.map((tool) =>
+			tool.command !== undefined && offeredCommands.has(tool.command)
+				? { ...tool, canBackground: true as const }
+				: tool,
+		)
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
@@ -14531,6 +14571,7 @@ function AppBody({
 									onLeave: () => setQueueSelection(null),
 								}}
 								onSendNow={sendPendingNow}
+								onBackgroundCommand={backgroundRunningCommand}
 								onStopAllAgents={requestStopAllAgents}
 								railFocused={railFocus !== null}
 								userCommands={userCommands}

@@ -81,6 +81,8 @@ import {
 	DiskSessionLog,
 	DiskTaskStore,
 	EVENT_NAME_ATTRIBUTE,
+	type ForegroundCommand,
+	type ForegroundHandoffReason,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
 	type HITLResumeDecision,
@@ -1314,6 +1316,16 @@ export interface AgentSession {
 	readonly presenter: ToolPresenter
 	/** This session's background jobs, running and ended. Absent on a session with no registry. */
 	readonly jobs?: () => readonly BackgroundJob[]
+	/**
+	 * Foreground shell commands of this session that can be moved to a
+	 * background job now (they have run for a couple of seconds). `background`
+	 * moves them all and says how many it took over.
+	 */
+	readonly foreground?: {
+		readonly commands: () => readonly ForegroundCommand[]
+		readonly background: (reason: ForegroundHandoffReason) => number
+		readonly onChange: (listener: () => void) => () => void
+	}
 	/** Read retained output from a job owned by this session; foreign ids are unknown. */
 	readonly readJob?: (id: string, fromOffset?: number) => BackgroundJobOutput
 	/** Stop a job owned by this session, including its child process tree. */
@@ -5159,6 +5171,19 @@ export async function createAgentSession(
 		currentTaskStore,
 		resetTaskStore,
 		jobs: () => ownedJobs?.list() ?? [],
+		...(jobRegistry
+			? {
+					foreground: {
+						commands: () => jobRegistry.foregroundCommands(jobOwner),
+						background: (reason: ForegroundHandoffReason) =>
+							jobRegistry.backgroundForeground(jobOwner, reason),
+						onChange: (listener: () => void) =>
+							jobRegistry.onForegroundChange((owner) => {
+								if (owner === jobOwner) listener()
+							}),
+					},
+				}
+			: {}),
 		...(ownedJobs
 			? {
 					readJob: (id: string, fromOffset?: number) =>
