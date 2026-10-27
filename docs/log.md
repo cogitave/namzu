@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- **Update** [Slash commands](cli/slash-commands.md): Alt+P keeps the typed draft across the model chooser and leaves no history line, Alt+T now switches thinking off and on (footer note, no transcript line) instead of opening the effort chooser, a second Ctrl+S swaps with the draft set aside, and an unset editor names the key pressed. `.changeset/tui-chat-shortcuts.md` (`@namzu/cli` minor).
 - **Update** [Delegated work](cli/delegated-work.md#forks): a fork starts from id-less copies of the parent's messages, so a parent with recorded messages no longer makes the fork fail before it sends a request, and a child that fails says why in plain words. `.changeset/fork-recorded-history.md`
 - **Update** [MCP servers](cli/mcp-servers.md#when-servers-connect), [Slash commands](cli/slash-commands.md): the interactive session no longer waits for tool servers; they connect in parallel in the background (child-process servers three at a time, remote ones twenty), each is reported in plain words when it settles and its tools join at the next turn, `/mcp` lists the ones still connecting, and headless runs still wait. `.changeset/w2-startup-and-rows.md` (`@namzu/cli` minor).
 - **Update** [Terminal design](cli/terminal-design.md): a pause that mends itself keeps one line however many tries fail, and an automatic try adds no "Continuing where it paused" line. `.changeset/w2-startup-and-rows.md` (`@namzu/cli` minor).

@@ -198,11 +198,11 @@ export const ACTIONS = [
 		help: 'Choose a model',
 	}),
 	action({
-		id: 'chat:effortPicker',
+		id: 'chat:thinkingToggle',
 		context: 'Chat',
 		group: 'Models and modes',
 		keys: ['meta+t'],
-		help: 'Choose how much the model thinks',
+		help: 'Switch thinking on or off',
 	}),
 	action({
 		id: 'chat:effortLower',
@@ -435,6 +435,26 @@ export function isChordAction(id: ActionId, input: string, key: KeyEvent): boole
 		if (strokes.length === 2 && second !== undefined && matchStroke(second, input, key)) return true
 	}
 	return false
+}
+
+/**
+ * The key of an action that a keypress just matched, as a person reads it
+ * (`Ctrl+G`, `Ctrl+X Ctrl+E`). `afterLead` asks about a chord's second stroke,
+ * the lead having just been pressed. Empty when the press is not the action.
+ */
+export function pressedKeyLabel(
+	id: ActionId,
+	input: string,
+	key: KeyEvent,
+	afterLead = false,
+): string {
+	for (const chord of actionSpec(id).keys) {
+		const strokes = strokesOf(chord)
+		const stroke = afterLead ? strokes[1] : strokes[0]
+		if (afterLead ? strokes.length !== 2 : strokes.length !== 1) continue
+		if (stroke !== undefined && matchStroke(stroke, input, key)) return keyLabel(chord)
+	}
+	return ''
 }
 
 const NAME_LABELS: Readonly<Record<string, string>> = {

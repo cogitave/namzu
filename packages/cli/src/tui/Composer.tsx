@@ -25,7 +25,7 @@ import {
 } from './composer-hints.js'
 import { createUndoStack } from './composer-undo.js'
 import { fitHints } from './key-hints.js'
-import { isAction, isChordAction, isChordLead, primaryKeyLabel } from './keymap.js'
+import { isAction, isChordAction, isChordLead, pressedKeyLabel, primaryKeyLabel } from './keymap.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
@@ -132,7 +132,9 @@ export interface ComposerProps {
 	/** Step through the active model's published reasoning menu. */
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
-	readonly onExternalEdit?: (seed: string) => Promise<string>
+	readonly onExternalEdit?: (seed: string, pressed?: string) => Promise<string>
+	/** Alt+T: switch the model's thinking on or off. The host words the outcome. */
+	readonly onToggleThinking?: () => void
 	/** Empty-composer Esc ×2 (inside REWIND_DOUBLE_ESC_MS) asks App to open the rewind picker. */
 	readonly onEditPrevious?: () => void
 	/** One-shot prompt restored after App has created a source-preserving fork. */
@@ -267,7 +269,16 @@ export type SubmitMeta =
 			 */
 			readonly onlyTriggers: boolean
 	  }
-	| { readonly source: Exclude<SubmitSource, 'composer'> }
+	| {
+			readonly source: 'keybinding'
+			/**
+			 * What was typed when the key was pressed. A chooser the key opens takes
+			 * the screen, so the host keeps this and puts it back when the chooser
+			 * closes. Absent when nothing was typed.
+			 */
+			readonly draft?: Omit<ComposerDraft, 'token'>
+	  }
+	| { readonly source: Exclude<SubmitSource, 'composer' | 'keybinding'> }
 
 export interface ComposerDraft {
 	readonly token: number
@@ -613,6 +624,7 @@ export function Composer({
 	onClearedDraft,
 	onStepReasoningEffort,
 	onExternalEdit,
+	onToggleThinking,
 	onEditPrevious,
 	draftToRestore = null,
 	onDraftRestored,
@@ -1020,13 +1032,13 @@ export function Composer({
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
-			const openExternalEditor = (): void => {
+			const openExternalEditor = (pressed: string): void => {
 				if (!onExternalEdit) {
 					onNotice?.('External editor support is unavailable in this terminal.')
 					return
 				}
 				const seed = expandChips(valueRef.current, pasteStoreRef.current).trim()
-				void onExternalEdit(seed)
+				void onExternalEdit(seed, pressed)
 					.then((edited) => {
 						// An image the editor text no longer names stays attached: its chip goes back.
 						let cleaned = edited.trimEnd()
@@ -1069,7 +1081,7 @@ export function Composer({
 				return
 			}
 			if (chordArmed && isChordAction('chat:externalEditor', input, key)) {
-				openExternalEditor()
+				openExternalEditor(pressedKeyLabel('chat:externalEditor', input, key, true))
 				return
 			}
 			if (queuedEdit) {
@@ -1242,12 +1254,26 @@ export function Composer({
 				setBuffer(previous.value, previous.cursor, 'typed', previous.spans)
 				return
 			}
+			// A key that opens a chooser keeps what was typed: the draft goes to the
+			// host with the request and comes back when the chooser closes.
+			const typedDraft = (): Omit<ComposerDraft, 'token'> | undefined => {
+				const text = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				if (text.trim().length === 0 && attachmentsRef.current.length === 0) return undefined
+				return {
+					text,
+					...(attachmentsRef.current.length ? { attachments: attachmentsRef.current } : {}),
+				}
+			}
 			if (isAction('chat:modelPicker', input, key) && !plainText) {
-				onSubmit('/model', undefined, 'submit', { source: 'keybinding' })
+				const draft = typedDraft()
+				onSubmit('/model', undefined, 'submit', {
+					source: 'keybinding',
+					...(draft ? { draft } : {}),
+				})
 				return
 			}
-			if (isAction('chat:effortPicker', input, key) && !plainText) {
-				onSubmit('/effort', undefined, 'submit', { source: 'keybinding' })
+			if (isAction('chat:thinkingToggle', input, key) && !plainText) {
+				onToggleThinking?.()
 				return
 			}
 			if (isAction('chat:stash', input, key) && historySearchRef.current === null && !plainText) {
@@ -1261,14 +1287,20 @@ export function Composer({
 					return
 				}
 				const draft = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				// A draft already set aside is not overwritten: the two trade places,
+				// and the same key swaps them back.
+				const earlier = stashRef.current
 				stashRef.current = {
 					text: draft,
 					...(attachmentsRef.current.length ? { attachments: attachmentsRef.current } : {}),
 				}
 				reset()
+				if (earlier) restoreDraft(earlier)
 				onFooterNotice?.({
 					key: STASH_KEY,
-					text: `Draft set aside · ${primaryKeyLabel('chat:stash')} to bring it back`,
+					text: earlier
+						? `Swapped with the draft set aside · ${primaryKeyLabel('chat:stash')} to swap back`
+						: `Draft set aside · ${primaryKeyLabel('chat:stash')} to bring it back`,
 					priority: 'immediate',
 					timeoutMs: STASH_NOTICE_MS,
 				})
@@ -1558,7 +1590,7 @@ export function Composer({
 				return
 			}
 			if (isAction('chat:externalEditor', input, key)) {
-				openExternalEditor()
+				openExternalEditor(pressedKeyLabel('chat:externalEditor', input, key))
 				return
 			}
 			// Ctrl+V / Alt+V: pull an image off the clipboard and hold it as an attachment.

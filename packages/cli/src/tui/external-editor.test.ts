@@ -35,6 +35,9 @@ describe('external editor command resolution', () => {
 
 	it('refuses missing and structurally incomplete commands', () => {
 		expect(() => resolveExternalEditorCommand({})).toThrow(/set VISUAL or EDITOR/)
+		expect(() => resolveExternalEditorCommand({}, 'Ctrl+X Ctrl+E')).toThrow(
+			'set VISUAL or EDITOR before pressing Ctrl+X Ctrl+E',
+		)
 		expect(() => parseExternalEditorCommand('editor "unfinished')).toThrow(ExternalEditorError)
 	})
 })

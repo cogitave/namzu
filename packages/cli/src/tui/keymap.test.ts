@@ -8,6 +8,7 @@ import {
 	isChordLead,
 	keyLabel,
 	keysHelpText,
+	pressedKeyLabel,
 	primaryKeyLabel,
 } from './keymap.js'
 
@@ -60,10 +61,25 @@ describe('the action registry', () => {
 	it('knows the new chat shortcuts', () => {
 		expect(isAction('chat:stash', 's', { ctrl: true })).toBe(true)
 		expect(isAction('chat:modelPicker', 'p', { meta: true })).toBe(true)
-		expect(isAction('chat:effortPicker', 't', { meta: true })).toBe(true)
+		expect(isAction('chat:thinkingToggle', 't', { meta: true })).toBe(true)
 		expect(isAction('chat:undo', '-', { ctrl: true })).toBe(true)
 		// A terminal sends Ctrl+_ as the unit separator with no modifier flag.
 		expect(isAction('chat:undo', '\x1f', {})).toBe(true)
+	})
+
+	it('answers Ctrl+L and Ctrl+T through the registry, each once', () => {
+		// Ctrl+L clears the screen and Ctrl+T opens delegated work; no second action wants either.
+		expect(isAction('chat:clearScreen', 'l', { ctrl: true })).toBe(true)
+		expect(isAction('app:openAgents', 't', { ctrl: true })).toBe(true)
+		const owners = (chord: string) => ACTIONS.filter((spec) => spec.keys.includes(chord)).length
+		expect(owners('ctrl+l')).toBe(1)
+		expect(owners('ctrl+t')).toBe(1)
+	})
+
+	it('names the key a press matched, single or after the chord lead', () => {
+		expect(pressedKeyLabel('chat:externalEditor', 'g', { ctrl: true })).toBe('Ctrl+G')
+		expect(pressedKeyLabel('chat:externalEditor', 'e', { ctrl: true }, true)).toBe('Ctrl+X Ctrl+E')
+		expect(pressedKeyLabel('chat:externalEditor', 'e', { ctrl: true })).toBe('')
 	})
 
 	it('treats Ctrl+X as the lead of the chords and their second strokes as actions', () => {

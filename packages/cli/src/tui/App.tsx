@@ -662,6 +662,8 @@ export type ExternalEditorAdapter = (request: {
 	readonly seed: string
 	readonly cwd: string
 	readonly signal: AbortSignal
+	/** The key that opened the editor, as a person reads it. */
+	readonly pressed?: string
 }) => Promise<string>
 
 type LifecyclePhase =
@@ -713,6 +715,7 @@ type DirectChildNotice = {
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
+	readonly pressed?: string
 	readonly controller: AbortController
 	readonly resolve: (text: string) => void
 	readonly reject: (error: unknown) => void
@@ -1352,8 +1355,8 @@ type JobSurface = {
 	readonly notice?: string
 }
 
-const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal }) =>
-	editDraftInExternalEditor(seed, { cwd, signal })
+const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal, pressed }) =>
+	editDraftInExternalEditor(seed, { cwd, signal, ...(pressed !== undefined ? { pressed } : {}) })
 
 /**
  * The App, drawn inside the theme epoch: a theme change redraws this component,
@@ -1598,6 +1601,12 @@ function AppBody({
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
 	const turnLimitsOverrideRef = useRef<Partial<TurnGuards>>({})
+	/** The level Alt+T switched thinking off from, put back when it is switched on. */
+	const thinkingOffFromRef = useRef<ReasoningEffort | undefined>(undefined)
+	/** What was typed when a key opened a chooser, set by the submit and taken when the chooser opens. */
+	const keybindingDraftRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
+	/** The draft waiting for the chooser that took the screen to close. */
+	const chooserDraftRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
 	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
 		reasoningEffortRef.current = next
 		setReasoningEffortState(next)
@@ -2050,6 +2059,15 @@ function AppBody({
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
+	// A chooser a key opened has closed and the conversation is back: the draft
+	// typed before it returns, once. Choosers other than that key's never carry one.
+	useEffect(() => {
+		const kept = chooserDraftRef.current
+		if (!kept || phase !== 'ready' || choicePicker !== null) return
+		chooserDraftRef.current = null
+		composerDraftTokenRef.current += 1
+		setComposerDraft({ token: composerDraftTokenRef.current, ...kept })
+	}, [phase, choicePicker])
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
@@ -3124,7 +3142,7 @@ function AppBody({
 	}, [terminal, resetTranscript, scrollOpen, transcriptScreen])
 
 	const requestExternalEditor = useCallback(
-		(seed: string): Promise<string> => {
+		(seed: string, pressed?: string): Promise<string> => {
 			if (
 				phase !== 'ready' ||
 				state !== 'idle' ||
@@ -3145,6 +3163,7 @@ function AppBody({
 				const request: PendingExternalEditor = {
 					token: {},
 					seed,
+					...(pressed !== undefined ? { pressed } : {}),
 					controller: new AbortController(),
 					resolve,
 					reject,
@@ -3171,6 +3190,7 @@ function AppBody({
 			try {
 				edited = await externalEditor({
 					seed: request.seed,
+					...(request.pressed !== undefined ? { pressed: request.pressed } : {}),
 					cwd: trustedCwdRef.current,
 					signal: request.controller.signal,
 				})
@@ -4287,6 +4307,40 @@ function AppBody({
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
+
+	/** Alt+T: thinking off is the model's `none` level; on puts back the level it had. */
+	const toggleThinking = useCallback((): void => {
+		const note = (text: string): void =>
+			addNotice({ key: 'thinking-toggle', text, priority: 'immediate', timeoutMs: 4_000 })
+		const levels = session?.reasoningEffortLevels
+		if (!session?.hasProvider || !levels?.length) {
+			note('This model has no thinking setting')
+			return
+		}
+		if (!levels.includes('none')) {
+			note('Thinking cannot be switched off for this model · /effort sets how much it thinks')
+			return
+		}
+		if (
+			state !== 'idle' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			permissionResolveRef.current !== null ||
+			compactingRef.current
+		) {
+			note('Wait for the reply to finish before changing thinking')
+			return
+		}
+		if (reasoningEffortRef.current === 'none') {
+			setReasoningEffort(thinkingOffFromRef.current)
+			thinkingOffFromRef.current = undefined
+			note('Thinking on')
+			return
+		}
+		thinkingOffFromRef.current = reasoningEffortRef.current
+		setReasoningEffort('none')
+		note('Thinking off')
+	}, [addNotice, hasUnsettledTurn, session, setReasoningEffort, state])
 
 	const stepReasoningEffort = useCallback(
 		(direction: 'lower' | 'raise'): void => {
@@ -10471,10 +10525,18 @@ function AppBody({
 				const restore = (notice: string) => {
 					setViewNotice(notice)
 					composerDraftTokenRef.current += 1
+					// A key that asked for a chooser put no text of its own in the composer.
+					const kept = meta.source === 'keybinding' ? (meta.draft ?? { text: '' }) : undefined
 					setComposerDraft({
 						token: composerDraftTokenRef.current,
-						text: value,
-						...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+						text: kept ? kept.text : value,
+						...(kept
+							? kept.attachments?.length
+								? { attachments: [...kept.attachments] }
+								: {}
+							: attachments && attachments.length > 0
+								? { attachments: [...attachments] }
+								: {}),
 					})
 				}
 				const text = value.trim()
@@ -10529,7 +10591,11 @@ function AppBody({
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
 			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
-			if (!fromLoop) setHistory((prev) => [...prev, value])
+			// A key that opens a chooser is not something the operator wrote, so it
+			// leaves no line for Up to bring back. What was typed beside it waits
+			// here until the chooser opens, and returns when it closes.
+			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
+			if (!fromLoop && meta.source !== 'keybinding') setHistory((prev) => [...prev, value])
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -11155,6 +11221,7 @@ function AppBody({
 						setPickerDetected(null)
 						setPickerSelectionKind('provider-and-model')
 						setPickerInitialView('models')
+						chooserDraftRef.current = keybindingDraftRef.current
 						setPhase('picker')
 						return
 					case 'permission-mode': {
@@ -11227,9 +11294,14 @@ function AppBody({
 								values.findIndex((value) => value === current),
 							),
 						)
-						setChoicePicker(
-							reasoningEffortPicker(session, current, false, hypermodeRef.current) ?? null,
+						const effortChooser = reasoningEffortPicker(
+							session,
+							current,
+							false,
+							hypermodeRef.current,
 						)
+						if (effortChooser) chooserDraftRef.current = keybindingDraftRef.current
+						setChoicePicker(effortChooser ?? null)
 						return
 					}
 					case 'login':
@@ -14913,6 +14985,7 @@ function AppBody({
 								onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
 								onStepReasoningEffort={stepReasoningEffort}
 								onExternalEdit={requestExternalEditor}
+								onToggleThinking={toggleThinking}
 								onEditPrevious={openPromptEditor}
 								draftToRestore={composerDraft}
 								onDraftRestored={(token) =>
