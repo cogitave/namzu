@@ -299,6 +299,7 @@ import {
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
+import { hookPermissionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -4260,9 +4261,17 @@ export async function createAgentSession(
 	const hasSaveSkillTool = (options.extraTools ?? []).some(
 		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
 	)
+	// What a hook's stdin says about the session: the newest turn's live mode,
+	// and the transcript of a durable session.
+	let readHookMode: (() => PermissionMode) | undefined
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks)
+		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks, {
+			permissionMode: () =>
+				hookPermissionMode(readHookMode?.() ?? options.permissionMode ?? 'auto'),
+			transcriptPath: (sessionId) =>
+				options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
+		})
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(
@@ -4847,7 +4856,10 @@ export async function createAgentSession(
 					// The gate's deny rules still apply.
 					resumeHandler,
 					approvalPolicyName: modeControl.initialName,
-					onApprovalPolicy: (box) => modeControl.attach(box),
+					onApprovalPolicy: (box) => {
+						readHookMode = () => modeControl.current()
+						modeControl.attach(box)
+					},
 					reviewAllowedCalls,
 					signal: ownedSignal,
 					// Attribution comes from the ENTRY, not from this session: the turn
@@ -6014,7 +6026,10 @@ export async function createAgentSession(
 								opts: turnOpts,
 								resumeHandler,
 								approvalPolicyName: modeControl.initialName,
-								onApprovalPolicy: (box) => modeControl.attach(box),
+								onApprovalPolicy: (box) => {
+									readHookMode = () => modeControl.current()
+									modeControl.attach(box)
+								},
 								reviewAllowedCalls: modeControl.reviewAllowedCalls,
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
