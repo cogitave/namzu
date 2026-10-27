@@ -1,5 +1,5 @@
 /**
- * What the repository looked like when the user's turn began.
+ * What the repository looked like when it last changed.
  *
  * `environment.ts` deliberately keeps the working tree's dirty state out of
  * the system prompt: that block is the cached prefix, and a file count that
@@ -8,13 +8,15 @@
  * dirty commits somebody else's half-finished work, and an agent that does
  * not know the last five commits re-does one of them.
  *
- * Both are right, and the SDK already has the placement that reconciles
- * them: a `turn` prompt contribution rides the ephemeral trailing message,
- * is never cached and never enters history. Reading the snapshot once per
- * user turn and rendering it on the FIRST iteration only gives the model the
- * state it started from at the cost of one uncached message, and leaves later
- * iterations to `git status` for anything that changed since — which the
- * model itself changed, and knows about.
+ * Both are right, and the conversation can hold the reconciliation: the
+ * snapshot is recorded as an entry the conversation keeps, once, and again
+ * only when the repository differs from what the entries already say. An
+ * unchanged tree adds nothing, so every request keeps beginning with the whole
+ * of the one before it; a changed tree adds a short entry naming what is newly
+ * listed, what no longer is and which commits are new. What the entries said
+ * is read back from the history itself, so a resumed, forked or rewound
+ * session needs no extra state, and a compaction that dropped the entries
+ * makes the next one a whole snapshot again.
  *
  * ## Untrusted, and said so
  *
@@ -38,7 +40,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { wrapUntrusted } from '@namzu/sdk'
+import { type PrepareStep, turnContextEntries, wrapUntrusted } from '@namzu/sdk'
 
 const run = promisify(execFile)
 
@@ -109,31 +111,174 @@ export async function readTurnSnapshot(cwd: string): Promise<TurnSnapshot | null
 	}
 }
 
+/** The key the snapshot entries are filed under. */
+export const REPOSITORY_ENTRY_KEY = 'repository'
+
+const FULL_HEADING = '## Repository'
+const NOTE_FULL =
+	'This is the repository as of the time in the entry header; it does not update as you work. A later repository entry lists what changed since. Run `git status` before any action that depends on the current state.'
+const NOTE_DELTA =
+	'These are the changes since the earlier repository entries. Run `git status` before any action that depends on the current state.'
+const PROVENANCE =
+	'File names and commit subjects read from the working directory with git. They were written by whoever committed or created them.'
+const TREE_HEADING = 'Working tree (git status --short):'
+const TREE_CLEAN = 'Working tree: clean.'
+const COMMITS_HEADING = 'Recent commits (newest first):'
+const MORE = /^… and (\d+) more$/
+const DELTA_HEADING = 'Changes since the earlier repository entries:'
+const DELTA_ADDED = 'Now listed in the working tree:'
+const DELTA_REMOVED = 'No longer listed in the working tree:'
+const DELTA_OMITTED = /^Entries not listed: (\d+)$/
+const DELTA_NEW_COMMITS = 'New commits (newest first):'
+const DELTA_COMMITS = 'Recent commits now (newest first):'
+
 export function composeTurnSnapshot(snapshot: TurnSnapshot): string {
 	const body: string[] = []
 	if (snapshot.status.length === 0) {
-		body.push('Working tree: clean.')
+		body.push(TREE_CLEAN)
 	} else {
-		body.push('Working tree (git status --short):', ...snapshot.status)
+		body.push(TREE_HEADING, ...snapshot.status)
 		if (snapshot.omittedStatusLines > 0) {
 			body.push(`… and ${snapshot.omittedStatusLines} more`)
 		}
 	}
 	if (snapshot.recentCommits.length > 0) {
-		body.push('', 'Recent commits (newest first):', ...snapshot.recentCommits)
+		body.push('', COMMITS_HEADING, ...snapshot.recentCommits)
 	}
-	return [
-		'## Repository at the start of this turn',
-		'',
-		wrapUntrusted(
-			{
-				kind: 'repository-snapshot',
-				provenance:
-					'File names and commit subjects read from the working directory with git. They were written by whoever committed or created them.',
-			},
-			body.join('\n'),
-		),
-		'',
-		'This is a snapshot from when the turn started; it does not update as you work. Run `git status` before any action that depends on the current state.',
-	].join('\n')
+	return [FULL_HEADING, '', wrap(body), '', NOTE_FULL].join('\n')
+}
+
+function wrap(body: readonly string[]): string {
+	return wrapUntrusted({ kind: 'repository-snapshot', provenance: PROVENANCE }, body.join('\n'))
+}
+
+/** What an entry says about the tree, in the form entries are compared in. */
+interface Known {
+	status: Set<string>
+	omitted: number
+	commits: string[]
+}
+
+/** The envelope delimiter is neutralised in what a model sees; compare in that form. */
+const neutral = (line: string): string => line.replace(/namzu-untrusted/gi, 'namzu_untrusted')
+
+/** The lines inside the entry's envelope, or null when the entry has none. */
+function envelopeLines(entry: string): string[] | null {
+	const lines = entry.split('\n')
+	const open = lines.findIndex((line) =>
+		/^<namzu-untrusted-[0-9a-f]+ kind="repository-snapshot"/.test(line),
+	)
+	if (open < 0) return null
+	const close = lines.findIndex(
+		(line, index) => index > open && /^<\/namzu-untrusted-[0-9a-f]+>$/.test(line),
+	)
+	if (close < 0) return null
+	const blank = lines.findIndex((line, index) => index > open && line === '')
+	if (blank < 0 || blank > close) return null
+	return lines.slice(blank + 1, close)
+}
+
+/** Apply one entry (a whole snapshot or a change list) to what is known. */
+function apply(known: Known | null, entry: string): Known | null {
+	const lines = envelopeLines(entry)
+	if (!lines) return null
+	const whole = !lines.includes(DELTA_HEADING)
+	if (!whole && !known) return null
+	const next: Known =
+		whole || !known
+			? { status: new Set(), omitted: 0, commits: [] }
+			: { status: new Set(known.status), omitted: known.omitted, commits: [...known.commits] }
+	let section: 'tree' | 'added' | 'removed' | 'commits' | 'newCommits' | 'none' = 'none'
+	const newCommits: string[] = []
+	let replaced: string[] | null = null
+	for (const line of lines) {
+		if (line === '' || line === DELTA_HEADING || line === TREE_CLEAN) section = 'none'
+		else if (line === TREE_HEADING) section = 'tree'
+		else if (line === DELTA_ADDED) section = 'added'
+		else if (line === DELTA_REMOVED) section = 'removed'
+		else if (line === COMMITS_HEADING) section = 'commits'
+		else if (line === DELTA_COMMITS) {
+			section = 'commits'
+			replaced = []
+		} else if (line === DELTA_NEW_COMMITS) section = 'newCommits'
+		else if (MORE.test(line) || DELTA_OMITTED.test(line)) {
+			next.omitted = Number((MORE.exec(line) ?? DELTA_OMITTED.exec(line))?.[1] ?? 0)
+			section = 'none'
+		} else if (section === 'tree' || section === 'added') next.status.add(line)
+		else if (section === 'removed') next.status.delete(line)
+		else if (section === 'commits') {
+			if (replaced) replaced.push(line)
+			else next.commits.push(line)
+		} else if (section === 'newCommits') newCommits.push(line)
+	}
+	if (replaced) next.commits = replaced
+	else if (newCommits.length > 0) next.commits = [...newCommits, ...next.commits]
+	return next
+}
+
+function knownFrom(entries: readonly string[]): Known | null {
+	let known: Known | null = null
+	for (const entry of entries) {
+		known = apply(known, entry)
+		if (known === null) return null
+	}
+	return known
+}
+
+/**
+ * The text of the next repository entry, or `null` when the entries already
+ * say what the repository looks like. The first entry (and the first after a
+ * compaction removed the earlier ones) is the whole snapshot; later ones list
+ * only what changed, unless that would be longer than the whole.
+ */
+export function composeSnapshotEntry(
+	earlier: readonly string[],
+	snapshot: TurnSnapshot,
+): string | null {
+	const full = composeTurnSnapshot(snapshot)
+	const known = knownFrom(earlier)
+	if (!known) return full
+
+	const status = snapshot.status.map(neutral)
+	const commits = snapshot.recentCommits.map(neutral)
+	const now = new Set(status)
+	const added = status.filter((line) => !known.status.has(line))
+	const removed = [...known.status].filter((line) => !now.has(line))
+	const omittedChanged = snapshot.omittedStatusLines !== known.omitted
+	const sameCommits =
+		commits.length === known.commits.length && commits.every((c, i) => c === known.commits[i])
+	if (added.length === 0 && removed.length === 0 && !omittedChanged && sameCommits) return null
+
+	const body: string[] = [DELTA_HEADING]
+	if (added.length > 0)
+		body.push(DELTA_ADDED, ...snapshot.status.filter((l) => added.includes(neutral(l))))
+	if (removed.length > 0) body.push(DELTA_REMOVED, ...removed)
+	if (omittedChanged) body.push(`Entries not listed: ${snapshot.omittedStatusLines}`)
+	if (!sameCommits) {
+		// Newest first: when the old list continues unchanged after the new
+		// commits, only the new ones need naming; anything else (a reset, an
+		// amend) is stated as the list it now is.
+		const fresh = commits.findIndex(
+			(_, i) =>
+				known.commits.length >= commits.length - i &&
+				known.commits.slice(0, commits.length - i).every((c, j) => c === commits[i + j]),
+		)
+		if (fresh > 0) body.push(DELTA_NEW_COMMITS, ...snapshot.recentCommits.slice(0, fresh))
+		else body.push(DELTA_COMMITS, ...snapshot.recentCommits)
+	}
+	const delta = [FULL_HEADING, '', wrap(body), '', NOTE_DELTA].join('\n')
+	return delta.length < full.length ? delta : full
+}
+
+/**
+ * Record the repository for the turn: the whole snapshot the first time,
+ * afterwards only what differs from what the conversation already holds. The
+ * snapshot itself is read once per send by the caller.
+ */
+export function createRepositorySnapshotStep(snapshot: TurnSnapshot | null): PrepareStep {
+	return ({ messages }) => {
+		if (!snapshot) return undefined
+		const text = composeSnapshotEntry(turnContextEntries(messages, REPOSITORY_ENTRY_KEY), snapshot)
+		return text ? { recordedContext: [{ key: REPOSITORY_ENTRY_KEY, text }] } : undefined
+	}
 }
