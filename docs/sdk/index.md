@@ -24,6 +24,7 @@ The kernel.
 * [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
 * [Hidden reminders](reminders.md) - The opt-in channel a host feeds with text the model reads before each request, recorded in the conversation, with the history a source reads to set its own cadence.
 * [Request-only step context](step-context.md) - Changing observations after history (step context, working memory, `context` contributions), separate from system policy and operator intent.
+* [Recorded turn context](recorded-context.md) - Repository state, recalled memory, conversation evidence, file evidence and finished delegated work kept as entries that are only added, so each request begins with the whole of the one before it.
 
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.
 * [Native provider admission](native-provider-capabilities.md) - Explicit driver support and fallback route checks.
