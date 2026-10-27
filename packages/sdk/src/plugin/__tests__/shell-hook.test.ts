@@ -76,7 +76,13 @@ describe('runShellHook', () => {
 		)
 		expect(outcome.exitCode).toBe(0)
 		const json = JSON.parse(outcome.stdout.slice(0, outcome.stdout.indexOf(' env=')))
-		expect(json).toEqual({ event: 'turn_start', cwd: CWD, session_id: SESSION, turn_id: TURN })
+		expect(json).toEqual({
+			event: 'turn_start',
+			hook_event_name: 'turn_start',
+			cwd: CWD,
+			session_id: SESSION,
+			turn_id: TURN,
+		})
 		expect(outcome.stdout).toContain(`env=${SESSION}/${TURN}`)
 	})
 
@@ -94,7 +100,12 @@ describe('runShellHook', () => {
 				)
 				expect(outcome.exitCode).toBe(0)
 				const json = JSON.parse(outcome.stdout.slice(0, outcome.stdout.indexOf(' env=')))
-				expect(json).toEqual({ event, cwd: CWD, session_id: SESSION })
+				expect(json).toEqual({
+					hook_event_name: expect.any(String),
+					event,
+					cwd: CWD,
+					session_id: SESSION,
+				})
 				expect(outcome.stdout).toContain(`env=${SESSION}/unset`)
 			} finally {
 				if (inherited === undefined) Reflect.deleteProperty(process.env, 'NAMZU_TURN_ID')
@@ -102,6 +113,64 @@ describe('runShellHook', () => {
 			}
 		},
 	)
+
+	it('also sends the facts under the names other hosts use', async () => {
+		const outcome = await runShellHook(
+			{ command: 'cat' },
+			{
+				...base,
+				event: 'post_tool_use',
+				toolName: 'bash',
+				toolInput: { command: 'ls' },
+				toolResult: { success: true, output: 'a.txt' },
+				transcriptPath: '/state/projects/p/session.jsonl',
+				permissionMode: 'acceptEdits',
+			},
+		)
+		const json = JSON.parse(outcome.stdout)
+		expect(json).toMatchObject({
+			event: 'post_tool_use',
+			hook_event_name: 'PostToolUse',
+			tool_result: { success: true, output: 'a.txt' },
+			tool_response: { success: true, output: 'a.txt' },
+			transcript_path: '/state/projects/p/session.jsonl',
+			permission_mode: 'acceptEdits',
+		})
+	})
+
+	it('leaves transcript_path and permission_mode out when the host has none', async () => {
+		const outcome = await runShellHook({ command: 'cat' }, { ...base, event: 'turn_end' })
+		const json = JSON.parse(outcome.stdout)
+		expect(json.hook_event_name).toBe('Stop')
+		expect(json).not.toHaveProperty('transcript_path')
+		expect(json).not.toHaveProperty('permission_mode')
+	})
+
+	it('asks the host for the transcript and mode at each run', async () => {
+		const registered: PluginHookDefinition[] = []
+		attachShellHooks(
+			{ registerHook: (_id: string, hook: PluginHookDefinition) => registered.push(hook) } as never,
+			{ turn_end: [{ command: 'cat >&2; exit 2' }] },
+			{
+				cwd: CWD,
+				transcriptPath: (id) => `/t/${id}.jsonl`,
+				permissionMode: () => 'plan',
+			},
+		)
+		const hook = registered[0]
+		if (!hook) throw new Error('no hook')
+		const result = await hook.handler({
+			sessionId: asSessionId(SESSION),
+			pluginId: SHELL_HOOKS_PLUGIN_ID,
+			event: 'turn_end',
+		} as PluginHookContext)
+		expect(result).toMatchObject({ action: 'skip' })
+		const reason = (result as { reason: string }).reason
+		expect(JSON.parse(reason)).toMatchObject({
+			transcript_path: `/t/${SESSION}.jsonl`,
+			permission_mode: 'plan',
+		})
+	})
 
 	it('tells subagent_stop which session and turn delegated', async () => {
 		const outcome = await runShellHook(
@@ -116,6 +185,7 @@ describe('runShellHook', () => {
 		const json = JSON.parse(outcome.stdout)
 		expect(json).toEqual({
 			event: 'subagent_stop',
+			hook_event_name: 'SubagentStop',
 			cwd: CWD,
 			session_id: SESSION,
 			turn_id: TURN,

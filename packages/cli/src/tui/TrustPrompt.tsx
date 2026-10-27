@@ -63,7 +63,13 @@ export function trustGrantLines(
 	grants: FolderGrants | undefined,
 	columns: number,
 ): readonly string[] {
-	if (!grants || (grants.allowRules.length === 0 && grants.directories.length === 0)) return []
+	if (
+		!grants ||
+		(grants.allowRules.length === 0 &&
+			grants.directories.length === 0 &&
+			grants.toolServers.length === 0)
+	)
+		return []
 	const room = trustPathWidth(columns)
 	const lines: string[] = []
 	if (grants.allowRules.length > 0) {
@@ -84,6 +90,16 @@ export function trustGrantLines(
 			lines.push(`  ${displayPath(dir, Math.max(1, room - 2))}`)
 		}
 		const more = grants.directories.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
+	}
+	if (grants.toolServers.length > 0) {
+		lines.push(
+			`This folder starts ${countOf(grants.toolServers.length, 'tool server', 'tool servers')}:`,
+		)
+		for (const name of grants.toolServers.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			lines.push(`  ${name.length + 2 > room ? `${name.slice(0, Math.max(1, room - 3))}…` : name}`)
+		}
+		const more = grants.toolServers.length - MAX_SHOWN_GRANT_RULES
 		if (more > 0) lines.push(`  and ${more} more`)
 	}
 	lines.push(...wrapBalancedText(GRANTS_NOTICE, room))

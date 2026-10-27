@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { discoverUserCommands, expandCommand } from './store.js'
+import { discoverUserCommands, expandCommand, expandHeadlessCommand } from './store.js'
 
 let home: string
 let cwd: string
@@ -148,5 +148,80 @@ describe('expandCommand', () => {
 		const r = expandCommand(broken, '')
 		expect(r.ok).toBe(false)
 		expect(!r.ok && r.reason).toBe('bad frontmatter')
+	})
+})
+
+describe('skills as commands', () => {
+	function skill(root: string, name: string, frontmatter: string, body: string): void {
+		const dir = join(root, '.namzu', 'skills', name)
+		mkdirSync(dir, { recursive: true })
+		writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${name}\n${frontmatter}\n---\n${body}`)
+	}
+	const withSkills = () => discoverUserCommands({ home, cwd, skillCommands: 'declared' })
+
+	it('leaves skills out unless asked', () => {
+		skill(cwd, 'triage', 'description: Triage a bug', 'Look at $ARGUMENTS.')
+		expect(discoverUserCommands({ home, cwd })).toEqual([])
+	})
+
+	it('makes an invocable skill /<name>, its body the template, with the argument hint', () => {
+		skill(
+			cwd,
+			'triage',
+			'description: Triage a bug\nargument-hint: [issue-number]',
+			'Look at $ARGUMENTS.',
+		)
+		const cmd = withSkills().find((c) => c.name === 'triage')
+		expect(cmd?.source).toBe('skill')
+		expect(cmd?.description).toBe('Triage a bug')
+		expect(cmd?.argumentHint).toBe('[issue-number]')
+		const expanded = expandCommand(cmd as NonNullable<typeof cmd>, '42')
+		expect(expanded).toMatchObject({ ok: true })
+		expect(expanded.ok && expanded.prompt).toContain('Look at 42.')
+		expect(expanded.ok && expanded.prompt).toContain('Base directory for this skill:')
+	})
+
+	it('refuses arguments a skill body has no place for, like any command', () => {
+		skill(cwd, 'tidy', 'description: Tidy up', 'Tidy the repo.')
+		const cmd = withSkills().find((c) => c.name === 'tidy')
+		const expanded = expandCommand(cmd as NonNullable<typeof cmd>, 'now')
+		expect(expanded.ok).toBe(false)
+		expect(expandCommand(cmd as NonNullable<typeof cmd>, '').ok).toBe(true)
+	})
+
+	it('gives no command to a model-only skill or one hidden from the person', () => {
+		skill(cwd, 'model-only', 'description: x\ninvocation: model', 'body')
+		skill(cwd, 'hidden', 'description: x\nuser-invocable: false', 'body')
+		skill(cwd, 'person-only', 'description: x\ndisable-model-invocation: true', 'body')
+		expect(withSkills().map((c) => c.name)).toEqual(['person-only'])
+	})
+
+	it('lets a command file shadow a skill of the same name', () => {
+		skill(cwd, 'review', 'description: from the skill', 'skill body')
+		write(cwd, 'review.md', 'command body')
+		const found = withSkills().filter((c) => c.name === 'review')
+		expect(found).toHaveLength(1)
+		expect(found[0]?.source).toBe('project')
+	})
+
+	it('keeps the skills that ship with Namzu out of a headless prompt but offers them to the terminal', () => {
+		const declared = discoverUserCommands({ home, cwd, skillCommands: 'declared' })
+		const all = discoverUserCommands({ home, cwd, skillCommands: 'all' })
+		expect(declared.map((c) => c.name)).not.toContain('skill-creator')
+		expect(all.map((c) => c.name)).toContain('skill-creator')
+	})
+
+	it('reads an argument hint in a command file too', () => {
+		write(cwd, 'fix.md', '---\ndescription: Fix it\nargument-hint: [file]\n---\nFix $ARGUMENTS')
+		const [cmd] = discoverUserCommands({ home, cwd })
+		expect(cmd?.argumentHint).toBe('[file]')
+	})
+
+	it('expands a skill the project declared in a headless prompt, and leaves a shipped one as prose', () => {
+		skill(cwd, 'triage', 'description: Triage', 'Look at $ARGUMENTS.')
+		const declared = expandHeadlessCommand('/triage 42', { home, cwd })
+		expect(declared.kind).toBe('expanded')
+		expect(declared.kind === 'expanded' && declared.prompt).toContain('Look at 42.')
+		expect(expandHeadlessCommand('/skill-creator draft one', { home, cwd }).kind).toBe('unchanged')
 	})
 })

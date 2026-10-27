@@ -24,7 +24,7 @@ namzu exec --json --session my-window-7 "refactor the parser" \
 
 It takes the same options as the default mode (`--provider`, `--model`,
 `--effort`, `--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`,
-`--output-schema`, the limit flags and the `[permissions]` config table),
+`--output-schema`, `--mcp-config`, the limit flags and the `[permissions]` config table),
 except `--continue`, `--resume` and `--wait-for-provider`, which are refused by
 name rather than ignored. With `--output-schema <file>` the settled answer in
 `done.text` is JSON bound to that schema; a schema that cannot be loaded is an

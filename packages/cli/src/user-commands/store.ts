@@ -19,6 +19,15 @@
  * fail. What IS reused is the part worth sharing: `parseFrontmatter`, so there
  * is exactly one definition of what a `---` block means anywhere in the repo.
  *
+ * ## Skills are commands too
+ *
+ * Every skill a person can invoke is also `/<name>`: its body is the template,
+ * so a skill and a command file are one mechanism with one `$ARGUMENTS` rule.
+ * A skill the author marked model-only (`invocation: model`) or hid from the
+ * person (`user-invocable: false`) gets no command. A command file of the same
+ * name shadows the skill; `/skills <name>` still activates a skill for the
+ * whole conversation.
+ *
  * ## Arguments
  *
  * `$ARGUMENTS` in the template is replaced by whatever followed the command.
@@ -30,11 +39,13 @@
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { platform } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
+import type { SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
+import { type SkillInfo, discoverSkills, loadSkillBody } from '../skills/store.js'
 
-export type UserCommandSource = 'user' | 'project'
+export type UserCommandSource = 'user' | 'project' | 'skill'
 
 export interface UserCommand {
 	/** Invoked as `/<name>`. The filename without `.md`. */
@@ -44,6 +55,8 @@ export interface UserCommand {
 	readonly template: string
 	readonly path: string
 	readonly source: UserCommandSource
+	/** What the composer shows after `/<name> ` (`argument-hint`). */
+	readonly argumentHint?: string
 	/**
 	 * Why this command cannot be used, when it cannot.
 	 *
@@ -53,6 +66,15 @@ export interface UserCommand {
 	 * accounted for rather than missing.
 	 */
 	readonly problem?: string
+}
+
+/**
+ * The hint as the composer shows it. A YAML list (`[file]`) reaches here as
+ * its items without the brackets, so a hint that is not already bracketed or
+ * angled gets square brackets back.
+ */
+export function displayHint(hint: string): string {
+	return /^[[<(]/.test(hint) ? hint : `[${hint}]`
 }
 
 /** The token a template uses to receive what followed the command. */
@@ -97,10 +119,19 @@ function readCommandsFrom(dir: string, source: UserCommandSource): UserCommand[]
 				out.push({ name, description: '(no description)', template: raw.trim(), path, source })
 				continue
 			}
-			const { values, body } = parseFrontmatter(raw, path)
+			const { values, body } = parseFrontmatter(raw, path, { lists: ['argument-hint'] })
 			const description =
 				values.description?.kind === 'scalar' ? values.description.value : '(no description)'
-			out.push({ name, description, template: body, path, source })
+			const hint =
+				values['argument-hint']?.kind === 'scalar' ? values['argument-hint'].value.trim() : ''
+			out.push({
+				name,
+				description,
+				template: body,
+				path,
+				source,
+				...(hint ? { argumentHint: displayHint(hint) } : {}),
+			})
 		} catch (err) {
 			out.push({
 				name,
@@ -125,7 +156,21 @@ function readCommandsFrom(dir: string, source: UserCommandSource): UserCommand[]
  * never ran.
  */
 export function discoverUserCommands(
-	opts: { home?: string; cwd?: string; reserved?: readonly string[] } = {},
+	opts: {
+		home?: string
+		cwd?: string
+		reserved?: readonly string[]
+		/** The skills section of the config, so a disabled skill is listed as unavailable. */
+		skills?: SkillsConfig
+		/**
+		 * Which skills become commands. `all` is every invocable skill;
+		 * `declared` leaves out the ones that ship with Namzu, for a headless
+		 * prompt where only what the operator wrote can claim a name; `none`
+		 * (the default) leaves skills out, so a caller that wants only command
+		 * files gets exactly those.
+		 */
+		skillCommands?: 'all' | 'declared' | 'none'
+	} = {},
 ): UserCommand[] {
 	const reserved = new Set(opts.reserved ?? [])
 	const userDir = userCommandsDir(opts.home)
@@ -140,6 +185,7 @@ export function discoverUserCommands(
 		: readCommandsFrom(projectDir, 'project')
 
 	const byName = new Map<string, UserCommand>()
+	for (const c of skillCommands(opts)) byName.set(c.name, c) // a command file shadows a skill
 	for (const c of user) byName.set(c.name, c)
 	for (const c of project) byName.set(c.name, c) // project wins
 
@@ -150,6 +196,46 @@ export function discoverUserCommands(
 				: c,
 		)
 		.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** A skill as a command: its body is the template, its folder is named so relative files resolve. */
+function skillAsCommand(skill: SkillInfo): UserCommand {
+	const base = {
+		name: skill.name,
+		description: skill.description,
+		path: skill.path,
+		source: 'skill' as const,
+		...(skill.argumentHint ? { argumentHint: displayHint(skill.argumentHint) } : {}),
+	}
+	if (skill.problem) return { ...base, template: '', problem: skill.problem }
+	try {
+		const body = loadSkillBody(skill)
+		return { ...base, template: `Base directory for this skill: ${dirname(skill.path)}\n\n${body}` }
+	} catch (err) {
+		return { ...base, template: '', problem: err instanceof Error ? err.message : String(err) }
+	}
+}
+
+function skillCommands(opts: {
+	home?: string
+	cwd?: string
+	skills?: SkillsConfig
+	skillCommands?: 'all' | 'declared' | 'none'
+}): UserCommand[] {
+	const mode = opts.skillCommands ?? 'none'
+	if (mode === 'none') return []
+	return discoverSkills({
+		...(opts.home !== undefined ? { home: opts.home } : {}),
+		...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+		...(opts.skills !== undefined ? { config: opts.skills } : {}),
+	})
+		.filter(
+			(skill) =>
+				skill.invocation !== 'model' &&
+				skill.userInvocable !== false &&
+				(mode === 'all' || skill.tier !== 'system'),
+		)
+		.map(skillAsCommand)
 }
 
 function samePhysicalDirectory(left: string, right: string): boolean {
@@ -211,7 +297,12 @@ export type HeadlessExpansion =
  */
 export function expandHeadlessCommand(
 	prompt: string,
-	opts: { home?: string; cwd?: string; builtins?: readonly string[] } = {},
+	opts: {
+		home?: string
+		cwd?: string
+		builtins?: readonly string[]
+		skills?: SkillsConfig
+	} = {},
 ): HeadlessExpansion {
 	const trimmed = prompt.trim()
 	if (!trimmed.startsWith('/')) return { kind: 'unchanged', prompt }
@@ -232,6 +323,9 @@ export function expandHeadlessCommand(
 	const commands = discoverUserCommands({
 		...(opts.home !== undefined ? { home: opts.home } : {}),
 		...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+		...(opts.skills !== undefined ? { skills: opts.skills } : {}),
+		// A skill that ships with Namzu is not something this project declared.
+		skillCommands: 'declared',
 		reserved: [...builtins],
 	})
 	const found = commands.find((c) => c.name === name)

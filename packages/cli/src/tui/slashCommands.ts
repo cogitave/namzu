@@ -508,7 +508,11 @@ export function matchSlashCommands(
 	// it prints the problem, which is how its author finds out.
 	const own: SlashCommand[] = userCommands.map((c) => ({
 		name: c.name,
-		description: c.problem ? `Unavailable: ${c.problem}` : c.description,
+		description: c.problem
+			? `Unavailable: ${c.problem}`
+			: c.argumentHint
+				? `${c.argumentHint} ${c.description}`
+				: c.description,
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
@@ -703,11 +707,11 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 					? []
 					: [
 							'Usage:',
-							`  /${user.name}${acceptsArguments ? ' [arguments]' : ''}`,
+							`  /${user.name}${acceptsArguments ? ` ${user.argumentHint ?? '[arguments]'}` : ''}`,
 							'',
 							'Running this command sends its saved prompt to the model.',
 						]),
-				`${user.source === 'project' ? 'Project command' : 'User command (all projects)'}: ${user.path}`,
+				`${userCommandOrigin(user)}: ${user.path}`,
 				...(user.problem ? [`Unavailable: ${user.problem}`] : []),
 			].join('\n'),
 		}
@@ -2253,6 +2257,26 @@ export function renderAgents(ids: readonly string[]): string {
 		'define a specialist for a single task, which is not listed here because',
 		'it does not exist until the agent asks for it.',
 	].join('\n')
+}
+
+function userCommandOrigin(command: UserCommand): string {
+	if (command.source === 'skill') return 'Skill'
+	return command.source === 'project' ? 'Project command' : 'User command (all projects)'
+}
+
+/**
+ * The hint to show after a command name the person has finished typing.
+ *
+ * Only for `/<name> ` with nothing after the space: once an argument starts,
+ * the hint has done its job. A command with no `argument-hint` shows none.
+ */
+export function argumentHintFor(
+	value: string,
+	userCommands: readonly UserCommand[],
+): string | undefined {
+	const m = /^\/([\w-]+) $/.exec(value)
+	if (!m) return undefined
+	return userCommands.find((command) => command.name === m[1])?.argumentHint
 }
 
 export function runSlash(

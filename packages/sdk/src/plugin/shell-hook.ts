@@ -14,7 +14,13 @@
  * The command runs with `sh -c` in `cwd`. It receives one JSON object on
  * stdin — `event`, `cwd`, `session_id`, `turn_id` inside a turn, and for
  * tool events `tool_name`, `tool_input` and (after the call) `tool_result`;
- * `subagent_stop` adds `parent_session_id` and `parent_turn_id` — and the
+ * `subagent_stop` adds `parent_session_id` and `parent_turn_id`. Each fact a
+ * script written for another host would look for under a different name is
+ * also sent under that name: `hook_event_name` (the PascalCase spelling,
+ * `PreToolUse`, `Stop`, ...), `tool_response` (the same object as
+ * `tool_result`), and, when the host knows them, `transcript_path` and
+ * `permission_mode`. The Namzu names stay, so no existing script changes.
+ * The same facts go out as
  * same facts as `NAMZU_HOOK_EVENT`, `NAMZU_SESSION_ID`, `NAMZU_TURN_ID`,
  * `NAMZU_TOOL_NAME` and, when the input names a file, `NAMZU_TOOL_PATH`.
  *
@@ -305,6 +311,10 @@ export interface ShellHookInput {
 	readonly notification?: PluginNotificationInfo
 	/** On `turn_end` and `subagent_stop`: an earlier answer already kept this turn going. */
 	readonly stopHookActive?: boolean
+	/** The session's transcript file, when the host has one. Sent as `transcript_path`. */
+	readonly transcriptPath?: string
+	/** How tool calls are being decided right now. Sent as `permission_mode`. */
+	readonly permissionMode?: string
 }
 
 /** Run one hook command to completion, bounded by its deadline and capture. */
@@ -319,8 +329,11 @@ export function runShellHook(
 	)
 	const payload = JSON.stringify({
 		event: input.event,
+		hook_event_name: PASCAL_EVENT_NAMES[input.event] ?? input.event,
 		cwd: input.cwd,
 		session_id: input.sessionId,
+		...(input.transcriptPath !== undefined ? { transcript_path: input.transcriptPath } : {}),
+		...(input.permissionMode !== undefined ? { permission_mode: input.permissionMode } : {}),
 		...(input.turnId !== undefined ? { turn_id: input.turnId } : {}),
 		...(input.parentSessionId !== undefined ? { parent_session_id: input.parentSessionId } : {}),
 		...(input.parentTurnId !== undefined ? { parent_turn_id: input.parentTurnId } : {}),
@@ -328,7 +341,9 @@ export function runShellHook(
 		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
 		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
 		...(input.toolInput !== undefined ? { tool_input: input.toolInput } : {}),
-		...(input.toolResult !== undefined ? { tool_result: input.toolResult } : {}),
+		...(input.toolResult !== undefined
+			? { tool_result: input.toolResult, tool_response: input.toolResult }
+			: {}),
 		...(input.event === 'post_tool_use_failure' && input.toolResult?.error !== undefined
 			? { error: input.toolResult.error }
 			: {}),
@@ -589,11 +604,12 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 				reading.permission = { decision, ...(why ? { reason: why } : {}) }
 			} else if (decision !== 'defer') {
 				return {
-					invalid: '`permissionDecision` must be "allow", "deny" or "ask"',
+					invalid: '`permissionDecision` must be "allow", "deny", "ask" or "defer"',
 				}
 			}
-			// "defer" hands the decision to a separate permission service the kernel
-			// does not have: nothing is decided, and the ordinary rules apply.
+			// "defer" is accepted and decides nothing: a script that hands a call
+			// back to a separate permission service gets the ordinary rules, the
+			// same as a hook that said nothing.
 		}
 		if (specific.updatedInput !== undefined) {
 			if (!isRecord(specific.updatedInput)) return { invalid: '`updatedInput` must be an object' }
@@ -802,6 +818,14 @@ export interface ShellHookOptions {
 	/** Where the command runs and what `cwd` says on stdin. */
 	readonly cwd: string
 	readonly log?: Logger
+	/**
+	 * The transcript file of a session, sent as `transcript_path`. Called at
+	 * each run, because a host's session can change under one manager. Absent
+	 * or returning `undefined`, the field is left out.
+	 */
+	readonly transcriptPath?: (sessionId: string) => string | undefined
+	/** The permission mode in force now, sent as `permission_mode`. Called at each run. */
+	readonly permissionMode?: () => string | undefined
 }
 
 /** One entry as a hook definition the lifecycle manager accepts. */
@@ -828,6 +852,8 @@ export function createShellHook(
 				return { action: 'continue' }
 			}
 			if (entry.once === true) spent = true
+			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
+			const permissionMode = options.permissionMode?.()
 			const outcome = await runShellHook(
 				entry,
 				{
@@ -858,6 +884,8 @@ export function createShellHook(
 						: {}),
 					...(context.notification !== undefined ? { notification: context.notification } : {}),
 					...(context.stopHookActive === true ? { stopHookActive: true } : {}),
+					...(transcriptPath !== undefined ? { transcriptPath } : {}),
+					...(permissionMode !== undefined ? { permissionMode } : {}),
 				},
 				context.signal,
 			)

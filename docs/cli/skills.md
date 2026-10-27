@@ -100,11 +100,21 @@ the manifest and the `skill` tool answers that no such skill exists.
 
 **Who may invoke it.** `invocation: operator`, or `disable-model-invocation:
 true`, keeps a skill away from the model: it is not in the manifest and the
-`skill` tool refuses it. The operator can still activate it. The two keys
+`skill` tool refuses it. The operator can still activate it, and it is still `/<name>`. The two keys
 must agree; `disable-model-invocation` takes only `true` or `false`.
 
 A skill's `allowed-tools` means what it meant before this page existed; the
 catalog passes it through untouched.
+
+**Who may type it.** A skill you can invoke is a slash command, `/<name>
+[arguments]` ([Slash commands](slash-commands.md)). `user-invocable: false`
+(or `invocation: model`) gives it no command; `argument-hint` is the dim line
+the composer shows after the name. `$ARGUMENTS` in the body takes the text
+after the name; arguments given to a skill whose body has no `$ARGUMENTS` are
+refused with the file named, so they are never silently dropped. The prompt
+begins with the skill's folder, so files it names relative to itself resolve.
+`namzu exec "/<name> ..."` runs a skill you wrote (user or project folders);
+the skills that ship with Namzu stay ordinary prompt text there.
 
 ## Built-in skills
 
@@ -257,7 +267,9 @@ import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone
 ## Frontmatter
 
 `name`, `description`, `license`, `compatibility`, `allowed-tools`,
-`invocation`, `disable-model-invocation` and `metadata` are read. Any other
+`invocation`, `disable-model-invocation` and `metadata` are read by the
+model's catalog; the terminal also reads `argument-hint` and
+`user-invocable` for the command. Any other
 key is skipped whole, whatever YAML it uses, so a skill written for another
 agent (`argument-hint: [file]`, a `hooks:` block with a list in it) loads
 here with those fields ignored. The read keys are still parsed strictly: a

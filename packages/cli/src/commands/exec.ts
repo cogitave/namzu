@@ -61,6 +61,7 @@ import {
 	type ExecFlags,
 	applyProviderFlags,
 	buildGate,
+	launchMcpServers,
 	loadSkillsContext,
 	parseExecFlags,
 	resolveWorkingDirectory,
@@ -175,6 +176,7 @@ async function execPrint(
 		ctx.formatter.error({ message: structuredOutput.error })
 		return EXIT_USAGE
 	}
+
 	// `--session` keys a host's conversation for `--json`. This mode resumes
 	// with --continue or --resume; accepting the key and ignoring it would
 	// answer against no history while looking like it answered against one.
@@ -233,6 +235,11 @@ async function execPrint(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	if ('error' in mcpServers) {
+		ctx.formatter.error({ message: mcpServers.error })
+		return EXIT_USAGE
+	}
 
 	// Project commands are code-like launch authority: discover and expand
 	// them only after the target folder has crossed the same trust boundary
@@ -240,6 +247,7 @@ async function execPrint(
 	const expansion = expandHeadlessCommand(prompt, {
 		cwd,
 		builtins: hostCommandNames(),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 	})
 	if (expansion.kind === 'refused') {
 		ctx.formatter.error({ message: expansion.reason })
@@ -389,7 +397,7 @@ async function execPrint(
 		// Run from the user's own terminal, so a page can be opened on their
 		// desktop. Never `exec --json`, `drain` or a scheduled run.
 		openUrl: true,
-		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+		...(mcpServers.servers ? { mcpServers: mcpServers.servers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
@@ -779,6 +787,7 @@ export const execCommand: CommandDef = {
 		'  --json                Stream one JSON event per line instead of the reply',
 		'  --output-schema <f>   Bind the final answer to the JSON Schema in file f,',
 		'                        using the provider’s native structured output',
+		'  --mcp-config <f>      Add the tool servers in file f for this run; repeatable',
 		'  --cwd <path>          Directory the agent works in (default: this one)',
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',

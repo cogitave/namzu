@@ -1,4 +1,4 @@
-import { ConfigLoadError } from '../config/load.js'
+import { ConfigLoadError, pendingProjectMcpServers } from '../config/load.js'
 import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
@@ -92,6 +92,7 @@ import {
 	type QuestionGate,
 	createQuestionGate,
 } from '../integrations/learning/generator-trigger.js'
+import { approveProjectMcpServers } from '../integrations/mcp/project-approval.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
@@ -5518,6 +5519,8 @@ function AppBody({
 					? []
 					: discoverUserCommands({
 							cwd: activeCtx.cwd,
+							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							skillCommands: 'all',
 							reserved: hostCommandNames(),
 						})
 				// Construction and validation precede the saved change. There is no
@@ -6120,6 +6123,17 @@ function AppBody({
 			try {
 				activateTrustedProject()
 				void runProbe()
+				try {
+					const { pending } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
+					if (pending.length > 0) {
+						pushMessage(
+							'system',
+							`${pending.length === 1 ? '1 tool server' : `${pending.length} tool servers`} from this project's .mcp.json ${pending.length === 1 ? 'is' : 'are'} waiting for your approval and ${pending.length === 1 ? "hasn't" : "haven't"} started: ${pending.join(', ')}. Run "namzu mcp approve" to start ${pending.length === 1 ? 'it' : 'them'}.`,
+						)
+					}
+				} catch {
+					// A broken .mcp.json is reported by the load itself.
+				}
 			} catch (err) {
 				setPhase('unhealthy')
 				setStartupExplained(err instanceof ConfigLoadError && err.complete)
@@ -6142,6 +6156,19 @@ function AppBody({
 		} catch {
 			// Non-fatal: proceed for this session even if persisting failed.
 		}
+		try {
+			// The gate listed the folder's tool servers, so accepting it is the
+			// answer for the servers it showed; one added later asks again.
+			const { declared } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
+			approveProjectMcpServers(
+				resolveNamzuHome(),
+				trustedCwdRef.current,
+				declared,
+				trustGrants.toolServers,
+			)
+		} catch {
+			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
+		}
 		setPhase('probing')
 		try {
 			activateTrustedProject()
@@ -6151,7 +6178,7 @@ function AppBody({
 			setStartupExplained(err instanceof ConfigLoadError && err.complete)
 			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 		}
-	}, [activateTrustedProject, pushMessage, runProbe])
+	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
 
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter(

@@ -5,11 +5,14 @@
  * project files straight from disk and never validates or merges them: a file
  * that cannot be read or is not an object grants nothing here, and the real
  * load reports it once the folder is trusted. Only what the person needs to
- * weigh the choice is returned: the allow rules and the extra directories.
+ * weigh the choice is returned: the allow rules, the extra directories and
+ * the names of the tool servers the shared file declares.
  */
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+
+import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
 
 const FILES = ['namzu.config.json', 'namzu.config.local.json'] as const
 
@@ -21,6 +24,8 @@ export interface FolderGrants {
 	readonly allowRules: readonly string[]
 	/** Extra directories the folder adds to the workspace, as written, each once. */
 	readonly directories: readonly string[]
+	/** Tool servers the folder's shared file declares; approving the folder approves these. */
+	readonly toolServers: readonly string[]
 }
 
 function readObject(path: string): Record<string, unknown> | undefined {
@@ -58,8 +63,17 @@ export function readFolderGrants(cwd: string): FolderGrants {
 			}
 		}
 	}
+	let toolServers: string[] = []
+	try {
+		toolServers = Object.keys(
+			parseMcpServerFile(readFileSync(resolve(cwd, PROJECT_MCP_FILE), 'utf8'), PROJECT_MCP_FILE),
+		)
+	} catch {
+		// Absent or unreadable: the real load reports it once the folder is trusted.
+	}
 	return {
 		allowRules: [...new Set(allowRules)],
 		directories: [...new Set(directories)],
+		toolServers,
 	}
 }
