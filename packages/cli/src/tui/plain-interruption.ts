@@ -144,6 +144,13 @@ interface Copy {
 	readonly next: string
 }
 
+/** The failure is a certificate that does not check out, which no number of tries mends. */
+function refusedCertificate(event: Interruption): boolean {
+	return /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|HOSTNAME_MISMATCH/.test(
+		event.providerError?.providerCode ?? '',
+	)
+}
+
 function copyFor(
 	kind: InterruptionKind,
 	name: string,
@@ -178,6 +185,14 @@ function copyFor(
 				next: 'Try again in a minute.',
 			}
 		case 'network':
+			// The server answered, but its certificate does not check out: the
+			// connection is fine, and trying again meets the same refusal.
+			if (refusedCertificate(event)) {
+				return {
+					what: `Namzu could not verify the security certificate of ${name}.`,
+					next: 'Check the date on this computer and any proxy or custom certificate settings, then try again.',
+				}
+			}
 			return localAt
 				? {
 						what: `Namzu could not reach ${name} at ${localAt}.`,
@@ -232,6 +247,9 @@ function copyFor(
 /** What every pause ends with: one way on, one way out. */
 export const PAUSE_ACTIONS = 'Press Enter to continue, or Esc to stop.'
 
+/** What a pause that mends itself ends with: Enter does not wait for the next try. */
+export const AUTO_PAUSE_ACTIONS = 'Press Enter to try now, or Esc to stop.'
+
 /**
  * The one wording of a pause: `Paused. <what you need to do>. Press Enter to
  * continue, or Esc to stop.` `what` may be a sentence or a clause; its closing
@@ -240,6 +258,16 @@ export const PAUSE_ACTIONS = 'Press Enter to continue, or Esc to stop.'
 export function pauseSentence(what: string): string {
 	const body = what.trim().replace(/[.:;,\s]+$/u, '')
 	return body.length === 0 ? `Paused. ${PAUSE_ACTIONS}` : `Paused. ${body}. ${PAUSE_ACTIONS}`
+}
+
+/**
+ * The pause for a connection that would not hold: what happened, that Namzu
+ * keeps trying by itself, and the two things a person can do.
+ */
+function selfMendingPause(what: string, kind: InterruptionKind): string {
+	const body = what.trim().replace(/[.:;,\s]+$/u, '')
+	const keeps = kind === 'network' ? 'It tries again on its own.' : 'Namzu tries again on its own.'
+	return `Paused. ${body}. ${keeps} ${AUTO_PAUSE_ACTIONS}`
 }
 
 const SAYS_IT_ALL: ReadonlySet<InterruptionKind> = new Set([
@@ -344,9 +372,11 @@ export function describePlainInterruption(
 		const what = kind === 'unknown' && vendor ? `${capitalise(stem(vendor))}.` : copy.what
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
 		rows.push(
-			pauseSentence(
-				wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
-			),
+			(kind === 'network' || kind === 'server') && !refusedCertificate(event)
+				? selfMendingPause(what, kind)
+				: pauseSentence(
+						wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
+					),
 		)
 	} else if (kind === 'unknown' && vendor) {
 		// The failure's own sentence. It already says what to do when it names an

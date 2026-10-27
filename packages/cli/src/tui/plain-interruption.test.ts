@@ -254,6 +254,24 @@ describe('a local server that cannot be reached', () => {
 	})
 })
 
+describe('a connection failure that is not a dropped connection', () => {
+	it('names a certificate that does not check out, with something to check', () => {
+		const text = describePlainInterruption(
+			paused({
+				explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+				providerError: {
+					kind: 'network',
+					providerId: 'openai',
+					providerCode: 'SELF_SIGNED_CERT_IN_CHAIN',
+				},
+			}),
+		)
+		expect(text).toContain('could not verify the security certificate of OpenAI')
+		expect(text).not.toContain('tries again on its own')
+		expectPlain(text)
+	})
+})
+
 describe('a paused reply in the terminal app', () => {
 	const unavailable = {
 		explanation: { id: 'provider.unavailable', message: 'x', hint: 'y' },
@@ -275,12 +293,12 @@ describe('a paused reply in the terminal app', () => {
 		[
 			'server error',
 			unavailable,
-			'Paused. OpenAI is having problems on its side. Press Enter to continue, or Esc to stop.',
+			'Paused. OpenAI is having problems on its side. Namzu tries again on its own. Press Enter to try now, or Esc to stop.',
 		],
 		[
 			'offline',
 			offline,
-			'Paused. Namzu could not reach OpenAI. Press Enter to continue, or Esc to stop.',
+			'Paused. Namzu could not reach OpenAI. It tries again on its own. Press Enter to try now, or Esc to stop.',
 		],
 		[
 			'rate limited',

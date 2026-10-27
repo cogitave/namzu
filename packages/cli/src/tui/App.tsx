@@ -382,6 +382,7 @@ import {
 import { reducedMotion, useReducedMotion } from './motion.js'
 import { nextTask, nextTaskLine } from './next-task.js'
 import { isRepeatedNotice } from './notices.js'
+import { autoResumeDelayMs, isAutoResumable, startAutoResume } from './pause-auto-resume.js'
 import {
 	type TerminalPerCallReview,
 	appendTypedReason,
@@ -390,10 +391,18 @@ import {
 	plainNo,
 } from './per-call-review.js'
 import { type AskCount, AskQueue, CLOSED_QUESTION } from './permission-asks.js'
-import { displayPath, formatSize, homePath, plural, productName } from './person-terms.js'
+import {
+	displayPath,
+	formatSize,
+	formatSpan,
+	homePath,
+	plural,
+	productName,
+} from './person-terms.js'
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
+	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -1280,6 +1289,13 @@ function humanPromptMeta(
 }
 type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 
+/** A reply parked for the person; `autoResume` is set when it tries again by itself. */
+interface HandoffPark {
+	readonly turnId: string
+	readonly reason?: string
+	readonly autoResume?: { readonly attempt: number; readonly at: number }
+}
+
 interface QueuePause {
 	readonly outcome: QueuePauseOutcome
 	/** Esc pauses the queue so the next explicit Enter can run before it. */
@@ -1975,21 +1991,16 @@ function AppBody({
 	 * off while the operator was asked about it.
 	 */
 	const liveStreamRef = useRef<StreamState | null>(null)
-	const [handoffPark, setHandoffParkState] = useState<{
-		readonly turnId: string
-		readonly reason?: string
-	} | null>(null)
-	const handoffParkRef = useRef<{
-		readonly turnId: string
-		readonly reason?: string
-	} | null>(null)
-	const setHandoffPark = useCallback(
-		(value: { readonly turnId: string; readonly reason?: string } | null) => {
-			handoffParkRef.current = value
-			setHandoffParkState(value)
-		},
-		[],
-	)
+	const [handoffPark, setHandoffParkState] = useState<HandoffPark | null>(null)
+	const handoffParkRef = useRef<HandoffPark | null>(null)
+	const setHandoffPark = useCallback((value: HandoffPark | null) => {
+		handoffParkRef.current = value
+		setHandoffParkState(value)
+	}, [])
+	/** How many tries a paused reply has made by itself since the person last acted. */
+	const autoResumeAttemptRef = useRef(0)
+	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
+	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
@@ -6177,7 +6188,7 @@ function AppBody({
 			prompt.kind === 'goal'
 				? 'Automatic goal continuation'
 				: prompt.kind === 'notice'
-					? 'Reporting what finished'
+					? 'Something finished in the background'
 					: prompt.kind === 'peer'
 						? peerMailLabel(prompt.mail)
 						: (prompt.recallText ?? prompt.text),
@@ -6574,6 +6585,31 @@ function AppBody({
 			await resumeActiveTurn()
 		})()
 	}, [phase, resumeActiveTurn, session, state])
+
+	// A pause that mends itself: try again when its time comes, wait while the
+	// screen is busy, and stop the moment the person moves on or acts.
+	const autoResumeAt = handoffPark?.autoResume?.at
+	const autoResumeTurn = handoffPark?.turnId
+	useEffect(() => {
+		if (autoResumeAt === undefined || autoResumeTurn === undefined) return
+		return startAutoResume({
+			delayMs: autoResumeAt - Date.now(),
+			ready: () =>
+				handoffParkRef.current?.turnId === autoResumeTurn &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current,
+			resume: () => {
+				void resumeActiveTurn()
+			},
+		})
+	}, [autoResumeAt, autoResumeTurn, phase, state, resumeActiveTurn])
+	// The countdown in the hint line is redrawn once a second while it counts.
+	useEffect(() => {
+		if (autoResumeAt === undefined) return
+		const timer = setInterval(() => setAutoResumeTick((n) => n + 1), 1_000)
+		return () => clearInterval(timer)
+	}, [autoResumeAt])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doResume = useCallback(
@@ -8759,6 +8795,8 @@ function AppBody({
 					)
 					break
 				case 'done': {
+					// A reply that came through ends the run of tries a pause was making.
+					autoResumeAttemptRef.current = 0
 					setSummarising(false)
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
@@ -8862,7 +8900,18 @@ function AppBody({
 						pushSystem('warning', describePlainInterruption(event, plainOptions()))
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
-						setHandoffPark({ turnId: event.turnId })
+						// A connection that would not hold passes by itself, so the pause
+						// tries again on a schedule until the person stops it.
+						if (isAutoResumable(classifyInterruption(event))) {
+							const attempt = autoResumeAttemptRef.current + 1
+							autoResumeAttemptRef.current = attempt
+							setHandoffPark({
+								turnId: event.turnId,
+								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+							})
+						} else {
+							setHandoffPark({ turnId: event.turnId })
+						}
 					}
 					break
 				case 'error':
@@ -10197,6 +10246,7 @@ function AppBody({
 			}
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
+			autoResumeAttemptRef.current = 0
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
 			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
@@ -13771,8 +13821,10 @@ function AppBody({
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)
-				if (key.return) void resumeActiveTurn({ handoffReason: parked.reason })
-				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
+				if (key.return) {
+					autoResumeAttemptRef.current = 0
+					void resumeActiveTurn({ handoffReason: parked.reason })
+				} else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
 			}
 			// A queued message chosen for editing: Esc only leaves the choice.
@@ -13985,7 +14037,9 @@ function AppBody({
 								: boxOwnsKeys
 									? undefined
 									: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
-										? 'enter continue · esc stop'
+										? handoffPark.autoResume
+											? `trying again in ${formatSpan(Math.max(0, handoffPark.autoResume.at - Date.now()))} · enter try now · esc stop`
+											: 'enter continue · esc stop'
 										: goalStatus && phase === 'ready' && state === 'idle'
 											? undefined
 											: hintForPhase(phase, state, composerHasDraft)
