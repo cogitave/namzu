@@ -384,7 +384,7 @@ describe('grounded conversation query resolution', () => {
 		await expect(resolve({ ...ctx, stepNumber: 2 }, question)).rejects.toThrow()
 		expect(ctx.generateText).toHaveBeenCalledTimes(1)
 	})
-	it('uses grounded terms for retrieval, keeps interpretation labelled, and revalidates bytes each step', async () => {
+	it('uses grounded terms for retrieval, keeps interpretation labelled, and revalidates bytes each turn', async () => {
 		const ctx = context()
 		const scope = {
 			tenantId: generateTenantId(),
@@ -408,14 +408,14 @@ describe('grounded conversation query resolution', () => {
 		const recall = createEvidenceRecallStep({ scope, retrieve, resolveQuery: true })
 		const messages = structuredClone(ctx.messages)
 		for (const stepNumber of [1, 2]) {
-			const result = await recall({ ...ctx, stepNumber })
+			const result = await recall({ ...ctx, stepNumber, turnId: generateTurnId() })
 			expect(result?.context).toContain('DELTA takip A17 depo B42')
-			expect(result?.context).toContain('query interpretation, not proof')
+			expect(result?.context).toContain('interpretation of the question, not proof')
 			expect(result?.context?.length).toBeLessThanOrEqual(6000)
 		}
 		expect(retrieve).toHaveBeenCalledTimes(2)
 		expect(retrieve.mock.calls[0]![0].terms).toEqual(wantedTerms)
-		expect(ctx.generateText).toHaveBeenCalledTimes(1)
+		expect(ctx.generateText).toHaveBeenCalledTimes(2)
 		expect(ctx.messages).toEqual(messages)
 		const other = createEvidenceRecallStep({
 			scope: { ...scope, sessionId: generateSessionId() },

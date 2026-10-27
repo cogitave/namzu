@@ -48,7 +48,10 @@ describe('a command reports its streams and exit code as fields', () => {
 		try {
 			const result = await run('echo oops >&2; exit 3')
 			expect(result.success).toBe(false)
-			expect(result.output).toContain('NOTE:')
+			// The withheld count travels in `data`; the kernel tells the model in
+			// a notice of its own, so the result carries no note.
+			expect((result.data as { withheldEnv?: number }).withheldEnv).toBeGreaterThanOrEqual(1)
+			expect(result.output).not.toContain('NOTE:')
 			expect(result.facts).toMatchObject({ kind: 'command', exitCode: 3 })
 			expect(JSON.stringify(result.facts)).not.toContain('withheld')
 			expect(JSON.stringify(result.facts)).not.toContain('OPENAI_API_KEY')

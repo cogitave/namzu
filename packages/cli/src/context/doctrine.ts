@@ -70,7 +70,23 @@ function withoutAsking(doctrine: string): string {
 	return out
 }
 
-export const NAMZU_CHILD_WORKING_DOCTRINE: string = withoutAsking(WORKING_DOCTRINE)
+/**
+ * A sub-agent reports to its parent, not to the person, so the section about
+ * keeping the person informed (progress lines, a short closing note) is
+ * replaced by one about the final report: complete, and without filler.
+ */
+const INFORMED_HEADING = '### Keeping the user informed'
+const CHILD_REPORT_SECTION = `### Your final report
+- Your parent reads your final report and not your tool calls, so put everything it needs there: what changed, what was verified, what is left, and every assumption you made.
+- Keep the report complete and free of filler, because your parent relays it onward.`
+
+function withChildReport(doctrine: string): string {
+	const at = doctrine.indexOf(INFORMED_HEADING)
+	if (at === -1) throw new Error(`The working rules no longer contain: ${INFORMED_HEADING}`)
+	return `${doctrine.slice(0, at)}${CHILD_REPORT_SECTION}`
+}
+
+export const NAMZU_CHILD_WORKING_DOCTRINE: string = withChildReport(withoutAsking(WORKING_DOCTRINE))
 
 /**
  * Plan mode in a session that has the plan file and `exit_plan_mode` (the

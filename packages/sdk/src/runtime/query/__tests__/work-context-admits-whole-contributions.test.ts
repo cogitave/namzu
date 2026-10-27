@@ -99,9 +99,12 @@ async function run(
 		inbox.close()
 		const last = requests.at(-1) ?? []
 		const contents = last.map((message) => String(message.content))
+		// A later block replaces an earlier one, and a block that says nothing
+		// holds any longer replaces it with no entries at all.
+		const latest = contents.filter((content) => content.includes('Visible file evidence')).at(-1)
 		return {
 			owned: contents.some((content) => content.includes('Owned delegated work')),
-			evidence: contents.find((content) => content.includes('Visible file evidence')),
+			evidence: latest?.includes('no entry holds any longer') ? undefined : latest,
 		}
 	} finally {
 		await removeTempDirs([cwd])

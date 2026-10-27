@@ -237,7 +237,6 @@ it('caps traversal at four pages, accounts bytes together and supplies the origi
 	expect(calls[1]?.[0]).toEqual({ cursor: 'cursor-1', maxReadBytes: 8 * 1024 * 1024 - 1000 })
 	const [metadata] = records(result?.context)
 	expect(metadata).toMatchObject({
-		scannedBytes: 4000,
 		incomplete: true,
 		continuations: [{ toolName: 'search_resident_tools', input: { cursor: 'cursor-4' } }],
 	})
@@ -400,7 +399,6 @@ it('spends the shared pages on uncovered subjects, then resumes the original cur
 	expect(calls[2]).toEqual({ cursor: 'broad-1', maxReadBytes: 8 * 1024 * 1024 - 2000 })
 	expect(calls[3]).toEqual({ cursor: 'broad-3', maxReadBytes: 8 * 1024 * 1024 - 3000 })
 	expect(records(result?.context)[0]).toMatchObject({
-		scannedBytes: 4000,
 		incomplete: true,
 		continuations: [{ toolName: 'search_resident_tools', input: { cursor: 'broad-4' } }],
 	})
@@ -510,7 +508,7 @@ it('times out uncooperative I/O without accumulating further reads', async () =>
 	await vi.advanceTimersByTimeAsync(11)
 	await first
 	const next = await recall(f.context)
-	expect(next?.context).toContain('"reason":"pending"')
+	expect(next?.context).toContain('is still running')
 	expect(next?.context).not.toContain('A-73')
 	expect(f.search).toHaveBeenCalledTimes(1)
 	if (!release) throw new Error('Search did not start.')

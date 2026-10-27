@@ -244,7 +244,9 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 			.map((message) => message.content)
 			.join('\n')
 		expect(summaries).toContain(direction)
-		expect(summaries?.split(direction)).toHaveLength(2)
+		// Once in the requirements list and once as the restated goal, never more.
+		expect(summaries?.split(direction)).toHaveLength(3)
+		expect(summaries).toContain(`## Current Goal\n\n${direction}`)
 		expect(summaries).not.toContain('UNRELATED_WORKER_REPORT')
 	},
 )

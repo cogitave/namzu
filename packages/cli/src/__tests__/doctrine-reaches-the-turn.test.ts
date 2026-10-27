@@ -8,7 +8,7 @@
  *   doctrine.ts       → system prompt of the parent turn
  *                     → system prompt of every delegated sub-agent
  *   turn-snapshot.ts  → `promptContributions` handed to query(), rendered
- *                       on iteration 1 and on no other
+ *                       with the same text on every iteration
  *   runtimeToolOverrides → the task tools register `active`, not `deferred`
  *
  * The repository here is a real one with a commit subject and an untracked
@@ -163,9 +163,13 @@ describe('the working doctrine', () => {
 	it('reaches every delegated sub-agent, not only the parent', async () => {
 		const prompt = await subagentSystemPrompt()
 
-		for (const sentence of DOCTRINE_SENTENCES) {
+		// Every working rule but the one about narrating to the person: a
+		// sub-agent reports to its parent, and says so in its own section.
+		for (const sentence of DOCTRINE_SENTENCES.filter((s) => !s.startsWith('Before a batch'))) {
 			expect(prompt).toContain(sentence)
 		}
+		expect(prompt).not.toContain('Before a batch of tool calls')
+		expect(prompt).toContain('### Your final report')
 	})
 
 	it('does not tell a sub-agent to use the tools only the parent has', async () => {
@@ -182,7 +186,7 @@ describe('the working doctrine', () => {
 })
 
 describe('the turn-start snapshot', () => {
-	it('carries the real working tree and recent commits, on the first iteration only', async () => {
+	it('carries the real working tree and recent commits, with the same text on every iteration', async () => {
 		const subject = `feat: snapshot-sentinel-${process.pid}`
 		commit(repo, subject)
 		const scratch = `scratch-${process.pid}.txt`
@@ -202,9 +206,9 @@ describe('the turn-start snapshot', () => {
 		)
 
 		expect(
-			contributions.render('context', { iteration: 2 }),
-			'a later iteration works from state the model changed itself',
-		).toEqual([])
+			contributions.render('context', { iteration: 2 }).join('\n'),
+			'a later iteration repeats the text, so its place in the request does not change',
+		).toBe(first)
 		expect(
 			contributions.render('turn', { iteration: 1 }).join('\n'),
 			'an observation rides request-only context, not a system message a driver hoists',

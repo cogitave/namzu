@@ -515,9 +515,13 @@ describe('a resumed turn remembers the files this conversation wrote', () => {
 			(m) => m.role === 'tool' && String(m.content).includes('changed on disk'),
 		)
 		expect(refusal).toBeDefined()
-		// The first request offered the body; the one after the refusal does not.
+		// The first request offered the body; the one after the refusal keeps
+		// that text as sent and ends with the block that says no entry holds.
 		expect(requests[0]?.map((m) => String(m.content)).join('\n')).toContain('"bodyInCall":"w1"')
-		expect(requests[1]?.map((m) => String(m.content)).join('\n')).not.toContain('"bodyInCall":"w1"')
+		const afterRefusal = requests[1]?.map((m) => String(m.content)).join('\n') ?? ''
+		expect(afterRefusal.lastIndexOf('no entry holds any longer')).toBeGreaterThan(
+			afterRefusal.lastIndexOf('"bodyInCall":"w1"'),
+		)
 		// Untouched: a refused edit writes nothing.
 		expect(await readFile(path, 'utf-8')).toBe('somebody else wrote this\n')
 	})

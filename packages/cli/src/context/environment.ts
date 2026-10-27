@@ -293,12 +293,16 @@ export function environmentFactLines(
 	return lines
 }
 
+const FACTS_FRAMING =
+	'These are facts about right now. Prefer them over any date or branch you would otherwise assume.'
+
 export function composeEnvironmentPrompt(
 	facts: EnvironmentFacts,
 	options: EnvironmentPromptOptions = {},
 ): string {
 	const stable = options.stable === true
-	const lines = stable ? [] : environmentFactLines(facts)
+	// The framing line leads the block, so the facts below are read as facts.
+	const lines = stable ? [] : [FACTS_FRAMING, ...environmentFactLines(facts)]
 	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
@@ -306,11 +310,6 @@ export function composeEnvironmentPrompt(
 	}
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
-	if (!stable) {
-		lines.push(
-			'These are facts about right now. Prefer them over any date or branch you would otherwise assume.',
-		)
-	}
 	return `## Environment\n\n${lines.join('\n')}`
 }
 

@@ -35,6 +35,8 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Quality patterns, when hypermode is on or the task is large: adversarial verify (a second agent tries to disprove each finding), a judge panel (several agents score the same candidates, keep the consensus), loop until dry (repeat a sweep until a pass finds nothing new), and a completeness critic (a last agent lists what the others missed). Pick what fits; skip them for trivial or already verified work.',
 	'',
+	'Example call, one agent per package and one pass over what they found: {"script":"export const meta = { name: \\"audit\\", description: \\"Check each package for stale settings\\", phases: [{ title: \\"Scan\\" }] }\\nconst found = await parallel(args.packages.map((p) => () => agent(\\"List stale settings in \\" + p, { label: p, phase: \\"Scan\\" })))\\nreturn found.filter(Boolean)","args":{"packages":["core","web"]}}.',
+	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')
 

@@ -1,5 +1,47 @@
 # @namzu/cli
 
+## 41.1.1
+
+### Patch Changes
+
+- 4ef7f2d: When the permission mode changes, the model now hears one notice that says which mode ended and which began, the ending first; leaving bypass for auto used to say nothing about bypass, and moving from plan mode to bypass announced bypass before plan mode's end. Nothing to change in your setup.
+- 4ef7f2d: When plan mode ends and another permission mode begins in the same turn, the notice for the new mode says only that it is on, since plan mode's own note already says plan mode was left. Nothing to do on upgrade.
+- 4ef7f2d: A sub-agent now reads one consistent brief: it reports to the session that started it, the report is complete and free of filler, and it no longer gets the section about keeping the person informed. The environment block opens with its "facts about right now" line instead of ending with it, and the `workflow` tool description includes a sample call.
+- 4ef7f2d: A turn's request-only data (repository snapshot, recalled memory, conversation evidence, file evidence) now keeps the place it first had on every later call of the turn, instead of moving from before your message to after the tool results, so within a turn each request begins with the whole of the one before it and a caching provider keeps reading the same prefix. This holds for the calls of one turn only: the next turn takes its data afresh, so its opening differs from the previous turn's. The conversation-evidence step reads the archive once per turn: a tool result written to the archive mid-turn no longer changes the block, and the next turn (or a new message from the person) reads afresh. File evidence and the owned-work block, when they change, are appended as a later block, as their headings say, instead of replacing the earlier one in place; this is a behaviour change: the model can still read the earlier, out of date text of a file body, so only the latest version and the two before it are carried, and versions a compaction displaced are dropped. Other data whose text changed is replaced. The conversation-evidence opening paragraph is no longer than before, names each JSON key it mentions once in code style, and no longer prints internal kind names; its JSON no longer carries the scan byte count. The note that evidence is unavailable is now two plain sentences, not JSON, so it no longer carries the status, stage or reason as fields. Nothing to change in your code; a host that matches the old wording of the evidence block, reads `scannedBytes` from it, parses the availability note's fields, or expects one file-evidence block per request should read the new text and take the last block.
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+  - @namzu/sdk@56.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@31.0.0
+
+## 41.1.0
+
+### Minor Changes
+
+- 5aae7c4: New `namzu learn` and `namzu learning` commands: the same as `namzu resident learn` and `namzu resident learning`, which keep working. Conversations in the terminal and `namzu exec` now keep failed tool calls, provider errors, turns that stopped early and the recoveries Namzu already makes (a provider retry or fallback, a history repair, a failed compaction pass) as local learning observations (a reference to the turn and one fixed sentence naming the tool, stop reason or error code, never the failure message, your prompt or the answer; your own cancel, a rejected plan or a plain approval pause is not recorded, stored under the project's state directory and dropped after 30 days). Nothing is uploaded. Read them with `namzu learning --sessions`; `namzu learn` does not use them yet and still needs an agent in the folder to activate into. To turn it off, set `learningObservations: false` in your config.
+- 5aae7c4: `namzu learn --sessions <module> --trust` now starts from the failures your conversations in this folder kept and needs no agent: the module you supply generates and evaluates a candidate, Namzu runs the independent check and the confirmation, and only the exact revision that passed becomes this project's guidance. New conversations in that folder then start with the active guidance as advice (it grants no permission and runs nothing; ephemeral conversations skip it). Nothing runs it for you, and a module is still required. Recorded failure excerpts also mask drive-letter and network paths. Without `--sessions` nothing changes. If you do not want conversations here to use learned guidance, do not run `namzu learn --sessions`; delete `learning/guidance` under the project's state directory to remove it.
+- 5aae7c4: Namzu now learns from the failures and recoveries your conversations keep, by itself, in the background of the interactive terminal. It is on by default and makes background model calls that spend your provider's tokens, with no prompt before each cycle. To turn it off, set `learningGenerator: false` in your user config. The caps below limit the spend. When at least 5 new observations have accumulated, 6 hours have passed since the last cycle and the daily token allowance is not used up, one cycle proposes a revision of the folder's guidance, checks it against fixed scenarios (blind grading, tasks that must not regress, a fresh confirmation round) and activates it only for the exact revision that passed; most cycles end rejected, which is the gate working. Each cycle stops at 120,000 recorded tokens and all cycles at 300,000 per day (`learningGenerator: { cycleTokens, dailyTokens }` changes them; a project file can only lower them). It uses the configured `smallModel`, else the cheapest text model of the active provider. `exec`, scheduled runs and sub-agents never start it. `namzu learn` with no module runs one cycle now, `namzu learn --list` shows what was learned and `namzu learn --undo` restores the guidance an activation replaced. Passing a module to `namzu learn` works as before. If you do not want conversations to spend tokens on this, set `learningGenerator: false`; setting `learningObservations: false` also stops it because nothing is kept to learn from.
+- 5aae7c4: When Namzu's own learning activates a revision of a folder's guidance, the terminal now shows one dim row saying what was learned and how to take it back (`namzu learn --undo`); a rejected or inconclusive cycle shows nothing. The row stays in the transcript because the undo instruction must not disappear after a few seconds. Learned guidance is presented to the model as advice, and where it disagrees with a stored memory the memory wins. The read-first guard on edits (shown as "File must be read first") is not recorded as a learning observation. Nothing to change on upgrade; `learningGenerator: false` still turns learning off.
+- 5aae7c4: `namzu resident` is deprecated and will be removed in the next major release. Every action (`add`, `status`, `run`, `start`, `learn` and the rest) now prints one line saying so, and still does what it did. Use `namzu schedule` for recurring work, `/goal` for work that spans turns and background agents in the terminal app. `namzu learn` and `namzu learning` are not affected.
+
+### Patch Changes
+
+- 5aae7c4: Learning by itself no longer counts a refused tool call as a failure: the answer to a call you declined, to a call that went with the turn your No ended, and to a call whose question went unanswered records nothing, because those are your choices, not a tool that broke. The background learning cycle also stays still while any question about a tool call waits on you, and goes on once it closes. The guidance a project learned now opens with "Namzu learned" instead of claiming you confirmed it, since the background cycle activates it without a prompt; a stored memory still wins where the two disagree. `@namzu/sdk` adds `isReviewRefusalResult(output)`, which says whether a tool result answers a call the review did not let run, so a host that counts failures can leave those out. Nothing to change on upgrade.
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+- Updated dependencies [5aae7c4]
+  - @namzu/sdk@55.1.0
+
 ## 41.0.0
 
 ### Major Changes
