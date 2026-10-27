@@ -1,4 +1,8 @@
-import { type ChatCompletionParams, createRuntimeContextMessage } from '@namzu/sdk'
+import {
+	type ChatCompletionParams,
+	createRuntimeContextMessage,
+	createTurnContextEntry,
+} from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
@@ -334,4 +338,45 @@ it('ends the cached prefix before a request-only block that sits ahead of the op
 	expect(anchored).toBe(snapshot - 1)
 	const request = messages.findIndex((m) => JSON.stringify(m).includes('The new request'))
 	expect(request).toBeGreaterThan(anchored)
+})
+
+it('keeps recorded context inside the cached prefix and ends it before request-only context', async () => {
+	// A recorded entry is ordinary history that stays, so the anchor falls on
+	// it (or on what follows it) rather than ahead of it; only a trailing
+	// request-only block is left outside.
+	const entry = createTurnContextEntry('repository', 'RECORDED STATE')
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Original task' },
+			entry,
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			},
+			{ role: 'tool', toolCallId: 'c', content: 'Observed text' },
+			createRuntimeContextMessage('Inventory snapshot', 'step-context'),
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+	const recorded = messages.findIndex((m) => JSON.stringify(m).includes('RECORDED STATE'))
+	const inventory = messages.findIndex((m) => JSON.stringify(m).includes('Inventory snapshot'))
+	expect(recorded).toBeGreaterThanOrEqual(0)
+	expect(anchored).toBeGreaterThanOrEqual(recorded)
+	expect(anchored).toBe(inventory - 1)
+	expect(JSON.stringify(messages[inventory])).not.toContain('cache_control')
+})
+
+it('does not stop the cached prefix at recorded context that ends the history', async () => {
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Original task' },
+			createTurnContextEntry('repository', 'RECORDED STATE'),
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const last = messages.at(-1)
+	expect(JSON.stringify(last)).toContain('RECORDED STATE')
+	expect(JSON.stringify(last)).toContain('cache_control')
 })

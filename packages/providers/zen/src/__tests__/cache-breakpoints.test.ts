@@ -1,4 +1,9 @@
-import { type ChatCompletionParams, type Message, collectChatCompletion } from '@namzu/sdk'
+import {
+	type ChatCompletionParams,
+	type Message,
+	collectChatCompletion,
+	createTurnContextEntry,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZenProvider } from '../client.js'
 
@@ -106,5 +111,24 @@ describe('Zen Messages cache breakpoints', () => {
 	it('sends no breakpoint when caching was not requested', async () => {
 		const body = await bodyFor({ cacheControl: undefined, messages: [...HISTORY, context('PIN')] })
 		expect(marks(body)).toBe(0)
+	})
+
+	it('keeps a recorded entry inside the marked history and ends it before request-only context', async () => {
+		const entry = createTurnContextEntry('repository', 'RECORDED STATE')
+		const body = await bodyFor({ messages: [...HISTORY, entry, context('PIN')] })
+		const last = body.messages[body.messages.length - 1]?.content ?? []
+		const at = last.findIndex((block) => block.cache_control !== undefined)
+		expect(at).toBeGreaterThan(-1)
+		expect(last.slice(0, at + 1).some((b) => b.text?.includes('RECORDED STATE'))).toBe(true)
+		expect(last.slice(at + 1).map((b) => b.text)).toEqual(['PIN'])
+		expect(marks(body)).toBe(2)
+	})
+
+	it('marks a recorded entry that ends the history', async () => {
+		const entry = createTurnContextEntry('memory', 'A RECORD')
+		const body = await bodyFor({ messages: [...HISTORY, entry] })
+		const last = body.messages[body.messages.length - 1]?.content ?? []
+		expect(last[last.length - 1]).toMatchObject({ cache_control: MARK })
+		expect(last[last.length - 1]?.text).toContain('A RECORD')
 	})
 })
