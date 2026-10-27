@@ -10,7 +10,7 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # Slash commands
 
-A line starting with `/` is a command. Reports and menus do not call a model;
+A line starting with `/` is a command. Every skill you can invoke is also a command, `/<name> [arguments]`: its body is the prompt, and `$ARGUMENTS` in the body is replaced by what follows the name, exactly as in a command file. A skill that marks itself model-only (`invocation: model`) or hidden from you (`user-invocable: false`) has no command, and a command file of the same name wins over the skill. `/skills <name>` still activates a skill for the whole conversation. A skill or command file may declare `argument-hint` (for example `argument-hint: [issue-number]`); the composer shows it dimly after `/<name> ` until you type the first argument, and the command list shows it beside the description. Reports and menus do not call a model;
 commands that start work, such as a goal, can start model calls. Builtins win
 over command files of the same name in `.namzu/commands/`. `/help`, slash
 completion and execution use the same command catalogue. Unavailable actions
@@ -88,9 +88,9 @@ their descriptor's hint and show `[arguments]` when the descriptor provides an
 argument schema; help does not invent positional arguments or flags from that
 schema.
 
-For a user command file, help shows its full source path and scope, plus any
+For a user command file or a skill, help shows its full source path and scope (a skill is labelled `Skill`), plus any
 problem that prevents execution. Its usage includes `[arguments]` only when
-the template contains `$ARGUMENTS`. Help does not expand or execute the template.
+the template contains `$ARGUMENTS`, followed by its `argument-hint` when it has one. Help does not expand or execute the template.
 
 ## Settings and model changes
 

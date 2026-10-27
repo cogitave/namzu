@@ -5476,6 +5476,8 @@ function AppBody({
 					? []
 					: discoverUserCommands({
 							cwd: activeCtx.cwd,
+							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							skillCommands: 'all',
 							reserved: hostCommandNames(),
 						})
 				// Construction and validation precede the saved change. There is no
