@@ -1,5 +1,13 @@
 # Changelog
 
+## 56.0.1
+
+### Patch Changes
+
+- 320881f: A failed tool result no longer ends with a second, generic "Error: Tool execution failed" when the tool already explained itself in its output, so the model and the terminal see the message once. A `read` of a file that ends with a newline now reports the same line count in its header data, its partial-view note and its past-end warning, and no longer returns an empty numbered row after the last line.
+- 320881f: In the `accept-edits` review mode a `write` call is no longer held back by the destructive flag the `write` tool always carries (its input cannot say whether the file exists), so it is approved like an `edit`, as `docs/sdk/review-policy.md` already described. A path outside the roots, a protected path or a rule's ask still reaches a person. A host that wants every write asked about in that mode should use the `prompt` mode.
+- 320881f: `read` no longer prints a backwards "PARTIAL view" banner when the window starts after the last line. It succeeds with a note that the file is shorter than the requested start and how many lines it has, and an empty file says it is empty. Binary or non-UTF-8 content gets a short note with its size and the next step instead of numbered garbage; a caller that matched on the old output needs no change. In the terminal, a summary of a selected range now ends with the pointer to the conversation tools, and only when both are mounted.
+
 ## 56.0.0
 
 ### Major Changes
