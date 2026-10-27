@@ -156,6 +156,27 @@ describe('the fork sub-agent', () => {
 		}
 	})
 
+	it('starts from a parent whose messages carry recorded ids, reminders included', async () => {
+		const { runtime, provider, context } = await setup()
+		try {
+			const recorded = [
+				...parentHistory().slice(0, 2),
+				{ ...createUserMessage('<system-reminder>Today is Tuesday.</system-reminder>') },
+				...parentHistory().slice(2),
+			].map((message, index) => ({ ...message, id: `msg_recorded_${index}` }) as unknown as Message)
+			const result = await runtime.agentTool.execute(
+				{ description: 'survey', prompt: 'Count.', subagent_type: FORK_SUBAGENT },
+				context(recorded),
+			)
+			expect(result.error ?? '').not.toContain('cached message')
+			expect(result.success).toBe(true)
+			expect(provider.requests).toHaveLength(1)
+			expect(JSON.stringify(provider.requests[0]?.messages)).toContain('Today is Tuesday.')
+		} finally {
+			await runtime.close()
+		}
+	})
+
 	it('hands its model the same tools as any other child and no way to delegate', async () => {
 		const { runtime, provider, context } = await setup()
 		try {
@@ -277,7 +298,7 @@ describe('the messages a fork starts from', () => {
 			[{ role: 'system', content: 'prompt' }, summary, ...parentHistory().slice(1)],
 			'call_fork',
 		)
-		expect(seed[0]).toBe(summary)
+		expect(seed[0]).toEqual(summary)
 		expect(seed.filter((m) => m.role === 'system')).toHaveLength(1)
 	})
 })

@@ -22,6 +22,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { plainChildFailure } from './failure-words.js'
 import { FORK_SUBAGENT, forkDirective, forkSeed, isForkConversation } from './fork.js'
 import { formatChildOperatorAdmission } from './operator-journal.js'
 import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
@@ -3071,7 +3072,12 @@ function completedAgentResult(
 			attributes: { agent: completed.agentId, task: shownTaskId },
 			provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
 		},
-		resultText || '(sub-agent returned no text)',
+		resultText ||
+			(succeeded
+				? '(sub-agent returned no text)'
+				: turn?.lastError
+					? `(sub-agent failed before it answered: ${plainChildFailure(turn.lastError)})`
+					: '(sub-agent failed before it answered)'),
 	)
 	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}${stopNote ? `\n\n${stopNote.trimEnd()}` : ''}`
 	return {
@@ -3079,7 +3085,7 @@ function completedAgentResult(
 		output,
 		...(!succeeded
 			? {
-					error: `Sub-agent ${completed.agentId} ${status}: ${turn?.lastError ?? ''}\n${output}`,
+					error: `Sub-agent ${completed.agentId} ${status}: ${plainChildFailure(turn?.lastError ?? '')}\n${output}`,
 				}
 			: {}),
 		data: {

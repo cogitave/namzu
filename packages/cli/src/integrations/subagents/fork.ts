@@ -61,7 +61,9 @@ export function isForkConversation(messages: readonly Message[]): boolean {
  * out; a compaction summary is part of what the caller remembers and stays.
  */
 export function forkSeed(history: readonly Message[], toolUseId: string | undefined): Message[] {
-	const messages = history.filter((message) => message.role !== 'system' || message.source)
+	const messages = history
+		.filter((message) => message.role !== 'system' || message.source)
+		.map(withoutRecordId)
 	let issuing = -1
 	if (toolUseId !== undefined) {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -85,6 +87,17 @@ export function forkSeed(history: readonly Message[], toolUseId: string | undefi
 		return [...head, ...answers]
 	}
 	return completeExchanges(messages)
+}
+
+/**
+ * A copy of the message that names no record. The ids on the caller's messages
+ * name entries in the caller's own log; the fork writes a log of its own, which
+ * never recorded them, so a copy that kept its id would be refused as minted by
+ * a host. Without the id the copy is a new message in the fork's conversation.
+ */
+function withoutRecordId(message: Message): Message {
+	const { id: _id, ...rest } = message
+	return rest as Message
 }
 
 /** The conversation without a trailing assistant message whose calls are not all answered. */

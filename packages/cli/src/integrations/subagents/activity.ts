@@ -4,6 +4,7 @@ import {
 	genericLabel,
 	isTerminalAgentTaskState,
 } from '@namzu/sdk'
+import { plainChildFailure } from './failure-words.js'
 import { stepTaskOnly } from './workflow-assignment.js'
 
 const MAX_RETAINED_AGENTS = 80
@@ -1129,7 +1130,7 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 
 /** The row that carries an agent's error message, as the agent said it. Nothing is added for an empty message. */
 function pushFailure(record: MutableActivity, id: string, error: string): void {
-	const text = error.trim()
+	const text = plainChildFailure(error)
 	if (text === '') return
 	pushRow(record, { id, kind: 'system', text: bounded(text, MAX_ROW_CODE_UNITS), failure: true })
 }

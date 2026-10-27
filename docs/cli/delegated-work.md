@@ -55,10 +55,15 @@ What a fork inherits:
 - the conversation up to and including the message that launched it, with every
   call in that message answered by a short note (its own says it started the
   fork) so the history is valid; a compaction summary is kept, the system
-  message is not repeated;
+  message is not repeated. The copies are new messages in the fork's own
+  conversation: they carry none of the ids the parent's saved conversation gave
+  them, so a parent holding recorded messages and reminders starts a fork like any
+  other;
 - the system prompt of the conversation, used as it is;
 - the model the turn runs on, including a scheduled job's;
-- the sub-agent working set of tools, which has no `Agent` tool.
+- the sub-agent working set of tools, which has no `Agent` tool. This differs from the parent's own list, so the tool definitions are not shared with the parent's request.
+
+When a child fails before it answers, its row and the parent's result say why in plain words.
 
 What it does not get: its own `model`, `provider`, `effort` or `role` (the call
 is refused when it names one), a way to start sub-agents or forks (a call from a
