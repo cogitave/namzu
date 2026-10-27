@@ -5657,9 +5657,11 @@ export async function createAgentSession(
 						// instruction: under `turn` it rode a system message the
 						// hoisting driver moves ahead of the conversation, so every
 						// new send's changed snapshot re-read the whole history
-						// uncached. FIRST iteration only:
-						// later iterations work from state the model itself changed, and
-						// `git status` is the honest source for that. A registry per
+						// uncached. Read once per turn and rendered on every iteration with the
+						// same text, so it keeps its place in the request and the turn's
+						// cached prefix is not broken when the second call drops it; the
+						// text itself says it does not update, and `git status` is the
+						// honest source for what the model changed since. A registry per
 						// turn, closed over this turn's snapshot, rather than one
 						// session-scoped holder every send overwrites: two overlapping
 						// sends would otherwise both render whichever ran second.
@@ -5698,7 +5700,7 @@ export async function createAgentSession(
 						promptContributions.register({
 							id: 'namzu.turn-snapshot',
 							placement: 'context',
-							render: ({ iteration }) => (iteration === 1 ? turnSnapshotPrompt : null),
+							render: () => turnSnapshotPrompt,
 						})
 						// The citation rules that come with the web tools, only when the
 						// tools are there: guidance about a capability the turn does not

@@ -158,17 +158,38 @@ model reads after it reframes the instruction to finish.
 
 The blocks that belong to the turn (what `context` contributions and
 `PrepareStepResult.context` render, including recalled memory and evidence)
-go just before the operator's new message while that message is what the model
-is about to answer, so the request is the last thing it reads and the long data
-comes first. The reminders and notices that follow the message stay after it.
-Once the turn has an assistant or tool message after the operator's message,
-the blocks follow the history as above, where a caching driver ends its
-breakpoint before them, so the tool loop of a long turn stays cached. The
-working-memory slot and the approval-policy notice always follow the history.
+go just before the operator's new message the first time the model answers it,
+so the request is the last thing it reads and the long data comes first. The
+reminders and notices that follow the message stay after it.
+
+A block stays where it first went. A step that offers the same text again on a
+later call of the turn finds it in the same place, so each request of a turn
+(within one turn; the next turn takes its data afresh and its opening differs)
+begins with the whole of the one before it, up to the trailing run (the
+working-memory slot, step system guidance, the approval-policy notice) that
+every request rebuilds, and a caching driver keeps reading the same prefix
+instead of re-reading the turn from the operator's message on. The
+conversation-evidence step reads the archive once per turn, so what lands in
+the archive mid-turn does not change that block. A block that first appears
+after the model has moved on follows the history of that moment. A block whose
+text changed is withdrawn and the new text follows the history, except the work
+context below, which says of itself that a later block replaces it: there the
+earlier text stays as sent, the later one is appended, and a short block says
+so when the entries stop holding. Only the latest version and the two before it
+are carried (`EARLIER_VERSIONS_KEPT`), and an earlier version whose place a
+compaction removed is dropped, so the stale text stays small; the request that
+drops a version is the one point where its opening changes. A model can
+therefore still read an out-of-date file body that a later block supersedes;
+both work-context headings say that a later block with the heading replaces
+the earlier one. A position whose message a compaction removed
+is given up and the block follows the history. The working-memory slot and the
+approval-policy notice always follow the history. Blocks are not carried from
+one turn to the next: each turn takes its data afresh.
+
 The derived work context (owned delegated work and visible file evidence) is
-placed the same way as the other blocks: before the operator's new message
-while that message is what the model answers, after the history once the turn
-has moved on.
+placed the same way as the other blocks, and is the one kind that is appended
+rather than withdrawn when it changes. Both headings tell the model that a
+later block with the heading replaces the earlier one.
 
 ### Prompt placements
 
@@ -196,8 +217,8 @@ automatic summarization or output eviction is introduced by the context field.
 
 The CLI uses this field for its bounded context inventory. It composes preceding
 context contributions and leaves system contributions untouched. It registers
-its turn-start repository snapshot (`git status` and recent commits, first
-iteration only) under the `context` placement. The CLI's file-backed `USER.md`
+its turn-start repository snapshot (`git status` and recent commits, read once
+per turn and rendered with the same text on every iteration, so it keeps its place) under the `context` placement. The CLI's file-backed `USER.md`
 and `MEMORY.md`, its stored-memory index, and the SDK's automatic memory recall
 also use request-only step context. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;

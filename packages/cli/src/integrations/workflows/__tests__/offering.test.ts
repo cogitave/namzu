@@ -77,3 +77,16 @@ describe('the opt-in rule the model reads', () => {
 			expect(WORKFLOW_TOOL_DESCRIPTION).toContain(pattern)
 	})
 })
+
+describe('the description carries a sample call', () => {
+	it('shows one call whose script parses as JSON with a literal meta first', () => {
+		const at = WORKFLOW_TOOL_DESCRIPTION.indexOf('Example call')
+		expect(at).toBeGreaterThan(-1)
+		const line = WORKFLOW_TOOL_DESCRIPTION.slice(at).split('\n')[0] ?? ''
+		const json = line.slice(line.indexOf('{'), line.lastIndexOf('}') + 1)
+		const call = JSON.parse(json) as { script: string; args: unknown }
+		expect(call.script.startsWith('export const meta = {')).toBe(true)
+		expect(call.script).toContain('parallel(')
+		expect(call.args).toEqual({ packages: ['core', 'web'] })
+	})
+})

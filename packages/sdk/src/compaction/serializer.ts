@@ -12,6 +12,25 @@ function renderPlan(plan: PlanSlot[]): string {
 	return plan.map((slot) => `- ${PLAN_STATUS_ICONS[slot.status]} ${slot.label}`).join('\n')
 }
 
+/** What one recorded action says, in words a reader needs no key for. */
+function describeAction(action: { type: string; summary?: string; detail?: string }): string {
+	switch (action.type) {
+		case 'read':
+			return 'read'
+		case 'delete':
+			return 'deleted'
+		case 'create':
+		case 'edit': {
+			const verb = action.type === 'create' ? 'created' : 'changed'
+			const detail = action.detail?.replace(/\s+/g, ' ').trim()
+			return detail && detail !== 'modified' ? `${verb} (${detail})` : verb
+		}
+		default:
+			return action.type
+	}
+}
+
+/** One line per file: the path, then what was done to it, each distinct step once and in order. */
 function renderFiles(
 	files: Map<
 		string,
@@ -20,15 +39,8 @@ function renderFiles(
 ): string {
 	const lines: string[] = []
 	for (const [, slot] of files) {
-		lines.push(`- \`${slot.path}\``)
-		for (const action of slot.actions) {
-			if (action.type === 'delete') {
-				lines.push('  - deleted')
-			} else {
-				const desc = 'detail' in action ? action.detail : action.summary
-				lines.push(`  - ${action.type}: ${desc ?? ''}`)
-			}
-		}
+		const done = [...new Set(slot.actions.map(describeAction))]
+		lines.push(`- \`${slot.path}\`: ${done.join('; ')}`)
 	}
 	return lines.join('\n')
 }
@@ -43,13 +55,6 @@ function renderList(items: string[], evictedCount = 0): string {
 		lines.push(`- _(${evictedCount} ${noun} dropped to stay within the state budget)_`)
 	}
 	return lines.join('\n')
-}
-
-/** The newest request is the goal the next step works toward; mark it where it already stands. */
-function markLatest(requirements: string[]): string[] {
-	return requirements.map((item, i) =>
-		i === requirements.length - 1 ? `Latest request: ${item}` : item,
-	)
 }
 
 function renderToolResults(results: { tool: string; summary: string }[], evictedCount = 0): string {
@@ -99,7 +104,7 @@ export function serializeState(state: WorkingState): string {
 
 	if (state.userRequirements.length > 0) {
 		sections.push(
-			`${SECTION_HEADERS.userRequirements}\n\n${renderList(markLatest(state.userRequirements), state.evicted.userRequirements)}`,
+			`${SECTION_HEADERS.userRequirements}\n\n${renderList(state.userRequirements, state.evicted.userRequirements)}`,
 		)
 	}
 
@@ -149,6 +154,13 @@ export function serializeState(state: WorkingState): string {
 		sections.push(
 			`${SECTION_HEADERS.discoveries}\n\n${renderList(state.discoveries, state.evicted.discoveries)}`,
 		)
+	}
+
+	// The goal is restated near the end, where recency keeps it in view: the
+	// newest request, and only when it says something the Task entry does not.
+	const goal = state.userRequirements[state.userRequirements.length - 1]
+	if (goal && goal.trim() !== state.task?.trim()) {
+		sections.push(`${SECTION_HEADERS.goal}\n\n${goal}`)
 	}
 
 	// Last, where recency keeps it in view: what is still to do.

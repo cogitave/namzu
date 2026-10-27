@@ -12,17 +12,15 @@ import { WriteFileTool } from '../write-file.js'
 describe('shell results state facts', () => {
 	it('says that credential-shaped variables were removed, without naming them', () => {
 		const text = describeWithheldEnv(['OPENAI_API_KEY', 'DEPLOY_TOKEN'])
-		expect(text).toBe(
-			"NOTE: 2 credential-shaped environment variables were removed from this command's environment, so they read as unset. Ask the user if the command needs one.",
-		)
+		expect(text).toContain('2 credential-shaped environment variables removed from its environment')
+		expect(text).toContain('ask the user to provide one, because the user decides')
 		expect(text).not.toContain('OPENAI_API_KEY')
-		expect(text).not.toMatch(/\bhost\b/)
+		expect(text).not.toMatch(/\bhost\b|^NOTE:/)
 	})
 
 	it('uses the singular for one variable and says nothing for none', () => {
-		expect(describeWithheldEnv(['A_TOKEN'])).toContain(
-			'1 credential-shaped environment variable was',
-		)
+		expect(describeWithheldEnv(['A_TOKEN'])).toContain('1 credential-shaped environment variable ')
+		expect(describeWithheldEnv(['A_TOKEN'])).toContain('it reads as unset')
 		expect(describeWithheldEnv([])).toBe('')
 	})
 

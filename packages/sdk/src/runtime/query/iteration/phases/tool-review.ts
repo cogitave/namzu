@@ -28,6 +28,7 @@ import {
 	formatMonitorNote,
 	takeNoticeMessage,
 	takeSteeringMessage,
+	takeWithheldEnvNotice,
 } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 import { PerCallReview } from './per-call-review.js'
@@ -295,6 +296,8 @@ export async function* runToolReview(
 			},
 		)
 		if (monitorNotice) ctx.recorder.pushMessage(monitorNotice)
+		const credentialNotice = takeWithheldEnvNotice(ctx.recorder.messages, batch.observations)
+		if (credentialNotice) ctx.recorder.pushMessage(credentialNotice)
 		if (jobNoticeDelivered) ctx.onJobNoticeDelivered?.()
 		if (monitorNoticeDelivered) ctx.onMonitorNoticeDelivered?.()
 		// The complete tool-result batch is already in history before host policy

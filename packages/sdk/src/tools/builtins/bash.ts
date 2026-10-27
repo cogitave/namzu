@@ -20,7 +20,7 @@ import {
 	withoutBashStartup,
 } from '../command-shell.js'
 import { defineTool } from '../defineTool.js'
-import { scrubInheritedEnv } from '../env-scrub.js'
+import { scrubInheritedEnv, withheldEnvNoticeText } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
 import { looksBinary, windowText } from '../text-window.js'
 import { judgeExit } from './exit-semantics.js'
@@ -802,10 +802,10 @@ const BashToolBase = defineTool({
 				failure.stdoutTruncated ? 'stdout' : '',
 				failure.stderrTruncated ? 'stderr' : '',
 			].filter(Boolean)
-			// Only on the failure path. A successful command did not need to know,
-			// and appending this to every result would make the common case noisy
-			// to buy nothing. A failing one is exactly where "authentication
-			// failed" has to be distinguishable from "the variable was withheld".
+			// Only the failure path reports removed variables (in `data`, for the
+			// kernel's notice). A successful command did not need to know; a failing
+			// one is where "authentication failed" has to be distinguishable from
+			// "the variable was withheld".
 			// A status the command uses to answer (no match, files differ) is a
 			// result, not a failure; the model sees it as an ordinary call.
 			const judged =
@@ -816,7 +816,6 @@ const BashToolBase = defineTool({
 				clipped.length > 0
 					? `[${clipped.join(' and ')} ${clipped.length === 1 ? 'was' : 'were'} truncated by the host output cap. The omitted output is unavailable in this result.]`
 					: '',
-				answered ? '' : describeWithheldEnv(inherited.dropped),
 			]
 				.filter(Boolean)
 				.join('\n\n')
@@ -827,6 +826,11 @@ const BashToolBase = defineTool({
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
 					...(judged?.note ? { exitNote: judged.note } : {}),
+					// How many variables were removed, for the kernel's own notice; the
+					// model's result stays what the command printed.
+					...(!answered && inherited.dropped.length > 0
+						? { withheldEnv: inherited.dropped.length }
+						: {}),
 					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
 					timedOut,
 					stdoutTruncated: failure.stdoutTruncated ?? false,
@@ -904,16 +908,12 @@ function formatShellOutput(stdout: string | undefined, stderr: string | undefine
 }
 
 /**
- * Say that credential-shaped variables were left out of this command's
- * environment. The count is enough: the model needs to know a missing
- * credential is deliberate and who to ask, and the names are the user's data.
- * A command that failed because it wanted one otherwise reports an
- * authentication error pointing nowhere.
+ * The notice text for the credential-shaped variables left out of a command's
+ * environment (see {@link withheldEnvNoticeText}). It is sent as a notice after
+ * the tool batch, never written into the command's result.
  */
 export function describeWithheldEnv(dropped: readonly string[]): string {
-	if (dropped.length === 0) return ''
-	const one = dropped.length === 1
-	return `NOTE: ${dropped.length} credential-shaped environment ${one ? 'variable was' : 'variables were'} removed from this command's environment, so ${one ? 'it reads' : 'they read'} as unset. Ask the user if the command needs ${one ? 'it' : 'one'}.`
+	return withheldEnvNoticeText(dropped.length)
 }
 
 /**

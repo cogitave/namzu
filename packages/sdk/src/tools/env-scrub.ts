@@ -91,3 +91,16 @@ export function scrubInheritedEnv(source: NodeJS.ProcessEnv = process.env): Scru
 	dropped.sort()
 	return { env, dropped }
 }
+
+/**
+ * What the model is told, once, when shell commands run with credential-shaped
+ * variables removed. The count is enough: the model needs to know a missing
+ * credential is deliberate and who to ask, and the names are the user's data.
+ * The kernel sends this as a notice of its own after the tool batch; a command's
+ * result carries only what the command printed.
+ */
+export function withheldEnvNoticeText(count: number): string {
+	if (count <= 0) return ''
+	const one = count === 1
+	return `A shell command that just ran had ${count} credential-shaped environment ${one ? 'variable' : 'variables'} removed from its environment, so ${one ? 'it reads' : 'they read'} as unset. When a failure looks like a missing credential, ask the user to provide ${one ? 'it' : 'one'}, because the user decides what a command may see.`
+}

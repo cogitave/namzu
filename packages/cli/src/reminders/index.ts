@@ -50,14 +50,12 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 		if (options.environment) {
 			out.push(...environmentReminders({ messages, facts: options.environment() }))
 		}
-		if (options.interactive !== undefined) {
-			out.push(
-				...modeReminders({ messages, mode: options.mode(), interactive: options.interactive }),
-			)
-		}
+		// One mode replacing another reads ended first, then begun: plan mode's end goes
+		// ahead of the mode notice, and its start after it.
+		const plan: string[] = []
 		if (options.planPath) {
 			const planPath = options.planPath()
-			out.push(
+			plan.push(
 				...planModeReminders({
 					messages,
 					mode: options.mode(),
@@ -67,6 +65,14 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 				}),
 			)
 		}
+		const planEnd = plan.filter((text) => text.startsWith('<system-reminder kind="plan-exit"'))
+		out.push(...planEnd)
+		if (options.interactive !== undefined) {
+			out.push(
+				...modeReminders({ messages, mode: options.mode(), interactive: options.interactive }),
+			)
+		}
+		out.push(...plan.filter((text) => !planEnd.includes(text)))
 		if (options.hypermode) out.push(...hypermodeReminders({ messages, ...options.hypermode() }))
 		if (options.tasks) {
 			// Counted before the read: no list is fetched on the many requests that owe no nudge.

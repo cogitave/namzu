@@ -46,7 +46,7 @@ describe('permission mode announcements', () => {
 
 	it.each([
 		['prompt', 'the user may be asked before they run'],
-		['plan', 'Plan mode is on now'],
+		['plan', 'Plan mode is on, and its own notices'],
 	] as const)('words the end of a mode for the mode it lands in (%s)', (landing, sentence) => {
 		let messages = turn([], 'bypass')
 		messages = turn(messages, landing)
@@ -64,8 +64,58 @@ describe('permission mode announcements', () => {
 		messages = turn(messages, 'classify')
 		const said = texts(messages)
 		expect(said).toHaveLength(2)
-		expect(said[1]).toContain('The auto permission mode is on.')
+		expect(said[1]).toContain(
+			'The bypass permission mode has ended and the auto permission mode is on.',
+		)
 		expect(said.join('\n')).not.toContain('may be asked')
+	})
+
+	it.each([
+		['accept-edits', 'strict', 'accept-edits', 'strict'],
+		['auto', 'accept-edits', 'unattended', 'accept-edits'],
+		['bypass', 'classify', 'bypass', 'auto'],
+		['classify', 'bypass', 'auto', 'bypass'],
+	] as const)(
+		'names both modes when %s gives way to %s, the ended one first',
+		(from, to, ended, began) => {
+			let messages = turn([], from)
+			messages = turn(messages, to)
+			messages = turn(messages, to)
+			const said = texts(messages)
+			expect(said).toHaveLength(2)
+			const change = said[1] as string
+			expect(change).toContain(
+				`The ${ended} permission mode has ended and the ${began} permission mode is on.`,
+			)
+			expect(change.indexOf('has ended')).toBeLessThan(change.indexOf('is on.'))
+			expect(change).toContain('safety rules')
+		},
+	)
+
+	it('says only what is on now when an announced mode follows plan mode', () => {
+		const planned = [
+			...turn([], 'plan'),
+			createRuntimeContextMessage(
+				'<system-reminder kind="plan-mode" form="full">\nPlan mode is on.\n</system-reminder>',
+				'reminder',
+			),
+		]
+		const said = texts(turn(planned, 'bypass'))
+		expect(said.at(-1)).toContain('The bypass permission mode is on.')
+		expect(said.at(-1)).not.toContain('Plan mode')
+		expect(said.at(-1)).not.toContain('has ended')
+		expect(said.at(-1)).toContain('safety rules')
+	})
+
+	it('leaves the end of plan mode to its own notice when no announced mode follows', () => {
+		const planned = [
+			createUserMessage('go'),
+			createRuntimeContextMessage(
+				'<system-reminder kind="plan-mode" form="full">\nPlan mode is on.\n</system-reminder>',
+				'reminder',
+			),
+		]
+		expect(texts(turn(planned, 'prompt')).length).toBe(1)
 	})
 
 	it('announces a mode again after the earlier announcement is gone from the conversation', () => {

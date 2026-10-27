@@ -479,7 +479,7 @@ export class CompletionInbox {
 			stillRunningNotShown > 0
 				? ` ${shownRunning.length} running tasks are shown below, and ${stillRunningNotShown} more still running.`
 				: ''
-		return `Owned delegated work (current scheduler observations).${overflow} Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
+		return `Owned delegated work (current scheduler observations; a later block with this heading replaces this one).${overflow} Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
 	}
 
 	/**

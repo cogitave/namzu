@@ -2,7 +2,7 @@
  * The EMPTY VERIFIER REPLY.
  *
  * `buildVerifiedSummary` treats only the literal `COMPLETE` as "nothing to add".
- * Anything else is appended under a `## LLM Verification Additions` heading —
+ * Anything else is appended under a `## Missing Details` heading —
  * including the empty string, which is what a truncated turn, a refusal, or an
  * exhausted `llmVerificationMaxTokens` produces. The result is a heading with
  * nothing under it, and because the summary becomes a leading system message it
@@ -23,7 +23,7 @@ import type { StreamChunk } from '../../types/provider/stream.js'
 import { WorkingStateManager } from '../manager.js'
 import { buildVerifiedSummary } from '../verifier.js'
 
-const ADDITIONS_HEADING = '## LLM Verification Additions'
+const ADDITIONS_HEADING = '## Missing Details'
 
 function makeProvider(chunks: StreamChunk[]): LLMProvider & { calls: ChatCompletionParams[] } {
 	const calls: ChatCompletionParams[] = []

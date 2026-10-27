@@ -1,3 +1,4 @@
+import { withheldEnvNoticeText } from '../../tools/env-scrub.js'
 import { createRuntimeContextMessage } from '../../types/message/index.js'
 import type { Message, UserMessage } from '../../types/message/index.js'
 import { NOTICE_TAG, frameNotice, readOperatorNotice } from '../../types/message/notice-frame.js'
@@ -376,4 +377,54 @@ export function attachSteering(
 	}
 	onDelivered?.(guidance)
 	return next
+}
+
+/**
+ * The count of credential-shaped variables a settled batch's shell results
+ * report as removed, or 0. The count rides in a result's `data`, never in the
+ * text the model reads.
+ */
+function withheldEnvCount(
+	observations: readonly { readonly result: { readonly data?: unknown } }[],
+) {
+	let count = 0
+	for (const { result } of observations) {
+		const data = result.data
+		if (typeof data !== 'object' || data === null) continue
+		const n = (data as { withheldEnv?: unknown }).withheldEnv
+		if (typeof n === 'number' && Number.isInteger(n) && n > count) count = n
+	}
+	return count
+}
+
+/**
+ * The credential notice for a settled tool batch, as a user-role message of its
+ * own, or `undefined` when the batch removed nothing or the conversation
+ * already carries this very notice. It is sent once, and again only when the
+ * number of removed variables changes, so a run of failing commands does not
+ * repeat it. The conversation is the record, so a resumed or compacted one
+ * needs no counter of its own.
+ */
+export function takeWithheldEnvNotice(
+	history: readonly Message[],
+	observations: readonly { readonly result: { readonly data?: unknown } }[],
+): UserMessage | undefined {
+	const count = withheldEnvCount(observations)
+	if (count === 0) return undefined
+	const body = withheldEnvNoticeText(count)
+	const said = history.some(
+		(message) =>
+			message.role === 'user' &&
+			message.source?.type === 'runtime-context' &&
+			message.source.kind === 'reminder' &&
+			typeof message.content === 'string' &&
+			message.content.startsWith(`<${NOTICE_TAG}-`) &&
+			message.content.includes(' kind="credentials">') &&
+			message.content.includes(body),
+	)
+	if (said) return undefined
+	return createRuntimeContextMessage(
+		frameNotice('credentials', '[Command environment]', body),
+		'reminder',
+	)
 }
