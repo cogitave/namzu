@@ -129,6 +129,16 @@ export const STRICT_MODE_REFUSAL =
 export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])
 
 /**
+ * `write` declares every call destructive (its input cannot say whether the
+ * file exists), so the flag cannot be what keeps `accept-edits` from covering
+ * it: a new file and a replaced one are the same kind of edit to that mode.
+ * A path outside the roots, a protected file and a rule's ask still stop it.
+ */
+function isFileWrite(name: string): boolean {
+	return name === 'write'
+}
+
+/**
  * Writes that skip review anyway, in spite of declaring `readOnly: false`.
  *
  * This is an OVERRIDE of the tool's own declaration, and it is named as one.
@@ -1028,7 +1038,15 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// through beside it would be approving something it did not show.
 		if (
 			mode === 'accept-edits' &&
-			(await Promise.all(request.toolCalls.map(acceptEditsAllows))).every(Boolean)
+			(
+				await Promise.all(
+					request.toolCalls.map((tc) =>
+						// The mode covers a write although the flag is set; the classifier
+						// still judges one, so only this branch lifts the flag.
+						acceptEditsAllows(isFileWrite(tc.name) ? { ...tc, isDestructive: false } : tc),
+					),
+				)
+			).every(Boolean)
 		) {
 			return { action: 'approve_tools' }
 		}

@@ -88,7 +88,9 @@ export async function screenToolResult(
 	let current = result.success
 		? result.output
 		: result.output.trim()
-			? `${result.output}\n\nError: ${result.error ?? 'Tool execution failed'}`
+			? result.error === undefined
+				? result.output
+				: `${result.output}\n\nError: ${result.error}`
 			: `Error: ${result.error ?? 'Tool execution failed'}`
 	let rewritten = false
 

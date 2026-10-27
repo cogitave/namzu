@@ -1,5 +1,41 @@
 # @namzu/cli
 
+## 41.2.0
+
+### Minor Changes
+
+- 320881f: A prompt to write a file, whether the file is new or replaced, now offers "Yes, and switch to accept edits for this session" and Shift+Tab answers it, as it already did for an edit. Accept edits mode now runs a file write inside your folders without asking; a path outside them, a protected file and a rule that asks still ask, and a write too long to show in full stays a one-time yes. If you relied on being asked for every write in Accept edits mode, stay in the default mode. The "Not run: an earlier call was declined and the turn stopped." row no longer says "(ctrl+o to expand)", because nothing is hidden behind it.
+
+### Patch Changes
+
+- 320881f: A failed tool result no longer ends with a second, generic "Error: Tool execution failed" when the tool already explained itself in its output, so the model and the terminal see the message once. A `read` of a file that ends with a newline now reports the same line count in its header data, its partial-view note and its past-end warning, and no longer returns an empty numbered row after the last line.
+- 320881f: `read` no longer prints a backwards "PARTIAL view" banner when the window starts after the last line. It succeeds with a note that the file is shorter than the requested start and how many lines it has, and an empty file says it is empty. Binary or non-UTF-8 content gets a short note with its size and the next step instead of numbered garbage; a caller that matched on the old output needs no change. In the terminal, a summary of a selected range now ends with the pointer to the conversation tools, and only when both are mounted.
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+  - @namzu/sdk@56.0.1
+
+## 41.1.1
+
+### Patch Changes
+
+- 4ef7f2d: When the permission mode changes, the model now hears one notice that says which mode ended and which began, the ending first; leaving bypass for auto used to say nothing about bypass, and moving from plan mode to bypass announced bypass before plan mode's end. Nothing to change in your setup.
+- 4ef7f2d: When plan mode ends and another permission mode begins in the same turn, the notice for the new mode says only that it is on, since plan mode's own note already says plan mode was left. Nothing to do on upgrade.
+- 4ef7f2d: A sub-agent now reads one consistent brief: it reports to the session that started it, the report is complete and free of filler, and it no longer gets the section about keeping the person informed. The environment block opens with its "facts about right now" line instead of ending with it, and the `workflow` tool description includes a sample call.
+- 4ef7f2d: A turn's request-only data (repository snapshot, recalled memory, conversation evidence, file evidence) now keeps the place it first had on every later call of the turn, instead of moving from before your message to after the tool results, so within a turn each request begins with the whole of the one before it and a caching provider keeps reading the same prefix. This holds for the calls of one turn only: the next turn takes its data afresh, so its opening differs from the previous turn's. The conversation-evidence step reads the archive once per turn: a tool result written to the archive mid-turn no longer changes the block, and the next turn (or a new message from the person) reads afresh. File evidence and the owned-work block, when they change, are appended as a later block, as their headings say, instead of replacing the earlier one in place; this is a behaviour change: the model can still read the earlier, out of date text of a file body, so only the latest version and the two before it are carried, and versions a compaction displaced are dropped. Other data whose text changed is replaced. The conversation-evidence opening paragraph is no longer than before, names each JSON key it mentions once in code style, and no longer prints internal kind names; its JSON no longer carries the scan byte count. The note that evidence is unavailable is now two plain sentences, not JSON, so it no longer carries the status, stage or reason as fields. Nothing to change in your code; a host that matches the old wording of the evidence block, reads `scannedBytes` from it, parses the availability note's fields, or expects one file-evidence block per request should read the new text and take the last block.
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+- Updated dependencies [4ef7f2d]
+  - @namzu/sdk@56.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@3.1.0
+  - @namzu/anthropic@6.4.0
+  - @namzu/ollama@2.2.5
+  - @namzu/openai@4.2.0
+  - @namzu/openrouter@3.0.4
+  - @namzu/sandbox@31.0.0
+
 ## 41.1.0
 
 ### Minor Changes

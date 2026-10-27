@@ -117,7 +117,12 @@ export function createTerminalPerCallReview(host: PerCallReviewHost): TerminalPe
 			case 'bypass':
 				return true
 			case 'accept-edits':
-				return ACCEPT_EDITS_TOOLS.has(call.name) && call.isDestructive !== true
+				// A `write` is always flagged destructive (its input cannot say whether
+				// the file exists); the mode covers it like any other edit.
+				return (
+					ACCEPT_EDITS_TOOLS.has(call.name) &&
+					(call.isDestructive !== true || call.name === 'write')
+				)
 			default:
 				return false
 		}

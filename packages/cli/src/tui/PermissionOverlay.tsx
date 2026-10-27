@@ -357,7 +357,7 @@ function extraAnswer(
 			(call) =>
 				ACCEPT_EDITS_TOOLS.has(call.name) &&
 				call.escalation === undefined &&
-				call.isDestructive !== true &&
+				(call.isDestructive !== true || call.name === 'write') &&
 				call.requiresApproval !== true &&
 				call.authorization?.explicitReview !== true,
 		)

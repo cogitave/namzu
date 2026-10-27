@@ -1,6 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { type BaseEvent, EventType, HttpAgent, type RunAgentInput } from '@ag-ui/client'
 import {
 	type ChatCompletionParams,
@@ -85,6 +87,14 @@ function httpClient(adapter: AGUIAdapter, threadId = 'thread-1'): HttpAgent {
 		initialState: { count: 0 },
 		fetch: (url, init) => adapter.handle(new Request(url, init)),
 	})
+}
+
+/** Run the collector twice, without needing `--expose-gc`. */
+function collectGarbage(): void {
+	setFlagsFromString('--expose-gc')
+	const gc = runInNewContext('gc') as () => void
+	gc()
+	gc()
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -673,49 +683,59 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		}
 	})
 
-	it('propagates HttpAgent cancellation into an active provider stream', async () => {
-		const release = deferred()
-		const sawText = deferred()
-		let providerSignal: AbortSignal | undefined
-		let streamClosed = false
-		class HeldProvider extends MockLLMProvider {
-			override async *chatStream(params: ChatCompletionParams): AsyncGenerator<StreamChunk> {
-				providerSignal = params.signal
-				const onAbort = () => release.resolve()
-				params.signal?.addEventListener('abort', onAbort, { once: true })
-				try {
-					yield { id: 'held', delta: { content: 'Partial answer' } }
-					if (!params.signal?.aborted) await release.promise
-				} finally {
-					params.signal?.removeEventListener('abort', onAbort)
-					streamClosed = true
+	it.each([
+		['when the collector has not run', false],
+		['after the collector has run', true],
+	])(
+		'propagates HttpAgent cancellation into an active provider stream %s',
+		async (_label, collect) => {
+			const release = deferred()
+			const sawText = deferred()
+			let providerSignal: AbortSignal | undefined
+			let streamClosed = false
+			class HeldProvider extends MockLLMProvider {
+				override async *chatStream(params: ChatCompletionParams): AsyncGenerator<StreamChunk> {
+					providerSignal = params.signal
+					const onAbort = () => release.resolve()
+					params.signal?.addEventListener('abort', onAbort, { once: true })
+					try {
+						yield { id: 'held', delta: { content: 'Partial answer' } }
+						if (!params.signal?.aborted) await release.promise
+					} finally {
+						params.signal?.removeEventListener('abort', onAbort)
+						streamClosed = true
+					}
 				}
 			}
-		}
-		const adapter = new AGUIAdapter({
-			createQuery: ({ input, signal }) => queryParams(input, signal, new HeldProvider()),
-		})
-		const client = httpClient(adapter)
-		const run = client.runAgent(
-			{ runId: 'run-abort' },
-			{
-				onTextMessageContentEvent: () => {
-					sawText.resolve()
+			const adapter = new AGUIAdapter({
+				createQuery: ({ input, signal }) => queryParams(input, signal, new HeldProvider()),
+			})
+			const client = httpClient(adapter)
+			const run = client.runAgent(
+				{ runId: 'run-abort' },
+				{
+					onTextMessageContentEvent: () => {
+						sawText.resolve()
+					},
 				},
-			},
-		)
-		try {
-			await sawText.promise
-			client.abortRun()
-			await run
-			expect(providerSignal?.aborted).toBe(true)
-			expect(streamClosed).toBe(true)
-			expect(client.isRunning).toBe(false)
-		} finally {
-			release.resolve()
-			await run
-		}
-	})
+			)
+			try {
+				await sawText.promise
+				// A Request's own signal follows the caller's signal through a weak
+				// reference, so a run that let go of the Request lost the abort
+				// whenever a collection ran between the first token and the abort.
+				if (collect) collectGarbage()
+				client.abortRun()
+				await run
+				expect(providerSignal?.aborted).toBe(true)
+				expect(streamClosed).toBe(true)
+				expect(client.isRunning).toBe(false)
+			} finally {
+				release.resolve()
+				await run
+			}
+		},
+	)
 
 	it('revokes the UI handle when an unread response request is aborted', async () => {
 		const caller = new AbortController()

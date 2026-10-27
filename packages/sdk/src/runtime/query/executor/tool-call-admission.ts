@@ -673,8 +673,12 @@ export function formatFailedToolOutput(
 	output: string | undefined,
 	error: string | undefined,
 ): string {
+	const hasOutput = !!output && output.trim().length > 0
+	// A tool that explained itself in its output and named no separate error
+	// has said what went wrong once; a generic suffix would say it twice.
+	if (hasOutput && error === undefined) return output
 	const errorText = `Error: ${error ?? 'Tool execution failed'}`
-	if (!output || output.trim().length === 0) return errorText
+	if (!hasOutput) return errorText
 	return `${output}\n\n${errorText}`
 }
 
