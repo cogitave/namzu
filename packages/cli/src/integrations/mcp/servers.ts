@@ -864,6 +864,21 @@ export function startMcpServers(
 						})().catch(() => {})
 					},
 				)
+				if (closed) {
+					// The session ended while this server was still being reached. Its
+					// tools are not mounted; what it opened is closed.
+					await Promise.all(
+						discovered.map((entry) =>
+							withDeadline(
+								Promise.resolve(entry.close?.()),
+								CLOSE_TIMEOUT_MS,
+								`closing late toolset "${name}"`,
+							).catch(() => {}),
+						),
+					)
+					await closeClient().catch(() => {})
+					return
+				}
 				const ready = spec.requireApproval
 					? discovered.map((entry) => requireApproval(entry))
 					: [...discovered]

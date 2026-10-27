@@ -451,6 +451,7 @@ import {
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
+import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
@@ -2055,7 +2056,7 @@ function AppBody({
 	 * rewrites this one row instead of adding another; it is forgotten when the
 	 * run of tries ends (`autoResumeAttemptRef` back to 0).
 	 */
-	const selfMendingPauseRowRef = useRef<string | null>(null)
+	const selfMendingPauseRowRef = useRef(new SelfMendingPauseRow())
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
@@ -7245,6 +7246,7 @@ function AppBody({
 			// A pause belongs to the conversation it paused; another one does not inherit it.
 			setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			selfMendingPauseRowRef.current.forget()
 			resetSubagentActivity()
 			session?.resetTaskStore?.()
 			activeTurnTokenRef.current = null
@@ -7428,6 +7430,7 @@ function AppBody({
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
 				autoResumeAttemptRef.current = 0
+				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -8013,6 +8016,7 @@ function AppBody({
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
 				autoResumeAttemptRef.current = 0
+				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -9107,6 +9111,7 @@ function AppBody({
 				case 'done': {
 					// A reply that came through ends the run of tries a pause was making.
 					autoResumeAttemptRef.current = 0
+					selfMendingPauseRowRef.current.forget()
 					setSummarising(false)
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
@@ -9214,17 +9219,16 @@ function AppBody({
 						// tries again on a schedule until the person stops it.
 						if (isSelfMending(event)) {
 							// One row for the whole run of tries: a later pause rewrites it.
-							const rowId = selfMendingPauseRowRef.current
-							if (
-								rowId !== null &&
-								autoResumeAttemptRef.current > 0 &&
-								messagesLiveRef.current.some((row) => row.id === rowId)
-							) {
+							const rowId = selfMendingPauseRowRef.current.reusable(
+								autoResumeAttemptRef.current,
+								new Set(messagesLiveRef.current.map((row) => row.id)),
+							)
+							if (rowId !== null) {
 								setMessages((rows) =>
 									rows.map((row) => (row.id === rowId ? { ...row, content: pauseText } : row)),
 								)
 							} else {
-								selfMendingPauseRowRef.current = pushSystem('warning', pauseText)
+								selfMendingPauseRowRef.current.remember(pushSystem('warning', pauseText))
 							}
 							const attempt = autoResumeAttemptRef.current + 1
 							autoResumeAttemptRef.current = attempt
@@ -9233,6 +9237,7 @@ function AppBody({
 								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
 							})
 						} else {
+							selfMendingPauseRowRef.current.forget()
 							pushSystem('warning', pauseText)
 							setHandoffPark({ turnId: event.turnId })
 						}
@@ -10588,6 +10593,7 @@ function AppBody({
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			selfMendingPauseRowRef.current.forget()
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
 			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
@@ -14229,6 +14235,7 @@ function AppBody({
 				setHandoffPark(null)
 				if (key.return) {
 					autoResumeAttemptRef.current = 0
+					selfMendingPauseRowRef.current.forget()
 					void resumeActiveTurn({ handoffReason: parked.reason })
 				} else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return

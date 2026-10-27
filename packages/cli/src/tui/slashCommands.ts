@@ -2005,12 +2005,16 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 		return 'No tool servers configured. Add mcpServers to namzu.config.json.'
 	}
 	const lines = [
-		`Tool servers: ${mcp.connected.length} connected, ${mcp.failed.length} unavailable${
-			pending.length > 0 ? `, ${pending.length} connecting` : ''
-		}.`,
+		`Tool servers: ${[
+			`${mcp.connected.length} connected`,
+			...(mcp.failed.length > 0 ? [`${mcp.failed.length} unavailable`] : []),
+			...(pending.length > 0 ? [`${pending.length} connecting`] : []),
+		].join(', ')}.`,
 	]
 	for (const server of mcp.connected) {
-		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
+		lines.push(
+			`${server.name}: connected, ${server.tools.length} ${server.tools.length === 1 ? 'tool' : 'tools'}`,
+		)
 		const drift = server.drift
 		if (drift) {
 			for (const name of drift.added) lines.push(`  added: ${terminalDisplayText(name)}`)
