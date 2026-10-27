@@ -240,6 +240,7 @@ async function execPrint(
 	const expansion = expandHeadlessCommand(prompt, {
 		cwd,
 		builtins: hostCommandNames(),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 	})
 	if (expansion.kind === 'refused') {
 		ctx.formatter.error({ message: expansion.reason })

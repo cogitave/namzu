@@ -216,6 +216,7 @@ export async function execJson(
 	const expansion = expandHeadlessCommand(prompt, {
 		cwd,
 		builtins: hostCommandNames(),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 	})
 	if (expansion.kind === 'refused') {
 		return expansion.fixable ? fail(expansion.reason) : refuse(expansion.reason)
