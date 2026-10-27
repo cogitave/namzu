@@ -226,25 +226,25 @@ describe('what the command inherits from the host', () => {
 		expect(result.output).toContain('handed-over')
 	})
 
-	it('names what it withheld when the command fails', async () => {
+	it('reports what it withheld as a count when the command fails, and prints none of it', async () => {
 		// A command that wanted the variable otherwise reports an
-		// authentication error pointing nowhere. The note is on the failure
-		// path only, so a successful command is not made noisy to buy nothing.
+		// authentication error pointing nowhere. The kernel tells the model in a
+		// notice of its own, from this count; the result keeps what the command
+		// printed. Only the failure path reports it, so a successful command
+		// carries nothing.
 		process.env.NAMZU_PROC_WITHHELD_TOKEN = 'nope'
 		try {
 			const failing = await run({ command: 'node -e "process.exit(3)"' })
 			const succeeding = await run({ command: 'echo fine' })
 
 			expect(failing.success).toBe(false)
-			// Asserted on the note rather than on this variable's name: the
-			// preview is the first ten names alphabetically, and a developer
-			// machine with ten credential-shaped variables sorting before `N`
-			// would push this one into the "and N more" tail. A test that only
-			// passes on a tidy environment is a test that fails for whoever has
-			// a busy one.
-			expect(failing.output).toContain('credential-shaped environment variable')
+			expect((failing.data as { withheldEnv?: number }).withheldEnv).toBeGreaterThanOrEqual(1)
+			expect(failing.output, 'a notice was written into the tool result').not.toMatch(
+				/credential-shaped|NOTE:/,
+			)
 			expect(failing.output, 'the withheld value was printed').not.toContain('nope')
-			expect(succeeding.output, 'a successful command was made noisy').not.toContain('withheld')
+			expect(succeeding.data).not.toHaveProperty('withheldEnv')
+			expect(succeeding.output).not.toContain('credential-shaped')
 		} finally {
 			// biome-ignore lint/performance/noDelete: `process.env` is not an ordinary object — assigning `undefined` stores the STRING "undefined" and the variable stays set, which is the opposite of what this cleanup is for.
 			delete process.env.NAMZU_PROC_WITHHELD_TOKEN
