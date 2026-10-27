@@ -575,6 +575,22 @@ export interface ToolContext {
 	receiptVisible?: (callId: string, renderedFingerprint: string) => boolean
 
 	/**
+	 * The conversation this call belongs to, read live: the messages the model
+	 * is shown right now, including the assistant message that issued this
+	 * call, and the system prompt assembled for the current iteration.
+	 *
+	 * Absent when the host cannot say. A tool that needs it (one that starts a
+	 * delegate which continues this conversation) must then refuse rather than
+	 * start the delegate without the context it was asked to inherit. Read
+	 * only: the arrays are the turn's own and a tool must copy before it
+	 * changes anything.
+	 */
+	conversation?: {
+		messages(): readonly import('../message/index.js').Message[]
+		systemPrompt(): string | undefined
+	}
+
+	/**
 	 * Where work that outlives this call is held.
 	 *
 	 * Absent means the host has provided nowhere to put a background job, and

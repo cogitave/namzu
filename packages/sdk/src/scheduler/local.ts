@@ -133,7 +133,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 				...(options.phaseDetail ? { phaseDetail: options.phaseDetail } : {}),
 				...(options.phaseOrder !== undefined ? { phaseOrder: options.phaseOrder } : {}),
 				input: {
-					messages: [createUserMessage(options.prompt)],
+					messages: [...(options.inheritedMessages ?? []), createUserMessage(options.prompt)],
 					workingDirectory: options.workingDirectory,
 					taskStore: this.parentInput?.taskStore,
 					runtimeToolOverrides: this.parentInput?.runtimeToolOverrides,

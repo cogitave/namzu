@@ -2361,6 +2361,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						? `${segments.static}\n\n---\n\n${segments.dynamic}`
 						: segments.static
 
+				toolExecutor.setSystemPromptView(() => assembledPrompt)
 				ctx.recorder.markRunning()
 				// A resumed turn already began; `turn_resuming` above continued it.
 				if (!params.resumeFromCheckpoint) {

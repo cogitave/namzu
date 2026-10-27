@@ -310,6 +310,33 @@ consumer that sees two disagree should keep the first rather than resequence:
 nothing here is authoritative enough to arbitrate, and a list that reorders
 itself while work is running is worse than one that is slightly wrong.
 
+## Starting a child from a conversation
+
+`CreateTaskOptions.inheritedMessages` places messages before `prompt` in the
+child's first request, so the prompt arrives as the last user message of a
+conversation the child continues. The list must be a valid conversation: every
+tool call in it answered. Nothing else is inherited by this field; the system
+prompt, model and tools come from the agent's configuration, as for any child.
+
+A host reads the conversation it wants to hand on from
+`ToolContext.conversation`, which `query()` sets on every tool call: `messages()`
+is the history the model is shown right now, ending with the assistant message
+that issued the call, and `systemPrompt()` is the system prompt assembled for
+the turn. Both are live reads of the turn's own state, so a tool copies before
+it changes anything. A host that runs a tool outside `query()` has no
+conversation to offer, and a tool that needs one refuses rather than starting a
+child without it. The CLI's fork agent type is built on both; see
+[delegated work](../cli/delegated-work.md#forks).
+
+```ts sketch
+await scheduler.createTask({
+  agentId: 'continues-the-caller',
+  prompt: 'Count the build scripts and report the number.',
+  inheritedMessages: [...context.conversation.messages(), ...answersToItsOwnCalls],
+  workingDirectory: cwd,
+})
+```
+
 ## On the bridges
 
 The SSE bridge maps `agent_pending` to the wire event `agent.pending` through an
