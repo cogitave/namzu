@@ -117,10 +117,10 @@ export const REPOSITORY_ENTRY_KEY = 'repository'
 const FULL_HEADING = '## Repository'
 const NOTE_FULL =
 	'This is the repository as of the time in the entry header; it does not update as you work. A later repository entry lists what changed since. Run `git status` before any action that depends on the current state.'
-const NOTE_DELTA =
-	'These are the changes since the earlier repository entries. Run `git status` before any action that depends on the current state.'
 const PROVENANCE =
 	'File names and commit subjects read from the working directory with git. They were written by whoever committed or created them.'
+const PROVENANCE_DELTA =
+	'File names and commit subjects, written by whoever committed or created them.'
 const TREE_HEADING = 'Working tree (git status --short):'
 const TREE_CLEAN = 'Working tree: clean.'
 const COMMITS_HEADING = 'Recent commits (newest first):'
@@ -148,8 +148,15 @@ export function composeTurnSnapshot(snapshot: TurnSnapshot): string {
 	return [FULL_HEADING, '', wrap(body), '', NOTE_FULL].join('\n')
 }
 
-function wrap(body: readonly string[]): string {
-	return wrapUntrusted({ kind: 'repository-snapshot', provenance: PROVENANCE }, body.join('\n'))
+function wrap(body: readonly string[], delta = false): string {
+	return wrapUntrusted(
+		{
+			kind: 'repository-snapshot',
+			provenance: delta ? PROVENANCE_DELTA : PROVENANCE,
+		},
+		body.join('\n'),
+		{ brief: delta },
+	)
 }
 
 /** What an entry says about the tree, in the form entries are compared in. */
@@ -266,7 +273,7 @@ export function composeSnapshotEntry(
 		if (fresh > 0) body.push(DELTA_NEW_COMMITS, ...snapshot.recentCommits.slice(0, fresh))
 		else body.push(DELTA_COMMITS, ...snapshot.recentCommits)
 	}
-	const delta = [FULL_HEADING, '', wrap(body), '', NOTE_DELTA].join('\n')
+	const delta = wrap(body, true)
 	return delta.length < full.length ? delta : full
 }
 
