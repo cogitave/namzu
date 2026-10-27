@@ -17,6 +17,7 @@ import {
 	describeCompactionFailure,
 } from './compaction-rows.js'
 import { connectorCallSummary } from './connector-label.js'
+import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
@@ -812,6 +813,11 @@ export type AgentEvent =
 				readonly sessionId: string
 				readonly activeTurnId: string
 				readonly state: 'running' | 'paused' | 'interrupted'
+				/**
+				 * A running turn that belongs to another process: whole minutes until
+				 * its lease lapses. Absent for this process's own turn.
+				 */
+				readonly freeInMinutes?: number
 			}
 	  }
 
@@ -7279,20 +7285,33 @@ async function* runTurn({
 		}
 	} catch (err) {
 		if (isTurnInProgressError(err)) {
+			const freeInMinutes =
+				err.state === 'running'
+					? minutesUntilFree(
+							await (sessionLog ?? DiskSessionLog.at(paths, { sessionId: scope.sessionId }))
+								.lease()
+								.catch(() => null),
+							Date.now(),
+						)
+					: undefined
 			// Nothing was begun: the conversation already has an active turn. Said
 			// by name, with the turn and its state, because the ways out differ —
 			// a paused turn is resumed or abandoned, a running one is waited for.
 			yield {
 				kind: 'error',
-				message: `This conversation already has a ${err.state} reply. ${
-					err.state === 'running'
-						? 'Wait for it to finish.'
-						: 'Resume it with /resume, or close it with /abandon.'
-				}`,
+				message:
+					freeInMinutes !== undefined
+						? conversationInUseSentence(freeInMinutes)
+						: `This conversation already has a ${err.state} reply. ${
+								err.state === 'running'
+									? 'Wait for it to finish.'
+									: 'Resume it with /resume, or close it with /abandon.'
+							}`,
 				turnInProgress: {
 					sessionId: String(err.sessionId),
 					activeTurnId: String(err.activeTurnId),
 					state: err.state,
+					...(freeInMinutes !== undefined ? { freeInMinutes } : {}),
 				},
 			}
 			return

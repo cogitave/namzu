@@ -497,3 +497,24 @@ describe('a message refused because the conversation still holds a turn', () => 
 		expect(describePlainInterruption(refused('paused'))).toMatch(/Enter.*\/abandon/)
 	})
 })
+
+describe('a conversation another window is still answering', () => {
+	const elsewhere = (freeInMinutes: number): Interruption =>
+		failed({
+			message: 'This conversation already has a running reply.',
+			turnInProgress: { sessionId: 's', activeTurnId: '', state: 'running', freeInMinutes },
+		})
+
+	it('says whose it is and when it is free, instead of telling this window to stop it', () => {
+		const text = describePlainInterruption(elsewhere(5))
+		expect(text).toBe(
+			'This conversation is in use by another window. It is available again in about 5 minutes.',
+		)
+		expect(text).not.toMatch(/Esc/)
+		expectPlain(text)
+	})
+
+	it('counts one minute in the singular', () => {
+		expect(describePlainInterruption(elsewhere(1))).toContain('about 1 minute.')
+	})
+})

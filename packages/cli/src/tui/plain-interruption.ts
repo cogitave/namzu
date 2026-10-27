@@ -1,5 +1,6 @@
 export { debugRequested } from '../debug-requested.js'
 import { isImageInputRefusalMessage } from '@namzu/sdk'
+import { conversationInUseSentence } from './conversation-in-use.js'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import {
@@ -301,6 +302,11 @@ export function describePlainInterruption(
 		// The conversation still holds an open turn. In words, never its id.
 		switch (event.turnInProgress.state) {
 			case 'running':
+				// A reply of another window cannot be stopped from here; say whose it is
+				// and when the conversation is free again.
+				if (event.turnInProgress.freeInMinutes !== undefined) {
+					return conversationInUseSentence(event.turnInProgress.freeInMinutes)
+				}
 				return 'A reply is still running in this conversation. Wait for it to finish, or press Esc to stop it.'
 			case 'paused':
 				return 'The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message.'
