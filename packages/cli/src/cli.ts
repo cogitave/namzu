@@ -769,6 +769,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { toolResultScreens: resolvedCtx.config.toolResultScreens }
 						: {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
+					...(resolvedCtx.config.updates ? { updates: resolvedCtx.config.updates } : {}),
 				}
 			}
 			const tuiCtx = buildTuiContext(commandCtx, process.cwd())

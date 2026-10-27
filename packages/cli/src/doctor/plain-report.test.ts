@@ -121,6 +121,22 @@ describe('the health report in plain words', () => {
 		expect(plain.detail.join('\n')).toContain('/home/a/b')
 	})
 
+	it('names the updates check and says in words when an update cannot be installed', () => {
+		const plain = describePlainDoctor(
+			report([
+				record({
+					id: 'updates.install',
+					status: 'warn',
+					message: 'Namzu 9.9.9 is available, but the folder is read-only (/opt/namzu)',
+					remediation: 'Run: npm install -g @namzu/cli',
+				}),
+			]),
+		)
+		expect(plain.content).toContain('! Updates: a newer version could not be installed here')
+		expect(plain.content).not.toMatch(/updates\.install|\/opt/)
+		expect(plain.detail.join('\n')).toContain('/opt/namzu')
+	})
+
 	it('warns, rather than errors, when only a warning is raised', () => {
 		expect(
 			describePlainDoctor(report([record({ id: 'logging.pipeline', status: 'warn' })])).level,

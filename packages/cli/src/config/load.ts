@@ -83,6 +83,8 @@ import type {
 	TerminalNotificationEvent,
 	TuiConfig,
 	TurnLimitsConfig,
+	UpdateChannel,
+	UpdatesConfig,
 	WorkflowCliConfig,
 } from './schema.js'
 import {
@@ -807,6 +809,29 @@ const CONFIG_READERS: ConfigReaders = {
 	hypermode: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	updates: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw)) {
+			if (key !== 'auto' && key !== 'channel' && key !== 'check')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not an updates setting (auto, channel, check)',
+				)
+		}
+		if (raw.auto !== undefined && typeof raw.auto !== 'boolean')
+			return invalidConfigValue(context, ['auto'], 'must be true or false')
+		if (raw.check !== undefined && typeof raw.check !== 'boolean')
+			return invalidConfigValue(context, ['check'], 'must be true or false')
+		if (raw.channel !== undefined && raw.channel !== 'latest' && raw.channel !== 'stable')
+			return invalidConfigValue(context, ['channel'], 'must be "latest" or "stable"')
+		return {
+			...(raw.auto !== undefined ? { auto: raw.auto as boolean } : {}),
+			...(raw.channel !== undefined ? { channel: raw.channel as UpdateChannel } : {}),
+			...(raw.check !== undefined ? { check: raw.check as boolean } : {}),
+		}
 	},
 	learningObservations: (v, context) => {
 		if (typeof v === 'boolean') return v
@@ -1946,6 +1971,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	statusLine: undefined,
 	// Changes what the model is told on every turn; a file decision, never a variable a shell profile could carry invisibly.
 	hypermode: undefined,
+	// Installs software on this machine; read from `NAMZU_AUTO_UPDATE` and
+	// `NAMZU_UPDATE_CHANNEL` by the updater itself, not carried as a config field.
+	updates: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
 	learningObservations: undefined,
 	// Spends tokens in the background and changes what conversations are told; a file decision.
@@ -2168,6 +2196,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'codeAnalysis' && layer.config.codeAnalysis) {
 				// `enabled: false` holds: a later file may turn the tool off, never back on.
 				out.codeAnalysis = mergeCodeAnalysisConfig(out.codeAnalysis, layer.config.codeAnalysis)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'updates' && layer.config.updates !== undefined) {
+				// A project layer only lowers. See `mergeUpdatesConfig`.
+				out.updates = mergeUpdatesConfig(
+					out.updates,
+					layer.config.updates,
+					isProjectSource(layer.sourceFor(key)),
+				)
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
@@ -2422,6 +2460,24 @@ export function mergeTuiConfig(
 ): TuiConfig {
 	const { theme: _theme, reducedMotion: _motion, ...rest } = layer
 	return { ...below, ...(fromProject ? rest : layer) }
+}
+
+/**
+ * `updates` from one more layer. Installing software and choosing what to
+ * install are the operator's: a project file may turn checking or installing
+ * off for its own runs, never on, and never picks the channel.
+ */
+export function mergeUpdatesConfig(
+	below: UpdatesConfig | undefined,
+	layer: UpdatesConfig,
+	fromProject: boolean,
+): UpdatesConfig {
+	if (!fromProject) return { ...below, ...layer }
+	return {
+		...below,
+		...(layer.auto === false ? { auto: false } : {}),
+		...(layer.check === false ? { check: false } : {}),
+	}
 }
 
 function isProjectSource(source: ConfigSource): boolean {

@@ -18,6 +18,12 @@
 	],
 	"streamWriteAllowlist": [
 		{
+			"file": "packages/cli/src/integrations/auto-update/start-check.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "`namzu --start-check` answers the update that started it on stdout (`ok`, or why the copy cannot start a session): it is that command's output, not a log."
+		},
+		{
 			"file": "packages/cli/src/computer/run.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,

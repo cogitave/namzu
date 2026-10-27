@@ -87,6 +87,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { startAutoUpdate } from '../integrations/auto-update/start.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
 	type QuestionGate,
@@ -174,7 +175,6 @@ import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
-import { checkUpdates } from '../integrations/updates.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
 import {
 	type WorkflowRunView,
@@ -604,7 +604,7 @@ import {
 	handoffContinuationNote,
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
-import { updateAmbient } from './update-notice.js'
+import { updaterEventAmbient } from './update-notice.js'
 import { useIdleCompaction } from './use-idle-compaction.js'
 import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -12948,19 +12948,21 @@ function AppBody({
 		session,
 	])
 
-	// One-shot update check on launch.
-	// Best-effort; surfaces a single notice when something newer is out.
-	const updateCheckedRef = useRef(false)
-	const [updateNotice, setUpdateNotice] = useState<ReturnType<typeof updateAmbient> | null>(null)
+	// Background updates: looks shortly after launch and every half hour, never
+	// blocks, and leaves at most one footer line. See `integrations/auto-update`.
+	const [updateNotice, setUpdateNotice] = useState<ReturnType<typeof updaterEventAmbient> | null>(
+		null,
+	)
+	const updaterRef = useRef<{ stop(): void } | null>(null)
 	useEffect(() => {
-		if (phase !== 'ready' || updateCheckedRef.current) return
-		updateCheckedRef.current = true
-		void checkUpdates(ctx.version).then((ups) => {
-			if (ups.length === 0) return
-			const first = ups[0]
-			if (first) setUpdateNotice(updateAmbient(first))
+		if (phase !== 'ready' || updaterRef.current) return
+		updaterRef.current = startAutoUpdate({
+			currentVersion: ctx.version,
+			config: ctx.updates,
+			onEvent: (event) => setUpdateNotice(updaterEventAmbient(event)),
 		})
-	}, [phase, ctx.version])
+	}, [phase, ctx.version, ctx.updates])
+	useEffect(() => () => updaterRef.current?.stop(), [])
 
 	const hydrateFromPicker = useCallback(
 		async (

@@ -74,6 +74,24 @@ export interface TuiConfig {
 	readonly spinnerTips?: boolean
 }
 
+/** Release channel the background updater follows. */
+export type UpdateChannel = 'latest' | 'stable'
+
+/** See `NamzuCliConfig.updates`. */
+export interface UpdatesConfig {
+	/**
+	 * Install a newer version in the background. Absent means on for a person
+	 * at a terminal and off in CI; `true` asks for it everywhere the terminal
+	 * runs, `false` leaves only the footer notice. `NAMZU_AUTO_UPDATE`
+	 * overrides this either way.
+	 */
+	readonly auto?: boolean
+	/** `latest` (default) or `stable`. `NAMZU_UPDATE_CHANNEL` overrides it. */
+	readonly channel?: UpdateChannel
+	/** `false` stops the background look for a newer version altogether, notice included. */
+	readonly check?: boolean
+}
+
 /** Where the CLI may discover executable plugin bundles. */
 export type PluginScope = 'project' | 'user'
 
@@ -471,6 +489,14 @@ export interface NamzuCliConfig {
 	readonly telemetry?: TelemetryConfig
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
+	/**
+	 * How the terminal keeps Namzu itself up to date. Absent means the
+	 * defaults: check in the background, install quietly where Namzu may,
+	 * `latest` channel, and no installing in CI. Your own config files only
+	 * can turn installing on or pick a channel; a project file can only turn
+	 * checking or installing off.
+	 */
+	readonly updates?: UpdatesConfig
 	/**
 	 * Refresh provider model catalogues in the background on every launch.
 	 *

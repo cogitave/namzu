@@ -1,8 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { DownloadError } from '../integrations/auto-update/download.js'
+import {
+	acquireUpdateLock,
+	installScope,
+	previousDir,
+	writeLastResult,
+} from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
 	type NpmUpgradeRequest,
@@ -11,6 +18,13 @@ import {
 	npmGlobalPrefixFor,
 	removeOwnPowerShellShim,
 } from './upgrade.js'
+
+/** What the registry says about a version: its digest and where the tarball is. */
+const release = (version: string) => ({
+	version,
+	integrity: 'sha512-AAAA',
+	tarball: `https://registry.npmjs.org/@namzu/cli/-/cli-${version}.tgz`,
+})
 
 function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 	const printed: unknown[] = []
@@ -23,11 +37,17 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 		info: (value) => info.push(value),
 	}
 	const requests: NpmUpgradeRequest[] = []
+	const tarballs: string[] = []
 	const deps: UpgradeCommandDeps = {
 		currentVersion: '14.2.1',
 		packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 		platform: 'linux',
-		latestVersion: async () => '14.3.0',
+		latestRelease: async () => release('14.3.0'),
+		fetchTarball: async (_release, file) => {
+			tarballs.push(file)
+			mkdirSync(dirname(file), { recursive: true })
+			writeFileSync(file, 'checked tarball')
+		},
 		runNpm: async (request) => {
 			requests.push(request)
 			return 0
@@ -38,7 +58,7 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 	const command = createUpgradeCommand(deps)
 	const invoke = (rawArgs: readonly string[] = []) =>
 		command.handler({ ctx: { config: {}, formatter }, rawArgs })
-	return { invoke, requests, printed, errors, info }
+	return { invoke, requests, printed, errors, info, tarballs }
 }
 
 describe('npm global installation ownership', () => {
@@ -74,7 +94,7 @@ describe('namzu upgrade', () => {
 		])
 	})
 
-	it('pins npm to the active prefix and exact registry version, then reads that root back', async () => {
+	it('installs the tarball it checked into the active prefix, then reads that root back', async () => {
 		const readback = vi.fn(() => '14.3.0')
 		const h = harness({ installedVersion: readback })
 
@@ -92,10 +112,13 @@ describe('namzu upgrade', () => {
 					'--no-audit',
 					'--registry',
 					'https://registry.npmjs.org',
-					'@namzu/cli@14.3.0',
+					'--@namzu:registry=https://registry.npmjs.org',
+					h.tarballs[0],
 				],
 			},
 		])
+		expect(h.tarballs).toHaveLength(1)
+		expect(existsSync(h.tarballs[0] ?? '')).toBe(false)
 		expect(readback).toHaveBeenCalledWith('/opt/namzu/lib/node_modules/@namzu/cli')
 		expect(h.printed).toEqual([
 			expect.objectContaining({
@@ -103,6 +126,38 @@ describe('namzu upgrade', () => {
 				current: '14.3.0',
 				updated: true,
 			}),
+		])
+	})
+
+	it('installs nothing when the download does not match the registry’s checksum', async () => {
+		const runNpm = vi.fn(async () => 0)
+		const h = harness({
+			runNpm,
+			fetchTarball: async () => {
+				throw new DownloadError('integrity', 'mismatch')
+			},
+		})
+		expect(await h.invoke()).toBe(1)
+		expect(runNpm).not.toHaveBeenCalled()
+		expect(h.errors).toEqual([
+			expect.objectContaining({
+				message:
+					'The download did not match its checksum, so it was not installed. Nothing was changed.',
+			}),
+		])
+	})
+
+	it('installs nothing when the registry gave no checksum to check against', async () => {
+		const runNpm = vi.fn(async () => 0)
+		const h = harness({
+			runNpm,
+			latestRelease: async () => ({ version: '14.3.0' }),
+			fetchTarball: undefined,
+		})
+		expect(await h.invoke()).toBe(1)
+		expect(runNpm).not.toHaveBeenCalled()
+		expect(h.errors).toEqual([
+			expect.objectContaining({ message: expect.stringContaining('did not give a checksum') }),
 		])
 	})
 
@@ -131,17 +186,17 @@ describe('namzu upgrade', () => {
 
 	it('does not spawn when the active version is already current', async () => {
 		const runNpm = vi.fn(async () => 0)
-		const h = harness({ latestVersion: async () => '14.2.1', runNpm })
+		const h = harness({ latestRelease: async () => release('14.2.1'), runNpm })
 		expect(await h.invoke()).toBe(0)
 		expect(runNpm).not.toHaveBeenCalled()
 		expect(h.printed).toEqual([expect.objectContaining({ upToDate: true })])
 	})
 
 	it('refuses unknown arguments before checking the registry', async () => {
-		const latestVersion = vi.fn(async () => '14.3.0')
-		const h = harness({ latestVersion })
+		const latestRelease = vi.fn(async () => release('14.3.0'))
+		const h = harness({ latestRelease })
 		expect(await h.invoke(['--force'])).toBe(64)
-		expect(latestVersion).not.toHaveBeenCalled()
+		expect(latestRelease).not.toHaveBeenCalled()
 	})
 })
 
@@ -215,5 +270,393 @@ describe('the PowerShell shim after an upgrade', () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true })
 		}
+	})
+})
+
+describe('namzu upgrade keeps a working Namzu', () => {
+	function layout() {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-safety-'))
+		const root = join(base, 'prefix', 'lib', 'node_modules', '@namzu', 'cli')
+		const home = join(base, 'home')
+		mkdirSync(root, { recursive: true })
+		writeFileSync(
+			join(root, 'package.json'),
+			JSON.stringify({ name: '@namzu/cli', version: '14.2.1' }),
+		)
+		writeFileSync(join(root, 'marker.txt'), 'old')
+		return { base, root, home, prefix: join(base, 'prefix') }
+	}
+	const install = (root: string, version: string) => {
+		writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@namzu/cli', version }))
+		writeFileSync(join(root, 'marker.txt'), 'new')
+	}
+
+	describe('the remembered failure in --check', () => {
+		const failure = (to: string) => ({
+			at: '2026-10-27T10:00:00.000Z',
+			outcome: 'failed' as const,
+			status: 'install_failed',
+			method: 'npm-global',
+			from: '14.2.1',
+			to,
+			detail: 'The installer did not finish.',
+		})
+		const checkText = async (write: (l: ReturnType<typeof layout>) => void) => {
+			const l = layout()
+			try {
+				write(l)
+				const h = harness({
+					packageRoot: l.root,
+					safety: { home: l.home, smokeTest: async () => true },
+				})
+				expect(await h.invoke(['--check'])).toBe(0)
+				return (h.printed[0] as { text: string }).text
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		}
+
+		it('prints the last failure when it was for the version now offered', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), failure('14.3.0')),
+			)
+			expect(text).toContain('The last automatic update did not finish')
+		})
+
+		it('says a version that did not start here is available but is not offered, and points to the log', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), {
+					...failure('14.3.0'),
+					status: 'verify_failed',
+					detail: 'The new version did not start, so the previous one was put back.',
+					log: '/tmp/install.log',
+				}),
+			)
+			expect(text).toContain('Namzu 14.3.0 is available')
+			expect(text).toContain('did not start here last time')
+			expect(text).toContain('previous version was put back')
+			expect(text).toContain('/tmp/install.log')
+			expect(text).not.toContain('Run `namzu upgrade`')
+		})
+
+		it('does not print a failure for another version', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), failure('14.2.9')),
+			)
+			expect(text).not.toContain('did not finish')
+		})
+
+		it('does not print a failure recorded for another install', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(
+					l.home,
+					installScope(join(l.base, 'elsewhere'), 'linux'),
+					failure('14.3.0'),
+				),
+			)
+			expect(text).not.toContain('did not finish')
+		})
+	})
+
+	it('puts the previous version back when the new one does not start', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					install(l.root, '14.3.0')
+					return 0
+				},
+				installedVersion: (root) =>
+					(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string })
+						.version,
+				safety: { home: l.home, smokeTest: async () => false },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(h.errors).toEqual([
+				expect.objectContaining({
+					message: expect.stringContaining('previous version was put back'),
+				}),
+			])
+			expect(readFileSync(join(l.root, 'marker.txt'), 'utf8')).toBe('old')
+			expect(h.printed).toEqual([])
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('puts the previous version back when the installer dies half way', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					rmSync(join(l.root, 'package.json'))
+					return 1
+				},
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(readFileSync(join(l.root, 'marker.txt'), 'utf8')).toBe('old')
+			expect(existsSync(join(l.root, 'package.json'))).toBe(true)
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('keeps the previous version on disk after a good update', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					install(l.root, '14.3.0')
+					return 0
+				},
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(0)
+			expect(
+				readFileSync(
+					join(
+						previousDir(join(l.prefix, '.namzu-update'), '14.2.1', installScope(l.prefix, 'linux')),
+						'marker.txt',
+					),
+					'utf8',
+				),
+			).toBe('old')
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('does not start while another update holds the lock', async () => {
+		const l = layout()
+		try {
+			const held = acquireUpdateLock({
+				home: join(l.prefix, '.namzu-update'),
+				scope: installScope(l.prefix, 'linux'),
+				pid: process.pid,
+				isAlive: () => true,
+			})
+			const runNpm = vi.fn(async () => 0)
+			const h = harness({
+				packageRoot: l.root,
+				runNpm,
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(runNpm).not.toHaveBeenCalled()
+			expect(h.errors).toEqual([
+				expect.objectContaining({
+					message: 'Another Namzu update is already running. Try again in a moment.',
+				}),
+			])
+			held?.release()
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('updates a pnpm global installation through pnpm and reads the link it repoints', async () => {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-pnpm-'))
+		try {
+			const globalDir = join(base, 'pnpm', 'global', '5')
+			const storeRoot = join(
+				globalDir,
+				'.pnpm',
+				'@namzu+cli@14.2.1',
+				'node_modules',
+				'@namzu',
+				'cli',
+			)
+			const linked = join(globalDir, 'node_modules', '@namzu', 'cli')
+			const requests: NpmUpgradeRequest[] = []
+			const read = vi.fn(() => '14.3.0')
+			const h = harness({
+				packageRoot: storeRoot,
+				installedVersion: read,
+				runNpm: async (request) => {
+					requests.push(request)
+					return 0
+				},
+			})
+			expect(await h.invoke()).toBe(0)
+			const pinned = [
+				'--registry',
+				'https://registry.npmjs.org',
+				'--@namzu:registry=https://registry.npmjs.org',
+			]
+			expect(requests).toEqual([
+				{
+					executable: 'pnpm',
+					prefix: globalDir,
+					args: ['add', '--global', ...pinned, h.tarballs[0]],
+				},
+				// Then the registry's name for the version, so no `file:` entry stays in the manifest.
+				{
+					executable: 'pnpm',
+					prefix: globalDir,
+					args: ['add', '--global', '--offline', ...pinned, '@namzu/cli@14.3.0'],
+				},
+			])
+			expect(read).toHaveBeenCalledWith(linked)
+		} finally {
+			rmSync(base, { recursive: true, force: true })
+		}
+	})
+
+	it('keeps the checked install and says what is left when the store cannot record the name', async () => {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-pnpm-'))
+		try {
+			const globalDir = join(base, 'pnpm', 'global', '5')
+			const storeRoot = join(
+				globalDir,
+				'.pnpm',
+				'@namzu+cli@14.2.1',
+				'node_modules',
+				'@namzu',
+				'cli',
+			)
+			const calls: string[][] = []
+			const h = harness({
+				packageRoot: storeRoot,
+				installedVersion: () => '14.3.0',
+				runNpm: async (request) => {
+					calls.push([...request.args])
+					return request.args.includes('--offline') ? 1 : 0
+				},
+			})
+			expect(await h.invoke()).toBe(0)
+			expect(calls).toHaveLength(2)
+			expect(calls[1]).toContain('--offline')
+			expect(h.printed).toEqual([
+				expect.objectContaining({
+					updated: true,
+					text: expect.stringContaining('pnpm still lists Namzu as a local file'),
+				}),
+			])
+		} finally {
+			rmSync(base, { recursive: true, force: true })
+		}
+	})
+
+	it('follows the configured channel when it asks the registry', async () => {
+		const latestRelease = vi.fn(async () => release('14.3.0'))
+		const printed: unknown[] = []
+		const command = createUpgradeCommand({
+			currentVersion: '14.2.1',
+			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
+			platform: 'linux',
+			latestRelease,
+			runNpm: async () => 0,
+			installedVersion: () => '14.3.0',
+		})
+		await command.handler({
+			ctx: {
+				config: { updates: { channel: 'stable' } },
+				formatter: {
+					name: 'text',
+					print: (v: unknown) => printed.push(v),
+					error: () => {},
+					info: () => {},
+				},
+			},
+			rawArgs: ['--check'],
+		} as never)
+		expect(latestRelease).toHaveBeenCalledWith('stable')
+	})
+	it('says plainly that no stable release exists when the registry has none', async () => {
+		const errors: { message: string }[] = []
+		const command = createUpgradeCommand({
+			currentVersion: '14.2.1',
+			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
+			platform: 'linux',
+			latestRelease: async () => {
+				throw new Error('HTTP 404')
+			},
+			runNpm: async () => 0,
+			installedVersion: () => '14.2.1',
+		})
+		await command.handler({
+			ctx: {
+				config: { updates: { channel: 'stable' } },
+				formatter: {
+					name: 'text',
+					print: () => {},
+					error: (v: { message: string }) => errors.push(v),
+					info: () => {},
+				},
+			},
+			rawArgs: ['--check'],
+		} as never)
+		expect(errors[0]?.message).toMatch(/No stable release has been published yet/)
+	})
+
+	describe('what an upgrade prints of the installer', () => {
+		afterEach(() => {
+			vi.restoreAllMocks()
+			vi.unstubAllEnvs()
+		})
+
+		/** A terminal on stderr, so the activity indicator runs and the installer's output is collected. */
+		function onTerminal() {
+			vi.stubEnv('TERM', 'xterm-256color')
+			vi.stubEnv('NO_COLOR', undefined as never)
+			Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true })
+			Object.defineProperty(process.stderr, 'columns', { value: 80, configurable: true })
+			const order: string[] = []
+			vi.spyOn(process.stderr, 'write').mockImplementation(((text: string) => {
+				if (/changed 1 package|Details:/.test(String(text)))
+					order.push(`stderr:${String(text).trim()}`)
+				return true
+			}) as never)
+			return order
+		}
+
+		it('shows npm output only after the error, under details, when the update fails', async () => {
+			const order = onTerminal()
+			const l = layout()
+			try {
+				const h = harness({
+					packageRoot: l.root,
+					runNpm: async (request) => {
+						request.onOutput?.('changed 1 package in 2s\n')
+						install(l.root, '14.3.0')
+						return 0
+					},
+					safety: { home: l.home, smokeTest: async () => false },
+				})
+				const original = h.errors.push.bind(h.errors)
+				h.errors.push = (...items) => {
+					order.push('error')
+					return original(...items)
+				}
+				expect(await h.invoke()).toBe(1)
+				expect(order).toEqual(['error', 'stderr:Details:\nchanged 1 package in 2s'])
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		})
+
+		it('keeps npm output out of a successful update', async () => {
+			const order = onTerminal()
+			const l = layout()
+			try {
+				const h = harness({
+					packageRoot: l.root,
+					runNpm: async (request) => {
+						request.onOutput?.('changed 1 package in 2s\n')
+						install(l.root, '14.3.0')
+						return 0
+					},
+					safety: { home: l.home, smokeTest: async () => true },
+				})
+				expect(await h.invoke()).toBe(0)
+				expect(order).toEqual([])
+			} finally {
+				rmSync(l.base, { recursive: true, force: true })
+			}
+		})
 	})
 })

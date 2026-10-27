@@ -25,6 +25,7 @@ const TITLES: Readonly<Record<string, string>> = {
 	'runtime.tmpdir-writable': 'Temporary folder is writable',
 	'vault.registered': 'Secret storage',
 	'sandbox.platform': 'Sandbox',
+	'updates.install': 'Updates',
 }
 
 const MARKS: Readonly<Record<DoctorStatus, string>> = {
@@ -123,6 +124,10 @@ const REASONS: Readonly<Record<string, PlainReason>> = {
 		fail: 'the sandbox could not be checked',
 		warn: 'the sandbox does not fully contain commands here',
 		advice: 'Commands will ask before they run outside it.',
+	},
+	'updates.install': {
+		fail: 'Namzu could not check for updates',
+		warn: 'a newer version could not be installed here',
 	},
 }
 

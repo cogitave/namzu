@@ -23,6 +23,7 @@ import type {
 	StatusLineConfig,
 	TuiConfig,
 	TurnLimitsConfig,
+	UpdatesConfig,
 	WebConfig,
 	WorkflowCliConfig,
 } from '../config/schema.js'
@@ -264,6 +265,8 @@ export interface TuiContext {
 	readonly tui?: TuiConfig
 	/** The resolved `telemetry` block, for the health checks `/doctor` runs. */
 	readonly telemetry?: NamzuCliConfig['telemetry']
+	/** The `updates` settings of the resolved CLI config. */
+	readonly updates?: UpdatesConfig
 	/**
 	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
 	 * resolved once in `cli.ts` before the TUI launches. Optional for the
