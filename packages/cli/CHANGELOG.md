@@ -1,5 +1,20 @@
 # @namzu/cli
 
+## 41.2.0
+
+### Minor Changes
+
+- 320881f: A prompt to write a file, whether the file is new or replaced, now offers "Yes, and switch to accept edits for this session" and Shift+Tab answers it, as it already did for an edit. Accept edits mode now runs a file write inside your folders without asking; a path outside them, a protected file and a rule that asks still ask, and a write too long to show in full stays a one-time yes. If you relied on being asked for every write in Accept edits mode, stay in the default mode. The "Not run: an earlier call was declined and the turn stopped." row no longer says "(ctrl+o to expand)", because nothing is hidden behind it.
+
+### Patch Changes
+
+- 320881f: A failed tool result no longer ends with a second, generic "Error: Tool execution failed" when the tool already explained itself in its output, so the model and the terminal see the message once. A `read` of a file that ends with a newline now reports the same line count in its header data, its partial-view note and its past-end warning, and no longer returns an empty numbered row after the last line.
+- 320881f: `read` no longer prints a backwards "PARTIAL view" banner when the window starts after the last line. It succeeds with a note that the file is shorter than the requested start and how many lines it has, and an empty file says it is empty. Binary or non-UTF-8 content gets a short note with its size and the next step instead of numbered garbage; a caller that matched on the old output needs no change. In the terminal, a summary of a selected range now ends with the pointer to the conversation tools, and only when both are mounted.
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+- Updated dependencies [320881f]
+  - @namzu/sdk@56.0.1
+
 ## 41.1.1
 
 ### Patch Changes
