@@ -409,7 +409,6 @@ import {
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
-	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -2041,6 +2040,12 @@ function AppBody({
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
+	/**
+	 * The row that says a reply is paused while it mends itself. Every failed try
+	 * rewrites this one row instead of adding another; it is forgotten when the
+	 * run of tries ends (`autoResumeAttemptRef` back to 0).
+	 */
+	const selfMendingPauseRowRef = useRef<string | null>(null)
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
@@ -6510,6 +6515,8 @@ function AppBody({
 		async (resume?: {
 			/** Continuing a turn a tool paused for a person: what the tool asked for. */
 			readonly handoffReason?: string | undefined
+			/** A try the schedule made by itself: it adds no line of its own to the transcript. */
+			readonly automatic?: boolean
 		}): Promise<boolean> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
@@ -6599,7 +6606,7 @@ function AppBody({
 				}
 				// Said once the turn really continues: a scheduled park can still
 				// be left waiting or abandoned above.
-				pushMessage('system', PAUSED_TURN_LINES.resuming)
+				if (!resume?.automatic) pushMessage('system', PAUSED_TURN_LINES.resuming)
 				for await (const event of session.resumePaused({
 					turnId: active.turnId,
 					signal: ac.signal,
@@ -6708,7 +6715,7 @@ function AppBody({
 				const parked = handoffParkRef.current
 				void (async () => {
 					try {
-						await resumeActiveTurn()
+						await resumeActiveTurn({ automatic: true })
 					} catch {
 						// An attempt that failed to start is an attempt that did not take.
 					}
@@ -9145,12 +9152,25 @@ function AppBody({
 							reason: event.handoff.reason,
 						})
 					} else {
-						pushSystem('warning', describePlainInterruption(event, plainOptions()))
+						const pauseText = describePlainInterruption(event, plainOptions())
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
 						// A connection that would not hold passes by itself, so the pause
 						// tries again on a schedule until the person stops it.
 						if (isSelfMending(event)) {
+							// One row for the whole run of tries: a later pause rewrites it.
+							const rowId = selfMendingPauseRowRef.current
+							if (
+								rowId !== null &&
+								autoResumeAttemptRef.current > 0 &&
+								messagesLiveRef.current.some((row) => row.id === rowId)
+							) {
+								setMessages((rows) =>
+									rows.map((row) => (row.id === rowId ? { ...row, content: pauseText } : row)),
+								)
+							} else {
+								selfMendingPauseRowRef.current = pushSystem('warning', pauseText)
+							}
 							const attempt = autoResumeAttemptRef.current + 1
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({
@@ -9158,6 +9178,7 @@ function AppBody({
 								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
 							})
 						} else {
+							pushSystem('warning', pauseText)
 							setHandoffPark({ turnId: event.turnId })
 						}
 					}

@@ -164,6 +164,21 @@ describe('a pause that mends itself', () => {
 		await until(() => facts.resumes === 2, 'second try missing')
 	})
 
+	it('keeps one pause row however many tries fail, and adds no line per try', async () => {
+		facts.outcomes = ['paused', 'paused', 'done']
+		const harness = await mountPaused()
+		const rows = () => (flat(harness.lastFrame()).match(/Paused\. /g) ?? []).length
+		expect(rows()).toBe(1)
+		await vi.advanceTimersByTimeAsync(FIRST + 1_100)
+		await until(() => facts.resumes === 1, 'first try missing')
+		await until(() => /trying again in (29|30)s/.test(flat(harness.lastFrame())), 'no 30s wait')
+		await vi.advanceTimersByTimeAsync(SECOND + 1_100)
+		await until(() => facts.resumes === 2, 'second try missing')
+		await until(() => /trying again in/.test(flat(harness.lastFrame())), 'no wait after second')
+		expect(rows()).toBe(1)
+		expect(flat(harness.lastFrame())).not.toContain('Continuing where it paused')
+	})
+
 	it('goes back to the first step after Enter', async () => {
 		facts.outcomes = ['paused', 'paused', 'done']
 		const harness = await mountPaused()
