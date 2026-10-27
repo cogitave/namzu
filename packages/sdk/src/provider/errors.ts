@@ -31,6 +31,7 @@
 
 import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import type { ProviderErrorKind, ProviderRequestErrorInit } from '../types/provider/error.js'
+import { type TransportCause, readTransportCause } from '../types/provider/errors.js'
 export type {
 	ProviderErrorInfo,
 	ProviderErrorKind,
@@ -78,6 +79,8 @@ export class ProviderRequestError extends Error {
 	public readonly detail?: string
 	/** The provider's `x-should-retry` verdict, when it sent one; see {@link ProviderRequestErrorInit.shouldRetry}. */
 	public readonly shouldRetry?: boolean
+	/** The part of the network path the request tripped on, when known; see {@link ProviderRequestErrorInit.transport}. */
+	public readonly transport?: TransportCause
 
 	constructor(init: ProviderRequestErrorInit) {
 		super(buildProviderErrorMessage(init))
@@ -90,6 +93,7 @@ export class ProviderRequestError extends Error {
 		if (init.retryAfterMs !== undefined) this.retryAfterMs = init.retryAfterMs
 		if (init.detail !== undefined) this.detail = init.detail
 		if (init.shouldRetry !== undefined) this.shouldRetry = init.shouldRetry
+		if (init.transport !== undefined) this.transport = init.transport
 	}
 }
 
@@ -520,8 +524,14 @@ export function providerVendorError(input: {
 	const name = error instanceof Error ? error.name : ''
 	const message = error instanceof Error ? error.message : ''
 
+	// A proxy that refuses the tunnel or a certificate nobody trusts has no status
+	// to read, and the same request meets the same obstacle again.
+	const transport = readTransportCause(error)
+
 	let kind: ProviderErrorKind
-	if (/ThrottlingException|TooManyRequests|ServiceQuotaExceeded/i.test(name)) {
+	if (transport !== undefined) {
+		kind = 'network'
+	} else if (/ThrottlingException|TooManyRequests|ServiceQuotaExceeded/i.test(name)) {
 		kind = 'throttle'
 	} else if (/AccessDenied|Unauthorized|Forbidden|Authentication/i.test(name)) {
 		kind = 'auth'
@@ -550,7 +560,8 @@ export function providerVendorError(input: {
 		input.retryAfter ?? vendorRetryAfter(error),
 		input.now ?? Date.now(),
 	)
-	const shouldRetry = parseShouldRetry(vendorHeader(error, ['x-should-retry']))
+	const shouldRetry =
+		transport !== undefined ? false : parseShouldRetry(vendorHeader(error, ['x-should-retry']))
 	const fields = error as { type?: unknown; param?: unknown; requestID?: unknown } | null
 	// A message that already carries its body (Anthropic's) has the fields; one that is only the
 	// parsed sentence (OpenAI's) gets them from the SDK error's own properties.
@@ -571,6 +582,7 @@ export function providerVendorError(input: {
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
 		...(shouldRetry !== undefined ? { shouldRetry } : {}),
+		...(transport !== undefined ? { transport } : {}),
 	})
 }
 

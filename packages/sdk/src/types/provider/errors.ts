@@ -278,6 +278,59 @@ function isUndiciTermination(err: unknown): boolean {
 	return false
 }
 
+/**
+ * Why a request never reached the model when the cause is the network path
+ * between this host and the provider, not the provider.
+ *
+ * - `proxy_auth_required`: a proxy answered the tunnel request asking for credentials.
+ * - `proxy_refused`: a proxy answered the tunnel request with any other refusal.
+ * - `untrusted_certificate`: the certificate on the connection did not chain to an
+ *   authority this process trusts (typically a firewall that inspects encrypted traffic).
+ */
+export type TransportCause = 'proxy_auth_required' | 'proxy_refused' | 'untrusted_certificate'
+
+const TRANSPORT_CAUSES: ReadonlySet<string> = new Set([
+	'proxy_auth_required',
+	'proxy_refused',
+	'untrusted_certificate',
+])
+
+const UNTRUSTED_CERTIFICATE_CODES: ReadonlySet<string> = new Set([
+	'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+	'UNABLE_TO_GET_ISSUER_CERT',
+	'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+	'SELF_SIGNED_CERT_IN_CHAIN',
+	'DEPTH_ZERO_SELF_SIGNED_CERT',
+	'CERT_UNTRUSTED',
+	'CERT_CHAIN_TOO_LONG',
+])
+
+/**
+ * Read a proxy refusal or an untrusted certificate off a failure's cause chain.
+ *
+ * Structural where it can be (an error code) and, for the proxy, the one
+ * sentence undici writes when a tunnel request is answered with a status other
+ * than 200, because that failure carries no code or status of its own.
+ */
+export function readTransportCause(err: unknown): TransportCause | undefined {
+	for (const link of causeChain(err)) {
+		// A driver's own error carries the diagnosis as data (see
+		// `ProviderRequestError.transport`) because it never keeps the cause.
+		if (typeof link.transport === 'string' && TRANSPORT_CAUSES.has(link.transport)) {
+			return link.transport as TransportCause
+		}
+		if (typeof link.code === 'string' && UNTRUSTED_CERTIFICATE_CODES.has(link.code)) {
+			return 'untrusted_certificate'
+		}
+		const tunnel =
+			typeof link.message === 'string'
+				? /Proxy response \((\d{3})\) !== 200 when HTTP Tunneling/.exec(link.message)
+				: null
+		if (tunnel) return tunnel[1] === '407' ? 'proxy_auth_required' : 'proxy_refused'
+	}
+	return undefined
+}
+
 /** Node/undici transport failures that mean "never reached the model". */
 const NETWORK_ERRNOS: ReadonlySet<string> = new Set([
 	'ECONNRESET',
@@ -540,6 +593,20 @@ export function classifyProviderError(
 			...(status !== undefined ? { status } : {}),
 			...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 			...(declared !== undefined ? { retryable: declared } : {}),
+			cause: err,
+		})
+	}
+
+	// The network path itself: a proxy that wants credentials or refuses the
+	// tunnel, or a certificate nobody here trusts. Filed as `network` so it falls
+	// over like any unreachable provider, but never retried — the same request
+	// meets the same proxy or the same certificate again.
+	if (readTransportCause(err) !== undefined) {
+		return new ProviderError({
+			code: 'network',
+			message,
+			providerId,
+			retryable: false,
 			cause: err,
 		})
 	}
