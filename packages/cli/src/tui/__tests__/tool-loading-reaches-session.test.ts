@@ -308,7 +308,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 			toolsets: [toolset('mcp:test', [SearchToolsTool])],
 			connected: [],
 			failed: [],
-			current: () => ({ connected: [], failed: [] }),
+			pending: [],
+			ready: Promise.resolve(),
+			onSettled: () => () => {},
+			current: () => ({ connected: [], failed: [], pending: [] }),
 			close: async () => {},
 		})
 		mockProvider((_request, index) =>

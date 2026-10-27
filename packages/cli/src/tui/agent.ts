@@ -300,6 +300,7 @@ import {
 	type FailedMcpServer,
 	type McpServersConfig,
 	connectMcpServers,
+	startMcpServers,
 } from '../integrations/mcp/servers.js'
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
@@ -1468,7 +1469,15 @@ export interface AgentSession {
 	readonly mcpStatus?: () => {
 		readonly connected: readonly ConnectedMcpServer[]
 		readonly failed: readonly FailedMcpServer[]
+		/** Tool servers still being reached; absent when the session waited for all of them. */
+		readonly pending?: readonly string[]
 	}
+	/**
+	 * Called once for each tool server as it connects or fails, in a session
+	 * that opened without waiting for them (`toolServers: 'background'`).
+	 * Returns the unsubscribe function.
+	 */
+	readonly onMcpSettled?: (listener: (name: string) => void) => () => void
 	/**
 	 * Delegates this session can dispatch to. Empty when the subagent runtime
 	 * did not come up, which is non-fatal and leaves the session doing its own
@@ -2301,6 +2310,13 @@ export interface AgentSessionOptions {
 	 * config. Absent means none, which is what it meant before they existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/**
+	 * Whether opening the session waits for the tool servers. `'wait'` (the
+	 * default, what headless runs need) returns once each has answered or
+	 * failed. `'background'` returns at once; the tools of each server join
+	 * as it connects, and `onMcpSettled` reports each one.
+	 */
+	readonly toolServers?: 'wait' | 'background'
 	/** Executable extension runtime. Absent or disabled performs no discovery. */
 	readonly plugins?: PluginConfig
 	/**
@@ -3345,33 +3361,41 @@ export async function createAgentSession(
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
-	const mcp = await connectMcpServers(options.mcpServers, { cwd })
+	const mcp =
+		options.toolServers === 'background'
+			? startMcpServers(options.mcpServers, { cwd })
+			: await connectMcpServers(options.mcpServers, { cwd })
 	toolsets.push(...mcp.toolsets)
 	// External connector discovery is reported separately from executable
 	// plugin discovery. Folding both counts together would make a failed server
 	// indistinguishable from a plugin that never enabled.
-	cliLogger().info('discovery complete', {
-		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
-		'namzu.discovery.kind': 'connector',
-		'namzu.discovery.count': mcp.connected.length,
-		'namzu.discovery.tool_count': mcp.tools.length,
-		'namzu.discovery.failed_count': mcp.failed.length,
-	})
-	for (const server of mcp.connected) {
-		cliLogger().debug('connector discovered', {
+	const logConnectorDiscovery = (): void => {
+		cliLogger().info('discovery complete', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 			'namzu.discovery.kind': 'connector',
-			'namzu.connector.name': server.name,
-			'namzu.connector.tool_count': server.toolCount,
+			'namzu.discovery.count': mcp.connected.length,
+			'namzu.discovery.tool_count': mcp.tools.length,
+			'namzu.discovery.failed_count': mcp.failed.length,
 		})
+		for (const server of mcp.connected) {
+			cliLogger().debug('connector discovered', {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+				'namzu.discovery.kind': 'connector',
+				'namzu.connector.name': server.name,
+				'namzu.connector.tool_count': server.toolCount,
+			})
+		}
+		for (const server of mcp.failed) {
+			cliLogger().debug('connector failed to connect', {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+				'namzu.discovery.kind': 'connector',
+				'namzu.connector.name': server.name,
+			})
+		}
 	}
-	for (const server of mcp.failed) {
-		cliLogger().debug('connector failed to connect', {
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
-			'namzu.discovery.kind': 'connector',
-			'namzu.connector.name': server.name,
-		})
-	}
+	// A session that did not wait reports once every server has answered.
+	if (options.toolServers === 'background') void mcp.ready.then(logConnectorDiscovery)
+	else logConnectorDiscovery()
 	// Detected once per session, not per capability check an operator might
 	// separately run via `namzu doctor`. Package probes still supply optional
 	// package details; the aggregate overrides capabilities whose runtime
@@ -5515,6 +5539,7 @@ export async function createAgentSession(
 			return mcp.failed
 		},
 		mcpStatus: () => mcp.current(),
+		...(options.toolServers === 'background' ? { onMcpSettled: mcp.onSettled } : {}),
 		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
 			// Git for Windows is missing and the shell tool runs cmd.exe: said once, here.

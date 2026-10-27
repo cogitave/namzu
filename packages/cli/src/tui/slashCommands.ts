@@ -3,6 +3,7 @@ import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { isToolServerTimeout } from './tool-server-rows.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
@@ -359,6 +360,8 @@ export interface SlashContext {
 			readonly name: string
 			readonly reason: string
 		}[]
+		/** Tool servers still being reached. */
+		readonly pending?: readonly string[]
 	} | null
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
@@ -1989,11 +1992,14 @@ function reviewTargetPrompt(target: readonly string[]): string {
 
 export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false): string {
 	if (mcp === null) return 'Not connected yet. Tool servers have not been checked.'
-	if (mcp.connected.length === 0 && mcp.failed.length === 0) {
+	const pending = mcp.pending ?? []
+	if (mcp.connected.length === 0 && mcp.failed.length === 0 && pending.length === 0) {
 		return 'No tool servers configured. Add mcpServers to namzu.config.json.'
 	}
 	const lines = [
-		`Tool servers: ${mcp.connected.length} connected, ${mcp.failed.length} unavailable.`,
+		`Tool servers: ${mcp.connected.length} connected, ${mcp.failed.length} unavailable${
+			pending.length > 0 ? `, ${pending.length} connecting` : ''
+		}.`,
 	]
 	for (const server of mcp.connected) {
 		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
@@ -2015,7 +2021,11 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 			for (const tool of server.tools) lines.push(`  ${tool}`)
 		}
 	}
-	for (const server of mcp.failed) lines.push(`${server.name}: unavailable — ${server.reason}`)
+	for (const server of mcp.failed) {
+		const reason = isToolServerTimeout(server.reason) ? 'did not answer in time' : server.reason
+		lines.push(`${server.name}: unavailable — ${reason}`)
+	}
+	for (const name of pending) lines.push(`${name}: connecting…`)
 	if (!details && mcp.connected.length > 0) lines.push('/mcp tools to list available tools.')
 	return lines.join('\n')
 }

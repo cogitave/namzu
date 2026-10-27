@@ -598,6 +598,7 @@ import {
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
 import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
@@ -5481,6 +5482,8 @@ function AppBody({
 									}
 								: {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+							// The composer is ready at once; each server's tools join as it connects.
+							toolServers: 'background',
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
@@ -5682,15 +5685,25 @@ function AppBody({
 						`Skipped ${relative(activeCtx.cwd, skip.path) || skip.path}: ${skip.reason}`,
 					)
 				}
-				for (const server of s.mcpConnected) {
-					pushMessage('system', `Tool server ${server.name} · ${server.toolCount} tools`)
+				// Servers connect in the background: each is reported when it settles
+				// (a person can read the line and fix their config; a headless run
+				// refuses instead). One that is already settled is reported now.
+				const reportedToolServers = new Set<string>()
+				const reportToolServer = (name: string) => {
+					if (reportedToolServers.has(name)) return
+					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					const row = toolServerRow(
+						name,
+						s.mcpStatus?.() ?? { connected: s.mcpConnected, failed: s.mcpFailed },
+					)
+					if (!row) return
+					reportedToolServers.add(name)
+					if (row.level === 'warning') pushSystem('warning', row.text)
+					else pushMessage('system', row.text)
 				}
-				// Reported and carried on, where a headless run refuses: there is a
-				// person here who can read this and fix their config, and taking the
-				// whole session away from them would not help them do it.
-				for (const server of s.mcpFailed) {
-					pushMessage('system', `Tool server ${server.name} is not available: ${server.reason}`)
-				}
+				s.onMcpSettled?.(reportToolServer)
+				for (const server of s.mcpConnected) reportToolServer(server.name)
+				for (const server of s.mcpFailed) reportToolServer(server.name)
 			} else {
 				setPhase('unhealthy')
 				if (s.errorHint) pushMessage('system', s.errorHint, false, STARTUP_STOP_GLYPH)
