@@ -755,6 +755,37 @@ export async function closableProviderPause(
 	return pending.size === 0 ? { turnId: active.turnId } : undefined
 }
 
+/**
+ * The turn left on questions about tool calls whose process is gone: the
+ * session ended while a person was being asked, so nothing can answer them any
+ * more. Those calls never ran. The question is not asked again; the turn is
+ * closed and the person goes on with their next message. A pause that waits
+ * for anything else (a sign-in, a plan, a scheduled run) is not this.
+ */
+export async function unansweredReviewPark(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<{ readonly turnId: string } | undefined> {
+	const facts = await requireConversationInScope(s, sessionId, 'inspect conversation')
+	const active = facts.activeTurn
+	if (!active) return undefined
+	// A turn another process is still running owns its questions.
+	const state = await DiskSessionLog.at(s.paths, { sessionId }).activeTurn()
+	if (!state || state.turnId !== active.turnId || state.state === 'running') return undefined
+	const pending = new Map<string, string>()
+	for (const record of facts.records) {
+		if (record.type === 'turn_paused' && record.turnId === active.turnId && record.handoff)
+			return undefined
+		if (record.type === 'decision_requested' && record.turnId === active.turnId)
+			pending.set(record.decisionId, record.request.type)
+		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
+			pending.delete(record.decisionId)
+	}
+	if (pending.size === 0) return undefined
+	for (const type of pending.values()) if (type !== 'tool_review') return undefined
+	return { turnId: active.turnId }
+}
+
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	return listConversations(s, false, limit)

@@ -735,6 +735,7 @@ export type AgentEvent =
 			readonly duplicateResults: number
 			readonly orphanedResults: number
 			readonly interruptedCalls: number
+			readonly neverRanCalls?: number
 			readonly rejectedImages?: number
 			/** The wording the kernel's counts produce. Shown only under `--debug`. */
 			readonly text: string
@@ -7968,6 +7969,9 @@ export function toAgentEvent(
 				duplicateResults: event.duplicateToolResultsRemoved,
 				orphanedResults: event.orphanedToolResultsRemoved,
 				interruptedCalls: event.syntheticToolResultsInserted,
+				...(event.neverRanToolResultsInserted
+					? { neverRanCalls: event.neverRanToolResultsInserted }
+					: {}),
 				text: `Tool history repaired before the model call: ${changes.join('; ')}. Verify external state before retrying non-idempotent tools.`,
 			}
 		}

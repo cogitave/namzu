@@ -386,6 +386,9 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 					duplicateResults: record.duplicateToolResultsRemoved,
 					orphanedResults: record.orphanedToolResultsRemoved,
 					interruptedCalls: record.syntheticToolResultsInserted,
+					...(record.neverRanToolResultsInserted !== undefined
+						? { neverRanCalls: record.neverRanToolResultsInserted }
+						: {}),
 					...(record.providerRejectedImagesSuppressed !== undefined
 						? { rejectedImages: record.providerRejectedImagesSuppressed }
 						: {}),

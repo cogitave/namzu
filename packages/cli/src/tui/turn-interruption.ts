@@ -219,6 +219,9 @@ export const PAUSED_TURN_LINES = {
 	abandoned: 'Stopped the paused reply. Your next message starts a new one in this conversation.',
 	resuming: 'Continuing where it paused…',
 	abandonedScheduled: 'Stopped this run. The job stays scheduled.',
+	/** The questions about tool calls were open when the session ended; the calls did not run. */
+	unansweredReview:
+		'Those calls were waiting for your approval when the session ended, so they did not run. Say what to do next.',
 } as const
 
 /**

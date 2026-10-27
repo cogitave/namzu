@@ -800,6 +800,8 @@ type CoreSessionEvent =
 			duplicateToolResultsRemoved: number
 			orphanedToolResultsRemoved: number
 			syntheticToolResultsInserted: number
+			/** Of those, how many say the call never started. Absent when none. */
+			neverRanToolResultsInserted?: number
 			/** Exact number of durable image occurrences withheld from later requests. */
 			providerRejectedImagesSuppressed?: number
 	  }

@@ -137,6 +137,12 @@ A call that is waiting for its yes shows in the transcript as a dim, static dot 
 
 A first look at the screen is still asked as one question, before the calls that need it, and a scheduled run holds what needs a person instead of asking. A workflow's agents count as another agent's questions and queue behind your own.
 
+### When the session ends with a question open
+
+A question is answered by a person in the window that asked it. If Namzu is closed or killed while one is open, the calls it asked about did not run, and they are not asked about again when the conversation is resumed: nothing is replayed, and no earlier answer carries over. The transcript shows each such call as `Not run · it was waiting for approval when the session ended` (a call queued behind it reads `Not run · the session ended before it started`; a call that had started and has no result still reads `Interrupted`). `/resume` closes the left-over turn with one line (`Those calls were waiting for your approval when the session ended, so they did not run. Say what to do next.`), and sending a message does the same before it goes out. The model's next request carries an error result for each of those calls saying it did not run, nothing was changed, and to call it again if it is still needed, so it asks afresh and you answer afresh.
+
+A killed session's turn is held for up to five minutes before another window can close it; `/resume` within that time reports that the conversation is still in use.
+
 ## Large calls
 
 A large write, edit or command is asked about, not refused. The prompt shows the input in a page of rows; PgUp, PgDn, Home and End move through the rest, and `d` switches between the readable view and the exact input. Approving binds exactly the input that was shown: if it changed after the prompt opened, the call is refused instead of run.

@@ -44,6 +44,7 @@ vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () =>
 		world.parked ? { turnId: TURN_ID, paused: true } : undefined,
+	unansweredReviewPark: async () => undefined,
 	closableProviderPause: async () =>
 		world.parked && world.closable ? { turnId: TURN_ID } : undefined,
 	openSessions: async () => ({ tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6' }),
