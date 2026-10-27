@@ -206,6 +206,18 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 					? readLastResult(deps.safety?.home ?? '', scopeFor(deps.platform, checkPrefix, checkPnpm))
 					: undefined
 				const last = earlier?.to === latest ? earlier : undefined
+				if (last?.outcome === 'failed' && last.status === 'verify_failed') {
+					// A version that did not start here is not offered again: say so, and point to the log.
+					ctx.formatter.print({
+						current: deps.currentVersion,
+						latest,
+						upToDate: false,
+						text: `Namzu ${latest} is available (current: ${deps.currentVersion}), but it did not start here last time, so the previous version was put back.${
+							last.log ? `\nWhat the installer printed is in ${last.log}` : ''
+						}`,
+					})
+					return EXIT_OK
+				}
 				ctx.formatter.print({
 					current: deps.currentVersion,
 					latest,

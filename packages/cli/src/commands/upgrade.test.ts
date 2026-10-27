@@ -323,6 +323,22 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			expect(text).toContain('The last automatic update did not finish')
 		})
 
+		it('says a version that did not start here is available but is not offered, and points to the log', async () => {
+			const text = await checkText((l) =>
+				writeLastResult(l.home, installScope(l.prefix, 'linux'), {
+					...failure('14.3.0'),
+					status: 'verify_failed',
+					detail: 'The new version did not start, so the previous one was put back.',
+					log: '/tmp/install.log',
+				}),
+			)
+			expect(text).toContain('Namzu 14.3.0 is available')
+			expect(text).toContain('did not start here last time')
+			expect(text).toContain('previous version was put back')
+			expect(text).toContain('/tmp/install.log')
+			expect(text).not.toContain('Run `namzu upgrade`')
+		})
+
 		it('does not print a failure for another version', async () => {
 			const text = await checkText((l) =>
 				writeLastResult(l.home, installScope(l.prefix, 'linux'), failure('14.2.9')),

@@ -132,6 +132,10 @@ checksum, the installer did not finish) the footer says once `Namzu X could not
 start here; staying on Y` (or `could not be installed`) and offers nothing for that
 version: the command would fail the same way. `namzu doctor` keeps saying so, with
 the log of the attempt, until a newer version is published.
+`namzu upgrade --check` says the same for a version that did not start: it is available,
+it did not start here last time, the previous version was put back, and where the
+installer's log is; it does not suggest installing it. `namzu upgrade` itself still
+tries it when you run it.
 
 `namzu upgrade` keeps the installer's own output out of the way: nothing of it is
 shown on success, and after a failure it follows the error under `Details:`.
