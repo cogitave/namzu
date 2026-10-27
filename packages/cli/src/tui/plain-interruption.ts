@@ -8,7 +8,12 @@ import {
 	detailLabel,
 	retryAfterMs,
 } from './turn-interruption.js'
-import { ZEN_FREE_REFUSED_WHAT, isZenFreeTierRefusal } from './zen-free-refusal.js'
+import {
+	ZEN_FREE_LIMITED_WHAT,
+	ZEN_FREE_REFUSED_WHAT,
+	isZenFreeTierLimit,
+	isZenFreeTierRefusal,
+} from './zen-free-refusal.js'
 
 /**
  * What the terminal app tells a person when a reply fails or pauses.
@@ -325,6 +330,18 @@ export function describePlainInterruption(
 			next: 'Try again in a while, or choose another provider with /model. A Zen API key also works.',
 		}
 	}
+	// A free Zen model with no allowance left: the wait is long and the way on is
+	// another model or provider, so say that instead of "wait a moment".
+	const freeLimited =
+		kind === 'rate_limit' &&
+		isZenFreeTierLimit({ providerId: providerIdOf(event), model: options.model })
+	if (freeLimited) {
+		const wait = retryAfterMs(event)
+		copy = {
+			what: ZEN_FREE_LIMITED_WHAT,
+			next: `${wait === undefined ? '' : `It should reset in about ${formatSpan(wait)}. `}Pick another model with /model, or choose another provider. A Zen API key also works.`,
+		}
+	}
 	// The provider's own sentence: its detail field, or a message inside a JSON
 	// body in the raw reason. A raw reason with no body is only our own wrapper.
 	const vendor =
@@ -332,6 +349,7 @@ export function describePlainInterruption(
 		(rawReason.includes('{') || kind === 'unknown' ? cleanVendorMessage(rawReason) : undefined)
 	const informative =
 		!freeRefused &&
+		!freeLimited &&
 		vendor !== undefined &&
 		!sameIdea(vendor, copy.what) &&
 		!sameIdea(vendor, copy.next) &&
@@ -345,7 +363,13 @@ export function describePlainInterruption(
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
 		rows.push(
 			pauseSentence(
-				wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
+				freeLimited
+					? // The wait is long and retrying sooner fails the same way, so the
+						// sentence leads with the ways on rather than with "wait".
+						`${stem(what)}. ${copy.next.replace(/\.$/, '')}`
+					: wait === undefined
+						? stem(what)
+						: `${stem(what)}. Wait about ${formatSpan(wait)}`,
 			),
 		)
 	} else if (kind === 'unknown' && vendor) {

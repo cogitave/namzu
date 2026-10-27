@@ -15,6 +15,7 @@ import type {
 	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
+	NamzuCliConfig,
 	PluginConfig,
 	RoutingConfig,
 	SandboxConfig,
@@ -256,6 +257,8 @@ export interface TuiContext {
 	readonly sandbox?: SandboxConfig
 	/** Opted-in terminal notification settings from the resolved CLI config. */
 	readonly tui?: TuiConfig
+	/** The resolved `telemetry` block, for the health checks `/doctor` runs. */
+	readonly telemetry?: NamzuCliConfig['telemetry']
 	/**
 	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
 	 * resolved once in `cli.ts` before the TUI launches. Optional for the

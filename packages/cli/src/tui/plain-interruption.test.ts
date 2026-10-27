@@ -408,6 +408,72 @@ describe('Zen declining a free model that carried no key', () => {
 	})
 })
 
+describe('a free Zen model with no allowance left', () => {
+	const limited = {
+		providerError: {
+			kind: 'throttle',
+			providerId: 'zen',
+			status: 429,
+			retryAfterMs: 15 * 3_600_000,
+			detail: 'FreeUsageLimitError: Rate limit exceeded. Please try again later.',
+		},
+		explanation: {
+			id: 'provider.rate_limit',
+			message: 'The provider is rate limiting this turn.',
+			hint: 'wait',
+		},
+	}
+
+	it('says the allowance is used up, when it resets, and offers /model or another provider', () => {
+		const text = describePlainInterruption(failed(limited), { model: 'space-bunny-free' })
+		expect(text).toBe(
+			'The free allowance for this model is used up for now. It should reset in about 15h 00m. Pick another model with /model, or choose another provider. A Zen API key also works.',
+		)
+		expectPlain(text)
+		expect(text).not.toMatch(/concurrency|Wait a moment|limiting requests/i)
+	})
+
+	it('keeps the provider’s own words for debug only', () => {
+		const plain = describePlainInterruption(failed(limited), { model: 'space-bunny-free' })
+		expect(plain).not.toContain('FreeUsageLimitError')
+		const debug = describePlainInterruption(failed(limited), {
+			model: 'space-bunny-free',
+			debug: true,
+		})
+		expect(debug).toContain('Provider detail: FreeUsageLimitError')
+	})
+
+	it('leads a pause with the ways on rather than with waiting', () => {
+		const text = describePlainInterruption(paused({ ...limited, reason: 'rate limited' }), {
+			model: 'space-bunny-free',
+		})
+		expect(text).toBe(
+			'Paused. The free allowance for this model is used up for now. It should reset in about 15h 00m. Pick another model with /model, or choose another provider. A Zen API key also works. Press Enter to continue, or Esc to stop.',
+		)
+	})
+
+	it('names no reset time when the provider gave none', () => {
+		const { retryAfterMs: _omit, ...providerError } = limited.providerError
+		const text = describePlainInterruption(failed({ ...limited, providerError }), {
+			model: 'space-bunny-free',
+		})
+		expect(text).toBe(
+			'The free allowance for this model is used up for now. Pick another model with /model, or choose another provider. A Zen API key also works.',
+		)
+	})
+
+	it('leaves a paid model and other providers on the ordinary wording', () => {
+		const paid = describePlainInterruption(failed(limited), { model: 'claude-sonnet-4-5' })
+		expect(paid).toContain('Zen is limiting requests right now.')
+		const other = describePlainInterruption(
+			failed({ ...limited, providerError: { ...limited.providerError, providerId: 'openai' } }),
+			{ model: 'space-bunny-free' },
+		)
+		expect(other).toContain('OpenAI is limiting requests right now.')
+		expect(describePlainInterruption(failed(limited))).toContain('Zen is limiting requests')
+	})
+})
+
 describe('a message refused because the conversation still holds a turn', () => {
 	const refused = (state: 'running' | 'paused' | 'interrupted'): Interruption =>
 		failed({

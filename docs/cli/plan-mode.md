@@ -12,6 +12,12 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
 
+## Proposing plan mode
+
+The model can propose planning before a change that is not small (a new feature, several reasonable approaches, an edit across several files or one that alters existing behaviour, an architectural choice, a task whose scope has to be explored first) by calling `enter_plan_mode`. The tool is deferred: it costs one line in the deferred list and is loaded only when the model looks for it. It takes no arguments and asks you "Enter plan mode?" with two rows, "Yes, plan first" and "No, go ahead". Only a yes switches the session, through the same change Shift+Tab makes, and the transcript says `Permissions: Plan (read-only) for this conversation.` The model then reads that plan mode is on, where the plan file is, and that it ends by presenting the plan with `exit_plan_mode`. Any other answer (no, Esc, a closed question) leaves the mode alone and tells the model to carry on directly.
+
+It does not ask when the answer cannot matter: in Auto mode (you chose not to be consulted per step) it switches straight away, and in plan mode it only says plan mode is already on. Every other mode asks, bypass included, and the question is the tool's own screen, so no second "do you want to run" box opens in front of it. When nobody can be asked (a headless run, a scheduled run), it does not switch; the model is told to carry on. Delegated agents and `namzu exec` do not have the tool.
+
 ## The plan file
 
 Plan mode keeps one plan file per session, inside the session's own directory:

@@ -424,6 +424,7 @@ import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
+import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
 import { isPlanFileWrite, planCarriedAcrossCompaction } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
@@ -898,6 +899,11 @@ export interface SendOptions {
 	 * tool tells the model so and the model ends its reply with the plan.
 	 */
 	readonly onPlanExit?: PlanApprovalFn
+	/**
+	 * Switch the session to plan mode after the person agreed to it
+	 * (`enter_plan_mode`). Absent means the model cannot enter plan mode itself.
+	 */
+	readonly onPlanEnter?: () => void | Promise<void>
 	/** Whether the session may run without asking; changes the dialog's first row. */
 	readonly bypassAvailable?: () => boolean
 	/** Request a model change owned by this turn; the host publishes it after settlement. */
@@ -4101,6 +4107,7 @@ export async function createAgentSession(
 				readonly mode: () => PermissionMode
 				readonly planPath: string
 				readonly approval: PlanApprovalFn | undefined
+				readonly enter: (() => void | Promise<void>) | undefined
 				readonly bypassAvailable: () => boolean
 		  }
 		| undefined
@@ -4115,6 +4122,25 @@ export async function createAgentSession(
 					approval: () => currentPlanHost?.approval,
 				}),
 			]),
+		)
+		// `enter_plan_mode`: the model proposes planning first and the person
+		// decides. Deferred, because most turns never need it; the question it
+		// asks goes through this turn's answerer, and the switch through the
+		// host's own mode change.
+		toolsets.push(
+			deferred(
+				toolset('plan-mode-entry', [
+					buildEnterPlanModeTool({
+						mode: () => currentPlanHost?.mode() ?? 'prompt',
+						planPath: () =>
+							currentPlanHost?.planPath ?? paths.planFile({ sessionId: scope.sessionId }),
+						ask: () => currentOnQuestion,
+						enter: async () => {
+							await currentPlanHost?.enter?.()
+						},
+					}),
+				]),
+			),
 		)
 	}
 	// The host's own additions, to this session only: `buildTools` above
@@ -5678,6 +5704,7 @@ export async function createAgentSession(
 									mode: () => modeControl.current(),
 									planPath,
 									approval: opts?.onPlanExit,
+									enter: opts?.onPlanEnter,
 									bypassAvailable: opts?.bypassAvailable ?? (() => false),
 								}
 							: undefined

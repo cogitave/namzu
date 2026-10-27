@@ -87,6 +87,8 @@ export type SlashAction =
 	| { kind: 'workflows' }
 	/** Open the session's interactive background shell list. */
 	| { kind: 'jobs' }
+	/** `/doctor`: run the health checks and show the result in plain words. */
+	| { kind: 'doctor' }
 	| { kind: 'settings-picker' }
 	| TurnLimitsAction
 	| { kind: 'provider-setup' }
@@ -1294,6 +1296,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		description: 'Show usage and cost for the current or latest reply.',
 		action: (ctx, args) =>
 			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
+	},
+	{
+		name: 'doctor',
+		help: { usage: ['/doctor'] },
+		description: 'Check that Namzu, its providers and the sandbox are working.',
+		action: (_ctx, args) =>
+			args.length === 0
+				? { kind: 'doctor' }
+				: { kind: 'message', role: 'system', content: 'Usage: /doctor' },
 	},
 	{
 		name: 'jobs',

@@ -642,6 +642,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.learningGenerator !== undefined
 						? { learningGenerator: resolvedCtx.config.learningGenerator }
 						: {}),
+					...(resolvedCtx.config.telemetry ? { telemetry: resolvedCtx.config.telemetry } : {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
