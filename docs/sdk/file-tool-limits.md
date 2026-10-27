@@ -40,6 +40,9 @@ does not apply; the token rule does.
   shorter than the requested start (line 5001). It has 1502 lines.` It is not a partial view, and the
   session's read ledger does not take it for the file. An empty file answers `Warning: the file exists but
   is empty.`
+- A file's line count is one number everywhere: a final newline ends a line and does not start another, so the
+  header data, the `of N` in the partial-view note and the past-end warning agree, and no empty numbered row
+  follows the last line.
 - A file whose bytes are not text (a NUL, or a share of control or replacement characters) is not numbered.
   The result is a short note with the size that names `file` or `xxd` as the next step; it reports as a
   failed read, like the Office and image notes.

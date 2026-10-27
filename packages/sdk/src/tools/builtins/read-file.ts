@@ -217,12 +217,8 @@ function readFacts(
 		path,
 		bytes: buffer.length,
 		...(looksBinary(content) ? { binary: true } : {}),
-		// A final newline ends a line; it does not start another.
-		totalLines: content.endsWith('\n') ? rendered.totalLines - 1 : rendered.totalLines,
-		returnedLines:
-			content.endsWith('\n') && !rendered.partial
-				? Math.max(0, rendered.returnedLines - 1)
-				: rendered.returnedLines,
+		totalLines: rendered.totalLines,
+		returnedLines: rendered.returnedLines,
 		...(rendered.partial ? { partial: true } : {}),
 	}
 }

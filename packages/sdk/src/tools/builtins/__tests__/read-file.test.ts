@@ -106,6 +106,38 @@ describe('ReadFileTool', () => {
 		expect(result.data).toMatchObject({ truncated: true, returnedLines: 2, totalLines: 4 })
 	})
 
+	it('counts lines one way for the header data, the notice and the past-end warning', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
+		const body = Array.from({ length: 1502 }, (_, i) => `line ${i + 1}`)
+		for (const [name, text, total] of [
+			['nl.txt', `${body.join('\n')}\n`, 1502],
+			['nonl.txt', body.join('\n'), 1502],
+		] as const) {
+			writeFileSync(join(dir, name), text)
+			const window = await ReadFileTool.execute(
+				{ path: name, readRange: [1491, 1495] },
+				makeContext(dir),
+			)
+			expect(window.data).toMatchObject({ totalLines: total, returnedLines: 5 })
+			expect(window.output).toContain(`lines 1491-1495 of ${total}.`)
+			expect(window.output).not.toContain('of 1503')
+
+			const tail = await ReadFileTool.execute(
+				{ path: name, readRange: [1500, 1600] },
+				makeContext(dir),
+			)
+			expect(tail.data).toMatchObject({ totalLines: total, returnedLines: 3 })
+			expect(tail.output.endsWith('1502\tline 1502')).toBe(false)
+			expect(tail.output).toContain('1502\tline 1502')
+
+			const past = await ReadFileTool.execute(
+				{ path: name, readRange: [1600, 1700] },
+				makeContext(dir),
+			)
+			expect(past.output).toContain(`It has ${total} lines.`)
+		}
+	})
+
 	it('adds no partial-view notice when the whole file was returned', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
 		writeFileSync(join(dir, 'doc.md'), ['one', 'two'].join('\n'))
