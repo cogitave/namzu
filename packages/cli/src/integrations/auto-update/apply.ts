@@ -47,6 +47,17 @@ export function scopeOf(
 	return installScope(install.kind === 'pnpm-global' ? install.globalDir : install.prefix, platform)
 }
 
+/**
+ * Where the lock and the in-progress marker of an install live: inside the install
+ * itself, which must be writable for an update to run at all. Every process that can
+ * write the install, whatever its Namzu home or user, sees the same files.
+ */
+export function sharedStateHome(
+	install: Extract<InstallKind, { kind: 'npm-global' | 'pnpm-global' }>,
+): string {
+	return join(install.kind === 'pnpm-global' ? install.globalDir : install.prefix, '.namzu-update')
+}
+
 export const PUBLIC_REGISTRY = 'https://registry.npmjs.org'
 
 export type FailureStatus =
@@ -164,8 +175,41 @@ export function pnpmInstallArgs(
 	version: string,
 	registry = PUBLIC_REGISTRY,
 	tarball?: string,
+	mode: 'online' | 'offline' | 'prefer-offline' = 'online',
 ): string[] {
-	return ['add', '--global', '--registry', registry, tarball ?? `@namzu/cli@${version}`]
+	return [
+		'add',
+		'--global',
+		...(mode === 'online' ? [] : [`--${mode}`]),
+		'--registry',
+		registry,
+		tarball ?? `@namzu/cli@${version}`,
+	]
+}
+
+/**
+ * Put a version back through pnpm. The store still holds it, so it is tried offline
+ * first, which needs no registry at all; only when the store lacks it is the registry asked.
+ */
+async function reinstallPnpm(
+	deps: Pick<ApplyDeps, 'runInstaller' | 'installTimeoutMs'>,
+	cwd: string,
+	version: string,
+	registry: string,
+	logFile: string,
+): Promise<boolean> {
+	for (const mode of ['offline', 'online'] as const) {
+		const code = await deps.runInstaller({
+			executable: 'pnpm',
+			args: pnpmInstallArgs(version, registry, undefined, mode),
+			cwd,
+			onOutput: () => undefined,
+			logFile,
+			timeoutMs: deps.installTimeoutMs ?? 300_000,
+		})
+		if (code === 0) return true
+	}
+	return false
 }
 
 /** The exact command a person can run when Namzu may not do it for them. */
@@ -190,13 +234,22 @@ function quoteIfNeeded(value: string): string {
 			: value
 }
 
-export function classifyInstallerFailure(output: string): FailureStatus {
+export function classifyInstallerFailure(
+	output: string,
+	platform: NodeJS.Platform = process.platform,
+): FailureStatus {
 	if (/EINTEGRITY|integrity checksum failed|sha512-.*(?:mismatch|expected)/i.test(output))
 		return 'integrity'
-	if (/EACCES|EPERM|permission denied|operation not permitted/i.test(output)) return 'no_permission'
+	// On Windows a scanner or a program holding a file open reports EPERM for a moment.
 	if (/EBUSY|ETXTBSY|resource busy|text file busy/i.test(output)) return 'in_use'
+	if (platform === 'win32' && /EPERM/.test(output)) return 'in_use'
+	if (/EACCES|EPERM|permission denied|operation not permitted/i.test(output)) return 'no_permission'
 	if (/ENOSPC|no space left/i.test(output)) return 'disk_full'
-	if (/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|network|fetch failed/i.test(output))
+	if (
+		/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ENETDOWN|EHOSTUNREACH|ERR_SOCKET_TIMEOUT|fetch failed/i.test(
+			output,
+		)
+	)
 		return 'network'
 	return 'install_failed'
 }
@@ -319,7 +372,7 @@ export async function applyUpdate(deps: ApplyDeps, release: Release): Promise<Ap
 	let lock: UpdateLock | null
 	try {
 		lock = acquireUpdateLock({
-			home: deps.home,
+			home: sharedStateHome(install),
 			scope: scopeOf(install, deps.platform),
 			...(deps.pid !== undefined ? { pid: deps.pid } : {}),
 			...(deps.now ? { now: deps.now } : {}),
@@ -369,7 +422,11 @@ async function applyLocked(
 	try {
 		await (deps.fetchTarball ?? fetchFromRegistry(registry))(release, tarball)
 	} catch (error) {
-		rmSync(tarball, { force: true })
+		try {
+			rmSync(tarball, { force: true })
+		} catch {
+			// A home that cannot even hold the download has nothing to clean.
+		}
 		const code = error instanceof DownloadError ? error.code : 'network'
 		return fail(code, true)
 	}
@@ -397,6 +454,29 @@ export function fetchFromRegistry(
 	}
 }
 
+async function reinstallPnpmByName(
+	deps: ApplyDeps,
+	version: string,
+	registry: string,
+	logFile: string,
+	onSpawn: (pid: number) => void,
+): Promise<boolean> {
+	try {
+		const code = await deps.runInstaller({
+			executable: 'pnpm',
+			args: pnpmInstallArgs(version, registry, undefined, 'prefer-offline'),
+			cwd: (deps.install as Extract<InstallKind, { kind: 'pnpm-global' }>).globalDir,
+			onOutput: () => undefined,
+			timeoutMs: deps.installTimeoutMs ?? 300_000,
+			logFile,
+			onSpawn,
+		})
+		return code === 0
+	} catch {
+		return false
+	}
+}
+
 async function installFromTarball(
 	deps: ApplyDeps,
 	release: Release,
@@ -406,18 +486,19 @@ async function installFromTarball(
 	logFile: string,
 ): Promise<ApplyResult> {
 	const { install } = deps
+	const shared = sharedStateHome(install)
 	const registry = deps.registry ?? PUBLIC_REGISTRY
 	let backup: string | undefined
 	const pid = deps.pid ?? process.pid
 	const at = (deps.now ?? Date.now)()
 	try {
-		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at }, scope)
+		writeInProgress(shared, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
 			backup = backupPackage(install.root, deps.home, onDisk, scope)
-			writeInProgress(deps.home, { pid, to: release.version, from: onDisk, backup, at }, scope)
+			writeInProgress(shared, { pid, to: release.version, from: onDisk, backup, at }, scope)
 		}
 	} catch {
-		clearInProgress(deps.home, scope)
+		clearInProgress(shared, scope)
 		return fail('backup_failed', true)
 	}
 
@@ -429,18 +510,18 @@ async function installFromTarball(
 				return true
 			}
 			// pnpm keeps the old version in its store: installing it again is a link, not a download.
-			let output = ''
-			const code = await deps.runInstaller({
-				executable: 'pnpm',
-				args: pnpmInstallArgs(onDisk, registry),
-				cwd: install.globalDir,
-				onOutput: (text) => {
-					output = (output + text).slice(-4_096)
-				},
-				logFile: installLogPath(deps.home, scope, 'restore'),
-				timeoutMs: deps.installTimeoutMs ?? 300_000,
-			})
-			return code === 0 && deps.installedVersion(activeRoot(install)) === onDisk
+			const smoke = deps.smokeTest ?? smokeTestInstalled
+			return (
+				(await reinstallPnpm(
+					deps,
+					install.globalDir,
+					onDisk,
+					registry,
+					installLogPath(deps.home, scope, 'restore'),
+				)) &&
+				deps.installedVersion(activeRoot(install)) === onDisk &&
+				(await smoke(activeRoot(install), onDisk, 'version'))
+			)
 		} catch {
 			return false
 		}
@@ -451,7 +532,7 @@ async function installFromTarball(
 	const noteInstaller = (installerPid: number): void => {
 		try {
 			writeInProgress(
-				deps.home,
+				shared,
 				{
 					pid,
 					to: release.version,
@@ -500,10 +581,28 @@ async function installFromTarball(
 		output = 'spawn failed'
 	}
 	if (code !== 0) {
-		const kind = classifyInstallerFailure(output)
+		const kind = classifyInstallerFailure(output, deps.platform)
 		const restored = await restoreIfChanged(deps, onDisk, restore)
-		if (restored) clearInProgress(deps.home, scope)
+		if (restored) clearInProgress(shared, scope)
 		return fail(kind, restored, logFile)
+	}
+
+	// A tarball path leaves a `file:` entry in pnpm's global manifest that points at a file
+	// deleted below, and pnpm then skips the package on every later update. Record the
+	// registry's name for the version instead; the verified bytes are already in the store.
+	if (install.kind === 'pnpm-global') {
+		const settled = await reinstallPnpmByName(
+			deps,
+			release.version,
+			registry,
+			logFile,
+			noteInstaller,
+		)
+		if (!settled) {
+			const restored = await restore()
+			if (restored) clearInProgress(shared, scope)
+			return fail('install_failed', restored, logFile)
+		}
 	}
 
 	let installed: string
@@ -517,10 +616,10 @@ async function installFromTarball(
 		installed === release.version && (await smoke(activeRoot(install), release.version, 'session'))
 	if (!healthy) {
 		const restored = await restore()
-		if (restored) clearInProgress(deps.home, scope)
+		if (restored) clearInProgress(shared, scope)
 		return fail('verify_failed', restored, logFile)
 	}
-	clearInProgress(deps.home, scope)
+	clearInProgress(shared, scope)
 
 	if (deps.platform === 'win32' && install.kind === 'npm-global') {
 		try {
@@ -572,7 +671,7 @@ export async function repairInterruptedUpdate(
 	deps: Omit<ApplyDeps, 'currentVersion'>,
 ): Promise<RepairResult> {
 	const scope = scopeOf(deps.install, deps.platform)
-	const marker = readInProgress(deps.home, scope)
+	const marker = readInProgress(sharedStateHome(deps.install), scope)
 	if (!marker) return { status: 'none' }
 	const own = deps.pid ?? process.pid
 	// A marker older than the lock window is dead whatever its pids say: a pid
@@ -584,7 +683,7 @@ export async function repairInterruptedUpdate(
 	let lock: UpdateLock | null
 	try {
 		lock = acquireUpdateLock({
-			home: deps.home,
+			home: sharedStateHome(deps.install),
 			scope,
 			pid: own,
 			...(deps.now ? { now: deps.now } : {}),
@@ -596,6 +695,7 @@ export async function repairInterruptedUpdate(
 	if (!lock) return { status: 'busy' }
 	try {
 		const { install } = deps
+		const shared = sharedStateHome(install)
 		const root = activeRoot(install)
 		const smoke = deps.smokeTest ?? smokeTestInstalled
 		const ids = { from: marker.from, to: marker.to }
@@ -609,7 +709,7 @@ export async function repairInterruptedUpdate(
 			healthy = false
 		}
 		if (healthy) {
-			clearInProgress(deps.home, scope)
+			clearInProgress(shared, scope)
 			return deps.installedVersion(root) === marker.to
 				? { status: 'completed', ...ids }
 				: { status: 'unchanged', ...ids }
@@ -625,20 +725,21 @@ export async function repairInterruptedUpdate(
 				restorePackage(install.root, marker.backup, own)
 				restored = deps.installedVersion(root) === marker.from
 			} else if (install.kind === 'pnpm-global') {
-				const code = await deps.runInstaller({
-					executable: 'pnpm',
-					args: pnpmInstallArgs(marker.from, deps.registry ?? PUBLIC_REGISTRY),
-					cwd: install.globalDir,
-					onOutput: () => undefined,
-					logFile: installLogPath(deps.home, scope, 'restore'),
-					timeoutMs: deps.installTimeoutMs ?? 300_000,
-				})
-				restored = code === 0 && deps.installedVersion(root) === marker.from
+				restored =
+					(await reinstallPnpm(
+						deps,
+						install.globalDir,
+						marker.from,
+						deps.registry ?? PUBLIC_REGISTRY,
+						installLogPath(deps.home, scope, 'restore'),
+					)) &&
+					deps.installedVersion(root) === marker.from &&
+					(await smoke(root, marker.from, 'version'))
 			}
 		} catch {
 			restored = false
 		}
-		if (restored) clearInProgress(deps.home, scope)
+		if (restored) clearInProgress(shared, scope)
 		return { status: restored ? 'restored' : 'unrepaired', ...ids }
 	} finally {
 		lock.release()

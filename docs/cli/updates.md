@@ -49,8 +49,10 @@ In CI the terminal still looks, but it does not install unless you ask for it
 
 ## How an update stays safe
 
-1. One update at a time per install: a lock under `updates/locks/` keeps two
-   Namzu processes from changing the same install together, while two different
+1. One update at a time per install: a lock kept inside the install itself
+   (`.namzu-update/updates/locks/` under the npm prefix or pnpm's global folder,
+   which must be writable for an update to run at all) keeps two Namzu processes
+   from changing the same install together, whatever their Namzu home or user, while two different
    installs (two npm prefixes, or npm and pnpm) never wait on each other. A second
    process waits quietly and tries again later. A lock whose process is gone, or
    that is older than fifteen minutes, is taken over, and taking it over is
@@ -80,7 +82,8 @@ In CI the terminal still looks, but it does not install unless you ask for it
    prints `ok` and starts nothing). A release with a missing file or a native
    module that will not load is rolled back here, not found by the next person who
    opens Namzu.
-5. Before the folder is touched, `updates/in-progress-<install>.json` records the
+5. Before the folder is touched, `.namzu-update/updates/in-progress-<install>.json`
+   (in the same place as the lock, so every home sees it) records the
    version, the kept copy and the process. If that process is gone before the
    update was verified (the terminal was closed, the machine lost power), the next
    start reads the installed version back, starts it, and puts the kept copy back
@@ -89,8 +92,13 @@ In CI the terminal still looks, but it does not install unless you ask for it
    `updates/previous` is ever put back. With installing switched off, nothing is
    repaired or rewritten. The copy is restored by moving a fresh copy into
    place, so the package is never missing half way.
+   For pnpm the verified file is followed by `pnpm add --global @namzu/cli@<version>`,
+   which links the bytes already in pnpm's store, so its global manifest names a
+   registry version and not a path to a file that no longer exists (pnpm would
+   otherwise skip Namzu in `pnpm update --global`).
 6. If any step fails the previous copy is put back (pnpm installs the previous
-   version again), so a failed update leaves a working Namzu. The outcome of the
+   version again, offline from its store first and from the registry only if the
+   store lacks it, and the result must start), so a failed update leaves a working Namzu. The outcome of the
    last automatic attempt is kept in `updates/last-result.json` and `namzu upgrade
    --check` says when it did not finish and where the installer's log is.
 

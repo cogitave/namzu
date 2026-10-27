@@ -218,7 +218,8 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 			try {
 				lock = deps.safety
 					? acquireUpdateLock({
-							home: deps.safety.home,
+							// Filed inside the install, so a process with another Namzu home meets the same lock.
+							home: join(pnpmDir ?? prefix ?? '', '.namzu-update'),
 							scope: scopeFor(deps.platform, prefix, pnpmDir),
 						})
 					: undefined

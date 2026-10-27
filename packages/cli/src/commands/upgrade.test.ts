@@ -359,7 +359,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 		const l = layout()
 		try {
 			const held = acquireUpdateLock({
-				home: l.home,
+				home: join(l.prefix, '.namzu-update'),
 				scope: installScope(l.prefix, 'linux'),
 				pid: process.pid,
 				isAlive: () => true,

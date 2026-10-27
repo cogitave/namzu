@@ -14,6 +14,7 @@ import {
 	pnpmInstallArgs,
 	repairInterruptedUpdate,
 	scopeOf,
+	sharedStateHome,
 	tarballPath,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
@@ -76,9 +77,12 @@ function deps(over: Partial<ApplyDeps> = {}, install: ApplyDeps['install'] = npm
 /** The folder an update of the test install is filed under. */
 const scope = () => scopeOf(npm(), 'linux')
 
+/** Where the lock and the marker of the test install live: inside the install. */
+const shared = () => sharedStateHome(npm())
+
 /** Nobody holds the update lock of the test install. */
 function expectUnlocked(): void {
-	const lock = acquireUpdateLock({ home, scope: scope(), pid: 1, isAlive: () => true })
+	const lock = acquireUpdateLock({ home: shared(), scope: scope(), pid: 1, isAlive: () => true })
 	expect(lock).not.toBeNull()
 	lock?.release()
 }
@@ -153,7 +157,7 @@ describe('applying an update to an npm global installation', () => {
 	})
 
 	it('backs off while another process holds the lock', async () => {
-		const held = acquireUpdateLock({ home, scope: scope(), pid: 77, isAlive: () => true })
+		const held = acquireUpdateLock({ home: shared(), scope: scope(), pid: 77, isAlive: () => true })
 		const run = vi.fn(async () => 0)
 		expect(await applyUpdate(deps({ runInstaller: run }), release)).toEqual({ status: 'locked' })
 		expect(run).not.toHaveBeenCalled()
@@ -232,7 +236,8 @@ describe('applying an update to an npm global installation', () => {
 
 	it('does not install at all when a copy of the current version cannot be kept', async () => {
 		mkdirSync(home, { recursive: true })
-		writeFileSync(join(home, 'updates'), 'a file where the folder must go')
+		mkdirSync(join(home, 'updates'), { recursive: true })
+		writeFileSync(join(home, 'updates', 'previous'), 'a file where the folder must go')
 		const run = vi.fn(async () => 0)
 		const result = await applyUpdate(deps({ runInstaller: run }), release)
 		expect(result.status).toBe('failed')
@@ -249,6 +254,43 @@ describe('applying an update to an npm global installation', () => {
 		)
 		expect(kept).toHaveLength(2)
 		expect(kept).toContain('1.0.0')
+	})
+})
+
+describe('two Namzu homes on one install', () => {
+	it('share one lock, so the second process backs off', async () => {
+		const otherHome = join(dir, 'other-home')
+		const held = acquireUpdateLock({ home: shared(), scope: scope(), pid: 77, isAlive: () => true })
+		expect(held).not.toBeNull()
+		const run = vi.fn(async () => 0)
+		const result = await applyUpdate(deps({ home: otherHome, runInstaller: run }), release)
+		expect(result).toEqual({ status: 'locked' })
+		expect(run).not.toHaveBeenCalled()
+		held?.release()
+	})
+
+	it("see each other's interrupted-update marker", async () => {
+		const otherHome = join(dir, 'other-home')
+		await expect(
+			applyUpdate(
+				deps({
+					pid: 99_999_999,
+					runInstaller: async () => {
+						writePackage(root, '2.0.0')
+						return 0
+					},
+					smokeTest: async () => {
+						throw new Error('killed')
+					},
+				}),
+				release,
+			),
+		).rejects.toThrow('killed')
+		expect(readInProgress(shared(), scope())).toBeDefined()
+		const result = await repairInterruptedUpdate(
+			deps({ home: otherHome, pid: 5151, smokeTest: async () => true }) as never,
+		)
+		expect(result.status).not.toBe('none')
 	})
 })
 
@@ -292,7 +334,7 @@ describe('applying an update to a pnpm global installation', () => {
 		const result = await applyUpdate(
 			deps(
 				{
-					smokeTest: async () => false,
+					smokeTest: async (_root, _version, depth) => depth === 'version',
 					runInstaller: async (request) => {
 						requests.push(request)
 						writePackage(active(), request.args.at(-1)?.includes('2.0.0') ? '2.0.0' : '1.0.0')
@@ -306,8 +348,85 @@ describe('applying an update to a pnpm global installation', () => {
 		expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
 		expect(requests.map((r) => r.args.at(-1))).toEqual([
 			tarballPath(home, pnpmScope(), '2.0.0'),
+			'@namzu/cli@2.0.0',
 			'@namzu/cli@1.0.0',
 		])
+		// The way back goes through the store first, with no registry in the loop.
+		expect(requests.at(-1)?.args).toContain('--offline')
+	})
+
+	it("leaves a registry version in pnpm's manifest, never a path to a deleted file", async () => {
+		writePackage(active(), '1.0.0')
+		const requests: InstallerRequest[] = []
+		const result = await applyUpdate(
+			deps(
+				{
+					runInstaller: async (request) => {
+						requests.push(request)
+						writePackage(active(), '2.0.0')
+						return 0
+					},
+				},
+				pnpm(),
+			),
+			release,
+		)
+		expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
+		expect(requests).toHaveLength(2)
+		expect(requests[1]?.args).toEqual(
+			pnpmInstallArgs('2.0.0', undefined, undefined, 'prefer-offline'),
+		)
+		expect(requests[1]?.args.at(-1)).toBe('@namzu/cli@2.0.0')
+	})
+
+	it('puts the previous version back when the follow-up by name fails', async () => {
+		writePackage(active(), '1.0.0')
+		let call = 0
+		const result = await applyUpdate(
+			deps(
+				{
+					smokeTest: async () => true,
+					runInstaller: async (request) => {
+						call += 1
+						if (call === 2) return 1
+						writePackage(active(), request.args.at(-1)?.includes('1.0.0') ? '1.0.0' : '2.0.0')
+						return 0
+					},
+				},
+				pnpm(),
+			),
+			release,
+		)
+		expect(result).toMatchObject({ status: 'failed', restored: true })
+		expect(readInstalledVersion(active())).toBe('1.0.0')
+	})
+
+	it('falls back to the registry only when the store lacks the previous version', async () => {
+		writePackage(active(), '1.0.0')
+		const modes: string[] = []
+		const result = await applyUpdate(
+			deps(
+				{
+					smokeTest: async (_root, _version, depth) => depth === 'version',
+					runInstaller: async (request) => {
+						const last = request.args.at(-1) ?? ''
+						if (last.includes('1.0.0')) {
+							modes.push(request.args.includes('--offline') ? 'offline' : 'online')
+							if (request.args.includes('--offline')) return 1
+							writePackage(active(), '1.0.0')
+							return 0
+						}
+						writePackage(active(), '2.0.0')
+						return last.includes('.tgz') ? 0 : 0
+					},
+				},
+				pnpm(),
+			),
+			// Not healthy at the session depth, so the old version is put back.
+			release,
+		)
+		expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
+		expect(modes).toEqual(['offline', 'online'])
 	})
 })
 
@@ -341,6 +460,19 @@ describe('what a person is told to run', () => {
 		expect(classifyInstallerFailure('npm error code ENOTFOUND')).toBe('network')
 		expect(classifyInstallerFailure('ENOSPC: no space left on device')).toBe('disk_full')
 		expect(classifyInstallerFailure('something else')).toBe('install_failed')
+	})
+
+	it('treats a file held for a moment on Windows as retryable, and a bare word as no cause', () => {
+		expect(classifyInstallerFailure('EPERM: operation not permitted, rename', 'win32')).toBe(
+			'in_use',
+		)
+		expect(classifyInstallerFailure('EPERM: operation not permitted', 'linux')).toBe(
+			'no_permission',
+		)
+		expect(classifyInstallerFailure('npm notice network of packages updated')).toBe(
+			'install_failed',
+		)
+		expect(classifyInstallerFailure('npm error code ECONNRESET')).toBe('network')
 	})
 
 	it('reads nothing from a record that was never written', () => {
@@ -377,7 +509,11 @@ describe('repairing an update that was interrupted', () => {
 
 	it('leaves a marker naming the version and the kept copy while an update is under way', async () => {
 		await interrupt()
-		expect(readInProgress(home, scope())).toMatchObject({ pid: DEAD, from: '1.0.0', to: '2.0.0' })
+		expect(readInProgress(shared(), scope())).toMatchObject({
+			pid: DEAD,
+			from: '1.0.0',
+			to: '2.0.0',
+		})
 	})
 
 	it('puts the kept copy back on the next start when the installed one does not answer', async () => {
@@ -386,7 +522,7 @@ describe('repairing an update that was interrupted', () => {
 		expect(result).toEqual({ status: 'restored', from: '1.0.0', to: '2.0.0' })
 		expect(readInstalledVersion(root)).toBe('1.0.0')
 		expect(existsSync(join(root, 'partial.txt'))).toBe(false)
-		expect(readInProgress(home, scope())).toBeUndefined()
+		expect(readInProgress(shared(), scope())).toBeUndefined()
 		expectUnlocked()
 	})
 
@@ -408,16 +544,16 @@ describe('repairing an update that was interrupted', () => {
 		).rejects.toThrow('killed')
 		const result = await repairInterruptedUpdate(repairDeps(5151))
 		expect(result).toEqual({ status: 'completed', from: '1.0.0', to: '2.0.0' })
-		expect(readInProgress(home, scope())).toBeUndefined()
+		expect(readInProgress(shared(), scope())).toBeUndefined()
 	})
 
 	it('does not touch anything while the process that started the update still runs', async () => {
 		await interrupt()
-		const marker = readInProgress(home, scope())
+		const marker = readInProgress(shared(), scope())
 		expect(marker).toBeDefined()
 		// A live process is simulated by this test's parent.
 		writeFileSync(
-			join(home, 'updates', `in-progress-${scope()}.json`),
+			join(shared(), 'updates', `in-progress-${scope()}.json`),
 			JSON.stringify({ ...marker, pid: process.ppid }),
 		)
 		expect(await repairInterruptedUpdate(repairDeps(5151))).toEqual({ status: 'busy' })
@@ -429,16 +565,16 @@ describe('repairing an update that was interrupted', () => {
 
 	it('clears the marker after a normal update', async () => {
 		await applyUpdate(deps(), release)
-		expect(readInProgress(home, scope())).toBeUndefined()
+		expect(readInProgress(shared(), scope())).toBeUndefined()
 	})
 
 	it('leaves the package in place if the swap back cannot finish', async () => {
 		await interrupt()
-		const marker = readInProgress(home, scope())
+		const marker = readInProgress(shared(), scope())
 		rmSync(marker?.backup as string, { recursive: true, force: true })
 		const result = await repairInterruptedUpdate(repairDeps(5151))
 		expect(result.status).toBe('unrepaired')
-		expect(readInProgress(home, scope())).toBeDefined()
+		expect(readInProgress(shared(), scope())).toBeDefined()
 	})
 })
 
@@ -526,7 +662,7 @@ describe('what the installer is told to do', () => {
 			deps({
 				runInstaller: async (request) => {
 					request.onSpawn?.(777)
-					seen = readInProgress(home, scope())
+					seen = readInProgress(shared(), scope())
 					writePackage(root, '2.0.0')
 					return 0
 				},
@@ -540,9 +676,9 @@ describe('what the installer is told to do', () => {
 describe('trusting an in-progress marker', () => {
 	const DEAD = 99_999_999
 	const marker = (over: Record<string, unknown>) => {
-		mkdirSync(join(home, 'updates'), { recursive: true })
+		mkdirSync(join(shared(), 'updates'), { recursive: true })
 		writeFileSync(
-			join(home, 'updates', `in-progress-${scope()}.json`),
+			join(shared(), 'updates', `in-progress-${scope()}.json`),
 			JSON.stringify({ pid: DEAD, from: '1.0.0', to: '2.0.0', at: Date.now(), ...over }),
 		)
 	}
@@ -557,7 +693,7 @@ describe('trusting an in-progress marker', () => {
 		marker({ pid: process.ppid, at: Date.now() - 16 * 60_000 })
 		const result = await repairInterruptedUpdate(repairDeps())
 		expect(result.status).toBe('unchanged')
-		expect(readInProgress(home, scope())).toBeUndefined()
+		expect(readInProgress(shared(), scope())).toBeUndefined()
 	})
 
 	it('says nothing changed when the update never reached the folder', async () => {
@@ -571,7 +707,7 @@ describe('trusting an in-progress marker', () => {
 
 	it('ignores a marker whose versions are not versions', () => {
 		marker({ from: '../../etc' })
-		expect(readInProgress(home, scope())).toBeUndefined()
+		expect(readInProgress(shared(), scope())).toBeUndefined()
 	})
 
 	it('never restores from a folder outside the kept copies', async () => {

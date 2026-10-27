@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { updaterEventAmbient } from '../../tui/update-notice.js'
-import { type InstallerRequest, type Release, scopeOf } from './apply.js'
+import { type InstallerRequest, type Release, scopeOf, sharedStateHome } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
 import type { UpdatePolicy } from './policy.js'
@@ -29,11 +29,14 @@ function writePackage(version: string): void {
 }
 
 /** The folder the test install's lock and marker are filed under. */
-const scope = () =>
-	scopeOf(
-		{ kind: 'npm-global', root, prefix: join(dir, 'prefix'), owned: false, writable: true },
-		'linux',
-	)
+const install = (): Extract<InstallKind, { kind: 'npm-global' }> => ({
+	kind: 'npm-global',
+	root,
+	prefix: join(dir, 'prefix'),
+	owned: false,
+	writable: true,
+})
+const scope = () => scopeOf(install(), 'linux')
 
 const policy = (over: Partial<UpdatePolicy> = {}): UpdatePolicy => ({
 	check: true,
@@ -250,7 +253,12 @@ describe('installing, or telling', () => {
 	})
 
 	it('stays silent while another process is updating and tries again next time', async () => {
-		const held = acquireUpdateLock({ home, scope: scope(), pid: 77, isAlive: () => true })
+		const held = acquireUpdateLock({
+			home: sharedStateHome(install()),
+			scope: scope(),
+			pid: 77,
+			isAlive: () => true,
+		})
 		const h = harness()
 		await h.updater.runCycle()
 		expect(h.events).toEqual([])
@@ -376,7 +384,7 @@ describe('when installing fails', () => {
 	})
 
 	it('does not try again a version whose update was interrupted and had to be put back', async () => {
-		mkdirSync(join(home, 'updates'), { recursive: true })
+		mkdirSync(join(sharedStateHome(install()), 'updates'), { recursive: true })
 		const backup = join(home, 'updates', 'previous', scope(), '1.0.0')
 		mkdirSync(backup, { recursive: true })
 		writeFileSync(
@@ -385,7 +393,7 @@ describe('when installing fails', () => {
 		)
 		writePackage('2.0.0')
 		writeFileSync(
-			join(home, 'updates', `in-progress-${scope()}.json`),
+			join(sharedStateHome(install()), 'updates', `in-progress-${scope()}.json`),
 			JSON.stringify({
 				pid: 99_999_999,
 				from: '1.0.0',
@@ -427,14 +435,16 @@ describe('when installing fails', () => {
 
 describe('repairing with installing switched off', () => {
 	it('leaves an unfinished update alone', async () => {
-		mkdirSync(join(home, 'updates'), { recursive: true })
+		mkdirSync(join(sharedStateHome(install()), 'updates'), { recursive: true })
 		writeFileSync(
-			join(home, 'updates', `in-progress-${scope()}.json`),
+			join(sharedStateHome(install()), 'updates', `in-progress-${scope()}.json`),
 			JSON.stringify({ pid: 99_999_999, from: '1.0.0', to: '2.0.0', at: Date.now() }),
 		)
 		const h = harness({ policy: policy({ install: false }) })
 		await h.updater.repair()
-		expect(existsSync(join(home, 'updates', `in-progress-${scope()}.json`))).toBe(true)
+		expect(
+			existsSync(join(sharedStateHome(install()), 'updates', `in-progress-${scope()}.json`)),
+		).toBe(true)
 		expect(readLastResult(home)).toBeUndefined()
 	})
 })
