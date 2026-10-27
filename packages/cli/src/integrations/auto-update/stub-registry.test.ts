@@ -71,7 +71,7 @@ function npmEnv(): NodeJS.ProcessEnv {
 	}
 }
 
-function buildFixture(version: string): Fixture {
+function buildFixture(version: string, startCheck: 'ok' | 'fail' = 'ok'): Fixture {
 	const src = join(work, 'src', version)
 	mkdirSync(join(src, 'dist'), { recursive: true })
 	writeFileSync(
@@ -83,9 +83,12 @@ function buildFixture(version: string): Fixture {
 			files: ['dist'],
 		}),
 	)
+	const startAnswer = startCheck === 'ok' ? 'ok' : 'start check failed'
+	const startExit =
+		startCheck === 'ok' ? '' : "if (process.argv.includes('--start-check')) process.exit(1)\n"
 	writeFileSync(
 		join(src, 'dist', 'bin.js'),
-		`#!/usr/bin/env node\nconsole.log(process.argv.includes('--version') ? '${version}' : 'run')\n`,
+		`#!/usr/bin/env node\nconsole.log(process.argv.includes('--version') ? '${version}' : process.argv.includes('--start-check') ? '${startAnswer}' : 'run')\n${startExit}`,
 	)
 	const out = join(work, 'packed')
 	mkdirSync(out, { recursive: true })
@@ -123,6 +126,8 @@ beforeAll(async () => {
 	writeFileSync(join(work, 'npmrc'), '')
 	writeFileSync(join(work, 'global-npmrc'), '')
 	for (const version of ['1.0.0', '1.5.0', '2.0.0']) fixtures.set(version, buildFixture(version))
+	// Answers `--version` but cannot start a session, as a release with a missing module would.
+	fixtures.set('2.1.0', buildFixture('2.1.0', 'fail'))
 	server = createServer((req, res) => {
 		const path = decodeURIComponent((req.url ?? '').split('?')[0] ?? '')
 		const send = (status: number, body: string | Buffer, type = 'application/json') => {
@@ -312,6 +317,28 @@ describe('updating through a real package manager', () => {
 			} finally {
 				writeFileSync(join(work, 'npmrc'), '')
 			}
+		},
+		TIMEOUT,
+	)
+
+	it(
+		'puts the old version back when the new one answers its version but cannot start a session',
+		async () => {
+			const release = await fetchNamzuRelease({ registry })
+			const broken = { ...release, version: '2.1.0' }
+			const fixture = fixtures.get('2.1.0')
+			const result = await applyUpdate(applyDeps(), {
+				version: broken.version,
+				integrity: fixture?.integrity,
+				tarball: `${registry}/tarballs/2.1.0.tgz`,
+			})
+			expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
+			expect(readInstalledVersion(root)).toBe('1.0.0')
+			expect(
+				execFileSync(process.execPath, [join(root, 'dist', 'bin.js'), '--start-check'], {
+					encoding: 'utf8',
+				}).trim(),
+			).toBe('ok')
 		},
 		TIMEOUT,
 	)

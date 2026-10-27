@@ -15,6 +15,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { compareVersions } from '../updates.js'
 import { DownloadError, downloadVerifiedTarball } from './download.js'
 import type { InstallKind } from './install-kind.js'
+import { START_CHECK_FLAG } from './start-check.js'
 import {
 	LOCK_STALE_MS,
 	type UpdateLock,
@@ -100,8 +101,11 @@ export interface ApplyDeps {
 	readonly runInstaller: (request: InstallerRequest) => Promise<number>
 	/** Version the package folder on disk reports. Throws when unreadable. */
 	readonly installedVersion: (root: string) => string
-	/** Start the installed copy once; true when it answers with `version`. */
-	readonly smokeTest?: (root: string, version: string) => Promise<boolean>
+	/**
+	 * Start the installed copy once; true when it answers with `version` and, at the
+	 * `session` depth, can load what a session needs.
+	 */
+	readonly smokeTest?: (root: string, version: string, depth?: SmokeDepth) => Promise<boolean>
 	readonly registry?: string
 	readonly removePowerShellShim?: (prefix: string) => void
 	readonly pid?: number
@@ -254,31 +258,48 @@ export function restorePackage(root: string, backup: string, pid = process.pid):
 	}
 }
 
-/** Start the installed copy once and see that it names the version it should be. */
-export function smokeTestInstalled(root: string, version: string): Promise<boolean> {
-	return new Promise((resolve) => {
-		let entry = join(root, 'dist', 'bin.js')
-		try {
-			const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
-				bin?: string | Record<string, string>
-			}
-			const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.namzu
-			if (bin) entry = join(root, bin)
-		} catch {
-			resolve(false)
-			return
+/**
+ * How much a start check asks of an installed copy. `version` is whether it starts and
+ * names its version; `session` also asks it to load what a terminal session needs.
+ */
+export type SmokeDepth = 'version' | 'session'
+
+/**
+ * Start the installed copy and see that it names the version it should be and, at the
+ * `session` depth, that it can load what a session needs. A copy from before the second
+ * question existed is only ever asked the first (the `version` depth), which is what is
+ * used to check a version that is being put back.
+ */
+export async function smokeTestInstalled(
+	root: string,
+	version: string,
+	depth: SmokeDepth = 'session',
+): Promise<boolean> {
+	let entry = join(root, 'dist', 'bin.js')
+	try {
+		const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+			bin?: string | Record<string, string>
 		}
-		execFile(
-			process.execPath,
-			[entry, '--version'],
-			{
-				timeout: 45_000,
-				windowsHide: true,
-				env: { ...process.env, NAMZU_AUTO_UPDATE: '0', NAMZU_UPDATE_CHECK: '0' },
-			},
-			(error, stdout) => resolve(!error && stdout.trim() === version),
-		)
-	})
+		const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.namzu
+		if (bin) entry = join(root, bin)
+	} catch {
+		return false
+	}
+	const run = (arg: string): Promise<string | null> =>
+		new Promise((resolve) => {
+			execFile(
+				process.execPath,
+				[entry, arg],
+				{
+					timeout: 45_000,
+					windowsHide: true,
+					env: { ...process.env, NAMZU_AUTO_UPDATE: '0', NAMZU_UPDATE_CHECK: '0' },
+				},
+				(error, stdout) => resolve(error ? null : stdout.trim()),
+			)
+		})
+	if ((await run('--version')) !== version) return false
+	return depth === 'version' || (await run(START_CHECK_FLAG)) === 'ok'
 }
 
 export async function applyUpdate(deps: ApplyDeps, release: Release): Promise<ApplyResult> {
@@ -493,7 +514,7 @@ async function installFromTarball(
 	}
 	const smoke = deps.smokeTest ?? smokeTestInstalled
 	const healthy =
-		installed === release.version && (await smoke(activeRoot(install), release.version))
+		installed === release.version && (await smoke(activeRoot(install), release.version, 'session'))
 	if (!healthy) {
 		const restored = await restore()
 		if (restored) clearInProgress(deps.home, scope)
@@ -521,7 +542,7 @@ async function restoreIfChanged(
 	try {
 		if (deps.installedVersion(activeRoot(deps.install)) === onDisk) {
 			const smoke = deps.smokeTest ?? smokeTestInstalled
-			if (await smoke(activeRoot(deps.install), onDisk)) return true
+			if (await smoke(activeRoot(deps.install), onDisk, 'version')) return true
 		}
 	} catch {
 		// Fall through to a restore.
@@ -581,7 +602,9 @@ export async function repairInterruptedUpdate(
 		let healthy = false
 		try {
 			const now = deps.installedVersion(root)
-			healthy = (now === marker.to || now === marker.from) && (await smoke(root, now))
+			healthy =
+				(now === marker.to || now === marker.from) &&
+				(await smoke(root, now, now === marker.to ? 'session' : 'version'))
 		} catch {
 			healthy = false
 		}

@@ -442,6 +442,43 @@ describe('repairing an update that was interrupted', () => {
 	})
 })
 
+describe('how much of a copy is checked', () => {
+	it('asks the new version to start a session and the old one only to answer', async () => {
+		const asked: string[] = []
+		const result = await applyUpdate(
+			deps({
+				runInstaller: async () => {
+					writePackage(root, '2.0.0')
+					return 0
+				},
+				smokeTest: async (at, version, depth) => {
+					asked.push(`${version}:${depth}`)
+					return readInstalledVersion(at) === version && version === '1.0.0'
+				},
+			}),
+			release,
+		)
+		// The new copy fails the deeper check, so the old one is put back and checked lightly.
+		expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
+		expect(asked).toEqual(['2.0.0:session'])
+	})
+
+	it('checks an installer that failed half way with the light check on the copy it left', async () => {
+		const asked: string[] = []
+		await applyUpdate(
+			deps({
+				runInstaller: async () => 1,
+				smokeTest: async (_at, version, depth) => {
+					asked.push(`${version}:${depth}`)
+					return true
+				},
+			}),
+			release,
+		)
+		expect(asked).toEqual(['1.0.0:version'])
+	})
+})
+
 describe('where the installer writes', () => {
 	it('is given a log file of its own under the update folder, one per install', async () => {
 		const requests: InstallerRequest[] = []

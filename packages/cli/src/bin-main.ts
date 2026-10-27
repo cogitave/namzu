@@ -9,6 +9,22 @@ import { terminationInProgress } from './termination-state.js'
 
 /** Run the command line as `entrypoint`, the file that was started (`bin.js`, or `bin.ts` from source). */
 export function main(entrypoint: string): void {
+	// `--start-check` is how an update asks a new copy whether it can start a session. It loads
+	// what a session needs and nothing else, before the command shell is built.
+	if (process.argv[2] === '--start-check') {
+		void import('./integrations/auto-update/start-check.js')
+			.then((check) => check.runStartCheck())
+			.then(
+				(code) => process.exit(code),
+				(error) => {
+					process.stdout.write(
+						`start check failed: ${error instanceof Error ? error.message : String(error)}\n`,
+					)
+					process.exit(1)
+				},
+			)
+		return
+	}
 	runCli({
 		argv: process.argv,
 		resumeCommand: resumeInvocation(entrypoint),
