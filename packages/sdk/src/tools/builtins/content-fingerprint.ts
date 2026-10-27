@@ -33,3 +33,23 @@ export function staleFileError(path: string, operation: 'edit' | 'write' = 'edit
 export function unreadFileError(path: string, operation: 'edit' | 'write' = 'edit'): string {
 	return `${path} has not been read yet. Read it first, then redo the ${operation}. Nothing was written.`
 }
+
+/**
+ * Whether the file at `key` has moved on disk since the session read it.
+ *
+ * The read side of the same comparison `edit` and `write` make when they run,
+ * for asking before a reviewer is: `current` is the body now on disk. False
+ * when the host keeps no ledger, never read the path (a different refusal, and
+ * a read earlier in the same batch may still satisfy it), or cannot fingerprint.
+ */
+export function movedSinceRead(
+	tracker:
+		| { hasRead(key: string): boolean; fingerprint?(key: string): string | undefined }
+		| undefined,
+	key: string,
+	current: string,
+): boolean {
+	if (!tracker || !tracker.hasRead(key)) return false
+	const seen = tracker.fingerprint?.(key)
+	return seen !== undefined && seen !== fingerprintContent(current)
+}

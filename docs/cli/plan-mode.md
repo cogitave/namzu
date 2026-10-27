@@ -29,7 +29,7 @@ In `plan` every other change is still refused with the plan-mode feedback, a `de
 
 The model finishes planning by calling `exit_plan_mode`, which takes no arguments and reads the plan from the file, so what you approve is what is on disk. It refuses, with a reason the model can act on, when the mode is not `plan`, when the file is missing or blank, and when nobody can answer (a headless run: the model is told to end its reply with the plan and say which mode to switch to). The tool is the terminal's own; delegated agents and `namzu exec` do not have it.
 
-The approval box shows the plan and its path, then:
+The approval box shows the plan, then:
 
 1. **Yes, and auto-approve edits**: leaves plan mode for `accept-edits`. When the session may run without asking (`--yolo`, `--dangerously-skip-permissions`, `--permission-mode bypass`, `--allow-dangerously-skip-permissions`, or `permissions.defaultMode: bypass`), this row is **Yes, and run every tool without asking** and leaves for `bypass`.
 2. **Yes, and ask before each edit**: leaves plan mode for `prompt`.
@@ -37,7 +37,7 @@ The approval box shows the plan and its path, then:
 
 Keys: ↑/↓ or a digit pick a row, Enter takes it, PgUp/PgDn page a long plan, typing anywhere starts the text row, Esc keeps planning without words, Shift+Tab approves row 1 with whatever is typed, Ctrl+C stops the reply. Approving waits out the same settle window every consent screen waits out, so a key already in flight cannot approve a plan you have not read; refusing never waits.
 
-Approving applies the mode through `applyPermissionMode`, the change Shift+Tab makes, before the tool answers, so the turn's next decision is already made under it and the footer says `accept edits on` (or nothing, for `prompt`). The model reads the approved plan, where it is saved and any words you typed with Shift+Tab. The transcript gets `✓ Plan approved · <mode>` with the plan under it (collapsed, `ctrl+o` expands); words typed to keep planning appear as `Changes asked for · …`.
+Approving applies the mode through `applyPermissionMode`, the change Shift+Tab makes, before the tool answers, so the turn's next decision is already made under it and the footer says `accept edits on` (or nothing, for `prompt`). The model reads the approved plan, where it is saved and any words you typed with Shift+Tab. The plan file is named "the plan" wherever the screen mentions it (`Write(the plan)`, `Wrote 12 lines to the plan`, `Saved as the plan`), never by its folder, even when the path is long enough to be shortened in the row; only a path inside the Namzu home's `projects/` folder, or one with a session id before `plans/`, is read as the plan, so a project's own `plans/plan.md` is shown as a path; the transcript gets `✓ Plan approved · <mode>` with the plan under it (collapsed, `ctrl+o` expands); words typed to keep planning appear as `Changes asked for · …`.
 
 ## Reminders
 

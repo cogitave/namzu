@@ -19,7 +19,7 @@ import {
 import { connectorCallSummary } from './connector-label.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
-import { displayPath } from './display-path.js'
+import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -8098,9 +8098,18 @@ function truncate(value: string, max: number): string {
 function pathSummary(summary: string, input: unknown, cwd: string | undefined): string {
 	const path =
 		typeof input === 'object' && input !== null ? (input as { path?: unknown }).path : undefined
-	return typeof path === 'string' && path.length > 0 && summary === path
-		? displayPath(path, cwd)
-		: summary
+	if (typeof path !== 'string' || path.length === 0) return summary
+	if (summary === path) return displayPath(path, cwd)
+	// A long path reaches here already shortened (`…` at its end). The session's
+	// plan file is named the same way whole or shortened, never as a raw path.
+	if (
+		summary.length > 0 &&
+		isSessionPlanPath(path) &&
+		path.startsWith(summary.replace(/…$/u, ''))
+	) {
+		return PLAN_FILE_LABEL
+	}
+	return summary
 }
 
 function diffContentLines(value: string): string[] {

@@ -26,6 +26,7 @@ import {
 	planApprovalRows,
 } from '../plan/approval.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { isSessionPlanPath } from './display-path.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import { permissionReviewRows } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -162,9 +163,11 @@ export function PlanApprovalOverlay({
 			<Text color={theme.accent.plan} bold>
 				Plan ready for review
 			</Text>
-			<Text color={theme.text.secondary} wrap="truncate-start">
-				{terminalDisplayText(request.planPath)}
-			</Text>
+			{isSessionPlanPath(request.planPath) ? null : (
+				<Text color={theme.text.secondary} wrap="truncate-start">
+					{terminalDisplayText(request.planPath)}
+				</Text>
+			)}
 			<Box flexDirection="column" paddingLeft={2} paddingTop={1}>
 				{visible.map((row) => (
 					<Box key={row.index} width="100%">

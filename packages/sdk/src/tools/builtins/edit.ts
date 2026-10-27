@@ -17,6 +17,7 @@ import {
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
+import { staleBeforeReview } from './stale-before-review.js'
 
 /**
  * Two schemas, on purpose.
@@ -351,11 +352,13 @@ type EditAdmission =
  * 1. A file the session never read is refused. The model is about to rewrite
  *    text it has not seen, which is the commonest source of a wrong patch. A
  *    host that supplies no tracker has no ledger to ask and is not refused.
- * 2. A file that moved since the read is refused UNLESS every operation is a
- *    text replacement that still applies to the current body — uniquely,
- *    unless `replace_all` was asked for. A formatter run between the read and
- *    the edit then costs nothing. An insertion by line number is never
- *    recovered: the line it named may now be a different line.
+ * 2. A file that moved since the read is refused, whatever the operations are.
+ *    There is no recovery: a replacement that "still applies" to the moved body
+ *    can apply somewhere the model never meant (the read said `a = 1`, the file
+ *    now says `a = 100`, and the replacement of `a = 1` by `a = 2` lands inside
+ *    the new number and writes `a = 200`). Only the body the model read can
+ *    show where its text belongs, and the ledger keeps a fingerprint of it, not
+ *    the body. The refusal tells the model to read the file again.
  */
 function admitAgainstRead(
 	context: ToolContext,
@@ -373,19 +376,16 @@ function admitAgainstRead(
 		}
 	}
 	const seen = tracker?.fingerprint?.(key)
-	const applied = applyEdit(content, operations)
 	if (seen !== undefined && seen !== fingerprintContent(content)) {
-		const recoverable = applied.success && operations.every((o) => o.operation === 'replace')
-		if (!recoverable) {
-			recordDrift(context, key)
-			return {
-				success: false,
-				output: '',
-				error: staleFileError(key),
-				facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
-			}
+		recordDrift(context, key)
+		return {
+			success: false,
+			output: '',
+			error: staleFileError(key),
+			facts: { kind: 'failure', reason: 'changed_on_disk', subject: key },
 		}
 	}
+	const applied = applyEdit(content, operations)
 	return { success: true, result: applied }
 }
 
@@ -444,6 +444,9 @@ export const EditTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// A file that moved since the read is refused whatever the replacement is,
+	// so the person is not asked to approve one that cannot run.
+	refuseBeforeReview: (input: EditInput, context) => staleBeforeReview(context, input.path, 'edit'),
 	// The classifier judges which file changes and in what way, in a line.
 	classifierInput: (input: EditInput) => {
 		if (input.edits !== undefined) {

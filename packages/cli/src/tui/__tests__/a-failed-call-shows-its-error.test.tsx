@@ -205,9 +205,18 @@ describe('the short text of a refused file, search or language call', () => {
 			tone: 'muted',
 		})
 		expect(text('edit', 'not_found')?.text).toBe('File not found')
-		for (const reason of ['changed_on_disk', 'text_not_found', 'not_unique']) {
+		for (const reason of ['text_not_found', 'not_unique']) {
 			expect(text('edit', reason)).toEqual({
 				text: 'Error editing file',
+				tone: 'error',
+			})
+		}
+	})
+
+	it('says a file changed since it was read, for an edit and an overwrite alike', () => {
+		for (const tool of ['edit', 'write']) {
+			expect(text(tool, 'changed_on_disk')).toEqual({
+				text: 'File changed since it was read, nothing written',
 				tone: 'error',
 			})
 		}

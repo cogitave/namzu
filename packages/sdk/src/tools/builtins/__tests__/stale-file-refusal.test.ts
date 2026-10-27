@@ -110,7 +110,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect(readFileSync(file, 'utf-8')).toBe('alpha\nBETA WAS REWRITTEN\n')
 	})
 
-	it('still applies when the text to replace is unchanged and unique after an unrelated external edit', async () => {
+	it('refuses even when the text to replace is unchanged and unique after an unrelated external edit', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		const tracker = trackerOver(new Map())
@@ -120,8 +120,40 @@ describe('an edit against a file that moved is refused, not applied', () => {
 			{ path: file, old_string: 'beta', new_string: 'gamma' },
 			contextWith(dir, tracker),
 		)
-		expect(result.success).toBe(true)
-		expect(readFileSync(file, 'utf8')).toBe('ALPHA\ngamma\n')
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
+		expect(readFileSync(file, 'utf8')).toBe('ALPHA\nbeta\n')
+	})
+
+	it('does not write into the middle of a changed value', async () => {
+		// The model read `a = 1`; the file now says `a = 100`. The old text is a
+		// prefix of the new number, so a "still applies" rule would write
+		// `a = 200` and report success.
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'a.ts')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'export const a = 1\n')
+		writeFileSync(file, 'export const a = 100 // changed outside\n')
+		const result = await EditTool.execute(
+			{ path: file, old_string: 'export const a = 1', new_string: 'export const a = 2' },
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk after you read it')
+		expect(result.error).toContain('Read the file again')
+		expect(readFileSync(file, 'utf8')).toBe('export const a = 100 // changed outside\n')
+		// Reading the file again is the way through.
+		tracker.recordRead(file, readFileSync(file, 'utf8'))
+		const retried = await EditTool.execute(
+			{
+				path: file,
+				old_string: 'export const a = 100',
+				new_string: 'export const a = 2',
+			},
+			contextWith(dir, tracker),
+		)
+		expect(retried.success).toBe(true)
+		expect(readFileSync(file, 'utf8')).toBe('export const a = 2 // changed outside\n')
 	})
 
 	it('refuses when the external edit left the text to replace ambiguous', async () => {
@@ -139,7 +171,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect(readFileSync(file, 'utf8')).toBe('beta\nalpha\nbeta\n')
 	})
 
-	it('applies a replace_all after drift when every occurrence is still found', async () => {
+	it('refuses a replace_all after drift too', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		const tracker = trackerOver(new Map())
@@ -154,11 +186,12 @@ describe('an edit against a file that moved is refused, not applied', () => {
 			},
 			contextWith(dir, tracker),
 		)
-		expect(result.success).toBe(true)
-		expect(readFileSync(file, 'utf8')).toBe('gamma\nALPHA\ngamma\n')
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
+		expect(readFileSync(file, 'utf8')).toBe('beta\nALPHA\nbeta\n')
 	})
 
-	it('never recovers an insertion by line number after drift', async () => {
+	it('refuses an insertion by line number after drift', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		const tracker = trackerOver(new Map())
@@ -321,6 +354,25 @@ describe('an edit against a file that moved is refused, not applied', () => {
 })
 
 describe('a full replacement checks the body observed at admission', () => {
+	it('refuses to overwrite a file whose value changed after the read', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-write-'))
+		const file = join(dir, 'a.ts')
+		writeFileSync(file, 'export const a = 1\n')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'export const a = 1\n')
+		writeFileSync(file, 'export const a = 100 // changed outside\n')
+
+		const result = await WriteFileTool.execute(
+			{ path: 'a.ts', content: 'export const a = 2\n' },
+			contextWith(dir, tracker),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk after you read it')
+		expect(result.error).toContain('Read the file again')
+		expect(readFileSync(file, 'utf-8')).toBe('export const a = 100 // changed outside\n')
+	})
+
 	it('refuses host drift that happened after the read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-write-'))
 		const file = join(dir, 'doc.md')
