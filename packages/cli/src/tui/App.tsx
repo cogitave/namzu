@@ -140,6 +140,7 @@ import {
 	forkConversation,
 	forkConversationBeforeUser,
 	listArchived,
+	listOtherFolders,
 	listRecent,
 	loadConversation,
 	loadResumableConversation,
@@ -414,6 +415,7 @@ import {
 	withoutQueuedRow,
 } from './queued-calls.js'
 import { noResumeText } from './resume-empty.js'
+import { type ResumeScope, editLine, filterConversations } from './resume-picker-state.js'
 import {
 	REWIND_COUNT_BUDGET_MS,
 	type RewindOption,
@@ -1883,7 +1885,22 @@ function AppBody({
 	// The session whose effort listing has answered, so "still loading" is never
 	// said about a model that already reported it has no levels.
 	const reasoningListedRef = useRef<AgentSession | null>(null)
-	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
+	const [resumeHere, setResumeList] = useState<readonly RecentConversation[]>([])
+	const [resumeOthers, setResumeOthers] = useState<readonly RecentConversation[] | null>(null)
+	const [resumeQuery, setResumeQuery] = useState('')
+	const [resumeScope, setResumeScope] = useState<ResumeScope>('folder')
+	const [resumeRenaming, setResumeRenaming] = useState<string | null>(null)
+	const [resumeNotice, setResumeNotice] = useState<string | undefined>(undefined)
+	const resumeList = useMemo(
+		() =>
+			filterConversations(
+				resumeScope === 'all' && resumeOthers
+					? [...resumeHere, ...resumeOthers].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+					: resumeHere,
+				resumeQuery,
+			),
+		[resumeHere, resumeOthers, resumeScope, resumeQuery],
+	)
 	const {
 		selection: selectedResume,
 		selectionRef: selectedResumeRef,
@@ -6592,16 +6609,11 @@ function AppBody({
 							...row,
 							id: asSessionId(row.id),
 						}))
-					: await listRecent(sessions)
+					: await listRecent(sessions, 50)
 				// Don't offer the active (empty/just-started) conversation.
-				const needle = query?.trim().toLowerCase()
-				const others = recent.filter(
-					(c) =>
-						c.id !== scopeRef.current?.sessionId &&
-						(!needle ||
-							c.title.toLowerCase().includes(needle) ||
-							(c.preview?.toLowerCase().includes(needle) ?? false)),
-				)
+				const needle = query?.trim() ?? ''
+				const everyone = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
+				const others = filterConversations(everyone, needle)
 				if (others.length === 0) {
 					pushMessage(
 						'system',
@@ -6609,7 +6621,12 @@ function AppBody({
 					)
 					return
 				}
-				setResumeList(others)
+				setResumeList(everyone)
+				setResumeOthers(null)
+				setResumeQuery(needle)
+				setResumeScope('folder')
+				setResumeRenaming(null)
+				setResumeNotice(undefined)
 				setSelectedResume(0)
 				setPhase('resume')
 			} catch (err) {
@@ -6618,6 +6635,49 @@ function AppBody({
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
 	)
+
+	/** The picker's folder switch: this folder's conversations, or every folder's. */
+	const toggleResumeScope = useCallback(async () => {
+		if (resumeScope === 'all') {
+			setResumeScope('folder')
+			setSelectedResume(0)
+			return
+		}
+		if (palDefinitionRef.current) {
+			setResumeNotice('Other folders are not available inside a Pal.')
+			return
+		}
+		const sessions = sessionsRef.current
+		if (!sessions) return
+		try {
+			const others = resumeOthers ?? (await listOtherFolders(sessions))
+			setResumeOthers(others)
+			setResumeNotice(others.length === 0 ? 'No conversations in other folders yet.' : undefined)
+			setResumeScope('all')
+			setSelectedResume(0)
+		} catch (err) {
+			setResumeNotice(explainFailure(err, 'Could not list conversations in other folders.'))
+		}
+	}, [resumeScope, resumeOthers, setSelectedResume])
+
+	/** Save a new name for a conversation in the picker, then show the list as it now reads. */
+	const renameResumeRow = useCallback(async (target: RecentConversation, value: string) => {
+		const sessions = sessionsRef.current
+		if (!sessions) return
+		const name = value.trim()
+		// An empty name on a conversation nobody named changes nothing.
+		if (name === '' && !target.named) return
+		try {
+			await setTitle(sessions, target.id, name)
+			const refreshed = (await listRecent(sessions, 50)).filter(
+				(c) => c.id !== scopeRef.current?.sessionId,
+			)
+			setResumeList(refreshed)
+			setResumeNotice(undefined)
+		} catch (err) {
+			setResumeNotice(explainFailure(err, 'Could not save the name.'))
+		}
+	}, [])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
@@ -6654,6 +6714,11 @@ function AppBody({
 				return
 			}
 			setResumeList(archived)
+			setResumeOthers(null)
+			setResumeQuery('')
+			setResumeScope('folder')
+			setResumeRenaming(null)
+			setResumeNotice(undefined)
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
@@ -12897,6 +12962,35 @@ function AppBody({
 				// second read and an Esc would hand back a screen that is about to be
 				// replaced regardless.
 				if (resumeCommittedRef.current) return
+				// A name being typed owns the keys until it is saved or put away.
+				if (resumeRenaming !== null) {
+					if (key.escape || (key.ctrl && input === 'c')) setResumeRenaming(null)
+					else if (key.return) {
+						const target = resumeList[selectedResumeRef.current]
+						const value = resumeRenaming
+						setResumeRenaming(null)
+						if (target) void renameResumeRow(target, value)
+					} else {
+						const next = editLine(resumeRenaming, { ...key, input })
+						if (next !== null) setResumeRenaming(next)
+					}
+					return
+				}
+				if (phase === 'resume' && key.ctrl && input === 'a') {
+					void toggleResumeScope()
+					return
+				}
+				if (phase === 'resume' && key.ctrl && input === 'r') {
+					const target = resumeList[selectedResumeRef.current]
+					if (!target) return
+					if (target.folder !== undefined) {
+						setResumeNotice('Open that conversation from its own folder to rename it.')
+						return
+					}
+					setResumeNotice(undefined)
+					setResumeRenaming(target.named ? target.title : '')
+					return
+				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
 					setSelectedResume((index) =>
 						moveSelection(
@@ -12911,11 +13005,26 @@ function AppBody({
 					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
 					const conv = resumeList[selectedResumeRef.current]
+					if (conv?.folder !== undefined) {
+						setResumeNotice(
+							`That conversation belongs to ${conv.folder}. Open Namzu in that folder to continue it.`,
+						)
+						return
+					}
 					if (conv)
 						void (phase === 'unarchive'
 							? restoreArchivedConversation(conv)
 							: resumeConversation(conv))
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
+				else {
+					// Anything else typed narrows the list.
+					const next = editLine(resumeQuery, { ...key, input })
+					if (next !== null) {
+						setResumeQuery(next)
+						setResumeNotice(undefined)
+						setSelectedResume(0)
+					}
+				}
 				return
 			}
 			// Trust gate owns the keyboard until the folder is trusted or we exit.
@@ -14142,6 +14251,10 @@ function AppBody({
 						conversations={resumeList}
 						selected={selectedResume}
 						mode={phase === 'unarchive' ? 'restore' : 'resume'}
+						query={resumeQuery}
+						scope={resumeScope}
+						renaming={resumeRenaming}
+						{...(resumeNotice !== undefined ? { notice: resumeNotice } : {})}
 					/>
 				) : phase === 'edit' ? (
 					rewind ? (
