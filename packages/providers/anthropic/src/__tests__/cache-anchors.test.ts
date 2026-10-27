@@ -310,3 +310,28 @@ it('does not anchor after the first transient context even if more text follows'
 	})
 	expect(JSON.stringify(body.messages)).not.toContain('cache_control')
 })
+
+it('ends the cached prefix before a request-only block that sits ahead of the operator message', async () => {
+	// The breakpoint stops at the first request-only block, so the operator
+	// message and the tool loop that follow it are outside the cached prefix.
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Earlier question' },
+			{ role: 'assistant', content: 'Earlier answer' },
+			createRuntimeContextMessage('Repository snapshot', 'step-context'),
+			{ role: 'user', content: 'The new request' },
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			},
+			{ role: 'tool', toolCallId: 'c', content: 'Observed text' },
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+	const snapshot = messages.findIndex((m) => JSON.stringify(m).includes('Repository snapshot'))
+	expect(anchored).toBe(snapshot - 1)
+	const request = messages.findIndex((m) => JSON.stringify(m).includes('The new request'))
+	expect(request).toBeGreaterThan(anchored)
+})
