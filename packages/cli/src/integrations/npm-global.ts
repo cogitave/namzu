@@ -5,9 +5,9 @@ import {
 	mkdirSync,
 	openSync,
 	readFileSync,
+	readSync,
 	statSync,
 	unlinkSync,
-	readSync,
 } from 'node:fs'
 import { dirname, join, posix, win32 } from 'node:path'
 

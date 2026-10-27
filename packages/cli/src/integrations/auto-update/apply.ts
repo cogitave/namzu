@@ -17,7 +17,6 @@ import type { InstallKind } from './install-kind.js'
 import {
 	LOCK_STALE_MS,
 	type UpdateLock,
-	updatesDir,
 	acquireUpdateLock,
 	clearInProgress,
 	installScope,
@@ -25,6 +24,7 @@ import {
 	processIsRunning,
 	pruneOlderPrevious,
 	readInProgress,
+	updatesDir,
 	writeInProgress,
 } from './state.js'
 
