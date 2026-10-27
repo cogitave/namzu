@@ -381,3 +381,117 @@ describe("read opens this session's own retained output, and nothing else outsid
 		expect(out.output).toContain('host text')
 	})
 })
+
+describe('a window the file cannot fill', () => {
+	const read = async (body: string | Buffer, input: Record<string, unknown>) => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-range-'))
+		writeFileSync(join(dir, 'f.txt'), body)
+		return ReadFileTool.execute({ path: 'f.txt', ...input } as never, makeContext(dir))
+	}
+	const lines = (n: number) =>
+		`${Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')}\n`
+
+	it('says the file is shorter than the start, with its line count, as a success', async () => {
+		const out = await read(lines(1502), { offset: 5000 })
+
+		expect(out.success).toBe(true)
+		expect(out.output).toBe(
+			'Warning: the file is shorter than the requested start (line 5001). It has 1502 lines.',
+		)
+		expect(out.output).not.toContain('PARTIAL')
+		expect(out.data).toMatchObject({ returnedLines: 0, truncated: true })
+	})
+
+	it('treats the line after the last as past the end, for offset and for a range', async () => {
+		expect((await read(lines(3), { offset: 3 })).output).toContain('It has 3 lines.')
+		expect((await read(lines(3), { readRange: [4, 9] })).output).toContain('(line 4)')
+		expect((await read(lines(3), { offset: 2 })).output).toContain('3\tline 3')
+	})
+
+	it('uses the singular for a one-line file', async () => {
+		expect((await read('only', { offset: 4 })).output).toContain('It has 1 line.')
+	})
+
+	it('does not let the past-the-end answer stand in for the file in the ledger', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-range-'))
+		writeFileSync(join(dir, 'f.txt'), lines(3))
+		const tracker = createFileReadTracker()
+		await ReadFileTool.execute(
+			{ path: 'f.txt', offset: 10 } as never,
+			makeContext(dir, { fileReadTracker: tracker, toolUseId: 'call-1' }),
+		)
+		expect(tracker.readWitness?.(join(dir, 'f.txt'))).toBeUndefined()
+	})
+
+	it('says an empty file is empty', async () => {
+		const out = await read('', {})
+
+		expect(out.success).toBe(true)
+		expect(out.output).toBe('Warning: the file exists but is empty.')
+		expect(out.data).toMatchObject({ returnedLines: 0, truncated: false })
+	})
+})
+
+describe('content that is not text', () => {
+	it('gets a short note with its size and the next step', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-binary-'))
+		writeFileSync(join(dir, 'blob.dat'), Buffer.from([0, 1, 2, 3, 0xff, 0xfe, 0, 9, 0, 0]))
+
+		const out = await ReadFileTool.execute({ path: 'blob.dat' }, makeContext(dir))
+
+		expect(out.success).toBe(false)
+		expect(out.output).toContain('not readable as text')
+		expect(out.output).toContain('10 B')
+		expect(out.output).toContain('xxd')
+		expect(out.output).not.toContain('1\t')
+		expect(out.facts).toMatchObject({ kind: 'read', binary: true, bytes: 10 })
+	})
+
+	it('gets the same note from inside a sandbox', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-binary-'))
+		const out = await ReadFileTool.execute(
+			{ path: 'blob.dat' },
+			makeContext(dir, { sandbox: sandboxOver('a\u0000b\u0000c') }),
+		)
+
+		expect(out.success).toBe(false)
+		expect(out.output).toContain('not readable as text')
+	})
+})
+
+describe("read's saved-output route refuses a path it was not given", () => {
+	const setup = () => {
+		const parent = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-spills-')))
+		const mine = join(parent, 'session-mine')
+		const theirs = join(parent, 'session-theirs')
+		mkdirSync(mine)
+		mkdirSync(theirs)
+		writeFileSync(join(mine, 'ok.txt'), 'mine\n')
+		writeFileSync(join(theirs, 'spill.txt'), 'OTHER-SESSION-BODY\n')
+		const work = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-read-work-')))
+		return { mine, theirs, context: makeContext(work, { retainedOutputDirectory: mine }) }
+	}
+
+	it('refuses a path that climbs out of the directory', async () => {
+		const { mine, context } = setup()
+		const out = await ReadFileTool.execute(
+			{ path: join(mine, '..', 'session-theirs', 'spill.txt') },
+			context,
+		)
+		expect(out.success).toBe(false)
+		expect(`${out.output}${out.error ?? ''}`).not.toContain('OTHER-SESSION-BODY')
+	})
+
+	it("refuses another session's saved output by its own path", async () => {
+		const { theirs, context } = setup()
+		const out = await ReadFileTool.execute({ path: join(theirs, 'spill.txt') }, context)
+		expect(out.success).toBe(false)
+		expect(`${out.output}${out.error ?? ''}`).not.toContain('OTHER-SESSION-BODY')
+	})
+
+	it('still reads its own', async () => {
+		const { mine, context } = setup()
+		const out = await ReadFileTool.execute({ path: join(mine, 'ok.txt') }, context)
+		expect(out.success).toBe(true)
+	})
+})

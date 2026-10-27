@@ -36,6 +36,13 @@ does not apply; the token rule does.
 - `allow_large: true` lifts both caps for that one call to four times their size. The kernel does not track the room left in the context, so the factor is
   fixed. A read still over the lifted caps is refused and says so.
 - `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
+- A window that opens after the last line is a successful result that says so: `Warning: the file is
+  shorter than the requested start (line 5001). It has 1502 lines.` It is not a partial view, and the
+  session's read ledger does not take it for the file. An empty file answers `Warning: the file exists but
+  is empty.`
+- A file whose bytes are not text (a NUL, or a share of control or replacement characters) is not numbered.
+  The result is a short note with the size that names `file` or `xxd` as the next step; it reports as a
+  failed read, like the Office and image notes.
 
 `read` declares `selfLimitingOutput: true` ([ToolDefinition](tool-execution.md)): the turn's default per-result
 cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its

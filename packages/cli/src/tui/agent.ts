@@ -4360,6 +4360,14 @@ export async function createAgentSession(
 		manager.refresh()
 		return manager
 	}
+	// A summary written outside a turn points at the conversation tools only
+	// while both are mounted, the rule an in-turn compaction follows.
+	const recoveryNoteIfMounted = (): { recoveryNote?: string } => {
+		const mounted = new Set(liveManager().listNames())
+		return mounted.has('search_conversation') && mounted.has('read_conversation')
+			? { recoveryNote: COMPACTION_RECOVERY_NOTE }
+			: {}
+	}
 	// Built once, over the session's own composed toolsets — see
 	// `AgentSession.presenter`'s doc comment for why this is exposed rather
 	// than left implicit inside `runTurn`'s own per-turn presenter. Reads
@@ -5034,8 +5042,7 @@ export async function createAgentSession(
 					model,
 					signal,
 					...(instructions ? { instructions } : {}),
-					// Only a host that mounts the conversation tools points the summary at them.
-					...(options.conversationSessions ? { recoveryNote: COMPACTION_RECOVERY_NOTE } : {}),
+					...recoveryNoteIfMounted(),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -5068,6 +5075,7 @@ export async function createAgentSession(
 					model,
 					signal,
 					...(instructions ? { instructions } : {}),
+					...recoveryNoteIfMounted(),
 				}
 				if (sessions && !options.ephemeral) {
 					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
