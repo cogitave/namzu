@@ -66,7 +66,7 @@ The full text: change nothing except the plan file, understand the request and l
 - **No clear-context row.** The "Yes, clear context and …" rows appear only with a setting; Namzu has no setting and no clear-and-continue path, so they are not offered.
 - **No plan editing in the box.** The plan is read-only in the box (the file can be edited on disk before answering, and the next `exit_plan_mode` reads it again).
 - **No cloud refinement row** and no `plansDirectory`.
-- **No `ultraplan`, no phased exploration prompt with a built-in plan agent**; the full reminder says to use read-only explore agents for wide questions.
+- **No `ultraplan` and no phased exploration prompt**; the full reminder says to use read-only explore agents for wide questions. The `Agent` tool also offers a read-only `plan` type that returns a step plan; see [Delegated work](delegated-work.md#built-in-agent-types).
 - **An empty plan.** The tool answers the model that there is nothing to approve.
 - **Esc with no words** keeps planning.
 - **Desktop and `namzu exec`** do not have the box, the tool or the reminders. Desktop would need: the `exit_plan_mode` tool mounted by the CLI host with a request/answer pair on the host protocol (the plan, its path, `bypassAvailable`; an answer of mode or words), a plan review view with the same three rows and a text field, the host forwarding `reminders`/`planApproval` to its sessions, the plan file reachable from the conversation, and the ACP bridge deciding what an ACP client sees (today only the native-engine adapter for a foreign agent reacts to that agent's own plan-exit request; see [Native engines](native-engines.md)).

@@ -3421,34 +3421,36 @@ export async function createAgentSession(
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
 	let learning: SideLearningModel | undefined
-	const webCapability = options.web?.fetch
-		? {
-				// A page may be ten mebibytes; the guard's own
-				// default is two.
-				fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
-				// The answer to a prompt about a page comes from the small model. It is
-				// read at call time: the model exists once the delegation runtime does,
-				// and a page fetched without one is returned as markdown instead.
-				extract: {
-					extract: async (request: {
-						readonly signal?: AbortSignal
-						readonly sessionId: string
-						readonly turnId: string
-						readonly instruction: string
-						readonly body: string
-					}) =>
-						sideModel?.ask({
-							sessionId: request.sessionId as SessionId,
-							turnId: request.turnId as TurnId,
-							instruction: request.instruction,
-							body: request.body,
-							maxTokens: WEB_EXTRACT_MAX_TOKENS,
-							signal: request.signal ?? new AbortController().signal,
-							timing: 'in-turn',
-						}),
-				},
-			}
-		: undefined
+	// On unless the config says `web.fetch: false`; every new domain is asked once.
+	const webCapability =
+		options.web?.fetch !== false
+			? {
+					// A page may be ten mebibytes; the guard's own
+					// default is two.
+					fetch: new GuardedFetchProvider({ maxBytes: WEB_FETCH_MAX_BYTES }),
+					// The answer to a prompt about a page comes from the small model. It is
+					// read at call time: the model exists once the delegation runtime does,
+					// and a page fetched without one is returned as markdown instead.
+					extract: {
+						extract: async (request: {
+							readonly signal?: AbortSignal
+							readonly sessionId: string
+							readonly turnId: string
+							readonly instruction: string
+							readonly body: string
+						}) =>
+							sideModel?.ask({
+								sessionId: request.sessionId as SessionId,
+								turnId: request.turnId as TurnId,
+								instruction: request.instruction,
+								body: request.body,
+								maxTokens: WEB_EXTRACT_MAX_TOKENS,
+								signal: request.signal ?? new AbortController().signal,
+								timing: 'in-turn',
+							}),
+					},
+				}
+			: undefined
 	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).

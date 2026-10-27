@@ -114,8 +114,8 @@ The script is untrusted model input, like a `bash` command line. It runs in the
 confined interpreter behind `run_code`: no files, network, commands, timers or
 imports. Its only capability is `agent()`, and each agent it starts goes through
 the same delegation path as the `Agent` tool: the session's permission mode and
-rules, the same sandbox, the same tool rosters for `general-purpose` and
-`explore` and project agents, the same token budget and cancellation. A prompt
+rules, the same sandbox, the same tool rosters for `general-purpose`,
+`explore`, `plan` and project agents, the same token budget and cancellation. A prompt
 the script passes is data; it cannot widen a grant.
 
 A workflow's agents ask their questions through the review channel of the turn

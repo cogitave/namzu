@@ -19,7 +19,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { testToolset } from '../../../test-support/toolset.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import type { AgentFileDefinition } from '../definitions.js'
-import { EXPLORE_SUBAGENT, GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
+import {
+	EXPLORE_SUBAGENT,
+	GENERAL_PURPOSE_SUBAGENT,
+	PLAN_SUBAGENT,
+	createSubagentRuntime,
+} from '../runtime.js'
 
 afterEach(() => {
 	vi.restoreAllMocks()
@@ -104,6 +109,7 @@ describe('a file-defined agent', () => {
 		expect(runtime.allowedAgentIds).toEqual([
 			GENERAL_PURPOSE_SUBAGENT,
 			EXPLORE_SUBAGENT,
+			PLAN_SUBAGENT,
 			'reviewer',
 			'auditor',
 		])
