@@ -15,7 +15,7 @@ describe('the body under an edit or a write', () => {
 		const body = diffBodyFromFacts(
 			{
 				kind: 'write',
-				path: '/h/.namzu/projects/p/s/plans/plan.md',
+				path: '/h/.namzu/projects/p/01a17d20-db3f-74be-8c86-9a9a0f7660a9/plans/plan.md',
 				operation: 'created',
 				added: 2,
 				hunks,

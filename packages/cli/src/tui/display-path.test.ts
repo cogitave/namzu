@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { displayPath } from './display-path.js'
+import { displayPath, isSessionPlanPath } from './display-path.js'
 
 describe('a path as a person reads it', () => {
 	const cwd = '/home/me/work/app'
@@ -28,12 +28,31 @@ describe('a path as a person reads it', () => {
 	})
 
 	it('calls a session plan file the plan, wherever the session folder is', () => {
-		const plan = '/tmp/scratch/home/projects/-tmp-x-proje/01a17cc7-7d58/plans/plan.md'
+		const plan =
+			'/tmp/scratch/home/projects/-tmp-x-proje/01a17cc7-7d58-74be-8c86-9a9a0f7660a9/plans/plan.md'
 		expect(displayPath(plan, cwd, home)).toBe('the plan')
 		expect(displayPath(plan, undefined, home)).toBe('the plan')
-		expect(displayPath('C:\\Users\\me\\.namzu\\projects\\p\\s\\plans\\plan.md', cwd, home)).toBe(
-			'the plan',
-		)
+		expect(
+			displayPath(
+				'C:\\Users\\me\\.namzu\\projects\\p\\01a17cc7-7d58-74be-8c86-9a9a0f7660a9\\plans\\plan.md',
+				cwd,
+				home,
+			),
+		).toBe('the plan')
+	})
+
+	it('knows the session folder by the configured Namzu home', () => {
+		const plan = '/srv/namzu/projects/-x-proje/not-a-uuid/plans/plan.md'
+		expect(isSessionPlanPath(plan, '/srv/namzu')).toBe(true)
+		expect(isSessionPlanPath(plan, '/home/me/.namzu')).toBe(false)
+		expect(isSessionPlanPath(plan, undefined)).toBe(false)
+	})
+
+	it('does not take a plan.md of a person\u2019s own projects folder for the plan', () => {
+		const own = '/home/me/projects/app/src/plans/plan.md'
+		expect(isSessionPlanPath(own, '/home/me/.namzu')).toBe(false)
+		expect(displayPath(own, '/home/me/projects/app', home)).toBe('src/plans/plan.md')
+		expect(displayPath(own, '/home/me/work', home)).toBe('~/projects/app/src/plans/plan.md')
 	})
 
 	it('leaves a plan.md of the project alone', () => {
