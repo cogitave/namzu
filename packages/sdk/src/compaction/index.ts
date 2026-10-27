@@ -41,6 +41,7 @@ export {
 } from './extractor.js'
 
 export { buildVerifiedSummary } from './verifier.js'
+export type { CompactionSummaryRoute, CompactionSummaryRouter } from './model-summary.js'
 export type { CompactionVerificationOptions } from './verifier.js'
 
 export {

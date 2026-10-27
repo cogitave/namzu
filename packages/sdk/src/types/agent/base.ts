@@ -1,3 +1,4 @@
+import type { CompactionSummaryRouter } from '../../compaction/model-summary.js'
 import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
 import type { SessionPaths } from '../../session/paths.js'
 import type { SessionTokenBudget } from '../../store/budget/index.js'
@@ -124,6 +125,14 @@ export interface BaseAgentConfig {
 	 * appended to the restored context. Returning nothing adds nothing.
 	 */
 	postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
+	/**
+	 * Names the model that writes a compaction summary, asked once per pass.
+	 * Absent, or resolving nothing, the summary is the extracted working state;
+	 * a call that fails falls back to it too. The call's cost is charged to the
+	 * turn.
+	 */
+	compactionSummaryRoute?: CompactionSummaryRouter
 
 	allowedTools?: readonly string[]
 
