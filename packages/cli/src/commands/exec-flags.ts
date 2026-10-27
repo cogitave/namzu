@@ -38,6 +38,14 @@ function turnLimit(value: string, flag: string): number {
 	return n
 }
 
+/** A positive, finite dollar amount, or an error naming the flag. */
+function dollars(value: string, flag: string): number {
+	const n = Number(value.trim())
+	if (!value.trim() || !Number.isFinite(n) || n <= 0)
+		throw new Error(`${flag} takes a number of dollars greater than 0, got ${value}`)
+	return n
+}
+
 /** The level a `--effort` value names, or an error that lists the levels. */
 export function parseReasoningEffort(value: string, flag: string): ReasoningEffort {
 	const level = REASONING_EFFORT_LEVELS.find((entry) => entry === value)
@@ -84,6 +92,26 @@ export interface ExecFlags {
 	 * Milliseconds; null means the flag was not given and the config decides.
 	 */
 	waitForProviderMs: number | null
+	/**
+	 * `--append-system-prompt <text|@file>`: standing instructions added to the
+	 * uncached tail of the system prompt for this run. The value as given; the
+	 * command reads the file when it starts with `@`.
+	 */
+	appendSystemPrompt: string | null
+	/**
+	 * `--max-budget-usd <amount>`: the turn stops when its priced spend reaches
+	 * this many dollars. Null means the flag was not given and the config decides.
+	 */
+	maxBudgetUsd: number | null
+	/** `--allowed-tools <list>`, repeatable: permission `allow` entries for this run. */
+	allowedTools: string[]
+	/** `--disallowed-tools <list>`, repeatable: permission `deny` entries for this run. */
+	disallowedTools: string[]
+	/**
+	 * `--fallback-model <provider/model[,…]>`, repeatable: the models to fall
+	 * over to, in order, for this run.
+	 */
+	fallbackModels: string[]
 	/**
 	 * `--gate '<command>'`, repeatable — commands that must pass before the
 	 * turn is allowed to settle.
@@ -137,6 +165,11 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		maxIterations: null,
 		tokenBudget: null,
 		waitForProviderMs: null,
+		appendSystemPrompt: null,
+		maxBudgetUsd: null,
+		allowedTools: [],
+		disallowedTools: [],
+		fallbackModels: [],
 		gates: [],
 		gateRetries: null,
 		json: false,
@@ -231,6 +264,31 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
+		if (
+			take(
+				a,
+				'append-system-prompt',
+				(v) => {
+					out.appendSystemPrompt = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'max-budget-usd',
+				(v) => {
+					out.maxBudgetUsd = dollars(v, '--max-budget-usd')
+				},
+				idx,
+			)
+		)
+			continue
+		if (take(a, 'allowed-tools', (v) => out.allowedTools.push(v), idx)) continue
+		if (take(a, 'disallowed-tools', (v) => out.disallowedTools.push(v), idx)) continue
+		if (take(a, 'fallback-model', (v) => out.fallbackModels.push(v), idx)) continue
 		if (a === '--continue' || a === '-c') {
 			out.continueLast = true
 			continue

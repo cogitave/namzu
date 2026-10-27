@@ -43,6 +43,22 @@ describe('readStoredTurnGuards', () => {
 		})
 	})
 
+	it('restores the spend limit too, so a resumed turn keeps the cap it started under', async () => {
+		const { log, turnId } = await sessionWithTurn({
+			model: 'm',
+			tokenBudget: 0,
+			maxIterations: 7,
+			timeoutMs: 0,
+			costLimitUsd: 1.25,
+		})
+		expect(await readStoredTurnGuards(log, turnId)).toEqual({
+			tokenBudget: 0,
+			maxIterations: 7,
+			timeoutMs: 0,
+			costLimitUsd: 1.25,
+		})
+	})
+
 	it('answers undefined for a turn the log does not hold', async () => {
 		const { log } = await sessionWithTurn({
 			model: 'm',

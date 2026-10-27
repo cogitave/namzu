@@ -365,6 +365,8 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 					fromProviderId: record.fromProviderId,
 					toProviderId: record.toProviderId,
 					reason: record.reason,
+					...(record.fromModel ? { fromModel: record.fromModel } : {}),
+					...(record.toModel ? { toModel: record.toModel } : {}),
 				}),
 			)
 			break

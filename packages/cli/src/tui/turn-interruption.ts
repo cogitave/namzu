@@ -115,6 +115,19 @@ function materiallyDifferent(candidate: string, earlier: readonly string[]): boo
 }
 
 /**
+ * The model a spend limit could not be counted for, when that is why the turn
+ * did not start: the limit is checked against priced spend, and a model with no
+ * price on file would let the whole turn read as under it.
+ */
+function unpricedSpendLimit(event: Interruption): string | undefined {
+	const failure = event.failure
+	if (failure?.code !== 'invalid_config') return undefined
+	const model = failure.details?.model
+	const limit = failure.details?.costLimitUsd
+	return typeof model === 'string' && typeof limit === 'number' ? model : undefined
+}
+
+/**
  * Human copy for a terminal interruption, derived only from event facts.
  *
  * No countdown: `retryAfterMs` is a duration reported at the failure boundary,
@@ -130,7 +143,14 @@ export function describeTurnInterruption(event: Interruption): string {
 		status: event.providerError?.status,
 		detail: event.providerError?.detail ?? rawReason,
 	})
-	const lead = line(freeRefused ? ZEN_FREE_REFUSED_WHAT : explained?.message || rawReason)
+	const unpriced = unpricedSpendLimit(event)
+	const lead = line(
+		unpriced !== undefined
+			? `Namzu has no price on file for ${unpriced}, so it cannot count spend against the limit.`
+			: freeRefused
+				? ZEN_FREE_REFUSED_WHAT
+				: explained?.message || rawReason,
+	)
 	const id = explained?.id ? ` [${line(explained.id, 120)}]` : ''
 	const rows = [`${event.kind === 'paused' ? 'Reply paused' : 'Error'}${id}: ${lead}`]
 	const providerId = event.providerError?.providerId ?? event.failure?.details?.providerId
@@ -142,7 +162,11 @@ export function describeTurnInterruption(event: Interruption): string {
 	if (providerDetail && materiallyDifferent(providerDetail, [lead, rawReason])) {
 		rows.push(`Provider detail: ${line(providerDetail)}`)
 	}
-	if (explained && materiallyDifferent(rawReason, [lead, providerDetail ?? ''])) {
+	if (
+		unpriced === undefined &&
+		explained &&
+		materiallyDifferent(rawReason, [lead, providerDetail ?? ''])
+	) {
 		rows.push(`Reason: ${line(rawReason)}`)
 	}
 
@@ -158,7 +182,11 @@ export function describeTurnInterruption(event: Interruption): string {
 	if (retryAfter !== undefined) {
 		rows.push(`Provider retry delay: at least ${duration(retryAfter)} from this failure.`)
 	}
-	if (freeRefused) rows.push(`Next: ${ZEN_FREE_REFUSED_NEXT}`)
+	if (unpriced !== undefined)
+		rows.push(
+			'Next: Remove the spend limit and bound the run with a token limit instead, or choose a model Namzu has a price for.',
+		)
+	else if (freeRefused) rows.push(`Next: ${ZEN_FREE_REFUSED_NEXT}`)
 	else if (explained?.hint) rows.push(`Next: ${line(explained.hint, 720)}`)
 	if (event.kind === 'paused') {
 		rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)

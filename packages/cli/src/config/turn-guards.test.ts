@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { loadConfig } from './load.js'
+import { resolveTurnGuards } from './turn-guards.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -44,4 +45,26 @@ it.each([-1, 1.5, null, 'unlimited', Number.MAX_SAFE_INTEGER + 1])(
 
 it('rejects turn deadlines that overflow platform timers instead of timing out immediately', () => {
 	expect(() => loadConfig(fixture({ timeoutMs: 2_147_483_648 }))).toThrow('limits.timeoutMs')
+})
+
+it('accepts a spend limit in dollars, and zero removes an inherited one', () => {
+	expect(loadConfig(fixture({ costLimitUsd: 2.5 })).limits).toMatchObject({ costLimitUsd: 2.5 })
+	expect(loadConfig(fixture({ costLimitUsd: 0 })).limits).toMatchObject({ costLimitUsd: 0 })
+})
+
+it.each([-1, null, 'cheap', Number.POSITIVE_INFINITY])(
+	'rejects an invalid spend limit: %j',
+	(value) => {
+		expect(() => loadConfig(fixture({ costLimitUsd: value }))).toThrow('limits.costLimitUsd')
+	},
+)
+
+it('lets a later layer set, change or lift the spend limit a turn runs under', () => {
+	expect(resolveTurnGuards({ costLimitUsd: 2 }).costLimitUsd).toBe(2)
+	expect(resolveTurnGuards({ costLimitUsd: 2 }, { costLimitUsd: 0.5 }).costLimitUsd).toBe(0.5)
+	expect(resolveTurnGuards({ costLimitUsd: 2 }, { costLimitUsd: 0 })).not.toHaveProperty(
+		'costLimitUsd',
+	)
+	expect(resolveTurnGuards({ tokenBudget: 10 })).not.toHaveProperty('costLimitUsd')
+	expect(() => resolveTurnGuards({ costLimitUsd: -1 })).toThrow('costLimitUsd')
 })

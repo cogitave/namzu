@@ -187,6 +187,7 @@ import {
 	getBuiltinTools,
 	getCodeAnalysisTools,
 	getMonitorTools,
+	isNamzuError,
 	isReviewExempt,
 	isTurnInProgressError,
 	lastPromptText,
@@ -196,6 +197,7 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	toPlatformError,
 	toolset,
 	untrustedEnvelopeBody,
 	webGuidanceContribution,
@@ -2342,6 +2344,12 @@ export interface AgentSessionOptions {
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one turn may spend. */
 	readonly limits?: TurnLimitsConfig
+	/**
+	 * Standing instructions for every turn of this session, from
+	 * `--append-system-prompt`. Rendered in the uncached tail of the system
+	 * prompt, so the cached prefix stays byte-identical with or without them.
+	 */
+	readonly appendSystem?: string
 	/** See `NamzuCliConfig.workflow`: the caps a workflow run is held to. */
 	readonly workflow?: WorkflowCliConfig
 	/**
@@ -5671,6 +5679,12 @@ export async function createAgentSession(
 						for (const contribution of pluginRuntime?.manager.promptContributions ?? []) {
 							promptContributions.register(contribution)
 						}
+						if (options.appendSystem)
+							promptContributions.register({
+								id: 'namzu.cli.append-system',
+								placement: 'dynamic',
+								render: () => options.appendSystem ?? null,
+							})
 						for (const [serverName, spec] of Object.entries(options.mcpServers ?? {})) {
 							if (spec?.instructions !== true) continue
 							promptContributions.register({
@@ -7202,6 +7216,9 @@ async function* runTurn({
 		yield {
 			kind: 'error',
 			message: err instanceof Error ? err.message : String(err),
+			// A refusal Namzu raised before the turn began carries its facts (which
+			// model, which limit), so a screen can say it in plain words.
+			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
 		turnManager.dispose()
@@ -8014,6 +8031,8 @@ function describeFallback(event: {
 			fromProviderId: event.fromProviderId,
 			toProviderId: event.toProviderId,
 			reason: event.code,
+			...(event.fromModel ? { fromModel: event.fromModel } : {}),
+			...(event.toModel ? { toModel: event.toModel } : {}),
 		}),
 		raw,
 		debugRequested(),
