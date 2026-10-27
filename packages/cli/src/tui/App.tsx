@@ -288,7 +288,7 @@ import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
-import { TrustPrompt } from './TrustPrompt.js'
+import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import { stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
@@ -6161,9 +6161,13 @@ function AppBody({
 			// Non-fatal: proceed for this session even if persisting failed.
 		}
 		try {
-			// The gate listed the folder's tool servers, so accepting it is the
-			// answer for the servers it showed; one added later asks again.
-			approveShownMcpServers(resolveNamzuHome(), trustedCwdRef.current, trustGrants.toolServers)
+			// Accepting answers for the servers the gate showed in full; ones it
+			// only counted, and ones added later, stay pending.
+			approveShownMcpServers(
+				resolveNamzuHome(),
+				trustedCwdRef.current,
+				shownToolServers(trustGrants),
+			)
 		} catch {
 			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
 		}

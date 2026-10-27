@@ -80,3 +80,26 @@ it('says in one plain line which servers are waiting', () => {
 	)
 	expect(pendingServersMessage(['a', 'b'])).toContain('2 tool servers')
 })
+
+it('approves only the servers the screen showed in full, and wraps rather than cuts', async () => {
+	const { shownToolServers, trustGrantLines } = await import('../../../tui/TrustPrompt.js')
+	const tail = 'the-last-argument-that-must-be-visible'
+	const entries: Record<string, unknown> = {}
+	for (let at = 1; at <= 10; at++) {
+		entries[`server${at}`] = { command: 'sh', args: ['-c', `echo ${'x'.repeat(80)} ${tail}`] }
+	}
+	const { home, cwd } = project(entries)
+	const grants = readFolderGrants(cwd)
+
+	const lines = trustGrantLines(grants, 60)
+	expect(lines.join('')).toContain(tail.slice(-10))
+	expect(lines.every((line) => !line.endsWith('…'))).toBe(true)
+	expect(lines.some((line) => line.includes('2 more'))).toBe(true)
+
+	approveShownMcpServers(home, cwd, shownToolServers(grants))
+
+	expect(pendingProjectMcpServers({ cwd, env: { NAMZU_HOME: home } }).pending).toEqual([
+		'server9',
+		'server10',
+	])
+})

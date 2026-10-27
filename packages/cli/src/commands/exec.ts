@@ -8,8 +8,10 @@
  * streams one JSON event per line instead (`./exec-json.ts`). With
  * `--output-schema <file>` the final answer is bound to that JSON Schema.
  *
- * Non-interactive, so there's no approval prompt — tools auto-run, but the
- * safety gate still hard-denies catastrophic commands. A one-shot is a
+ * Non-interactive, so there's no approval prompt — tools auto-run, except that
+ * a fetch from a web address is asked about per domain and, with no one to ask,
+ * answered by the classifier; the safety gate still hard-denies catastrophic
+ * commands. A one-shot is a
  * conversation like any other: its session log is kept under the project in
  * `NAMZU_HOME`, so `--continue` picks it up and `namzu drain` can finish a
  * turn it parked.

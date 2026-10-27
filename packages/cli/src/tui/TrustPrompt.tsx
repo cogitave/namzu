@@ -53,6 +53,26 @@ function countOf(count: number, one: string, many: string): string {
 	return `${count} ${count === 1 ? one : many}`
 }
 
+/** The tool servers the screen shows in full; approving the screen covers only these. */
+export function shownToolServers(grants: FolderGrants | undefined): FolderGrants['toolServers'] {
+	return (grants?.toolServers ?? []).slice(0, MAX_SHOWN_GRANT_RULES)
+}
+
+/** Break `text` into rows of at most `width` columns, losing none of it. */
+function wrapHard(text: string, width: number): readonly string[] {
+	const rows: string[] = []
+	let row = ''
+	for (const char of text) {
+		if (row !== '' && stringWidth(row + char) > width) {
+			rows.push(row)
+			row = ''
+		}
+		row += char
+	}
+	rows.push(row)
+	return rows
+}
+
 /**
  * What the folder's own config would let through without asking, before the
  * choice: each allow rule (at most eight, the rest counted) and each added
@@ -96,12 +116,13 @@ export function trustGrantLines(
 		lines.push(
 			`This folder starts ${countOf(grants.toolServers.length, 'tool server', 'tool servers')}:`,
 		)
-		for (const server of grants.toolServers.slice(0, MAX_SHOWN_GRANT_RULES)) {
-			const line = `${server.name}: ${server.runs}`
-			lines.push(`  ${line.length + 2 > room ? `${line.slice(0, Math.max(1, room - 3))}…` : line}`)
+		for (const server of shownToolServers(grants)) {
+			lines.push(
+				...wrapHard(`${server.name}: ${server.runs}`, Math.max(1, room - 2)).map((l) => `  ${l}`),
+			)
 		}
 		const more = grants.toolServers.length - MAX_SHOWN_GRANT_RULES
-		if (more > 0) lines.push(`  and ${more} more`)
+		if (more > 0) lines.push(`  and ${more} more, which stay waiting for your approval`)
 	}
 	lines.push(...wrapBalancedText(GRANTS_NOTICE, room))
 	return lines
