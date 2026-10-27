@@ -15,7 +15,10 @@ summary must keep; see [Compaction trigger, circuit breaker and output limits](c
 valid span; `compactSessionRange` does the same for a durable session, naming
 the span by recorded message ids (see below). Neither mutates the supplied array or owns a running invocation.
 The result contains replacement `messages`, the pinned `summary`, net `shed`
-count and optional verifier `usage`. `null` means no reduction is available.
+count and the `usage` of any model call the pass made (the verifier, or the
+model named by `summaryRoute` that writes the summary; see
+[A summary written by a model](context-limits.md#a-summary-written-by-a-model)).
+`null` means no reduction is available.
 
 Generated summaries carry the optional `SystemMessage.source` value
 `{ type: 'compaction-summary' }`. This host provenance distinguishes a derived

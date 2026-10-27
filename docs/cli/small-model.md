@@ -107,6 +107,15 @@ wins over the generated one whenever it was written; removing the name falls
 back to the first message. Desktop lists the same stored title. A conversation
 started in Desktop is not named by the model yet.
 
+## The compaction summary
+
+A compaction (`/compact` and every automatic pass) asks the small model to write the summary that
+replaces the older part of the conversation; see
+[Who writes the summary](context-and-compaction.md#who-writes-the-summary). Unlike a title, it
+runs only on a model that was set aside: `smallModel` or the provider's cheapest text model. When the
+route falls back to the conversation's own model, or the call fails, the summary Namzu extracts
+without a model is used. `compaction.modelSummary: false` turns it off.
+
 ## The away recap
 
 When the terminal window loses focus and a finished reply has been left alone for three minutes,

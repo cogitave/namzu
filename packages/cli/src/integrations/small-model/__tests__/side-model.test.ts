@@ -304,3 +304,60 @@ describe('asking the side model', () => {
 		expect(provider.requests).toHaveLength(0)
 	})
 })
+
+describe('the small model’s provider for a caller that makes its own call', () => {
+	it('is the configured model, with the provider built for it', async () => {
+		const built = fakeProvider({ reply: 'x' })
+		const side = createSideModel({
+			active: () => ({ providerId: 'zen', model: 'big' }),
+			configured: 'acme/tiny',
+			isKnownProvider: (id) => id === 'acme',
+			buildProvider: async () => built,
+			ledger: fakeLedger(),
+		})
+
+		expect(await side.smallProvider(sessionId, new AbortController().signal)).toEqual({
+			provider: built,
+			providerId: 'acme',
+			model: 'tiny',
+		})
+	})
+
+	it('is the cheapest listed model when none is configured', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'acme', model: 'big' }),
+			isKnownProvider: () => true,
+			buildProvider: async () =>
+				fakeProvider({ models: [listed('big', 10, 50), listed('tiny', 0.2, 1)] }),
+			ledger: fakeLedger(),
+		})
+
+		const found = await side.smallProvider(sessionId, new AbortController().signal)
+		expect(found?.model).toBe('tiny')
+	})
+
+	it('is nothing when the route fell back to the conversation’s own model', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'acme', model: 'big' }),
+			isKnownProvider: () => true,
+			buildProvider: async () => fakeProvider({ models: new Error('listing down') }),
+			ledger: fakeLedger(),
+		})
+
+		expect(await side.smallProvider(sessionId, new AbortController().signal)).toBeUndefined()
+	})
+
+	it('is nothing when no credential reaches the provider', async () => {
+		const side = createSideModel({
+			active: () => ({ providerId: 'zen', model: 'big' }),
+			configured: 'acme/tiny',
+			isKnownProvider: (id) => id === 'acme',
+			buildProvider: async () => {
+				throw new Error('no credential')
+			},
+			ledger: fakeLedger(),
+		})
+
+		expect(await side.smallProvider(sessionId, new AbortController().signal)).toBeUndefined()
+	})
+})

@@ -192,6 +192,13 @@ export interface CompactionCliConfig {
 	 * (not every provider can be asked). A one-hour cache costs more per write.
 	 */
 	readonly promptCacheTtl?: '5m' | '1h'
+	/**
+	 * Let the small model (`smallModel`, else the provider's cheapest text
+	 * model) write the compaction summary. Default `true`; with no small model
+	 * set aside, or when its call fails, the summary is the one the kernel
+	 * extracts without a model. `false` always uses the extracted summary.
+	 */
+	readonly modelSummary?: boolean
 }
 
 /** See `NamzuCliConfig.browser`. */

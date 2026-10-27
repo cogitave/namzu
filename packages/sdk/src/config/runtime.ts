@@ -150,6 +150,20 @@ export const CompactionConfigSchema = z.object({
 	keepFirstEntries: z.number().min(0).default(3),
 	llmVerification: z.boolean().default(true),
 	llmVerificationMaxTokens: z.number().int().positive().default(2048),
+	/**
+	 * Let the model the host names for it write the compaction summary.
+	 * Default `true`, and it takes effect only where the host supplies a
+	 * model; without one, or when its call fails, the summary is the extracted
+	 * working state. Left optional so an existing config literal still
+	 * type-checks.
+	 */
+	modelSummary: z.boolean().optional(),
+	/** Longest model-written summary, in tokens. Default 4,096. */
+	modelSummaryMaxTokens: z.number().int().positive().optional(),
+	/** Characters of transcript the summary model reads; the newest and the first request are kept when it is longer. Default 240,000. */
+	modelSummaryInputChars: z.number().int().positive().optional(),
+	/** Characters of one tool result the summary model reads. Default 1,500. */
+	modelSummaryToolResultChars: z.number().int().positive().optional(),
 	richStateThreshold: z.number().int().positive().default(15),
 	convoTextBudget: z.number().int().positive().default(12_000),
 	maxSentencesPerTurn: z.number().int().positive().default(5),

@@ -29,7 +29,7 @@ If the structured state is complete, respond with exactly: COMPLETE
 
 If something important is missing, list everything missing, because trimming happens later and a gap cannot be recovered. Respond with a bullet list of the missing items (no preamble, just the bullets). Each bullet should be a single concise sentence.`
 
-function* attachmentExcerpt(
+export function* attachmentExcerpt(
 	attachment: MessageAttachment | Exclude<ToolResultBlock, { type: 'text' }>,
 ): Generator<string> {
 	const kind =
@@ -49,7 +49,7 @@ function* attachmentExcerpt(
 	yield ' — not included in this text excerpt]'
 }
 
-function isStandingContext(message: Message): boolean {
+export function isStandingContext(message: Message): boolean {
 	if (message.role !== 'user') return false
 	const source = message.source
 	return (
@@ -182,7 +182,7 @@ export interface CompactionVerificationOptions {
 /** Longest instruction text passed on; a pasted page is not an instruction. */
 export const MAX_COMPACTION_INSTRUCTIONS_CHARS = 2_000
 
-function withInstructions(prompt: string, instructions: string | undefined): string {
+export function withInstructions(prompt: string, instructions: string | undefined): string {
 	const text = instructions?.trim().slice(0, MAX_COMPACTION_INSTRUCTIONS_CHARS)
 	if (!text) return prompt
 	const nonce = pickRenderNonce(generateRenderNonce, [text])

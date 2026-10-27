@@ -36,6 +36,7 @@ const configRoutes = {
 	durableInbound: 'query',
 	projectInstructionContext: 'query',
 	postCompactionContext: 'query',
+	compactionSummaryRoute: 'query',
 	allowedTools: 'special',
 	toolResultGuardrails: 'query',
 	deniedTools: 'special',

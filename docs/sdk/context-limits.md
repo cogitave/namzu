@@ -151,7 +151,7 @@ exact values that step needs. Alongside the sections it already had, it ends
 with `## Open Items and Next Step`: the assistant notes that say what is still
 to do ("I will implement the loader next in src/loader.ts and then add tests"),
 filed apart from the narration so the next step is the last thing read. The
-newest operator request is restated under `## Current Goal` (left out when$
+newest operator request is restated under `## Current Goal` (left out when
 nothing newer was asked or it only repeats the task), just before the open items, so the goal is in view
 after a compaction. `## Files` gives one line per file, the path then what was
 done to it ("read; changed"), and any additions from the summary check come
@@ -161,6 +161,39 @@ code was looked at is dropped. The summary check asks the verifier model for
 unresolved errors, bugs and open questions, open items and the next step, and
 the specific names, values and commands that step needs, and to list everything
 missing, because trimming can happen later and a gap cannot be recovered.
+
+## A summary written by a model
+
+A host can name the model that writes the summary: `QueryParams.compactionSummaryRoute`
+(and `AgentConfig.compactionSummaryRoute`) for the passes inside a turn, `summaryRoute` on
+`compactNow`, `compactRegion`, `compactSession` and `compactSessionRange` for host-triggered
+ones. It is a function that resolves `{ provider, model, providerId? }`, or nothing, asked once
+per pass. A host that passes none sees no change.
+
+With a route, the model reads the span being replaced and writes the summary in eight sections:
+the person's requests quoted in their own words (limits they set kept exactly), the current work,
+the next step with a quote of the latest request, decisions and why, files, errors and open
+problems, pending tasks and the exact details the next step needs. What it reads is rendered text,
+not the raw messages: each message is labelled as the person's, the assistant's or a runtime note;
+a tool result is cut to `modelSummaryToolResultChars` (default 1,500 characters, the start and the
+end kept); and the whole transcript is held to `modelSummaryInputChars` (default 240,000), keeping
+the first request and the newest entries behind a marked gap. The transcript, any earlier summary
+this one replaces (its restored files left off) and the extracted notes go in tagged blocks closed
+by a per-request marker, and the request asks for no tools and a reply of at most
+`modelSummaryMaxTokens` (default 4,096). What `compactNow` was asked to keep goes in the same kind
+of block as for the verifier. A request that overflows the model's window is retried with half the
+transcript, up to three times.
+
+The extracted notes stay the fallback. With no route, a route that resolves nothing,
+`modelSummary: false`, a call that fails or stalls (the shared stream idle bound applies), or a
+reply with no `<summary>` in it, the summary is built from the extracted state exactly as before,
+with its verifier step where `llmVerification` or instructions call for it. The verifier does not
+run on top of a model-written summary. A cancellation is passed on, never swallowed.
+
+Cost: an automatic pass charges the call to the turn at the route's provider and model (the
+turn's own provider when the route names none); a host-triggered pass returns the tokens in
+`CompactionResult.usage` for the host to count. The files and skills a pass restores follow the
+summary either way.
 
 ## What a pass puts back
 
