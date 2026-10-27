@@ -123,9 +123,15 @@ it('carries a wrapped successful write across query turns and refuses an edit af
 
 /** The JSON payload of a request's file-evidence message, if it carries one. */
 function entriesIn(messages: Message[] | undefined): unknown {
-	const content = String(messages?.at(-1)?.content ?? '')
-	if (!content.includes('Visible file evidence')) return undefined
-	return JSON.parse(content.split('\n').at(-1) as string)
+	// A later block with this heading replaces an earlier one.
+	const content = String(
+		messages?.filter((m) => String(m.content).includes('Visible file evidence')).at(-1)?.content ??
+			'',
+	)
+	if (!content) return undefined
+	const last = content.split('\n').at(-1) as string
+	// The block that says nothing holds any longer carries no entries.
+	return last.startsWith('[') ? JSON.parse(last) : undefined
 }
 
 it('carries a write and the edits on top of it into the next turn, and withdraws the path when a mutation is refused for drift', async () => {

@@ -23,14 +23,17 @@ import { drainQuery } from '../index.js'
 
 /** The JSON payload of a request's file-evidence message, if it carries one. */
 function evidenceMessage(messages: Message[] | undefined): Message | undefined {
-	return messages?.find((m) => String(m.content).includes('Visible file evidence'))
+	// A later block with this heading replaces an earlier one.
+	return messages?.filter((m) => String(m.content).includes('Visible file evidence')).at(-1)
 }
 
 /** The block sits in front of the operator's new message while that is what the model answers. */
 function entriesIn(messages: Message[] | undefined): unknown {
 	const content = String(evidenceMessage(messages)?.content ?? '')
 	if (!content.includes('Visible file evidence')) return undefined
-	return JSON.parse(content.split('\n').at(-1) as string)
+	const last = content.split('\n').at(-1) as string
+	// The block that says nothing holds any longer carries no entries.
+	return last.startsWith('[') ? JSON.parse(last) : undefined
 }
 
 it('carries a whole-file read into the next turn, and withdraws it when the file moves underneath', async () => {

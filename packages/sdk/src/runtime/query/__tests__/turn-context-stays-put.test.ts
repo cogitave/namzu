@@ -188,4 +188,49 @@ describe('TurnContextCarry', () => {
 		carry.place(request, history, summary, [block('A')])
 		expect(request.map(text)).toEqual(['summary', expect.stringContaining('A')])
 	})
+
+	it('keeps an earlier version of a replaceable block as sent and appends the later one', () => {
+		const carry = new TurnContextCarry()
+		const ask = user('ask')
+		const one = [ask]
+		carry.place(one, [ask], ask, [], [{ key: 'files', message: block('FILES v1') }])
+		expect(one.map(text)).toEqual([expect.stringContaining('FILES v1'), 'ask'])
+
+		const reply = assistant('reply')
+		const history = [ask, reply]
+		const two = [...history]
+		carry.place(two, history, reply, [], [{ key: 'files', message: block('FILES v2') }])
+		expect(two.map(text)).toEqual([
+			expect.stringContaining('FILES v1'),
+			'ask',
+			'reply',
+			expect.stringContaining('FILES v2'),
+		])
+		// And the request after that begins with all of this one.
+		const more = assistant('more')
+		const longer = [ask, reply, more]
+		const three = [...longer]
+		carry.place(three, longer, more, [], [{ key: 'files', message: block('FILES v2') }])
+		expect(three.map(text).slice(0, 4)).toEqual(two.map(text))
+	})
+
+	it('says so, once, when a replaceable block stops holding', () => {
+		const carry = new TurnContextCarry()
+		const ask = user('ask')
+		const gone = { files: block('NOTHING HOLDS') }
+		carry.place([ask], [ask], ask, [], [{ key: 'files', message: block('FILES v1') }], gone)
+		const reply = assistant('reply')
+		const history = [ask, reply]
+		const two = [...history]
+		carry.place(two, history, reply, [], [], gone)
+		expect(two.map(text)).toEqual([
+			expect.stringContaining('FILES v1'),
+			'ask',
+			'reply',
+			expect.stringContaining('NOTHING HOLDS'),
+		])
+		const three = [...history]
+		carry.place(three, history, reply, [], [], gone)
+		expect(three.map(text)).toEqual(two.map(text))
+	})
 })

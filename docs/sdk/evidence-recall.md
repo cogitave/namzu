@@ -243,8 +243,8 @@ query is never used just because literal retrieval was empty.
 
 One plan promise is cached for the same turn and operator-message identity, also
 keyed by question text. New turns or steering input invalidate it. A failed plan
-is not retried on every iteration. Evidence bytes are still retrieved and
-revalidated on every pass. This cache is local to the hook, not durable memory.
+is not retried on every iteration. Evidence bytes are retrieved and
+revalidated on the first call of each turn (see below for the later calls). This cache is local to the hook, not durable memory.
 The planning call permits at most 512 output tokens and ten seconds, sharing the
 turn's provider chain, token ledger and cancellation. Those tokens count toward
 the turn; the subsequent retrieval deadline is separate. These are bounded
@@ -515,15 +515,26 @@ records actual CLI and terminal checks, including a live model that ignored this
 status and selected current data for a past-observation question. Availability
 reporting does not certify the model's recovery decision.
 
-Every request revalidates its source; recalled bytes are not cached for a
-later step. A later step whose block reads exactly the same keeps the copy the
-model already has, in its place, instead of adding a second one (see
+The first call of a turn retrieves and revalidates its source. The later calls
+of the same turn reuse that block unchanged, including the availability note
+when the first call failed or timed out, so a tool result written to the
+archive mid-turn cannot change a block the model already has and the request
+keeps the opening of the one before it; the next turn, and a new operator input
+inside a turn, read the archive afresh. The resident hook is not held this way:
+a resident reads again on every iteration. A later call whose block reads
+exactly the same keeps the copy the model already has, in its place (see
 [where the per-turn blocks sit](step-context.md#where-the-per-turn-blocks-sit)).
-The block is written in plain words: the opening paragraph names no field of
-the JSON that follows, and the availability note is two sentences saying what
-failed and what the model can do instead. The JSON no longer carries the byte
-count of the scan, which changed on every request and told the model nothing it
-could act on; whether the scan finished is still in `incomplete`. The note is text, not JSON, so it no longer carries `status`, `stage` or `reason` fields. The evidence block is a block of its own in the request, apart from project memory and the repository snapshot, so a change in the evidence moves only that block. The immutable bound scope prevents changing an options object
+The block is written in plain words: the opening paragraph names each JSON key
+it mentions once, in code style, and keeps jargon out of the prose; the
+availability note is two sentences saying what failed and what the model can do
+instead, so it no longer carries `status`, `stage` or `reason` fields. The JSON
+no longer carries the byte count of the scan; whether the scan finished is
+still in `incomplete`. The opening paragraph is no longer than before. The
+evidence block is a block of its own in the request, apart from project memory
+and the repository snapshot, so a change in the evidence moves only that block.
+The words that open each block the step writes are constants of the step, and
+the splitter that separates the blocks cuts at those same constants.
+The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
 conversation and reject stale turn ownership before and after asynchronous I/O.
 

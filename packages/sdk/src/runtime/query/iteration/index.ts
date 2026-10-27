@@ -105,6 +105,7 @@ import {
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import { TurnContextCarry } from './step-context.js'
 import {
+	FILE_EVIDENCE_KEY,
 	type StepShaping,
 	appendWorkContext,
 	beforeStep,
@@ -113,6 +114,7 @@ import {
 	stepContextMessage,
 	workContextBlocks,
 } from './step-shaping.js'
+import { FILE_EVIDENCE_NONE } from '../file-evidence-context.js'
 import { streamProviderTurn } from './stream-turn.js'
 
 type ReviewRequest = Pick<AnswerReviewContext, 'requestMessages' | 'latestUserMessage'>
@@ -918,12 +920,16 @@ export class IterationOrchestrator {
 					// request begins with the whole of the one before it. The short
 					// reminders and notices stay after the history.
 					const messages = [...projected]
-					this.turnContext.place(messages, requestHistory, workingMemory.history.at(-1), [
-						...[contextText, ...(step.context ? splitAtEvidenceBlocks(step.context) : [])]
+					this.turnContext.place(
+						messages,
+						requestHistory,
+						workingMemory.history.at(-1),
+						[contextText, ...(step.context ? splitAtEvidenceBlocks(step.context) : [])]
 							.filter((text): text is string => Boolean(text))
 							.map(stepContextMessage),
-						...workContextBlocks(shaping, projected, iterationNum, step),
-					])
+						workContextBlocks(shaping, projected, iterationNum, step),
+						{ [FILE_EVIDENCE_KEY]: stepContextMessage(FILE_EVIDENCE_NONE) },
+					)
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()

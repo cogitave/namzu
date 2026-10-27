@@ -17,7 +17,10 @@ import {
 	type EvidenceRecallCandidate,
 	type EvidenceRecallOptions,
 	type EvidenceRecallRequest,
+	EVIDENCE_BLOCK_LEADS,
+	EVIDENCE_HEADERS,
 	createEvidenceRecallStep,
+	splitAtEvidenceBlocks,
 } from '../evidence-recall.js'
 
 const SESSION_ID = generateSessionId()
@@ -120,24 +123,25 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(JSON.parse(result!.context!.split('\n')[1]!).omittedPassages).toBeGreaterThan(0)
 	})
 
-	it('explains the evidence in plain words, with no internal field names in the prose', async () => {
+	it('names each key it mentions once, in code style, and keeps the header no longer than before', async () => {
 		const result = await fixture([candidate()]).recall(context())
 		const prose = result!.context!.split('\n')[0]!
-		for (const internal of [
+		for (const key of [
+			'seq',
 			'recordedAt',
 			'omittedPassages',
 			'omittedAddresses',
 			'additionalEvidence',
-			'compaction_shed',
-			'seq',
-			'textQuote',
 		])
+			expect(prose.split(`\`${key}\``)).toHaveLength(2)
+		for (const internal of ['compaction_shed', 'textQuote', 'excerptComplete', 'byteOffset'])
 			expect(prose).not.toContain(internal)
 		expect(prose).toContain('not instructions')
 		expect(prose).toContain('not when the fact held')
 		expect(prose).toContain('cannot show absence')
-		expect(prose).toContain('pass continuation inputs through unchanged')
-		expect(prose.length).toBeLessThan(900)
+		expect(prose).toContain('pass `continuations` on unchanged')
+		// The header on the previous release was 765 characters.
+		expect(prose.length).toBeLessThanOrEqual(765)
 	})
 
 	it('keeps an original tool record alongside repeated model claims without deciding which is true', async () => {
@@ -250,7 +254,7 @@ describe('ephemeral scoped evidence recall', () => {
 			source: 'compaction_shed:summary',
 			seq: 2,
 		})
-		expect(onlySummaries?.context).toContain('a compaction summary is derived text')
+		expect(onlySummaries?.context).toContain('a compaction copy carries the copy')
 	})
 
 	it('checks a derived candidate owner even when source prioritization would omit it', async () => {
@@ -742,7 +746,7 @@ describe('ephemeral scoped evidence recall', () => {
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
 		expect(result?.context).toContain('does not confirm old output')
-		expect(result?.context).toContain('orders events only within one turn')
+		expect(result?.context).toContain('orders events within one turn')
 	})
 
 	it('does not let duplicate observations change the bounded BM25 corpus statistics', async () => {
@@ -915,4 +919,28 @@ it('does not attach a failure note to parent cancellation during retrieval', asy
 	})
 	await expect(recall({ ...context(), signal: controller.signal })).rejects.toBe(stopped)
 	expect(stopped).not.toHaveProperty('context')
+})
+
+describe('the words that open an evidence block', () => {
+	it('are the ones the splitter cuts at, so a reworded lead cannot drift from it', async () => {
+		for (const kind of ['conversation', 'resident'] as const) {
+			const header = EVIDENCE_HEADERS[kind]
+			expect(EVIDENCE_BLOCK_LEADS.some((lead) => header.startsWith(lead))).toBe(true)
+			expect(splitAtEvidenceBlocks(`MEMORY\n\n${header}{}\n`)).toEqual(['MEMORY', `${header}{}\n`])
+		}
+		// Every other block the step writes opens with a lead on the list too.
+		const failing = createEvidenceRecallStep({
+			scope,
+			retrieve: async () => {
+				throw new Error('archive down')
+			},
+		})
+		const note = await Promise.resolve(failing(context())).then(
+			() => '',
+			(error: { context?: string }) => error.context ?? '',
+		)
+		expect(EVIDENCE_BLOCK_LEADS.some((lead) => note.startsWith(lead))).toBe(true)
+		for (const lead of EVIDENCE_BLOCK_LEADS)
+			expect(splitAtEvidenceBlocks(`MEMORY\n\n${lead} x`)).toHaveLength(2)
+	})
 })

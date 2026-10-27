@@ -83,17 +83,17 @@ it('preserves literal discovery after failed optional planning without importing
 	expect(f.context.messages).toEqual(before)
 })
 
-it('caches only the failed plan and revalidates fallback evidence on the next step', async () => {
+it('caches only the failed plan and revalidates fallback evidence on the next turn', async () => {
 	const f = fixture()
 	await failure(f.recall(f.context))
 	f.retrieve.mockResolvedValueOnce({
 		...f.batch,
 		candidates: [{ ...f.batch.candidates[0]!, excerpt: 'DELTA code: REVISED-456' }],
 	})
-	const next = await failure(f.recall({ ...f.context, stepNumber: 2 }))
+	const next = await failure(f.recall({ ...f.context, stepNumber: 2, turnId: generateTurnId() }))
 	expect(next.context).toContain('REVISED-456')
 	expect(next.context).not.toContain('ORIGINAL-123')
-	expect(f.generateText).toHaveBeenCalledOnce()
+	expect(f.generateText).toHaveBeenCalledTimes(2)
 	expect(f.retrieve).toHaveBeenCalledTimes(2)
 })
 

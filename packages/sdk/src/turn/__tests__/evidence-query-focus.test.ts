@@ -95,12 +95,12 @@ describe('grounded query focus', () => {
 		const ctx = context()
 		const recall = createEvidenceRecallStep({ scope, retrieve, resolveQuery: true })
 		for (const stepNumber of [1, 2]) {
-			const result = await recall({ ...ctx, stepNumber })
+			const result = await recall({ ...ctx, stepNumber, turnId: generateTurnId() })
 			expect(metadata(result?.context).queryFocus.terms).toEqual(['SIGMA'])
 			expect(result?.context).not.toContain('WRONG')
 		}
 		expect(received).toEqual([['SIGMA'], ['SIGMA']])
-		expect(ctx.generateText).toHaveBeenCalledOnce()
+		expect(ctx.generateText).toHaveBeenCalledTimes(2)
 	})
 	it('resolves a named direct subject from current words without importing the old subject', () => {
 		expect(validateEvidenceQueryResolution(JSON.stringify(plan()), current, history)).toEqual({

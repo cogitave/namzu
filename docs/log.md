@@ -2,7 +2,7 @@
 
 ## 2026-10-27
 
-- **Update** [Request-only step context](sdk/step-context.md), [Evidence recall](sdk/evidence-recall.md): the per-turn blocks (repository snapshot, recalled memory, conversation evidence, file evidence) keep the place they first had on every later call of a turn, so each request begins with the whole of the one before it; data that changed is withdrawn and the new text follows the history. The repository snapshot is rendered on every iteration with the same text. The conversation-evidence block is written in plain words, names no internal field, and no longer carries the scan byte count. `.changeset/turn-context-placement.md` (`@namzu/sdk` patch, `@namzu/cli` patch).
+- **Update** [Request-only step context](sdk/step-context.md), [Evidence recall](sdk/evidence-recall.md): the per-turn blocks (repository snapshot, recalled memory, conversation evidence, file evidence) keep the place they first had on every later call of a turn, so each request begins with the whole of the one before it. The conversation-evidence step reads the archive once per turn, so a tool result stored mid-turn cannot change its block. File evidence is appended when it changes, as its own text says, and a short block says so when its entries stop holding; other changed data is withdrawn. The evidence header names each JSON key once in code style and is no longer than before; the lead phrases the splitter cuts at come from the constants that write them. `.changeset/turn-context-placement.md` (`@namzu/sdk` patch, `@namzu/cli` patch).
 
 ## 2026-10-26
 

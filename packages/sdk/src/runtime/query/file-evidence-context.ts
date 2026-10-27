@@ -29,6 +29,13 @@ import {
  */
 const MAX_RECEIPT_UNITS = 32_000
 
+/** The heading of the file-evidence block; a later block under it replaces an earlier one. */
+export const FILE_EVIDENCE_HEADING =
+	'Visible file evidence (as of this step; a later block with this heading replaces this one)'
+
+/** Said when the entries of an earlier block no longer hold and none replaces them. */
+export const FILE_EVIDENCE_NONE = `${FILE_EVIDENCE_HEADING}: no entry holds any longer.`
+
 interface FileEvidence {
 	readonly path: string
 	/** Absent on the write-rooted entries; `'read'` on a body that is a receipt. */
@@ -79,7 +86,7 @@ export function describeVisibleFileEvidence(
 		}
 	}
 	if (files.size === 0) return
-	return `Visible file evidence (as of this step; a later block with this heading replaces this one): each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. An entry marked kind:"read" instead names a successful read call whose own receipt shows the file WHOLE, rendered with every line behind its own N<tab> prefix; that receipt is the body, and such an entry never carries editsInCalls. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
+	return `${FILE_EVIDENCE_HEADING}: each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. An entry marked kind:"read" instead names a successful read call whose own receipt shows the file WHOLE, rendered with every line behind its own N<tab> prefix; that receipt is the body, and such an entry never carries editsInCalls. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
 }
 
 /** A full body that arrived whole in one call and is still the file's body. */

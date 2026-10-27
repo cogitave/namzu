@@ -48,7 +48,7 @@ export function placeBeforeLatestOperatorMessage(history: Message[], blocks: rea
 interface PlacedBlock {
 	readonly text: string
 	/** The operator message this block precedes, or the history message it follows. */
-	readonly at: { readonly before: Message } | { readonly after: Message | undefined }
+	at: { readonly before: Message } | { readonly after: Message | undefined }
 }
 
 function textOf(message: Message): string {
@@ -65,6 +65,16 @@ function pendingOperatorMessage(history: readonly Message[]): Message | undefine
 	return undefined
 }
 
+/** A block whose own text says that a later one replaces it, under the name of what it reports. */
+export interface ReplaceableBlock {
+	readonly key: string
+	readonly message: Message
+}
+
+interface VersionedBlock extends PlacedBlock {
+	readonly message: Message
+}
+
 /**
  * Where a turn's request-only data sits, so it stays put from call to call.
  *
@@ -77,25 +87,39 @@ function pendingOperatorMessage(history: readonly Message[]): Message | undefine
  * block that changed, and a caching driver keeps reading the same prefix
  * instead of re-reading the turn from the operator's message on.
  *
+ * A block that says of itself that a later one replaces it (the file
+ * evidence) is never taken back. When its text changes, the earlier text stays
+ * where it went and the new text follows the history of that moment, which is
+ * how the block itself tells the model to read it; when it stops holding, a
+ * short block says so. So no request of the turn rewrites the one before it.
+ *
  * One carry per turn. A position whose message has left the history (a
  * compaction rewrote it) is given up and the block follows the history.
  */
 export class TurnContextCarry {
 	private placed = new Map<string, PlacedBlock>()
+	private readonly versions = new Map<string, VersionedBlock[]>()
 
 	/**
-	 * Put `blocks` into `request`, the projected copy of `history` (same
-	 * length and order). `end` is the last message of the turn's own history.
+	 * Put `blocks` and the `replaceable` ones into `request`, the projected copy
+	 * of `history` (same length and order). `end` is the last message of the
+	 * turn's own history. `retractions` says, per replaceable key, what to
+	 * write when an earlier block of that key no longer holds.
 	 */
 	place(
 		request: Message[],
 		history: readonly Message[],
 		end: Message | undefined,
 		blocks: readonly Message[],
+		replaceable: readonly ReplaceableBlock[] = [],
+		retractions: Readonly<Record<string, Message>> = {},
 	): void {
 		const index = (message: Message | undefined) =>
 			message ? history.lastIndexOf(message) : history.length - 1
 		const operator = pendingOperatorMessage(history)
+		const positionOf = (slot: PlacedBlock) =>
+			'before' in slot.at ? index(slot.at.before) : index(slot.at.after) + 1
+		const anchorOf = (slot: PlacedBlock) => ('before' in slot.at ? slot.at.before : slot.at.after)
 		const next = new Map<string, PlacedBlock>()
 		const inserts: { at: number; message: Message }[] = []
 		for (const message of blocks) {
@@ -103,18 +127,37 @@ export class TurnContextCarry {
 			if (next.has(text)) continue
 			let slot: PlacedBlock | undefined = this.placed.get(text)
 			if (slot) {
-				const anchor = 'before' in slot.at ? slot.at.before : slot.at.after
+				const anchor = anchorOf(slot)
 				if (anchor && index(anchor) < 0) slot = { text, at: { after: end } }
 			} else {
 				slot = { text, at: operator ? { before: operator } : { after: end } }
 			}
 			next.set(text, slot)
-			inserts.push({
-				at: 'before' in slot.at ? index(slot.at.before) : index(slot.at.after) + 1,
-				message,
-			})
+			inserts.push({ at: positionOf(slot), message })
 		}
 		this.placed = next
+
+		const offered = new Map(replaceable.map((block) => [block.key, block.message]))
+		for (const key of new Set([...this.versions.keys(), ...offered.keys()])) {
+			const held = this.versions.get(key) ?? []
+			const wanted = offered.get(key) ?? retractions[key]
+			const last = held.at(-1)
+			if (wanted !== undefined && (last === undefined || last.text !== textOf(wanted)))
+				held.push({
+					text: textOf(wanted),
+					message: wanted,
+					// The first version goes where the other blocks go; a later one
+					// follows the history, after the one it replaces.
+					at: last === undefined && operator ? { before: operator } : { after: end },
+				})
+			this.versions.set(key, held)
+			for (const version of held) {
+				const anchor = anchorOf(version)
+				if (anchor && index(anchor) < 0) version.at = { after: end }
+				inserts.push({ at: positionOf(version), message: version.message })
+			}
+		}
+
 		// Back to front, so an earlier position is not shifted by a later one;
 		// blocks at one position keep the order they were offered in.
 		const order = inserts.map((entry, position) => ({ ...entry, position }))

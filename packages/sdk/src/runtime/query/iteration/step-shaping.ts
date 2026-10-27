@@ -20,7 +20,11 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
 import { measureContext } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
-import { placeBeforeLatestOperatorMessage, stepContextMessage } from './step-context.js'
+import {
+	type ReplaceableBlock,
+	placeBeforeLatestOperatorMessage,
+	stepContextMessage,
+} from './step-context.js'
 
 /**
  * How the next request is shaped: admission, preparation, and the context
@@ -55,34 +59,43 @@ export function appendWorkContext(
 	// what the model is answering, like the other blocks of request-only data.
 	placeBeforeLatestOperatorMessage(
 		messages,
-		workContextBlocks(shaping, messages, stepNumber, prepared),
+		workContextBlocks(shaping, messages, stepNumber, prepared).map((block) => block.message),
 	)
 }
 
-/** The work-context blocks for a request whose projected messages are `messages`. */
+/** What the two work-context blocks report; each tells the model a later one replaces it. */
+export const OWNED_WORK_KEY = 'owned-work'
+export const FILE_EVIDENCE_KEY = 'file-evidence'
+
+/**
+ * The work-context blocks for a request whose projected messages are
+ * `messages`, each under the name of what it reports.
+ */
 export function workContextBlocks(
 	shaping: StepShaping,
 	messages: readonly Message[],
 	stepNumber: number,
 	prepared: PrepareStepResult,
-): Message[] {
+): ReplaceableBlock[] {
 	const { ctx } = shaping
 
-	const contributions = [
-		ctx.completionInbox?.describeOwnedWork(),
-		ctx.toolExecutor.describeFileEvidence(messages),
-	].filter((content): content is string => Boolean(content))
+	const contributions = (
+		[
+			[OWNED_WORK_KEY, ctx.completionInbox?.describeOwnedWork()],
+			[FILE_EVIDENCE_KEY, ctx.toolExecutor.describeFileEvidence(messages)],
+		] as [string, string | undefined][]
+	).filter((entry): entry is [string, string] => Boolean(entry[1]))
 	if (contributions.length === 0) return []
-	const placed: Message[] = []
+	const placed: ReplaceableBlock[] = []
 	let room = stepContext(shaping, stepNumber, prepared).contextBudget?.remainingTokens ?? 0
 	// Leave room for the actual task; admit whole contributions, never dangling partial references.
 	if (room < 1_500) return []
-	for (const content of contributions) {
+	for (const [key, content] of contributions) {
 		if (!content || content.length > 8_000) continue
 		const message = stepContextMessage(content)
 		const tokens = estimateMessageTokens(message)
 		if (tokens > Math.min(2_000, room - 1_000)) continue
-		placed.push(message)
+		placed.push({ key, message })
 		room -= tokens
 	}
 	return placed
