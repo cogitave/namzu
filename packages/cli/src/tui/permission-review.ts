@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readFileSync, statSync } from 'node:fs'
 
 import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
 
@@ -503,6 +504,13 @@ export interface PermissionSummaryContext {
 	 */
 	readonly fileExists?: (path: string) => boolean
 	/**
+	 * The text a path holds on disk right now, or `undefined` when it cannot be
+	 * read. With it, an `edit` is shown as the change it makes to THAT text
+	 * (whole lines, as the file reads today), not as the model's own copy of what
+	 * it thinks is there. Absent: the model's strings are shown as given.
+	 */
+	readonly readText?: (path: string) => string | undefined
+	/**
 	 * The caps a workflow would run under (`workflow.maxConcurrency` and
 	 * `workflow.maxAgents`, defaults filled in). Absent: the runtime defaults.
 	 */
@@ -701,7 +709,7 @@ function summarizeKnownCall(
 	}
 
 	if (name === 'edit' && isRecord(input)) {
-		const summary = summarizeEdit(input)
+		const summary = summarizeEdit(input, context)
 		if (summary) return summary
 	}
 
@@ -1252,7 +1260,10 @@ function diffLines(sign: '+' | '-', lines: readonly string[]): readonly string[]
  * so the caller falls through to the exact-input view rather than showing a
  * half of the call.
  */
-function summarizeEdit(input: Record<string, unknown>): ReadableCallSummary | null {
+function summarizeEdit(
+	input: Record<string, unknown>,
+	context: PermissionSummaryContext = {},
+): ReadableCallSummary | null {
 	const allowed = new Set([
 		'path',
 		'old_string',
@@ -1279,6 +1290,7 @@ function summarizeEdit(input: Record<string, unknown>): ReadableCallSummary | nu
 		const lines: string[] = [
 			`${path} · ${input.edits.length} replacement${input.edits.length === 1 ? '' : 's'}`,
 		]
+		let disk = diskTextOf(context, path)
 		for (const [index, edit] of input.edits.entries()) {
 			if (
 				!isRecord(edit) ||
@@ -1296,8 +1308,9 @@ function summarizeEdit(input: Record<string, unknown>): ReadableCallSummary | nu
 				return null
 			}
 			lines.push(`@ ${index + 1}${edit.replace_all ? ' · every occurrence' : ''}`)
-			lines.push(...diffLines('-', edit.old_string.split('\n')))
-			lines.push(...diffLines('+', edit.new_string.split('\n')))
+			const shown = showOnDisk(disk, edit.old_string, edit.new_string, edit.replace_all === true)
+			lines.push(...shown.notes, ...diffLines('-', shown.before), ...diffLines('+', shown.after))
+			disk = shown.next
 		}
 		return { lines, complete: true }
 	}
@@ -1318,13 +1331,93 @@ function summarizeEdit(input: Record<string, unknown>): ReadableCallSummary | nu
 
 	// One replacement.
 	if (oldText.value === null || newText.value === null) return null
+	const shown = showOnDisk(
+		diskTextOf(context, path),
+		oldText.value,
+		newText.value,
+		replaceAll === true,
+	)
 	return {
 		lines: [
 			`${path}${replaceAll ? ' · every occurrence' : ''}`,
-			...diffLines('-', oldText.value.split('\n')),
-			...diffLines('+', newText.value.split('\n')),
+			...shown.notes,
+			...diffLines('-', shown.before),
+			...diffLines('+', shown.after),
 		],
 		complete: true,
+	}
+}
+
+/** The most of a file the review reads to show an edit against it. */
+const MAX_REVIEWED_FILE_BYTES = 2 * 1024 * 1024
+
+/** What an edit's file holds now, or `undefined` when it is missing, unreadable or too large to show against. */
+export function readReviewedFile(absolutePath: string): string | undefined {
+	try {
+		if (statSync(absolutePath).size > MAX_REVIEWED_FILE_BYTES) return undefined
+		return readFileSync(absolutePath, 'utf8')
+	} catch {
+		return undefined
+	}
+}
+
+function diskTextOf(context: PermissionSummaryContext, path: string): string | undefined {
+	try {
+		return context.readText?.(path)
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * One replacement as it would land on the text the file holds now.
+ *
+ * The model's `old_string` is its memory of the file; the person is approving a
+ * change to the file. So the removed and added lines are the whole lines of the
+ * disk text the replacement touches, and a replacement that no longer fits
+ * (the text is gone, or is there more than once without `replace_all`) says so
+ * above the model's own lines. `next` is the text after the replacement, for
+ * the next edit of a batch. With no disk text the model's strings are shown.
+ */
+function showOnDisk(
+	disk: string | undefined,
+	oldText: string,
+	newText: string,
+	replaceAll: boolean,
+): { before: string[]; after: string[]; notes: string[]; next: string | undefined } {
+	const asGiven = {
+		before: oldText.split('\n'),
+		after: newText.split('\n'),
+	}
+	if (disk === undefined || oldText === '') return { ...asGiven, notes: [], next: undefined }
+	const first = disk.indexOf(oldText)
+	if (first === -1) {
+		return {
+			...asGiven,
+			notes: ['The text to replace is no longer in the file as the edit has it.'],
+			next: undefined,
+		}
+	}
+	if (!replaceAll && disk.indexOf(oldText, first + oldText.length) !== -1) {
+		return {
+			...asGiven,
+			notes: ['The text to replace now appears more than once in the file.'],
+			next: undefined,
+		}
+	}
+	const lineStart = disk.lastIndexOf('\n', first - 1) + 1
+	const afterMatch = first + oldText.length
+	const newline = disk.indexOf('\n', afterMatch)
+	const lineEnd = newline === -1 ? disk.length : newline
+	const head = disk.slice(lineStart, first)
+	const tail = disk.slice(afterMatch, lineEnd)
+	return {
+		before: `${head}${oldText}${tail}`.split('\n'),
+		after: `${head}${newText}${tail}`.split('\n'),
+		notes: [],
+		next: replaceAll
+			? disk.split(oldText).join(newText)
+			: disk.slice(0, first) + newText + disk.slice(afterMatch),
 	}
 }
 
