@@ -229,6 +229,19 @@ describe('visible file evidence', () => {
 	})
 })
 
+describe('the first file evidence entry explains its own fields', () => {
+	it('names bodyInCall, editsInCalls and observedFingerprint once, in plain words', () => {
+		const f = fixture()
+		const output = f.describe(history()) as string
+		const header = output.split('\n')[0] ?? ''
+		for (const key of ['bodyInCall', 'editsInCalls', 'observedFingerprint']) {
+			expect(header.split(key).length - 1, key).toBe(1)
+		}
+		expect(header).toContain('(bodyInCall, that call')
+		expect(header).toContain('(observedFingerprint, which changes when the content does)')
+	})
+})
+
 describe('a chain of visible edits on a visible write', () => {
 	it('names the write that carries the body and the edits applied on top of it', () => {
 		const c = chained([

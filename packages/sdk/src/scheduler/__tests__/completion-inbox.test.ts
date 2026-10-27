@@ -249,6 +249,28 @@ describe('owned-work request projection', () => {
 		inbox.close()
 	})
 
+	it('explains each field a task entry carries, once, in the text above it', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		const done = handleFor('done', 'finished')
+		inbox.launched(done.taskId)
+		f.settle(done)
+		inbox.launched('running' as TaskId)
+
+		for (const text of [
+			inbox.describeRunningWork() as string,
+			inbox.describeSettledWork(new Set()) as string,
+		]) {
+			const header = text.slice(0, text.indexOf('\n{'))
+			for (const key of ['taskId', 'turnStatus', 'stopReason', 'resultDelivery']) {
+				expect(header.split(key).length - 1, key).toBe(1)
+			}
+			expect(header).toContain('(resultDelivery: delivered-to-history, or not-delivered)')
+		}
+		inbox.close()
+	})
+
 	it('keeps the projection under the request-context size gate at the display cap with overflow', () => {
 		// Mirrors the work-context admission gate (runtime/query/iteration/step-shaping.ts):
 		// a contribution over 8,000 UTF-16 units is dropped outright rather than truncated.

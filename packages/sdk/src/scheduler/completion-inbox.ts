@@ -46,7 +46,7 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
 
 /** What the model is told about owned work, wherever it is shown. */
 const OWNED_WORK_GUIDANCE =
-	'Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.'
+	'Each task gives its id (taskId), its state, how its turn ended (turnStatus), why it stopped (stopReason), and whether its result has reached this conversation (resultDelivery: delivered-to-history, or not-delivered). Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.'
 
 /**
  * The ids of the tasks that earlier recorded entries name, read from the
