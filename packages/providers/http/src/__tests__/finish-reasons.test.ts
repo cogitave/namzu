@@ -56,7 +56,11 @@ describe('HTTP provider, OpenAI dialect finish reasons', () => {
 	})
 
 	it('reports no finish reason for the null every frame but the last carries', async () => {
-		const chunks = await chunksOf('openai', [openAiFinish(null), 'data: [DONE]'])
+		const chunks = await chunksOf('openai', [
+			openAiFinish(null),
+			openAiFinish('stop'),
+			'data: [DONE]',
+		])
 		expect(chunks[0]?.finishReason).toBeUndefined()
 	})
 
@@ -161,5 +165,27 @@ describe('HTTP provider, Anthropic dialect', () => {
 		const calls = chunks.flatMap((chunk) => chunk.delta.toolCalls ?? [])
 		expect(calls[0]?.id).toMatch(/^tool-\d+$/)
 		expect(calls[1]?.id).toBe(calls[0]?.id)
+	})
+})
+
+describe('HTTP provider, a stream that closes before it says it is over', () => {
+	it.each([
+		['openai', [openAiFinish(null)]],
+		['openai', [openAiFinish(null), 'data: [DONE]']],
+		['anthropic', ['event: content_block_stop\ndata: {"type":"content_block_stop","index":0}']],
+	] as const)('is a retryable network failure on the %s dialect', async (dialect, frames) => {
+		await expect(chunksOf(dialect, [...frames])).rejects.toMatchObject({
+			kind: 'network',
+			providerId: 'http',
+		})
+	})
+
+	it("is not an error once the dialect's end marker arrived", async () => {
+		await expect(chunksOf('openai', [openAiFinish('stop'), 'data: [DONE]'])).resolves.toHaveLength(
+			1,
+		)
+		await expect(
+			chunksOf('anthropic', ['event: message_stop\ndata: {"type":"message_stop"}']),
+		).resolves.toEqual([])
 	})
 })

@@ -707,7 +707,7 @@ export type AgentEvent =
 	 * operator did not choose has succeeded while not doing what they asked,
 	 * which is the defect class this package keeps removing.
 	 */
-	| { readonly kind: 'provider-fallback'; readonly text: string }
+	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
 	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
@@ -7944,7 +7944,11 @@ export function toAgentEvent(
 				...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
 			}
 		case 'provider_fallback':
-			return { kind: 'provider-fallback', text: describeFallback(event) }
+			return {
+				kind: 'provider-fallback',
+				text: describeFallback(event),
+				...(event.restart ? { restart: true } : {}),
+			}
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',

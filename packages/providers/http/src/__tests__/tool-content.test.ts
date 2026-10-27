@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HttpProvider } from '../client.js'
 import type { HttpDialect } from '../types.js'
+import { finishedStream } from './finished-stream.js'
 
 /**
  * Tool messages are text-only on both of this driver's dialects, so a tool
@@ -27,7 +28,10 @@ async function bodyFor(dialect: HttpDialect, content: unknown): Promise<string> 
 		'fetch',
 		vi.fn(async (_url: string, init: RequestInit) => {
 			captured = String(init.body)
-			return new Response('', { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+			return new Response(finishedStream(dialect), {
+				status: 200,
+				headers: { 'Content-Type': 'text/event-stream' },
+			})
 		}),
 	)
 

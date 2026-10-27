@@ -427,6 +427,9 @@ export class OpenAIProvider implements LLMProvider {
 			throw providerVendorError({ providerId: 'openai', error: err })
 		}
 
+		// A choice reported why it stopped. A stream that closes without one was
+		// cut by the connection, and what it carried is not a whole response.
+		let finished = false
 		try {
 			for await (const chunk of stream) {
 				// Stop pulling promptly on abort; `for await` calls the stream's
@@ -455,6 +458,7 @@ export class OpenAIProvider implements LLMProvider {
 						? mapFinishReason(choice.finish_reason)
 						: undefined
 					const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
+					if (finishReason) finished = true
 
 					if (!hasDelta && !finishReason && !usage) continue
 
@@ -475,6 +479,13 @@ export class OpenAIProvider implements LLMProvider {
 						detail: 'the provider stream returned malformed data',
 					})
 				}
+			}
+			if (!finished) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'openai',
+					detail: 'the connection closed before the response finished',
+				})
 			}
 		} catch (err) {
 			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err

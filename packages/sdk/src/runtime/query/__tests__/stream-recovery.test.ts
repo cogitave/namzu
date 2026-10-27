@@ -196,10 +196,10 @@ describe('query stream recovery', () => {
 			toolName: 'write_file',
 			isError: true,
 		})
-		// The stream died, so the call was cut off — and the tool's own
-		// declarations, not a fixed file-tool recipe, say what to do about it.
+		// The stream died, so the call was cut off — by the connection, not by a
+		// size, so the model is told to send the same call and no budget.
 		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toBe(
-			'Error: The call to "write_file" was cut off: the response stream ended after 40 characters of its arguments, before they were complete. The tool was NOT executed. Send it again with less in one call: keep `content` under 12000 characters. Write a long file in sections.',
+			'Error: The call to "write_file" was cut off: the connection dropped after 40 characters of its arguments, before they were complete. The tool was NOT executed. Nothing was wrong with the call. Send the same call again, unchanged.',
 		)
 	})
 

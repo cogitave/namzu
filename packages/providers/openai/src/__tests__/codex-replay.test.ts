@@ -266,10 +266,23 @@ describe('Codex finalized output retention', () => {
 	})
 
 	it('does not commit replay for a disconnected or incomplete response', async () => {
-		const disconnected = await collect(providerFor([done(0, reasoning)]))
-		expect(
-			disconnected.some((c) => c.replayState !== undefined || c.finishReason !== undefined),
-		).toBe(false)
+		// A stream that closes with no terminal event is a dropped connection: it
+		// fails as one, and nothing it carried is committed for replay.
+		const seen: StreamChunk[] = []
+		await expect(
+			(async () => {
+				for await (const chunk of providerFor([done(0, reasoning)]).chatStream({
+					model: route.model,
+					providerRoute: route,
+					messages: [{ role: 'user', content: 'Read the note.' }],
+				})) {
+					seen.push(chunk)
+				}
+			})(),
+		).rejects.toMatchObject({ kind: 'network' })
+		expect(seen.some((c) => c.replayState !== undefined || c.finishReason !== undefined)).toBe(
+			false,
+		)
 
 		// An incomplete response did stop, and says why — the output budget
 		// unless it names a filter — but its items are unfinished, so nothing

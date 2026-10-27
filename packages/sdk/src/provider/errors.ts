@@ -31,7 +31,11 @@
 
 import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import type { ProviderErrorKind, ProviderRequestErrorInit } from '../types/provider/error.js'
-import { type TransportCause, readTransportCause } from '../types/provider/errors.js'
+import {
+	type TransportCause,
+	readCertificateFailure,
+	readTransportCause,
+} from '../types/provider/errors.js'
 export type {
 	ProviderErrorInfo,
 	ProviderErrorKind,
@@ -560,8 +564,12 @@ export function providerVendorError(input: {
 		input.retryAfter ?? vendorRetryAfter(error),
 		input.now ?? Date.now(),
 	)
+	// A certificate that fails verification is refused the same way every time.
+	const certificate = status === undefined ? readCertificateFailure(error) : undefined
 	const shouldRetry =
-		transport !== undefined ? false : parseShouldRetry(vendorHeader(error, ['x-should-retry']))
+		transport !== undefined || certificate !== undefined
+			? false
+			: parseShouldRetry(vendorHeader(error, ['x-should-retry']))
 	const fields = error as { type?: unknown; param?: unknown; requestID?: unknown } | null
 	// A message that already carries its body (Anthropic's) has the fields; one that is only the
 	// parsed sentence (OpenAI's) gets them from the SDK error's own properties.
@@ -577,7 +585,11 @@ export function providerVendorError(input: {
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
-		...(exactProviderCode !== undefined ? { providerCode: exactProviderCode } : {}),
+		...(certificate !== undefined
+			? { providerCode: certificate }
+			: exactProviderCode !== undefined
+				? { providerCode: exactProviderCode }
+				: {}),
 		...(status !== undefined ? { status } : {}),
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),

@@ -37,6 +37,7 @@ function bodyCapturer(): {
 						type: 'message_start',
 						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
 					}
+					yield { type: 'message_stop' }
 				})()
 			}),
 		},
@@ -227,6 +228,7 @@ describe('cache usage is read back off the wire', () => {
 								},
 							},
 						}
+						yield { type: 'message_stop' }
 					})(),
 				),
 			},
@@ -262,6 +264,7 @@ describe('cache usage is read back off the wire', () => {
 								usage: { input_tokens: 5, output_tokens: 1 },
 							},
 						}
+						yield { type: 'message_stop' }
 					})(),
 				),
 			},

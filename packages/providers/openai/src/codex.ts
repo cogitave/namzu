@@ -491,6 +491,9 @@ export class CodexProvider implements LLMProvider {
 		const textItems = new Map<string, Omit<AssistantTextPart, 'text'>>()
 		let nextCallIndex = 0
 		let responseId = 'codex-response'
+		// A terminal event arrived. A stream that closes without one was cut by
+		// the connection: what it carried is not a whole response.
+		let finished = false
 		try {
 			for await (const event of stream) {
 				params.signal?.throwIfAborted()
@@ -686,6 +689,7 @@ export class CodexProvider implements LLMProvider {
 							toolCalls: calls,
 							items: output,
 						}
+						finished = true
 						yield {
 							id: event.response.id,
 							delta: {},
@@ -705,6 +709,7 @@ export class CodexProvider implements LLMProvider {
 						// No replay state: the items are unfinished, and the message
 						// is replayed from its content instead.
 						const reason = event.response.incomplete_details?.reason
+						finished = true
 						yield {
 							id: event.response.id,
 							delta: {},
@@ -721,6 +726,13 @@ export class CodexProvider implements LLMProvider {
 							detail: 'the Codex Responses stream failed',
 						})
 				}
+			}
+			if (!finished) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: this.id,
+					detail: 'the connection closed before the response finished',
+				})
 			}
 		} catch (error) {
 			if (isCallerAbortError(error, params.signal)) throw params.signal?.reason ?? error

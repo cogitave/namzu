@@ -515,12 +515,24 @@ export class OpenRouterProvider implements LLMProvider {
 		// Reasoning blocks this stream has opened and not yet closed, in the
 		// order the wire reported them.
 		const openReasoning = new Set<number>()
+		// A choice reported why it stopped. A stream that ends without one, with or
+		// without `[DONE]`, was cut by the connection.
+		let finished = false
+		const cutShort = () =>
+			new ProviderRequestError({
+				kind: 'network',
+				providerId: 'openrouter',
+				detail: 'the connection closed before the response finished',
+			})
 
 		try {
 			while (true) {
 				params.signal?.throwIfAborted()
 				const { done, value } = await reader.read()
-				if (done) break
+				if (done) {
+					if (!finished) throw cutShort()
+					break
+				}
 
 				buffer += decoder.decode(value, { stream: true })
 				const lines = buffer.split('\n')
@@ -530,7 +542,10 @@ export class OpenRouterProvider implements LLMProvider {
 					const trimmed = line.trim()
 					if (!trimmed || !trimmed.startsWith('data: ')) continue
 					const data = trimmed.slice(6)
-					if (data === '[DONE]') return
+					if (data === '[DONE]') {
+						if (!finished) throw cutShort()
+						return
+					}
 
 					try {
 						const parsed = JSON.parse(data) as {
@@ -563,6 +578,7 @@ export class OpenRouterProvider implements LLMProvider {
 
 						const choice = parsed.choices[0]
 						if (!choice) continue
+						if (choice.finish_reason) finished = true
 
 						const fragments = parseReasoning(choice.delta.reasoning_details, choice.delta.reasoning)
 						const content = choice.delta.content

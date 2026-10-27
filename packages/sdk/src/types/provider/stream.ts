@@ -204,4 +204,10 @@ export interface ProviderFallbackNotice {
 	readonly status?: number
 	/** The classified failure's own sentence, already redacted at its source. */
 	readonly reason: string
+	/**
+	 * The member that failed had streamed only pieces that can be taken back
+	 * (reasoning, or a tool call still being written). The consumer drops them
+	 * before the next chunk, as it does for a restarting retry.
+	 */
+	readonly restart?: boolean
 }

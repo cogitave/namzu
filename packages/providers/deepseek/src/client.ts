@@ -587,6 +587,9 @@ export class DeepSeekProvider implements LLMProvider {
 		let reasoningOpen = false
 		let reasoningContent = ''
 		let replayStateEmitted = false
+		// A choice reported why it stopped; a stream that closes without one was
+		// cut by the connection.
+		let finished = false
 
 		try {
 			for await (const chunk of stream) {
@@ -624,6 +627,7 @@ export class DeepSeekProvider implements LLMProvider {
 						? mapFinishReason(choice.finish_reason)
 						: undefined
 					const usage = chunk.usage ? parseUsage(chunk.usage as RawDeepSeekUsage) : undefined
+					if (finishReason) finished = true
 
 					if (reasoningText) {
 						reasoningOpen = true
@@ -682,6 +686,13 @@ export class DeepSeekProvider implements LLMProvider {
 						detail: 'the provider stream returned malformed data',
 					})
 				}
+			}
+			if (!finished) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'deepseek',
+					detail: 'the connection closed before the response finished',
+				})
 			}
 			// A turn that was all reasoning and no content — the model thought
 			// and then stopped — still has to close its block.

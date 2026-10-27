@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HTTP_CAPABILITIES, HttpProvider } from '../client.js'
 import type { HttpDialect } from '../types.js'
+import { finishedStream } from './finished-stream.js'
 
 /**
  * This driver does not map attachments on either dialect, and says so.
@@ -26,7 +27,10 @@ async function bodyFor(dialect: HttpDialect, attachments: unknown[]) {
 		'fetch',
 		vi.fn(async (_url: string, init: RequestInit) => {
 			captured = JSON.parse(String(init.body))
-			return new Response('', { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+			return new Response(finishedStream(dialect), {
+				status: 200,
+				headers: { 'Content-Type': 'text/event-stream' },
+			})
 		}),
 	)
 

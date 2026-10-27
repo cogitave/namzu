@@ -25,6 +25,8 @@ function providerWith(events: unknown[], promptCacheTtl?: '5m' | '1h') {
 				seen.body = body
 				return (async function* () {
 					for (const event of events) yield event
+					// A response that ends says so; one that does not is a dropped connection.
+					yield { type: 'message_stop' }
 				})()
 			}),
 		},

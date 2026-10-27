@@ -251,6 +251,29 @@ export class LMStudioProvider implements LLMProvider {
 
 			const result = await prediction
 
+			// The server never said why it stopped: the answer was cut, not
+			// finished. It is a failure to try again, not a complete reply to accept.
+			const stopped = result.stats.stopReason as StopReason | undefined
+			if (stopped === undefined) {
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'lmstudio',
+					detail: 'the connection closed before the response finished',
+				})
+			}
+			// The server said the reply failed, or the model was unloaded under it:
+			// the server's own fault, said as such, not a lost connection.
+			if (stopped === 'failed' || stopped === 'modelUnloaded') {
+				throw new ProviderRequestError({
+					kind: 'server',
+					providerId: 'lmstudio',
+					detail:
+						stopped === 'modelUnloaded'
+							? 'the model was unloaded before the response finished'
+							: 'the server reported that the response failed',
+				})
+			}
+
 			// `contextLengthReached` with NO content is not a truncated answer the
 			// runtime can auto-continue — the PROMPT did not fit, and the turn failed.
 			// Folding it into `finishReason: 'length'` presented it as a successful,

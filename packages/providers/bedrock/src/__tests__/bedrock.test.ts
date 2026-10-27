@@ -66,7 +66,9 @@ describe('@namzu/bedrock', () => {
 				commandInput = command.input
 				return {
 					$metadata: { requestId: 'request-test' },
-					stream: (async function* () {})(),
+					stream: (async function* () {
+						yield { messageStop: { stopReason: 'end_turn' } }
+					})(),
 				}
 			},
 		}

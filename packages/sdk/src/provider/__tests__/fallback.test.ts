@@ -663,6 +663,32 @@ describe('withProviderFallback over withProviderRetry', () => {
 		expect(chunks.map((c) => c.delta.content ?? '').join('')).toBe('swapped anyway')
 	})
 
+	it('moves on when the primary spends its retries on half-written output that was voided', async () => {
+		const primary = member('primary', [
+			async function* () {
+				yield { id: 'c', delta: { toolCalls: [{ index: 0, id: 'a', function: { name: 'w' } }] } }
+				throw new TypeError('terminated')
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('served by the next')
+			},
+		])
+		const wrapped = withProviderFallback([
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 1 },
+				}),
+			},
+			{ provider: fallback },
+		])
+		const chunks = await collectChunks(wrapped.chatStream(PARAMS))
+		expect(chunks.find((c) => c.fallback !== undefined)?.fallback?.restart).toBe(true)
+		expect(chunks.map((c) => c.delta.content ?? '').join('')).toBe('served by the next')
+	})
+
 	/**
 	 * A wait the primary cannot honour reaches the chain at once.
 	 *
