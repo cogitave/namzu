@@ -107,6 +107,16 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--max-revisions must not exceed 4096.')
 	const run = parseExecFlags(forwarded)
 	if (run.unknown.length) throw new Error(`Unknown option(s): ${run.unknown.join(', ')}.`)
+	if (
+		run.appendSystemPrompt !== null ||
+		run.maxBudgetUsd !== null ||
+		run.allowedTools.length > 0 ||
+		run.disallowedTools.length > 0 ||
+		run.fallbackModels.length > 0
+	)
+		throw new Error(
+			'--append-system-prompt, --max-budget-usd, --allowed-tools, --disallowed-tools and --fallback-model apply to exec and the interactive terminal, not to a resident.',
+		)
 	if (run.permissionMode && !isPermissionModeName(run.permissionMode))
 		throw new Error(
 			'Invalid --permission-mode; use prompt, accept-edits, plan, bypass, auto or strict.',

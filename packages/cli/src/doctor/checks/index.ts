@@ -7,6 +7,7 @@ import { codeAnalysisCheck } from './code-analysis.js'
 import { credentialSourcesCheck } from './credentials.js'
 import { invariantsCheck } from './invariants.js'
 import { loggingPipelineCheck } from './logging.js'
+import { networkCheck } from './network.js'
 import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
@@ -62,6 +63,7 @@ export {
 	tmpdirWritableCheck,
 	invariantsCheck,
 	loggingPipelineCheck,
+	networkCheck,
 	sandboxPlatformCheck,
 	schedulerCheck,
 	telemetryInstalledCheck,
@@ -72,6 +74,8 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	sandboxPlatformCheck,
 	cwdWritableCheck,
 	tmpdirWritableCheck,
+	// Before the providers: it is the first thing that explains one that cannot be reached.
+	networkCheck,
 	providersRegisteredCheck,
 	credentialSourcesCheck,
 	// After the credential scan: this one reports which of the credentials that

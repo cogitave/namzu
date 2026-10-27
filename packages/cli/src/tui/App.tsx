@@ -5459,6 +5459,7 @@ function AppBody({
 								? {}
 								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
 							rules: activeCtx.rules,
+							...(activeCtx.appendSystem ? { appendSystem: activeCtx.appendSystem } : {}),
 							...(sessionsRef.current
 								? {
 										sessionGoals: sessionsRef.current.goals,
@@ -5931,7 +5932,11 @@ function AppBody({
 						setPhase('picker')
 					}
 					if (!requested) {
-						toPicker('--model needs --provider here: no provider is saved to apply it to.')
+						toPicker(
+							launch.model || !launch.fallbackModels?.length
+								? '--model needs --provider here: no provider is saved to apply it to.'
+								: '--fallback-model needs a provider to fall over from: none is saved, so choose one first.',
+						)
 						return
 					}
 					const askedFor = requested.providers[0]?.id

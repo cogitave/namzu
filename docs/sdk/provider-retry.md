@@ -19,6 +19,17 @@ context overflow are not. A response body the peer cut mid-stream (undici's
 `TypeError: terminated`) counts as a socket reset, also when a vendor wrapper
 dropped the socket error it carried. An abort is never retried.
 
+Two failures on the way to the provider are classified as `network` but are not
+retried, because the same request meets the same obstacle again: a proxy that
+answered the tunnel request with a refusal (a 407 asks for credentials) and a
+certificate that does not chain to an authority the process trusts. They are
+read off the failure's cause chain with `readTransportCause`, which returns
+`'proxy_auth_required'`, `'proxy_refused'` or `'untrusted_certificate'`, and the
+error catalog explains each in its own words (`provider.proxy_auth`,
+`provider.proxy_refused`, `provider.untrusted_certificate`) instead of the
+general `provider.network` advice. `ErrorFacts.transport` carries the same
+value to a custom rule.
+
 ## The options
 
 `ProviderRetryConfig` (all optional through `query({ retry })` or a driver's

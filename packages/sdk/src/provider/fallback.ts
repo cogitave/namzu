@@ -457,7 +457,9 @@ export function withProviderFallback(
 					fallback: {
 						fromIndex: cursor - 1,
 						fromProviderId: member.provider.id,
-						...(member.model !== undefined ? { fromModel: member.model } : {}),
+						// The model this member was asked for, which for the head of the chain
+						// (declared without one) is the request's own.
+						...(targetModel ? { fromModel: targetModel } : {}),
 						toIndex: cursor,
 						toProviderId: to.provider.id,
 						...(to.model !== undefined ? { toModel: to.model } : {}),

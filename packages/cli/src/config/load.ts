@@ -1294,13 +1294,26 @@ const CONFIG_READERS: ConfigReaders = {
 	limits: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (!['maxIterations', 'tokenBudget', 'timeoutMs', 'waitForProviderMs'].includes(key))
+			if (
+				![
+					'maxIterations',
+					'tokenBudget',
+					'timeoutMs',
+					'waitForProviderMs',
+					'costLimitUsd',
+				].includes(key)
+			)
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs)',
+					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
+			if (key === 'costLimitUsd') {
+				if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+					return invalidConfigValue(context, [key], 'must be a number of dollars, 0 or more')
+				continue
+			}
 			const minimum = key === 'waitForProviderMs' ? 1 : 0
 			if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
 				return invalidConfigValue(context, [key], `must be a safe whole number at least ${minimum}`)

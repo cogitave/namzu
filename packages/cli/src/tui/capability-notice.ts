@@ -107,14 +107,31 @@ const FALLBACK_WHY: Readonly<Record<string, string>> = {
 	not_found: 'does not have that model',
 }
 
-/** A provider switch for a person reading a saved conversation: product names and a plain reason, no codes. */
+/**
+ * A provider switch for a person reading a saved conversation: product names and a plain reason, no codes.
+ *
+ * The model is named when it is known, on the side that took over, so a run
+ * that fell over to another model of the same provider still says which one
+ * answered.
+ */
 export function describeProviderFallbackNotice(input: {
 	readonly fromProviderId: string
 	readonly toProviderId: string
 	readonly reason: string
+	readonly fromModel?: string | undefined
+	readonly toModel?: string | undefined
 }): string {
-	const from = productName(input.fromProviderId) ?? 'The first provider'
-	const to = productName(input.toProviderId) ?? 'another provider'
+	const named = (id: string, model: string | undefined, unknown: string): string => {
+		const product = productName(id) ?? unknown
+		return model ? `${product} (${model})` : product
+	}
+	const sameProvider = input.fromProviderId === input.toProviderId
+	const from = named(
+		input.fromProviderId,
+		sameProvider ? input.fromModel : undefined,
+		'The first provider',
+	)
+	const to = named(input.toProviderId, input.toModel, 'another provider')
 	const why = FALLBACK_WHY[input.reason] ?? 'could not answer'
 	return `${from} ${why}, so Namzu used ${to} for the rest of that reply.`
 }

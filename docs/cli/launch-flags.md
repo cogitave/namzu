@@ -31,6 +31,8 @@ Two switches change what Shift+Tab may reach rather than where the session start
 
 A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
 
+Four more options are per-run settings rather than a choice of provider, model or mode: `--append-system-prompt <text|@file>`, `--allowed-tools <list>`, `--disallowed-tools <list>` and `--fallback-model <provider/model[,…]>`. They are session-only too, are written before the command, and are described in [Flags for one run](run-flags.md). `--max-budget-usd` is not one of them: a spend limit belongs to a headless run, so it is refused here and written after `exec`.
+
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
 
 ## Picking up a conversation: `-c` and `-r`

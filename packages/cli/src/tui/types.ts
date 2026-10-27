@@ -184,6 +184,11 @@ export interface TuiContext {
 	 */
 	readonly rules?: readonly AuthorizationRule[]
 	/**
+	 * `--append-system-prompt`: standing instructions for this launch's turns,
+	 * already read from the file when one was named. Session-only, never saved.
+	 */
+	readonly appendSystem?: string
+	/**
 	 * External tool servers from the operator's config, by the same reasoning as
 	 * `rules`: a config file belongs to the user, not to a command, and a server
 	 * they declared has to be there whichever way they started namzu.

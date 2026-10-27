@@ -5,13 +5,17 @@ import type { NamzuCliConfig } from './schema.js'
 type LimitsConfig = NonNullable<NamzuCliConfig['limits']>
 
 export type TurnGuardKey = 'tokenBudget' | 'maxIterations' | 'timeoutMs'
-export type TurnGuards = { -readonly [K in TurnGuardKey]: number }
+export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
+	/** Dollars the turn may spend; absent means no spend limit. */
+	costLimitUsd?: number
+}
 
 const GUARD_KEYS = ['tokenBudget', 'maxIterations', 'timeoutMs'] as const
 
 /** CLI policy; independent of the SDK's defaults for embedding hosts. */
 export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)[]): TurnGuards {
 	const resolved: TurnGuards = { tokenBudget: 0, maxIterations: 0, timeoutMs: 0 }
+	let costLimitUsd: number | undefined
 	for (const layer of layers) {
 		for (const key of GUARD_KEYS) {
 			const value = layer?.[key]
@@ -26,8 +30,16 @@ export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)
 				)
 			resolved[key] = value
 		}
+		const spend = layer?.costLimitUsd
+		if (spend === undefined) continue
+		if (!Number.isFinite(spend) || spend < 0)
+			throw new Error(
+				'Invalid costLimitUsd: use a number of dollars, 0 or more. 0 means unlimited.',
+			)
+		// Zero lifts a limit an earlier layer set, like the whole-number limits.
+		costLimitUsd = spend > 0 ? spend : undefined
 	}
-	return resolved
+	return costLimitUsd === undefined ? resolved : { ...resolved, costLimitUsd }
 }
 
 /**
@@ -55,6 +67,7 @@ export async function readStoredTurnGuards(
 			tokenBudget: config.tokenBudget as number,
 			maxIterations: config.maxIterations as number,
 			timeoutMs: config.timeoutMs as number,
+			...(typeof config.costLimitUsd === 'number' ? { costLimitUsd: config.costLimitUsd } : {}),
 		})
 	}
 	return undefined
