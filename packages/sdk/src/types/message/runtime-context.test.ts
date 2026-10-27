@@ -8,6 +8,7 @@ import {
 	isRuntimeContextMessageSource,
 	isTurnContextEntry,
 	isTurnContextKey,
+	lastPromptText,
 	turnContextKey,
 } from './index.js'
 
@@ -107,5 +108,15 @@ describe('recorded context entries', () => {
 
 	it('throws for a bad key at build time', () => {
 		expect(() => createTurnContextEntry('Bad Key', 'x')).toThrow(TypeError)
+	})
+
+	it('is not taken for the question when a history ends in one', () => {
+		const history = [
+			{ role: 'user' as const, content: 'the question' },
+			{ role: 'assistant' as const, content: 'an answer' },
+			createTurnContextEntry('repository', 'on branch main', at),
+		]
+		expect(lastPromptText(history)).toBe('the question')
+		expect(lastPromptText([history[2] as (typeof history)[number]])).toBe('')
 	})
 })

@@ -6,6 +6,7 @@ import {
 	type Message,
 	createAssistantMessage,
 	createToolMessage,
+	createTurnContextEntry,
 	createUserMessage,
 } from '../../types/message/index.js'
 import { WorkingStateManager } from '../manager.js'
@@ -79,6 +80,23 @@ describe('the compaction verifier receives readable, bounded evidence', () => {
 		expect(text).not.toContain('inline-document-bytes')
 		expect(JSON.stringify(provider.requests)).not.toContain('opaque-private-state')
 		expect(messages).toEqual(original)
+	})
+
+	it('does not quote recorded context as conversation', async () => {
+		const provider = new MockLLMProvider({ turns: [{ text: 'COMPLETE' }] })
+		await buildVerifiedSummary(
+			new WorkingStateManager(config),
+			[
+				createUserMessage('Fix the parser.'),
+				createTurnContextEntry('repository', 'RECALLED BRANCH STATE'),
+				createAssistantMessage('Looking at it.'),
+			],
+			provider,
+			config,
+		)
+		const text = excerpt(provider)
+		expect(text).toContain('Fix the parser.')
+		expect(text).not.toContain('RECALLED BRANCH STATE')
 	})
 
 	it('retains the reported tool failure alongside its result text', async () => {

@@ -55,7 +55,9 @@ function isStandingContext(message: Message): boolean {
 	return (
 		source?.type === 'project-instructions' ||
 		(source?.type === 'runtime-context' &&
-			(source.kind === 'step-context' || source.kind === 'reminder'))
+			(source.kind === 'step-context' ||
+				source.kind === 'reminder' ||
+				source.kind === 'turn-context'))
 	)
 }
 

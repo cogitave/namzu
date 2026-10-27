@@ -189,6 +189,7 @@ import {
 	getMonitorTools,
 	isReviewExempt,
 	isTurnInProgressError,
+	lastPromptText,
 	mapTools,
 	query,
 	readyWhen,
@@ -4548,7 +4549,7 @@ export async function createAgentSession(
 		try {
 			const routed = await routeModel(
 				{
-					task: lastUserText(messages),
+					task: lastPromptText(messages),
 					config: routing,
 					features: {
 						conversationLength: messages.length,
@@ -5832,7 +5833,7 @@ export async function createAgentSession(
 						)
 						lastSystemPromptText = systemPrompt
 						await announceSessionStart()
-						checkpoints.beginTurn(lastUserText(messages), turnId, {
+						checkpoints.beginTurn(lastPromptText(messages), turnId, {
 							promptOrdinal: Math.max(0, messages.filter((m) => m.role === 'user').length - 1),
 						})
 						if (opts?.goalRound) {
@@ -5995,7 +5996,7 @@ export async function createAgentSession(
 										: [
 												createMemoryRecallStep({
 													store: memoryStore,
-													query: lastUserText(messages),
+													query: lastPromptText(messages),
 													identifierGrounding: options.memory?.identifierGrounding,
 												}),
 											]),
@@ -6742,14 +6743,6 @@ export function conversationDrovePc(messages: readonly Message[]): boolean {
 			return true
 	}
 	return false
-}
-
-function lastUserText(messages: readonly Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]
-		if (m?.role === 'user' && typeof m.content === 'string') return m.content
-	}
-	return ''
 }
 
 /**

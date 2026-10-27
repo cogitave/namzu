@@ -64,6 +64,7 @@ import {
 	type AssistantMessage,
 	type Message,
 	createSystemMessage,
+	lastPromptText,
 } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
@@ -2028,7 +2029,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						{
 							turnId: ctx.turnId,
 							sessionId: params.sessionId,
-							prompt: lastUserPrompt(initialMessages),
+							prompt: lastPromptText(initialMessages),
 							signal: ctx.abortController.signal,
 						},
 						eventTranslator.emitEvent,
@@ -2891,15 +2892,6 @@ async function settleAbandonedTurn(
 			'exception.message': err instanceof Error ? err.message : String(err),
 		})
 	}
-}
-
-/** The text of the newest user turn, which is what a prompt hook is asked about. */
-function lastUserPrompt(messages: readonly Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]
-		if (m?.role === 'user' && typeof m.content === 'string') return m.content
-	}
-	return ''
 }
 
 type DrainQueryParams = Omit<QueryParams, 'resumeHandler'> & {

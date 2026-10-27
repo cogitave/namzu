@@ -709,6 +709,24 @@ export function isTurnContextEntry(message: {
 	return source?.type === 'runtime-context' && source.kind === 'turn-context'
 }
 
+/**
+ * The text of the newest user-role message with plain text, skipping recorded
+ * context entries: a history that ends in one (a resumed session) must not
+ * take the host's own recalled text for the question.
+ */
+export function lastPromptText(messages: readonly Message[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (
+			message?.role === 'user' &&
+			typeof message.content === 'string' &&
+			!isTurnContextEntry(message)
+		)
+			return message.content
+	}
+	return ''
+}
+
 /** Build the retained user-context message that carries live project policy. */
 export function createProjectInstructionMessage(
 	content: string,

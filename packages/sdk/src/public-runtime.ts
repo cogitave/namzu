@@ -1229,6 +1229,7 @@ export {
 	createRuntimeContextMessage,
 	createTurnContextEntry,
 	isTurnContextEntry,
+	lastPromptText,
 	isTurnContextKey,
 	turnContextKey,
 	MAX_TURN_CONTEXT_KEY_LENGTH,

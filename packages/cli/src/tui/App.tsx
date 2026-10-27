@@ -1097,8 +1097,12 @@ export function projectConversation(
 					},
 				]
 			}
-			// A hidden reminder is for the model; the live transcript never showed it.
-			if (message.source?.type === 'runtime-context' && message.source.kind === 'reminder') {
+			// A hidden reminder, and the context a turn recorded for the model, are for
+			// the model; the live transcript never showed them.
+			if (
+				message.source?.type === 'runtime-context' &&
+				(message.source.kind === 'reminder' || message.source.kind === 'turn-context')
+			) {
 				return []
 			}
 			if (message.source?.type === 'runtime-context') {

@@ -12,7 +12,7 @@
  */
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
-import type { Message } from '../types/message/index.js'
+import { type Message, isTurnContextEntry } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
 import { TRIGGER_BUFFER_TOKENS, TRIGGER_OUTPUT_RESERVE_CAP_TOKENS } from './context-window.js'
 import { estimateMessageTokens, estimateTextTokens } from './token-estimate.js'
@@ -166,6 +166,9 @@ function breakdownMessages(messages: readonly Message[]): ContextMessageBreakdow
 			const name = nameOfCall.get(message.toolCallId) ?? 'unknown'
 			toolResultsByType[name] = (toolResultsByType[name] ?? 0) + tokensOfContent(message)
 		} else if (message.role === 'user') {
+			// Recorded context is what the host recalled for the model, not
+			// something the operator said, so it is counted under memory.
+			if (isTurnContextEntry(message)) continue
 			userTokens += tokensOfContent(message)
 		}
 	}
@@ -175,13 +178,15 @@ function breakdownMessages(messages: readonly Message[]): ContextMessageBreakdow
 /** Split a window into the parts that fill it. */
 export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown {
 	const windowTokens = Math.max(0, Math.round(input.windowTokens))
+	const recorded = (input.messages ?? []).filter(isTurnContextEntry)
+	const recordedTokens = recorded.reduce((sum, message) => sum + tokensOfContent(message), 0)
 	const fixed: Record<(typeof CONTEXT_CATEGORY_ORDER)[number], number> = {
 		'system-prompt': nonNegative(input.systemPromptTokens),
 		'system-tools': nonNegative(input.systemToolTokens),
 		'mcp-tools': nonNegative(input.mcpToolTokens),
 		'mcp-instructions': nonNegative(input.mcpInstructionTokens),
 		agents: nonNegative(input.agentTokens),
-		memory: nonNegative(input.memoryTokens),
+		memory: nonNegative(input.memoryTokens) + recordedTokens,
 		skills: nonNegative(input.skillTokens),
 		messages: 0,
 	}
@@ -195,7 +200,10 @@ export function analyzeContextUsage(input: ContextUsageInput): ContextBreakdown 
 	const rawMessages =
 		measured > 0
 			? Math.max(0, measured - fixedTotal)
-			: messages.reduce((sum, message) => sum + tokensOfContent(message), 0)
+			: messages.reduce(
+					(sum, message) => (isTurnContextEntry(message) ? sum : sum + tokensOfContent(message)),
+					0,
+				)
 	fixed.messages = Math.min(rawMessages, Math.max(0, windowTokens - fixedTotal - bufferTokens))
 
 	const totalTokens = measured > 0 ? Math.max(measured, fixedTotal) : fixedTotal + rawMessages

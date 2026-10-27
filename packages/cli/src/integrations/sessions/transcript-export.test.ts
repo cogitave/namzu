@@ -7,6 +7,7 @@ import {
 	type Message,
 	createProjectInstructionMessage,
 	createRuntimeContextMessage,
+	createTurnContextEntry,
 	createUserMessage,
 	generateMessageId,
 } from '@namzu/sdk'
@@ -222,6 +223,21 @@ describe('exporting a conversation from its session log', () => {
 		)
 		// None of the three is presented as something the operator typed.
 		expect(markdown).not.toContain('## User')
+	})
+
+	it('leaves out the context a turn recorded for the model', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [
+			createUserMessage('hello'),
+			createTurnContextEntry('repository', 'RECALLED BRANCH STATE'),
+			assistant('Hi.'),
+		])
+		const { markdown } = await conversationMarkdown(s, id)
+		expect(markdown).toContain('## User\n\nhello')
+		expect(markdown).toContain('## Assistant\n\nHi.')
+		expect(markdown).not.toContain('RECALLED BRANCH STATE')
+		expect(markdown).not.toContain('Runtime context')
 	})
 
 	it('refuses a log whose hash chain is broken', async () => {
