@@ -85,6 +85,7 @@ describe('asking the small model', () => {
 			seen,
 			model: {
 				route: async () => ({ providerId: 'p', model: 'm', source: 'main' }),
+				smallProvider: async () => undefined,
 				ask: async (request) => {
 					seen.push(request)
 					return reply

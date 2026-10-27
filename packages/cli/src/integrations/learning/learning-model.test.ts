@@ -16,6 +16,7 @@ function build(answer: (request: SideRequest) => Promise<string | undefined>, to
 	const requests: SideRequest[] = []
 	const side: SideModel = {
 		route: async () => ({ providerId: 'p', model: 'm', source: 'configured' }),
+		smallProvider: async () => undefined,
 		ask: async (request) => {
 			requests.push(request)
 			// The real side model charges the ledger around the provider call.

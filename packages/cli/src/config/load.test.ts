@@ -915,6 +915,15 @@ describe('compaction', () => {
 		}
 	})
 
+	it('reads compaction.modelSummary and refuses a value that is not true or false', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-model-summary-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'compaction:\n  modelSummary: false\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({ modelSummary: false })
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'compaction:\n  modelSummary: sometimes\n')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow('compaction.modelSummary')
+	})
+
 	it('reads the idle-compaction keys and refuses what they cannot hold', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-idle-'))
 		mkdirSync(join(home, '.namzu'), { recursive: true })

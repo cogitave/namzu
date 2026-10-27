@@ -972,6 +972,7 @@ const CONFIG_READERS: ConfigReaders = {
 			idleCompaction?: unknown
 			idleCompactionMinTokens?: unknown
 			promptCacheTtl?: unknown
+			modelSummary?: unknown
 		}
 		for (const key of Object.keys(v)) {
 			if (
@@ -984,7 +985,8 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'deduplicateObservations' &&
 				key !== 'idleCompaction' &&
 				key !== 'idleCompactionMinTokens' &&
-				key !== 'promptCacheTtl'
+				key !== 'promptCacheTtl' &&
+				key !== 'modelSummary'
 			) {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
 			}
@@ -999,6 +1001,9 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['recallEvidence'], 'must be true or false')
 		if (raw.resolveEvidenceQueries !== undefined && typeof raw.resolveEvidenceQueries !== 'boolean')
 			return invalidConfigValue(context, ['resolveEvidenceQueries'], 'must be true or false')
+		if (raw.modelSummary !== undefined && typeof raw.modelSummary !== 'boolean') {
+			return invalidConfigValue(context, ['modelSummary'], 'must be true or false')
+		}
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
 		}
@@ -1068,6 +1073,7 @@ const CONFIG_READERS: ConfigReaders = {
 				? { idleCompactionMinTokens: raw.idleCompactionMinTokens }
 				: {}),
 			...(raw.promptCacheTtl !== undefined ? { promptCacheTtl: raw.promptCacheTtl } : {}),
+			...(raw.modelSummary !== undefined ? { modelSummary: raw.modelSummary } : {}),
 		} as CompactionCliConfig
 	},
 	additionalDirectories: (v, context) => {
