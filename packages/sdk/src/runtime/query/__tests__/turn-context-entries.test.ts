@@ -131,6 +131,53 @@ describe('recorded turn context', () => {
 		expect(lines.findIndex((l) => l.startsWith('tool:'))).toBeLessThan(at('STATE 2'))
 	})
 
+	it('gives the first entry under a key the full header and a later one the short header', async () => {
+		const provider = loop()
+		const result = await drainQuery({
+			...session('entry-header'),
+			provider,
+			prepareStep: ({ stepNumber }: PrepareStepContext): PrepareStepResult => ({
+				recordedContext: [{ key: 'repository', text: `STATE ${stepNumber}` }],
+			}),
+			messages: [{ role: 'user', content: 'go' }],
+		})
+		const [one, two, three] = entriesOf(result.messages).map(text)
+		expect(one).toContain('A later entry with this key adds to or replaces what it says:')
+		expect(two).not.toContain('A later entry')
+		expect(two).toMatch(
+			/^Recorded context \(runtime-generated; not a new user request\) - repository, as of [\d-]+ [\d:]+:\n/,
+		)
+		expect(three).not.toContain('A later entry')
+	})
+
+	it('puts request-only blocks after every recorded entry on every call, so the history before them only grows', async () => {
+		const provider = loop()
+		await drainQuery({
+			...session('entry-tail'),
+			provider,
+			prepareStep: ({ stepNumber }: PrepareStepContext): PrepareStepResult => ({
+				context: `INVENTORY ${stepNumber}`,
+				recordedContext: [{ key: 'repository', text: `STATE ${stepNumber}` }],
+			}),
+			messages: [{ role: 'user', content: 'go' }],
+		})
+		expect(provider.requests).toHaveLength(3)
+		let previous: string[] = []
+		for (const request of provider.requests) {
+			const messages = request.messages as Message[]
+			const first = messages.findIndex(isRequestOnly)
+			expect(first).toBeGreaterThan(-1)
+			// Nothing but request-only blocks (and system text a driver may move) follows the first.
+			expect(messages.slice(first).every((m) => isRequestOnly(m) || m.role === 'system')).toBe(true)
+			// The history ends with the newest recorded entry (or what the call just appended).
+			const history = messages.slice(0, first)
+			expect(text(history.at(-1) as Message)).toContain('STATE')
+			const cached = cacheable(messages)
+			expect(cached.slice(0, previous.length)).toEqual(previous)
+			previous = cached
+		}
+	})
+
 	it('skips empty text and a key that is not a name', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		await drainQuery({

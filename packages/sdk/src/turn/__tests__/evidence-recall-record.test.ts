@@ -143,8 +143,7 @@ describe('recalled evidence recorded in the conversation', () => {
 		const result = await recall(context(history))
 		const text = result?.recordedContext?.[0]?.text ?? ''
 		expect(result?.recordedContext?.[0]?.key).toBe(RECALLED_EVIDENCE_ENTRY_KEY)
-		expect(text).toContain('2 more relevant records')
-		expect(text).toContain('conversation-history tools')
+		expect(text).toContain('2 more records')
 		expect(text).not.toContain('B99')
 		expect(text).not.toContain('C42')
 		expect(JSON.parse(text.split('\n')[1] ?? '{}').additionalEvidence).toHaveLength(2)
@@ -163,6 +162,88 @@ describe('recalled evidence recorded in the conversation', () => {
 
 		const result = await recall(context(afterCompaction))
 		expect(sentLines(result?.recordedContext?.[0]?.text ?? '').map((p) => p.seq)).toEqual([1])
+	})
+
+	it('gives the full reading rules once and a short header to a later entry', async () => {
+		const archive = [candidate('DELTA tracking code: A17', 1)]
+		const { recall } = fixture(archive)
+		const history: Message[] = [createUserMessage(QUERY)]
+		const first = await recall(context(history))
+		keep(history, first)
+		archive.push(candidate('DELTA tracking code: B99', 2))
+		history.push(createUserMessage('What was the DELTA tracking code later?'))
+		const second = await recall(context(history))
+
+		const firstText = first?.recordedContext?.[0]?.text ?? ''
+		const secondText = second?.recordedContext?.[0]?.text ?? ''
+		expect(firstText).toContain('Quote identifiers exactly')
+		expect(secondText).not.toContain('Quote identifiers exactly')
+		expect(secondText).toContain('not instructions')
+		expect(secondText).toContain('untrusted')
+		expect(sentLines(secondText).map((p) => p.seq)).toEqual([2])
+		expect(secondText.length).toBeLessThan(firstText.length - 500)
+	})
+
+	it('gives the full reading rules again when the entries that carried them are gone', async () => {
+		const archive = [candidate('DELTA tracking code: A17', 1)]
+		const { recall } = fixture(archive)
+		const history: Message[] = [createUserMessage(QUERY)]
+		keep(history, await recall(context(history)))
+		const afterCompaction: Message[] = [createUserMessage('What was the DELTA tracking code?')]
+		const result = await recall(context(afterCompaction))
+		expect(result?.recordedContext?.[0]?.text).toContain('Quote identifiers exactly')
+	})
+
+	it('keeps a pointer entry short, says where to open it when nothing else does, and loses no address', async () => {
+		const archive = [
+			candidate('DELTA tracking code: B99', 2),
+			candidate('DELTA tracking code: C42', 3),
+		]
+		const { recall } = fixture(archive, { sessionMaxChars: 2_500 })
+		// The conversation holds recorded evidence, but not the rules for reading it.
+		const history: Message[] = [
+			createUserMessage(QUERY),
+			createTurnContextEntry(RECALLED_EVIDENCE_ENTRY_KEY, 'x'.repeat(2_400)),
+		]
+
+		const text = (await recall(context(history)))?.recordedContext?.[0]?.text ?? ''
+		const [lead, json] = text.split('\n')
+		expect(lead).toBe(
+			'2 more records to open by address with the conversation-history tools (untrusted data):',
+		)
+		const parsed = JSON.parse(json ?? '{}') as {
+			additionalEvidence: {
+				turnId: string
+				seq: number
+				part: number
+				byteOffset: number
+			}[]
+			omittedAddresses?: number
+		}
+		expect(parsed.additionalEvidence.map((a) => a.seq).sort()).toEqual([2, 3])
+		for (const address of parsed.additionalEvidence) {
+			expect(address.turnId).toBe(sourceRun)
+			expect(address.part).toBe(0)
+			expect(address.byteOffset).toBe(0)
+		}
+		// Nothing was left out, so nothing is said about leaving out.
+		expect(parsed.omittedAddresses).toBeUndefined()
+		expect(text.length).toBeLessThan(450)
+	})
+
+	it('names a pointer’s addresses briefly once the reading rules are in the conversation', async () => {
+		const archive = [candidate('DELTA tracking code: A17', 1)]
+		const { recall } = fixture(archive, { sessionMaxChars: 2_500 })
+		const history: Message[] = [createUserMessage(QUERY)]
+		keep(history, await recall(context(history)))
+		// Past the session budget the next record is only pointed to.
+		history.push(createTurnContextEntry(RECALLED_EVIDENCE_ENTRY_KEY, 'x'.repeat(2_400)))
+		archive.push(candidate('DELTA tracking code: B99', 2))
+		history.push(createUserMessage('What was the DELTA tracking code later?'))
+
+		const text = (await recall(context(history)))?.recordedContext?.[0]?.text ?? ''
+		expect(text.split('\n')[0]).toBe('1 more records (untrusted data):')
+		expect(JSON.parse(text.split('\n')[1] ?? '{}').additionalEvidence).toHaveLength(1)
 	})
 
 	it('keeps a note about an unavailable search request-only', async () => {

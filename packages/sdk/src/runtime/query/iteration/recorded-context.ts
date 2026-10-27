@@ -40,7 +40,7 @@ export function appendRecordedContext(
 		}
 		const earlier = turnContextEntries(recorder.messages, item.key)
 		if (earlier.at(-1) === text) continue
-		const entry = createTurnContextEntry(item.key, text, at)
+		const entry = createTurnContextEntry(item.key, text, at, { later: earlier.length > 0 })
 		recorder.pushMessage(entry)
 		appended.push(entry)
 	}

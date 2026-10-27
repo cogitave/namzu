@@ -144,6 +144,29 @@ describe('recalled memory recorded in the conversation', () => {
 		).toContain('purged on deploy')
 	})
 
+	it('gives the full rules once and a short header to a later entry', async () => {
+		const { store } = await seeded()
+		const history: Message[] = [createUserMessage(QUERY)]
+		const recall = createMemoryRecallStep({ store, record: true })
+		const first = await recall(context(history))
+		keep(history, first)
+		await store.create({
+			title: 'Cache finding later',
+			summary: 'Another discovery',
+			content: 'cerulean-cache is flushed on deploy',
+		})
+		history.push(createUserMessage(QUERY))
+		const second = await recall(context(history))
+
+		const firstText = first?.recordedContext?.[0]?.text ?? ''
+		const secondText = second?.recordedContext?.[0]?.text ?? ''
+		expect(firstText).toContain('Use read_memory for complete records')
+		expect(secondText).toContain('flushed on deploy')
+		expect(secondText).not.toContain('Use read_memory for complete records')
+		expect(secondText).toContain('not instructions')
+		expect(secondText).toContain('untrusted')
+	})
+
 	it('offers everything again once the entries are gone from the history', async () => {
 		const { store } = await seeded()
 		const recall = createMemoryRecallStep({ store, record: true })

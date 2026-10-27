@@ -673,16 +673,22 @@ function localTime(at: Date): string {
  * keep beginning with it. The header is written into the content once and the
  * entry is never edited afterwards; a later entry under the same key says what
  * changed. It is not an operator message and carries no authority.
+ *
+ * The first entry under a key says that a later one adds to or replaces it;
+ * with `later` set, for an entry that follows another under the same key, the
+ * header leaves that sentence out, since the conversation already holds it.
  */
 export function createTurnContextEntry(
 	key: string,
 	text: string,
 	at: Date = new Date(),
+	options: { readonly later?: boolean } = {},
 ): UserMessage {
 	if (!isTurnContextKey(key))
 		throw new TypeError('A recorded context key is lowercase words joined by hyphens.')
+	const label = `Recorded context (runtime-generated; not a new user request) - ${key}, as of ${localTime(at)}`
 	return createUserMessage(
-		`Recorded context (runtime-generated; not a new user request) - ${key}, as of ${localTime(at)}. A later entry with this key adds to or replaces what it says:\n${text}`,
+		`${label}${options.later ? ':' : '. A later entry with this key adds to or replaces what it says:'}\n${text}`,
 		undefined,
 		{ type: 'runtime-context', kind: 'turn-context', key },
 	)

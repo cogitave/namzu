@@ -9,6 +9,7 @@ import {
 	isTurnContextEntry,
 	isTurnContextKey,
 	lastPromptText,
+	turnContextEntries,
 	turnContextKey,
 } from './index.js'
 
@@ -79,6 +80,15 @@ describe('recorded context entries', () => {
 		expect(isRuntimeContextMessageSource(entry.source)).toBe(true)
 		expect(isTurnContextEntry(entry)).toBe(true)
 		expect(turnContextKey(entry)).toBe('repository')
+	})
+
+	it('leaves the sentence about later entries out of an entry that follows another', () => {
+		const entry = createTurnContextEntry('repository', 'on branch main', at, { later: true })
+		expect(entry.content).toBe(
+			'Recorded context (runtime-generated; not a new user request) - repository, as of 2026-10-27 09:05:\non branch main',
+		)
+		expect(turnContextKey(entry)).toBe('repository')
+		expect(turnContextEntries([entry], 'repository')).toEqual(['on branch main'])
 	})
 
 	it('survives a JSON round trip unchanged', () => {
