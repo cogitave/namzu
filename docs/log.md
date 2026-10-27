@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-28
+
+- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#who-writes-the-summary), [The small model for side jobs](cli/small-model.md#the-compaction-summary), [Compaction trigger, circuit breaker and output limits](sdk/context-limits.md#a-summary-written-by-a-model), [Manual compaction](sdk/manual-compaction.md): the compaction summary is written by the small model by default (the person's requests in their own words, the current work, the next step, decisions, files, errors, exact details), with the extracted summary as the fallback when no small model is set aside, its call fails or stalls, or its reply holds no summary; its tokens are counted on the turn's ledger. New `compaction.modelSummary` key (set `false` to keep the old behaviour); SDK `compactionSummaryRoute` / `summaryRoute` hooks and `modelSummary*` config keys. `.changeset/w2-compaction-summary-sdk.md` (`@namzu/sdk` minor), `.changeset/w2-compaction-summary-cli.md` (`@namzu/cli` major).
+
 ## 2026-10-27
 
 - **Update** [Slash commands](cli/slash-commands.md): `/doctor` rows give a plain reason for each check that needs attention, with the original wording behind the row's details. `.changeset/doctor-plain-rows.md` (`@namzu/cli` patch).
