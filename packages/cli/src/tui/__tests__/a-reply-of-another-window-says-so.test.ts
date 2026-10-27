@@ -32,6 +32,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			readonly sessionLog?: InstanceType<typeof actual.DiskSessionLog>
 		}) =>
 			(async function* () {
+				yield* [] // a generator that refuses before its first event
 				const log =
 					params.sessionLog ??
 					actual.DiskSessionLog.at(params.paths as never, { sessionId: params.sessionId })
