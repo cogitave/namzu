@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HttpProvider } from '../client.js'
 import type { HttpDialect } from '../types.js'
+import { finishedStream } from './finished-stream.js'
 
 /**
  * `toolChoice: 'none'` means the model must not call a tool.
@@ -38,7 +39,10 @@ async function bodyFor(
 		'fetch',
 		vi.fn(async (_url: string, init: RequestInit) => {
 			captured = JSON.parse(String(init.body))
-			return new Response('', { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+			return new Response(finishedStream(dialect), {
+				status: 200,
+				headers: { 'Content-Type': 'text/event-stream' },
+			})
 		}),
 	)
 

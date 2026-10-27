@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { attributionHeaders, providerHttpError } from '@namzu/sdk'
+import { ProviderRequestError, attributionHeaders, providerHttpError } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -386,7 +386,13 @@ export class GoogleProvider implements LLMProvider {
 				}
 				if (next.done) break
 			}
-			if (!terminal) throw new Error('Gemini stream ended without a terminal finish reason.')
+			// A stream that closes without a finish reason was cut by the connection.
+			if (!terminal)
+				throw new ProviderRequestError({
+					kind: 'network',
+					providerId: 'google',
+					detail: 'the connection closed before the response finished',
+				})
 			if (searched)
 				yield {
 					id,
