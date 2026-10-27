@@ -52,6 +52,8 @@ separates it from the line above. When the last one ends the line becomes the
 turn's closing line, `✻ Worked for 3m 12s · done 3:45 PM · 2 agents`, with the
 wait counted and the clock time the work ended right after the duration.
 
+The model is told to pass what each finished agent found on to you in its next message: a result reaches the model, not you, so the notice that delivers it says you have not seen it, and the list of finished delegated work asks the model to check, before it ends a reply, that every finished result has been reported once.
+
 Each agent that ends after its turn is over wakes the model. Everything that
 ended while the conversation was idle goes to the model in **one** message and
 produces **one** reply; one that ends while a reply is streaming is handed over
