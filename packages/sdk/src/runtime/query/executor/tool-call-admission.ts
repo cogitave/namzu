@@ -717,8 +717,8 @@ function ceilingBelow(length: number): number | undefined {
 
 /**
  * How much one call should carry, in the model's words, or `undefined` when
- * there is no number to give: a stream that ended, to a tool that declares no
- * large arguments.
+ * there is no number to give: after an output limit that left no figure worth
+ * stating, to a tool that declares no large arguments.
  *
  * A tool that declares large arguments is given a budget for each of them.
  * After an output limit, any tool is told to keep its arguments under half of
@@ -741,9 +741,7 @@ function sizeAdvice(
 	// would tell a call cut after three characters to keep `content` under
 	// 12000 of them: more than a budget, an invitation back into the same
 	// cutoff, and a broken invariant (a call is always told less than what
-	// arrived). Only a stream that ended for a reason other than the output
-	// limit — where no ceiling applies at all — still gets the plain
-	// declared budgets below.
+	// arrived).
 	if (lengthCutoff && ceiling === undefined) return undefined
 	const declared = Object.entries(largeStringArguments ?? {}).filter(
 		([, budget]) => Number.isFinite(budget) && budget > 0,
@@ -831,8 +829,8 @@ function unseenOutput(error: ToolInputError): string | undefined {
  *   call is to carry less, {@link sizeAdvice} and the tool's
  *   `truncatedInputHint`, with nothing about reasoning or what came before
  *   it: the window is the conversation's length, not this response's.
- * - Cut off by the stream ending: the declared budgets, if any, or just to
- *   send the call again, and the tool's `truncatedInputHint`.
+ * - Cut off by the connection dropping: no size and no hint. The call did not
+ *   come near any limit, so it is to be sent again unchanged.
  * - Stopped by a content filter: no advice. Sending less does not get past a
  *   filter.
  *
@@ -874,7 +872,7 @@ export function unreadableToolInputMessage(
 				? 'the response reached its output token limit'
 				: error.finishReason === 'content_filter'
 					? "the provider's content filter stopped the response"
-					: 'the response stream ended'
+					: 'the connection dropped'
 		parts.push(
 			`Error: The call to "${toolName}" was cut off: ${cause} after ${error.length} characters of its arguments, before they were complete. The tool was NOT executed.`,
 		)
@@ -897,9 +895,14 @@ export function unreadableToolInputMessage(
 			parts.push(
 				`${error.precedingLength} of the ${error.precedingLength + error.length} characters the response streamed came before this call, so send the call again with less before it in the same response.`,
 			)
-		} else if (error.finishReason !== 'content_filter') {
+		} else if (error.finishReason === 'length') {
 			parts.push(sizeAdvice(tool?.largeStringArguments, error) ?? 'Send the call again.')
 			hint(tool?.truncatedInputHint)
+		} else if (error.finishReason !== 'content_filter') {
+			// The transport ended the response, not a limit: the call may have been
+			// well inside any budget, so no size is named and the call is not to
+			// change. Sending the same call again is the whole remedy.
+			parts.push('Nothing was wrong with the call. Send the same call again, unchanged.')
 		}
 	}
 	return parts.join(' ')

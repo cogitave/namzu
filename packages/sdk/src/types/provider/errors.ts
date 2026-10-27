@@ -288,11 +288,53 @@ const NETWORK_ERRNOS: ReadonlySet<string> = new Set([
 	'ENETUNREACH',
 	'ENOTFOUND',
 	'EAI_AGAIN',
+	'ENETDOWN',
+	'EHOSTDOWN',
+	'ERR_PROXY_TUNNEL',
 	'EPROTO',
 	'UND_ERR_SOCKET',
+	'UND_ERR_CLOSED',
 	'UND_ERR_CONNECT_TIMEOUT',
 	'UND_ERR_RESPONSE_STATUS_CODE',
 ])
+
+/**
+ * A certificate that fails verification. The peer was reached and answered,
+ * and resending the same request meets the same refusal, so it is a network
+ * failure that is not retried.
+ */
+const CERTIFICATE_ERRNOS: ReadonlySet<string> = new Set([
+	'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+	'UNABLE_TO_GET_ISSUER_CERT',
+	'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+	'CERT_HAS_EXPIRED',
+	'CERT_NOT_YET_VALID',
+	'CERT_UNTRUSTED',
+	'CERT_REVOKED',
+	'DEPTH_ZERO_SELF_SIGNED_CERT',
+	'SELF_SIGNED_CERT_IN_CHAIN',
+	'ERR_TLS_CERT_ALTNAME_INVALID',
+	'HOSTNAME_MISMATCH',
+])
+
+/**
+ * The code of a certificate-verification failure anywhere on the chain, or
+ * `undefined`. Other TLS failures (a handshake cut short, a protocol error)
+ * are transient and are not this.
+ */
+export function readCertificateFailure(err: unknown): string | undefined {
+	for (const link of causeChain(err)) {
+		if (typeof link.code === 'string' && CERTIFICATE_ERRNOS.has(link.code)) return link.code
+	}
+	return undefined
+}
+
+/** Other TLS and socket-layer codes that mean the connection broke, not that it was refused. */
+function isTransientTransportCode(code: string): boolean {
+	return (
+		code.startsWith('ERR_SSL_') || (code.startsWith('ERR_TLS_') && !CERTIFICATE_ERRNOS.has(code))
+	)
+}
 
 const TIMEOUT_ERRNOS: ReadonlySet<string> = new Set([
 	'ETIMEDOUT',
@@ -570,6 +612,16 @@ export function classifyProviderError(
 	}
 
 	if (errno !== undefined) {
+		const certificate = readCertificateFailure(err)
+		if (certificate !== undefined) {
+			return new ProviderError({
+				code: 'network',
+				message,
+				providerId,
+				retryable: false,
+				cause: err,
+			})
+		}
 		if (TIMEOUT_ERRNOS.has(errno)) {
 			return new ProviderError({
 				code: 'timeout',
@@ -579,7 +631,7 @@ export function classifyProviderError(
 				cause: err,
 			})
 		}
-		if (NETWORK_ERRNOS.has(errno)) {
+		if (NETWORK_ERRNOS.has(errno) || isTransientTransportCode(errno)) {
 			return new ProviderError({
 				code: 'network',
 				message,

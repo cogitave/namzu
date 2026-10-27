@@ -1,0 +1,7 @@
+---
+'@namzu/sdk': minor
+---
+
+A model response whose connection drops while a tool call is still being written is now sent again, whole, instead of being handed to the model as a cut-off call. `withProviderRetry` restarts a stream that has so far produced only tool-call fragments (no text), whatever `retryMidStream` says, and the retry notice carries `restart: true`; the turn drops the half-written call on that notice, and `query()` already does so. If you wrap a provider with `withProviderRetry` yourself and read raw chunks, handle `retry.restart` by discarding the fragments you collected (you already do for reasoning-only restarts). A stream in which a call finished (`toolCallEnd`), a hosted tool ran, or a finish reason arrived is still never restarted, and text still needs `retryMidStream`.
+
+When the attempts are spent and no call came through whole, the failure now pauses the turn like any other connection failure; before, the model was told its call was cut off. When the cut was not the output limit, that message no longer names a size ("keep `script` under 20000 characters" for a call cut at 1165): it says the connection dropped, that nothing was wrong with the call, and to send the same call again. Output-limit advice is unchanged. Certificate-verification failures (expired, self-signed, wrong host) are classified as network failures that are not retried, and `ENETDOWN`, `EHOSTDOWN`, proxy-tunnel and other TLS-layer failures are retried as network failures.

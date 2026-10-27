@@ -30,7 +30,7 @@ import type {
 	ReasoningBlock,
 	ToolInputError,
 } from '../../../types/message/index.js'
-import { ProviderError } from '../../../types/provider/errors.js'
+import { ProviderError, classifyProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -298,7 +298,7 @@ export async function* streamProviderTurn(
 	let streamedLength = 0
 	const toolBuckets = new Map<number, ToolCallBucket>()
 	// Places a fragment that came without an index; see `ToolCallIndexer`.
-	const toolIndexer = new ToolCallIndexer()
+	let toolIndexer = new ToolCallIndexer()
 	// The call the model's latest output went to, or `undefined` once text,
 	// reasoning or a hosted tool followed it. An output limit, a content
 	// filter or a dropped stream stops the response wherever it is, so this
@@ -427,9 +427,14 @@ export async function* streamProviderTurn(
 				})
 				yield* drainPending()
 				if (chunk.retry.restart) {
-					// The failed attempt's text and reasoning are void: the request
-					// starts over under the same message. The decorator never
-					// restarts once a tool call began, so no bucket is left behind.
+					// The failed attempt's text, reasoning and tool calls are void: the
+					// request starts over under the same message. The decorator
+					// restarts a call still being written only while no call has
+					// finished, and nothing runs before the response settles, so a
+					// half-written call is dropped here and never reaches the model.
+					toolBuckets.clear()
+					toolIndexer = new ToolCallIndexer()
+					framingViolated = false
 					text = new StreamTextAccumulator()
 					reasoningBuckets.clear()
 					citations.length = 0
@@ -947,10 +952,21 @@ export async function* streamProviderTurn(
 
 	// Not after a framing violation: the calls it would recover are the ones
 	// the stream was just refused for garbling.
+	//
+	// Nor when the stream was cut by a connection that may come back and no
+	// call came through whole: the retries are spent, the half-written call is
+	// not the model's mistake, and telling the model about it would spend a
+	// turn on a fault it cannot fix. The failure goes up and the turn pauses.
+	const cutByConnection =
+		streamError !== undefined &&
+		streamCause !== undefined &&
+		classifyProviderError(streamCause).retryable
 	const recoveredToolInputFromStreamError =
 		streamError !== undefined &&
 		!framingViolated &&
-		toolCalls.some((tc) => tc.id && tc.function.name)
+		toolCalls.some(
+			(tc) => tc.id && tc.function.name && (!cutByConnection || !tc.metadata?.inputError),
+		)
 	const effectiveFinishReason: ChatCompletionResponse['finishReason'] =
 		recoveredToolInputFromStreamError ? 'tool_calls' : finishReason
 
