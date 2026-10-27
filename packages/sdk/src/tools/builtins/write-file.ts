@@ -8,10 +8,10 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip } from './classifier-input.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
-import { staleBeforeReview } from './stale-before-review.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { staleBeforeReview } from './stale-before-review.js'
 
 const inputSchema = z
 	.object({
