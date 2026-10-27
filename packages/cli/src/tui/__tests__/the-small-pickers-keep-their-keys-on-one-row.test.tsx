@@ -88,3 +88,35 @@ describe.each(pickers)('the %s picker key line', (_name, picker, enter) => {
 		},
 	)
 })
+
+describe('the resume picker key line keeps the rename key reachable', () => {
+	it.each([60, 80])('names rename at %i columns', async (cols) => {
+		const screen = await renderToScreen(
+			<Box paddingX={1}>
+				<ResumePicker
+					conversations={[
+						{
+							id: 'a',
+							title: 'T',
+							named: true,
+							updatedAt: new Date(0).toISOString(),
+							count: 1,
+						} as any,
+					]}
+					selected={0}
+				/>
+			</Box>,
+			{ cols, rows: 24 },
+		)
+		try {
+			await screen.waitForRender()
+			const view = screen.viewport().filter((line) => line.trim() !== '')
+			const bottom = view.findIndex((line) => line.includes('╰'))
+			const key = view[bottom - 1] ?? ''
+			expect(key, view.join('\n')).toMatch(/ctrl\+r (rename|name)/)
+			expect(key, view.join('\n')).toMatch(/\besc\b/)
+		} finally {
+			await screen.unmount()
+		}
+	})
+})

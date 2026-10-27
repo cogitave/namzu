@@ -409,7 +409,6 @@ import {
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
-	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -598,6 +597,7 @@ import {
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
 import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
@@ -2040,6 +2040,12 @@ function AppBody({
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
+	/**
+	 * The row that says a reply is paused while it mends itself. Every failed try
+	 * rewrites this one row instead of adding another; it is forgotten when the
+	 * run of tries ends (`autoResumeAttemptRef` back to 0).
+	 */
+	const selfMendingPauseRowRef = useRef<string | null>(null)
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
@@ -5481,6 +5487,8 @@ function AppBody({
 									}
 								: {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+							// The composer is ready at once; each server's tools join as it connects.
+							toolServers: 'background',
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
@@ -5682,15 +5690,25 @@ function AppBody({
 						`Skipped ${relative(activeCtx.cwd, skip.path) || skip.path}: ${skip.reason}`,
 					)
 				}
-				for (const server of s.mcpConnected) {
-					pushMessage('system', `Tool server ${server.name} · ${server.toolCount} tools`)
+				// Servers connect in the background: each is reported when it settles
+				// (a person can read the line and fix their config; a headless run
+				// refuses instead). One that is already settled is reported now.
+				const reportedToolServers = new Set<string>()
+				const reportToolServer = (name: string) => {
+					if (reportedToolServers.has(name)) return
+					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					const row = toolServerRow(
+						name,
+						s.mcpStatus?.() ?? { connected: s.mcpConnected, failed: s.mcpFailed },
+					)
+					if (!row) return
+					reportedToolServers.add(name)
+					if (row.level === 'warning') pushSystem('warning', row.text)
+					else pushMessage('system', row.text)
 				}
-				// Reported and carried on, where a headless run refuses: there is a
-				// person here who can read this and fix their config, and taking the
-				// whole session away from them would not help them do it.
-				for (const server of s.mcpFailed) {
-					pushMessage('system', `Tool server ${server.name} is not available: ${server.reason}`)
-				}
+				s.onMcpSettled?.(reportToolServer)
+				for (const server of s.mcpConnected) reportToolServer(server.name)
+				for (const server of s.mcpFailed) reportToolServer(server.name)
 			} else {
 				setPhase('unhealthy')
 				if (s.errorHint) pushMessage('system', s.errorHint, false, STARTUP_STOP_GLYPH)
@@ -6497,6 +6515,8 @@ function AppBody({
 		async (resume?: {
 			/** Continuing a turn a tool paused for a person: what the tool asked for. */
 			readonly handoffReason?: string | undefined
+			/** A try the schedule made by itself: it adds no line of its own to the transcript. */
+			readonly automatic?: boolean
 		}): Promise<boolean> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
@@ -6586,7 +6606,7 @@ function AppBody({
 				}
 				// Said once the turn really continues: a scheduled park can still
 				// be left waiting or abandoned above.
-				pushMessage('system', PAUSED_TURN_LINES.resuming)
+				if (!resume?.automatic) pushMessage('system', PAUSED_TURN_LINES.resuming)
 				for await (const event of session.resumePaused({
 					turnId: active.turnId,
 					signal: ac.signal,
@@ -6695,7 +6715,7 @@ function AppBody({
 				const parked = handoffParkRef.current
 				void (async () => {
 					try {
-						await resumeActiveTurn()
+						await resumeActiveTurn({ automatic: true })
 					} catch {
 						// An attempt that failed to start is an attempt that did not take.
 					}
@@ -9132,12 +9152,25 @@ function AppBody({
 							reason: event.handoff.reason,
 						})
 					} else {
-						pushSystem('warning', describePlainInterruption(event, plainOptions()))
+						const pauseText = describePlainInterruption(event, plainOptions())
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
 						// A connection that would not hold passes by itself, so the pause
 						// tries again on a schedule until the person stops it.
 						if (isSelfMending(event)) {
+							// One row for the whole run of tries: a later pause rewrites it.
+							const rowId = selfMendingPauseRowRef.current
+							if (
+								rowId !== null &&
+								autoResumeAttemptRef.current > 0 &&
+								messagesLiveRef.current.some((row) => row.id === rowId)
+							) {
+								setMessages((rows) =>
+									rows.map((row) => (row.id === rowId ? { ...row, content: pauseText } : row)),
+								)
+							} else {
+								selfMendingPauseRowRef.current = pushSystem('warning', pauseText)
+							}
 							const attempt = autoResumeAttemptRef.current + 1
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({
@@ -9145,6 +9178,7 @@ function AppBody({
 								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
 							})
 						} else {
+							pushSystem('warning', pauseText)
 							setHandoffPark({ turnId: event.turnId })
 						}
 					}

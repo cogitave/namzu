@@ -137,6 +137,22 @@ describe('the health report in plain words', () => {
 		expect(plain.detail.join('\n')).toContain('/opt/namzu')
 	})
 
+	it('says which version is waiting and how to get it, where a tick alone told nothing', () => {
+		const plain = describePlainDoctor(
+			report([
+				record({
+					id: 'updates.install',
+					status: 'pass',
+					message: 'Namzu 9.9.9 is available',
+					remediation: 'Run: namzu update',
+				}),
+			]),
+		)
+		expect(plain.content).toContain('✓ Updates: Namzu 9.9.9 is available')
+		expect(plain.content).toContain('Try: namzu update')
+		expect(plain.level).toBe('notice')
+	})
+
 	it('warns, rather than errors, when only a warning is raised', () => {
 		expect(
 			describePlainDoctor(report([record({ id: 'logging.pipeline', status: 'warn' })])).level,

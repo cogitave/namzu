@@ -120,7 +120,7 @@ describe('a command file in a headless run', () => {
 		writeCommand('static.md', 'Summarise the diff.')
 		const { code, errors } = await run('/static extra words')
 		expect(code).not.toBe(0)
-		expect(errors.join('\n')).toContain('takes no arguments')
+		expect(errors.join('\n')).toContain('does not take extra text')
 		expect(sent).toHaveLength(0)
 	})
 

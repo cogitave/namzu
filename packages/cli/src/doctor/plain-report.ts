@@ -177,7 +177,17 @@ export function describePlainDoctor(report: DoctorReport): PlainDoctor {
 
 function rowFor(record: DoctorCheckRecord): string[] {
 	const title = plainCheckTitle(record.id)
-	if (record.status === 'pass') return [`  ${MARKS.pass} ${title}`]
+	if (record.status === 'pass') {
+		// A newer version is not a problem, so the row passes, but it says which
+		// version and how to get it instead of a bare tick.
+		if (record.id === 'updates.install' && /is available/.test(record.message ?? '')) {
+			const out = [`  ${MARKS.pass} ${title}: ${(record.message ?? '').trim()}`]
+			const command = /^Run:\s*(.+)$/m.exec(record.remediation ?? '')?.[1]?.trim()
+			if (command) out.push(`      Try: ${command}`)
+			return out
+		}
+		return [`  ${MARKS.pass} ${title}`]
+	}
 	const reason = reasonFor(record)
 	const why =
 		record.status === 'inconclusive'

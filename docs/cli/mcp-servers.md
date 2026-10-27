@@ -169,9 +169,15 @@ Size is measured in characters at 2.5 characters per token, so the cut-off is `w
 
 The case this exists for is a server with 207 tools, which come to about 792,000 characters. That is more than a 200,000-token window holds, so before tool search the first message failed with "This conversation is too long for the model", which no compaction could fix.
 
+## When servers connect
+
+The interactive session does not wait for tool servers. The composer is ready at once, and the servers are reached in the background, in parallel: servers that start a child process three at a time, remote ones twenty at a time, each still bounded by its own `connectTimeoutMs`. A server that does not answer costs the others nothing. Each server gets one line when it settles: `Tool server tickets · 4 tools`, or `Tool server docs is not available. It did not answer in time.`. Its tools join the session at the next turn; a message sent before then simply does not have them yet. `/mcp` shows `name: connecting…` for a server still being reached. Closing the session while a server is still connecting stops it and its child process.
+
+A headless run (`namzu exec`, `--output-format json`, a scheduled job, the agent protocol server) still waits for every server before its first model call, because nobody is there to read a line that arrives later.
+
 ## When a server does not work
 
-Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number, or a known field such as `args`, `env`, `inheritEnv` or `headers` had the wrong shape. A malformed entry cannot stop a different configured server from connecting or prevent an earlier connection from being closed. What is done about a failure differs by surface. A person in the interactive session sees the line and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
+Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number, or a known field such as `args`, `env`, `inheritEnv` or `headers` had the wrong shape. A malformed entry cannot stop a different configured server from connecting or prevent an earlier connection from being closed. What is done about a failure differs by surface. A person in the interactive session sees the line, in plain words (a timeout reads "It did not answer in time."), and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot `namzu exec` leaves nothing behind.
 

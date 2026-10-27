@@ -1,5 +1,11 @@
 # Documentation update log
 
+## 2026-10-28
+
+- **Update** [MCP servers](cli/mcp-servers.md#when-servers-connect), [Slash commands](cli/slash-commands.md): the interactive session no longer waits for tool servers; they connect in parallel in the background (child-process servers three at a time, remote ones twenty), each is reported in plain words when it settles and its tools join at the next turn, `/mcp` lists the ones still connecting, and headless runs still wait. `.changeset/w2-startup-and-rows.md` (`@namzu/cli` minor).
+- **Update** [Terminal design](cli/terminal-design.md): a pause that mends itself keeps one line however many tries fail, and an automatic try adds no "Continuing where it paused" line. `.changeset/w2-startup-and-rows.md` (`@namzu/cli` minor).
+- **Update** [Slash commands](cli/slash-commands.md): the resume list keeps `ctrl+r rename` in a narrow terminal, `/doctor` says which version is waiting and how to get it, and a command or skill refused for extra text says so plainly without the placeholder name or the full path. `.changeset/w2-startup-and-rows.md` (`@namzu/cli` minor).
+
 ## 2026-10-27
 
 - **Update** [Slash commands](cli/slash-commands.md): `/doctor` rows give a plain reason for each check that needs attention, with the original wording behind the row's details. `.changeset/doctor-plain-rows.md` (`@namzu/cli` patch).

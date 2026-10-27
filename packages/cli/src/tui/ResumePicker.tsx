@@ -153,9 +153,11 @@ export function ResumePicker({
 												{
 													text: scope === 'all' ? 'ctrl+a this folder' : 'ctrl+a all folders',
 													short: 'ctrl+a',
-													rank: 4,
+													rank: 3,
 												},
-												{ text: 'ctrl+r rename', short: 'ctrl+r', rank: 3 },
+												// Outlasts the folder switch in a narrow terminal, and is never
+												// cut down to a bare key: "ctrl+r" alone does not say what it does.
+												{ text: 'ctrl+r rename', short: 'ctrl+r name', rank: 4 },
 											]
 										: []),
 									{ text: 'PgUp/PgDn jump', rank: 1 },
