@@ -103,6 +103,7 @@ import {
 	type TextOnlyModelRefusal,
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
+import { appendRecordedContext } from './recorded-context.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
 import { TurnContextCarry } from './step-context.js'
 import {
@@ -838,6 +839,11 @@ export class IterationOrchestrator {
 								'limit-finalization',
 							)
 						: undefined
+					// What the step asked to have kept in the conversation joins the
+					// history now, after its last message, so this request and every
+					// later one begin with it. Nothing is inserted ahead of a message
+					// that is already recorded.
+					appendRecordedContext(recorder, step.recordedContext, this.ctx.log)
 					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto

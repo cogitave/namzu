@@ -1,5 +1,5 @@
 import { resolveContextWindow } from '../../../compaction/context-window.js'
-import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
+import { estimateMessageTokens, estimateTextTokens } from '../../../compaction/token-estimate.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
 import { PreparationContextError } from '../../../turn/preparation-context-error.js'
@@ -12,6 +12,7 @@ import type { ToolChoice } from '../../../types/provider/chat.js'
 import type {
 	PrepareStepContext,
 	PrepareStepResult,
+	RecordedContextItem,
 	StepResult,
 	StepVeto,
 } from '../../../types/session/index.js'
@@ -20,11 +21,7 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
 import { measureContext } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
-import {
-	type ReplaceableBlock,
-	placeBeforeLatestOperatorMessage,
-	stepContextMessage,
-} from './step-context.js'
+import { type ReplaceableBlock, stepContextMessage } from './step-context.js'
 
 /**
  * How the next request is shaped: admission, preparation, and the context
@@ -55,11 +52,9 @@ export function appendWorkContext(
 	stepNumber: number,
 	prepared: PrepareStepResult,
 ): void {
-	// Per-turn data goes in front of the operator's new message while that is
-	// what the model is answering, like the other blocks of request-only data.
-	placeBeforeLatestOperatorMessage(
-		messages,
-		workContextBlocks(shaping, messages, stepNumber, prepared).map((block) => block.message),
+	// Request-only data goes at the tail, like the other blocks of it.
+	messages.push(
+		...workContextBlocks(shaping, messages, stepNumber, prepared).map((block) => block.message),
 	)
 }
 
@@ -122,7 +117,8 @@ export function stepContext(
 	const preamble = [prepared.system, skills].filter(Boolean).join('\n\n')
 	const preparedTokens =
 		(preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0) +
-		(prepared.context ? estimateMessageTokens(stepContextMessage(prepared.context)) : 0)
+		(prepared.context ? estimateMessageTokens(stepContextMessage(prepared.context)) : 0) +
+		(prepared.recordedContext ?? []).reduce((sum, item) => sum + estimateTextTokens(item.text), 0)
 	const responseReserve = Math.min(
 		prepared.maxResponseTokens ?? ctx.turnConfig.maxResponseTokens ?? Math.floor(window.tokens / 4),
 		Math.floor(window.tokens / 4),
@@ -180,6 +176,7 @@ export async function prepareStep(
 	model?: string
 	system?: string
 	context?: string
+	recordedContext?: readonly RecordedContextItem[]
 	skills?: readonly Skill[]
 	temperature?: number
 	maxResponseTokens?: number
@@ -206,7 +203,16 @@ export async function prepareStep(
 				...stepContext(shaping, stepNumber, result),
 				generateText: inference.generateText,
 			})
-			if (decided) result = { ...result, ...decided }
+			if (decided) {
+				// Recorded context adds up across stages: each stage files its own
+				// keys, and one stage must not erase what an earlier one recorded.
+				const recorded = [...(result.recordedContext ?? []), ...(decided.recordedContext ?? [])]
+				result = {
+					...result,
+					...decided,
+					...(recorded.length > 0 ? { recordedContext: recorded } : {}),
+				}
+			}
 			await selectContextModel(shaping, result.model ?? ctx.turnConfig.model)
 		} catch (err) {
 			// Skipped, and the rest still run: one broken concern must
@@ -242,6 +248,7 @@ export async function prepareStep(
 		model?: string
 		system?: string
 		context?: string
+		recordedContext?: readonly RecordedContextItem[]
 		skills?: readonly Skill[]
 		temperature?: number
 		maxResponseTokens?: number
@@ -279,6 +286,7 @@ export async function prepareStep(
 	if (result.model !== undefined) prepared.model = result.model
 	if (result.system !== undefined) prepared.system = result.system
 	if (result.context !== undefined) prepared.context = result.context
+	if (result.recordedContext !== undefined) prepared.recordedContext = result.recordedContext
 	if (result.skills !== undefined) prepared.skills = result.skills
 	if (result.temperature !== undefined) prepared.temperature = result.temperature
 	if (result.maxResponseTokens !== undefined) {

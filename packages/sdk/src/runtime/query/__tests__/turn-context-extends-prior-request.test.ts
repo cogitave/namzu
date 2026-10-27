@@ -64,7 +64,7 @@ describe('a turn after another begins with what the earlier turn sent', () => {
 	// operator message and is gone on the next turn, so the next request
 	// diverges at the first such block. Kept as a known failure until the
 	// recorded form (turn-context-entries.test.ts) replaces it.
-	it.fails('holds when a step offers request-only context', async () => {
+	it('holds when a step offers request-only context', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ id: 'c1', name: 'look', args: { what: 'x' } }] },

@@ -20,12 +20,11 @@ import {
 } from '../iteration/step-context.js'
 
 /**
- * The data a turn carries (project memory, conversation evidence, the
- * repository snapshot, file evidence) goes before the person's message the
- * first time the model answers it. Every later call of the turn must keep it
- * there, so that the request begins with the whole of the one before it and a
- * caching provider keeps reading the same prefix; data that changed is
- * withdrawn and the new text follows the history of that moment.
+ * The request-only data a turn carries goes after the history of the moment
+ * it first appears. Every later call of the turn must keep it there, so that
+ * the request begins with the whole of the one before it and a caching
+ * provider keeps reading the same prefix; data that changed is withdrawn and
+ * the new text follows the history of that moment.
  */
 
 registerMock()
@@ -89,12 +88,12 @@ describe('per-turn request context across the calls of one turn', () => {
 			expect(shape(request.messages as Message[]).slice(0, before.length)).toEqual(before)
 		}
 
-		// And the person's message is still the edge of the first request.
+		// The data follows the person's message on the first request.
 		const first = provider.requests[0]?.messages as Message[]
-		const last = first.at(-1) as Message
-		expect(text(last)).toBe('the new request')
-		expect(first.some((m) => text(m).includes('SNAPSHOT TEXT'))).toBe(true)
-		expect(first.some((m) => text(m).includes('EVIDENCE TEXT'))).toBe(true)
+		const asked = first.findIndex((m) => text(m) === 'the new request')
+		expect(asked).toBeGreaterThan(0)
+		expect(first.findIndex((m) => text(m).includes('SNAPSHOT TEXT'))).toBeGreaterThan(asked)
+		expect(first.findIndex((m) => text(m).includes('EVIDENCE TEXT'))).toBeGreaterThan(asked)
 	})
 
 	it('sends an unchanged block once per request, not again after the history', async () => {
@@ -160,16 +159,16 @@ describe('TurnContextCarry', () => {
 		const one = [...first]
 		carry.place(one, first, ask, [block('A'), block('B')])
 		expect(one.map(text)).toEqual([
+			'ask',
 			expect.stringContaining('A'),
 			expect.stringContaining('B'),
-			'ask',
 		])
 
 		const reply = assistant('reply')
 		const second = [ask, reply]
 		const two = [...second]
 		carry.place(two, second, reply, [block('A')])
-		expect(two.map(text)).toEqual([expect.stringContaining('A'), 'ask', 'reply'])
+		expect(two.map(text)).toEqual(['ask', expect.stringContaining('A'), 'reply'])
 	})
 
 	it('follows the history for a block that first appears after the operator was answered', () => {
@@ -198,15 +197,15 @@ describe('TurnContextCarry', () => {
 		const ask = user('ask')
 		const one = [ask]
 		carry.place(one, [ask], ask, [], [{ key: 'files', message: block('FILES v1') }])
-		expect(one.map(text)).toEqual([expect.stringContaining('FILES v1'), 'ask'])
+		expect(one.map(text)).toEqual(['ask', expect.stringContaining('FILES v1')])
 
 		const reply = assistant('reply')
 		const history = [ask, reply]
 		const two = [...history]
 		carry.place(two, history, reply, [], [{ key: 'files', message: block('FILES v2') }])
 		expect(two.map(text)).toEqual([
-			expect.stringContaining('FILES v1'),
 			'ask',
+			expect.stringContaining('FILES v1'),
 			'reply',
 			expect.stringContaining('FILES v2'),
 		])
@@ -228,8 +227,8 @@ describe('TurnContextCarry', () => {
 		const two = [...history]
 		carry.place(two, history, reply, [], [], gone)
 		expect(two.map(text)).toEqual([
-			expect.stringContaining('FILES v1'),
 			'ask',
+			expect.stringContaining('FILES v1'),
 			'reply',
 			expect.stringContaining('NOTHING HOLDS'),
 		])

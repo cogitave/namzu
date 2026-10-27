@@ -1,6 +1,5 @@
 import { createRuntimeContextMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
-import { isOperatorUserMessage } from '../steering.js'
 
 /**
  * Request-only context, as the model reads it: a runtime-context user
@@ -18,51 +17,14 @@ export function stepContextMessage(content: string) {
 	)
 }
 
-/**
- * Put `blocks` in front of the operator's new message when that message is
- * what the model is about to answer, so the request is the last thing it
- * reads and the longest data comes before it. Only the reminders and other
- * request-only context may follow that message: once the turn has an
- * assistant or tool message after it, the blocks stay at the end of the
- * history, where a caching driver ends its breakpoint before them, so the
- * tool loop of a long turn is not re-read at full price on every step.
- *
- * Reminders and notices that follow the operator's message stay where they
- * are: they are short, and the edge after the request is where they are read.
- */
-export function placeBeforeLatestOperatorMessage(history: Message[], blocks: readonly Message[]) {
-	if (blocks.length === 0) return
-	let at = history.length
-	for (let i = history.length - 1; i >= 0; i--) {
-		const message = history[i] as Message
-		if (isOperatorUserMessage(message)) {
-			at = i
-			break
-		}
-		// A reply or a tool result after the message: the model has moved on.
-		if (message.role === 'assistant' || message.role === 'tool') break
-	}
-	history.splice(at, 0, ...blocks)
-}
-
 interface PlacedBlock {
 	readonly text: string
-	/** The operator message this block precedes, or the history message it follows. */
-	at: { readonly before: Message } | { readonly after: Message | undefined }
+	/** The history message this block follows; `undefined` for the start of the history. */
+	after: Message | undefined
 }
 
 function textOf(message: Message): string {
 	return typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-}
-
-/** The operator message the model is about to answer, when there is one. */
-function pendingOperatorMessage(history: readonly Message[]): Message | undefined {
-	for (let i = history.length - 1; i >= 0; i--) {
-		const message = history[i] as Message
-		if (isOperatorUserMessage(message)) return message
-		if (message.role === 'assistant' || message.role === 'tool') return undefined
-	}
-	return undefined
 }
 
 /** A block whose own text says that a later one replaces it, under the name of what it reports. */
@@ -81,14 +43,18 @@ interface VersionedBlock extends PlacedBlock {
 /**
  * Where a turn's request-only data sits, so it stays put from call to call.
  *
+ * Request-only data is what the model needs for this request alone (a note
+ * that something is unavailable, the running work). It
+ * always goes at the tail of the history of the moment it first appears, never
+ * ahead of the operator's message, and nothing about it is recorded. What a
+ * step wants the model to keep reading in later requests is recorded as turn
+ * context instead (`PrepareStepResult.recordedContext`).
+ *
  * What a block says is the step's own business: a block it offers again with
  * the same text is the same block, and it keeps the place it first had; a
- * block it no longer offers is withdrawn, so corrected data never lingers.
- * A block seen for the first time goes before the operator's message when that
- * message is what the model is answering, and otherwise after the history of
- * that moment. So the requests of a turn share their opening up to the first
- * block that changed, and a caching driver keeps reading the same prefix
- * instead of re-reading the turn from the operator's message on.
+ * block it no longer offers is withdrawn, so corrected data never lingers. So
+ * the requests of a turn share their opening up to the first block that
+ * changed.
  *
  * A block that says of itself that a later one replaces it (the file
  * evidence) is never taken back. When its text changes, the earlier text stays
@@ -122,10 +88,7 @@ export class TurnContextCarry {
 	): void {
 		const index = (message: Message | undefined) =>
 			message ? history.lastIndexOf(message) : history.length - 1
-		const operator = pendingOperatorMessage(history)
-		const positionOf = (slot: PlacedBlock) =>
-			'before' in slot.at ? index(slot.at.before) : index(slot.at.after) + 1
-		const anchorOf = (slot: PlacedBlock) => ('before' in slot.at ? slot.at.before : slot.at.after)
+		const positionOf = (slot: PlacedBlock) => index(slot.after) + 1
 		const next = new Map<string, PlacedBlock>()
 		const inserts: { at: number; message: Message }[] = []
 		for (const message of blocks) {
@@ -133,10 +96,9 @@ export class TurnContextCarry {
 			if (next.has(text)) continue
 			let slot: PlacedBlock | undefined = this.placed.get(text)
 			if (slot) {
-				const anchor = anchorOf(slot)
-				if (anchor && index(anchor) < 0) slot = { text, at: { after: end } }
+				if (slot.after && index(slot.after) < 0) slot = { text, after: end }
 			} else {
-				slot = { text, at: operator ? { before: operator } : { after: end } }
+				slot = { text, after: end }
 			}
 			next.set(text, slot)
 			inserts.push({ at: positionOf(slot), message })
@@ -149,28 +111,20 @@ export class TurnContextCarry {
 			const wanted = offered.get(key) ?? retractions[key]
 			const last = held.at(-1)
 			if (wanted !== undefined && (last === undefined || last.text !== textOf(wanted)))
-				held.push({
-					text: textOf(wanted),
-					message: wanted,
-					// The first version goes where the other blocks go; a later one
-					// follows the history, after the one it replaces.
-					at: last === undefined && operator ? { before: operator } : { after: end },
-				})
+				held.push({ text: textOf(wanted), message: wanted, after: end })
 			// An earlier version whose place a compaction rewrote is given up: the
 			// request is rewritten at that point anyway, and stacking stale copies
 			// at the end would only add bulk. The latest version is never given up.
 			const kept = held.filter((version, i) => {
 				if (i === held.length - 1) return true
-				const anchor = anchorOf(version)
-				return !anchor || index(anchor) >= 0
+				return !version.after || index(version.after) >= 0
 			})
 			// Only the latest and a few earlier versions are carried, so a long turn
 			// does not grow by a full copy per change.
 			kept.splice(0, Math.max(0, kept.length - (EARLIER_VERSIONS_KEPT + 1)))
 			this.versions.set(key, kept)
 			for (const version of kept) {
-				const anchor = anchorOf(version)
-				if (anchor && index(anchor) < 0) version.at = { after: end }
+				if (version.after && index(version.after) < 0) version.after = end
 				inserts.push({ at: positionOf(version), message: version.message })
 			}
 		}

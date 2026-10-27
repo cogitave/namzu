@@ -710,6 +710,20 @@ export function isTurnContextEntry(message: {
 }
 
 /**
+ * What a step recorded under `key`, oldest first, without each entry's header.
+ * A history that was compacted holds only the entries the compaction kept, so
+ * an empty list means the step may say everything again.
+ */
+export function turnContextEntries(messages: readonly Message[], key: string): readonly string[] {
+	const bodies: string[] = []
+	for (const message of messages) {
+		if (turnContextKey(message) !== key || typeof message.content !== 'string') continue
+		bodies.push(message.content.slice(message.content.indexOf('\n') + 1))
+	}
+	return bodies
+}
+
+/**
  * The text of the newest user-role message with plain text, skipping recorded
  * context entries: a history that ends in one (a resumed session) must not
  * take the host's own recalled text for the question.

@@ -125,12 +125,12 @@ it('carries a whole-file read into the next turn, and withdraws it when the file
 				observedFingerprint: expect.any(String),
 			},
 		])
-		// A new operator message is what the model answers, so the block of this
-		// turn's data sits in front of it and the request stays the last thing read.
+		// A new operator message is what the model answers; the block of this
+		// turn's data follows it, at the tail of the history of that moment.
 		const sent = afterDrift[0] ?? []
 		const askedAt = sent.findIndex((m) => m.content === 'Change beta to gamma')
 		expect(askedAt).toBeGreaterThan(-1)
-		expect(sent.indexOf(evidenceMessage(sent) as Message)).toBeLessThan(askedAt)
+		expect(sent.indexOf(evidenceMessage(sent) as Message)).toBeGreaterThan(askedAt)
 		// Admission is what finds out, and its refusal is what tells the ledger.
 		const refusal = second.messages.find((m) => m.role === 'tool' && m.toolCallId === 'e')
 		expect(refusal?.content).toContain('changed on disk')

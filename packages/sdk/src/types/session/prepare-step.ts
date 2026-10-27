@@ -227,8 +227,34 @@ export interface PrepareStepResult {
 	 */
 	readonly context?: string
 
+	/**
+	 * Text to keep in the conversation from this step on, filed under a key.
+	 *
+	 * Where `context` is gone after the request, an item here becomes a
+	 * recorded entry appended after whatever the history ends with, so every
+	 * later request (of this turn and of the next turns) begins with it and a
+	 * caching provider keeps reading the same prefix. Entries are never edited
+	 * or moved; a step that has something new says only that, under the same
+	 * key, and reads what it said before with `turnContextEntries`. An item
+	 * whose text is empty, or equal to the last entry under its key, adds
+	 * nothing. Entries are ordinary history to compaction, which drops them
+	 * with the messages around them, after which a step sees none and may say
+	 * everything again.
+	 *
+	 * The model reads an entry as recorded context the host generated, not as
+	 * something the operator said, and a person is never shown one.
+	 */
+	readonly recordedContext?: readonly RecordedContextItem[]
+
 	readonly temperature?: number
 	readonly maxResponseTokens?: number
+}
+
+/** One piece of text a step asks to have recorded, under what it reports. */
+export interface RecordedContextItem {
+	/** Lowercase words joined by hyphens (for example `repository`). */
+	readonly key: string
+	readonly text: string
 }
 
 /**
