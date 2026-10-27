@@ -1,3 +1,4 @@
+import { withheldEnvNoticeText } from '../../tools/env-scrub.js'
 import { createRuntimeContextMessage } from '../../types/message/index.js'
 import type { Message, UserMessage } from '../../types/message/index.js'
 import { NOTICE_TAG, frameNotice, readOperatorNotice } from '../../types/message/notice-frame.js'
@@ -6,7 +7,6 @@ import {
 	MONITOR_NOTIFICATION_MAX_CHARS,
 } from '../jobs/monitor-stream.js'
 import { type BackgroundJob, type MonitorEvent, describeMonitorEnd } from '../jobs/registry.js'
-import { withheldEnvNoticeText } from '../../tools/env-scrub.js'
 import { formatSystemEvent, oneMetadataLine } from '../system-events.js'
 
 /** User-role runtime reports are context, not new operator intent. */
