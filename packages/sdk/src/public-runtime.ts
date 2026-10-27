@@ -543,6 +543,9 @@ export {
 	EXPLORE_AGENT_ID,
 	EXPLORE_AGENT_PROMPT,
 	MAX_AGENT_FILE_CHARS,
+	PLAN_AGENT_DESCRIPTION,
+	PLAN_AGENT_ID,
+	PLAN_AGENT_PROMPT,
 	parseAgentFile,
 	parseAgentMarkdown,
 } from './agents/index.js'

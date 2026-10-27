@@ -49,6 +49,9 @@ import {
 	InMemoryTopicStore,
 	type LLMProvider,
 	LocalTaskScheduler,
+	PLAN_AGENT_DESCRIPTION,
+	PLAN_AGENT_ID,
+	PLAN_AGENT_PROMPT,
 	type Project,
 	type ProjectInstructionContext,
 	type ReasoningEffort,
@@ -149,6 +152,29 @@ export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 export const EXPLORE_SUBAGENT = EXPLORE_AGENT_ID
 
 export const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_CHILD_WORKING_DOCTRINE].join('\n')
+
+/**
+ * The read-only planner: the explore roster under a planning brief that asks
+ * for a step plan with files and risks.
+ */
+export const PLAN_SUBAGENT = PLAN_AGENT_ID
+
+export const PLAN_PROMPT = [PLAN_AGENT_PROMPT, '', NAMZU_CHILD_WORKING_DOCTRINE].join('\n')
+
+/** The built-in types that carry the read-only roster, with the prompt each one starts from. */
+const READ_ONLY_PROMPTS: ReadonlyMap<string, string> = new Map([
+	[EXPLORE_SUBAGENT, EXPLORE_PROMPT],
+	[PLAN_SUBAGENT, PLAN_PROMPT],
+])
+
+/** The parent's tools cut to those that declare themselves read-only. */
+function readOnlyRoster(opts: Pick<SubagentRuntimeOptions, 'buildTools'>): readonly Toolset[] {
+	return opts
+		.buildTools()
+		.map((ts) =>
+			filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+		)
+}
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
@@ -519,11 +545,11 @@ export interface SubagentRuntime {
 	 * Whether this `Agent` input starts a child that can only read, on the
 	 * session's own provider and model.
 	 *
-	 * True for `subagent_type: "explore"` and for a file-defined agent whose
+	 * True for `subagent_type: "explore"` or `"plan"` and for a file-defined agent whose
 	 * file says `readOnly: true`, and only while the launch names no
 	 * `provider`, no `effort` and no `model` other than the one the child
 	 * would inherit anyway, and the file names no other model either. A
-	 * project file that reuses the name `explore` is judged by its own
+	 * project file that reuses the name `explore` or `plan` is judged by its own
 	 * `readOnly`, since that file is what the launch would start.
 	 *
 	 * The host reads this to decide whether the launch itself is asked about;
@@ -626,11 +652,12 @@ export async function createSubagentRuntime(
 	)
 	registry.register(
 		buildDefinition(EXPLORE_SUBAGENT, EXPLORE_AGENT_DESCRIPTION, EXPLORE_PROMPT, opts, () =>
-			opts
-				.buildTools()
-				.map((ts) =>
-					filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
-				),
+			readOnlyRoster(opts),
+		),
+	)
+	registry.register(
+		buildDefinition(PLAN_SUBAGENT, PLAN_AGENT_DESCRIPTION, PLAN_PROMPT, opts, () =>
+			readOnlyRoster(opts),
 		),
 	)
 	// Agents a project or user defined in a file, each a type of its own.
@@ -661,7 +688,10 @@ export async function createSubagentRuntime(
 			),
 		)
 	}
-	const agentTypeIds = [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT, ...fileAgents.keys()]
+	// A file agent named like a built-in replaces it, so the name is listed once.
+	const agentTypeIds = [
+		...new Set([GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT, PLAN_SUBAGENT, ...fileAgents.keys()]),
+	]
 	const fileAgentSummary = [...fileAgents.values()]
 		.map((definition) => `"${definition.name}" — ${definition.description}`)
 		.join('; ')
@@ -1306,7 +1336,11 @@ export async function createSubagentRuntime(
 		} = input
 		if (!requestedModel && (requestedProvider || requestedEffort))
 			throw new Error('Supply model when selecting a child provider or effort.')
-		const explore = subagent_type === EXPLORE_SUBAGENT
+		// Which built-in read-only type this launch names, if any.
+		const readOnlyType =
+			subagent_type !== undefined && READ_ONLY_PROMPTS.has(subagent_type)
+				? subagent_type
+				: undefined
 		const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
 		// The model the invoking turn runs on: the session's, unless the turn
 		// was resumed on another (a scheduled job's), whose children inherit
@@ -1343,7 +1377,7 @@ export async function createSubagentRuntime(
 				fileAgent?.model === undefined
 				? inherited
 				: undefined
-		let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
+		let agentId = fileAgent?.name ?? readOnlyType ?? GENERAL_PURPOSE_SUBAGENT
 		const persona = typeof role === 'string' ? role.trim() : ''
 		const dynamic = persona.length > 0 || selection !== undefined
 		if (dynamic) {
@@ -1354,7 +1388,7 @@ export async function createSubagentRuntime(
 			// file's prompt rather than replacing it.
 			agentId = registerSpecialist({
 				fileAgent,
-				explore,
+				readOnlyType,
 				persona,
 				selection,
 				model: selection?.model ?? fileAgent?.model ?? parentModel,
@@ -1471,7 +1505,7 @@ export async function createSubagentRuntime(
 					...(persona.length === 0
 						? {
 								continuationProfile: {
-									agent: fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT),
+									agent: fileAgent?.name ?? readOnlyType ?? GENERAL_PURPOSE_SUBAGENT,
 									// The short name the operator saw, so a later run shows the same one.
 									...(savedDescription(description)
 										? { description: savedDescription(description) }
@@ -1543,12 +1577,12 @@ export async function createSubagentRuntime(
 	 */
 	const registerSpecialist = (input: {
 		readonly fileAgent: AgentFileDefinition | undefined
-		readonly explore: boolean
+		readonly readOnlyType: string | undefined
 		readonly persona: string
 		readonly selection: DelegatedModel | undefined
 		readonly model: string
 	}): string => {
-		const { fileAgent, explore, persona, selection } = input
+		const { fileAgent, readOnlyType, persona, selection } = input
 		const id = `dyn-${++dynCounter}`
 		registry.register(
 			buildDefinition(
@@ -1556,19 +1590,15 @@ export async function createSubagentRuntime(
 				`Dynamic specialist: ${id}`,
 				fileAgent
 					? `${fileAgent.prompt}\n\n${persona}`
-					: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
+					: persona ||
+							(readOnlyType !== undefined
+								? (READ_ONLY_PROMPTS.get(readOnlyType) ?? SUBAGENT_PROMPT)
+								: SUBAGENT_PROMPT),
 				opts,
 				fileAgent
 					? fileAgentTools(fileAgent, opts)
-					: explore
-						? () =>
-								opts
-									.buildTools()
-									.map((ts) =>
-										filtered(ts, (tool) =>
-											isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
-										),
-									)
+					: readOnlyType !== undefined
+						? () => readOnlyRoster(opts)
 						: opts.buildTools,
 				input.model,
 				selection,
@@ -1586,10 +1616,11 @@ export async function createSubagentRuntime(
 				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
 				: 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
+			'Pick `subagent_type: "plan"` when you need a design before changing code — it reads the code the same way and returns a step plan with the files to change and the risks, and cannot edit anything.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Set `workspace: "worktree"` when the child needs its own Git checkout. It starts from this checkout\'s committed HEAD; uncommitted parent changes are absent. The checkout and its edits remain after the child ends, so report its path and branch to the operator.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
-			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` the role keeps the read-only roster.',
+			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` or `"plan"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
 			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
 			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution and start by themselves, so launch each once.",
@@ -1627,7 +1658,7 @@ export async function createSubagentRuntime(
 				subagent_type: {
 					type: 'string',
 					enum: agentTypeIds,
-					description: `"explore" for read-only lookups (find, search, explain); "general-purpose" (default) when the task changes files or runs commands.${
+					description: `"explore" for read-only lookups (find, search, explain); "plan" for a read-only step plan before a change; "general-purpose" (default) when the task changes files or runs commands.${
 						fileAgentSummary.length > 0
 							? ` This project also defines: ${fileAgentSummary}. Prefer a project-defined type when its description fits the task.`
 							: ''
@@ -2073,7 +2104,7 @@ export async function createSubagentRuntime(
 						const fileAgent = fileAgents.get(base)
 						const id = registerSpecialist({
 							fileAgent,
-							explore: base === EXPLORE_SUBAGENT,
+							readOnlyType: READ_ONLY_PROMPTS.has(base) ? base : undefined,
 							persona: '',
 							selection: {
 								provider: profile.provider,
@@ -2783,7 +2814,7 @@ export async function createSubagentRuntime(
 			if (typeof type !== 'string') return false
 			const fileAgent = fileAgents.get(type)
 			if (fileAgent) return fileAgent.readOnly && inherits(fileAgent.model)
-			return type === EXPLORE_SUBAGENT
+			return READ_ONLY_PROMPTS.has(type)
 		},
 		activity,
 		launchWorkflowAgent,

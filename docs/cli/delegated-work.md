@@ -15,7 +15,7 @@ provider, tools and policy for each launch. The SDK's deprecated
 `ReactiveAgent` name is not the CLI's agent taxonomy.
 
 When the parent mounts independent `web_search` (Exa), delegated agents receive
-the same search tool, including read-only `explore` agents. Each call owns its
+the same search tool, including the read-only `explore` and `plan` agents. Each call owns its
 connection and cancellation. Search remains subject to the parent’s authorization
 rules. This does not enable search when it is off or substitute live Exa search
 for an explicitly native/cached-only configuration.
@@ -25,6 +25,21 @@ the session rereads the selected credential owner. File-backed OAuth credentials
 are renewed when needed, with concurrent renewals serialized; borrowed keychain
 credentials remain owner-refreshed. A removed or still-expired credential stops
 client construction instead of reusing the token captured at startup.
+
+## Built-in agent types
+
+The `Agent` tool offers three built-in types beside any agent files:
+
+| Type | Tools | Returns |
+|---|---|---|
+| `general-purpose` (default) | the parent's working set | the result of the task |
+| `explore` | reading and searching tools only | an answer with paths and line numbers |
+| `plan` | the same reading and searching tools | a step plan: the approach, numbered steps naming the files they change, the files to read first, and the risks and open questions |
+
+`plan` is for the moment a design is wanted before code changes, without spending
+the parent's context on exploration. It cannot edit, write or run commands. An
+agent file named `plan` replaces the built-in of that name. Plan mode itself is
+unchanged; see [Plan mode](plan-mode.md).
 
 In the terminal the `Agent` tool runs in the background by default: it returns
 the task UUID after launch and the model carries on, and it is told it will be
@@ -120,9 +135,9 @@ In `prompt` mode (the default with a person at the terminal) an `Agent` call
 that starts a **read-only child on the session's own provider and model**
 starts without the "Start an agent" review. That is:
 
-- `subagent_type: "explore"`, or a project or user agent file with
-  `readOnly: true` (a file that reuses the name `explore` is judged by its own
-  `readOnly`);
+- `subagent_type: "explore"` or `"plan"`, or a project or user agent file with
+  `readOnly: true` (a file that reuses the name `explore` or `plan` is judged by
+  its own `readOnly`);
 - with no `provider`, no `effort`, and no `model` other than the session's own;
   and, for an agent file, no `model` in the file other than the session's own.
 

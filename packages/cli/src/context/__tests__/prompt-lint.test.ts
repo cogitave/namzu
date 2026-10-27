@@ -14,7 +14,11 @@ import { createRuntimeContextMessage, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
-import { EXPLORE_PROMPT, SUBAGENT_PROMPT } from '../../integrations/subagents/runtime.js'
+import {
+	EXPLORE_PROMPT,
+	PLAN_PROMPT,
+	SUBAGENT_PROMPT,
+} from '../../integrations/subagents/runtime.js'
 import { WORKFLOW_DOCTRINE } from '../../integrations/workflows/doctrine.js'
 import { WORKFLOW_TOOL_NAME } from '../../integrations/workflows/offering.js'
 import { EXIT_PLAN_MODE_TOOL_NAME } from '../../plan/approval.js'
@@ -125,6 +129,7 @@ function assembled(): ReadonlyArray<readonly [string, string]> {
 		out.push([`plan (reply) ${i}`, join([...common, NAMZU_PLAN_MODE_DOCTRINE, env])])
 		out.push([`sub-agent ${i}`, join([SUBAGENT_PROMPT, env])])
 		out.push([`explore ${i}`, join([EXPLORE_PROMPT, env])])
+		out.push([`planner ${i}`, join([PLAN_PROMPT, env])])
 	}
 	out.push(['foreground shell description', FOREGROUND_BASH_DESCRIPTION])
 	return out
