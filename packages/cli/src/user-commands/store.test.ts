@@ -134,13 +134,24 @@ describe('expandCommand', () => {
 		// somewhere would be guessing where the author wanted them.
 		const r = expandCommand(cmd('Summarise the diff.'), 'src/foo.ts')
 		expect(r.ok).toBe(false)
-		expect(!r.ok && r.reason).toContain('takes no arguments')
+		expect(!r.ok && r.reason).toContain('does not take extra text')
 	})
 
-	it('names the file and the exact fix when it refuses', () => {
+	it('names the file and the way out in plain words, without the placeholder or the path', () => {
 		const r = expandCommand(cmd('static'), 'oops')
-		expect(!r.ok && r.reason).toContain('$ARGUMENTS')
-		expect(!r.ok && r.reason).toContain('/p/demo.md')
+		const reason = !r.ok ? r.reason : ''
+		expect(reason).toContain('“oops” was not used')
+		expect(reason).toContain('Run /demo on its own, or edit demo.md')
+		expect(reason).not.toContain('$ARGUMENTS')
+		expect(reason).not.toContain('/p/')
+	})
+
+	it('names a skill by its folder, since every skill file is called SKILL.md', () => {
+		const r = expandCommand(
+			{ ...cmd('static'), path: '/home/a/.namzu/skills/review/SKILL.md' },
+			'x',
+		)
+		expect(!r.ok && r.reason).toContain('edit review/SKILL.md')
 	})
 
 	it('refuses a command that could not be read', () => {
