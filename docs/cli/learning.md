@@ -63,7 +63,7 @@ because free text cannot be masked reliably. Only failures count: a turn that
 hit a limit, timed out, was refused or errored. Your own cancel, a rejected
 plan, a stop you asked for, a plain approval pause and successful turns record
 nothing. It never holds your prompt, the model's answer or a tool's output;
-the details stay in the conversation's own log, which the reference points to.
+the details stay in the conversation's own log, which each observation points to.
 Each is marked usage-incomplete, so none can start an
 experiment by itself. Successful turns record nothing.
 
