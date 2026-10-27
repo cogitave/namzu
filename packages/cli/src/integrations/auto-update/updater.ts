@@ -106,6 +106,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				release: {
 					version: recorded.version,
 					...(recorded.integrity ? { integrity: recorded.integrity } : {}),
+					...(recorded.tarball ? { tarball: recorded.tarball } : {}),
 				},
 				fresh: false,
 			}
@@ -117,6 +118,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				channel,
 				version: release.version,
 				...(release.integrity ? { integrity: release.integrity } : {}),
+				...(release.tarball ? { tarball: release.tarball } : {}),
 			}
 			writeCheck(deps.home, record, deps.applyDeps.pid)
 			return { release, fresh: true }

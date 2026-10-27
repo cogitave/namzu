@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -14,6 +14,7 @@ import {
 	pnpmInstallArgs,
 	repairInterruptedUpdate,
 	scopeOf,
+	tarballPath,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
@@ -62,6 +63,10 @@ function deps(over: Partial<ApplyDeps> = {}, install: ApplyDeps['install'] = npm
 			writePackage(root, '2.0.0')
 			return 0
 		},
+		fetchTarball: async (_release, file) => {
+			mkdirSync(dirname(file), { recursive: true })
+			writeFileSync(file, 'checked tarball')
+		},
 		pid: 4242,
 		isAlive: () => true,
 		...over,
@@ -96,7 +101,9 @@ describe('applying an update to an npm global installation', () => {
 		expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
 		expect(requests).toHaveLength(1)
 		expect(requests[0]).toMatchObject({ executable: 'npm', cwd: prefix })
-		expect(requests[0]?.args).toEqual(npmInstallArgs(prefix, '2.0.0'))
+		expect(requests[0]?.args).toEqual(
+			npmInstallArgs(prefix, '2.0.0', undefined, tarballPath(home, scope(), '2.0.0')),
+		)
 		expect(readInstalledVersion(root)).toBe('2.0.0')
 		expect(readFileSync(join(previousDir(home, '1.0.0', scope()), 'marker.txt'), 'utf8')).toBe(
 			'1.0.0',
@@ -248,6 +255,7 @@ describe('applying an update to an npm global installation', () => {
 describe('applying an update to a pnpm global installation', () => {
 	const globalDir = () => join(dir, 'pnpm', 'global', '5')
 	const active = () => join(globalDir(), 'node_modules', '@namzu', 'cli')
+	const pnpmScope = () => scopeOf(pnpm(), 'linux')
 	const pnpm = (): Extract<InstallKind, { kind: 'pnpm-global' }> => ({
 		kind: 'pnpm-global',
 		root: join(globalDir(), '.pnpm', '@namzu+cli@1.0.0', 'node_modules', '@namzu', 'cli'),
@@ -273,7 +281,9 @@ describe('applying an update to a pnpm global installation', () => {
 		)
 		expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
 		expect(requests[0]).toMatchObject({ executable: 'pnpm', cwd: globalDir() })
-		expect(requests[0]?.args).toEqual(pnpmInstallArgs('2.0.0'))
+		expect(requests[0]?.args).toEqual(
+			pnpmInstallArgs('2.0.0', undefined, tarballPath(home, pnpmScope(), '2.0.0')),
+		)
 	})
 
 	it('installs the previous version again when the new one does not start', async () => {
@@ -285,7 +295,7 @@ describe('applying an update to a pnpm global installation', () => {
 					smokeTest: async () => false,
 					runInstaller: async (request) => {
 						requests.push(request)
-						writePackage(active(), request.args.at(-1)?.endsWith('@2.0.0') ? '2.0.0' : '1.0.0')
+						writePackage(active(), request.args.at(-1)?.includes('2.0.0') ? '2.0.0' : '1.0.0')
 						return 0
 					},
 				},
@@ -294,7 +304,10 @@ describe('applying an update to a pnpm global installation', () => {
 			release,
 		)
 		expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
-		expect(requests.map((r) => r.args.at(-1))).toEqual(['@namzu/cli@2.0.0', '@namzu/cli@1.0.0'])
+		expect(requests.map((r) => r.args.at(-1))).toEqual([
+			tarballPath(home, pnpmScope(), '2.0.0'),
+			'@namzu/cli@1.0.0',
+		])
 	})
 })
 

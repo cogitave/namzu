@@ -13,6 +13,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { compareVersions } from '../updates.js'
+import { DownloadError, downloadVerifiedTarball } from './download.js'
 import type { InstallKind } from './install-kind.js'
 import {
 	LOCK_STALE_MS,
@@ -107,18 +108,39 @@ export interface ApplyDeps {
 	readonly now?: () => number
 	readonly isAlive?: (pid: number) => boolean
 	readonly installTimeoutMs?: number
+	/**
+	 * Put the release tarball at `file`, checked against the release's digest;
+	 * throws a {@link DownloadError} when it cannot be fetched or does not match.
+	 * Left out, it is downloaded from the registry the release came from.
+	 */
+	readonly fetchTarball?: (release: Release, file: string) => Promise<void>
 }
 
 export interface Release {
 	readonly version: string
 	readonly integrity?: string | undefined
+	/** The registry's address for the tarball. */
+	readonly tarball?: string | undefined
 }
 
-/** The arguments that put exactly `version` into an npm global prefix. */
+/** Where the verified tarball of a release is kept while it is installed. */
+export function tarballPath(home: string, scope: string, version: string): string {
+	return join(updatesDir(home), 'download', `namzu-cli-${version}-${scope}.tgz`)
+}
+
+/**
+ * The arguments that put one version into an npm global prefix. With a checked
+ * tarball the package manager installs that file, so what it unpacks is what was
+ * checked; the registry settings then only apply to the package's own
+ * dependencies, and the `@namzu` scope is pinned to the registry the release came
+ * from. Without one it asks the registry for the exact version (going back to a
+ * version the machine already has).
+ */
 export function npmInstallArgs(
 	prefix: string,
 	version: string,
 	registry = PUBLIC_REGISTRY,
+	tarball?: string,
 ): string[] {
 	return [
 		'install',
@@ -129,12 +151,17 @@ export function npmInstallArgs(
 		'--no-audit',
 		'--registry',
 		registry,
-		`@namzu/cli@${version}`,
+		...(tarball ? [`--@namzu:registry=${registry}`] : []),
+		tarball ?? `@namzu/cli@${version}`,
 	]
 }
 
-export function pnpmInstallArgs(version: string, registry = PUBLIC_REGISTRY): string[] {
-	return ['add', '--global', '--registry', registry, `@namzu/cli@${version}`]
+export function pnpmInstallArgs(
+	version: string,
+	registry = PUBLIC_REGISTRY,
+	tarball?: string,
+): string[] {
+	return ['add', '--global', '--registry', registry, tarball ?? `@namzu/cli@${version}`]
 }
 
 /** The exact command a person can run when Namzu may not do it for them. */
@@ -311,13 +338,57 @@ async function applyLocked(
 	release: Release,
 	onDisk: string,
 ): Promise<ApplyResult> {
+	const registry = deps.registry ?? PUBLIC_REGISTRY
+	const scope = scopeOf(deps.install, deps.platform)
+	const logFile = installLogPath(deps.home, scope)
+
+	// Fetch and check the release before anything on disk is touched: a download that
+	// fails or does not match costs nothing to undo.
+	const tarball = tarballPath(deps.home, scope, release.version)
+	try {
+		await (deps.fetchTarball ?? fetchFromRegistry(registry))(release, tarball)
+	} catch (error) {
+		rmSync(tarball, { force: true })
+		const code = error instanceof DownloadError ? error.code : 'network'
+		return fail(code, true)
+	}
+	try {
+		return await installFromTarball(deps, release, onDisk, tarball, scope, logFile)
+	} finally {
+		rmSync(tarball, { force: true })
+	}
+}
+
+/** The default way to get a verified tarball: from the registry the release was learned from. */
+export function fetchFromRegistry(
+	registry: string,
+): (release: Release, file: string) => Promise<void> {
+	return async (release, file) => {
+		if (!release.integrity || !release.tarball) {
+			throw new DownloadError('unverifiable', 'the registry gave no checksum or address')
+		}
+		await downloadVerifiedTarball({
+			url: release.tarball,
+			integrity: release.integrity,
+			registry,
+			destination: file,
+		})
+	}
+}
+
+async function installFromTarball(
+	deps: ApplyDeps,
+	release: Release,
+	onDisk: string,
+	tarball: string,
+	scope: string,
+	logFile: string,
+): Promise<ApplyResult> {
 	const { install } = deps
 	const registry = deps.registry ?? PUBLIC_REGISTRY
 	let backup: string | undefined
 	const pid = deps.pid ?? process.pid
 	const at = (deps.now ?? Date.now)()
-	const scope = scopeOf(install, deps.platform)
-	const logFile = installLogPath(deps.home, scope)
 	try {
 		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
@@ -382,7 +453,7 @@ async function applyLocked(
 			install.kind === 'npm-global'
 				? {
 						executable: deps.platform === 'win32' ? 'npm.cmd' : 'npm',
-						args: npmInstallArgs(install.prefix, release.version, registry),
+						args: npmInstallArgs(install.prefix, release.version, registry, tarball),
 						cwd: install.prefix,
 						onOutput: (text) => {
 							output = (output + text).slice(-16_384)
@@ -393,7 +464,7 @@ async function applyLocked(
 					}
 				: {
 						executable: 'pnpm',
-						args: pnpmInstallArgs(release.version, registry),
+						args: pnpmInstallArgs(release.version, registry, tarball),
 						cwd: install.globalDir,
 						onOutput: (text) => {
 							output = (output + text).slice(-16_384)

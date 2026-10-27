@@ -96,6 +96,8 @@ export interface NamzuRelease {
 	readonly version: string
 	/** The registry's `sha512-…` digest of the tarball, when it gave one. */
 	readonly integrity?: string
+	/** Where the registry says the tarball is. Only ever fetched from the registry's own origin. */
+	readonly tarball?: string
 }
 
 const PUBLIC_REGISTRY = 'https://registry.npmjs.org'
@@ -123,7 +125,7 @@ export async function fetchNamzuRelease(
 		if (!res.ok) throw new Error(`npm registry returned HTTP ${res.status}`)
 		const data = (await withSignal(res.json(), controller.signal)) as {
 			version?: unknown
-			dist?: { integrity?: unknown }
+			dist?: { integrity?: unknown; tarball?: unknown }
 		}
 		if (typeof data.version !== 'string' || parseVersion(data.version) === null) {
 			throw new Error('npm registry returned an invalid @namzu/cli version')
@@ -133,7 +135,12 @@ export async function fetchNamzuRelease(
 			/^sha512-[A-Za-z0-9+/]+=*$/.test(data.dist.integrity)
 				? data.dist.integrity
 				: undefined
-		return { version: data.version.replace(/^v/, ''), ...(integrity ? { integrity } : {}) }
+		const tarball = typeof data.dist?.tarball === 'string' ? data.dist.tarball : undefined
+		return {
+			version: data.version.replace(/^v/, ''),
+			...(integrity ? { integrity } : {}),
+			...(tarball ? { tarball } : {}),
+		}
 	} finally {
 		clearTimeout(timer)
 	}

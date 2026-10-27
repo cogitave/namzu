@@ -8,7 +8,17 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+	chmodSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs'
 import { type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -161,6 +171,12 @@ async function installVersion(version: string): Promise<void> {
 	expect(code).toBe(0)
 }
 
+/** What is left in the download folder of this test's update folder. */
+function downloaded(): string[] {
+	const dir = join(home, 'updates', 'download')
+	return existsSync(dir) ? readdirSync(dir) : []
+}
+
 function applyDeps(over: Partial<ApplyDeps> = {}): ApplyDeps {
 	const install = classifyInstall({ packageRoot: root, platform: process.platform })
 	if (install.kind !== 'npm-global') throw new Error(`unexpected layout ${install.kind}`)
@@ -202,7 +218,11 @@ beforeEach(async () => {
 describe('the registry answer', () => {
 	it('names the version a channel points at and its checksum', async () => {
 		const latest = await fetchNamzuRelease({ registry })
-		expect(latest).toEqual({ version: '2.0.0', integrity: fixtures.get('2.0.0')?.integrity })
+		expect(latest).toEqual({
+			version: '2.0.0',
+			integrity: fixtures.get('2.0.0')?.integrity,
+			tarball: `${registry}/tarballs/2.0.0.tgz`,
+		})
 		const stable = await fetchNamzuRelease({ registry, channel: 'stable' })
 		expect(stable.version).toBe('1.5.0')
 	})
@@ -244,8 +264,12 @@ describe('updating through a real package manager', () => {
 		async () => {
 			lies.set('2.0.0', `sha512-${createHash('sha512').update('something else').digest('base64')}`)
 			const release = await fetchNamzuRelease({ registry })
-			const result = await applyUpdate(applyDeps(), release)
+			const run = vi.fn(async () => 0)
+			const result = await applyUpdate(applyDeps({ runInstaller: run }), release)
 			expect(result).toMatchObject({ status: 'failed', code: 'integrity', restored: true })
+			// The package manager never ran, and no half-trusted file is left behind.
+			expect(run).not.toHaveBeenCalled()
+			expect(downloaded()).toEqual([])
 			expect(readInstalledVersion(root)).toBe('1.0.0')
 			expect(
 				execFileSync(process.execPath, [join(root, 'dist', 'bin.js'), '--version'], {
@@ -257,23 +281,52 @@ describe('updating through a real package manager', () => {
 	)
 
 	it(
-		'catches a registry that answers with another version’s files and puts the old one back',
+		'refuses a registry that serves another version’s files under this version’s checksum',
 		async () => {
-			// Warm the package manager's cache with 1.5.0 so the lying digest finds real, wrong content.
-			const scratch = join(work, 'warm', `${Date.now()}`)
-			mkdirSync(scratch, { recursive: true })
-			await runNpmUpgrade({
-				executable: 'npm',
-				args: npmInstallArgs(scratch, '1.5.0', registry),
-				prefix: scratch,
-				onOutput: () => undefined,
-				background: true,
-			})
+			// The packument claims 1.5.0’s digest for 2.0.0, as a substituted answer would.
 			lies.set('2.0.0', fixtures.get('1.5.0')?.integrity ?? '')
 			const release = await fetchNamzuRelease({ registry })
-			const result = await applyUpdate(applyDeps(), release)
-			expect(result).toMatchObject({ status: 'failed', code: 'verify_failed', restored: true })
+			const run = vi.fn(async () => 0)
+			const result = await applyUpdate(applyDeps({ runInstaller: run }), release)
+			expect(result).toMatchObject({ status: 'failed', code: 'integrity', restored: true })
+			expect(run).not.toHaveBeenCalled()
 			expect(readInstalledVersion(root)).toBe('1.0.0')
+		},
+		TIMEOUT,
+	)
+
+	it(
+		'installs the file it checked, whatever registry the machine’s own settings name for the scope',
+		async () => {
+			// A user or project setting that sends the @namzu scope somewhere else must not decide what is installed.
+			writeFileSync(join(work, 'npmrc'), '@namzu:registry=http://127.0.0.1:1/\n')
+			try {
+				const release = await fetchNamzuRelease({ registry })
+				const result = await applyUpdate(applyDeps(), release)
+				expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
+				expect(readInstalledVersion(root)).toBe('2.0.0')
+				// A real folder with the checked files in it, not a link to the downloaded file.
+				expect(lstatSync(root).isSymbolicLink()).toBe(false)
+				expect(readFileSync(join(root, 'dist', 'bin.js'), 'utf8')).toContain("'2.0.0'")
+				expect(downloaded()).toEqual([])
+			} finally {
+				writeFileSync(join(work, 'npmrc'), '')
+			}
+		},
+		TIMEOUT,
+	)
+
+	it(
+		'does not fetch a tarball from anywhere but the registry it learned the release from',
+		async () => {
+			const release = await fetchNamzuRelease({ registry })
+			const run = vi.fn(async () => 0)
+			const result = await applyUpdate(applyDeps({ runInstaller: run }), {
+				...release,
+				tarball: 'http://127.0.0.1:1/elsewhere.tgz',
+			})
+			expect(result).toMatchObject({ status: 'failed', code: 'unverifiable', restored: true })
+			expect(run).not.toHaveBeenCalled()
 		},
 		TIMEOUT,
 	)

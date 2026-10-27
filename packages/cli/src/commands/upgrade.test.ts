@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
+import { DownloadError } from '../integrations/auto-update/download.js'
 import { acquireUpdateLock, installScope, previousDir } from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
@@ -12,6 +13,13 @@ import {
 	npmGlobalPrefixFor,
 	removeOwnPowerShellShim,
 } from './upgrade.js'
+
+/** What the registry says about a version: its digest and where the tarball is. */
+const release = (version: string) => ({
+	version,
+	integrity: 'sha512-AAAA',
+	tarball: `https://registry.npmjs.org/@namzu/cli/-/cli-${version}.tgz`,
+})
 
 function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 	const printed: unknown[] = []
@@ -24,11 +32,17 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 		info: (value) => info.push(value),
 	}
 	const requests: NpmUpgradeRequest[] = []
+	const tarballs: string[] = []
 	const deps: UpgradeCommandDeps = {
 		currentVersion: '14.2.1',
 		packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 		platform: 'linux',
-		latestVersion: async () => '14.3.0',
+		latestRelease: async () => release('14.3.0'),
+		fetchTarball: async (_release, file) => {
+			tarballs.push(file)
+			mkdirSync(dirname(file), { recursive: true })
+			writeFileSync(file, 'checked tarball')
+		},
 		runNpm: async (request) => {
 			requests.push(request)
 			return 0
@@ -39,7 +53,7 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 	const command = createUpgradeCommand(deps)
 	const invoke = (rawArgs: readonly string[] = []) =>
 		command.handler({ ctx: { config: {}, formatter }, rawArgs })
-	return { invoke, requests, printed, errors, info }
+	return { invoke, requests, printed, errors, info, tarballs }
 }
 
 describe('npm global installation ownership', () => {
@@ -75,7 +89,7 @@ describe('namzu upgrade', () => {
 		])
 	})
 
-	it('pins npm to the active prefix and exact registry version, then reads that root back', async () => {
+	it('installs the tarball it checked into the active prefix, then reads that root back', async () => {
 		const readback = vi.fn(() => '14.3.0')
 		const h = harness({ installedVersion: readback })
 
@@ -93,10 +107,13 @@ describe('namzu upgrade', () => {
 					'--no-audit',
 					'--registry',
 					'https://registry.npmjs.org',
-					'@namzu/cli@14.3.0',
+					'--@namzu:registry=https://registry.npmjs.org',
+					h.tarballs[0],
 				],
 			},
 		])
+		expect(h.tarballs).toHaveLength(1)
+		expect(existsSync(h.tarballs[0] ?? '')).toBe(false)
 		expect(readback).toHaveBeenCalledWith('/opt/namzu/lib/node_modules/@namzu/cli')
 		expect(h.printed).toEqual([
 			expect.objectContaining({
@@ -104,6 +121,38 @@ describe('namzu upgrade', () => {
 				current: '14.3.0',
 				updated: true,
 			}),
+		])
+	})
+
+	it('installs nothing when the download does not match the registry’s checksum', async () => {
+		const runNpm = vi.fn(async () => 0)
+		const h = harness({
+			runNpm,
+			fetchTarball: async () => {
+				throw new DownloadError('integrity', 'mismatch')
+			},
+		})
+		expect(await h.invoke()).toBe(1)
+		expect(runNpm).not.toHaveBeenCalled()
+		expect(h.errors).toEqual([
+			expect.objectContaining({
+				message:
+					'The download did not match its checksum, so it was not installed. Nothing was changed.',
+			}),
+		])
+	})
+
+	it('installs nothing when the registry gave no checksum to check against', async () => {
+		const runNpm = vi.fn(async () => 0)
+		const h = harness({
+			runNpm,
+			latestRelease: async () => ({ version: '14.3.0' }),
+			fetchTarball: undefined,
+		})
+		expect(await h.invoke()).toBe(1)
+		expect(runNpm).not.toHaveBeenCalled()
+		expect(h.errors).toEqual([
+			expect.objectContaining({ message: expect.stringContaining('did not give a checksum') }),
 		])
 	})
 
@@ -132,17 +181,17 @@ describe('namzu upgrade', () => {
 
 	it('does not spawn when the active version is already current', async () => {
 		const runNpm = vi.fn(async () => 0)
-		const h = harness({ latestVersion: async () => '14.2.1', runNpm })
+		const h = harness({ latestRelease: async () => release('14.2.1'), runNpm })
 		expect(await h.invoke()).toBe(0)
 		expect(runNpm).not.toHaveBeenCalled()
 		expect(h.printed).toEqual([expect.objectContaining({ upToDate: true })])
 	})
 
 	it('refuses unknown arguments before checking the registry', async () => {
-		const latestVersion = vi.fn(async () => '14.3.0')
-		const h = harness({ latestVersion })
+		const latestRelease = vi.fn(async () => release('14.3.0'))
+		const h = harness({ latestRelease })
 		expect(await h.invoke(['--force'])).toBe(64)
-		expect(latestVersion).not.toHaveBeenCalled()
+		expect(latestRelease).not.toHaveBeenCalled()
 	})
 })
 
@@ -362,13 +411,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 				{
 					executable: 'pnpm',
 					prefix: globalDir,
-					args: [
-						'add',
-						'--global',
-						'--registry',
-						'https://registry.npmjs.org',
-						'@namzu/cli@14.3.0',
-					],
+					args: ['add', '--global', '--registry', 'https://registry.npmjs.org', h.tarballs[0]],
 				},
 			])
 			expect(read).toHaveBeenCalledWith(linked)
@@ -378,13 +421,13 @@ describe('namzu upgrade keeps a working Namzu', () => {
 	})
 
 	it('follows the configured channel when it asks the registry', async () => {
-		const latestVersion = vi.fn(async () => '14.3.0')
+		const latestRelease = vi.fn(async () => release('14.3.0'))
 		const printed: unknown[] = []
 		const command = createUpgradeCommand({
 			currentVersion: '14.2.1',
 			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 			platform: 'linux',
-			latestVersion,
+			latestRelease,
 			runNpm: async () => 0,
 			installedVersion: () => '14.3.0',
 		})
@@ -400,7 +443,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			},
 			rawArgs: ['--check'],
 		} as never)
-		expect(latestVersion).toHaveBeenCalledWith('stable')
+		expect(latestRelease).toHaveBeenCalledWith('stable')
 	})
 	it('says plainly that no stable release exists when the registry has none', async () => {
 		const errors: { message: string }[] = []
@@ -408,7 +451,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			currentVersion: '14.2.1',
 			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 			platform: 'linux',
-			latestVersion: async () => {
+			latestRelease: async () => {
 				throw new Error('HTTP 404')
 			},
 			runNpm: async () => 0,

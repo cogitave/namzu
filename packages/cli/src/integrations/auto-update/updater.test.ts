@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type InstallerRequest, type Release, scopeOf } from './apply.js'
@@ -84,6 +84,10 @@ function harness(
 			smokeTest: async (at, version) => readInstalledVersion(at) === version,
 			pid: 4242,
 			isAlive: () => true,
+			fetchTarball: async (_release, file) => {
+				mkdirSync(dirname(file), { recursive: true })
+				writeFileSync(file, 'checked tarball')
+			},
 			runInstaller: async (request) => {
 				installs.push(request)
 				if (failWith !== undefined) {

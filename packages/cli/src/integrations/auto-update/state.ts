@@ -53,6 +53,7 @@ export interface CheckRecord {
 	readonly channel: string
 	readonly version: string
 	readonly integrity?: string
+	readonly tarball?: string
 }
 
 export function readCheck(home: string): CheckRecord | undefined {

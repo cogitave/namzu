@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
@@ -6,12 +7,17 @@ import { stripVTControlCharacters } from 'node:util'
 import type { UpdateChannel } from '../config/schema.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
 import {
+	PUBLIC_REGISTRY,
 	backupPackage,
+	describeFailure,
+	fetchFromRegistry,
 	npmInstallArgs,
 	pnpmInstallArgs,
 	restorePackage,
 	smokeTestInstalled,
+	tarballPath,
 } from '../integrations/auto-update/apply.js'
+import { DownloadError } from '../integrations/auto-update/download.js'
 import { pnpmGlobalDirFor } from '../integrations/auto-update/install-kind.js'
 import { resolveUpdatePolicy } from '../integrations/auto-update/policy.js'
 import {
@@ -27,7 +33,7 @@ import {
 	runNpmUpgrade,
 } from '../integrations/npm-global.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import { compareVersions, latestNamzuVersion } from '../integrations/updates.js'
+import { type NamzuRelease, compareVersions, fetchNamzuRelease } from '../integrations/updates.js'
 import type { CommandDef } from './types.js'
 import { startUpgradeProgress } from './upgrade-progress.js'
 
@@ -48,7 +54,13 @@ export interface UpgradeCommandDeps {
 	readonly currentVersion: string
 	readonly packageRoot: string
 	readonly platform: NodeJS.Platform
-	readonly latestVersion: (channel: UpdateChannel) => Promise<string>
+	/** What the registry says the channel points at, with the digest and address of its tarball. */
+	readonly latestRelease: (channel: UpdateChannel) => Promise<NamzuRelease>
+	/**
+	 * Put the tarball at `file`, checked against the release's digest. Left out, it is
+	 * downloaded from the registry the release came from.
+	 */
+	readonly fetchTarball?: (release: NamzuRelease, file: string) => Promise<void>
 	readonly runNpm: (request: NpmUpgradeRequest) => Promise<number>
 	readonly installedVersion: (packageRoot: string) => string
 	/**
@@ -110,7 +122,7 @@ const productionDeps: UpgradeCommandDeps = {
 	currentVersion: readInstalledVersion(PACKAGE_ROOT),
 	packageRoot: PACKAGE_ROOT,
 	platform: process.platform,
-	latestVersion: (channel) => latestNamzuVersion({ channel }),
+	latestRelease: (channel) => fetchNamzuRelease({ channel }),
 	runNpm: runNpmUpgrade,
 	installedVersion: readInstalledVersion,
 	safety: { home: safeHome(), smokeTest: smokeTestInstalled },
@@ -150,9 +162,9 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 				env: process.env,
 				interactive: true,
 			})
-			let latest: string
+			let release: NamzuRelease
 			try {
-				latest = await deps.latestVersion(policy.channel)
+				release = await deps.latestRelease(policy.channel)
 			} catch (error) {
 				const text = error instanceof Error ? error.message : String(error)
 				ctx.formatter.error({
@@ -164,6 +176,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 				return EXIT_UNAVAILABLE
 			}
 
+			const latest = release.version
 			if (compareVersions(latest, deps.currentVersion) <= 0) {
 				ctx.formatter.print({
 					current: deps.currentVersion,
@@ -223,7 +236,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 				return EXIT_FAIL
 			}
 			try {
-				return await installUpdate({ deps, ctx, latest, prefix, pnpmDir })
+				return await installUpdate({ deps, ctx, release, prefix, pnpmDir })
 			} finally {
 				lock?.release()
 			}
@@ -234,25 +247,58 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 interface InstallInput {
 	readonly deps: UpgradeCommandDeps
 	readonly ctx: Parameters<CommandDef['handler']>[0]['ctx']
-	readonly latest: string
+	readonly release: NamzuRelease
 	readonly prefix: string | null
 	readonly pnpmDir: string | null
 }
 
-async function installUpdate({
+/**
+ * Fetch the release tarball and check it against the registry's digest, then
+ * install that file. Nothing is touched before the file is known to be the one
+ * the registry vouched for.
+ */
+async function installUpdate(input: InstallInput): Promise<number> {
+	const { deps, ctx, release, prefix, pnpmDir } = input
+	const scope = scopeFor(deps.platform, prefix, pnpmDir)
+	const scratch = deps.safety ? undefined : mkdtempSync(join(tmpdir(), 'namzu-upgrade-'))
+	const file = deps.safety
+		? tarballPath(deps.safety.home, scope, release.version)
+		: join(scratch ?? '', `namzu-cli-${release.version}.tgz`)
+	try {
+		await (deps.fetchTarball ?? fetchFromRegistry(PUBLIC_REGISTRY))(release, file)
+	} catch (error) {
+		rmSync(file, { force: true })
+		if (scratch) rmSync(scratch, { recursive: true, force: true })
+		const code = error instanceof DownloadError ? error.code : 'network'
+		ctx.formatter.error({ message: `${describeFailure(code)} Nothing was changed.` })
+		return EXIT_FAIL
+	}
+	try {
+		return await installVerified({ ...input, tarball: file })
+	} finally {
+		rmSync(file, { force: true })
+		if (scratch) rmSync(scratch, { recursive: true, force: true })
+	}
+}
+
+async function installVerified({
 	deps,
 	ctx,
-	latest,
+	release,
 	prefix,
 	pnpmDir,
-}: InstallInput): Promise<number> {
+	tarball,
+}: InstallInput & { readonly tarball: string }): Promise<number> {
+	const latest = release.version
 	const executable = pnpmDir ? 'pnpm' : deps.platform === 'win32' ? 'npm.cmd' : 'npm'
 	const cwd = pnpmDir ?? prefix ?? ''
 	const activeRootPath = pnpmDir ? join(pnpmDir, 'node_modules', '@namzu', 'cli') : deps.packageRoot
 	const request: NpmUpgradeRequest = {
 		executable,
 		prefix: cwd,
-		args: pnpmDir ? pnpmInstallArgs(latest) : npmInstallArgs(cwd, latest),
+		args: pnpmDir
+			? pnpmInstallArgs(latest, PUBLIC_REGISTRY, tarball)
+			: npmInstallArgs(cwd, latest, PUBLIC_REGISTRY, tarball),
 	}
 	ctx.formatter.info(
 		`Updating the active ${pnpmDir ? 'pnpm' : 'npm'} installation from ${deps.currentVersion} to ${latest}…`,
