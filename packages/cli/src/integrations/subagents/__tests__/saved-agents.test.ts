@@ -135,6 +135,14 @@ it('records earlier turns’ agents once, then only an agent that is new or chan
 	expect(entry?.text).toContain('unresolved')
 	// The first entry explains how to read the rows.
 	expect(entry?.text).toContain('session id')
+	// Every field name in the rows is explained in the same entry.
+	const [prose = '', json = ''] = [
+		entry?.text.slice(0, entry.text.lastIndexOf('\n')),
+		entry?.text.slice(entry.text.lastIndexOf('\n') + 1),
+	]
+	for (const [, key] of json.matchAll(/"([a-z]+[A-Z][A-Za-z]*)":/g)) {
+		expect(prose, `the entry explains ${key}`).toContain(key as string)
+	}
 	expect(entry?.text).toContain('send_message')
 
 	// The same listing, already in the history: nothing more to say.
