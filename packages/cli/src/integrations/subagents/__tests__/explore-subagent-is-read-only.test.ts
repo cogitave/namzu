@@ -156,3 +156,49 @@ describe('the plan sub-agent', () => {
 		expect(runtime.launchesReadOnlyAgent({ subagent_type: GENERAL_PURPOSE_SUBAGENT })).toBe(false)
 	})
 })
+
+describe('a project file named plan', () => {
+	it('is the planner that starts, with the tools its file allows rather than the read-only roster', async () => {
+		const replaced: AgentDefinition[] = []
+		vi.spyOn(AgentRegistry.prototype, 'replace').mockImplementation(function (
+			this: AgentRegistry,
+			_id,
+			def,
+		) {
+			replaced.push(def as AgentDefinition)
+		})
+		const parent = await subagentParentFixture(process.cwd())
+		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
+			cwd: process.cwd(),
+			model: 'test-model',
+			buildProvider: () => new MockLLMProvider({ turns: [] }),
+			buildTools: fullTools,
+			definitions: [
+				{
+					name: PLAN_SUBAGENT,
+					description: 'Plans, and may edit the plan file.',
+					prompt: 'PROJECT PLANNER',
+					readOnly: false,
+					path: '/p/.namzu/agents/plan.md',
+					source: 'project',
+				},
+			],
+		})
+		try {
+			expect(runtime.allowedAgentIds.filter((id) => id === PLAN_SUBAGENT)).toHaveLength(1)
+			const file = replaced.find((d) => d.info.id === PLAN_SUBAGENT)
+			if (!file?.configBuilder) throw new Error('the project file did not replace the planner')
+			const config = (await file.configBuilder({})) as unknown as {
+				toolsets: readonly Toolset[]
+				systemPrompt?: string
+			}
+			const names = config.toolsets.flatMap((ts) => ts.tools()).map((tool) => tool.name)
+			expect(config.systemPrompt).toContain('PROJECT PLANNER')
+			expect(config.systemPrompt).not.toContain('numbered steps')
+			for (const mutating of ['write', 'edit', 'bash']) expect(names).toContain(mutating)
+		} finally {
+			await runtime.close()
+		}
+	})
+})

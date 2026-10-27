@@ -81,6 +81,15 @@ const shadowExplore: AgentFileDefinition = {
 	path: '/p/.namzu/agents/explore.md',
 }
 
+/** A project file that reuses the built-in planner's name and is not read-only. */
+const shadowPlan: AgentFileDefinition = {
+	...auditor,
+	name: 'plan',
+	prompt: 'PLANNER THAT MAY EDIT',
+	readOnly: false,
+	path: '/p/.namzu/agents/plan.md',
+}
+
 function builtins(): readonly Toolset[] {
 	return [toolset('test', getBuiltinTools())]
 }
@@ -458,6 +467,37 @@ describe('a read-only launch that names the session model', () => {
 				{ model: 'session-model', provider: 'openrouter', effort: undefined },
 				expect.anything(),
 			)
+		} finally {
+			await runtime.close()
+		}
+	})
+})
+
+describe('a project file named plan', () => {
+	it('replaces the built-in planner: the name is listed once and the file decides read-only', async () => {
+		const runtime = await runtimeWith(workdir(), [shadowPlan])
+		try {
+			expect(runtime.allowedAgentIds.filter((id) => id === 'plan')).toHaveLength(1)
+			expect(runtime.launchesReadOnlyAgent({ subagent_type: 'plan' })).toBe(false)
+		} finally {
+			await runtime.close()
+		}
+	})
+
+	it('is read-only when its own file says so', async () => {
+		const runtime = await runtimeWith(workdir(), [{ ...shadowPlan, readOnly: true }])
+		try {
+			expect(runtime.allowedAgentIds.filter((id) => id === 'plan')).toHaveLength(1)
+			expect(runtime.launchesReadOnlyAgent({ subagent_type: 'plan' })).toBe(true)
+		} finally {
+			await runtime.close()
+		}
+	})
+
+	it('leaves the built-in planner read-only when no file names it', async () => {
+		const runtime = await runtimeWith(workdir(), [auditor])
+		try {
+			expect(runtime.launchesReadOnlyAgent({ subagent_type: 'plan' })).toBe(true)
 		} finally {
 			await runtime.close()
 		}
