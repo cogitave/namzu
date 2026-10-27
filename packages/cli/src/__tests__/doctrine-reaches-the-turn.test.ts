@@ -8,7 +8,7 @@
  *   doctrine.ts       → system prompt of the parent turn
  *                     → system prompt of every delegated sub-agent
  *   turn-snapshot.ts  → `promptContributions` handed to query(), rendered
- *                       on iteration 1 and on no other
+ *                       with the same text on every iteration
  *   runtimeToolOverrides → the task tools register `active`, not `deferred`
  *
  * The repository here is a real one with a commit subject and an untracked
@@ -182,7 +182,7 @@ describe('the working doctrine', () => {
 })
 
 describe('the turn-start snapshot', () => {
-	it('carries the real working tree and recent commits, on the first iteration only', async () => {
+	it('carries the real working tree and recent commits, with the same text on every iteration', async () => {
 		const subject = `feat: snapshot-sentinel-${process.pid}`
 		commit(repo, subject)
 		const scratch = `scratch-${process.pid}.txt`
@@ -202,9 +202,9 @@ describe('the turn-start snapshot', () => {
 		)
 
 		expect(
-			contributions.render('context', { iteration: 2 }),
-			'a later iteration works from state the model changed itself',
-		).toEqual([])
+			contributions.render('context', { iteration: 2 }).join('\n'),
+			'a later iteration repeats the text, so its place in the request does not change',
+		).toBe(first)
 		expect(
 			contributions.render('turn', { iteration: 1 }).join('\n'),
 			'an observation rides request-only context, not a system message a driver hoists',

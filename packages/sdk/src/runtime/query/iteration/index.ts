@@ -102,7 +102,7 @@ import {
 	streamWithProviderRejectedImageRecovery,
 } from './provider-rejected-image.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
-import { placeBeforeLatestOperatorMessage } from './step-context.js'
+import { TurnContextCarry } from './step-context.js'
 import {
 	type StepShaping,
 	appendWorkContext,
@@ -110,6 +110,7 @@ import {
 	prepareStep,
 	selectContextModel,
 	stepContextMessage,
+	workContextBlocks,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
 
@@ -190,6 +191,8 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
+	/** Where this turn's request-only data first went, so it stays there. */
+	private readonly turnContext = new TurnContextCarry()
 	private previousRequestContext: RequestContextSnapshot | undefined
 
 	private projectObservations(messages: Message[]): Message[] {
@@ -895,27 +898,31 @@ export class IterationOrchestrator {
 						? [...workingMemory.history, createSystemMessage(stepPreamble)]
 						: [...workingMemory.history]
 					if (workingMemory.context) requestHistory.push(workingMemory.context)
-					// The blocks of data that belong to this turn (recalled memory and
-					// evidence, the context contributions) sit just before the
-					// operator's latest message, so the request is the last thing the
-					// model reads. The short reminders and notices stay after it.
-					placeBeforeLatestOperatorMessage(
-						requestHistory,
-						[contextText, step.context]
-							.filter((text): text is string => Boolean(text))
-							.map(stepContextMessage),
-					)
 					// After the history, never ahead of it: a system message in front
 					// of the conversation moves the prefix every cached request shares,
 					// and a mode change would re-key the whole conversation.
 					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
-					const messages = projectRequestRichContent(
+					const projected = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
-					appendWorkContext(shaping, messages, iterationNum, step)
+					// The blocks of data that belong to this turn (recalled memory and
+					// evidence, the context contributions, the work context) sit just
+					// before the operator's latest message the first time the model
+					// answers it, so the request is the last thing it reads. They stay
+					// there on every later call of the turn, and a block that first
+					// appears on a later call follows the history of that moment, so each
+					// request begins with the whole of the one before it. The short
+					// reminders and notices stay after the history.
+					const messages = [...projected]
+					this.turnContext.place(messages, requestHistory, workingMemory.history.at(-1), [
+						...[contextText, step.context]
+							.filter((text): text is string => Boolean(text))
+							.map(stepContextMessage),
+						...workContextBlocks(shaping, projected, iterationNum, step),
+					])
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()

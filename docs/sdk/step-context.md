@@ -158,17 +158,23 @@ model reads after it reframes the instruction to finish.
 
 The blocks that belong to the turn (what `context` contributions and
 `PrepareStepResult.context` render, including recalled memory and evidence)
-go just before the operator's new message while that message is what the model
-is about to answer, so the request is the last thing it reads and the long data
-comes first. The reminders and notices that follow the message stay after it.
-Once the turn has an assistant or tool message after the operator's message,
-the blocks follow the history as above, where a caching driver ends its
-breakpoint before them, so the tool loop of a long turn stays cached. The
-working-memory slot and the approval-policy notice always follow the history.
+go just before the operator's new message the first time the model answers it,
+so the request is the last thing it reads and the long data comes first. The
+reminders and notices that follow the message stay after it.
+
+A block stays where it first went. A step that offers the same text again on a
+later call of the turn finds it in the same place, so each request of a turn
+begins with the whole of the one before it, up to the trailing run (the
+working-memory slot, step system guidance, the approval-policy notice) that
+every request rebuilds, and a caching driver keeps reading the same prefix
+instead of re-reading the turn from the operator's message on. A block that
+first appears after the model has moved on, or whose text changed, follows the
+history of that moment; the old text is withdrawn, so corrected data and a
+file body that moved never linger in the request. A position whose message a
+compaction removed is given up and the block follows the history. The working-memory slot and the approval-policy notice always follow the history.
+
 The derived work context (owned delegated work and visible file evidence) is
-placed the same way as the other blocks: before the operator's new message
-while that message is what the model answers, after the history once the turn
-has moved on.
+placed the same way as the other blocks.
 
 ### Prompt placements
 
@@ -196,8 +202,8 @@ automatic summarization or output eviction is introduced by the context field.
 
 The CLI uses this field for its bounded context inventory. It composes preceding
 context contributions and leaves system contributions untouched. It registers
-its turn-start repository snapshot (`git status` and recent commits, first
-iteration only) under the `context` placement. The CLI's file-backed `USER.md`
+its turn-start repository snapshot (`git status` and recent commits, read once
+per turn and rendered with the same text on every iteration, so it keeps its place) under the `context` placement. The CLI's file-backed `USER.md`
 and `MEMORY.md`, its stored-memory index, and the SDK's automatic memory recall
 also use request-only step context. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;

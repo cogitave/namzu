@@ -51,17 +51,32 @@ export function appendWorkContext(
 	stepNumber: number,
 	prepared: PrepareStepResult,
 ): void {
+	// Per-turn data goes in front of the operator's new message while that is
+	// what the model is answering, like the other blocks of request-only data.
+	placeBeforeLatestOperatorMessage(
+		messages,
+		workContextBlocks(shaping, messages, stepNumber, prepared),
+	)
+}
+
+/** The work-context blocks for a request whose projected messages are `messages`. */
+export function workContextBlocks(
+	shaping: StepShaping,
+	messages: readonly Message[],
+	stepNumber: number,
+	prepared: PrepareStepResult,
+): Message[] {
 	const { ctx } = shaping
 
 	const contributions = [
 		ctx.completionInbox?.describeOwnedWork(),
 		ctx.toolExecutor.describeFileEvidence(messages),
 	].filter((content): content is string => Boolean(content))
-	if (contributions.length === 0) return
+	if (contributions.length === 0) return []
 	const placed: Message[] = []
 	let room = stepContext(shaping, stepNumber, prepared).contextBudget?.remainingTokens ?? 0
 	// Leave room for the actual task; admit whole contributions, never dangling partial references.
-	if (room < 1_500) return
+	if (room < 1_500) return []
 	for (const content of contributions) {
 		if (!content || content.length > 8_000) continue
 		const message = stepContextMessage(content)
@@ -70,9 +85,7 @@ export function appendWorkContext(
 		placed.push(message)
 		room -= tokens
 	}
-	// Per-turn data goes in front of the operator's new message while that is
-	// what the model is answering, like the other blocks of request-only data.
-	placeBeforeLatestOperatorMessage(messages, placed)
+	return placed
 }
 
 export function stepContext(
