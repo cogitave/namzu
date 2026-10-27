@@ -16,8 +16,8 @@ import {
 	type Release,
 	applyUpdate,
 	describeFailure,
-	repairInterruptedUpdate,
 	manualUpdateCommand,
+	repairInterruptedUpdate,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import type { UpdatePolicy } from './policy.js'
@@ -202,13 +202,21 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 	async function repair(): Promise<void> {
 		const { install } = deps
 		if (install.kind !== 'npm-global' && install.kind !== 'pnpm-global') return
+		// With installing switched off nothing here may rewrite the package folder.
+		if (!deps.policy.install) return
 		const result = await repairInterruptedUpdate({
 			...deps.applyDeps,
 			install,
 			home: deps.home,
 			platform: deps.platform,
 		})
-		if (result.status === 'none' || result.status === 'busy' || stopped) return
+		if (
+			result.status === 'none' ||
+			result.status === 'busy' ||
+			result.status === 'unchanged' ||
+			stopped
+		)
+			return
 		const method = install.kind
 		const stamp = new Date(now()).toISOString()
 		if (result.status === 'completed') {

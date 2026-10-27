@@ -63,6 +63,7 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 					onOutput: request.onOutput,
 					background: true,
 					timeoutMs: request.timeoutMs,
+					...(request.onSpawn ? { onSpawn: request.onSpawn } : {}),
 				}),
 			installedVersion: readInstalledVersion,
 			removePowerShellShim: removeOwnPowerShellShim,

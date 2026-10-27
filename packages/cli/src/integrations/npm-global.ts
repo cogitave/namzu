@@ -13,6 +13,8 @@ export interface NpmUpgradeRequest {
 	readonly background?: boolean
 	/** Kill the package manager after this many milliseconds. */
 	readonly timeoutMs?: number
+	/** Called with the package manager's process id once it has started. */
+	readonly onSpawn?: (pid: number) => void
 }
 
 /**
@@ -71,7 +73,11 @@ export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 			...(request.timeoutMs !== undefined ? { timeout: request.timeoutMs } : {}),
 			shell: false,
 			windowsHide: true,
+			// Its own process group: closing the terminal or pressing Ctrl+C must not
+			// stop the package manager half way through replacing the package.
+			...(request.background ? { detached: true } : {}),
 		})
+		if (child.pid !== undefined) request.onSpawn?.(child.pid)
 		if (request.onOutput) {
 			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
 			child.stderr?.setEncoding('utf8').on('data', request.onOutput)

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -297,5 +297,19 @@ describe('when installing fails', () => {
 		await h.updater.runCycle()
 		expect(h.installs).toEqual([])
 		expect(h.events[0]).toMatchObject({ type: 'available', failure: 'unverifiable' })
+	})
+})
+
+describe('repairing with installing switched off', () => {
+	it('leaves an unfinished update alone', async () => {
+		mkdirSync(join(home, 'updates'), { recursive: true })
+		writeFileSync(
+			join(home, 'updates', 'in-progress.json'),
+			JSON.stringify({ pid: 99_999_999, from: '1.0.0', to: '2.0.0', at: Date.now() }),
+		)
+		const h = harness({ policy: policy({ install: false }) })
+		await h.updater.repair()
+		expect(existsSync(join(home, 'updates', 'in-progress.json'))).toBe(true)
+		expect(readLastResult(home)).toBeUndefined()
 	})
 })

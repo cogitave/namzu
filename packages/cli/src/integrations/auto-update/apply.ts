@@ -10,11 +10,12 @@
 
 import { execFile } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { compareVersions } from '../updates.js'
 import type { InstallKind } from './install-kind.js'
 import {
+	LOCK_STALE_MS,
 	type UpdateLock,
 	acquireUpdateLock,
 	clearInProgress,
@@ -67,6 +68,8 @@ export interface InstallerRequest {
 	readonly onOutput: (text: string) => void
 	/** Kill the installer after this long. */
 	readonly timeoutMs: number
+	/** Called with the installer's process id once it has started. */
+	readonly onSpawn?: (pid: number) => void
 }
 
 export interface ApplyDeps {
@@ -106,7 +109,6 @@ export function npmInstallArgs(
 		prefix,
 		'--no-fund',
 		'--no-audit',
-		'--ignore-scripts',
 		'--registry',
 		registry,
 		`@namzu/cli@${version}`,
@@ -114,7 +116,7 @@ export function npmInstallArgs(
 }
 
 export function pnpmInstallArgs(version: string, registry = PUBLIC_REGISTRY): string[] {
-	return ['add', '--global', '--ignore-scripts', '--registry', registry, `@namzu/cli@${version}`]
+	return ['add', '--global', '--registry', registry, `@namzu/cli@${version}`]
 }
 
 /** The exact command a person can run when Namzu may not do it for them. */
@@ -319,6 +321,23 @@ async function applyLocked(
 		}
 	}
 
+	// The installer runs on its own when this process goes away, so the marker
+	// names it: a later start must not touch the folder while it still writes.
+	const noteInstaller = (installerPid: number): void => {
+		try {
+			writeInProgress(deps.home, {
+				pid,
+				to: release.version,
+				from: onDisk,
+				...(backup ? { backup } : {}),
+				installerPid,
+				at,
+			})
+		} catch {
+			// The marker written before the install still stands.
+		}
+	}
+
 	let output = ''
 	let code: number
 	try {
@@ -332,6 +351,7 @@ async function applyLocked(
 							output = (output + text).slice(-16_384)
 						},
 						timeoutMs: deps.installTimeoutMs ?? 300_000,
+						onSpawn: noteInstaller,
 					}
 				: {
 						executable: 'pnpm',
@@ -341,6 +361,7 @@ async function applyLocked(
 							output = (output + text).slice(-16_384)
 						},
 						timeoutMs: deps.installTimeoutMs ?? 300_000,
+						onSpawn: noteInstaller,
 					},
 		)
 	} catch {
@@ -406,6 +427,8 @@ export type RepairResult =
 	| { readonly status: 'completed'; readonly from: string; readonly to: string }
 	/** The folder was broken or unverified; the previous version is back. */
 	| { readonly status: 'restored'; readonly from: string; readonly to: string }
+	/** The update never reached the folder and the installed version answers; nothing changed. */
+	| { readonly status: 'unchanged'; readonly from: string; readonly to: string }
 	/** The previous version could not be put back. */
 	| { readonly status: 'unrepaired'; readonly from: string; readonly to: string }
 
@@ -420,7 +443,12 @@ export async function repairInterruptedUpdate(
 	const marker = readInProgress(deps.home)
 	if (!marker) return { status: 'none' }
 	const own = deps.pid ?? process.pid
-	if (marker.pid !== own && processIsRunning(marker.pid)) return { status: 'busy' }
+	// A marker older than the lock window is dead whatever its pids say: a pid
+	// can be reused by an unrelated program.
+	const fresh = (deps.now ?? Date.now)() - marker.at <= LOCK_STALE_MS
+	if (fresh && marker.pid !== own && processIsRunning(marker.pid)) return { status: 'busy' }
+	if (fresh && marker.installerPid !== undefined && processIsRunning(marker.installerPid))
+		return { status: 'busy' }
 	let lock: UpdateLock | null
 	try {
 		lock = acquireUpdateLock({
@@ -449,11 +477,16 @@ export async function repairInterruptedUpdate(
 			clearInProgress(deps.home)
 			return deps.installedVersion(root) === marker.to
 				? { status: 'completed', ...ids }
-				: { status: 'restored', ...ids }
+				: { status: 'unchanged', ...ids }
 		}
 		let restored = false
 		try {
-			if (install.kind === 'npm-global' && marker.backup && existsSync(marker.backup)) {
+			if (
+				install.kind === 'npm-global' &&
+				marker.backup &&
+				isKeptCopy(deps.home, marker.backup) &&
+				existsSync(marker.backup)
+			) {
 				restorePackage(install.root, marker.backup, own)
 				restored = deps.installedVersion(root) === marker.from
 			} else if (install.kind === 'pnpm-global') {
@@ -474,4 +507,11 @@ export async function repairInterruptedUpdate(
 	} finally {
 		lock.release()
 	}
+}
+
+/** Only a folder under `updates/previous` may be put back over the package. */
+function isKeptCopy(home: string, backup: string): boolean {
+	const base = resolve(previousDir(home, 'x'), '..')
+	const rel = relative(base, resolve(backup))
+	return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
 }

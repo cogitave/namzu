@@ -53,9 +53,12 @@ In CI the terminal still looks, but it does not install unless you ask for it
    installing together. A second one waits quietly and tries again later. A lock
    whose process is gone, or that is older than fifteen minutes, is taken over.
 2. The registry must give a checksum for the version. Without one nothing is
-   installed. The package manager checks the download against the checksum the
-   registry gives it; Namzu does not compare it a second time. Install scripts
-   of the package and its dependencies do not run in the background (`--ignore-scripts`).
+   installed. The package manager checks the download against the digest the
+   registry publishes; Namzu does not compare it a second time. The package
+   manager runs the package's own install steps, as `npm install --global` does
+   for you, so the optional terminal-session module is built again for the new
+   version. It runs in its own process group, so closing the terminal does not
+   stop it half way; its process id is kept in the marker below.
 3. A copy of the version being replaced is kept first (`updates/previous/<version>`,
    the two newest are kept).
 4. The installed version is read back, and the new copy is started once and must
@@ -64,7 +67,10 @@ In CI the terminal still looks, but it does not install unless you ask for it
    the kept copy and the process. If that process is gone before the update was
    verified (the terminal was closed, the machine lost power), the next start
    reads the installed version back, starts it once, and puts the kept copy back
-   when it does not answer. The copy is restored by moving a fresh copy into
+   when it does not answer. A marker older than fifteen minutes is treated as
+   dead, a marker whose installer still runs is left alone, and only a copy under
+   `updates/previous` is ever put back. With installing switched off, nothing is
+   repaired or rewritten. The copy is restored by moving a fresh copy into
    place, so the package is never missing half way.
 6. If any step fails the previous copy is put back (pnpm installs the previous
    version again), so a failed update leaves a working Namzu. The outcome of the

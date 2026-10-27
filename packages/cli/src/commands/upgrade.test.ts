@@ -91,7 +91,6 @@ describe('namzu upgrade', () => {
 					'/opt/namzu',
 					'--no-fund',
 					'--no-audit',
-					'--ignore-scripts',
 					'--registry',
 					'https://registry.npmjs.org',
 					'@namzu/cli@14.3.0',
@@ -358,7 +357,6 @@ describe('namzu upgrade keeps a working Namzu', () => {
 					args: [
 						'add',
 						'--global',
-						'--ignore-scripts',
 						'--registry',
 						'https://registry.npmjs.org',
 						'@namzu/cli@14.3.0',
@@ -395,5 +393,31 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			rawArgs: ['--check'],
 		} as never)
 		expect(latestVersion).toHaveBeenCalledWith('stable')
+	})
+	it('says plainly that no stable release exists when the registry has none', async () => {
+		const errors: { message: string }[] = []
+		const command = createUpgradeCommand({
+			currentVersion: '14.2.1',
+			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
+			platform: 'linux',
+			latestVersion: async () => {
+				throw new Error('HTTP 404')
+			},
+			runNpm: async () => 0,
+			installedVersion: () => '14.2.1',
+		})
+		await command.handler({
+			ctx: {
+				config: { updates: { channel: 'stable' } },
+				formatter: {
+					name: 'text',
+					print: () => {},
+					error: (v: { message: string }) => errors.push(v),
+					info: () => {},
+				},
+			},
+			rawArgs: ['--check'],
+		} as never)
+		expect(errors[0]?.message).toMatch(/No stable release has been published yet/)
 	})
 })

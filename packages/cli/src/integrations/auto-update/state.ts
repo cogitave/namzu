@@ -181,12 +181,16 @@ export interface InProgressMarker {
 	readonly from: string
 	/** The kept copy of the replaced package (npm installs); absent for pnpm. */
 	readonly backup?: string
+	/** The package manager's process, once started; it can outlive `pid`. */
+	readonly installerPid?: number
 	readonly at: number
 }
 
 export function writeInProgress(home: string, marker: InProgressMarker): void {
 	writeJsonAtomic(join(updatesDir(home), 'in-progress.json'), marker, marker.pid)
 }
+
+const VERSION_SHAPE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/
 
 export function readInProgress(home: string): InProgressMarker | undefined {
 	const value = readJson(join(updatesDir(home), 'in-progress.json')) as
@@ -196,7 +200,10 @@ export function readInProgress(home: string): InProgressMarker | undefined {
 		!value ||
 		typeof value.pid !== 'number' ||
 		typeof value.to !== 'string' ||
-		typeof value.from !== 'string'
+		typeof value.from !== 'string' ||
+		typeof value.at !== 'number' ||
+		!VERSION_SHAPE.test(value.from) ||
+		!VERSION_SHAPE.test(value.to)
 	) {
 		return undefined
 	}

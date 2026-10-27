@@ -9,9 +9,9 @@ import {
 	applyUpdate,
 	classifyInstallerFailure,
 	manualUpdateCommand,
-	repairInterruptedUpdate,
 	npmInstallArgs,
 	pnpmInstallArgs,
+	repairInterruptedUpdate,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
@@ -410,5 +410,78 @@ describe('repairing an update that was interrupted', () => {
 		const result = await repairInterruptedUpdate(repairDeps(5151))
 		expect(result.status).toBe('unrepaired')
 		expect(readInProgress(home)).toBeDefined()
+	})
+})
+
+describe('what the installer is told to do', () => {
+	it('lets the package run its own install steps, as the installer script does', () => {
+		expect(npmInstallArgs(prefix, '2.0.0')).not.toContain('--ignore-scripts')
+		expect(pnpmInstallArgs('2.0.0')).not.toContain('--ignore-scripts')
+	})
+
+	it('records the installer process so a later start leaves a running install alone', async () => {
+		let seen: unknown
+		await applyUpdate(
+			deps({
+				runInstaller: async (request) => {
+					request.onSpawn?.(777)
+					seen = readInProgress(home)
+					writePackage(root, '2.0.0')
+					return 0
+				},
+			}),
+			release,
+		)
+		expect(seen).toMatchObject({ installerPid: 777, from: '1.0.0', to: '2.0.0' })
+	})
+})
+
+describe('trusting an in-progress marker', () => {
+	const DEAD = 99_999_999
+	const marker = (over: Record<string, unknown>) => {
+		mkdirSync(join(home, 'updates'), { recursive: true })
+		writeFileSync(
+			join(home, 'updates', 'in-progress.json'),
+			JSON.stringify({ pid: DEAD, from: '1.0.0', to: '2.0.0', at: Date.now(), ...over }),
+		)
+	}
+	const repairDeps = () => deps({ pid: 5151, smokeTest: async () => true }) as never
+
+	it('waits while the installer it names still runs', async () => {
+		marker({ installerPid: process.ppid })
+		expect(await repairInterruptedUpdate(repairDeps())).toEqual({ status: 'busy' })
+	})
+
+	it('treats an old marker as dead even when its process id is in use again', async () => {
+		marker({ pid: process.ppid, at: Date.now() - 16 * 60_000 })
+		const result = await repairInterruptedUpdate(repairDeps())
+		expect(result.status).toBe('unchanged')
+		expect(readInProgress(home)).toBeUndefined()
+	})
+
+	it('says nothing changed when the update never reached the folder', async () => {
+		marker({})
+		expect(await repairInterruptedUpdate(repairDeps())).toEqual({
+			status: 'unchanged',
+			from: '1.0.0',
+			to: '2.0.0',
+		})
+	})
+
+	it('ignores a marker whose versions are not versions', () => {
+		marker({ from: '../../etc' })
+		expect(readInProgress(home)).toBeUndefined()
+	})
+
+	it('never restores from a folder outside the kept copies', async () => {
+		const outside = join(dir, 'elsewhere')
+		writePackage(outside, '1.0.0')
+		marker({ backup: outside })
+		const result = await repairInterruptedUpdate(
+			deps({ pid: 5151, smokeTest: async () => false }) as never,
+		)
+		expect(result.status).toBe('unrepaired')
+		expect(existsSync(join(root, 'marker.txt'))).toBe(true)
+		expect(readFileSync(join(root, 'marker.txt'), 'utf8')).toBe('1.0.0')
 	})
 })
