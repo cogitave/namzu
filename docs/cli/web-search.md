@@ -43,8 +43,9 @@ bursts; it does not guarantee availability or coordinate separate CLI processes.
 Responses are bounded to 1 MiB and retain source links and untrusted provenance.
 
 `web.fetch` is on by default and independently controls guarded URL fetching. Every new
-domain is asked about once, and the answer can be allow for this session or allow always
-(a remembered allow covers that host only, over http and https). Set `web.fetch: false`
+domain is asked about once, with three answers: "Yes", "Yes, and don't ask again for <host> in
+this project" (saved to the project's local config, and covering that host only, over http and
+https), and "No". Set `web.fetch: false`
 in `config.yaml` to remove the tool, which was the behaviour before it became the default.
 `web_fetch` takes a `url` and a `prompt`: the page is converted to markdown and the
 [small model](small-model.md) answers the prompt from it; a redirect to another
