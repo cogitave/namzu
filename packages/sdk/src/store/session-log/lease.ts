@@ -123,31 +123,6 @@ export function isLeaseLive(lease: SessionLease | null, now: number): boolean {
 	return lease !== null && lease.holder !== '' && now < lease.expiresAt
 }
 
-/**
- * Whether the process that took `lease` is certainly gone from this machine.
- *
- * Only a holder named the way a turn names itself (`namzu:<pid>:<id>`) can be
- * judged, and only by asking this machine whether that pid exists: a
- * different name, a pid that exists (or that this user may not signal), or a
- * released lease all answer `false`. So the answer errs toward "still there":
- * a recycled pid keeps a dead writer's lease until it expires, which is what
- * happened before this check. It exists so a session whose process was killed
- * outright is not shut out for the rest of the lease's time-to-live.
- */
-export function leaseHolderProcessIsGone(lease: SessionLease | null): boolean {
-	if (lease === null || lease.holder === '') return false
-	const match = /^namzu:(\d+):/.exec(lease.holder)
-	if (!match) return false
-	const pid = Number(match[1])
-	if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false
-	try {
-		process.kill(pid, 0)
-		return false
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === 'ESRCH'
-	}
-}
-
 type ClaimDecision =
 	| { readonly kind: 'renew'; readonly fence: number }
 	| { readonly kind: 'refuse' }

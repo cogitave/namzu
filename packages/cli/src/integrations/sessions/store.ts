@@ -48,7 +48,6 @@ import {
 	foldSessionMessages,
 	generateSessionId,
 	isEntityId,
-	leaseHolderProcessIsGone,
 	openSessionIndex,
 	readSessionLog,
 } from '@namzu/sdk'
@@ -767,12 +766,8 @@ export async function unansweredReviewPark(
 	const active = facts.activeTurn
 	if (!active) return undefined
 	// A turn another process is still running owns its questions.
-	// One whose process was killed outright still holds its lease for a few
-	// minutes; a holder gone from this machine owns nothing.
-	const log = DiskSessionLog.at(s.paths, { sessionId })
-	const state = await log.activeTurn()
-	if (!state || state.turnId !== active.turnId) return undefined
-	if (state.state === 'running' && !leaseHolderProcessIsGone(await log.lease())) return undefined
+	const state = await DiskSessionLog.at(s.paths, { sessionId }).activeTurn()
+	if (!state || state.turnId !== active.turnId || state.state === 'running') return undefined
 	const pending = new Map<string, string>()
 	for (const record of facts.records) {
 		if (record.type === 'turn_paused' && record.turnId === active.turnId && record.handoff)

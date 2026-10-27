@@ -4,7 +4,6 @@ import {
 	DiskSessionLog,
 	type SessionLease,
 	type SessionLog,
-	leaseHolderProcessIsGone,
 } from '../../store/session-log/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -86,21 +85,10 @@ export async function withSessionLease<T>(
 	operation: (lease: SessionLease) => Promise<T>,
 ): Promise<T> {
 	if (lease) return operation(lease)
-	const claim = () =>
-		log.claim({
-			holder: `namzu:${process.pid}:${log.sessionId}`,
-			ttlMs: OPERATION_LEASE_TTL_MS,
-		})
-	let claimed = await claim()
-	if (!claimed) {
-		// A writer killed outright still holds its lease until it expires; one
-		// whose process is gone from this machine is given up here.
-		const held = await log.lease()
-		if (held && leaseHolderProcessIsGone(held)) {
-			await log.release(held).catch(() => undefined)
-			claimed = await claim()
-		}
-	}
+	const claimed = await log.claim({
+		holder: `namzu:${process.pid}:${log.sessionId}`,
+		ttlMs: OPERATION_LEASE_TTL_MS,
+	})
 	if (!claimed) {
 		throw new NamzuError({
 			code: 'invalid_config',

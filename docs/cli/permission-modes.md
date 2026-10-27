@@ -139,7 +139,7 @@ A first look at the screen is still asked as one question, before the calls that
 
 A question is answered by a person in the window that asked it. If Namzu is closed or killed while one is open, the calls it asked about did not run, and they are not asked about again when the conversation is resumed: nothing is replayed, and no earlier answer carries over. The transcript shows each such call as `Not run · it was waiting for approval when the session ended` (a call queued behind it reads `Not run · the session ended before it started`; a call that had started and has no result still reads `Interrupted`). `/resume` closes the left-over turn with one line (`Those calls were waiting for your approval when the session ended, so they did not run. Say what to do next.`), and sending a message does the same before it goes out. The model's next request carries an error result for each of those calls saying it did not run, nothing was changed, and to call it again if it is still needed, so it asks afresh and you answer afresh.
 
-A killed session's turn is held for up to five minutes before another window can close it, unless the process that held it is no longer running on this machine (its pid does not exist): then `/resume` and your next message close it at once. A process that cannot be told apart from a live one (a recycled pid, a lease taken on another machine) keeps the five minutes, and `/resume` within that time reports that the conversation is still in use.
+A killed session's turn is held for up to five minutes before another window can close it; `/resume` within that time reports that the conversation is still in use.
 
 ## Large calls
 

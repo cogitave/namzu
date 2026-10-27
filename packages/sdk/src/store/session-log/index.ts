@@ -72,7 +72,6 @@ export {
 	type SessionLeaseStore,
 	StaleSessionLeaseError,
 	isLeaseLive,
-	leaseHolderProcessIsGone,
 	readSessionLease,
 } from './lease.js'
 export {
