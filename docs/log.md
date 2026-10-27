@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-27
+
+- **Update** [Tool boundary](cli/tool-boundary.md), [Bash tool](sdk/bash-tool.md): a change of permission mode is one notice that says which mode ended and which began, the ending first, and plan mode's exit note always precedes the notice for the mode that follows; the note about removed credential-shaped variables left the `bash` result and is sent once as its own framed notice after the tool batch (`data.withheldEnv` carries the count). `.changeset/mode-change-notice.md` (`@namzu/cli` patch), `.changeset/credential-notice-own-message.md` (`@namzu/sdk` major).
+
 ## 2026-10-26
 
 - **Update** [Learning in the CLI](cli/learning.md): merged with the per-call review and the one prompt composer. A call the review did not let run (your No, or a call that went with the turn your No ended) is not recorded as a failed tool; the background cycle neither starts nor makes a model call while a question waits on you; the learned guidance still rides the per-turn context placement (never the cached system prompt) and now says Namzu learned it, since the background cycle activates it without a confirmation. `.changeset/learning-refusals-and-questions.md` (`@namzu/cli` patch, `@namzu/sdk` minor).
