@@ -157,12 +157,15 @@ model reads after it reframes the instruction to finish.
 
 ### Where the per-turn blocks sit
 
-Request-only context goes at the tail of the history of the moment it first
-appears, after the tool results the turn has so far and before any closing
-directive. It no longer sits ahead of the operator's message, so the operator's
-message and the tool loop stay inside the prefix a caching provider reads back,
-and each request begins with the whole of the one before it up to the first
-`step-context` message.
+Request-only context goes last on every call, after the whole history (the tool
+results the turn has so far and any entry the loop has just recorded) and before
+any closing directive. It is placed again on each call and never sits inside the
+history, so the history before it only grows: the operator's message, the tool
+loop and the recorded entries stay inside the prefix a caching provider reads
+back, and a caching driver, which ends its cache breakpoint before the first
+`step-context` message, covers the whole history on every call of the turn
+whatever the request-only blocks say. A block that changes between calls costs
+its own tokens and nothing else.
 
 What a step wants the model to keep (the repository snapshot, recalled memory,
 conversation evidence, file evidence, finished delegated work) is not

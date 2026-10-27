@@ -566,6 +566,11 @@ success.
 Use `agent_task_list({history: true})` to inspect the snapshot and
 `agent_task_list({history: true, task_id: "<UUID>"})` to read one saved result.
 The normal tool call still lists live tasks owned by the current session.
+A turn that follows earlier delegation is told which agents there were: the
+CLI records the listing in the conversation (session id, what each was asked,
+status, with the rules for reading it) the first time, then only an agent that
+is new or whose status changed. It is a conversation entry, not part of the
+system prompt, so it never changes the cached prompt.
 Reading the history grants no authority by itself. To continue a saved agent,
 `send_message` to its session UUID from `agent_task_list({history: true})`
 ("Resuming agent …"): its saved history and settings are read back from disk, it

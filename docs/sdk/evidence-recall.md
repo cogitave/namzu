@@ -526,8 +526,10 @@ recorded as entries instead (see [recorded turn context](recorded-context.md)):
 a passage whose address an earlier entry carries is not offered again, the
 entries together hold at most `sessionMaxChars` (24,000 by default) of passages,
 and past that an entry only names the addresses of further relevant records for
-the conversation-history tools to open. The notes about the search itself
-(unavailable, ambiguous) stay request-only. `record` defaults to `false`.
+the conversation-history tools to open (a pointer says where to open the
+addresses only when no earlier entry carries the reading rules, and a later
+entry that carries passages has a short header in place of the full one). The
+notes about the search itself (unavailable, ambiguous) stay request-only. `record` defaults to `false`.
 The block is written in plain words: the opening paragraph names each JSON key
 it mentions once, in code style, and keeps jargon out of the prose; the
 availability note is two sentences saying what failed and what the model can do

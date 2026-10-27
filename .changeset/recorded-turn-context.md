@@ -9,7 +9,9 @@ What to check when you take this upgrade:
 
 - `'turn-context'` is a new member of `RUNTIME_CONTEXT_MESSAGE_KINDS` and of the `RuntimeContextMessageKind` union. An exhaustive `switch` over the kind stops compiling until it has a case; the new kind is ordinary history, never shown to a person.
 - Sessions written from this version on cannot be read by earlier builds, which reject the unknown message kind. A session you open with this version and then open with an older one fails to load in the older one.
-- Request-only context (`PrepareStepResult.context`, `context` contributions, the running-task list) now goes at the end of the history instead of ahead of the operator's message. A host that read its position in the request should read the end.
+- Request-only context (`PrepareStepResult.context`, `context` contributions, the running-task list) now goes last on every call, after the whole history, instead of ahead of the operator's message or where it first appeared. A host that read its position in the request should read the end.
+- `createTurnContextEntry` takes a fourth argument `{ later?: boolean }`; with it set the header leaves out the sentence about later entries. `wrapUntrusted` takes `brief` for a shorter framing of a block that follows one the reader already has. Both are optional.
+- The CLI records the saved-agents listing as a conversation entry instead of adding it to the system prompt, and the recorded file-evidence and owned-work entries now explain their fields in the text above them.
 - `CompletionInbox.describeOwnedWork()` is deprecated; the loop reads `describeRunningWork()` and `describeSettledWork()`. The replaceable-block helpers behind the old placement are internal and gone.
 
 The CLI change is wiring only; nothing to change in your configuration.

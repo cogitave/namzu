@@ -31,8 +31,17 @@ another key is skipped and logged.
 
 The text is frozen when it is appended. It opens with a line saying it is
 recorded context the host generated, not a new request from the operator, which
-key it is filed under and when it was written, and that a later entry under the
-same key adds to or replaces what it says.
+key it is filed under and when it was written. The first entry under a key adds
+that a later entry under the same key adds to or replaces what it says; a later
+entry leaves that sentence out, since the conversation already holds it
+(`createTurnContextEntry(key, text, at, { later: true })`). The producers do the
+same with their own reading rules: the first memory, evidence and repository
+entry carries the full rules, a later one a short line (and, for evidence, the
+fields as before), and a conversation whose earlier entries were compacted away
+gets the full rules again. The first file-evidence entry names `bodyInCall`,
+`editsInCalls` and `observedFingerprint`, and every owned-work entry names
+`taskId`, `turnStatus`, `stopReason` and `resultDelivery`, each once in plain
+words.
 
 An entry is not an operator message and not retained: compaction drops it with
 the history around it, like any older message. It is never shown to a person
@@ -70,6 +79,7 @@ of the request, after the history.
 | `memory` | `createMemoryRecallStep({ record: true })` | the records selected | only records whose `id` and `updatedAt` no earlier entry carries; nothing once the entries hold `sessionMaxChars` (24,000 by default), after which the model reads records with `read_memory` |
 | `evidence` | `createEvidenceRecallStep({ record: true })` | the passages found for the prompt | only passages whose address no earlier entry carries; past `sessionMaxChars` (24,000) an entry names the addresses of further relevant records for the conversation-history tools to open. Notes about the search itself stay request-only |
 | `file-evidence` | the loop | references to complete file bodies visible in the history | entries that are new or changed, and one `No longer holds:` line for paths whose earlier entry no longer holds, since an earlier entry is never edited |
+| `saved-agents` | the CLI | the agents earlier turns delegated to (session id, what each was asked, status), with the rules for reading them | only an agent that is new or whose status changed; nothing when the listing is as the entries say |
 | `owned-work` | the loop | none: the result of the call that launched a task already told the model | one entry per owned task that reaches a terminal state, once |
 
 `record` on the two SDK recall steps defaults to `false`: with it off a step
@@ -79,12 +89,23 @@ length, so a compaction that drops them frees the budget.
 
 ## Placement and caching
 
-A request begins with every earlier request's messages, entries included, so a
-caching driver keeps its breakpoint after the last cacheable message. The
-Anthropic, Bedrock and Zen drivers end the cached prefix before the first
-trailing `step-context` message only; a `turn-context` entry is ordinary history
-to them and the breakpoint falls on or after it. Provider packages need no
-change.
+A request begins with the history of the one before it, entries included, so a
+caching driver keeps its breakpoint after the last history message. The
+Anthropic, Bedrock, OpenRouter and Zen drivers end the cached prefix before the
+first trailing `step-context` message only; a `turn-context` entry is ordinary
+history to them and the breakpoint falls on or after it. Request-only blocks are
+placed again after the whole history on every call (see
+[step context](step-context.md#where-the-per-turn-blocks-sit)), so on every call
+of a turn the breakpoint lands on the last history message. Entries the loop has
+just recorded go ahead of them. Provider packages need no change.
+
+What the entries cost is bounded by the producers. Over a fifty-turn
+conversation with fresh evidence and memory each turn and nothing compacted, the
+entries together hold about 70,000 characters (about 17,500 tokens at four
+characters a token); the repository delta is about 520 characters and a pointer
+to further records about 320. A deleted memory record is not retracted: an entry
+that already carried it keeps saying it until a compaction drops the entry, and
+the model can see the current record with `read_memory`.
 
 Entries go after the operator's message, not before it: inserting one ahead
 of a message already in the log would put the live history out of log order and
