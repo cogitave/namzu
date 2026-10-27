@@ -5,9 +5,11 @@ import {
 	COMPACTED_TEXT,
 	COMPACTING_LABEL,
 	COMPACT_RESULT_HINT,
+	compactResultLine,
 	compactionHistoryLines,
 	compactionSummaryLines,
 	describeCompactionFailure,
+	estimateHistoryTokens,
 	stripCompactionMarker,
 } from './compaction-rows.js'
 
@@ -70,5 +72,34 @@ describe('describeCompactionFailure', () => {
 		expect(
 			describeCompactionFailure({ cause: 'reducer_threw', error: 'boom: ECONNRESET' }, true),
 		).toContain('boom: ECONNRESET')
+	})
+})
+
+describe('the /compact result line', () => {
+	it('says how many messages were summarised and the size before and after', () => {
+		expect(compactResultLine({ shed: 12, tokensBefore: 190_400, tokensAfter: 20_100 })).toBe(
+			'Compacted · 12 messages summarized · context about 190k to 20k tokens',
+		)
+	})
+
+	it('says one message in the singular and small sizes as plain numbers', () => {
+		expect(compactResultLine({ shed: 1, tokensBefore: 900, tokensAfter: 300 })).toBe(
+			'Compacted · 1 message summarized · context about 900 to 300 tokens',
+		)
+	})
+
+	it('leaves the sizes out when nothing got smaller', () => {
+		expect(compactResultLine({ shed: 3, tokensBefore: 500, tokensAfter: 500 })).toBe(
+			'Compacted · 3 messages summarized',
+		)
+	})
+
+	it('estimates a conversation from its text, four characters to a token', () => {
+		expect(
+			estimateHistoryTokens([
+				{ role: 'user', content: 'a'.repeat(40) },
+				{ role: 'assistant', content: [{ type: 'text', text: 'b'.repeat(40) }] },
+			] as never),
+		).toBe(20)
 	})
 })
