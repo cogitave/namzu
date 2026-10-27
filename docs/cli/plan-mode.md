@@ -59,7 +59,7 @@ A turn in the terminal is fed hidden reminders through the SDK's [reminder chann
 
 The full text: change nothing except the plan file, understand the request and look for code to reuse, settle on one approach, write context, approach, files, reuse and verification, and end the turn only by asking the user a question or by calling `exit_plan_mode`, never by asking in plain text whether the plan is fine.
 
-**Task-list nudge.** After 10 model turns (assistant messages) without `task_create` or `task_update`, and at most once per 10 model turns, the model is reminded that the task tools exist and shown the current list (`#<id>. [<status>] <subject>`). The counts come from the conversation, so they survive a resume and start again when compaction shed the history they were counting.
+**Task-list nudge.** After 10 model turns (assistant messages) without `task_create` or `task_update`, and at most once per 10 model turns, the model is reminded that the task tools exist and shown the current list (`#<id>. [<status>] <subject>`). The nudge speaks only while the current request has run three or more tool steps, because a list is for work of that size; a long conversation of short requests is not nudged. It is a hidden reminder for the model alone: the transcript, `/export`, a resumed conversation and the history a host reads never show it, and its text tells the model to keep it out of its replies. The counts come from the conversation, so they survive a resume and start again when compaction shed the history they were counting.
 
 ## What this does not do, and what is open
 

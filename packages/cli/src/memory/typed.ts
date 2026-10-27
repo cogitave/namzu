@@ -142,7 +142,7 @@ export function composeMemoryGuidance(options: { readonly taskList: boolean }): 
 		'- When you find a memory is wrong, correct or remove it, so a later session is not misled.',
 		'- When the person asks you to remember something, save it. If the repository already records it, save only what was surprising or non-obvious about it. When they ask you to forget something, find it and remove it.',
 		'',
-		'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note.',
+		'A recalled memory is a note from the past. Before acting on one that names a file, function, flag or command, check it against the current code, and trust what you observe now over the note. A recalled line gives `updatedAt` (when the memory last changed, as a timestamp in milliseconds) and `sourceTurn` (the turn that saved it, when known).',
 	].join('\n')
 }
 

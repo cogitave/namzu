@@ -109,6 +109,17 @@ evidence may be needed. These are model instructions, not a deterministic
 intent classifier or a guarantee of correct source choice. Retention cannot
 prove that a model saw or understood text omitted from its visible preview.
 
+The guidance the model reads with these tools also tells it to search the
+conversation for a short phrase from an error before it investigates that error
+again, because an earlier turn may already hold the cause or the fix. It names
+each field of a recalled quote once, in plain words: `visibleEvidence` items
+hold a `textQuote`, the `recordKind` of the record it came from, the `toolName`
+that produced it and `isError`; `omittedVisibleEvidence` counts what was left
+out, and `excerptGuidance`, `recordKindGuidance` and `visibleEvidenceGuidance`
+are notes on reading them. A recalled memory line is explained the same way
+(`updatedAt` is when it last changed, as a timestamp in milliseconds, `sourceTurn` the turn
+that saved it), as is the saved-agents list (`savedAgents`, `sessionId`).
+
 Search matches and `read_conversation` pages include optional `recordedAt`, the
 stored event's recorder wall-clock Unix milliseconds. Automatic recall carries
 that same value into selected passages and included duplicate occurrences. It

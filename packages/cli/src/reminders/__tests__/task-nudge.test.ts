@@ -7,7 +7,13 @@ import {
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { TASK_NUDGE_AFTER_TURNS, TASK_NUDGE_EVERY_TURNS, taskNudge } from '../task-nudge.js'
+import {
+	TASK_NUDGE_AFTER_TURNS,
+	TASK_NUDGE_EVERY_TURNS,
+	TASK_NUDGE_MIN_STEPS,
+	stepsThisRequest,
+	taskNudge,
+} from '../task-nudge.js'
 
 /**
  * The task-list nudge: after 10 model turns without a task tool, at most once
@@ -71,5 +77,37 @@ describe('the task-list nudge', () => {
 		expect(nudge).not.toContain('The task list now')
 		expect(taskNudge([], tasks)).toEqual([])
 		expect(TASK_NUDGE_EVERY_TURNS).toBe(10)
+	})
+
+	it('stays quiet until the request has run three tool steps', () => {
+		// Ten model turns without a task tool, but the person's latest message
+		// came after nearly all of them.
+		const old = [createUserMessage('earlier'), ...turns(12)]
+		const short = [
+			...old,
+			createUserMessage('and one more thing'),
+			...turns(TASK_NUDGE_MIN_STEPS - 1),
+		]
+		expect(stepsThisRequest(short)).toBe(TASK_NUDGE_MIN_STEPS - 1)
+		expect(taskNudge(short, tasks)).toEqual([])
+		const long = [...short, ...turn('read')]
+		expect(stepsThisRequest(long)).toBe(TASK_NUDGE_MIN_STEPS)
+		expect(taskNudge(long, tasks)).toHaveLength(1)
+	})
+
+	it('counts tool steps, not plain replies', () => {
+		const history = [
+			createUserMessage('go'),
+			...turns(9),
+			createAssistantMessage('thinking out loud'),
+			...turn('read'),
+		]
+		expect(stepsThisRequest(history)).toBe(10)
+	})
+
+	it('tells the model to keep the note to itself', () => {
+		const [nudge] = taskNudge([createUserMessage('go'), ...turns(10)], tasks)
+		expect(nudge).toContain('three or more steps')
+		expect(nudge).toContain('keep it out of your replies to the user')
 	})
 })

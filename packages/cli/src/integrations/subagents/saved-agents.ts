@@ -105,7 +105,7 @@ export function createSavedAgentHistory(scope: SavedChildScope): SavedAgentHisto
 export const SAVED_AGENTS_KEY = 'saved-agents'
 
 const SAVED_AGENTS_ROWS =
-	'Each row gives the agent\'s session id, what it was asked to do, and its status. Rows are listed once, when they are new or their status changed; "omitted" counts older agents that are not listed.'
+	'The JSON lists the agents under "savedAgents". Each row gives the agent\'s session id (`sessionId`), what it was asked to do (`description`), and its `status`. Rows are listed once, when they are new or their status changed; "omitted" counts older agents that are not listed.'
 
 interface PromptedRow {
 	readonly sessionId: string

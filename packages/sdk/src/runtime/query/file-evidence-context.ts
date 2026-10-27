@@ -149,7 +149,7 @@ export function recordFileEvidence(
 	const lead =
 		recorded.length === 0
 			? `${FILE_EVIDENCE_HEADING}: ${FILE_EVIDENCE_GUIDANCE}`
-			: `${FILE_EVIDENCE_HEADING}, changed since the last entry. An entry for a path replaces the earlier entries for that path.`
+			: `${FILE_EVIDENCE_HEADING}, changed since the last entry; \`bodyInCall\` and \`observedFingerprint\` read as before. An entry for a path replaces the earlier entries for that path.`
 	return [
 		lead,
 		...(gone.length > 0 ? [`${NO_LONGER_HOLDS}${JSON.stringify(gone)}`] : []),

@@ -781,7 +781,7 @@ alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
 tokens)`. The parenthesised figures stay hidden until the reply has produced
 tokens, the model is thinking, a compaction runs, agents are running, or the
 turn has lasted more than 16 s; elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
-(seconds floored, the same format on every duration in the transcript). A blank
+(seconds floored, the same format on every duration in the transcript). While a plan step is in progress the word `Working` gives way to that step, in the words the model gave for it (`Running the tests`) or, when it gave none, the step's subject on one line, cut to fit beside the clock; with no step in progress the row says `Working`. The model is also told to say in a line what it is about to do before its first tool call and to add a one-line update when it finds something, changes direction or hits a blocker, so a long turn reads as a few plain lines and not as silence. A blank
 row separates the last transcript row from the Working row. With no token for
 more than 10 s the label blends toward `rgb(171,43,63)`, fully at 20 s, easing in
 and out; it never tints while a tool runs, the model is thinking, a compaction
