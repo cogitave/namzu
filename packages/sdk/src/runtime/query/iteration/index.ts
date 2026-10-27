@@ -191,7 +191,7 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
-	/** Where this turn's request-only data first went, so it stays there. */
+	/** The previous request's context, so a pre-call hook is told what changed. */
 	private previousRequestContext: RequestContextSnapshot | undefined
 
 	private projectObservations(messages: Message[]): Message[] {
