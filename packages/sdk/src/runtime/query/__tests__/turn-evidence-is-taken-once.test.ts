@@ -9,7 +9,13 @@ import {
 	type EvidenceRecallRequest,
 	createEvidenceRecallStep,
 } from '../../../turn/evidence-recall.js'
-import type { Message } from '../../../types/message/index.js'
+import {
+	type Message,
+	RUNTIME_CONTEXT_MESSAGE_KINDS,
+	createProjectInstructionMessage,
+	createRuntimeContextMessage,
+	createUserMessage,
+} from '../../../types/message/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -113,5 +119,108 @@ describe('conversation evidence across the calls of one turn', () => {
 			const before = shape(provider.requests[i - 1]?.messages as Message[])
 			expect(shape(request.messages as Message[]).slice(0, before.length)).toEqual(before)
 		}
+	})
+})
+
+/**
+ * The same turn, with one message landing between the first and second calls.
+ * A message the runtime injects is not a new question; one from the person is.
+ */
+async function runWithInjection(injected: Message): Promise<{
+	retrieve: ReturnType<typeof vi.fn>
+	requests: readonly (readonly Message[])[]
+}> {
+	const ids = {
+		projectId: generateProjectId(),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		tenantId: generateTenantId(),
+	}
+	const earlierTurn = generateTurnId()
+	const entry = (seq: number, excerpt: string): EvidenceRecallCandidate => ({
+		scope: { ...ids, turnId: earlierTurn },
+		seq,
+		part: 0,
+		source: 'tool_completed',
+		toolName: 'read',
+		retained: 'full',
+		excerpt,
+		byteOffset: 0,
+	})
+	const archive: EvidenceRecallCandidate[] = [entry(1, 'DELTA tracking code: A17')]
+	const retrieve = vi.fn(async (_request: EvidenceRecallRequest) => ({
+		candidates: [...archive],
+		scannedBytes: 64,
+		incomplete: false,
+	}))
+	let queued: Message[] = []
+	const tools = testToolset({
+		name: 'look',
+		description: 'Look at something',
+		inputSchema: z.object({ what: z.string() }),
+		execute: async () => {
+			archive.push(entry(2, 'DELTA tracking code: B99'))
+			queued = [injected]
+			return { success: true, output: 'seen' }
+		},
+	})
+	const provider = new MockLLMProvider({
+		turns: [{ toolCalls: [{ id: 'c1', name: 'look', args: { what: 'x' } }] }, { text: 'done' }],
+	})
+	await drainQuery({
+		toolsets: [tools],
+		agentId: 'a',
+		agentName: 'A',
+		systemPrompt: 'You are a coding agent.',
+		workingDirectory: process.cwd(),
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		compactionConfig: CompactionConfigSchema.parse({}),
+		...ids,
+		provider,
+		inboundMessages: () => {
+			const out = queued
+			queued = []
+			return out
+		},
+		prepareStep: createEvidenceRecallStep({
+			scope: { tenantId: ids.tenantId, projectId: ids.projectId, sessionId: ids.sessionId },
+			retrieve,
+		}),
+		messages: [{ role: 'user', content: 'what was the DELTA tracking code' }],
+	})
+	return { retrieve, requests: provider.requests.map((r) => r.messages as Message[]) }
+}
+
+const shapeOf = (messages: readonly Message[]) => messages.map((m) => `${m.role}:${text(m)}`)
+
+describe('conversation evidence when a message lands mid-turn', () => {
+	const expectKept = (run: Awaited<ReturnType<typeof runWithInjection>>, marker: string) => {
+		expect(run.requests).toHaveLength(2)
+		expect(run.retrieve).toHaveBeenCalledTimes(1)
+		const [first, second] = run.requests as [readonly Message[], readonly Message[]]
+		expect(shapeOf(second).some((line) => line.includes(marker))).toBe(true)
+		const before = shapeOf(first)
+		expect(shapeOf(second).slice(0, before.length)).toEqual(before)
+		expect(shapeOf(second).some((line) => line.includes('B99'))).toBe(false)
+	}
+
+	it('keeps the evidence when project instructions are updated', async () => {
+		const run = await runWithInjection(
+			createProjectInstructionMessage('Updated rule: PINEAPPLE-RULE', ['AGENTS.md']),
+		)
+		expectKept(run, 'PINEAPPLE-RULE')
+	})
+
+	for (const kind of RUNTIME_CONTEXT_MESSAGE_KINDS.filter((k) => k !== 'steering')) {
+		it(`keeps the evidence when a ${kind} notice lands`, async () => {
+			const run = await runWithInjection(createRuntimeContextMessage(`NOTICE-${kind}`, kind))
+			expectKept(run, `NOTICE-${kind}`)
+		})
+	}
+
+	it('reads the archive again when the person steers', async () => {
+		const run = await runWithInjection(createUserMessage('Actually, look at B99 instead'))
+		expect(run.requests).toHaveLength(2)
+		expect(run.retrieve).toHaveBeenCalledTimes(2)
 	})
 })

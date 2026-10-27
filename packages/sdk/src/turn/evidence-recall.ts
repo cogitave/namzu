@@ -1,3 +1,4 @@
+import { isOperatorUserMessage } from '../runtime/query/steering.js'
 import {
 	EVIDENCE_RECORD_GUIDANCE,
 	classifyEvidenceSource as recordKind,
@@ -919,12 +920,14 @@ export function createScopedEvidenceRecallStep(
 	// own earlier iterations recorded, so only a conversation's turn is held.
 	if (boundary.kind !== 'conversation') return recall
 	return async (context) => {
-		// A new operator input inside the turn (steering) is a new question.
+		// A new input from the person inside the turn (steering) is a new question.
+		// Messages the runtime injects (updated instructions, notices, reminders)
+		// are not, and must not re-run retrieval or change the evidence block.
 		const turn = JSON.stringify([
 			context.sessionId,
 			context.turnId,
 			context.latestUserMessage?.content,
-			context.messages.filter((message) => message.role === 'user').length,
+			context.messages.filter(isOperatorUserMessage).length,
 		])
 		const prefix = context.prepared.context ? `${context.prepared.context}\n\n` : ''
 		const reuse = (block: string | undefined) =>
