@@ -102,22 +102,20 @@ describe('the summary template', () => {
 		expect(text).toContain('The loader reads rows lazily.')
 	})
 
-	it('marks the latest request without repeating it', () => {
+	it('restates the latest request as the goal, not as a marker in the list', () => {
 		const manager = stateAfter([
 			['user', 'Port the loader.'],
 			['user', 'Then also rename the store.'],
 			['user', 'Keep the migration reversible.'],
 		])
 		const text = serializeState(manager.getState())
-		expect(text).toContain('- Latest request: Keep the migration reversible.')
-		expect(text.split('Keep the migration reversible.')).toHaveLength(2)
-		expect(text).not.toContain('Latest request: Then also')
+		expect(text).toContain('## Current Goal\n\nKeep the migration reversible.')
+		expect(text).not.toContain('Latest request')
 	})
 
 	it('writes no section for what is not there', () => {
 		const text = serializeState(stateAfter([['user', 'Port the loader.']]).getState())
 		expect(text).not.toContain('## Open Items and Next Step')
-		expect(text).not.toContain('Latest request')
 	})
 
 	it('keeps an unresolved error with its exact text', () => {

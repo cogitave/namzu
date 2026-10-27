@@ -163,9 +163,13 @@ describe('the working doctrine', () => {
 	it('reaches every delegated sub-agent, not only the parent', async () => {
 		const prompt = await subagentSystemPrompt()
 
-		for (const sentence of DOCTRINE_SENTENCES) {
+		// Every working rule but the one about narrating to the person: a
+		// sub-agent reports to its parent, and says so in its own section.
+		for (const sentence of DOCTRINE_SENTENCES.filter((s) => !s.startsWith('Before a batch'))) {
 			expect(prompt).toContain(sentence)
 		}
+		expect(prompt).not.toContain('Before a batch of tool calls')
+		expect(prompt).toContain('### Your final report')
 	})
 
 	it('does not tell a sub-agent to use the tools only the parent has', async () => {

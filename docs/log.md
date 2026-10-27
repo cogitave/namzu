@@ -3,6 +3,7 @@
 ## 2026-10-27
 
 - **Update** [Tool boundary](cli/tool-boundary.md), [Bash tool](sdk/bash-tool.md): a change of permission mode is one notice that says which mode ended and which began, the ending first, and plan mode's exit note always precedes the notice for the mode that follows; the note about removed credential-shaped variables left the `bash` result and is sent once as its own framed notice after the tool batch (`data.withheldEnv` carries the count). `.changeset/mode-change-notice.md` (`@namzu/cli` patch), `.changeset/credential-notice-own-message.md` (`@namzu/sdk` major).
+- **Update** [Context limits](sdk/context-limits.md#what-the-summary-keeps): the compaction summary lists each file once with what was done to it, names the details added by the summary check `## Missing Details`, and restates the newest request under `## Current Goal` (replacing the `Latest request:` prefix). Sub-agents get a final-report section in place of the person-facing one, and the environment block leads with its framing line. `.changeset/subagent-compaction-wording-sdk.md` (`@namzu/sdk` patch), `.changeset/subagent-compaction-wording-cli.md` (`@namzu/cli` patch).
 
 ## 2026-10-26
 

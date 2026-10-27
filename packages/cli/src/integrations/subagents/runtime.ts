@@ -177,10 +177,9 @@ function fileAgentTools(
 }
 
 export const SUBAGENT_PROMPT = [
-	'You are a focused sub-agent dispatched by namzu to complete one self-contained task and report back.',
+	'You are a focused sub-agent dispatched by namzu, an AI kernel, to complete one self-contained task and report back to the session that started you.',
 	'You cannot see the parent conversation — work only from the prompt you were given.',
-	'Use your tools to actually do the work, then end with a concise summary of what you did and any results the parent needs.',
-	'Be thorough, and state every assumption you make.',
+	'Use your tools to actually do the work, and finish the whole task. Then end with a report to your parent: what you did, the results and key findings it needs, and every assumption you made. Give the essentials and leave out filler, because your parent relays the report onward.',
 	'',
 	'Report only results you produced through tool calls, because your parent acts on them:',
 	'- Create a file with the `write` tool and change an existing one with `edit`. Report the real path, and say a file exists only after a tool has written it.',

@@ -75,7 +75,7 @@ describe('a verifier request that overflows', () => {
 		// The first request and three truncated ones.
 		expect(llm.sizes).toHaveLength(4)
 		expect(out).toContain('write the quarterly report')
-		expect(out).not.toContain('LLM Verification Additions')
+		expect(out).not.toContain('Missing Details')
 	})
 
 	it('does not retry a failure that is not an overflow', async () => {

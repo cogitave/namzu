@@ -1,4 +1,5 @@
 import type { CompactionConfig } from '../config/runtime.js'
+import { SECTION_HEADERS } from '../constants/compaction/index.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import {
@@ -329,7 +330,7 @@ async function buildVerifiedSummaryWithProvider(
 	// says the same thing by accident — a turn truncated at
 	// `llmVerificationMaxTokens`, a refusal, or a provider that returned no
 	// content at all — and used to fall through to the append below, stamping a
-	// bare `## LLM Verification Additions` heading with nothing under it. That
+	// bare `## Missing Details` heading with nothing under it. That
 	// empty promise then rides in the compaction summary, and therefore in every
 	// subsequent system prompt, for the rest of the turn. A heading with no body
 	// is not a verification result; treat a silent verifier the same as one that
@@ -338,5 +339,5 @@ async function buildVerifiedSummaryWithProvider(
 		return serialized
 	}
 
-	return `${serialized}\n\n## LLM Verification Additions\n\n${responseText}`
+	return `${serialized}\n\n${SECTION_HEADERS.verifierAdditions}\n\n${responseText}`
 }
