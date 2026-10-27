@@ -118,6 +118,7 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 						? { bytes: count(value.binary.bytes) }
 						: undefined,
 				background: flag(value.background),
+				continued: flag(value.continued),
 			})
 		case 'read': {
 			const path = text(value.path)

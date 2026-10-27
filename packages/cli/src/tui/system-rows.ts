@@ -60,6 +60,9 @@ export function systemRowStyle(level: SystemLevel): SystemRowStyle {
 export const INTERRUPTED_TEXT = 'Interrupted · What should Namzu do instead?'
 /** After a send-now steer the next instruction is already on its way, so no question. */
 export const INTERRUPTED_BY_STEER_TEXT = 'Interrupted'
+/** A command that was running carries on as a background job instead of stopping. */
+export const INTERRUPTED_COMMAND_CONTINUES_TEXT =
+	'Interrupted · The command continues in the background'
 
 export interface InterruptionRow {
 	readonly content: string
@@ -78,8 +81,14 @@ export interface InterruptionRow {
 export function interruptionRow(options: {
 	readonly callRunning: boolean
 	readonly steered?: boolean
+	readonly movedToBackground?: boolean
 }): InterruptionRow {
-	const content = options.steered === true ? INTERRUPTED_BY_STEER_TEXT : INTERRUPTED_TEXT
+	const content =
+		options.movedToBackground === true
+			? INTERRUPTED_COMMAND_CONTINUES_TEXT
+			: options.steered === true
+				? INTERRUPTED_BY_STEER_TEXT
+				: INTERRUPTED_TEXT
 	return options.callRunning
 		? { content, glyph: CONTINUATION_GLYPH, color: tokenColor('text.muted') }
 		: { content, ...systemRowStyle('notice') }

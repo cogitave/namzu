@@ -324,6 +324,12 @@ describe('admitToolFacts', () => {
 		).toEqual({ kind: 'command', command: 'npm test', exitCode: 1 })
 	})
 
+	it('keeps a command that was handed to the background while it ran', () => {
+		expect(
+			admitToolFacts({ kind: 'command', command: 'make', background: true, continued: true }),
+		).toEqual({ kind: 'command', command: 'make', background: true, continued: true })
+	})
+
 	it('refuses a shape it does not know and a field of the wrong type', () => {
 		expect(admitToolFacts({ kind: 'teleport' })).toBeUndefined()
 		expect(admitToolFacts({ kind: 'read', path: 3 })).toBeUndefined()

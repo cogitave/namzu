@@ -14,7 +14,7 @@ A mode decides what happens to a call that no rule decided. The `[permissions]` 
 
 | Word | Reads as | Runs without a question | Still asks (or is refused when nobody can be asked) |
 | --- | --- | --- | --- |
-| `prompt` | the default | reads and the read-only shell commands | everything else |
+| `prompt` | the default | reads and the read-only shell commands; with the [sandbox](tool-boundary.md#shell-commands-inside-the-sandbox-run-without-a-question) on and confining, every shell command inside it | everything else; a command that leaves the sandbox always asks |
 | `accept-edits` | **Accept edits** | also `edit` and `write`, and `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` and `sed` when every path they name is inside your folders | everything else; a catastrophic `rm` still asks |
 | `plan` | **Plan (read-only)** | reads | any change is refused until you leave plan mode |
 | `bypass` | **Bypass permissions** | everything below | the list under [What bypass and auto still ask](#what-bypass-and-auto-still-ask) |

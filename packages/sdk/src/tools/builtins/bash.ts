@@ -4,6 +4,7 @@ import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { genericLabel } from '../../registry/tool/presentation.js'
+import { cancelCauseOf } from '../../types/session/cancel-cause.js'
 import type { ToolFacts } from '../../types/tool/presentation.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
@@ -91,6 +92,28 @@ function startsWithSleep(command: string): boolean {
 export function movedToBackgroundMessage(jobId: string, timeoutMs: number): string {
 	const seconds = Math.max(1, Math.round(timeoutMs / 1000))
 	return `Command did not complete within its ${seconds}s timeout and was moved to the background as job ${jobId}; it was not stopped. You will be told when it ends. Its output so far is above.`
+}
+
+/**
+ * How long a foreground command runs before it is offered for hand-over to
+ * the background. A command that ends sooner is never interrupted by a stray
+ * key press, and a host that shows a hint shows it from this moment.
+ */
+export const FOREGROUND_HANDOFF_AFTER_MS = 2_000
+
+/**
+ * What the model is told when the person moved a running foreground command to
+ * the background instead of stopping it. Exported so the test states the same
+ * words.
+ */
+export function handedOffMessage(jobId: string, reason: 'user' | 'message' | 'interrupt'): string {
+	const why =
+		reason === 'user'
+			? "at the person's request"
+			: reason === 'message'
+				? 'so a message from the person could reach you'
+				: 'because the person interrupted the turn'
+	return `Command was moved to the background as job ${jobId} ${why}; it was not stopped. You will be told when it ends. Its output so far is above.`
 }
 
 const inputSchema = z.object({
@@ -240,10 +263,34 @@ export function execHostShell(
 			child: ReturnType<typeof spawnHostShell>
 			initialOutput: readonly { stream: 'stdout' | 'stderr'; text: string }[]
 		}) => string | undefined
+		/**
+		 * Takes the live process over for a hand-over the person asked for
+		 * (a key press, a message that must reach the model, an interrupt),
+		 * with the same contract as `onTimeout`. Absent, those hand-overs are
+		 * not offered and an interrupt kills the command as it always did.
+		 */
+		adopt?: (running: {
+			child: ReturnType<typeof spawnHostShell>
+			initialOutput: readonly { stream: 'stdout' | 'stderr'; text: string }[]
+		}) => string | undefined
+		/**
+		 * An interrupt the person caused (Esc, Ctrl+C) hands the command to
+		 * `adopt` instead of killing it. Any other abort, a parent stopping a
+		 * child or a budget stop, still kills it.
+		 */
+		adoptOnInterrupt?: boolean
+		/**
+		 * Called once, right after the process is spawned, with the means to
+		 * hand it over later. `background` returns whether the process was
+		 * taken over; it settles the call with `backgroundedJobId` set.
+		 */
+		onRunning?: (control: { background(reason: 'user' | 'message'): boolean }) => void
 	},
 ): Promise<{
-	/** Set when `onTimeout` took the process over; the command was not stopped. */
+	/** Set when the process was taken over; the command was not stopped. */
 	backgroundedJobId?: string
+	/** Why it was taken over. */
+	backgroundedBy?: 'timeout' | 'user' | 'message' | 'interrupt'
 	stdout: string
 	stderr: string
 	/** Bytes captured on each stream, before decoding; absent from a runner that does not count them. */
@@ -401,44 +448,64 @@ export function execHostShell(
 			)
 		}
 		child.once('close', onClose)
-		const deadline = setTimeout(() => {
-			if (options.onTimeout && !closed && cause === undefined) {
-				let jobId: string | undefined
-				try {
-					jobId = options.onTimeout({
-						child,
-						initialOutput: (['stdout', 'stderr'] as const)
-							.map((stream) => ({ stream, text: decodeCapture(stream) }))
-							.filter((part) => part.text !== ''),
-					})
-				} catch {
-					// A host that cannot take the process over leaves the kill in place.
-				}
-				if (jobId !== undefined) {
-					// The registry owns the process from here: stop listening to it,
-					// so a later Stop or its exit is not this call's business.
-					closed = true
-					disposeAbort?.()
-					child.stdout?.off('data', onStdout)
-					child.stderr?.off('data', onStderr)
-					child.off('close', onClose)
-					child.off('error', onError)
-					child.off('spawn', onSpawn)
-					resolve({
-						backgroundedJobId: jobId,
-						stdout: decodeCapture('stdout'),
-						stderr: decodeCapture('stderr'),
-					})
-					return
-				}
+		// Hands the live process to the host's job registry, once. `onTimeout`
+		// answers for the deadline; every other reason goes to `adopt`.
+		const takeOver = (reason: 'timeout' | 'user' | 'message' | 'interrupt'): boolean => {
+			const adopter =
+				reason === 'timeout' ? options.onTimeout : (options.adopt ?? options.onTimeout)
+			if (!adopter || closed || cause !== undefined) return false
+			let jobId: string | undefined
+			try {
+				jobId = adopter({
+					child,
+					initialOutput: (['stdout', 'stderr'] as const)
+						.map((stream) => ({ stream, text: decodeCapture(stream) }))
+						.filter((part) => part.text !== ''),
+				})
+			} catch {
+				// A host that cannot take the process over leaves the process where it is.
 			}
+			if (jobId === undefined) return false
+			// The registry owns the process from here: stop listening to it,
+			// so a later Stop or its exit is not this call's business.
+			closed = true
+			disposeAbort?.()
+			clearTimeout(deadline)
+			child.stdout?.off('data', onStdout)
+			child.stderr?.off('data', onStderr)
+			child.off('close', onClose)
+			child.off('error', onError)
+			child.off('spawn', onSpawn)
+			resolve({
+				backgroundedJobId: jobId,
+				backgroundedBy: reason,
+				stdout: decodeCapture('stdout'),
+				stderr: decodeCapture('stderr'),
+			})
+			return true
+		}
+		const deadline = setTimeout(() => {
+			if (takeOver('timeout')) return
 			cancel('timeout')
 		}, options.timeout)
 		deadline.unref?.()
 		if (options.signal) {
-			disposeAbort = subscribeToAbort(options.signal, () => cancel('caller'))
-			if (options.signal.aborted) cancel('caller')
+			const signal = options.signal
+			const onAbort = () => {
+				// Esc or Ctrl+C keeps what the command was doing; any other stop
+				// (a parent cancelling a child, a budget) still ends it.
+				if (
+					options.adoptOnInterrupt === true &&
+					cancelCauseOf(signal.reason) === 'user' &&
+					takeOver('interrupt')
+				)
+					return
+				cancel('caller')
+			}
+			disposeAbort = subscribeToAbort(signal, onAbort)
+			if (signal.aborted) onAbort()
 		}
+		options.onRunning?.({ background: (reason) => takeOver(reason) })
 	})
 }
 
@@ -714,51 +781,76 @@ const BashToolBase = defineTool({
 		// registry, a sandboxed turn, a one-off sandbox escape, a plain wait)
 		// is there anything to hand the process to, so those keep the kill.
 		const adopt = context.backgroundJobs?.adopt?.bind(context.backgroundJobs)
-		const canMoveToBackground =
-			adopt !== undefined &&
-			context.sandbox === undefined &&
-			!backgroundTasksDisabled() &&
-			!startsWithSleep(input.command)
+		const canHandOff =
+			adopt !== undefined && context.sandbox === undefined && !backgroundTasksDisabled()
+		const canMoveOnTimeout = canHandOff && !startsWithSleep(input.command)
+		const adoptRunning = (running: {
+			child: Parameters<NonNullable<typeof adopt>>[0]['child']
+			initialOutput: Parameters<NonNullable<typeof adopt>>[0]['initialOutput']
+		}) =>
+			adopt?.({
+				command: input.command,
+				child: running.child,
+				workingDirectory: context.workingDirectory,
+				initialOutput: running.initialOutput,
+			}).id
+		// Offered for hand-over once it has run long enough to be worth moving.
+		let offerTimer: ReturnType<typeof setTimeout> | undefined
+		let withdrawOffer: (() => void) | undefined
+		const offer = context.backgroundJobs?.registerForeground?.bind(context.backgroundJobs)
 
 		try {
-			const { stdout, stderr, stdoutBytes, stderrBytes, backgroundedJobId } = await execHostShell(
-				input.command,
-				{
+			const { stdout, stderr, stdoutBytes, stderrBytes, backgroundedJobId, backgroundedBy } =
+				await execHostShell(input.command, {
 					cwd: context.workingDirectory,
 					timeout: input.timeout,
 					env: { ...inherited.env, ...context.env },
 					maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 					signal: context.abortSignal,
 					onOutput,
-					...(canMoveToBackground
+					...(canMoveOnTimeout ? { onTimeout: adoptRunning } : {}),
+					...(canHandOff
 						? {
-								onTimeout: ({ child, initialOutput }) =>
-									adopt({
-										command: input.command,
-										child,
-										workingDirectory: context.workingDirectory,
-										initialOutput,
-									}).id,
+								adopt: adoptRunning,
+								adoptOnInterrupt: true,
+								...(offer
+									? {
+											onRunning: (control: {
+												background(reason: 'user' | 'message'): boolean
+											}) => {
+												offerTimer = setTimeout(() => {
+													withdrawOffer = offer({
+														command: input.command,
+														background: (reason) => control.background(reason),
+													})
+												}, FOREGROUND_HANDOFF_AFTER_MS)
+												offerTimer.unref?.()
+											},
+										}
+									: {}),
 							}
 						: {}),
-				},
-			)
+				})
 			if (backgroundedJobId !== undefined) {
+				const timedOut = backgroundedBy === 'timeout'
 				return {
 					success: true,
 					output: [
 						formatShellOutput(stdout, stderr),
-						movedToBackgroundMessage(backgroundedJobId, input.timeout),
+						timedOut || backgroundedBy === undefined
+							? movedToBackgroundMessage(backgroundedJobId, input.timeout)
+							: handedOffMessage(backgroundedJobId, backgroundedBy),
 					]
 						.filter(Boolean)
 						.join('\n\n'),
 					data: {
 						jobId: backgroundedJobId,
 						background: true,
-						timedOut: true,
+						...(timedOut || backgroundedBy === undefined ? { timedOut: true } : {}),
 						movedToBackground: true,
+						...(backgroundedBy ? { backgroundedBy } : {}),
 					},
-					facts: { kind: 'command', command: input.command, background: true },
+					facts: { kind: 'command', command: input.command, background: true, continued: true },
 				}
 			}
 			return {
@@ -856,6 +948,9 @@ const BashToolBase = defineTool({
 					...(failure.stderrBytes !== undefined ? { stderrBytes: failure.stderrBytes } : {}),
 				}),
 			}
+		} finally {
+			if (offerTimer !== undefined) clearTimeout(offerTimer)
+			withdrawOffer?.()
 		}
 	},
 })

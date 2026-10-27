@@ -18,6 +18,8 @@ export interface TidyOutput {
 
 /** The sentence under a command that was handed to a background job. */
 export const BACKGROUND_NOTE = 'Running in the background (↓ to manage)'
+/** The sentence under a command that was already running when it moved to the background. */
+export const CONTINUED_NOTE = 'Continues in the background (↓ to manage)'
 
 /** Output that is not text: a NUL byte, or a large share of control characters. */
 export function looksBinary(text: string): boolean {
@@ -182,7 +184,11 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 	// kernel's own sentence is the answer. Only its bookkeeping is removed.
 	return withFailure(
 		tidyTerminalOutput(raw).output,
-		cell([], [], facts.background ? BACKGROUND_NOTE : facts.exitNote),
+		cell(
+			[],
+			[],
+			facts.background ? (facts.continued ? CONTINUED_NOTE : BACKGROUND_NOTE) : facts.exitNote,
+		),
 	)
 }
 
