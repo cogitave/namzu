@@ -69,8 +69,8 @@ function lastSaid(messages: readonly Message[]): Said {
 }
 
 /** The mode that ended, in the words the notice uses for it. */
-function endedName(last: ModeKind | 'plan'): string {
-	return last === 'plan' ? 'Plan mode' : `The ${NAME_OF[last]} permission mode`
+function endedName(last: ModeKind): string {
+	return `The ${NAME_OF[last]} permission mode`
 }
 
 /** What goes on after a mode ends, said for the mode it lands in. */
@@ -90,7 +90,8 @@ function exitSentence(landing: PermissionMode): string {
  *
  * A change from one mode to another is one notice that says which mode ended
  * and which began, the ending first. Plan mode's own end is announced by its
- * own notice, which the caller places ahead of this one.
+ * own notice, which the caller places ahead of this one; the notice that
+ * follows it says only what is on now.
  */
 export function modeReminders(input: ModeReminderInput): string[] {
 	const wanted = announced(input.mode)
@@ -111,8 +112,9 @@ export function modeReminders(input: ModeReminderInput): string[] {
 		mode: input.mode,
 	})
 	const began = `The ${NAME_OF[wanted]} permission mode is on.`
+	// Plan mode's own exit notice is sent in the same batch, so this one says only what is on now.
 	const opening =
-		last === undefined || last === 'mode-exit'
+		last === undefined || last === 'mode-exit' || last === 'plan'
 			? began
 			: `${endedName(last)} has ended and the ${NAME_OF[wanted]} permission mode is on.`
 	return [frameReminder(wanted, `${opening} ${sentence} ${SAFETY}`)]

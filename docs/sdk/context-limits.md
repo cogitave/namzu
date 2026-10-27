@@ -151,8 +151,8 @@ exact values that step needs. Alongside the sections it already had, it ends
 with `## Open Items and Next Step`: the assistant notes that say what is still
 to do ("I will implement the loader next in src/loader.ts and then add tests"),
 filed apart from the narration so the next step is the last thing read. The
-newest operator request is restated under `## Current Goal` (the task when
-nothing newer was asked), just before the open items, so the goal is in view
+newest operator request is restated under `## Current Goal` (left out when$
+nothing newer was asked or it only repeats the task), just before the open items, so the goal is in view
 after a compaction. `## Files` gives one line per file, the path then what was
 done to it ("read; changed"), and any additions from the summary check come
 under `## Missing Details`. Unresolved errors stay in

@@ -92,7 +92,7 @@ describe('permission mode announcements', () => {
 		},
 	)
 
-	it('names plan mode as the one that ended when an announced mode follows it', () => {
+	it('says only what is on now when an announced mode follows plan mode', () => {
 		const planned = [
 			...turn([], 'plan'),
 			createRuntimeContextMessage(
@@ -101,7 +101,9 @@ describe('permission mode announcements', () => {
 			),
 		]
 		const said = texts(turn(planned, 'bypass'))
-		expect(said.at(-1)).toContain('Plan mode has ended and the bypass permission mode is on.')
+		expect(said.at(-1)).toContain('The bypass permission mode is on.')
+		expect(said.at(-1)).not.toContain('Plan mode')
+		expect(said.at(-1)).not.toContain('has ended')
 		expect(said.at(-1)).toContain('safety rules')
 	})
 
