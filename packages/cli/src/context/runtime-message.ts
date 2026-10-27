@@ -1,4 +1,4 @@
-import type { RuntimeContextMessageKind } from '@namzu/sdk'
+import type { Message, RuntimeContextMessageKind } from '@namzu/sdk'
 
 /** Human label for provider-user-role context authored by the runtime. */
 export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
@@ -38,4 +38,18 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 		case 'turn-context':
 			return 'Earlier context'
 	}
+}
+
+/**
+ * Whether a message is context the runtime wrote for the model alone: a hidden
+ * reminder (the task-list nudge among them) or the context a turn recorded.
+ * Nothing the person reads (the live transcript, exports, a host's history
+ * view) shows these.
+ */
+export function isModelOnlyContext(message: Message): boolean {
+	return (
+		message.role === 'user' &&
+		message.source?.type === 'runtime-context' &&
+		(message.source.kind === 'reminder' || message.source.kind === 'turn-context')
+	)
 }
