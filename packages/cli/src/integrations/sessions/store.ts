@@ -907,7 +907,7 @@ export async function listOtherFolders(
 			const cwd = typeof doc.cwd === 'string' ? doc.cwd : ''
 			found = {
 				paths: new SessionPaths({ home: s.root, slug }),
-				name: basename(cwd) || slug,
+				name: cwd.split(/[\\/]/).filter(Boolean).pop() || 'another folder',
 			}
 		} catch {
 			found = null

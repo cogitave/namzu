@@ -55,8 +55,8 @@ describe('enter_plan_mode', () => {
 		const { tool: t, enter } = tool({ ask: answering(answer) })
 		const result = await t.execute({}, context())
 		expect(enter).not.toHaveBeenCalled()
-		expect(result.success).toBe(false)
-		expect(result.error).toContain('Carry on')
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('Carry on')
 		expect(result.data).toEqual({ outcome: 'declined' })
 	})
 
@@ -64,8 +64,8 @@ describe('enter_plan_mode', () => {
 		const { tool: t, enter } = tool({})
 		const result = await t.execute({}, context())
 		expect(enter).not.toHaveBeenCalled()
-		expect(result.success).toBe(false)
-		expect(result.error).toContain('Nobody can be asked')
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('Nobody can be asked')
 	})
 
 	it('does not ask in plan mode, where it is already on', async () => {

@@ -2,8 +2,8 @@
  * The health report in a person's words, for `/doctor`.
  *
  * The rows say what is fine and what needs attention, without check ids,
- * timings or exit codes. Whatever a row only summarised (the later lines of a
- * message or of its advice) goes behind the row's details. The complete
+ * timings or exit codes. Whatever a row only summarised (the checks' own technical
+ * message and advice) goes behind the row's details. The complete
  * technical report is what `namzu doctor` prints.
  */
 
@@ -51,8 +51,83 @@ function words(text: string): string {
 		.toLowerCase()
 }
 
-function firstLine(text: string | undefined): string {
-	return (text ?? '').split('\n')[0]?.trim() ?? ''
+/**
+ * What each check says in a person's words when it needs attention. The checks
+ * themselves write technical text (paths, error text, counts with "(s)"), so
+ * the row never repeats it; the original lines go behind the row's details.
+ */
+interface PlainReason {
+	readonly fail?: string
+	readonly warn?: string
+	readonly advice?: string
+}
+
+const REASONS: Readonly<Record<string, PlainReason>> = {
+	'providers.chain': {
+		fail: 'the saved model order could not be used',
+		warn: 'some models in the saved order cannot be used',
+		advice: 'Open the model picker and choose again.',
+	},
+	'providers.credentials': {
+		fail: 'no sign-in or key was found',
+		warn: 'a sign-in could not be read',
+		advice: 'Sign in to a model provider, or add a key.',
+	},
+	'providers.registered': {
+		fail: 'no model provider is available',
+		warn: 'a model provider is missing',
+	},
+	'browser.engine': {
+		fail: 'the browser is not available here',
+		warn: 'the browser may need a one-time install',
+		advice: 'Run "namzu browser install".',
+	},
+	'telemetry.session-export': {
+		fail: 'session export is set up but cannot run',
+		warn: 'session export is set up but cannot run',
+	},
+	'telemetry.installed': {
+		fail: 'the optional telemetry package could not start',
+		warn: 'the optional telemetry package is not installed',
+	},
+	'codeAnalysis.index': {
+		fail: 'the code index is not working',
+		warn: 'the code index is not available',
+	},
+	'scheduler.service': {
+		fail: 'scheduled tasks cannot run right now',
+		warn: 'scheduled tasks will not run until the scheduler is set up',
+		advice: 'Run "namzu schedule install".',
+	},
+	'logging.pipeline': {
+		fail: 'some activity was not recorded',
+		warn: 'some activity was not recorded',
+	},
+	'runtime.invariants': {
+		fail: 'an internal self-check did not hold',
+		warn: 'an internal self-check could not be confirmed',
+	},
+	'runtime.cwd-writable': {
+		fail: 'Namzu cannot write in this folder',
+		advice: 'Start Namzu from a folder you can write to.',
+	},
+	'runtime.tmpdir-writable': {
+		fail: 'Namzu cannot write to the temporary folder',
+		advice: 'Point your temporary folder at a place you can write to.',
+	},
+	'vault.registered': {
+		fail: 'secret storage is not set up',
+		warn: 'secret storage is not set up',
+	},
+	'sandbox.platform': {
+		fail: 'the sandbox could not be checked',
+		warn: 'the sandbox does not fully contain commands here',
+		advice: 'Commands will ask before they run outside it.',
+	},
+}
+
+function reasonFor(record: DoctorCheckRecord): PlainReason {
+	return REASONS[record.id] ?? {}
 }
 
 export interface PlainDoctor {
@@ -80,15 +155,14 @@ export function describePlainDoctor(report: DoctorReport): PlainDoctor {
 					: `${needAttention} checks need attention.`
 	const lines = [headline]
 	for (const record of asked) lines.push(...rowFor(record))
-	// The rest of what an attention row only summarised: the full message and
-	// the full advice, never ids or timings.
+	// What an attention row only summarised: the check's own message and
+	// advice, never ids or timings.
 	const detail = asked
 		.filter((c) => c.status !== 'pass')
 		.flatMap((c) => {
-			const rest = [
-				...(c.message ?? '').split('\n').slice(1),
-				...(c.remediation ?? '').split('\n').slice(1),
-			].filter((line) => line.trim().length > 0)
+			const rest = [...(c.message ?? '').split('\n'), ...(c.remediation ?? '').split('\n')].filter(
+				(line) => line.trim().length > 0,
+			)
 			return rest.length === 0
 				? []
 				: [`${plainCheckTitle(c.id)}:`, ...rest.map((l) => `  ${l.trim()}`)]
@@ -99,12 +173,14 @@ export function describePlainDoctor(report: DoctorReport): PlainDoctor {
 function rowFor(record: DoctorCheckRecord): string[] {
 	const title = plainCheckTitle(record.id)
 	if (record.status === 'pass') return [`  ${MARKS.pass} ${title}`]
+	const reason = reasonFor(record)
 	const why =
 		record.status === 'inconclusive'
 			? 'could not be checked'
-			: firstLine(record.message) || (record.status === 'fail' ? 'failed' : 'worth a look')
+			: record.status === 'fail'
+				? (reason.fail ?? 'failed')
+				: (reason.warn ?? reason.fail ?? 'worth a look')
 	const out = [`  ${MARKS[record.status]} ${title}: ${why}`]
-	const fix = firstLine(record.remediation)
-	if (fix) out.push(`      Try: ${fix}`)
+	if (record.status !== 'inconclusive' && reason.advice) out.push(`      Try: ${reason.advice}`)
 	return out
 }

@@ -94,7 +94,7 @@ export function buildEnterPlanModeTool(host: EnterPlanModeHost): ToolDefinition 
 		}),
 		presentResult: (_input, result) => {
 			const outcome = (result.data as { outcome?: unknown } | undefined)?.outcome
-			if (result.success && outcome === 'entered')
+			if (outcome === 'entered')
 				return { kind: 'generic', label: 'Plan mode on', visibility: 'hidden' }
 			return outcome === 'declined'
 				? { kind: 'generic', label: 'Going ahead without a plan', outcome: 'cancelled' }
@@ -117,9 +117,8 @@ export function buildEnterPlanModeTool(host: EnterPlanModeHost): ToolDefinition 
 				const ask = host.ask()
 				if (!ask) {
 					return {
-						success: false,
-						output: '',
-						error: NOBODY_TO_ASK_TEXT,
+						success: true,
+						output: NOBODY_TO_ASK_TEXT,
 						data: { outcome: 'declined' },
 					}
 				}
@@ -133,9 +132,8 @@ export function buildEnterPlanModeTool(host: EnterPlanModeHost): ToolDefinition 
 				const chosen = answer.kind === 'answer' && answer.selectedOptionIds.includes(YES)
 				if (!chosen) {
 					return {
-						success: false,
-						output: '',
-						error: DECLINED_PLAN_MODE_TEXT,
+						success: true,
+						output: DECLINED_PLAN_MODE_TEXT,
 						data: { outcome: 'declined' },
 					}
 				}
