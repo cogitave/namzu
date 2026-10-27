@@ -32,7 +32,7 @@ export { REASONING_EFFORT_LEVELS }
 
 /** A nonnegative safe integer; zero disables the corresponding turn limit. */
 function turnLimit(value: string, flag: string): number {
-	const n = Number(value.trim())
+	const n = /^\d+(\.\d+)?$/u.test(value.trim()) ? Number(value.trim()) : Number.NaN
 	if (!value.trim() || !Number.isSafeInteger(n) || n < 0)
 		throw new Error(`${flag} takes a safe whole number at least 0 (unlimited), got ${value}`)
 	return n

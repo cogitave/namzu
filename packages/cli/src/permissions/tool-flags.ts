@@ -68,6 +68,13 @@ export function toolListTable(
 				problems.push({ flag, message: `"${item}" is not a tool entry` })
 				continue
 			}
+			if (open !== -1 && pattern === '') {
+				problems.push({
+					flag,
+					message: `"${item}" has an empty pattern; write the tool name alone to cover every call`,
+				})
+				continue
+			}
 			const existing = table[name]
 			if (pattern === '') {
 				// A bare name covers every call; keep patterns already named beside it.

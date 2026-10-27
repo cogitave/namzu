@@ -59,3 +59,18 @@ describe('toolFlagLayers', () => {
 		expect(layers).toEqual([{ edit: 'allow' }, { bash: 'deny' }])
 	})
 })
+
+describe('toolListTable empty brackets', () => {
+	it.each(['--allowed-tools', '--disallowed-tools'])('refuses an empty pattern on %s', (flag) => {
+		for (const list of ['bash()', 'bash( )']) {
+			const { table, problems } = toolListTable(
+				flag,
+				[list],
+				flag === '--allowed-tools' ? 'allow' : 'deny',
+			)
+			expect(table).toBeUndefined()
+			expect(problems).toHaveLength(1)
+			expect(problems[0]?.message).toContain('empty pattern')
+		}
+	})
+})
