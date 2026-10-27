@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
+import { WorkingStateManager } from '../../../compaction/manager.js'
+import { renderRestoredContext } from '../../../compaction/restore.js'
+import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
@@ -49,7 +52,7 @@ function respondMany(
 	}
 }
 
-function setup(dir: string) {
+function setup(dir: string, manager?: WorkingStateManager) {
 	const turnId = generateTurnId()
 	const tools = new ToolManager({
 		toolsets: [testToolset(ReadFileTool)],
@@ -57,7 +60,7 @@ function setup(dir: string) {
 	})
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 	const log = { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
-	return new ToolExecutor(
+	const executor = new ToolExecutor(
 		{
 			tools,
 			turnId,
@@ -72,6 +75,8 @@ function setup(dir: string) {
 		async () => {},
 		log,
 	)
+	if (manager) executor.setWorkingStateManager(manager)
+	return executor
 }
 
 describe('a repeat read through the executor', () => {
@@ -110,5 +115,28 @@ describe('a repeat read through the executor', () => {
 		const again = await executor.executeBatch(call)
 
 		expect(again.results[0]?.output).toContain('export const a = 1')
+	})
+
+	it('a compaction after a repeat read puts back the real lines, not the one-sentence answer', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-unchanged-executor-'))
+		const file = join(dir, 'a.ts')
+		writeFileSync(file, 'export const a = 1\nexport const b = 2\n')
+		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
+		const executor = setup(dir, manager)
+		const history: Message[] = []
+		executor.setHistoryView(() => history)
+		const call = respond('read', { path: file })
+
+		const first = await executor.executeBatch(call)
+		history.push(...first.messages)
+		const second = await executor.executeBatch(call)
+		history.push(...second.messages)
+		expect(second.results[0]?.output).toMatch(/^Unchanged since your earlier read/)
+
+		const restored = renderRestoredContext(manager.getState())
+		expect(restored).toContain('## Restored after compaction')
+		expect(restored).toContain('export const a = 1')
+		expect(restored).toContain('export const b = 2')
+		expect(restored).not.toContain('Unchanged since your earlier read')
 	})
 })
