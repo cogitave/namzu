@@ -423,6 +423,7 @@ import {
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { cliGate } from '../permissions/read-only-gate.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
@@ -6867,16 +6868,10 @@ function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 // Pre-execution safety gate: hard-deny catastrophic shell patterns
 // (`rm -rf /`, mkfs, `curl … | sh`, sudo, fork bombs — the SDK's narrow
 // DANGEROUS_PATTERNS list, which does NOT match e.g. `rm -rf node_modules`),
-// auto-allow read-only tools, and send everything else to the permission
+// auto-allow read-only tools that reach nothing outside (a network tool is
+// asked about, see permissions/read-only-gate.ts), and send everything else to the permission
 // prompt (`review` → our resumeHandler). The deny rule applies even in
 // --yolo mode, so bypass never lets the model brick the machine.
-const VERIFICATION_GATE = {
-	enabled: true,
-	allowReadOnlyTools: true,
-	denyDangerousPatterns: true,
-	logDecisions: false,
-	rules: [] as AuthorizationRule[],
-}
 
 /**
  * The gate for this session, with the operator's rules in it.
@@ -6889,7 +6884,7 @@ const VERIFICATION_GATE = {
  * `read = "ask"` is reachable instead of silently unreachable.
  */
 function gateFor(rules: readonly AuthorizationRule[] | undefined) {
-	return { ...VERIFICATION_GATE, rules: [...(rules ?? [])] }
+	return cliGate(rules)
 }
 
 // Automatic context compression for long, tool-heavy turns: the structured
