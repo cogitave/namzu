@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-10-28
+
+- **Creation** [Slash commands](cli/slash-commands.md): every chat key goes through one action registry (`packages/cli/src/tui/keymap.ts`), `/help keys` lists the shortcuts grouped, and the registry's keys are unchanged. `.changeset/tui-action-registry.md` (`@namzu/cli` minor).
+- **Update** [Slash commands](cli/slash-commands.md): Ctrl+S sets the draft aside and brings it back, Ctrl+\_ undoes draft edits, Alt+P opens the model chooser, Alt+T the reasoning-effort chooser, Ctrl+X Ctrl+E opens the editor. `.changeset/tui-chat-shortcuts.md` (`@namzu/cli` minor).
+
 ## 2026-10-27
 
 - **Update** [Slash commands](cli/slash-commands.md): `/doctor` rows give a plain reason for each check that needs attention, with the original wording behind the row's details. `.changeset/doctor-plain-rows.md` (`@namzu/cli` patch).

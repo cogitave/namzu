@@ -383,6 +383,11 @@ terminals place descriptions below labels.
 - **Ctrl+O** opens the detailed transcript: every row whole, the model's thinking, the last 30 rows (Ctrl+E for all). Ctrl+O, Esc, `q` or Ctrl+C returns to the composer. See [Terminal design](terminal-design.md).
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
+- **Ctrl+S** sets the draft aside (the composer empties and the footer says so); on an empty composer it brings the draft back. A draft set aside also comes back, with "Draft restored", after the next message you send; a slash command does not bring it back. While a history search is open Ctrl+S still steps to a newer match.
+- **Ctrl+\_** (Ctrl+- also works) undoes the last edit to the draft: letters typed in a row undo as one edit up to the next space, and any other change (a deletion, a paste, a completion, the external editor's result) is an edit of its own. The last 50 edits are kept; sending the message forgets them.
+- **Alt+P** opens the model chooser, as `/model` does, and leaves the draft where it is. **Alt+T** opens the reasoning-effort chooser, as `/effort` does; Alt+, and Alt+. (or Shift+Down and Shift+Up) still step it one level.
+- **Ctrl+X Ctrl+E** opens the draft in your editor, like **Ctrl+G**.
+- `/help keys` lists every keyboard shortcut of the chat screen, grouped. The terminal answers each through one registry of actions (`packages/cli/src/tui/keymap.ts`); a keybindings file and vim mode are not built.
 - **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.
 
 ### Resuming a conversation
