@@ -181,6 +181,18 @@ export interface BackgroundJobRegistryRef {
 		initialOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly text: string }[]
 	}): { id: string; status: string }
 	/**
+	 * Offer a foreground command this call is waiting on for hand-over to the
+	 * background, until the returned function is called. `background` is asked
+	 * to take the command over (`user`: the person asked; `message`: a message
+	 * from the person must reach the model) and says whether it did. Optional:
+	 * a host without it never moves a running command, and the call keeps the
+	 * kill.
+	 */
+	registerForeground?(entry: {
+		command: string
+		background(reason: 'user' | 'message'): boolean
+	}): () => void
+	/**
 	 * Resolves once the process exists or failed to start (`error` says why).
 	 * Optional: a host that cannot tell may omit it, and `bash` then replies
 	 * without waiting.
