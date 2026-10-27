@@ -102,6 +102,12 @@ export function splitProjectMcpServers(
 	return { approved: approved as McpServersConfig, pending }
 }
 
+/** The one line that says project servers are waiting, for a place with no prompt to put them in. */
+export function pendingServersMessage(pending: readonly string[]): string {
+	const one = pending.length === 1
+	return `${one ? '1 tool server' : `${pending.length} tool servers`} from this project's .mcp.json ${one ? 'is' : 'are'} waiting for your approval and ${one ? "hasn't" : "haven't"} started: ${pending.join(', ')}. Run "namzu mcp approve" to start ${one ? 'it' : 'them'}.`
+}
+
 /**
  * Record the person's approval of `names` (all of `servers` when omitted), as
  * the entries read now. Returns the names that were approved.
@@ -113,13 +119,39 @@ export function approveProjectMcpServers(
 	names?: readonly string[],
 ): readonly string[] {
 	const chosen = (names ?? Object.keys(servers)).filter((name) => Object.hasOwn(servers, name))
+	const prints: Record<string, string> = {}
+	for (const name of chosen) {
+		prints[name] = fingerprintMcpServer((servers as Record<string, unknown>)[name])
+	}
+	return recordApprovals(namzuHome, cwd, prints)
+}
+
+/**
+ * Record the person's approval of the entries they were shown, each as the
+ * fingerprint taken when the screen was built. An entry that changed after
+ * that is not covered: it differs from what was approved and asks again.
+ */
+export function approveShownMcpServers(
+	namzuHome: string,
+	cwd: string,
+	shown: readonly { readonly name: string; readonly fingerprint: string }[],
+): readonly string[] {
+	const prints: Record<string, string> = {}
+	for (const { name, fingerprint } of shown) prints[name] = fingerprint
+	return recordApprovals(namzuHome, cwd, prints)
+}
+
+function recordApprovals(
+	namzuHome: string,
+	cwd: string,
+	prints: Readonly<Record<string, string>>,
+): readonly string[] {
+	const chosen = Object.keys(prints)
 	if (chosen.length === 0) return []
 	const file = readFile(namzuHome)
 	const key = folderKey(cwd)
 	const folder = { ...(file.folders[key] ?? {}) }
-	for (const name of chosen) {
-		folder[name] = fingerprintMcpServer((servers as Record<string, unknown>)[name])
-	}
+	for (const name of chosen) folder[name] = prints[name] as string
 	const next: ApprovalFile = { version: FILE_VERSION, folders: { ...file.folders, [key]: folder } }
 	const path = mcpApprovalsPath(namzuHome)
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 })

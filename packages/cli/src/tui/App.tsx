@@ -92,7 +92,10 @@ import {
 	type QuestionGate,
 	createQuestionGate,
 } from '../integrations/learning/generator-trigger.js'
-import { approveProjectMcpServers } from '../integrations/mcp/project-approval.js'
+import {
+	approveShownMcpServers,
+	pendingServersMessage,
+} from '../integrations/mcp/project-approval.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
@@ -6130,10 +6133,7 @@ function AppBody({
 				try {
 					const { pending } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
 					if (pending.length > 0) {
-						pushMessage(
-							'system',
-							`${pending.length === 1 ? '1 tool server' : `${pending.length} tool servers`} from this project's .mcp.json ${pending.length === 1 ? 'is' : 'are'} waiting for your approval and ${pending.length === 1 ? "hasn't" : "haven't"} started: ${pending.join(', ')}. Run "namzu mcp approve" to start ${pending.length === 1 ? 'it' : 'them'}.`,
-						)
+						pushMessage('system', pendingServersMessage(pending))
 					}
 				} catch {
 					// A broken .mcp.json is reported by the load itself.
@@ -6163,13 +6163,7 @@ function AppBody({
 		try {
 			// The gate listed the folder's tool servers, so accepting it is the
 			// answer for the servers it showed; one added later asks again.
-			const { declared } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
-			approveProjectMcpServers(
-				resolveNamzuHome(),
-				trustedCwdRef.current,
-				declared,
-				trustGrants.toolServers,
-			)
+			approveShownMcpServers(resolveNamzuHome(), trustedCwdRef.current, trustGrants.toolServers)
 		} catch {
 			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
 		}

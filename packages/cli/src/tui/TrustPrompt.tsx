@@ -96,8 +96,9 @@ export function trustGrantLines(
 		lines.push(
 			`This folder starts ${countOf(grants.toolServers.length, 'tool server', 'tool servers')}:`,
 		)
-		for (const name of grants.toolServers.slice(0, MAX_SHOWN_GRANT_RULES)) {
-			lines.push(`  ${name.length + 2 > room ? `${name.slice(0, Math.max(1, room - 3))}…` : name}`)
+		for (const server of grants.toolServers.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			const line = `${server.name}: ${server.runs}`
+			lines.push(`  ${line.length + 2 > room ? `${line.slice(0, Math.max(1, room - 3))}…` : line}`)
 		}
 		const more = grants.toolServers.length - MAX_SHOWN_GRANT_RULES
 		if (more > 0) lines.push(`  and ${more} more`)

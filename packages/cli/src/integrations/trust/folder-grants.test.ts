@@ -65,7 +65,34 @@ describe('what a folder pre-approves', () => {
 				mcpServers: { tickets: { command: 'node' }, docs: { url: 'https://d.example/mcp' } },
 			}),
 		})
-		expect(readFolderGrants(root).toolServers).toEqual(['tickets', 'docs'])
+		const servers = readFolderGrants(root).toolServers
+		expect(servers.map((server) => server.name)).toEqual(['tickets', 'docs'])
+		expect(servers.map((server) => server.runs)).toEqual(['node', 'https://d.example/mcp'])
+	})
+
+	it('shows what each server runs, without environment values, headers or a token in the address', () => {
+		const root = folder({
+			'.mcp.json': JSON.stringify({
+				mcpServers: {
+					local: {
+						command: 'npx',
+						args: ['-y', 'some-server', '--flag'],
+						env: { API_KEY: 'secret-value' },
+					},
+					remote: {
+						url: 'https://user:pw@tools.example/mcp/v1?token=abc',
+						headers: { Authorization: 'Bearer secret-value' },
+					},
+				},
+			}),
+		})
+		const shown = readFolderGrants(root).toolServers
+		expect(shown.map((server) => server.runs)).toEqual([
+			'npx -y some-server --flag',
+			'https://tools.example/mcp/v1',
+		])
+		expect(JSON.stringify(shown)).not.toContain('secret-value')
+		expect(JSON.stringify(shown)).not.toContain('token=abc')
 	})
 
 	it('keeps the cap the trust screen shows', () => {

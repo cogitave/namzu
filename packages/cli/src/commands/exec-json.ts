@@ -74,8 +74,10 @@ import {
 /** EX_TEMPFAIL: the conversation already has an active turn; try again later. */
 const EXIT_TURN_IN_PROGRESS = 75
 
+import { pendingProjectMcpServers } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
+import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -222,6 +224,13 @@ export async function execJson(
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
 	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
 	if ('error' in mcpServers) return fail(mcpServers.error)
+	// See exec.ts: nobody can be asked here, so say once that project servers are waiting.
+	try {
+		const { pending } = pendingProjectMcpServers({ cwd })
+		if (pending.length > 0) write({ kind: 'notice', message: pendingServersMessage(pending) })
+	} catch {
+		// A broken .mcp.json is reported by the load itself.
+	}
 
 	// Project command discovery belongs behind the target folder's trust
 	// gate, alongside project config and instructions.

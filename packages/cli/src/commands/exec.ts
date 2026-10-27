@@ -31,8 +31,10 @@ import {
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
+import { pendingProjectMcpServers } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { closeSessions, openSessions, startConversation } from '../integrations/sessions/store.js'
 import {
@@ -241,6 +243,14 @@ async function execPrint(
 	if ('error' in mcpServers) {
 		ctx.formatter.error({ message: mcpServers.error })
 		return EXIT_USAGE
+	}
+	// A project's shared tool servers start only once the person approved them,
+	// and nobody can be asked here: say so once, so a missing server is not a mystery.
+	try {
+		const { pending } = pendingProjectMcpServers({ cwd })
+		if (pending.length > 0) ctx.formatter.info(pendingServersMessage(pending))
+	} catch {
+		// A broken .mcp.json is reported by the load itself.
 	}
 
 	// Project commands are code-like launch authority: discover and expand

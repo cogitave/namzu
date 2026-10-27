@@ -122,12 +122,19 @@ describe('what the folder pre-approves is said before the choice', () => {
 	it('names the tool servers the folder would start', async () => {
 		const { trustGrantLines } = await import('../TrustPrompt.js')
 		const lines = trustGrantLines(
-			{ allowRules: [], directories: [], toolServers: ['tickets', 'docs'] },
+			{
+				allowRules: [],
+				directories: [],
+				toolServers: [
+					{ name: 'tickets', runs: 'node ./tickets-server.js --port 3000', fingerprint: 'a' },
+					{ name: 'docs', runs: 'https://d.example/mcp', fingerprint: 'b' },
+				],
+			},
 			80,
 		)
 		expect(lines).toContain('This folder starts 2 tool servers:')
-		expect(lines).toContain('  tickets')
-		expect(lines).toContain('  docs')
+		expect(lines).toContain('  tickets: node ./tickets-server.js --port 3000')
+		expect(lines).toContain('  docs: https://d.example/mcp')
 	})
 
 	it('is drawn above the choice', async () => {
