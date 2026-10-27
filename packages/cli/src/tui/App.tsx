@@ -361,6 +361,7 @@ import {
 	hypermodeOnMessage,
 } from './hypermode.js'
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
+import { isAction, isChordAction, isChordLead } from './keymap.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
@@ -409,7 +410,6 @@ import {
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
-	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -13144,7 +13144,7 @@ function AppBody({
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
-				if (key.escape || (key.ctrl && input === 'c')) exitWithSummary()
+				if (key.escape || isAction('app:interrupt', input, key)) exitWithSummary()
 				return
 			}
 			// The provider picker owns its own keyboard — arrows, digits, enter,
@@ -13160,7 +13160,7 @@ function AppBody({
 			// key is dead" but the worse "the first press does something invisible
 			// and the second exits", with nothing on screen naming either.
 			if (phase === 'picker') {
-				if (key.ctrl && input === 'c') exitWithSummary()
+				if (isAction('app:interrupt', input, key)) exitWithSummary()
 				return
 			}
 			// The rewind dialog owns the keyboard while open.
@@ -13177,7 +13177,7 @@ function AppBody({
 					closeRewind()
 					return
 				}
-				if (key.ctrl && input === 'c' && !view.state.busy) {
+				if (isAction('app:interrupt', input, key) && !view.state.busy) {
 					closeRewind()
 					return
 				}
@@ -13204,7 +13204,7 @@ function AppBody({
 				if (resumeCommittedRef.current) return
 				// A name being typed owns the keys until it is saved or put away.
 				if (resumeRenaming !== null) {
-					if (key.escape || (key.ctrl && input === 'c')) setResumeRenaming(null)
+					if (key.escape || isAction('app:interrupt', input, key)) setResumeRenaming(null)
 					else if (key.return) {
 						const target = resumeList[selectedResumeRef.current]
 						const value = resumeRenaming
@@ -13255,7 +13255,7 @@ function AppBody({
 						void (phase === 'unarchive'
 							? restoreArchivedConversation(conv)
 							: resumeConversation(conv))
-				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
+				} else if (key.escape || isAction('app:interrupt', input, key)) setPhase('ready')
 				else {
 					// Anything else typed narrows the list.
 					const next = editLine(resumeQuery, { ...key, input })
@@ -13275,7 +13275,7 @@ function AppBody({
 				// second — so an accidental refusal is the recoverable direction,
 				// and making the escape hatch hesitate on the program's first screen
 				// would read as a hang.
-				if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) {
+				if (ch === 'n' || key.escape || isAction('app:interrupt', input, key)) {
 					exitWithSummary()
 					return
 				}
@@ -13303,7 +13303,7 @@ function AppBody({
 				// Sending it is a refusal, so it is never held back by the settle window.
 				const typing = permissionReasonRef.current
 				if (typing !== null) {
-					if (key.ctrl && input === 'c') {
+					if (isAction('app:interrupt', input, key)) {
 						interruptTurn()
 						return
 					}
@@ -13358,7 +13358,7 @@ function AppBody({
 				}
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
-				if (key.ctrl && input === 'c') {
+				if (isAction('app:interrupt', input, key)) {
 					// At a question of the person's own turn, Ctrl+C ends like a plain No:
 					// the kernel settles every call and the turn closes with one row.
 					if (permission && endsTurnOnNo(permission)) {
@@ -13432,7 +13432,7 @@ function AppBody({
 				// The Return that submitted /jobs must not also inspect or stop a
 				// row before the new screen has painted.
 				if (jobSurfaceCommittedRef.current !== shellView) return
-				if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+				if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
 					setJobSurface(null)
 					return
 				}
@@ -13597,10 +13597,10 @@ function AppBody({
 				} else if (key.escape) {
 					setRailFocus(null)
 					return
-				} else if (key.ctrl && input === 'x') {
+				} else if (isChordLead(input, key)) {
 					railChordRef.current = true
 					return
-				} else if (key.ctrl && input === 'k' && chordPending) {
+				} else if (chordPending && isChordAction('chat:killAgents', input, key)) {
 					// Background agents only; workflows are stopped one at a time with `x`.
 					requestStopAllAgents()
 					return
@@ -13663,7 +13663,7 @@ function AppBody({
 					setRailFocus(null)
 				}
 			}
-			if (key.ctrl && input === 't') {
+			if (isAction('app:openAgents', input, key)) {
 				if (agentSurfaceRef.current) {
 					setAgentSurface(null)
 					return
@@ -13713,7 +13713,7 @@ function AppBody({
 						return
 					}
 					const hasPhaseLevel = workflow ? cockpitEntryFocus(workflow) === 'phases' : false
-					if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+					if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
 					}
@@ -13879,7 +13879,7 @@ function AppBody({
 						setViewNotice(undefined)
 						return
 					}
-					if (key.ctrl && input === 'c') {
+					if (isAction('app:interrupt', input, key)) {
 						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
 						setAgentSurface(null)
 						setViewNotice(undefined)
@@ -13904,7 +13904,7 @@ function AppBody({
 				} else {
 					if (
 						(!agentView.composing && input.toLowerCase() === 'q') ||
-						(key.ctrl && input === 'c')
+						isAction('app:interrupt', input, key)
 					) {
 						setAgentSurface(null)
 						return
@@ -13972,7 +13972,7 @@ function AppBody({
 					const option = options[index]
 					if (option) applyChoiceSelection(picker.options.indexOf(option))
 				}
-				if (key.escape || (key.ctrl && input === 'c')) {
+				if (key.escape || isAction('app:interrupt', input, key)) {
 					reviewChoiceInFlightRef.current = null
 					setSelectedChoice(0)
 					setChoicePicker(key.escape ? (picker.back ?? null) : null)
@@ -14064,7 +14064,7 @@ function AppBody({
 				// selection made against a picker the operator has not seen yet.
 				if (copyPickerCommittedRef.current !== copyPickerRef.current) return
 				const targets = copyPickerRef.current.targets
-				if (key.escape || (key.ctrl && input === 'c')) {
+				if (key.escape || isAction('app:interrupt', input, key)) {
 					setCopyPicker(null)
 					return
 				}
@@ -14100,7 +14100,7 @@ function AppBody({
 			// view-only boundary: model history, durable history and the active
 			// conversation remain untouched. A live turn is refused instead of
 			// erasing the only visible account of work that is still changing.
-			if (key.ctrl && input === 'l') {
+			if (isAction('chat:clearScreen', input, key)) {
 				if (state !== 'idle' || abortRef.current || hasUnsettledTurn()) {
 					pushMessage('system', 'Ctrl+L is unavailable while a reply is in progress.')
 					return
@@ -14139,15 +14139,14 @@ function AppBody({
 			}
 			// Ctrl+O opens the detailed transcript: every row whole, thinking
 			// included. It replaces the composer until a key closes it.
-			if (key.ctrl && input === 'o') {
+			if (isAction('app:toggleTranscript', input, key)) {
 				setTranscriptScreen(true)
 				return
 			}
 			// Ctrl+D on an empty composer arms the same exit Ctrl+C does; with
 			// anything typed it stays the composer's delete-forward key.
 			if (
-				key.ctrl &&
-				input === 'd' &&
+				isAction('app:exit', input, key) &&
 				phase === 'ready' &&
 				!composerHasDraft &&
 				permission === null &&
@@ -14158,7 +14157,7 @@ function AppBody({
 				armExit('Ctrl-D')
 				return
 			}
-			if (key.ctrl && input === 'c') {
+			if (isAction('app:interrupt', input, key)) {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).

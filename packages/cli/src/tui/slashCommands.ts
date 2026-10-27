@@ -56,6 +56,7 @@ import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
+import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
 import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
 import type { ThemeSetting } from './theme-palettes.js'
@@ -669,6 +670,13 @@ export function parseSlash(line: string): ParsedSlash | null {
 /** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
 function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	const name = args[0]?.replace(/^\//, '')
+	if (
+		args.length === 1 &&
+		name === 'keys' &&
+		!(ctx.builtins ?? CLI_LOCAL_COMMANDS).some((c) => c.name === 'keys')
+	) {
+		return { kind: 'message', role: 'system', content: keysHelpText() }
+	}
 	if (args.length !== 1 || !name) {
 		return {
 			kind: 'message',
@@ -910,9 +918,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'help',
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {
-			usage: ['/help', '/help <command>'],
+			usage: ['/help', '/help <command>', '/help keys'],
 			details: [
-				'Without a name, opens the command menu. With a name, shows help without running the command.',
+				'Without a name, opens the command menu. With a name, shows help without running the command. `/help keys` lists the keyboard shortcuts.',
 			],
 		},
 		action: (ctx, args) => {
