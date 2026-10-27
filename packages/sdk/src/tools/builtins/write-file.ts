@@ -8,6 +8,7 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip } from './classifier-input.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
+import { staleBeforeReview } from './stale-before-review.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
 import { jsonStringEscapes } from './json-string-hint.js'
@@ -94,6 +95,10 @@ export const WriteFileTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// An overwrite of a file that moved since the read is refused when it runs,
+	// so the person is not asked to approve one that cannot.
+	refuseBeforeReview: (input: WriteInput, context) =>
+		staleBeforeReview(context, input.path, 'write'),
 	// The classifier judges where a file is written and how much, not the body.
 	classifierInput: (input: WriteInput) => {
 		const body = input.content ?? input.newStr ?? ''

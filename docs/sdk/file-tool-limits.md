@@ -66,6 +66,12 @@ when its `old_string` still matches uniquely, because the match can land somewhe
 model read `a = 1`, the file now says `a = 100`, and replacing `a = 1` with `a = 2` would write `a = 200`. The
 ledger keeps a fingerprint of what was read, not the text, so there is nothing to show where the text belongs.
 
+The same refusal is also given before anyone is asked. `edit` and `write` declare `ToolDefinition.refuseBeforeReview`,
+which the executor asks while it prepares a batch, once the arguments are valid and before the call is put to a
+reviewer. A call on a file that changed since the read therefore reaches no approval box and runs nothing; the model
+gets the same text with the failure kind `changed_on_disk`. A path that is missing, outside the roots or never read
+is left to the tool, and `execute` repeats the check, because the file can move again between the question and the run.
+
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
 the text, only about one interchangeable detail — the cases below, tried in this
 order: a straight quote against the file's curly one (`' ' " "`) or the reverse, and a `\uXXXX` escape where

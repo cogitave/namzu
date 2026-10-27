@@ -17,6 +17,7 @@ import {
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
+import { staleBeforeReview } from './stale-before-review.js'
 
 /**
  * Two schemas, on purpose.
@@ -443,6 +444,9 @@ export const EditTool = defineTool({
 	// Declared so a path outside the turn's roots can be reviewed before the
 	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
 	pathArgument: 'path',
+	// A file that moved since the read is refused whatever the replacement is,
+	// so the person is not asked to approve one that cannot run.
+	refuseBeforeReview: (input: EditInput, context) => staleBeforeReview(context, input.path, 'edit'),
 	// The classifier judges which file changes and in what way, in a line.
 	classifierInput: (input: EditInput) => {
 		if (input.edits !== undefined) {

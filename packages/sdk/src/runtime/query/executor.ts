@@ -1063,10 +1063,12 @@ export class ToolExecutor {
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
 		for (const toolCall of response.message.toolCalls ?? []) {
-			const call = await prepareDirectCall(
-				this.admissionHost(),
-				toolCall,
-				!hostModifiedCallIds?.has(toolCall.id),
+			const call = await this.refusedBeforeReview(
+				await prepareDirectCall(
+					this.admissionHost(),
+					toolCall,
+					!hostModifiedCallIds?.has(toolCall.id),
+				),
 			)
 			calls.set(toolCall.id, call)
 			const escalation = await this.escalationOrUnfinished(call)
@@ -1074,6 +1076,37 @@ export class ToolExecutor {
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations)
+	}
+
+	/**
+	 * A ready call the tool already knows cannot run, answered now instead of
+	 * after a reviewer has been asked about it (`ToolDefinition.refuseBeforeReview`).
+	 *
+	 * The refusal takes the place of the call, as any other refusal found while
+	 * preparing it does: it reaches no reviewer, runs nothing and answers the
+	 * model with the tool's own text. A hook that throws objects to nothing.
+	 */
+	private async refusedBeforeReview(call: PreparedDirectCall): Promise<PreparedDirectCall> {
+		if (call.kind !== 'ready') return call
+		const tool = this.config.tools.get(call.toolName)
+		if (!tool?.refuseBeforeReview) return call
+		try {
+			const refusal = await tool.refuseBeforeReview(call.input, this.buildToolContext())
+			this.config.abortSignal.throwIfAborted()
+			if (!refusal) return call
+			return {
+				kind: 'synthetic',
+				toolCall: call.toolCall,
+				toolName: call.toolName,
+				input: call.input,
+				message: formatFailedToolOutput(undefined, refusal.error),
+				isError: true,
+				...(refusal.facts ? { facts: refusal.facts } : {}),
+			}
+		} catch {
+			this.config.abortSignal.throwIfAborted()
+			return call
+		}
 	}
 
 	/**
@@ -1259,7 +1292,9 @@ export class ToolExecutor {
 		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				const call = await prepareDirectCall(this.admissionHost(), toolCall, false)
+				const call = await this.refusedBeforeReview(
+					await prepareDirectCall(this.admissionHost(), toolCall, false),
+				)
 				calls.set(toolCall.id, call)
 				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)

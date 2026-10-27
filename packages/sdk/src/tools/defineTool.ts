@@ -83,6 +83,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	commandDialect?: ToolDefinition['commandDialect']
 	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
 	pathArgument?: string
+	/** A refusal known before any reviewer is asked; see {@link ToolDefinition.refuseBeforeReview}. */
+	refuseBeforeReview?: ToolDefinition<z.infer<S>>['refuseBeforeReview']
 	/** The argument holding a canonical URL; see {@link ToolDefinition.urlArgument}. */
 	urlArgument?: string
 	/** The argument asking to leave the sandbox; see {@link ToolDefinition.sandboxEscapeArgument}. */
@@ -146,6 +148,7 @@ export function defineTool<S extends z.ZodType>(
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
 		...(options.commandDialect !== undefined ? { commandDialect: options.commandDialect } : {}),
 		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
+		...(options.refuseBeforeReview ? { refuseBeforeReview: options.refuseBeforeReview } : {}),
 		...(options.urlArgument !== undefined ? { urlArgument: options.urlArgument } : {}),
 		...(options.sandboxEscapeArgument !== undefined
 			? { sandboxEscapeArgument: options.sandboxEscapeArgument }
