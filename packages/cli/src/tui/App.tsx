@@ -6601,10 +6601,27 @@ function AppBody({
 				state === 'idle' &&
 				!abortRef.current,
 			resume: () => {
-				void resumeActiveTurn()
+				const parked = handoffParkRef.current
+				void (async () => {
+					try {
+						await resumeActiveTurn()
+					} catch {
+						// An attempt that failed to start is an attempt that did not take.
+					}
+					// A try that took replaced or cleared the park, and so did the person
+					// moving on. A park left exactly as it was has no timer behind it any
+					// more, so the next step of the schedule is armed here.
+					if (!parked || handoffParkRef.current !== parked) return
+					const attempt = autoResumeAttemptRef.current + 1
+					autoResumeAttemptRef.current = attempt
+					setHandoffPark({
+						...parked,
+						autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+					})
+				})()
 			},
 		})
-	}, [autoResumeAt, autoResumeTurn, phase, state, resumeActiveTurn])
+	}, [autoResumeAt, autoResumeTurn, phase, state, resumeActiveTurn, setHandoffPark])
 	// The countdown in the hint line is redrawn once a second while it counts.
 	useEffect(() => {
 		if (autoResumeAt === undefined) return
@@ -6968,6 +6985,9 @@ function AppBody({
 			wakeGoalDriver()
 			cancelPendingModelSwitch()
 			conversationGenRef.current += 1
+			// A pause belongs to the conversation it paused; another one does not inherit it.
+			setHandoffPark(null)
+			autoResumeAttemptRef.current = 0
 			resetSubagentActivity()
 			session?.resetTaskStore?.()
 			activeTurnTokenRef.current = null
@@ -7028,6 +7048,7 @@ function AppBody({
 			}
 		},
 		[
+			setHandoffPark,
 			discardQueued,
 			goalActivation,
 			interruptTurn,
@@ -7147,6 +7168,9 @@ function AppBody({
 				wakeGoalDriver()
 				cancelPendingModelSwitch()
 				conversationGenRef.current += 1
+				// A pause belongs to the conversation it paused; another one does not inherit it.
+				setHandoffPark(null)
+				autoResumeAttemptRef.current = 0
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -7226,6 +7250,7 @@ function AppBody({
 			}
 		},
 		[
+			setHandoffPark,
 			discardQueued,
 			goalActivation,
 			interruptTurn,
@@ -7728,6 +7753,9 @@ function AppBody({
 
 				cancelPendingModelSwitch()
 				conversationGenRef.current += 1
+				// A pause belongs to the conversation it paused; another one does not inherit it.
+				setHandoffPark(null)
+				autoResumeAttemptRef.current = 0
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -7770,6 +7798,7 @@ function AppBody({
 			}
 		},
 		[
+			setHandoffPark,
 			editList,
 			ensureSessions,
 			goalActivation,

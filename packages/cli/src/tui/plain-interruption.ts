@@ -274,10 +274,9 @@ export function pauseSentence(what: string): string {
  * The pause for a connection that would not hold: what happened, that Namzu
  * keeps trying by itself, and the two things a person can do.
  */
-function selfMendingPause(what: string, kind: InterruptionKind): string {
+function selfMendingPause(what: string): string {
 	const body = what.trim().replace(/[.:;,\s]+$/u, '')
-	const keeps = kind === 'network' ? 'It tries again on its own.' : 'Namzu tries again on its own.'
-	return `Paused. ${body}. ${keeps} ${AUTO_PAUSE_ACTIONS}`
+	return `Paused. ${body}. Namzu tries again on its own. ${AUTO_PAUSE_ACTIONS}`
 }
 
 const SAYS_IT_ALL: ReadonlySet<InterruptionKind> = new Set([
@@ -383,7 +382,7 @@ export function describePlainInterruption(
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
 		rows.push(
 			isSelfMending(event)
-				? selfMendingPause(what, kind)
+				? selfMendingPause(what)
 				: pauseSentence(
 						wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,
 					),

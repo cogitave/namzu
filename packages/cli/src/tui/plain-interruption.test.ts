@@ -344,7 +344,7 @@ describe('a paused reply in the terminal app', () => {
 		[
 			'offline',
 			offline,
-			'Paused. Namzu could not reach OpenAI. It tries again on its own. Press Enter to try now, or Esc to stop.',
+			'Paused. Namzu could not reach OpenAI. Namzu tries again on its own. Press Enter to try now, or Esc to stop.',
 		],
 		[
 			'rate limited',
