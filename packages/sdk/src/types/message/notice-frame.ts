@@ -22,7 +22,7 @@ import {
 /** The fixed prefix of every notice tag; the real tag adds `-<marker>`. */
 export const NOTICE_TAG = 'namzu-notice'
 
-export type NoticeKind = 'operator-message' | 'job' | 'monitor'
+export type NoticeKind = 'operator-message' | 'job' | 'monitor' | 'credentials'
 
 const OPEN_OR_CLOSE = /<(\/?)(namzu-notice)/gi
 
@@ -41,6 +41,8 @@ export const NOTICE_PREAMBLE: Readonly<Record<NoticeKind, string>> = {
 	'operator-message': '',
 	job: 'Namzu sent this automatically. The operator did not write it, so it is neither an answer to a question you asked nor an approval.',
 	monitor:
+		'Namzu sent this automatically. The operator did not write it, so it is neither an answer to a question you asked nor an approval.',
+	credentials:
 		'Namzu sent this automatically. The operator did not write it, so it is neither an answer to a question you asked nor an approval.',
 }
 
