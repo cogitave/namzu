@@ -1,11 +1,31 @@
-import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync } from 'node:fs'
-import { dirname, join, posix, resolve, win32 } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 
+import type { UpdateChannel } from '../config/schema.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
-import { resolveNpmInvocation } from '../integrations/npm-invocation.js'
+import {
+	backupPackage,
+	npmInstallArgs,
+	pnpmInstallArgs,
+	restorePackage,
+	smokeTestInstalled,
+} from '../integrations/auto-update/apply.js'
+import { pnpmGlobalDirFor } from '../integrations/auto-update/install-kind.js'
+import { resolveUpdatePolicy } from '../integrations/auto-update/policy.js'
+import {
+	acquireUpdateLock,
+	pruneOlderPrevious,
+	readLastResult,
+} from '../integrations/auto-update/state.js'
+import {
+	type NpmUpgradeRequest,
+	npmGlobalPrefixFor,
+	removeOwnPowerShellShim,
+	runNpmUpgrade,
+} from '../integrations/npm-global.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import { compareVersions, latestNamzuVersion } from '../integrations/updates.js'
 import type { CommandDef } from './types.js'
 import { startUpgradeProgress } from './upgrade-progress.js'
@@ -20,18 +40,14 @@ Options:
   --check   Check the registry without changing the installation
   -h, --help  Show this help`
 
-export interface NpmUpgradeRequest {
-	readonly executable: string
-	readonly args: readonly string[]
-	readonly prefix: string
-	readonly onOutput?: (text: string) => void
-}
+export { npmGlobalPrefixFor, removeOwnPowerShellShim, runNpmUpgrade }
+export type { NpmUpgradeRequest }
 
 export interface UpgradeCommandDeps {
 	readonly currentVersion: string
 	readonly packageRoot: string
 	readonly platform: NodeJS.Platform
-	readonly latestVersion: () => Promise<string>
+	readonly latestVersion: (channel: UpdateChannel) => Promise<string>
 	readonly runNpm: (request: NpmUpgradeRequest) => Promise<number>
 	readonly installedVersion: (packageRoot: string) => string
 	/**
@@ -44,48 +60,17 @@ export interface UpgradeCommandDeps {
 	 * into the global prefix. Defaults to {@link removeOwnPowerShellShim}.
 	 */
 	readonly removePowerShellShim?: (prefix: string) => void
-}
-
-/**
- * Remove npm's `namzu.ps1` shim from a global prefix so a bare `namzu` in
- * PowerShell resolves to `namzu.cmd`. PowerShell prefers the `.ps1`, and under
- * the default execution policy it refuses to run ("running scripts is
- * disabled"); npm writes it again on every install. Only that one file, and
- * only when it sits beside `namzu.cmd` and names `@namzu/cli`. Returns whether
- * a file was removed; never throws.
- */
-export function removeOwnPowerShellShim(prefix: string): boolean {
-	try {
-		const shim = join(prefix, 'namzu.ps1')
-		if (!existsSync(shim) || !existsSync(join(prefix, 'namzu.cmd'))) return false
-		if (!/@namzu[\\/]cli/.test(readFileSync(shim, 'utf8'))) return false
-		unlinkSync(shim)
-		return true
-	} catch {
-		return false
+	/**
+	 * Keep the previous version and put it back when an update fails, and
+	 * keep two updates from running at once. Left out, the command only
+	 * installs and verifies.
+	 */
+	readonly safety?: {
+		/** The Namzu home, where the lock and the kept copy live. */
+		readonly home: string
+		/** Start the new copy once; true when it answers with `version`. */
+		readonly smokeTest: (root: string, version: string) => Promise<boolean>
 	}
-}
-
-/**
- * Derive the prefix owning an npm-global @namzu/cli package.
- *
- * The executing package root is authority. Ambient `npm prefix -g` may point
- * at a different Node installation, especially under version managers, so it
- * is deliberately not consulted.
- */
-export function npmGlobalPrefixFor(packageRoot: string, platform: NodeJS.Platform): string | null {
-	const paths = platform === 'win32' ? win32 : posix
-	const root = paths.resolve(packageRoot)
-	const expectedTail =
-		platform === 'win32'
-			? paths.join('node_modules', '@namzu', 'cli')
-			: paths.join('lib', 'node_modules', '@namzu', 'cli')
-	const comparableRoot = platform === 'win32' ? root.toLowerCase() : root
-	const comparableTail = platform === 'win32' ? expectedTail.toLowerCase() : expectedTail
-	const suffix = `${paths.sep}${comparableTail}`
-	if (!comparableRoot.endsWith(suffix)) return null
-	const prefix = root.slice(0, root.length - suffix.length)
-	return prefix.length > 0 ? prefix : paths.parse(root).root
 }
 
 function readInstalledVersion(packageRoot: string): string {
@@ -102,34 +87,24 @@ function readInstalledVersion(packageRoot: string): string {
 	return parsed.version
 }
 
-export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
-	return new Promise((resolveRun, reject) => {
-		const invocation = resolveNpmInvocation(request.executable, request.args)
-		const child = spawn(invocation.executable, [...invocation.args], {
-			cwd: request.prefix,
-			env: process.env,
-			stdio: request.onOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
-			shell: false,
-			windowsHide: true,
-		})
-		if (request.onOutput) {
-			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
-			child.stderr?.setEncoding('utf8').on('data', request.onOutput)
-		}
-		child.once('error', reject)
-		child.once('close', (code) => resolveRun(code ?? 1))
-	})
-}
-
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+function safeHome(): string {
+	try {
+		return resolveNamzuHome()
+	} catch {
+		return join(PACKAGE_ROOT, '.namzu-updates')
+	}
+}
 
 const productionDeps: UpgradeCommandDeps = {
 	currentVersion: readInstalledVersion(PACKAGE_ROOT),
 	packageRoot: PACKAGE_ROOT,
 	platform: process.platform,
-	latestVersion: latestNamzuVersion,
+	latestVersion: (channel) => latestNamzuVersion({ channel }),
 	runNpm: runNpmUpgrade,
 	installedVersion: readInstalledVersion,
+	safety: { home: safeHome(), smokeTest: smokeTestInstalled },
 	afterUpgrade: async () => {
 		const [{ callEndpoint, readEndpoint }, { schedulePaths }, { resolveNamzuHome }] =
 			await Promise.all([
@@ -161,9 +136,14 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 				return EXIT_USAGE
 			}
 
+			const policy = resolveUpdatePolicy({
+				config: ctx.config.updates,
+				env: process.env,
+				interactive: true,
+			})
 			let latest: string
 			try {
-				latest = await deps.latestVersion()
+				latest = await deps.latestVersion(policy.channel)
 			} catch (error) {
 				ctx.formatter.error({
 					message: `Could not check the latest Namzu version: ${error instanceof Error ? error.message : String(error)}`,
@@ -182,130 +162,205 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 			}
 
 			if (flags.check) {
+				const last = deps.safety ? readLastResult(deps.safety.home) : undefined
 				ctx.formatter.print({
 					current: deps.currentVersion,
 					latest,
 					upToDate: false,
-					text: `Namzu ${latest} is available (current: ${deps.currentVersion}). Run \`namzu upgrade\` to install it.`,
+					text: `Namzu ${latest} is available (current: ${deps.currentVersion}). Run \`namzu upgrade\` to install it.${
+						last?.outcome === 'failed' && last.detail
+							? `\nThe last automatic update did not finish: ${last.detail}`
+							: ''
+					}`,
 				})
 				return EXIT_OK
 			}
 
-			const prefix = npmGlobalPrefixFor(deps.packageRoot, deps.platform)
-			if (!prefix) {
+			const pnpmDir = deps.platform === 'win32' ? null : pnpmGlobalDirFor(deps.packageRoot)
+			const prefix = pnpmDir ? null : npmGlobalPrefixFor(deps.packageRoot, deps.platform)
+			if (!prefix && !pnpmDir) {
 				ctx.formatter.error({
 					message:
-						'This Namzu process is not running from a recognized npm-global installation, so it will not update a different binary by guessing. Reinstall with the same package manager, or use the installer from https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md.',
+						'This Namzu process is not running from a recognized npm-global or pnpm-global installation, so it will not update a different binary by guessing. Reinstall with the same package manager, or use the installer from https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md.',
 				})
 				return EXIT_UNAVAILABLE
 			}
 
-			const executable = deps.platform === 'win32' ? 'npm.cmd' : 'npm'
-			const request: NpmUpgradeRequest = {
-				executable,
-				prefix,
-				args: [
-					'install',
-					'--global',
-					'--prefix',
-					prefix,
-					'--no-fund',
-					'--no-audit',
-					'--registry',
-					'https://registry.npmjs.org',
-					`@namzu/cli@${latest}`,
-				],
+			let lock: ReturnType<typeof acquireUpdateLock> | undefined
+			try {
+				lock = deps.safety ? acquireUpdateLock({ home: deps.safety.home }) : undefined
+			} catch {
+				ctx.formatter.error({
+					message:
+						'Could not prepare the folder Namzu keeps update files in, so nothing was changed.',
+				})
+				return EXIT_FAIL
 			}
-			ctx.formatter.info(
-				`Updating the active npm installation from ${deps.currentVersion} to ${latest}…`,
-			)
-
-			const progress =
-				ctx.formatter.name === 'text' && !['silent', 'error'].includes(ctx.logging?.level ?? 'info')
-					? startUpgradeProgress()
-					: undefined
-			let output = ''
-			const stop = () => {
-				progress?.stop()
-				if (output)
-					process.stderr.write(
-						`${Array.from(stripVTControlCharacters(output))
-							.filter(
-								(char) =>
-									char === '\n' ||
-									char === '\t' ||
-									(char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
-							)
-							.join('')}\n`,
-					)
+			if (lock === null) {
+				ctx.formatter.error({
+					message: 'Another Namzu update is already running. Try again in a moment.',
+				})
+				return EXIT_FAIL
 			}
 			try {
-				let code: number
-				try {
-					code = await deps.runNpm(
-						progress
-							? {
-									...request,
-									onOutput: (text) => {
-										output = (output + text).slice(-16_384)
-									},
-								}
-							: request,
-					)
-				} catch (error) {
-					stop()
-					ctx.formatter.error({
-						message: `Could not start npm: ${error instanceof Error ? error.message : String(error)}`,
-					})
-					return EXIT_FAIL
-				}
-				if (code !== 0) {
-					stop()
-					ctx.formatter.error({
-						message: `npm exited with status ${code}; Namzu was not verified.`,
-					})
-					return EXIT_FAIL
-				}
-
-				let installed: string
-				try {
-					installed = deps.installedVersion(deps.packageRoot)
-				} catch (error) {
-					stop()
-					ctx.formatter.error({
-						message: `npm exited successfully, but the active installation could not be read back: ${error instanceof Error ? error.message : String(error)}`,
-					})
-					return EXIT_FAIL
-				}
-				if (installed !== latest) {
-					stop()
-					ctx.formatter.error({
-						message: `npm exited successfully, but the active installation still reports ${installed} instead of ${latest}. No update is being claimed.`,
-					})
-					return EXIT_FAIL
-				}
-
-				if (deps.platform === 'win32') {
-					try {
-						;(deps.removePowerShellShim ?? removeOwnPowerShellShim)(prefix)
-					} catch {
-						// namzu.cmd still works; the update itself succeeded.
-					}
-				}
-
-				progress?.stop(true)
-				ctx.formatter.print({
-					previous: deps.currentVersion,
-					current: installed,
-					updated: true,
-					text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
-				})
-				await deps.afterUpgrade?.().catch(() => undefined)
-				return EXIT_OK
+				return await installUpdate({ deps, ctx, latest, prefix, pnpmDir })
 			} finally {
-				progress?.stop()
+				lock?.release()
 			}
 		},
+	}
+}
+
+interface InstallInput {
+	readonly deps: UpgradeCommandDeps
+	readonly ctx: Parameters<CommandDef['handler']>[0]['ctx']
+	readonly latest: string
+	readonly prefix: string | null
+	readonly pnpmDir: string | null
+}
+
+async function installUpdate({
+	deps,
+	ctx,
+	latest,
+	prefix,
+	pnpmDir,
+}: InstallInput): Promise<number> {
+	const executable = pnpmDir ? 'pnpm' : deps.platform === 'win32' ? 'npm.cmd' : 'npm'
+	const cwd = pnpmDir ?? prefix ?? ''
+	const activeRootPath = pnpmDir ? join(pnpmDir, 'node_modules', '@namzu', 'cli') : deps.packageRoot
+	const request: NpmUpgradeRequest = {
+		executable,
+		prefix: cwd,
+		args: pnpmDir ? pnpmInstallArgs(latest) : npmInstallArgs(cwd, latest),
+	}
+	ctx.formatter.info(
+		`Updating the active ${pnpmDir ? 'pnpm' : 'npm'} installation from ${deps.currentVersion} to ${latest}…`,
+	)
+
+	// The copy kept before the installer touches anything, so a failed update leaves a working Namzu.
+	let backup: string | undefined
+	if (deps.safety && prefix) {
+		try {
+			backup = backupPackage(deps.packageRoot, deps.safety.home, deps.currentVersion)
+		} catch {
+			ctx.formatter.error({
+				message: 'Could not keep a copy of the current version, so nothing was changed.',
+			})
+			return EXIT_FAIL
+		}
+	}
+	const putBackOldVersion = async (): Promise<string> => {
+		if (backup) {
+			try {
+				restorePackage(deps.packageRoot, backup)
+				return ' The previous version was put back.'
+			} catch {
+				return ' The previous version could not be put back; reinstall Namzu if it does not start.'
+			}
+		}
+		if (pnpmDir && deps.safety) {
+			try {
+				const code = await deps.runNpm({
+					executable: 'pnpm',
+					prefix: cwd,
+					args: pnpmInstallArgs(deps.currentVersion),
+				})
+				if (code === 0) return ' The previous version was put back.'
+			} catch {
+				// Fall through to the plain sentence.
+			}
+			return ' The previous version could not be put back; reinstall Namzu if it does not start.'
+		}
+		return ''
+	}
+
+	const progress =
+		ctx.formatter.name === 'text' && !['silent', 'error'].includes(ctx.logging?.level ?? 'info')
+			? startUpgradeProgress()
+			: undefined
+	let output = ''
+	const stop = () => {
+		progress?.stop()
+		if (output)
+			process.stderr.write(
+				`${Array.from(stripVTControlCharacters(output))
+					.filter(
+						(char) =>
+							char === '\n' ||
+							char === '\t' ||
+							(char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
+					)
+					.join('')}\n`,
+			)
+	}
+	const failWith = async (message: string): Promise<number> => {
+		stop()
+		const restored = await putBackOldVersion()
+		ctx.formatter.error({ message: `${message}${restored}` })
+		return EXIT_FAIL
+	}
+	try {
+		let code: number
+		try {
+			code = await deps.runNpm(
+				progress
+					? {
+							...request,
+							onOutput: (text) => {
+								output = (output + text).slice(-16_384)
+							},
+						}
+					: request,
+			)
+		} catch (error) {
+			return await failWith(
+				`Could not start ${pnpmDir ? 'pnpm' : 'npm'}: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+		if (code !== 0) {
+			return await failWith(
+				`${pnpmDir ? 'pnpm' : 'npm'} exited with status ${code}; Namzu was not verified.`,
+			)
+		}
+
+		let installed: string
+		try {
+			installed = deps.installedVersion(activeRootPath)
+		} catch (error) {
+			return await failWith(
+				`${pnpmDir ? 'pnpm' : 'npm'} exited successfully, but the active installation could not be read back: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+		if (installed !== latest) {
+			return await failWith(
+				`${pnpmDir ? 'pnpm' : 'npm'} exited successfully, but the active installation still reports ${installed} instead of ${latest}. No update is being claimed.`,
+			)
+		}
+		if (deps.safety && !(await deps.safety.smokeTest(activeRootPath, latest))) {
+			return await failWith(`Namzu ${latest} was installed but did not start.`)
+		}
+
+		if (deps.platform === 'win32' && prefix) {
+			try {
+				;(deps.removePowerShellShim ?? removeOwnPowerShellShim)(prefix)
+			} catch {
+				// namzu.cmd still works; the update itself succeeded.
+			}
+		}
+
+		progress?.stop(true)
+		if (deps.safety) pruneOlderPrevious(deps.safety.home)
+		ctx.formatter.print({
+			previous: deps.currentVersion,
+			current: installed,
+			updated: true,
+			text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
+		})
+		await deps.afterUpgrade?.().catch(() => undefined)
+		return EXIT_OK
+	} finally {
+		progress?.stop()
 	}
 }
 

@@ -108,10 +108,14 @@ them. Its items are joined by a dim ` · `, left to right:
     strategy turns it off today). It is hidden from the moment a compaction
     finishes until the next turn starts, and it is not in the left items, so
     `esc to interrupt` and the rest stay while it shows.
-- **The update pointer.** When the launch check finds a newer Namzu, the right
-  end carries a standing yellow `Update available! Run: namzu upgrade` (the
-  command bold) in place of the old scrollback row. It yields to a hint, a
-  notice and the goal, and sits ahead of the model.
+- **The update line.** The [background updater](updates.md) leaves at most one
+  standing line at the right end, yielding to a hint, a notice and the goal and
+  sitting ahead of the model. After an automatic install it is dim:
+  `Updated to 41.3.0, restart to use it`. When Namzu may not or could not do it
+  itself it is yellow with the exact command bold: `Update available! Run: namzu
+  upgrade`, or `Couldn't update Namzu on its own. Run: <command>` after a failed
+  attempt. Nothing is shown while it checks or installs, and a source checkout,
+  `npx` and the Desktop copy show nothing at all.
 - **The exit reminder.** The first Ctrl+C with nothing to interrupt, or Ctrl+D
   on an empty composer, puts a dim `Press Ctrl-C again to exit` (or `Ctrl-D`)
   in the right-hand slot for 800 ms; the same key again inside that window

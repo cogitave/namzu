@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
+import { acquireUpdateLock } from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
 	type NpmUpgradeRequest,
@@ -215,5 +216,182 @@ describe('the PowerShell shim after an upgrade', () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true })
 		}
+	})
+})
+
+describe('namzu upgrade keeps a working Namzu', () => {
+	function layout() {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-safety-'))
+		const root = join(base, 'prefix', 'lib', 'node_modules', '@namzu', 'cli')
+		const home = join(base, 'home')
+		mkdirSync(root, { recursive: true })
+		writeFileSync(
+			join(root, 'package.json'),
+			JSON.stringify({ name: '@namzu/cli', version: '14.2.1' }),
+		)
+		writeFileSync(join(root, 'marker.txt'), 'old')
+		return { base, root, home, prefix: join(base, 'prefix') }
+	}
+	const install = (root: string, version: string) => {
+		writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@namzu/cli', version }))
+		writeFileSync(join(root, 'marker.txt'), 'new')
+	}
+
+	it('puts the previous version back when the new one does not start', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					install(l.root, '14.3.0')
+					return 0
+				},
+				installedVersion: (root) =>
+					(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string })
+						.version,
+				safety: { home: l.home, smokeTest: async () => false },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(h.errors).toEqual([
+				expect.objectContaining({
+					message: expect.stringContaining('previous version was put back'),
+				}),
+			])
+			expect(readFileSync(join(l.root, 'marker.txt'), 'utf8')).toBe('old')
+			expect(h.printed).toEqual([])
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('puts the previous version back when the installer dies half way', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					rmSync(join(l.root, 'package.json'))
+					return 1
+				},
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(readFileSync(join(l.root, 'marker.txt'), 'utf8')).toBe('old')
+			expect(existsSync(join(l.root, 'package.json'))).toBe(true)
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('keeps the previous version on disk after a good update', async () => {
+		const l = layout()
+		try {
+			const h = harness({
+				packageRoot: l.root,
+				runNpm: async () => {
+					install(l.root, '14.3.0')
+					return 0
+				},
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(0)
+			expect(
+				readFileSync(join(l.home, 'updates', 'previous', '14.2.1', 'marker.txt'), 'utf8'),
+			).toBe('old')
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('does not start while another update holds the lock', async () => {
+		const l = layout()
+		try {
+			const held = acquireUpdateLock({ home: l.home, pid: process.pid, isAlive: () => true })
+			const runNpm = vi.fn(async () => 0)
+			const h = harness({
+				packageRoot: l.root,
+				runNpm,
+				safety: { home: l.home, smokeTest: async () => true },
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(runNpm).not.toHaveBeenCalled()
+			expect(h.errors).toEqual([
+				expect.objectContaining({
+					message: 'Another Namzu update is already running. Try again in a moment.',
+				}),
+			])
+			held?.release()
+		} finally {
+			rmSync(l.base, { recursive: true, force: true })
+		}
+	})
+
+	it('updates a pnpm global installation through pnpm and reads the link it repoints', async () => {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-pnpm-'))
+		try {
+			const globalDir = join(base, 'pnpm', 'global', '5')
+			const storeRoot = join(
+				globalDir,
+				'.pnpm',
+				'@namzu+cli@14.2.1',
+				'node_modules',
+				'@namzu',
+				'cli',
+			)
+			const linked = join(globalDir, 'node_modules', '@namzu', 'cli')
+			const requests: NpmUpgradeRequest[] = []
+			const read = vi.fn(() => '14.3.0')
+			const h = harness({
+				packageRoot: storeRoot,
+				installedVersion: read,
+				runNpm: async (request) => {
+					requests.push(request)
+					return 0
+				},
+			})
+			expect(await h.invoke()).toBe(0)
+			expect(requests).toEqual([
+				{
+					executable: 'pnpm',
+					prefix: globalDir,
+					args: [
+						'add',
+						'--global',
+						'--registry',
+						'https://registry.npmjs.org',
+						'@namzu/cli@14.3.0',
+					],
+				},
+			])
+			expect(read).toHaveBeenCalledWith(linked)
+		} finally {
+			rmSync(base, { recursive: true, force: true })
+		}
+	})
+
+	it('follows the configured channel when it asks the registry', async () => {
+		const latestVersion = vi.fn(async () => '14.3.0')
+		const printed: unknown[] = []
+		const command = createUpgradeCommand({
+			currentVersion: '14.2.1',
+			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
+			platform: 'linux',
+			latestVersion,
+			runNpm: async () => 0,
+			installedVersion: () => '14.3.0',
+		})
+		await command.handler({
+			ctx: {
+				config: { updates: { channel: 'stable' } },
+				formatter: {
+					name: 'text',
+					print: (v: unknown) => printed.push(v),
+					error: () => {},
+					info: () => {},
+				},
+			},
+			rawArgs: ['--check'],
+		} as never)
+		expect(latestVersion).toHaveBeenCalledWith('stable')
 	})
 })

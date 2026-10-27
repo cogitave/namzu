@@ -88,6 +88,14 @@ after changing PATH. `namzu doctor` checks runtime configuration and available
 credentials; installation itself does not sign in to a provider or start the
 [scheduler service](scheduler-service.md).
 
+## Keeping Namzu up to date
+
+The terminal checks for a newer version in the background and installs it when
+Namzu owns the install folder (an npm or pnpm global install it can write to),
+otherwise it shows the exact command. See [Updates](updates.md) for what is
+updated, the safety steps and the `updates` settings; `namzu upgrade` does the
+same once, on request.
+
 ## Reopen the same conversation
 
 From its project directory, use `namzu resume <session-id>` on POSIX systems,

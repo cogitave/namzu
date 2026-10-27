@@ -22,6 +22,7 @@ import type {
 	StatusLineConfig,
 	TuiConfig,
 	TurnLimitsConfig,
+	UpdatesConfig,
 	WebConfig,
 	WorkflowCliConfig,
 } from '../config/schema.js'
@@ -256,6 +257,8 @@ export interface TuiContext {
 	readonly sandbox?: SandboxConfig
 	/** Opted-in terminal notification settings from the resolved CLI config. */
 	readonly tui?: TuiConfig
+	/** The `updates` settings of the resolved CLI config. */
+	readonly updates?: UpdatesConfig
 	/**
 	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
 	 * resolved once in `cli.ts` before the TUI launches. Optional for the
