@@ -157,9 +157,9 @@ export function serializeState(state: WorkingState): string {
 	}
 
 	// The goal is restated near the end, where recency keeps it in view: the
-	// newest request when there is one, else the task the turn began with.
-	const goal = state.userRequirements[state.userRequirements.length - 1] ?? state.task
-	if (goal) {
+	// newest request, and only when it says something the Task entry does not.
+	const goal = state.userRequirements[state.userRequirements.length - 1]
+	if (goal && goal.trim() !== state.task?.trim()) {
 		sections.push(`${SECTION_HEADERS.goal}\n\n${goal}`)
 	}
 

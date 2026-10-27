@@ -43,10 +43,19 @@ describe('the goal is restated', () => {
 		expect(text).toContain('## Current Goal\n\nThen rename the store.')
 	})
 
-	it('falls back to the task when nothing newer was asked', () => {
+	it('leaves the section out when nothing newer was asked, so the task is not repeated', () => {
 		const m = manager()
 		extractFromUserMessage(m, 'Port the loader.', true)
-		expect(serializeState(m.getState())).toContain('## Current Goal\n\nPort the loader.')
+		const text = serializeState(m.getState())
+		expect(text).not.toContain('Current Goal')
+		expect(text.split('Port the loader.')).toHaveLength(2)
+	})
+
+	it('leaves it out when the newest request only repeats the task', () => {
+		const m = manager()
+		extractFromUserMessage(m, 'Port the loader.', true)
+		extractFromUserMessage(m, 'Port the loader.', false)
+		expect(serializeState(m.getState())).not.toContain('Current Goal')
 	})
 
 	it('writes none for an empty state', () => {
