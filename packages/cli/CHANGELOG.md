@@ -1,5 +1,16 @@
 # @namzu/cli
 
+## 41.2.1
+
+### Patch Changes
+
+- 33969f4: The approval box for an edit now shows the whole lines the replacement touches as they are on disk when the box opens, and says when the text to replace is no longer in the file or now appears more than once, instead of drawing the model's own copy of the text.
+- 33969f4: A change to a file that moved after it was read is refused before any approval box opens, instead of asking you to approve it and then refusing. The refused row says "File changed since it was read, nothing written". The plan file's row head says "the plan" even for a long path, and only a plan inside a real session folder is called the plan: a `plans/plan.md` in your own `projects` folder shows as a path again. Text and ordering only; nothing to change.
+- 33969f4: Plain rows in the terminal. The plan file is called "the plan" on screen (the tool row, "Wrote N lines to the plan", the approval box and the approval note) instead of printing its session folder. `/compact` now reads "Compacted · N messages summarized · context about 190k to 20k tokens" with estimated sizes. `/resume` says "The only conversation in this folder is the one already open." when that is the case, instead of claiming there are none. A declined write shows only that it was declined, not the file it proposed. Text only; nothing to change in how you use Namzu.
+- Updated dependencies [33969f4]
+- Updated dependencies [33969f4]
+  - @namzu/sdk@56.1.0
+
 ## 41.2.0
 
 ### Minor Changes
