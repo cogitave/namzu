@@ -811,3 +811,62 @@ describe('a write review says what the write does to the file', () => {
 		expect(summary.text).toContain('b.txt · New file · 1 line')
 	})
 })
+
+describe('an edit is shown against the file as it is now', () => {
+	const edit = (input: Record<string, unknown>) => {
+		const review = buildPermissionReview([
+			{ id: 'call_1', name: 'edit', input: { path: 'a.ts', ...input }, isDestructive: false },
+		])
+		if (!review.ok) throw new Error('fixture must fit')
+		return review.text
+	}
+
+	it('draws the whole changed line from the disk, so a value that moved is visible', () => {
+		const summary = buildPermissionSummary(
+			edit({ old_string: 'export const a = 1', new_string: 'export const a = 2' }),
+			{ readText: () => 'export const a = 100 // changed outside\n' },
+		)
+		expect(summary.text).toContain('- export const a = 100 // changed outside')
+		expect(summary.text).toContain('+ export const a = 200 // changed outside')
+	})
+
+	it('says so when the text to replace is no longer in the file', () => {
+		const summary = buildPermissionSummary(edit({ old_string: 'gone', new_string: 'new' }), {
+			readText: () => 'something else\n',
+		})
+		expect(summary.text).toContain('The text to replace is no longer in the file')
+	})
+
+	it('says so when the text now appears more than once', () => {
+		const summary = buildPermissionSummary(edit({ old_string: 'x', new_string: 'y' }), {
+			readText: () => 'x\nx\n',
+		})
+		expect(summary.text).toContain('now appears more than once')
+	})
+
+	it('shows each edit of a batch against the text the earlier ones leave', () => {
+		const summary = buildPermissionSummary(
+			edit({
+				edits: [
+					{ old_string: 'one', new_string: 'two' },
+					{ old_string: 'two', new_string: 'three' },
+				],
+			}),
+			{ readText: () => 'one\n' },
+		)
+		expect(summary.text).toContain('- one')
+		expect(summary.text).toContain('+ two')
+		expect(summary.text).toContain('- two')
+		expect(summary.text).toContain('+ three')
+		expect(summary.text).not.toContain('no longer in the file')
+	})
+
+	it("shows the model's own strings when the file cannot be read", () => {
+		const summary = buildPermissionSummary(edit({ old_string: 'a', new_string: 'b' }), {
+			readText: () => undefined,
+		})
+		expect(summary.text).toContain('- a')
+		expect(summary.text).toContain('+ b')
+		expect(summary.text).not.toContain('no longer')
+	})
+})

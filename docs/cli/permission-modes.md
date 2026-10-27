@@ -21,7 +21,7 @@ A mode decides what happens to a call that no rule decided. The `[permissions]` 
 | `auto` | **Auto** | what a second model allows | the same list, and what the classifier blocks |
 | `strict` | **Preapproved tools only** | only calls a rule allows | nothing is asked: the rest is refused |
 
-A prompt for a file write, a new file or a replaced one, offers "Yes, and switch to accept edits for this session" like an edit does, and Shift+Tab answers it. A write outside your folders, to a protected file, or whose content is too long to show in full is a one-time yes with no such row.
+Choosing "Yes, and auto-approve edits" when a plan is approved leaves for this mode, so the writes that follow, new files and replaced ones inside your folders, run without a question. A prompt for a file write, a new file or a replaced one, offers "Yes, and switch to accept edits for this session" like an edit does, and Shift+Tab answers it. A write outside your folders, to a protected file, or whose content is too long to show in full is a one-time yes with no such row.
 
 `strict` is for a run where nobody can be asked and every call must be pre-decided.
 

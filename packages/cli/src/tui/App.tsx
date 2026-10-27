@@ -516,6 +516,7 @@ import {
 	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
+	readReviewedFile,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import type { FoldOp } from './read-search-group.js'
@@ -7912,6 +7913,7 @@ function AppBody({
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
+				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 				withheld: review.withheld,
 			})
