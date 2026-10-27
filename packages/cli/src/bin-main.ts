@@ -16,12 +16,7 @@ export function main(entrypoint: string): void {
 			.then((check) => check.runStartCheck())
 			.then(
 				(code) => process.exit(code),
-				(error) => {
-					process.stdout.write(
-						`start check failed: ${error instanceof Error ? error.message : String(error)}\n`,
-					)
-					process.exit(1)
-				},
+				() => process.exit(1),
 			)
 		return
 	}
