@@ -83,7 +83,9 @@ describe('per-turn request context across the calls of one turn', () => {
 		for (const [i, request] of provider.requests.entries()) {
 			const messages = request.messages as Message[]
 			// Every request-only block is after the last history message.
-			const lastHistory = messages.findLastIndex((m) => !requestOnly(m) && m.role !== 'system')
+			const lastHistory = messages
+				.map((m) => !requestOnly(m) && m.role !== 'system')
+				.lastIndexOf(true)
 			const firstBlock = messages.findIndex(requestOnly)
 			expect(firstBlock).toBeGreaterThan(lastHistory)
 			expect(messages.slice(firstBlock).every((m) => requestOnly(m) || m.role === 'system')).toBe(
