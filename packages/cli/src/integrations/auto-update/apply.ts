@@ -9,7 +9,15 @@
  */
 
 import { execFile } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+} from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { compareVersions } from '../updates.js'
@@ -183,33 +191,83 @@ export function pnpmInstallArgs(
 		...(mode === 'online' ? [] : [`--${mode}`]),
 		'--registry',
 		registry,
+		// The scope is pinned for every form, so a scoped registry in the person's or a
+		// project's .npmrc cannot decide where the package is resolved from.
+		`--@namzu:registry=${registry}`,
 		tarball ?? `@namzu/cli@${version}`,
 	]
+}
+
+/** Runs pnpm with these arguments in the global folder; resolves with its exit code. */
+export type PnpmRun = (args: readonly string[]) => Promise<number>
+
+/**
+ * Record the registry's name for a version in pnpm's global manifest. A tarball path
+ * leaves a `file:` entry that points at a file deleted afterwards, and pnpm then
+ * skips the package on every later update. The verified bytes are already in the
+ * store, so this links them rather than fetching again.
+ */
+export async function settlePnpmByName(
+	run: PnpmRun,
+	version: string,
+	registry: string,
+): Promise<boolean> {
+	try {
+		return (await run(pnpmInstallArgs(version, registry, undefined, 'prefer-offline'))) === 0
+	} catch {
+		return false
+	}
 }
 
 /**
  * Put a version back through pnpm. The store still holds it, so it is tried offline
  * first, which needs no registry at all; only when the store lacks it is the registry asked.
  */
-async function reinstallPnpm(
-	deps: Pick<ApplyDeps, 'runInstaller' | 'installTimeoutMs'>,
-	cwd: string,
+export async function reinstallPnpm(
+	run: PnpmRun,
 	version: string,
 	registry: string,
-	logFile: string,
 ): Promise<boolean> {
 	for (const mode of ['offline', 'online'] as const) {
-		const code = await deps.runInstaller({
+		try {
+			if ((await run(pnpmInstallArgs(version, registry, undefined, mode))) === 0) return true
+		} catch {
+			// Try the next way.
+		}
+	}
+	return false
+}
+
+/** Adapt the background installer to the plain runner the shared pnpm steps take. */
+function pnpmRunner(
+	deps: Pick<ApplyDeps, 'runInstaller' | 'installTimeoutMs'>,
+	cwd: string,
+	logFile: string,
+	onSpawn?: (pid: number) => void,
+): PnpmRun {
+	return (args) =>
+		deps.runInstaller({
 			executable: 'pnpm',
-			args: pnpmInstallArgs(version, registry, undefined, mode),
+			args,
 			cwd,
 			onOutput: () => undefined,
 			logFile,
 			timeoutMs: deps.installTimeoutMs ?? 300_000,
+			...(onSpawn ? { onSpawn } : {}),
 		})
-		if (code === 0) return true
+}
+
+/** Delete verified downloads this install left behind (an installer that outlived its parent). */
+export function pruneStaleDownloads(home: string, scope: string, keep: string): void {
+	const dir = join(updatesDir(home), 'download')
+	try {
+		for (const name of readdirSync(dir)) {
+			if (name.endsWith(`-${scope}.tgz`) && join(dir, name) !== keep)
+				rmSync(join(dir, name), { force: true })
+		}
+	} catch {
+		// Nothing kept, or a folder that cannot be listed.
 	}
-	return false
 }
 
 /** The exact command a person can run when Namzu may not do it for them. */
@@ -419,6 +477,7 @@ async function applyLocked(
 	// Fetch and check the release before anything on disk is touched: a download that
 	// fails or does not match costs nothing to undo.
 	const tarball = tarballPath(deps.home, scope, release.version)
+	pruneStaleDownloads(deps.home, scope, tarball)
 	try {
 		await (deps.fetchTarball ?? fetchFromRegistry(registry))(release, tarball)
 	} catch (error) {
@@ -451,29 +510,6 @@ export function fetchFromRegistry(
 			registry,
 			destination: file,
 		})
-	}
-}
-
-async function reinstallPnpmByName(
-	deps: ApplyDeps,
-	version: string,
-	registry: string,
-	logFile: string,
-	onSpawn: (pid: number) => void,
-): Promise<boolean> {
-	try {
-		const code = await deps.runInstaller({
-			executable: 'pnpm',
-			args: pnpmInstallArgs(version, registry, undefined, 'prefer-offline'),
-			cwd: (deps.install as Extract<InstallKind, { kind: 'pnpm-global' }>).globalDir,
-			onOutput: () => undefined,
-			timeoutMs: deps.installTimeoutMs ?? 300_000,
-			logFile,
-			onSpawn,
-		})
-		return code === 0
-	} catch {
-		return false
 	}
 }
 
@@ -513,11 +549,9 @@ async function installFromTarball(
 			const smoke = deps.smokeTest ?? smokeTestInstalled
 			return (
 				(await reinstallPnpm(
-					deps,
-					install.globalDir,
+					pnpmRunner(deps, install.globalDir, installLogPath(deps.home, scope, 'restore')),
 					onDisk,
 					registry,
-					installLogPath(deps.home, scope, 'restore'),
 				)) &&
 				deps.installedVersion(activeRoot(install)) === onDisk &&
 				(await smoke(activeRoot(install), onDisk, 'version'))
@@ -591,12 +625,10 @@ async function installFromTarball(
 	// deleted below, and pnpm then skips the package on every later update. Record the
 	// registry's name for the version instead; the verified bytes are already in the store.
 	if (install.kind === 'pnpm-global') {
-		const settled = await reinstallPnpmByName(
-			deps,
+		const settled = await settlePnpmByName(
+			pnpmRunner(deps, install.globalDir, logFile, noteInstaller),
 			release.version,
 			registry,
-			logFile,
-			noteInstaller,
 		)
 		if (!settled) {
 			const restored = await restore()
@@ -727,11 +759,9 @@ export async function repairInterruptedUpdate(
 			} else if (install.kind === 'pnpm-global') {
 				restored =
 					(await reinstallPnpm(
-						deps,
-						install.globalDir,
+						pnpmRunner(deps, install.globalDir, installLogPath(deps.home, scope, 'restore')),
 						marker.from,
 						deps.registry ?? PUBLIC_REGISTRY,
-						installLogPath(deps.home, scope, 'restore'),
 					)) &&
 					deps.installedVersion(root) === marker.from &&
 					(await smoke(root, marker.from, 'version'))

@@ -407,14 +407,75 @@ describe('namzu upgrade keeps a working Namzu', () => {
 				},
 			})
 			expect(await h.invoke()).toBe(0)
+			const pinned = [
+				'--registry',
+				'https://registry.npmjs.org',
+				'--@namzu:registry=https://registry.npmjs.org',
+			]
 			expect(requests).toEqual([
 				{
 					executable: 'pnpm',
 					prefix: globalDir,
-					args: ['add', '--global', '--registry', 'https://registry.npmjs.org', h.tarballs[0]],
+					args: ['add', '--global', ...pinned, h.tarballs[0]],
+				},
+				// Then the registry's name for the version, so no `file:` entry stays in the manifest.
+				{
+					executable: 'pnpm',
+					prefix: globalDir,
+					args: ['add', '--global', '--prefer-offline', ...pinned, '@namzu/cli@14.3.0'],
 				},
 			])
 			expect(read).toHaveBeenCalledWith(linked)
+		} finally {
+			rmSync(base, { recursive: true, force: true })
+		}
+	})
+
+	it('puts the old pnpm version back, offline first and checked, when recording the new one fails', async () => {
+		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-pnpm-'))
+		try {
+			const globalDir = join(base, 'pnpm', 'global', '5')
+			const storeRoot = join(
+				globalDir,
+				'.pnpm',
+				'@namzu+cli@14.2.1',
+				'node_modules',
+				'@namzu',
+				'cli',
+			)
+			const calls: string[][] = []
+			let version = '14.3.0'
+			const smokeTest = vi.fn(async () => true)
+			const h = harness({
+				packageRoot: storeRoot,
+				installedVersion: () => version,
+				safety: { home: join(base, 'home'), smokeTest },
+				runNpm: async (request) => {
+					calls.push([...request.args])
+					if (request.args.includes('--prefer-offline')) return 1
+					if (request.args.includes('--offline')) version = '14.2.1'
+					return 0
+				},
+			})
+			expect(await h.invoke()).toBe(1)
+			expect(
+				calls.map((args) => args.find((a) => a.startsWith('--o') || a.startsWith('--p'))),
+			).toEqual([undefined, '--prefer-offline', '--offline'])
+			expect(smokeTest).toHaveBeenCalledWith(
+				join(globalDir, 'node_modules', '@namzu', 'cli'),
+				'14.2.1',
+				'version',
+			)
+			expect(h.errors).toEqual([
+				expect.objectContaining({
+					message: expect.stringContaining('The previous version was put back.'),
+				}),
+			])
+			expect(existsSync(join(globalDir, '.namzu-update', 'updates'))).toBe(true)
+			const markers = (await import('node:fs'))
+				.readdirSync(join(globalDir, '.namzu-update', 'updates'))
+				.filter((n) => n.startsWith('in-progress'))
+			expect(markers).toEqual([])
 		} finally {
 			rmSync(base, { recursive: true, force: true })
 		}

@@ -54,7 +54,9 @@ In CI the terminal still looks, but it does not install unless you ask for it
    which must be writable for an update to run at all) keeps two Namzu processes
    from changing the same install together, whatever their Namzu home or user, while two different
    installs (two npm prefixes, or npm and pnpm) never wait on each other. A second
-   process waits quietly and tries again later. A lock whose process is gone, or
+   process waits quietly and tries again later. The `.namzu-update` folder stays in
+   the prefix after an update (it holds only small lock and marker files); delete it
+   when you uninstall Namzu. A lock whose process is gone, or
    that is older than fifteen minutes, is taken over, and taking it over is
    atomic: when two processes both find the same stale lock, exactly one of them
    gets it.
@@ -92,10 +94,15 @@ In CI the terminal still looks, but it does not install unless you ask for it
    `updates/previous` is ever put back. With installing switched off, nothing is
    repaired or rewritten. The copy is restored by moving a fresh copy into
    place, so the package is never missing half way.
-   For pnpm the verified file is followed by `pnpm add --global @namzu/cli@<version>`,
-   which links the bytes already in pnpm's store, so its global manifest names a
+   For pnpm the verified file is followed by `pnpm add --global --prefer-offline
+   @namzu/cli@<version>` (with the `@namzu` scope pinned to the same registry), which
+   links the bytes already in pnpm's store, so its global manifest names a
    registry version and not a path to a file that no longer exists (pnpm would
-   otherwise skip Namzu in `pnpm update --global`).
+   otherwise skip Namzu in `pnpm update --global`). The installed version is read
+   back, but the second step resolves through the registry's listing, so for pnpm the
+   checksum guarantee covers the file Namzu installs first, not the by-name link.
+   `namzu upgrade` runs these same steps, writes the same marker, and puts the
+   previous version back the same way (offline from the store first, and it must start).
 6. If any step fails the previous copy is put back (pnpm installs the previous
    version again, offline from its store first and from the registry only if the
    store lacks it, and the result must start), so a failed update leaves a working Namzu. The outcome of the

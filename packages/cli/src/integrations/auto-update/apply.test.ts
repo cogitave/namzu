@@ -12,6 +12,7 @@ import {
 	manualUpdateCommand,
 	npmInstallArgs,
 	pnpmInstallArgs,
+	pruneStaleDownloads,
 	repairInterruptedUpdate,
 	scopeOf,
 	sharedStateHome,
@@ -720,5 +721,32 @@ describe('trusting an in-progress marker', () => {
 		expect(result.status).toBe('unrepaired')
 		expect(existsSync(join(root, 'marker.txt'))).toBe(true)
 		expect(readFileSync(join(root, 'marker.txt'), 'utf8')).toBe('1.0.0')
+	})
+})
+
+describe('pnpm install arguments and leftovers', () => {
+	it('pins the @namzu scope to the checked registry for every form, so a scoped .npmrc cannot redirect it', () => {
+		for (const mode of ['online', 'offline', 'prefer-offline'] as const) {
+			expect(pnpmInstallArgs('2.0.0', 'https://r.example', undefined, mode)).toContain(
+				'--@namzu:registry=https://r.example',
+			)
+		}
+		expect(pnpmInstallArgs('2.0.0', 'https://r.example', '/x/a.tgz')).toContain(
+			'--@namzu:registry=https://r.example',
+		)
+	})
+
+	it('removes downloads an earlier run left for this install, and only those', () => {
+		const keep = tarballPath(home, 'abc', '3.0.0')
+		const stale = tarballPath(home, 'abc', '2.0.0')
+		const other = tarballPath(home, 'def', '2.0.0')
+		for (const file of [keep, stale, other]) {
+			mkdirSync(dirname(file), { recursive: true })
+			writeFileSync(file, 'x')
+		}
+		pruneStaleDownloads(home, 'abc', keep)
+		expect(existsSync(keep)).toBe(true)
+		expect(existsSync(stale)).toBe(false)
+		expect(existsSync(other)).toBe(true)
 	})
 })

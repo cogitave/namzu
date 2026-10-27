@@ -94,6 +94,22 @@ function readTail(path: string): string {
 	}
 }
 
+/** End a detached package manager and everything it started: its whole process group. */
+export function killTree(pid: number): void {
+	try {
+		if (process.platform === 'win32') {
+			spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+				stdio: 'ignore',
+				windowsHide: true,
+			}).once('error', () => undefined)
+		} else {
+			process.kill(-pid, 'SIGKILL')
+		}
+	} catch {
+		// Already gone.
+	}
+}
+
 export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 	return new Promise((resolveRun, reject) => {
 		const invocation = resolveNpmInvocation(request.executable, request.args)
@@ -118,7 +134,10 @@ export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 					: request.onOutput
 						? ['inherit', 'pipe', 'pipe']
 						: 'inherit',
-				...(request.timeoutMs !== undefined ? { timeout: request.timeoutMs } : {}),
+				// A detached run is timed here (the built-in timeout only reaches the child itself).
+				...(request.timeoutMs !== undefined && !request.background
+					? { timeout: request.timeoutMs }
+					: {}),
 				shell: false,
 				windowsHide: true,
 				// Its own process group: closing the terminal or pressing Ctrl+C must not
@@ -137,8 +156,18 @@ export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
 			child.stderr?.setEncoding('utf8').on('data', request.onOutput)
 		}
-		child.once('error', reject)
+		let timer: ReturnType<typeof setTimeout> | undefined
+		if (request.background && request.timeoutMs !== undefined && child.pid !== undefined) {
+			const pid = child.pid
+			timer = setTimeout(() => killTree(pid), request.timeoutMs)
+			timer.unref()
+		}
+		child.once('error', (error) => {
+			if (timer) clearTimeout(timer)
+			reject(error)
+		})
 		child.once('close', (code) => {
+			if (timer) clearTimeout(timer)
 			if (request.background && request.logFile && request.onOutput) {
 				const tail = readTail(request.logFile)
 				if (tail) request.onOutput(tail)

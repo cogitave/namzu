@@ -13,7 +13,10 @@ import {
 	fetchFromRegistry,
 	npmInstallArgs,
 	pnpmInstallArgs,
+	pruneStaleDownloads,
+	reinstallPnpm,
 	restorePackage,
+	settlePnpmByName,
 	smokeTestInstalled,
 	tarballPath,
 } from '../integrations/auto-update/apply.js'
@@ -22,9 +25,11 @@ import { pnpmGlobalDirFor } from '../integrations/auto-update/install-kind.js'
 import { resolveUpdatePolicy } from '../integrations/auto-update/policy.js'
 import {
 	acquireUpdateLock,
+	clearInProgress,
 	installScope,
 	pruneOlderPrevious,
 	readLastResult,
+	writeInProgress,
 } from '../integrations/auto-update/state.js'
 import {
 	type NpmUpgradeRequest,
@@ -82,7 +87,11 @@ export interface UpgradeCommandDeps {
 		/** The Namzu home, where the lock and the kept copy live. */
 		readonly home: string
 		/** Start the new copy once; true when it answers with `version`. */
-		readonly smokeTest: (root: string, version: string) => Promise<boolean>
+		readonly smokeTest: (
+			root: string,
+			version: string,
+			depth?: 'version' | 'session',
+		) => Promise<boolean>
 	}
 }
 
@@ -265,6 +274,7 @@ async function installUpdate(input: InstallInput): Promise<number> {
 	const file = deps.safety
 		? tarballPath(deps.safety.home, scope, release.version)
 		: join(scratch ?? '', `namzu-cli-${release.version}.tgz`)
+	if (deps.safety) pruneStaleDownloads(deps.safety.home, scope, file)
 	try {
 		await (deps.fetchTarball ?? fetchFromRegistry(PUBLIC_REGISTRY))(release, file)
 	} catch (error) {
@@ -322,27 +332,57 @@ async function installVerified({
 			return EXIT_FAIL
 		}
 	}
+	// Where the lock lives too: inside the install, so every Namzu home sees it.
+	const shared = join(cwd, '.namzu-update')
+	const scope = scopeFor(deps.platform, prefix, pnpmDir)
+	// The same marker a background update leaves, so an interrupted run is repaired on the next start.
+	const marking = deps.safety !== undefined
+	if (marking) {
+		try {
+			writeInProgress(
+				shared,
+				{
+					pid: process.pid,
+					to: latest,
+					from: deps.currentVersion,
+					...(backup ? { backup } : {}),
+					at: Date.now(),
+				},
+				scope,
+			)
+		} catch {
+			// The update goes on without the marker; the lock still guards it.
+		}
+	}
+	const pnpmRun = (args: readonly string[]): Promise<number> =>
+		deps.runNpm({ executable: 'pnpm', prefix: cwd, args })
 	const putBackOldVersion = async (): Promise<string> => {
+		const lost =
+			' The previous version could not be put back; reinstall Namzu if it does not start.'
 		if (backup) {
 			try {
 				restorePackage(deps.packageRoot, backup)
+				if (marking) clearInProgress(shared, scope)
 				return ' The previous version was put back.'
 			} catch {
-				return ' The previous version could not be put back; reinstall Namzu if it does not start.'
+				return lost
 			}
 		}
 		if (pnpmDir && deps.safety) {
 			try {
-				const code = await deps.runNpm({
-					executable: 'pnpm',
-					prefix: cwd,
-					args: pnpmInstallArgs(deps.currentVersion),
-				})
-				if (code === 0) return ' The previous version was put back.'
+				// The store still holds it: offline first, then the registry, and it must start.
+				const back =
+					(await reinstallPnpm(pnpmRun, deps.currentVersion, PUBLIC_REGISTRY)) &&
+					deps.installedVersion(activeRootPath) === deps.currentVersion &&
+					(await deps.safety.smokeTest(activeRootPath, deps.currentVersion, 'version'))
+				if (back) {
+					clearInProgress(shared, scope)
+					return ' The previous version was put back.'
+				}
 			} catch {
 				// Fall through to the plain sentence.
 			}
-			return ' The previous version could not be put back; reinstall Namzu if it does not start.'
+			return lost
 		}
 		return ''
 	}
@@ -396,6 +436,12 @@ async function installVerified({
 			)
 		}
 
+		// A tarball path leaves a `file:` entry in pnpm's global manifest that points at a file
+		// deleted afterwards; record the registry's name for the version instead.
+		if (pnpmDir && !(await settlePnpmByName(pnpmRun, latest, PUBLIC_REGISTRY))) {
+			return await failWith('pnpm could not record the new version; Namzu was not verified.')
+		}
+
 		let installed: string
 		try {
 			installed = deps.installedVersion(activeRootPath)
@@ -422,6 +468,7 @@ async function installVerified({
 		}
 
 		progress?.stop(true)
+		if (marking) clearInProgress(shared, scope)
 		if (deps.safety)
 			pruneOlderPrevious(deps.safety.home, 2, scopeFor(deps.platform, prefix, pnpmDir))
 		ctx.formatter.print({
