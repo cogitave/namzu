@@ -375,3 +375,40 @@ describe('recorded context is history, not request-only context', () => {
 		expect(JSON.stringify(blocks)).toContain('A RECORD')
 	})
 })
+
+describe('the cache point across the calls of a turn', () => {
+	it('follows the last history message on every call, whatever the request-only blocks say', async () => {
+		const stepContext = (content: string) =>
+			({
+				role: 'user',
+				content,
+				source: { type: 'runtime-context', kind: 'step-context' },
+			}) as ChatCompletionParams['messages'][number]
+		const history: ChatCompletionParams['messages'] = [{ role: 'user', content: 'go' }]
+		let last = 'go'
+		for (let call = 1; call <= 3; call++) {
+			const input = await capture({
+				cacheControl: { type: 'auto' },
+				messages: [...history, stepContext('Work list'), stepContext(`Note for call ${call}`)],
+			})
+			const text = JSON.stringify(input.messages)
+			const at = text.indexOf('"cachePoint"')
+			expect(at).toBeGreaterThan(-1)
+			// Everything before the point includes the last history message; the
+			// request-only blocks are all after it.
+			expect(text.slice(0, at)).toContain(last)
+			expect(text.slice(0, at)).not.toContain('Work list')
+			expect(text.slice(at)).toContain('Work list')
+			expect(countCachePoints(input.messages)).toBe(1)
+			history.push({
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+				],
+			})
+			history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` })
+			last = `RESULT-${call}`
+		}
+	})
+})

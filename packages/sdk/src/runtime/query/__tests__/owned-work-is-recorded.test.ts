@@ -5,6 +5,7 @@ import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { historyOf } from '../../../test-support/request-only.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
@@ -94,14 +95,16 @@ it('records each finished task once, when it finishes, and never the running lis
 	// The task that never settled is named in the requests, and nowhere in the record.
 	const sent = (index: number) =>
 		(provider.requests[index]?.messages as Message[]).map((m) => String(m.content))
+	const sentHistory = (index: number) =>
+		historyOf(provider.requests[index]?.messages as Message[]).map((m) => String(m.content))
 	expect(sent(2).some((text) => text.includes('still running') && text.includes(runningId))).toBe(
 		true,
 	)
 	expect(run.messages.some((m) => String(m.content).includes('still running'))).toBe(false)
-	// Every request begins with the whole of the one before it.
+	// Every request begins with the whole history of the one before it.
 	for (const i of [1, 2]) {
-		const before = sent(i - 1)
-		expect(sent(i).slice(0, before.length)).toEqual(before)
+		const before = sentHistory(i - 1)
+		expect(sentHistory(i).slice(0, before.length)).toEqual(before)
 	}
 	inbox.close()
 })

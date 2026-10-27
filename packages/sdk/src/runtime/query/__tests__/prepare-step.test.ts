@@ -270,14 +270,14 @@ it('replaces request-only context without changing history or operator intent', 
 		)
 		expect(observations).toHaveLength(index < 2 ? 1 : 0)
 		if (index < 2) {
-			// Request-only, so it follows the history of the moment and records nothing.
+			// Request-only, so it follows the history and records nothing.
 			const asked = request.messages.findIndex((m) => m.role === 'user' && m.source === undefined)
-			// Right after the operator's message on the first call, right after the
-			// history once a tool has run.
-			if (index === 0) expect(request.messages[asked + 1]).toBe(observations[0])
-			else {
+			// After the whole history on every call: the operator's message on the
+			// first, the last tool result once a tool has run.
+			expect(request.messages.indexOf(observations[0]!)).toBeGreaterThan(asked)
+			if (index > 0) {
 				const lastTool = request.messages.map((m) => m.role).lastIndexOf('tool')
-				expect(request.messages[lastTool + 1]).toBe(observations[0])
+				expect(request.messages.indexOf(observations[0]!)).toBeGreaterThan(lastTool)
 			}
 			expect(observations[0]!.content).toContain('runtime-generated; not a new user request')
 			expect(observations[0]!.content).toContain(`OBSERVATION-${index + 1}`)

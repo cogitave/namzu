@@ -380,3 +380,33 @@ it('does not stop the cached prefix at recorded context that ends the history', 
 	expect(JSON.stringify(last)).toContain('RECORDED STATE')
 	expect(JSON.stringify(last)).toContain('cache_control')
 })
+
+it('anchors the last history message on every call of a turn, whatever the request-only blocks say', async () => {
+	const history: ChatCompletionParams['messages'] = [{ role: 'user', content: 'go' }]
+	let last = 'go'
+	for (let call = 1; call <= 3; call++) {
+		const body = await bodyFor({
+			messages: [
+				...history,
+				createRuntimeContextMessage('Work list', 'step-context'),
+				createRuntimeContextMessage(`Note for call ${call}`, 'step-context'),
+			],
+		})
+		const messages = body.messages as { role: string; content: string | Block[] }[]
+		const anchored = messages.findIndex((m) => JSON.stringify(m).includes('cache_control'))
+		expect(JSON.stringify(messages[anchored])).toContain(last)
+		const firstBlock = messages.findIndex((m) => JSON.stringify(m).includes('Work list'))
+		expect(anchored).toBe(firstBlock - 1)
+		for (const m of messages.slice(firstBlock))
+			expect(JSON.stringify(m)).not.toContain('cache_control')
+		history.push({
+			role: 'assistant',
+			content: '',
+			toolCalls: [
+				{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+			],
+		})
+		history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` })
+		last = `RESULT-${call}`
+	}
+})

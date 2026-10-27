@@ -103,7 +103,7 @@ import {
 } from './provider-rejected-image.js'
 import { appendRecordedContext } from './recorded-context.js'
 import { type MediaRemoval, RequestRepair } from './request-repair.js'
-import { TurnContextCarry } from './step-context.js'
+import { placeRequestContext } from './step-context.js'
 import {
 	type StepShaping,
 	beforeStep,
@@ -192,7 +192,6 @@ export class IterationOrchestrator {
 	 */
 	private lastEnvelopeKey: string | undefined
 	/** Where this turn's request-only data first went, so it stays there. */
-	private readonly turnContext = new TurnContextCarry()
 	private previousRequestContext: RequestContextSnapshot | undefined
 
 	private projectObservations(messages: Message[]): Message[] {
@@ -914,27 +913,30 @@ export class IterationOrchestrator {
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
 					// Request-only data (the context contributions, notes about the
-					// search, the work context) follows the history of the moment it
-					// first appears and stays there on every later call of the turn, so
-					// each request begins with the whole of the one before it. What a
-					// step wants kept is recorded in the history above instead. The
-					// short reminders and notices stay after the history.
+					// search, the work context) goes last on every call, after the
+					// whole history, so the history a caching driver reads never
+					// changes shape from one call to the next. What a step wants
+					// kept is recorded in the history above instead. The short
+					// reminders and notices follow it.
 					const messages = [...projected]
-					// Taken before anything is recorded below: with no working-memory
-					// slot the history IS the live array.
-					const historyEnd = workingMemory.history.at(-1)
 					// What the loop learns about files and finished work holds until it
 					// changes, so it is recorded, after the history as it stands, and
 					// carried in this request where it will sit in the next one's history.
 					const work = workContext(shaping, projected, iterationNum, step)
 					const recordedNow = appendRecordedContext(recorder, work.recorded, this.ctx.log)
-					this.turnContext.place(messages, requestHistory, historyEnd, [
-						...[contextText, step.context]
-							.filter((text): text is string => Boolean(text))
-							.map(stepContextMessage),
-						...work.requestOnly,
-						...recordedNow,
-					])
+					placeRequestContext(
+						messages,
+						recordedNow,
+						// The working-memory block and the policy notice already end the
+						// request; the entries just recorded belong ahead of them.
+						(workingMemory.context ? 1 : 0) + (policyNotice ? 1 : 0),
+						[
+							...[contextText, step.context]
+								.filter((text): text is string => Boolean(text))
+								.map(stepContextMessage),
+							...work.requestOnly,
+						],
+					)
 					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()

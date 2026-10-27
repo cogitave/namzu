@@ -132,3 +132,34 @@ describe('Zen Messages cache breakpoints', () => {
 		expect(last[last.length - 1]?.text).toContain('A RECORD')
 	})
 })
+
+describe('Zen Messages cache breakpoints across the calls of a turn', () => {
+	it('marks the last history message on every call, whatever the request-only blocks say', async () => {
+		const history: Message[] = [{ role: 'user', content: 'go' }]
+		let last = 'go'
+		for (let call = 1; call <= 3; call++) {
+			const body = await bodyFor({
+				messages: [...history, context('Work list'), context(`Note for call ${call}`)],
+			})
+			const marked = body.messages.findIndex((m) =>
+				m.content.some((block) => block.cache_control !== undefined),
+			)
+			expect(JSON.stringify(body.messages[marked])).toContain(last)
+			const withBlocks = body.messages.at(-1)?.content ?? []
+			const at = withBlocks.findIndex((block) => block.text === 'Work list')
+			// The mark is on the block just before the first request-only block.
+			expect(at).toBeGreaterThan(0)
+			expect(withBlocks[at - 1]?.cache_control).toEqual(MARK)
+			expect(withBlocks.slice(at).every((block) => block.cache_control === undefined)).toBe(true)
+			history.push({
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: `c${call}`, type: 'function', function: { name: 'read', arguments: '{}' } },
+				],
+			} as Message)
+			history.push({ role: 'tool', toolCallId: `c${call}`, content: `RESULT-${call}` } as Message)
+			last = `RESULT-${call}`
+		}
+	})
+})

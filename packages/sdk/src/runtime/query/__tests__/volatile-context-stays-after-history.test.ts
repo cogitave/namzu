@@ -30,9 +30,8 @@ import { WORKING_MEMORY_HEADER } from '../iteration/phases/working-memory.js'
  * there and a caching driver ends its breakpoint before.
  *
  * The blocks that belong to the turn (what a `context` contribution renders)
- * go after the history of the moment they first appear, never ahead of the
- * operator's message. A block the step offers again with the same text keeps
- * that place on every later call of the turn. What a step wants kept across
+ * go last on every call, after the whole history, never ahead of the
+ * operator's message. What a step wants kept across
  * turns is recorded instead (`recordedContext`).
  */
 
@@ -225,13 +224,11 @@ describe('a context contribution', () => {
 		const slotAt = tail.findIndex(isSlot)
 		const contextAt = tail.findIndex((t) => t.includes('CONTEXT TEXT'))
 		expect(slotAt).toBeGreaterThanOrEqual(0)
-		// The context text first appeared right after the operator's message and
-		// stays there, ahead of the trailing slot, so it is not in the trailing run.
-		expect(contextAt).toBe(-1)
-		const placedAt = messages.findIndex((m) => text(m).includes('CONTEXT TEXT'))
-		expect(placedAt).toBeGreaterThanOrEqual(0)
-		expect(placedAt).toBeGreaterThan(
-			messages.findIndex((m) => m.role === 'user' && m.source === undefined),
+		// The context text is placed again on every call, after the slot, in the
+		// trailing run after the whole history.
+		expect(contextAt).toBeGreaterThan(slotAt)
+		expect(messages.findIndex((m) => text(m).includes('CONTEXT TEXT'))).toBeGreaterThan(
+			messages.findIndex((m) => m.role === 'tool'),
 		)
 		// `turn` keeps its documented system authority.
 		expect(
@@ -244,7 +241,7 @@ describe('a context contribution', () => {
 })
 
 describe('recalled context from preparation', () => {
-	it('sits right after the operator message while the reminders after it stay last', async () => {
+	it('follows the whole history on every call', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ id: 'c1', name: 'note', args: { text: 'FACT' } }] },
@@ -269,27 +266,27 @@ describe('recalled context from preparation', () => {
 			const recalled = messages.findIndex((m) => text(m).includes('RECALLED MEMORY BODY'))
 			expect(userAt).toBeGreaterThan(0)
 			expect(recalled).toBeGreaterThanOrEqual(0)
-			expect(recalled).toBe(userAt + 1)
+			expect(recalled).toBeGreaterThan(userAt)
 			// Once per request, and the earlier question is not displaced.
 			expect(messages.filter((m) => text(m).includes('RECALLED MEMORY BODY'))).toHaveLength(1)
 			expect(messages.findIndex((m) => text(m) === 'earlier question')).toBeLessThan(recalled)
 		}
 
-		// After the tool call the same block keeps its place after the operator's
-		// message, and the second request begins with the whole of the first.
+		// After the tool call the block is placed again after the whole history
+		// (the tool result included), and the second request begins with the
+		// whole history of the first.
 		const later = provider.requests[1]?.messages as Message[]
 		const indexOfLast = (predicate: (m: Message) => boolean) => {
 			for (let i = later.length - 1; i >= 0; i--) if (predicate(later[i] as Message)) return i
 			return -1
 		}
 		const lastRecalled = indexOfLast((m) => text(m).includes('RECALLED MEMORY BODY'))
-		const lastUser = indexOfLast((m) => m.role === 'user' && m.source === undefined)
-		expect(lastRecalled).toBe(lastUser + 1)
+		expect(lastRecalled).toBeGreaterThan(indexOfLast((m) => m.role === 'tool'))
 		const firstMessages = request!.messages as Message[]
 		// Everything the first request held before its trailing notices is still
 		// at the head of the second, so a cached prefix keeps reading.
 		const conversation = (messages: readonly Message[]) =>
-			messages.filter((m) => m.role !== 'system')
+			messages.filter((m) => m.role !== 'system' && !isRequestOnly(m))
 		const stable = conversation(firstMessages)
 		expect(conversation(later).slice(0, stable.length).map(text)).toEqual(stable.map(text))
 	})

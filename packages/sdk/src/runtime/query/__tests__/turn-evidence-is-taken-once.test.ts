@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
+import { historyOf } from '../../../test-support/request-only.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import {
 	type EvidenceRecallCandidate,
@@ -116,8 +117,10 @@ describe('conversation evidence across the calls of one turn', () => {
 		}
 		for (const [i, request] of provider.requests.entries()) {
 			if (i === 0) continue
-			const before = shape(provider.requests[i - 1]?.messages as Message[])
-			expect(shape(request.messages as Message[]).slice(0, before.length)).toEqual(before)
+			const before = shape(historyOf(provider.requests[i - 1]?.messages as Message[]))
+			expect(shape(historyOf(request.messages as Message[])).slice(0, before.length)).toEqual(
+				before,
+			)
 		}
 	})
 })
@@ -199,8 +202,8 @@ describe('conversation evidence when a message lands mid-turn', () => {
 		expect(run.retrieve).toHaveBeenCalledTimes(1)
 		const [first, second] = run.requests as [readonly Message[], readonly Message[]]
 		expect(shapeOf(second).some((line) => line.includes(marker))).toBe(true)
-		const before = shapeOf(first)
-		expect(shapeOf(second).slice(0, before.length)).toEqual(before)
+		const before = shapeOf(historyOf(first))
+		expect(shapeOf(historyOf(second)).slice(0, before.length)).toEqual(before)
 		expect(shapeOf(second).some((line) => line.includes('B99'))).toBe(false)
 	}
 
