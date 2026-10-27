@@ -180,7 +180,12 @@ describe('answering a parked scheduled turn', () => {
 		expect(call.pendingDecision).toBeUndefined()
 		// The session rules, then the one rule that consults the session's remembered allows.
 		expect(call.authorizationGate.rules.slice(0, sessionRules.length)).toEqual(sessionRules)
-		expect(call.authorizationGate.rules.at(-1)).toMatchObject({ type: 'predicate' })
+		expect(call.authorizationGate.rules.at(-2)).toMatchObject({ type: 'predicate' })
+		// Last of all, search keeps running unasked; a page fetch is not covered.
+		expect(call.authorizationGate.rules.at(-1)).toEqual({
+			type: 'allow_by_name',
+			toolNames: ['web_search'],
+		})
 		expect(decisions).toEqual(['approve_tools'])
 	})
 
@@ -213,7 +218,10 @@ describe('answering a parked scheduled turn', () => {
 		}
 		const call = resumeCalls[0] as Call
 		expect(call.pendingDecision).toEqual({ action: 'approve_tools' })
-		expect(call.authorizationGate.rules).toEqual(jobRules)
+		expect(call.authorizationGate.rules).toEqual([
+			...jobRules,
+			{ type: 'allow_by_name', toolNames: ['web_search'] },
+		])
 		expect(asked).toHaveLength(1)
 		expect(decisions).toEqual(['reject_tools'])
 	})
