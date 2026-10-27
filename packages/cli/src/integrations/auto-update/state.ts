@@ -1,18 +1,21 @@
 /**
  * What the updater keeps on disk, under `<Namzu home>/updates/`:
  *
- * - `update.lock`   one process updating at a time
+ * - `locks/<install>/`  one process updating each install at a time
  * - `check.json`    when any Namzu process last looked, so two terminals do not both ask
  * - `last-result.json`  the outcome of the last automatic attempt
- * - `previous/<version>/`  the copy of the package an update replaced
+ * - `previous/<install>/<version>/`  the copy of the package an update replaced
+ * - `in-progress-<install>.json`  an update that has touched the package and is not yet verified
  *
  * Every write goes through a temporary file and a rename. A damaged file reads
  * as absent: the worst outcome is one extra look at the registry.
  */
 
+import { createHash, randomBytes } from 'node:crypto'
 import {
 	closeSync,
 	existsSync,
+	linkSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
@@ -22,7 +25,7 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 
 export function updatesDir(home: string): string {
 	return join(home, 'updates')
@@ -107,12 +110,28 @@ export function writeLastResult(home: string, result: UpdateResult, pid = proces
 
 // ------------------------------------------------------------------- lock
 
+/**
+ * The folder a lock, an in-progress marker and the kept copies belong to. Two
+ * installs (two prefixes, a global npm and a global pnpm folder) never wait on
+ * one another, and one install is only ever changed by one process.
+ */
+export function installScope(
+	location: string,
+	platform: NodeJS.Platform = process.platform,
+): string {
+	const resolved = (platform === 'win32' ? win32 : posix).resolve(location)
+	const comparable = platform === 'win32' ? resolved.toLowerCase() : resolved
+	return createHash('sha256').update(comparable).digest('hex').slice(0, 12)
+}
+
 export interface UpdateLock {
 	release(): void
 }
 
 export interface AcquireLockOptions {
 	readonly home: string
+	/** The install the lock is for ({@link installScope}). */
+	readonly scope?: string
 	readonly pid?: number
 	readonly now?: () => number
 	/** Whether a process id still names a running process. */
@@ -123,6 +142,13 @@ export interface AcquireLockOptions {
 
 export const LOCK_STALE_MS = 15 * 60_000
 
+interface LockBody {
+	readonly pid: number
+	readonly at: number
+	readonly nonce: string
+	readonly released?: boolean
+}
+
 function processIsAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0)
@@ -132,40 +158,101 @@ function processIsAlive(pid: number): boolean {
 	}
 }
 
-/** The update lock, or `null` when another live process holds it. Throws when the state folder cannot be made. */
+function lockDir(home: string, scope: string | undefined): string {
+	return join(updatesDir(home), 'locks', scope ?? 'shared')
+}
+
+function generations(dir: string): number[] {
+	try {
+		return readdirSync(dir)
+			.filter((name) => /^\d+$/.test(name))
+			.map(Number)
+			.sort((a, b) => a - b)
+	} catch {
+		return []
+	}
+}
+
+/**
+ * Create `path` holding `body`, failing with EEXIST when it exists. The content is
+ * written to a private file and linked into place, so no other process ever sees
+ * the lock empty or half written.
+ */
+function createExclusive(path: string, body: string): void {
+	const temp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+	writeFileSync(temp, body)
+	try {
+		linkSync(temp, path)
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code
+		if (code === 'EEXIST') throw error
+		// A file system without hard links: create it in place instead.
+		const fd = openSync(path, 'wx')
+		try {
+			writeFileSync(fd, body)
+		} finally {
+			closeSync(fd)
+		}
+	} finally {
+		rmSync(temp, { force: true })
+	}
+}
+
+/**
+ * The update lock for one install, or `null` when another live process holds it.
+ * Throws when the state folder cannot be made.
+ *
+ * The lock is a numbered file: whoever creates the next number holds the lock,
+ * and the highest number is always the current holder. Creating a number that
+ * exists fails, so when two processes both find the same stale holder and both
+ * try to take over, exactly one of them creates the next number and the other
+ * sees a live lock. Numbers only grow (a released lock stays as the highest one,
+ * marked released), so a late process can never create a number that was
+ * already used.
+ */
 export function acquireUpdateLock(options: AcquireLockOptions): UpdateLock | null {
 	const pid = options.pid ?? process.pid
 	const now = options.now ?? Date.now
 	const isAlive = options.isAlive ?? processIsAlive
 	const staleMs = options.staleMs ?? LOCK_STALE_MS
-	const dir = updatesDir(options.home)
-	const path = join(dir, 'update.lock')
+	const dir = lockDir(options.home, options.scope)
 	// Throws when the folder cannot exist: that is a broken home, not another process.
 	mkdirSync(dir, { recursive: true })
-	for (let attempt = 0; attempt < 2; attempt += 1) {
-		try {
-			const fd = openSync(path, 'wx')
-			try {
-				writeFileSync(fd, JSON.stringify({ pid, at: now() }))
-			} finally {
-				closeSync(fd)
-			}
-			return {
-				release() {
-					const held = readJson(path) as { pid?: unknown } | undefined
-					if (held?.pid === pid) rmSync(path, { force: true })
-				},
-			}
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+	for (let attempt = 0; attempt < 8; attempt += 1) {
+		const all = generations(dir)
+		const top = all.length > 0 ? (all[all.length - 1] as number) : 0
+		if (top > 0) {
+			const held = readJson(join(dir, String(top))) as Partial<LockBody> | undefined
+			const live =
+				held !== undefined &&
+				held.released !== true &&
+				typeof held.pid === 'number' &&
+				typeof held.at === 'number' &&
+				isAlive(held.pid) &&
+				now() - held.at <= staleMs
+			if (live) return null
 		}
-		const held = readJson(path) as { pid?: unknown; at?: unknown } | undefined
-		const heldPid = typeof held?.pid === 'number' ? held.pid : undefined
-		const heldAt = typeof held?.at === 'number' ? held.at : undefined
-		const stale =
-			heldPid === undefined || heldAt === undefined || !isAlive(heldPid) || now() - heldAt > staleMs
-		if (!stale) return null
-		rmSync(path, { force: true })
+		const next = top + 1
+		const nonce = randomBytes(8).toString('hex')
+		const path = join(dir, String(next))
+		try {
+			createExclusive(path, JSON.stringify({ pid, at: now(), nonce } satisfies LockBody))
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+			throw error
+		}
+		for (const old of all) rmSync(join(dir, String(old)), { force: true })
+		return {
+			release() {
+				const held = readJson(path) as Partial<LockBody> | undefined
+				if (held?.nonce !== nonce) return
+				try {
+					writeJsonAtomic(path, { pid, at: now(), nonce, released: true } satisfies LockBody, pid)
+				} catch {
+					// A lock that cannot be marked released times out like any other.
+				}
+			},
+		}
 	}
 	return null
 }
@@ -186,16 +273,18 @@ export interface InProgressMarker {
 	readonly at: number
 }
 
-export function writeInProgress(home: string, marker: InProgressMarker): void {
-	writeJsonAtomic(join(updatesDir(home), 'in-progress.json'), marker, marker.pid)
+function markerPath(home: string, scope: string | undefined): string {
+	return join(updatesDir(home), scope ? `in-progress-${scope}.json` : 'in-progress.json')
+}
+
+export function writeInProgress(home: string, marker: InProgressMarker, scope?: string): void {
+	writeJsonAtomic(markerPath(home, scope), marker, marker.pid)
 }
 
 const VERSION_SHAPE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/
 
-export function readInProgress(home: string): InProgressMarker | undefined {
-	const value = readJson(join(updatesDir(home), 'in-progress.json')) as
-		| Partial<InProgressMarker>
-		| undefined
+export function readInProgress(home: string, scope?: string): InProgressMarker | undefined {
+	const value = readJson(markerPath(home, scope)) as Partial<InProgressMarker> | undefined
 	if (
 		!value ||
 		typeof value.pid !== 'number' ||
@@ -210,8 +299,8 @@ export function readInProgress(home: string): InProgressMarker | undefined {
 	return value as InProgressMarker
 }
 
-export function clearInProgress(home: string): void {
-	rmSync(join(updatesDir(home), 'in-progress.json'), { force: true })
+export function clearInProgress(home: string, scope?: string): void {
+	rmSync(markerPath(home, scope), { force: true })
 }
 
 export function processIsRunning(pid: number): boolean {
@@ -221,13 +310,17 @@ export function processIsRunning(pid: number): boolean {
 // --------------------------------------------------------------- previous
 
 /** Where the copy of a replaced package is kept. */
-export function previousDir(home: string, version: string): string {
-	return join(updatesDir(home), 'previous', version)
+export function previousDir(home: string, version: string, scope?: string): string {
+	return scope
+		? join(updatesDir(home), 'previous', scope, version)
+		: join(updatesDir(home), 'previous', version)
 }
 
 /** Keep the newest `keep` previous copies and delete the rest. */
-export function pruneOlderPrevious(home: string, keep = 2): void {
-	const root = join(updatesDir(home), 'previous')
+export function pruneOlderPrevious(home: string, keep = 2, scope?: string): void {
+	const root = scope
+		? join(updatesDir(home), 'previous', scope)
+		: join(updatesDir(home), 'previous')
 	try {
 		if (!existsSync(root)) return
 		const entries = readdirSync(root)

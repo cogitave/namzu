@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
-import { acquireUpdateLock } from '../integrations/auto-update/state.js'
+import { acquireUpdateLock, installScope, previousDir } from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
 	type NpmUpgradeRequest,
@@ -296,7 +296,10 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			})
 			expect(await h.invoke()).toBe(0)
 			expect(
-				readFileSync(join(l.home, 'updates', 'previous', '14.2.1', 'marker.txt'), 'utf8'),
+				readFileSync(
+					join(previousDir(l.home, '14.2.1', installScope(l.prefix, 'linux')), 'marker.txt'),
+					'utf8',
+				),
 			).toBe('old')
 		} finally {
 			rmSync(l.base, { recursive: true, force: true })
@@ -306,7 +309,12 @@ describe('namzu upgrade keeps a working Namzu', () => {
 	it('does not start while another update holds the lock', async () => {
 		const l = layout()
 		try {
-			const held = acquireUpdateLock({ home: l.home, pid: process.pid, isAlive: () => true })
+			const held = acquireUpdateLock({
+				home: l.home,
+				scope: installScope(l.prefix, 'linux'),
+				pid: process.pid,
+				isAlive: () => true,
+			})
 			const runNpm = vi.fn(async () => 0)
 			const h = harness({
 				packageRoot: l.root,

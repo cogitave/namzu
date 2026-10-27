@@ -19,6 +19,7 @@ import {
 	type UpdateLock,
 	acquireUpdateLock,
 	clearInProgress,
+	installScope,
 	previousDir,
 	processIsRunning,
 	pruneOlderPrevious,
@@ -33,6 +34,14 @@ export function activeRoot(
 	return install.kind === 'pnpm-global'
 		? join(install.globalDir, 'node_modules', '@namzu', 'cli')
 		: install.root
+}
+
+/** The key an install's lock, marker and kept copies are filed under: its prefix, or pnpm's global folder. */
+export function scopeOf(
+	install: Extract<InstallKind, { kind: 'npm-global' | 'pnpm-global' }>,
+	platform: NodeJS.Platform = process.platform,
+): string {
+	return installScope(install.kind === 'pnpm-global' ? install.globalDir : install.prefix, platform)
 }
 
 export const PUBLIC_REGISTRY = 'https://registry.npmjs.org'
@@ -177,8 +186,8 @@ export function describeFailure(code: FailureStatus): string {
 }
 
 /** Keep a copy of the package folder that is about to be replaced. */
-export function backupPackage(root: string, home: string, version: string): string {
-	const target = previousDir(home, version)
+export function backupPackage(root: string, home: string, version: string, scope?: string): string {
+	const target = previousDir(home, version, scope)
 	rmSync(target, { recursive: true, force: true })
 	mkdirSync(join(target, '..'), { recursive: true })
 	cpSync(root, target, { recursive: true, verbatimSymlinks: true })
@@ -254,6 +263,7 @@ export async function applyUpdate(deps: ApplyDeps, release: Release): Promise<Ap
 	try {
 		lock = acquireUpdateLock({
 			home: deps.home,
+			scope: scopeOf(install, deps.platform),
 			...(deps.pid !== undefined ? { pid: deps.pid } : {}),
 			...(deps.now ? { now: deps.now } : {}),
 			...(deps.isAlive ? { isAlive: deps.isAlive } : {}),
@@ -286,14 +296,15 @@ async function applyLocked(
 	let backup: string | undefined
 	const pid = deps.pid ?? process.pid
 	const at = (deps.now ?? Date.now)()
+	const scope = scopeOf(install, deps.platform)
 	try {
-		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at })
+		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
-			backup = backupPackage(install.root, deps.home, onDisk)
-			writeInProgress(deps.home, { pid, to: release.version, from: onDisk, backup, at })
+			backup = backupPackage(install.root, deps.home, onDisk, scope)
+			writeInProgress(deps.home, { pid, to: release.version, from: onDisk, backup, at }, scope)
 		}
 	} catch {
-		clearInProgress(deps.home)
+		clearInProgress(deps.home, scope)
 		return fail('backup_failed', true)
 	}
 
@@ -325,14 +336,18 @@ async function applyLocked(
 	// names it: a later start must not touch the folder while it still writes.
 	const noteInstaller = (installerPid: number): void => {
 		try {
-			writeInProgress(deps.home, {
-				pid,
-				to: release.version,
-				from: onDisk,
-				...(backup ? { backup } : {}),
-				installerPid,
-				at,
-			})
+			writeInProgress(
+				deps.home,
+				{
+					pid,
+					to: release.version,
+					from: onDisk,
+					...(backup ? { backup } : {}),
+					installerPid,
+					at,
+				},
+				scope,
+			)
 		} catch {
 			// The marker written before the install still stands.
 		}
@@ -371,7 +386,7 @@ async function applyLocked(
 	if (code !== 0) {
 		const kind = classifyInstallerFailure(output)
 		const restored = await restoreIfChanged(deps, onDisk, restore)
-		if (restored) clearInProgress(deps.home)
+		if (restored) clearInProgress(deps.home, scope)
 		return fail(kind, restored)
 	}
 
@@ -386,10 +401,10 @@ async function applyLocked(
 		installed === release.version && (await smoke(activeRoot(install), release.version))
 	if (!healthy) {
 		const restored = await restore()
-		if (restored) clearInProgress(deps.home)
+		if (restored) clearInProgress(deps.home, scope)
 		return fail('verify_failed', restored)
 	}
-	clearInProgress(deps.home)
+	clearInProgress(deps.home, scope)
 
 	if (deps.platform === 'win32' && install.kind === 'npm-global') {
 		try {
@@ -398,7 +413,7 @@ async function applyLocked(
 			// namzu.cmd still works.
 		}
 	}
-	pruneOlderPrevious(deps.home)
+	pruneOlderPrevious(deps.home, 2, scope)
 	return { status: 'installed', from: onDisk, to: release.version }
 }
 
@@ -440,7 +455,8 @@ export type RepairResult =
 export async function repairInterruptedUpdate(
 	deps: Omit<ApplyDeps, 'currentVersion'>,
 ): Promise<RepairResult> {
-	const marker = readInProgress(deps.home)
+	const scope = scopeOf(deps.install, deps.platform)
+	const marker = readInProgress(deps.home, scope)
 	if (!marker) return { status: 'none' }
 	const own = deps.pid ?? process.pid
 	// A marker older than the lock window is dead whatever its pids say: a pid
@@ -453,6 +469,7 @@ export async function repairInterruptedUpdate(
 	try {
 		lock = acquireUpdateLock({
 			home: deps.home,
+			scope,
 			pid: own,
 			...(deps.now ? { now: deps.now } : {}),
 			...(deps.isAlive ? { isAlive: deps.isAlive } : {}),
@@ -474,7 +491,7 @@ export async function repairInterruptedUpdate(
 			healthy = false
 		}
 		if (healthy) {
-			clearInProgress(deps.home)
+			clearInProgress(deps.home, scope)
 			return deps.installedVersion(root) === marker.to
 				? { status: 'completed', ...ids }
 				: { status: 'unchanged', ...ids }
@@ -502,7 +519,7 @@ export async function repairInterruptedUpdate(
 		} catch {
 			restored = false
 		}
-		if (restored) clearInProgress(deps.home)
+		if (restored) clearInProgress(deps.home, scope)
 		return { status: restored ? 'restored' : 'unrepaired', ...ids }
 	} finally {
 		lock.release()

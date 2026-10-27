@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -13,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
 	acquireUpdateLock,
+	installScope,
 	previousDir,
 	pruneOlderPrevious,
 	readCheck,
@@ -37,7 +39,6 @@ describe('the update lock', () => {
 		const second = acquireUpdateLock({ home, pid: 200, isAlive: () => true })
 		expect(second).not.toBeNull()
 		second?.release()
-		expect(existsSync(join(updatesDir(home), 'update.lock'))).toBe(false)
 	})
 
 	it('is taken over when the holder is gone', () => {
@@ -58,16 +59,69 @@ describe('the update lock', () => {
 
 	it('is not released by a process that no longer owns it', () => {
 		const first = acquireUpdateLock({ home, pid: 100, isAlive: () => true })
-		const path = join(updatesDir(home), 'update.lock')
-		writeFileSync(path, JSON.stringify({ pid: 999, at: Date.now() }))
+		const second = acquireUpdateLock({ home, pid: 200, isAlive: (pid) => pid !== 100 })
+		expect(second).not.toBeNull()
+		// The first holder was replaced as stale; its late release must not free the new holder.
 		first?.release()
-		expect(existsSync(path)).toBe(true)
+		expect(acquireUpdateLock({ home, pid: 300, isAlive: () => true })).toBeNull()
 	})
 
 	it('treats a damaged lock file as stale', () => {
-		mkdirSync(updatesDir(home), { recursive: true })
-		writeFileSync(join(updatesDir(home), 'update.lock'), 'not json')
+		const dir = join(updatesDir(home), 'locks', 'shared')
+		mkdirSync(dir, { recursive: true })
+		writeFileSync(join(dir, '1'), 'not json')
 		expect(acquireUpdateLock({ home, pid: 200, isAlive: () => true })).not.toBeNull()
+	})
+
+	it('lets exactly one of two processes that both found the same stale holder take over', () => {
+		acquireUpdateLock({ home, pid: 100, isAlive: () => true })
+		let winner: ReturnType<typeof acquireUpdateLock> | undefined
+		// The second process has judged the holder gone but has not yet taken over when the first
+		// one finishes taking over: it is the first one's lock it meets when it tries.
+		const loser = acquireUpdateLock({
+			home,
+			pid: 300,
+			isAlive: (pid) => {
+				if (pid === 100) {
+					winner ??= acquireUpdateLock({ home, pid: 200, isAlive: (other) => other !== 100 })
+					return false
+				}
+				return true
+			},
+		})
+		expect(winner).not.toBeNull()
+		expect(loser).toBeNull()
+		winner?.release()
+		expect(acquireUpdateLock({ home, pid: 400, isAlive: () => true })).not.toBeNull()
+	})
+
+	it('never hands out a number twice, so a late process cannot take over a lock that was released', () => {
+		const dir = join(updatesDir(home), 'locks', 'shared')
+		const seen: string[] = []
+		for (let round = 0; round < 3; round += 1) {
+			acquireUpdateLock({ home, pid: 100 + round, isAlive: () => true })?.release()
+			seen.push(...readdirSync(dir))
+		}
+		// One file is kept, and it is always a higher number than the one before.
+		expect(seen).toEqual(['1', '2', '3'])
+	})
+
+	it('is kept apart for each install', () => {
+		const a = acquireUpdateLock({ home, scope: 'aaaa', pid: 100, isAlive: () => true })
+		const b = acquireUpdateLock({ home, scope: 'bbbb', pid: 200, isAlive: () => true })
+		expect(a).not.toBeNull()
+		expect(b).not.toBeNull()
+		expect(acquireUpdateLock({ home, scope: 'aaaa', pid: 300, isAlive: () => true })).toBeNull()
+	})
+
+	it('names an install by where it is, the same way each time', () => {
+		expect(installScope('/home/a/.nvm/v22', 'linux')).toBe(
+			installScope('/home/a/.nvm/v22/', 'linux'),
+		)
+		expect(installScope('/home/a/.nvm/v22', 'linux')).not.toBe(installScope('/usr', 'linux'))
+		expect(installScope('C:\\Users\\A\\npm', 'win32')).toBe(
+			installScope('c:\\users\\a\\NPM', 'win32'),
+		)
 	})
 })
 

@@ -16,6 +16,7 @@ import { pnpmGlobalDirFor } from '../integrations/auto-update/install-kind.js'
 import { resolveUpdatePolicy } from '../integrations/auto-update/policy.js'
 import {
 	acquireUpdateLock,
+	installScope,
 	pruneOlderPrevious,
 	readLastResult,
 } from '../integrations/auto-update/state.js'
@@ -71,6 +72,14 @@ export interface UpgradeCommandDeps {
 		/** Start the new copy once; true when it answers with `version`. */
 		readonly smokeTest: (root: string, version: string) => Promise<boolean>
 	}
+}
+
+function scopeFor(
+	platform: NodeJS.Platform,
+	prefix: string | null,
+	pnpmDir: string | null,
+): string {
+	return installScope(pnpmDir ?? prefix ?? '', platform)
 }
 
 function readInstalledVersion(packageRoot: string): string {
@@ -192,7 +201,12 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 
 			let lock: ReturnType<typeof acquireUpdateLock> | undefined
 			try {
-				lock = deps.safety ? acquireUpdateLock({ home: deps.safety.home }) : undefined
+				lock = deps.safety
+					? acquireUpdateLock({
+							home: deps.safety.home,
+							scope: scopeFor(deps.platform, prefix, pnpmDir),
+						})
+					: undefined
 			} catch {
 				ctx.formatter.error({
 					message:
@@ -246,7 +260,12 @@ async function installUpdate({
 	let backup: string | undefined
 	if (deps.safety && prefix) {
 		try {
-			backup = backupPackage(deps.packageRoot, deps.safety.home, deps.currentVersion)
+			backup = backupPackage(
+				deps.packageRoot,
+				deps.safety.home,
+				deps.currentVersion,
+				scopeFor(deps.platform, prefix, pnpmDir),
+			)
 		} catch {
 			ctx.formatter.error({
 				message: 'Could not keep a copy of the current version, so nothing was changed.',
@@ -354,7 +373,8 @@ async function installUpdate({
 		}
 
 		progress?.stop(true)
-		if (deps.safety) pruneOlderPrevious(deps.safety.home)
+		if (deps.safety)
+			pruneOlderPrevious(deps.safety.home, 2, scopeFor(deps.platform, prefix, pnpmDir))
 		ctx.formatter.print({
 			previous: deps.currentVersion,
 			current: installed,

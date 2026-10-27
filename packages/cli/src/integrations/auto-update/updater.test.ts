@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { InstallerRequest, Release } from './apply.js'
+import { type InstallerRequest, type Release, scopeOf } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
 import type { UpdatePolicy } from './policy.js'
@@ -26,6 +26,13 @@ function writePackage(version: string): void {
 	mkdirSync(root, { recursive: true })
 	writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@namzu/cli', version }))
 }
+
+/** The folder the test install's lock and marker are filed under. */
+const scope = () =>
+	scopeOf(
+		{ kind: 'npm-global', root, prefix: join(dir, 'prefix'), owned: false, writable: true },
+		'linux',
+	)
 
 const policy = (over: Partial<UpdatePolicy> = {}): UpdatePolicy => ({
 	check: true,
@@ -238,7 +245,7 @@ describe('installing, or telling', () => {
 	})
 
 	it('stays silent while another process is updating and tries again next time', async () => {
-		const held = acquireUpdateLock({ home, pid: 77, isAlive: () => true })
+		const held = acquireUpdateLock({ home, scope: scope(), pid: 77, isAlive: () => true })
 		const h = harness()
 		await h.updater.runCycle()
 		expect(h.events).toEqual([])
@@ -304,12 +311,12 @@ describe('repairing with installing switched off', () => {
 	it('leaves an unfinished update alone', async () => {
 		mkdirSync(join(home, 'updates'), { recursive: true })
 		writeFileSync(
-			join(home, 'updates', 'in-progress.json'),
+			join(home, 'updates', `in-progress-${scope()}.json`),
 			JSON.stringify({ pid: 99_999_999, from: '1.0.0', to: '2.0.0', at: Date.now() }),
 		)
 		const h = harness({ policy: policy({ install: false }) })
 		await h.updater.repair()
-		expect(existsSync(join(home, 'updates', 'in-progress.json'))).toBe(true)
+		expect(existsSync(join(home, 'updates', `in-progress-${scope()}.json`))).toBe(true)
 		expect(readLastResult(home)).toBeUndefined()
 	})
 })

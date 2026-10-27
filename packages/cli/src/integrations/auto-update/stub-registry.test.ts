@@ -17,10 +17,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { runNpmUpgrade } from '../npm-global.js'
 import { fetchNamzuRelease } from '../updates.js'
-import { type ApplyDeps, applyUpdate, npmInstallArgs, smokeTestInstalled } from './apply.js'
+import {
+	type ApplyDeps,
+	applyUpdate,
+	npmInstallArgs,
+	scopeOf,
+	smokeTestInstalled,
+} from './apply.js'
 import { classifyInstall } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
-import { readLastResult } from './state.js'
+import { previousDir, readLastResult } from './state.js'
 import { type UpdaterEvent, createUpdater } from './updater.js'
 
 const TIMEOUT = 120_000
@@ -210,7 +216,10 @@ describe('updating through a real package manager', () => {
 			expect(result).toEqual({ status: 'installed', from: '1.0.0', to: '2.0.0' })
 			expect(readInstalledVersion(root)).toBe('2.0.0')
 			expect(
-				readFileSync(join(home, 'updates', 'previous', '1.0.0', 'package.json'), 'utf8'),
+				readFileSync(
+					join(previousDir(home, '1.0.0', scopeOf(applyDeps().install)), 'package.json'),
+					'utf8',
+				),
 			).toContain('"1.0.0"')
 		},
 		TIMEOUT,
