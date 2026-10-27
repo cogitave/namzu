@@ -61,11 +61,21 @@ function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
 	return platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
-const PNPM_GLOBAL = /^(.*[\\/]pnpm[\\/]global[\\/]\d+)[\\/]\.pnpm[\\/]/i
+/**
+ * The global folders pnpm has used. The package a process runs from is one of:
+ *
+ * - `…/pnpm/global/<n>/.pnpm/@namzu+cli@x/node_modules/@namzu/cli` (the store inside the folder),
+ * - `…/pnpm/global/<n>/node_modules/.pnpm/@namzu+cli@x/node_modules/@namzu/cli` (older pnpm keeps
+ *   its store under `node_modules`),
+ * - `…/pnpm/global/<n>/node_modules/@namzu/cli` (the link, when the path is not resolved).
+ */
+const PNPM_GLOBAL_STORE = /^(.*[\\/]pnpm[\\/]global[\\/]\d+)[\\/](?:node_modules[\\/])?\.pnpm[\\/]/i
+const PNPM_GLOBAL_LINK =
+	/^(.*[\\/]pnpm[\\/]global[\\/]\d+)[\\/]node_modules[\\/]@namzu[\\/]cli[\\/]?$/i
 
 /** The `…/pnpm/global/<n>` folder a pnpm-global package root sits in, or null. */
 export function pnpmGlobalDirFor(packageRoot: string): string | null {
-	return PNPM_GLOBAL.exec(packageRoot)?.[1] ?? null
+	return PNPM_GLOBAL_STORE.exec(packageRoot)?.[1] ?? PNPM_GLOBAL_LINK.exec(packageRoot)?.[1] ?? null
 }
 
 export function classifyInstall(input: ClassifyInstallInput): InstallKind {
