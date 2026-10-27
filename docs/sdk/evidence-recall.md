@@ -234,8 +234,8 @@ A `none` plan skips optional recall without a note. Malformed or ungrounded
 plans remain failed-stage diagnostics. With enough context room, retrieval still
 runs once using the unchanged current-query tokens and the same byte, candidate
 and deadline limits. No terms or references from the rejected plan are used.
-Temporary context identifies `status: "unavailable"`, `stage: "query_planning"`,
-`reason: "failed"` and `fallback: "literal_query"` alongside any fully validated
+Temporary context says in two plain sentences that planning the search failed
+and that only the words of the question were used, alongside any fully validated
 retrieved records. The note does not claim a referent or temporal intent was
 resolved. No plan text, exception body or source data enters the note itself.
 The main task and explicit archive tools remain available. The previous operator
@@ -491,9 +491,9 @@ are discarded, and another hook using the same callback skips retrieval
 until the original operation settles. An uncooperative callback therefore
 cannot accumulate overlapping reads through this hook. Timeout/error uses
 the runtime's existing prepare-step diagnostic and fail-open policy, with a
-temporary availability note (`stage: "retrieval"`, `reason: "timeout"` or
-`"failed"`). While an earlier uncooperative read remains unsettled, later passes
-report `reason: "pending"` without launching overlapping retrieval. The note
+temporary availability note (plain words: reading the records ran out of time
+or failed). While an earlier uncooperative read remains unsettled, later passes
+say the read is still running without launching overlapping retrieval. The note
 never includes rejected candidates, paths, raw errors or invented evidence.
 Parent cancellation still rejects without a note and cannot revive model work.
 
@@ -523,7 +523,7 @@ The block is written in plain words: the opening paragraph names no field of
 the JSON that follows, and the availability note is two sentences saying what
 failed and what the model can do instead. The JSON no longer carries the byte
 count of the scan, which changed on every request and told the model nothing it
-could act on; whether the scan finished is still in `incomplete`. The immutable bound scope prevents changing an options object
+could act on; whether the scan finished is still in `incomplete`. The note is text, not JSON, so it no longer carries `status`, `stage` or `reason` fields. The evidence block is a block of its own in the request, apart from project memory and the repository snapshot, so a change in the evidence moves only that block. The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
 conversation and reject stale turn ownership before and after asynchronous I/O.
 

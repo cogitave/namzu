@@ -28,6 +28,7 @@ import {
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
+import { splitAtEvidenceBlocks } from '../../../turn/evidence-recall.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
@@ -918,7 +919,7 @@ export class IterationOrchestrator {
 					// reminders and notices stay after the history.
 					const messages = [...projected]
 					this.turnContext.place(messages, requestHistory, workingMemory.history.at(-1), [
-						...[contextText, step.context]
+						...[contextText, ...(step.context ? splitAtEvidenceBlocks(step.context) : [])]
 							.filter((text): text is string => Boolean(text))
 							.map(stepContextMessage),
 						...workContextBlocks(shaping, projected, iterationNum, step),
