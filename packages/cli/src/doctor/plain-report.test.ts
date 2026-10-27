@@ -71,9 +71,9 @@ describe('the health report in plain words', () => {
 			'  more',
 			'  Start it.',
 			'  second',
-			'  second',
 			'Code index:',
 			'  timed out after 5000ms',
+		])
 	})
 
 	it('keeps paths, error text and jargon out of the rows for the real check messages', () => {
