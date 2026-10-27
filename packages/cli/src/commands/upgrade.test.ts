@@ -91,6 +91,7 @@ describe('namzu upgrade', () => {
 					'/opt/namzu',
 					'--no-fund',
 					'--no-audit',
+					'--ignore-scripts',
 					'--registry',
 					'https://registry.npmjs.org',
 					'@namzu/cli@14.3.0',
@@ -357,6 +358,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 					args: [
 						'add',
 						'--global',
+						'--ignore-scripts',
 						'--registry',
 						'https://registry.npmjs.org',
 						'@namzu/cli@14.3.0',

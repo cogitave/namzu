@@ -45,10 +45,10 @@ describe('the update lock', () => {
 		expect(acquireUpdateLock({ home, pid: 200, isAlive: (pid) => pid !== 100 })).not.toBeNull()
 	})
 
-	it('is taken over when it is older than five minutes even if the pid lives on', () => {
+	it('is taken over when it is older than fifteen minutes even if the pid lives on', () => {
 		let clock = 1_000
 		acquireUpdateLock({ home, pid: 100, now: () => clock, isAlive: () => true })
-		clock += 4 * 60_000
+		clock += 14 * 60_000
 		expect(acquireUpdateLock({ home, pid: 200, now: () => clock, isAlive: () => true })).toBeNull()
 		clock += 2 * 60_000
 		expect(

@@ -145,8 +145,12 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 			try {
 				latest = await deps.latestVersion(policy.channel)
 			} catch (error) {
+				const text = error instanceof Error ? error.message : String(error)
 				ctx.formatter.error({
-					message: `Could not check the latest Namzu version: ${error instanceof Error ? error.message : String(error)}`,
+					message:
+						policy.channel === 'stable' && /HTTP 404/.test(text)
+							? 'No stable release has been published yet, so there is nothing to follow. Set the channel to latest to follow new releases.'
+							: `Could not check the latest Namzu version: ${text}`,
 				})
 				return EXIT_UNAVAILABLE
 			}

@@ -96,6 +96,11 @@ export function classifyInstall(input: ClassifyInstallInput): InstallKind {
 	const prefix = npmGlobalPrefixFor(root, platform)
 	if (prefix) {
 		const owned = input.namzuHome !== undefined && samePath(prefix, input.namzuHome, platform)
+		// On Windows `node_modules\@namzu\cli` is also what a project-local install looks like.
+		// A real global prefix has the launcher npm wrote beside it, or is Namzu's own home.
+		if (platform === 'win32' && !owned && !exists(win32.join(prefix, 'namzu.cmd'))) {
+			return { kind: 'unknown', root }
+		}
 		// npm replaces the package folder inside its scope folder and writes the launcher into the prefix.
 		const writable = canWrite(dirname(root)) && canWrite(prefix)
 		return { kind: 'npm-global', root, prefix, owned, writable }

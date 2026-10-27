@@ -104,4 +104,18 @@ describe('install classification', () => {
 			root: '/srv/vendored/namzu',
 		})
 	})
+
+	it('does not mistake a project-local Windows install for a global prefix', () => {
+		const root = 'C:\\proj\\node_modules\\@namzu\\cli'
+		expect(classify(root, { platform: 'win32' })).toMatchObject({ kind: 'unknown' })
+		expect(
+			classify(root, { platform: 'win32', exists: (p) => p.endsWith('namzu.cmd') }),
+		).toMatchObject({ kind: 'npm-global', prefix: 'C:\\proj' })
+		expect(
+			classify('C:\\Users\\A\\.namzu\\node_modules\\@namzu\\cli', {
+				platform: 'win32',
+				namzuHome: 'C:\\Users\\A\\.namzu',
+			}),
+		).toMatchObject({ kind: 'npm-global', owned: true })
+	})
 })

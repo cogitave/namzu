@@ -117,11 +117,11 @@ export interface AcquireLockOptions {
 	readonly now?: () => number
 	/** Whether a process id still names a running process. */
 	readonly isAlive?: (pid: number) => boolean
-	/** A lock older than this is taken over even when its pid is alive. Default five minutes. */
+	/** A lock older than this is taken over even when its pid is alive. Default fifteen minutes, longer than the slowest single update (install, start check and restore). */
 	readonly staleMs?: number
 }
 
-export const LOCK_STALE_MS = 5 * 60_000
+export const LOCK_STALE_MS = 15 * 60_000
 
 function processIsAlive(pid: number): boolean {
 	try {
@@ -168,6 +168,47 @@ export function acquireUpdateLock(options: AcquireLockOptions): UpdateLock | nul
 		rmSync(path, { force: true })
 	}
 	return null
+}
+
+// ------------------------------------------------------- in-progress marker
+
+/** Written before an update touches the package folder, removed once it is verified or put back. */
+export interface InProgressMarker {
+	readonly pid: number
+	/** The version being installed. */
+	readonly to: string
+	/** The version being replaced. */
+	readonly from: string
+	/** The kept copy of the replaced package (npm installs); absent for pnpm. */
+	readonly backup?: string
+	readonly at: number
+}
+
+export function writeInProgress(home: string, marker: InProgressMarker): void {
+	writeJsonAtomic(join(updatesDir(home), 'in-progress.json'), marker, marker.pid)
+}
+
+export function readInProgress(home: string): InProgressMarker | undefined {
+	const value = readJson(join(updatesDir(home), 'in-progress.json')) as
+		| Partial<InProgressMarker>
+		| undefined
+	if (
+		!value ||
+		typeof value.pid !== 'number' ||
+		typeof value.to !== 'string' ||
+		typeof value.from !== 'string'
+	) {
+		return undefined
+	}
+	return value as InProgressMarker
+}
+
+export function clearInProgress(home: string): void {
+	rmSync(join(updatesDir(home), 'in-progress.json'), { force: true })
+}
+
+export function processIsRunning(pid: number): boolean {
+	return processIsAlive(pid)
 }
 
 // --------------------------------------------------------------- previous

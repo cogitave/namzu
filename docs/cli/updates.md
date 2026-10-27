@@ -51,17 +51,30 @@ In CI the terminal still looks, but it does not install unless you ask for it
 
 1. One update at a time: a lock under `updates/` keeps two Namzu processes from
    installing together. A second one waits quietly and tries again later. A lock
-   whose process is gone, or that is older than five minutes, is taken over.
+   whose process is gone, or that is older than fifteen minutes, is taken over.
 2. The registry must give a checksum for the version. Without one nothing is
-   installed. The package manager verifies the download against that checksum.
+   installed. The package manager checks the download against the checksum the
+   registry gives it; Namzu does not compare it a second time. Install scripts
+   of the package and its dependencies do not run in the background (`--ignore-scripts`).
 3. A copy of the version being replaced is kept first (`updates/previous/<version>`,
    the two newest are kept).
 4. The installed version is read back, and the new copy is started once and must
    answer with the version it should be.
-5. If any step fails the previous copy is put back (pnpm installs the previous
+5. Before the folder is touched, `updates/in-progress.json` records the version,
+   the kept copy and the process. If that process is gone before the update was
+   verified (the terminal was closed, the machine lost power), the next start
+   reads the installed version back, starts it once, and puts the kept copy back
+   when it does not answer. The copy is restored by moving a fresh copy into
+   place, so the package is never missing half way.
+6. If any step fails the previous copy is put back (pnpm installs the previous
    version again), so a failed update leaves a working Namzu. The outcome of the
    last automatic attempt is kept in `updates/last-result.json` and `namzu upgrade
    --check` says when it did not finish.
+
+On Windows a `node_modules\@namzu\cli` folder is only treated as a global
+install when `namzu.cmd` sits beside it (or it is Namzu's own folder); a copy
+inside a project is never updated. `namzu upgrade --check` says so when
+`channel: stable` is set and no stable release has been published.
 
 If Namzu may not write to its folder, it does not try and shows the command
 instead. A refused write is not retried for the rest of that session; other

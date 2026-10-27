@@ -15,6 +15,8 @@ import {
 	type FailureStatus,
 	type Release,
 	applyUpdate,
+	describeFailure,
+	repairInterruptedUpdate,
 	manualUpdateCommand,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
@@ -57,6 +59,8 @@ export interface UpdaterDeps {
 export interface Updater {
 	start(): void
 	stop(): void
+	/** Check for and repair an update a previous process left unfinished (used by `start` and by tests). */
+	repair(): Promise<void>
 	/** Run one cycle now (used by `start` and by tests). */
 	runCycle(): Promise<void>
 }
@@ -195,6 +199,47 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		}
 	}
 
+	async function repair(): Promise<void> {
+		const { install } = deps
+		if (install.kind !== 'npm-global' && install.kind !== 'pnpm-global') return
+		const result = await repairInterruptedUpdate({
+			...deps.applyDeps,
+			install,
+			home: deps.home,
+			platform: deps.platform,
+		})
+		if (result.status === 'none' || result.status === 'busy' || stopped) return
+		const method = install.kind
+		const stamp = new Date(now()).toISOString()
+		if (result.status === 'completed') {
+			writeLastResult(deps.home, {
+				at: stamp,
+				outcome: 'installed',
+				status: 'installed',
+				method,
+				from: result.from,
+				to: result.to,
+			})
+			if (compareVersions(result.to, deps.currentVersion) > 0) {
+				installedThisSession = true
+				deps.onEvent({ type: 'installed', from: deps.currentVersion, to: result.to })
+			}
+			return
+		}
+		writeLastResult(deps.home, {
+			at: stamp,
+			outcome: 'failed',
+			status: 'verify_failed',
+			method,
+			from: result.from,
+			to: result.to,
+			detail:
+				result.status === 'restored'
+					? describeFailure('verify_failed')
+					: 'An update was interrupted and the previous version could not be put back; reinstall Namzu if it does not start.',
+		})
+	}
+
 	function schedule(delayMs: number): void {
 		if (stopped) return
 		timer = setTimeout(() => {
@@ -209,6 +254,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		start() {
 			if (started || stopped) return
 			started = true
+			void repair().catch(() => undefined)
 			const uptime = deps.uptimeMs?.() ?? process.uptime() * 1000
 			schedule(Math.max(0, FIRST_CHECK_AFTER_MS - uptime))
 		},
@@ -217,6 +263,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			if (timer) clearTimeout(timer)
 			timer = undefined
 		},
+		repair,
 		runCycle,
 	}
 }

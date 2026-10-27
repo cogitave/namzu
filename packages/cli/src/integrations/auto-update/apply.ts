@@ -9,12 +9,21 @@
  */
 
 import { execFile } from 'node:child_process'
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { compareVersions } from '../updates.js'
 import type { InstallKind } from './install-kind.js'
-import { type UpdateLock, acquireUpdateLock, previousDir, pruneOlderPrevious } from './state.js'
+import {
+	type UpdateLock,
+	acquireUpdateLock,
+	clearInProgress,
+	previousDir,
+	processIsRunning,
+	pruneOlderPrevious,
+	readInProgress,
+	writeInProgress,
+} from './state.js'
 
 /** The folder whose package.json says which version is active now (for pnpm, the link it repoints). */
 export function activeRoot(
@@ -97,6 +106,7 @@ export function npmInstallArgs(
 		prefix,
 		'--no-fund',
 		'--no-audit',
+		'--ignore-scripts',
 		'--registry',
 		registry,
 		`@namzu/cli@${version}`,
@@ -104,7 +114,7 @@ export function npmInstallArgs(
 }
 
 export function pnpmInstallArgs(version: string, registry = PUBLIC_REGISTRY): string[] {
-	return ['add', '--global', '--registry', registry, `@namzu/cli@${version}`]
+	return ['add', '--global', '--ignore-scripts', '--registry', registry, `@namzu/cli@${version}`]
 }
 
 /** The exact command a person can run when Namzu may not do it for them. */
@@ -174,9 +184,27 @@ export function backupPackage(root: string, home: string, version: string): stri
 }
 
 /** Put a kept copy back in place of whatever the installer left. */
-export function restorePackage(root: string, backup: string): void {
-	rmSync(root, { recursive: true, force: true })
-	cpSync(backup, root, { recursive: true, verbatimSymlinks: true })
+export function restorePackage(root: string, backup: string, pid = process.pid): void {
+	// Copy beside the folder first and swap by rename, so a crash or a locked file
+	// never leaves the package missing: the old folder is only moved aside.
+	const fresh = `${root}.restore-${pid}`
+	const aside = `${root}.replaced-${pid}`
+	rmSync(fresh, { recursive: true, force: true })
+	rmSync(aside, { recursive: true, force: true })
+	try {
+		cpSync(backup, fresh, { recursive: true, verbatimSymlinks: true })
+		const hadRoot = existsSync(root)
+		if (hadRoot) renameSync(root, aside)
+		try {
+			renameSync(fresh, root)
+		} catch (error) {
+			if (hadRoot) renameSync(aside, root)
+			throw error
+		}
+	} finally {
+		rmSync(fresh, { recursive: true, force: true })
+		rmSync(aside, { recursive: true, force: true })
+	}
 }
 
 /** Start the installed copy once and see that it names the version it should be. */
@@ -254,19 +282,24 @@ async function applyLocked(
 	const { install } = deps
 	const registry = deps.registry ?? PUBLIC_REGISTRY
 	let backup: string | undefined
-	if (install.kind === 'npm-global') {
-		try {
+	const pid = deps.pid ?? process.pid
+	const at = (deps.now ?? Date.now)()
+	try {
+		writeInProgress(deps.home, { pid, to: release.version, from: onDisk, at })
+		if (install.kind === 'npm-global') {
 			backup = backupPackage(install.root, deps.home, onDisk)
-		} catch {
-			return fail('backup_failed', true)
+			writeInProgress(deps.home, { pid, to: release.version, from: onDisk, backup, at })
 		}
+	} catch {
+		clearInProgress(deps.home)
+		return fail('backup_failed', true)
 	}
 
 	const restore = async (): Promise<boolean> => {
 		try {
 			if (install.kind === 'npm-global') {
 				if (!backup) return false
-				restorePackage(install.root, backup)
+				restorePackage(install.root, backup, deps.pid)
 				return true
 			}
 			// pnpm keeps the old version in its store: installing it again is a link, not a download.
@@ -317,6 +350,7 @@ async function applyLocked(
 	if (code !== 0) {
 		const kind = classifyInstallerFailure(output)
 		const restored = await restoreIfChanged(deps, onDisk, restore)
+		if (restored) clearInProgress(deps.home)
 		return fail(kind, restored)
 	}
 
@@ -331,8 +365,10 @@ async function applyLocked(
 		installed === release.version && (await smoke(activeRoot(install), release.version))
 	if (!healthy) {
 		const restored = await restore()
+		if (restored) clearInProgress(deps.home)
 		return fail('verify_failed', restored)
 	}
+	clearInProgress(deps.home)
 
 	if (deps.platform === 'win32' && install.kind === 'npm-global') {
 		try {
@@ -360,4 +396,82 @@ async function restoreIfChanged(
 		// Fall through to a restore.
 	}
 	return restore()
+}
+
+export type RepairResult =
+	| { readonly status: 'none' }
+	/** The installer is, or may be, still running in another process. */
+	| { readonly status: 'busy' }
+	/** The interrupted update turned out complete and healthy. */
+	| { readonly status: 'completed'; readonly from: string; readonly to: string }
+	/** The folder was broken or unverified; the previous version is back. */
+	| { readonly status: 'restored'; readonly from: string; readonly to: string }
+	/** The previous version could not be put back. */
+	| { readonly status: 'unrepaired'; readonly from: string; readonly to: string }
+
+/**
+ * Finish what an interrupted update left: a marker whose process is gone means
+ * the read-back, start check and restore never ran. Check the installed copy
+ * now and put the kept one back when it does not answer.
+ */
+export async function repairInterruptedUpdate(
+	deps: Omit<ApplyDeps, 'currentVersion'>,
+): Promise<RepairResult> {
+	const marker = readInProgress(deps.home)
+	if (!marker) return { status: 'none' }
+	const own = deps.pid ?? process.pid
+	if (marker.pid !== own && processIsRunning(marker.pid)) return { status: 'busy' }
+	let lock: UpdateLock | null
+	try {
+		lock = acquireUpdateLock({
+			home: deps.home,
+			pid: own,
+			...(deps.now ? { now: deps.now } : {}),
+			...(deps.isAlive ? { isAlive: deps.isAlive } : {}),
+		})
+	} catch {
+		return { status: 'busy' }
+	}
+	if (!lock) return { status: 'busy' }
+	try {
+		const { install } = deps
+		const root = activeRoot(install)
+		const smoke = deps.smokeTest ?? smokeTestInstalled
+		const ids = { from: marker.from, to: marker.to }
+		let healthy = false
+		try {
+			const now = deps.installedVersion(root)
+			healthy = (now === marker.to || now === marker.from) && (await smoke(root, now))
+		} catch {
+			healthy = false
+		}
+		if (healthy) {
+			clearInProgress(deps.home)
+			return deps.installedVersion(root) === marker.to
+				? { status: 'completed', ...ids }
+				: { status: 'restored', ...ids }
+		}
+		let restored = false
+		try {
+			if (install.kind === 'npm-global' && marker.backup && existsSync(marker.backup)) {
+				restorePackage(install.root, marker.backup, own)
+				restored = deps.installedVersion(root) === marker.from
+			} else if (install.kind === 'pnpm-global') {
+				const code = await deps.runInstaller({
+					executable: 'pnpm',
+					args: pnpmInstallArgs(marker.from, deps.registry ?? PUBLIC_REGISTRY),
+					cwd: install.globalDir,
+					onOutput: () => undefined,
+					timeoutMs: deps.installTimeoutMs ?? 300_000,
+				})
+				restored = code === 0 && deps.installedVersion(root) === marker.from
+			}
+		} catch {
+			restored = false
+		}
+		if (restored) clearInProgress(deps.home)
+		return { status: restored ? 'restored' : 'unrepaired', ...ids }
+	} finally {
+		lock.release()
+	}
 }

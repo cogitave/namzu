@@ -9,12 +9,13 @@ import {
 	applyUpdate,
 	classifyInstallerFailure,
 	manualUpdateCommand,
+	repairInterruptedUpdate,
 	npmInstallArgs,
 	pnpmInstallArgs,
 } from './apply.js'
 import type { InstallKind } from './install-kind.js'
 import { readInstalledVersion } from './installed-version.js'
-import { acquireUpdateLock, previousDir, readLastResult } from './state.js'
+import { acquireUpdateLock, previousDir, readInProgress, readLastResult } from './state.js'
 
 let dir: string
 let home: string
@@ -315,5 +316,99 @@ describe('what a person is told to run', () => {
 
 	it('reads nothing from a record that was never written', () => {
 		expect(readLastResult(home)).toBeUndefined()
+	})
+})
+
+describe('repairing an update that was interrupted', () => {
+	const DEAD = 99_999_999
+
+	/** The start check a later process runs: the half-written copy does not answer. */
+	const repairDeps = (pid: number) =>
+		deps({ pid, smokeTest: async (at) => !existsSync(join(at, 'partial.txt')) }) as never
+
+	async function interrupt(): Promise<void> {
+		await expect(
+			applyUpdate(
+				deps({
+					pid: DEAD,
+					runInstaller: async () => {
+						// The new files are half there, then the process dies before any check.
+						writePackage(root, '2.0.0')
+						writeFileSync(join(root, 'partial.txt'), 'x')
+						return 0
+					},
+					smokeTest: async () => {
+						throw new Error('killed')
+					},
+				}),
+				release,
+			),
+		).rejects.toThrow('killed')
+	}
+
+	it('leaves a marker naming the version and the kept copy while an update is under way', async () => {
+		await interrupt()
+		expect(readInProgress(home)).toMatchObject({ pid: DEAD, from: '1.0.0', to: '2.0.0' })
+	})
+
+	it('puts the kept copy back on the next start when the installed one does not answer', async () => {
+		await interrupt()
+		const result = await repairInterruptedUpdate(repairDeps(5151))
+		expect(result).toEqual({ status: 'restored', from: '1.0.0', to: '2.0.0' })
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+		expect(existsSync(join(root, 'partial.txt'))).toBe(false)
+		expect(readInProgress(home)).toBeUndefined()
+		expect(existsSync(join(home, 'updates', 'update.lock'))).toBe(false)
+	})
+
+	it('accepts the new version when the interrupted install actually finished and answers', async () => {
+		await expect(
+			applyUpdate(
+				deps({
+					pid: DEAD,
+					runInstaller: async () => {
+						writePackage(root, '2.0.0')
+						return 0
+					},
+					smokeTest: async () => {
+						throw new Error('killed')
+					},
+				}),
+				release,
+			),
+		).rejects.toThrow('killed')
+		const result = await repairInterruptedUpdate(repairDeps(5151))
+		expect(result).toEqual({ status: 'completed', from: '1.0.0', to: '2.0.0' })
+		expect(readInProgress(home)).toBeUndefined()
+	})
+
+	it('does not touch anything while the process that started the update still runs', async () => {
+		await interrupt()
+		const marker = readInProgress(home)
+		expect(marker).toBeDefined()
+		// A live process is simulated by this test's parent.
+		writeFileSync(
+			join(home, 'updates', 'in-progress.json'),
+			JSON.stringify({ ...marker, pid: process.ppid }),
+		)
+		expect(await repairInterruptedUpdate(repairDeps(5151))).toEqual({ status: 'busy' })
+	})
+
+	it('reports nothing to do when no update was interrupted', async () => {
+		expect(await repairInterruptedUpdate(deps() as never)).toEqual({ status: 'none' })
+	})
+
+	it('clears the marker after a normal update', async () => {
+		await applyUpdate(deps(), release)
+		expect(readInProgress(home)).toBeUndefined()
+	})
+
+	it('leaves the package in place if the swap back cannot finish', async () => {
+		await interrupt()
+		const marker = readInProgress(home)
+		rmSync(marker?.backup as string, { recursive: true, force: true })
+		const result = await repairInterruptedUpdate(repairDeps(5151))
+		expect(result.status).toBe('unrepaired')
+		expect(readInProgress(home)).toBeDefined()
 	})
 })
