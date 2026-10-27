@@ -126,7 +126,7 @@ const DOCTRINE_SENTENCES = [
 	'If tests fail, say so and show the output.',
 	'Before editing, use the relevant file content already available from a successful read or write',
 	'Never push, force-push, reset, rebase, clean',
-	'Before a batch of tool calls, say in one short line',
+	'Before your first tool call, say in one short line',
 ]
 
 const DELEGATION_SENTENCES = [
@@ -169,10 +169,12 @@ describe('the working doctrine', () => {
 
 		// Every working rule but the one about narrating to the person: a
 		// sub-agent reports to its parent, and says so in its own section.
-		for (const sentence of DOCTRINE_SENTENCES.filter((s) => !s.startsWith('Before a batch'))) {
+		for (const sentence of DOCTRINE_SENTENCES.filter(
+			(s) => !s.startsWith('Before your first tool call'),
+		)) {
 			expect(prompt).toContain(sentence)
 		}
-		expect(prompt).not.toContain('Before a batch of tool calls')
+		expect(prompt).not.toContain('Before your first tool call')
 		expect(prompt).toContain('### Your final report')
 	})
 

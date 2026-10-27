@@ -43,6 +43,7 @@ import { generateCheckpointId, generateTurnId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
 import { AUTO_APPROVE_POLICY_NAME, createSessionApprovalPolicy } from './approval-policy.js'
+import { readCallsThatNeverStarted } from './calls-that-never-started.js'
 import { type TurnContext, TurnContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import type { QueryParams } from './index.js'
@@ -681,9 +682,17 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 						pinCompaction: true,
 					})),
 		])
-		const initialRepair = params.resumeFromCheckpoint
+		let initialRepair = params.resumeFromCheckpoint
 			? { messages: projectedInitialMessages, report: undefined }
 			: repairToolMessageHistory(projectedInitialMessages)
+		if (initialRepair.report && initialRepair.report.syntheticToolResultsInserted > 0) {
+			// A call that was waiting for approval when the session ended never ran;
+			// the model is told so rather than that its outcome is unknown.
+			const neverRan = await readCallsThatNeverStarted(storage.log)
+			if (neverRan.size > 0) {
+				initialRepair = repairToolMessageHistory(projectedInitialMessages, { neverRan })
+			}
+		}
 		const initialMessages = initialRepair.messages
 		if (initialRepair.report && toolHistoryRepairChanged(initialRepair.report)) {
 			pendingHistoryRepairs.push({

@@ -240,6 +240,23 @@ describe('exporting a conversation from its session log', () => {
 		expect(markdown).not.toContain('Runtime context')
 	})
 
+	it('leaves out the hidden reminders, the task-list nudge among them', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [
+			createUserMessage('hello'),
+			createRuntimeContextMessage(
+				'<system-reminder kind="task-nudge">\nKEEP A TASK LIST\n</system-reminder>',
+				'reminder',
+			),
+			assistant('Hi.'),
+		])
+		const { markdown } = await conversationMarkdown(s, id)
+		expect(markdown).toContain('## User\n\nhello')
+		expect(markdown).not.toContain('KEEP A TASK LIST')
+		expect(markdown).not.toContain('Runtime context')
+	})
+
 	it('refuses a log whose hash chain is broken', async () => {
 		const s = await project()
 		const id = await startConversation(s)

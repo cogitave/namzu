@@ -74,8 +74,10 @@ import {
 /** EX_TEMPFAIL: the conversation already has an active turn; try again later. */
 const EXIT_TURN_IN_PROGRESS = 75
 
+import { pendingProjectMcpServers } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
+import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -100,6 +102,7 @@ import {
 	type ExecFlags,
 	applyProviderFlags,
 	buildGate,
+	launchMcpServers,
 	loadSkillsContext,
 	resolveWorkingDirectory,
 	unknownOptionMessage,
@@ -107,6 +110,7 @@ import {
 import { EXEC_MONITOR_CAP_MS, monitorReportMessage, watchMonitors } from './exec-monitors.js'
 import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { parsePriorMessages } from './prior-messages.js'
+import { resolveRunFlags } from './run-flags.js'
 import { readStdin } from './stdin.js'
 import type { CommandHandlerArgs } from './types.js'
 
@@ -122,6 +126,15 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 }
 
 /**
+ * One line of the `exec --json` protocol: a JSON object and a newline on
+ * stdout. The only place the stream is written, so a refusal that happens
+ * before the stream starts (a flag the parser rejects) speaks the same way.
+ */
+export function writeJsonLine(o: unknown): void {
+	process.stdout.write(`${JSON.stringify(o)}\n`)
+}
+
+/**
  * `exec --json`. `flags` are already parsed; `structuredOutput` is the loaded
  * `--output-schema`, or an error loading it that is reported in band.
  */
@@ -132,9 +145,7 @@ export async function execJson(
 	structuredOutput: StructuredOutputConfig | { readonly error: string } | undefined,
 ): Promise<number> {
 	let ctx = bootstrapCtx
-	const write = (o: unknown): void => {
-		process.stdout.write(`${JSON.stringify(o)}\n`)
-	}
+	const write = writeJsonLine
 	/**
 	 * Report and stop.
 	 *
@@ -159,6 +170,7 @@ export async function execJson(
 	const limitsFromFlags = {
 		...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 		...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		...(flags.maxBudgetUsd !== null ? { costLimitUsd: flags.maxBudgetUsd } : {}),
 	}
 	if (flags.unknown.length > 0) return fail(unknownOptionMessage(flags.unknown))
 	if (structuredOutput && 'error' in structuredOutput) return fail(structuredOutput.error)
@@ -210,12 +222,22 @@ export async function execJson(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	if ('error' in mcpServers) return fail(mcpServers.error)
+	// See exec.ts: nobody can be asked here, so say once that project servers are waiting.
+	try {
+		const { pending } = pendingProjectMcpServers({ cwd })
+		if (pending.length > 0) write({ kind: 'notice', message: pendingServersMessage(pending) })
+	} catch {
+		// A broken .mcp.json is reported by the load itself.
+	}
 
 	// Project command discovery belongs behind the target folder's trust
 	// gate, alongside project config and instructions.
 	const expansion = expandHeadlessCommand(prompt, {
 		cwd,
 		builtins: hostCommandNames(),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 	})
 	if (expansion.kind === 'refused') {
 		return expansion.fixable ? fail(expansion.reason) : refuse(expansion.reason)
@@ -296,6 +318,11 @@ export async function execJson(
 	// --provider/--model override the persona's configured provider+model for
 	// this turn, so the Namzu tab's picks win over ~/.namzu/preferences.json.
 	prefs = applyProviderFlags(prefs, flags)
+	// The appended instructions, the tool lists and the fallback chain, as the
+	// printing mode reads them.
+	const run = resolveRunFlags(flags, prefs)
+	if ('error' in run) return fail(run.error)
+	prefs = run.prefs
 
 	// The operator's rules and mode reach this mode too. They did not:
 	// `[permissions]` was compiled for the printing one-shot and never for the streaming one, so a
@@ -315,7 +342,7 @@ export async function execJson(
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissionLayers(
-		permissionLayersOf(ctx.config),
+		[...permissionLayersOf(ctx.config), ...run.permissionLayers],
 		ctx.config.permissionChecks,
 	)
 	for (const d of permissions.diagnostics) {
@@ -346,13 +373,14 @@ export async function execJson(
 		// in-memory log, so nothing is written for it.
 		...(conversationId ? { conversationSessions: cli } : { ephemeral: true }),
 		rules: permissions.rules,
+		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
 		// The operator's --gate commands, as a standing condition on the
 		// answer. Spread rather than passed as undefined so a turn without
 		// gates is byte-identical to the one that shipped before them.
 		...(gate ?? {}),
 		permissionMode: modeResult.mode,
 		...(ctx.config.permissionSettings ? { permissionSettings: ctx.config.permissionSettings } : {}),
-		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+		...(mcpServers.servers ? { mcpServers: mcpServers.servers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
@@ -513,14 +541,25 @@ export async function execJson(
 	// The budgets of the turns before the last one (a workflow's reporting turn
 	// comes after the first); the command's total is all of them.
 	const earlierBudgets: NonNullable<typeof budget>[] = []
-	const stream = async (turn: readonly Message[], typedInput?: string): Promise<void> => {
+	// The spend limit belongs to the whole command: what the turns before the
+	// one running cost is taken off what the next may spend.
+	const spendLimitUsd = flags.maxBudgetUsd ?? ctx.config.limits?.costLimitUsd ?? 0
+	let closedTurnsUsd = 0
+	let openTurnUsd = 0
+	const stream = async (
+		turn: readonly Message[],
+		typedInput?: string,
+		limits?: { readonly costLimitUsd: number },
+	): Promise<void> => {
 		if (budget) earlierBudgets.push(budget)
 		budget = undefined
 		for await (const event of session.send(turn, {
 			...turnOptions,
 			...(typedInput !== undefined ? { typedInput } : {}),
+			...(limits ? { limits } : {}),
 		})) {
 			if (stopped) continue
+			if (event.kind === 'usage') openTurnUsd = event.cost.totalCost
 			if ('budget' in event && event.budget) budget = event.budget
 			if (event.kind === 'paused') paused = event
 			if (event.kind === 'error' && event.turnInProgress) {
@@ -548,11 +587,18 @@ export async function execJson(
 				? undefined
 				: await monitorWatch?.report({ signal: turnAbort.signal })
 			if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
-			await stream([
-				...(history ?? messages),
-				...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
-				...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
-			])
+			closedTurnsUsd += openTurnUsd
+			openTurnUsd = 0
+			if (spendLimitUsd > 0 && closedTurnsUsd >= spendLimitUsd) break
+			await stream(
+				[
+					...(history ?? messages),
+					...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
+					...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
+				],
+				undefined,
+				spendLimitUsd > 0 ? { costLimitUsd: spendLimitUsd - closedTurnsUsd } : undefined,
+			)
 		}
 		watch?.dispose()
 	} catch (err) {

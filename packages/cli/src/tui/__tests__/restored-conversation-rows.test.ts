@@ -309,6 +309,65 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		])
 	})
 
+	it('says a call that was waiting for approval when the session ended did not run', () => {
+		const messages = withIds([
+			createUserMessage('go'),
+			createAssistantMessage(null, [
+				call('w', 'bash', { command: 'rm -rf build' }),
+				call('s', 'bash', { command: 'sleep 99' }),
+			]),
+		])
+		const records = [
+			...messageRecords(messages),
+			{
+				v: 1,
+				id: 'rev',
+				seq: 200,
+				ts: '2026-10-24T10:00:01.000Z',
+				type: 'tool_review_requested',
+				sessionId: SESSION,
+				turnId: TURN,
+				iteration: 1,
+				toolCalls: [{ id: 'w', name: 'bash', input: { command: 'rm -rf build' } }],
+			} as unknown as SessionRecord,
+			asRecord(executing('s', 'bash', { command: 'sleep 99' }), 201),
+		]
+		const rows = projectConversation(messages, ids(), [], {
+			trail: trailFromRecords(records),
+		})
+		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
+			['user', 'go'],
+			['○', 'Bash(rm -rf build)'],
+			['⎿', 'Not run · it was waiting for approval when the session ended'],
+			['○', 'Bash(sleep 99)'],
+			['⎿', 'Interrupted'],
+		])
+	})
+
+	it('says a queued call of a journaled turn never started', () => {
+		const messages = withIds([
+			createUserMessage('go'),
+			createAssistantMessage(null, [
+				call('s', 'bash', { command: 'a' }),
+				call('q', 'bash', { command: 'b' }),
+			]),
+		])
+		const records = [
+			...messageRecords(messages),
+			asRecord(executing('s', 'bash', { command: 'a' }), 201),
+		]
+		const rows = projectConversation(messages, ids(), [], {
+			trail: trailFromRecords(records),
+		})
+		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
+			['user', 'go'],
+			['○', 'Bash(a)'],
+			['⎿', 'Interrupted'],
+			['○', 'Bash(b)'],
+			['⎿', 'Not run · the session ended before it started'],
+		])
+	})
+
 	it('leaves a delegation to the agent rows and keeps a failed launch', () => {
 		const messages = [
 			createUserMessage('delegate'),

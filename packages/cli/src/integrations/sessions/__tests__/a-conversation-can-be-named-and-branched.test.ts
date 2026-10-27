@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Message, createProjectInstructionMessage, createUserMessage } from '@namzu/sdk'
@@ -8,6 +8,7 @@ import { recordTurn } from '../../../__fixtures__/session-log.js'
 import {
 	forkConversation,
 	forkConversationBeforeUser,
+	listOtherFolders,
 	listRecent,
 	loadConversation,
 	nextForkName,
@@ -376,5 +377,28 @@ describe('fork names', () => {
 
 	it('keeps a fork of a fork readable', () => {
 		expect(nextForkName({ a: 'x (fork)' }, 'x (fork)')).toBe('x (fork) (fork)')
+	})
+})
+
+describe('conversations from other folders', () => {
+	it('lists them with their folder name, never the current folder, and keeps the first message', async () => {
+		const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-sessions-home-'))
+		const here = await openSessions(mkdtempSync(join(tmpdir(), 'namzu-here-')), { stateRoot })
+		const elsewhereDir = join(mkdtempSync(join(tmpdir(), 'namzu-else-')), 'billing')
+		mkdirSync(elsewhereDir)
+		const elsewhere = await openSessions(elsewhereDir, { stateRoot })
+		const mine = await startConversation(here)
+		await recordTurn(here, mine, [said('user', 'local question')])
+		const theirs = await startConversation(elsewhere)
+		await recordTurn(elsewhere, theirs, [said('user', 'invoice question\nsecond line')])
+		await refreshIndex(here, mine)
+		await refreshIndex(elsewhere, theirs)
+
+		const rows = await listOtherFolders(here)
+
+		expect(rows.map((row) => row.id)).toEqual([theirs])
+		expect(rows[0]?.folder).toBe('billing')
+		expect(rows[0]?.firstPrompt).toBe('invoice question\nsecond line')
+		expect((await listRecent(here)).map((row) => row.id)).toEqual([mine])
 	})
 })

@@ -37,6 +37,12 @@ With the sandbox on, each command runs confined to the working directory and the
 
 `sandbox.enabled` is on without being written when `sandbox.requireIsolation` names a control or `sandbox.workspace` is `ephemeral`, because both only mean something inside a sandbox. `sandbox.enabled: false` turns it off even then.
 
+### Shell commands inside the sandbox run without a question
+
+When the sandbox is on **and** the machine confines both the file system and the process table (`linux-bwrap` on Linux, `macos-seatbelt` on macOS; the startup line says `enforcing filesystem, …, process`), a `bash` command that stays inside it runs without the approval box in every permission mode that does not refuse shell commands (before, `prompt` and `accept-edits` asked about each one). The footer's resting hint says so (`sandbox commands run unasked · shift+tab to cycle`) and so do the mode descriptions in the Shift+Tab reply and the `/permissions` picker. This is the SDK's sandboxed-shell preset, applied to the shell only: file changes are asked about as the mode says, and a tier that confines less (`linux-namespace`, `basic`) keeps asking about every command.
+
+What does not change: the dangerous-command floor still refuses `sudo`, `curl | sh` and the like; your `ask` and `deny` rules and your remembered answers are consulted first; a command that asks to leave the sandbox (`dangerously_disable_sandbox`) is still asked about every time, in every mode that does not refuse it; `plan` and `strict` still refuse changes. With the sandbox off (the default) nothing changes.
+
 ### Leaving the sandbox for one command
 
 A sandboxed `bash` call can set `dangerously_disable_sandbox: true` to run that one command on the host (it needs the network, a path the sandbox does not mount, or a host tool). The request is:

@@ -1,4 +1,4 @@
-import { ConfigLoadError } from '../config/load.js'
+import { ConfigLoadError, pendingProjectMcpServers } from '../config/load.js'
 import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
@@ -75,7 +75,7 @@ import {
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
-import { runtimeContextLabel } from '../context/runtime-message.js'
+import { isModelOnlyContext, runtimeContextLabel } from '../context/runtime-message.js'
 import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
 import type { Pal } from '../pals/store.js'
 import {
@@ -92,6 +92,10 @@ import {
 	type QuestionGate,
 	createQuestionGate,
 } from '../integrations/learning/generator-trigger.js'
+import {
+	approveShownMcpServers,
+	pendingServersMessage,
+} from '../integrations/mcp/project-approval.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
@@ -140,6 +144,7 @@ import {
 	forkConversation,
 	forkConversationBeforeUser,
 	listArchived,
+	listOtherFolders,
 	listRecent,
 	loadConversation,
 	loadResumableConversation,
@@ -150,6 +155,7 @@ import {
 	startConversation,
 	titleOf,
 	titlesOf,
+	unansweredReviewPark,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import {
@@ -198,6 +204,7 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
@@ -281,7 +288,7 @@ import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
-import { TrustPrompt } from './TrustPrompt.js'
+import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import { stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
@@ -414,6 +421,7 @@ import {
 	withoutQueuedRow,
 } from './queued-calls.js'
 import { noResumeText } from './resume-empty.js'
+import { type ResumeScope, editLine, filterConversations } from './resume-picker-state.js'
 import {
 	REWIND_COUNT_BUDGET_MS,
 	type RewindOption,
@@ -496,6 +504,7 @@ import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
 import { withWorkflowRuns } from './workflow-runs.js'
+import { workingLabel } from './working-label.js'
 
 import type { BrowserControl } from '../browser/control.js'
 import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoints/store.js'
@@ -1103,10 +1112,7 @@ export function projectConversation(
 			}
 			// A hidden reminder, and the context a turn recorded for the model, are for
 			// the model; the live transcript never showed them.
-			if (
-				message.source?.type === 'runtime-context' &&
-				(message.source.kind === 'reminder' || message.source.kind === 'turn-context')
-			) {
+			if (isModelOnlyContext(message)) {
 				return []
 			}
 			if (message.source?.type === 'runtime-context') {
@@ -1633,6 +1639,25 @@ function AppBody({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
+	// Whether shell commands inside this session's sandbox run without asking:
+	// the footer and the mode descriptions say so.
+	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
+	const sandboxShellRef = useRef(sandboxShell)
+	sandboxShellRef.current = sandboxShell
+	// The shell commands running in the foreground that Ctrl+B can move to the
+	// background; each is offered once it has run for a couple of seconds.
+	const [offeredCommands, setOfferedCommands] = useState<ReadonlySet<string>>(new Set())
+	useEffect(() => {
+		const foreground = session?.foreground
+		if (!foreground) {
+			setOfferedCommands(new Set())
+			return
+		}
+		const read = () =>
+			setOfferedCommands(new Set(foreground.commands().map((item) => item.command)))
+		read()
+		return foreground.onChange(read)
+	}, [session])
 	const snapshotIdleJobNotices = (): {
 		readonly ids: readonly string[]
 		readonly text?: string
@@ -1883,7 +1908,22 @@ function AppBody({
 	// The session whose effort listing has answered, so "still loading" is never
 	// said about a model that already reported it has no levels.
 	const reasoningListedRef = useRef<AgentSession | null>(null)
-	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
+	const [resumeHere, setResumeList] = useState<readonly RecentConversation[]>([])
+	const [resumeOthers, setResumeOthers] = useState<readonly RecentConversation[] | null>(null)
+	const [resumeQuery, setResumeQuery] = useState('')
+	const [resumeScope, setResumeScope] = useState<ResumeScope>('folder')
+	const [resumeRenaming, setResumeRenaming] = useState<string | null>(null)
+	const [resumeNotice, setResumeNotice] = useState<string | undefined>(undefined)
+	const resumeList = useMemo(
+		() =>
+			filterConversations(
+				resumeScope === 'all' && resumeOthers
+					? [...resumeHere, ...resumeOthers].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+					: resumeHere,
+				resumeQuery,
+			),
+		[resumeHere, resumeOthers, resumeScope, resumeQuery],
+	)
 	const {
 		selection: selectedResume,
 		selectionRef: selectedResumeRef,
@@ -4054,7 +4094,7 @@ function AppBody({
 			if (announce) {
 				pushMessage(
 					'system',
-					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode)}`,
+					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode, { sandboxedShell: sandboxShellRef.current })}`,
 				)
 			} else if (mode === 'classify' && !autoModeNoticeShownRef.current) {
 				// Shift+Tab is a reflex and its reply is the footer, but this mode
@@ -4923,7 +4963,12 @@ function AppBody({
 			}
 			if (picker.kind === 'permission-mode') {
 				if (value === 'more') {
-					const child = permissionPicker(permissionModeRef.current, true, permissionAvailability())
+					const child = permissionPicker(
+						permissionModeRef.current,
+						true,
+						permissionAvailability(),
+						sandboxShellRef.current,
+					)
 					setSelectedChoice(
 						Math.max(
 							0,
@@ -5416,6 +5461,7 @@ function AppBody({
 								? {}
 								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
 							rules: activeCtx.rules,
+							...(activeCtx.appendSystem ? { appendSystem: activeCtx.appendSystem } : {}),
 							...(sessionsRef.current
 								? {
 										sessionGoals: sessionsRef.current.goals,
@@ -5476,6 +5522,8 @@ function AppBody({
 					? []
 					: discoverUserCommands({
 							cwd: activeCtx.cwd,
+							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							skillCommands: 'all',
 							reserved: hostCommandNames(),
 						})
 				// Construction and validation precede the saved change. There is no
@@ -5886,7 +5934,11 @@ function AppBody({
 						setPhase('picker')
 					}
 					if (!requested) {
-						toPicker('--model needs --provider here: no provider is saved to apply it to.')
+						toPicker(
+							launch.model || !launch.fallbackModels?.length
+								? '--model needs --provider here: no provider is saved to apply it to.'
+								: '--fallback-model needs a provider to fall over from: none is saved, so choose one first.',
+						)
 						return
 					}
 					const askedFor = requested.providers[0]?.id
@@ -6078,6 +6130,14 @@ function AppBody({
 			try {
 				activateTrustedProject()
 				void runProbe()
+				try {
+					const { pending } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
+					if (pending.length > 0) {
+						pushMessage('system', pendingServersMessage(pending))
+					}
+				} catch {
+					// A broken .mcp.json is reported by the load itself.
+				}
 			} catch (err) {
 				setPhase('unhealthy')
 				setStartupExplained(err instanceof ConfigLoadError && err.complete)
@@ -6100,6 +6160,17 @@ function AppBody({
 		} catch {
 			// Non-fatal: proceed for this session even if persisting failed.
 		}
+		try {
+			// Accepting answers for the servers the gate showed in full; ones it
+			// only counted, and ones added later, stay pending.
+			approveShownMcpServers(
+				resolveNamzuHome(),
+				trustedCwdRef.current,
+				shownToolServers(trustGrants),
+			)
+		} catch {
+			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
+		}
 		setPhase('probing')
 		try {
 			activateTrustedProject()
@@ -6109,7 +6180,7 @@ function AppBody({
 			setStartupExplained(err instanceof ConfigLoadError && err.complete)
 			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 		}
-	}, [activateTrustedProject, pushMessage, runProbe])
+	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
 
 	const finalized = messages.filter((m) => !m.pending)
 	const runningShellCount = backgroundJobs.filter(
@@ -6232,6 +6303,8 @@ function AppBody({
 	const fullTaskFurniture = taskListRows(liveTasks)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
+	// The working row names the step in progress, in the model's own words.
+	const workingStepLabel = workingLabel(tasks, terminal.columns ?? 80)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
@@ -6427,6 +6500,24 @@ function AppBody({
 				)
 				return true
 			}
+			// Questions about tool calls cannot outlive the session that asked them:
+			// the calls did not run, nobody is asked again, and the turn is closed.
+			if (
+				session.abandonTurn &&
+				!(await scheduleRef.current?.isParked()) &&
+				(await unansweredReviewPark(sessions, resumedSessionId).catch(() => undefined))
+			) {
+				try {
+					await session.abandonTurn(
+						active.turnId as TurnId,
+						'The session ended while the questions about its tool calls were open.',
+					)
+					pushMessage('system', PAUSED_TURN_LINES.unansweredReview)
+				} catch (err) {
+					pushSystem('error', explainFailure(err, 'Couldn’t close the unanswered questions.'))
+				}
+				return true
+			}
 			setHandoffPark(null)
 			const ac = new AbortController()
 			abortRef.current = ac
@@ -6592,16 +6683,11 @@ function AppBody({
 							...row,
 							id: asSessionId(row.id),
 						}))
-					: await listRecent(sessions)
+					: await listRecent(sessions, 50)
 				// Don't offer the active (empty/just-started) conversation.
-				const needle = query?.trim().toLowerCase()
-				const others = recent.filter(
-					(c) =>
-						c.id !== scopeRef.current?.sessionId &&
-						(!needle ||
-							c.title.toLowerCase().includes(needle) ||
-							(c.preview?.toLowerCase().includes(needle) ?? false)),
-				)
+				const needle = query?.trim() ?? ''
+				const everyone = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
+				const others = filterConversations(everyone, needle)
 				if (others.length === 0) {
 					pushMessage(
 						'system',
@@ -6609,7 +6695,12 @@ function AppBody({
 					)
 					return
 				}
-				setResumeList(others)
+				setResumeList(everyone)
+				setResumeOthers(null)
+				setResumeQuery(needle)
+				setResumeScope('folder')
+				setResumeRenaming(null)
+				setResumeNotice(undefined)
 				setSelectedResume(0)
 				setPhase('resume')
 			} catch (err) {
@@ -6618,6 +6709,75 @@ function AppBody({
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
 	)
+
+	/** `/doctor`: run the health checks once and show the result in plain words. */
+	const doctorRunningRef = useRef(false)
+	const runDoctorInSession = useCallback(async () => {
+		if (doctorRunningRef.current) {
+			pushMessage('system', 'The health check is already running.')
+			return
+		}
+		doctorRunningRef.current = true
+		const progressId = pushMessage('system', 'Checking…')
+		try {
+			const { runLiveDoctor } = await import('../doctor/live.js')
+			const { describePlainDoctor } = await import('../doctor/plain-report.js')
+			const report = await runLiveDoctor({
+				...(ctxRef.current.telemetry ? { telemetry: ctxRef.current.telemetry } : {}),
+			})
+			const plain = describePlainDoctor(report)
+			setMessages((rows) => rows.filter((row) => row.id !== progressId))
+			pushSystem(plain.level, plain.content, { detail: plain.detail })
+		} catch (err) {
+			setMessages((rows) => rows.filter((row) => row.id !== progressId))
+			pushSystem('error', explainFailure(err, 'Could not run the health check.'))
+		} finally {
+			doctorRunningRef.current = false
+		}
+	}, [pushMessage, pushSystem])
+
+	/** The picker's folder switch: this folder's conversations, or every folder's. */
+	const toggleResumeScope = useCallback(async () => {
+		if (resumeScope === 'all') {
+			setResumeScope('folder')
+			setSelectedResume(0)
+			return
+		}
+		if (palDefinitionRef.current) {
+			setResumeNotice('Other folders are not available inside a Pal.')
+			return
+		}
+		const sessions = sessionsRef.current
+		if (!sessions) return
+		try {
+			const others = resumeOthers ?? (await listOtherFolders(sessions))
+			setResumeOthers(others)
+			setResumeNotice(others.length === 0 ? 'No conversations in other folders yet.' : undefined)
+			setResumeScope('all')
+			setSelectedResume(0)
+		} catch (err) {
+			setResumeNotice(explainFailure(err, 'Could not list conversations in other folders.'))
+		}
+	}, [resumeScope, resumeOthers, setSelectedResume])
+
+	/** Save a new name for a conversation in the picker, then show the list as it now reads. */
+	const renameResumeRow = useCallback(async (target: RecentConversation, value: string) => {
+		const sessions = sessionsRef.current
+		if (!sessions) return
+		const name = value.trim()
+		// An empty name on a conversation nobody named changes nothing.
+		if (name === '' && !target.named) return
+		try {
+			await setTitle(sessions, target.id, name)
+			const refreshed = (await listRecent(sessions, 50)).filter(
+				(c) => c.id !== scopeRef.current?.sessionId,
+			)
+			setResumeList(refreshed)
+			setResumeNotice(undefined)
+		} catch (err) {
+			setResumeNotice(explainFailure(err, 'Could not save the name.'))
+		}
+	}, [])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doUnarchive = useCallback(async () => {
@@ -6654,6 +6814,11 @@ function AppBody({
 				return
 			}
 			setResumeList(archived)
+			setResumeOthers(null)
+			setResumeQuery('')
+			setResumeScope('folder')
+			setResumeRenaming(null)
+			setResumeNotice(undefined)
 			setSelectedResume(0)
 			setPhase('unarchive')
 		} catch (err) {
@@ -6804,17 +6969,27 @@ function AppBody({
 			options?: { readonly steered?: boolean; readonly always?: boolean },
 		) => {
 			const callRunning = activeToolsRef.current.length > 0
+			// An interrupt moves a running command to a job instead of stopping
+			// it, and does so before this returns: a job that was not there
+			// before is the command that carries on.
+			const jobsBefore = new Set((session?.jobs?.() ?? []).map((job) => job.id))
 			const interrupted = interruptTurn(recoverInput)
+			const movedToBackground = (session?.jobs?.() ?? []).some(
+				(job) => job.status === 'running' && !jobsBefore.has(job.id),
+			)
+			if (movedToBackground)
+				setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 			if (interrupted || options?.always === true) {
 				const row = interruptionRow({
 					callRunning,
 					...(options?.steered ? { steered: true } : {}),
+					...(movedToBackground ? { movedToBackground: true } : {}),
 				})
 				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage],
+		[interruptTurn, pushMessage, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
@@ -6826,6 +7001,13 @@ function AppBody({
 		interruptWithRow(true, { steered: true, always: true })
 		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
 	}, [interruptWithRow, setQueuePause])
+
+	/** Ctrl+B: move the running shell command to the background. False when none can be moved. */
+	const backgroundRunningCommand = useCallback((): boolean => {
+		const foreground = session?.foreground
+		if (!foreground || foreground.commands().length === 0) return false
+		return foreground.background('user') > 0
+	}, [session])
 
 	// A termination signal leaves like `/exit`, after stopping the turn: the
 	// session still owns tool servers, jobs and the `session_end` hook, and
@@ -8129,6 +8311,14 @@ function AppBody({
 		[applyPermissionMode, closeLiveReply, pushMessage, announceApproval, setPlanPrompt],
 	)
 	/**
+	 * The model proposed planning first and the person agreed (the question was
+	 * asked by the tool). The switch goes through the same path Shift+Tab uses,
+	 * so the next decision of the turn is made in plan mode.
+	 */
+	const enterPlanFromTool = useCallback((): void => {
+		commitPermissionMode('plan', true)
+	}, [commitPermissionMode])
+	/**
 	 * The card's answer. It answers from its own key handler, which Ink calls
 	 * before App's, so the card is taken down a tick later: clearing the ref
 	 * now would hand the same Esc or Ctrl+C to App, which reads it as an
@@ -8647,6 +8837,14 @@ function AppBody({
 									const known = tasksRef.current.find((task) => task.id === event.taskId)?.blockedBy
 									return known ? { blockedBy: known } : {}
 								})()),
+						...(event.activeForm
+							? { activeForm: event.activeForm }
+							: (() => {
+									const known = tasksRef.current.find(
+										(task) => task.id === event.taskId,
+									)?.activeForm
+									return known ? { activeForm: known } : {}
+								})()),
 					}
 					// A reply in progress ends here, as it does at a tool call, so
 					// the block lands after the text that led to it.
@@ -8746,6 +8944,9 @@ function AppBody({
 								duplicateResults: event.duplicateResults,
 								orphanedResults: event.orphanedResults,
 								interruptedCalls: event.interruptedCalls,
+								...(event.neverRanCalls !== undefined
+									? { neverRanCalls: event.neverRanCalls }
+									: {}),
 								...(event.rejectedImages !== undefined
 									? { rejectedImages: event.rejectedImages }
 									: {}),
@@ -9067,13 +9268,21 @@ function AppBody({
 				const scope = scopeRef.current
 				if (!sessions || !scope || !conversationMaterializedRef.current || !session?.abandonTurn)
 					return
-				const stopped = await closableProviderPause(sessions, scope.sessionId)
+				const providerPause = await closableProviderPause(sessions, scope.sessionId)
+				const unanswered = providerPause
+					? undefined
+					: (await scheduleRef.current?.isParked())
+						? undefined
+						: await unansweredReviewPark(sessions, scope.sessionId)
+				const stopped = providerPause ?? unanswered
 				if (!stopped) return
 				// Its unknown usage stays on the ledger; the failed message stays in
 				// what the provider is shown, as in the desktop app.
 				await session.abandonTurn(
 					stopped.turnId as TurnId,
-					'The operator went on with a new message instead of retrying.',
+					unanswered
+						? 'The session ended while the questions about its tool calls were open; the operator went on with a new message.'
+						: 'The operator went on with a new message instead of retrying.',
 				)
 				setHandoffPark(null)
 			}
@@ -9541,6 +9750,7 @@ function AppBody({
 							},
 							onQuestion: askQuestion,
 							onPlanExit: askPlanApproval,
+							onPlanEnter: enterPlanFromTool,
 							bypassAvailable: () => bypassAvailableRef.current,
 							onModelSwitch: requestModelSwitch,
 							inboundMessages: () => {
@@ -10452,6 +10662,10 @@ function AppBody({
 							)
 						return
 					}
+					case 'doctor': {
+						void runDoctorInSession()
+						return
+					}
 					case 'jobs': {
 						if (!session) {
 							pushMessage('system', 'Shell jobs are available once the conversation starts.')
@@ -10848,6 +11062,7 @@ function AppBody({
 							permissionModeRef.current,
 							false,
 							permissionAvailability(),
+							sandboxShellRef.current,
 						)
 						setSelectedChoice(
 							Math.max(
@@ -11452,6 +11667,7 @@ function AppBody({
 								cwd: ctx.cwd,
 								columns: terminal.columns,
 								model: slashCtx.modelSummary ?? undefined,
+								providerId: currentProvider,
 								mcp: slashCtx.mcp(),
 								skillsConfig: ctx.skills,
 							})
@@ -11823,6 +12039,9 @@ function AppBody({
 						})
 					) {
 						bindSteeredTriggers(armedTriggers)
+						// A command still running would hold the message until it ends:
+						// it moves to the background so the message reaches the model now.
+						session?.foreground?.background('message')
 						return
 					}
 				}
@@ -12897,6 +13116,35 @@ function AppBody({
 				// second read and an Esc would hand back a screen that is about to be
 				// replaced regardless.
 				if (resumeCommittedRef.current) return
+				// A name being typed owns the keys until it is saved or put away.
+				if (resumeRenaming !== null) {
+					if (key.escape || (key.ctrl && input === 'c')) setResumeRenaming(null)
+					else if (key.return) {
+						const target = resumeList[selectedResumeRef.current]
+						const value = resumeRenaming
+						setResumeRenaming(null)
+						if (target) void renameResumeRow(target, value)
+					} else {
+						const next = editLine(resumeRenaming, { ...key, input })
+						if (next !== null) setResumeRenaming(next)
+					}
+					return
+				}
+				if (phase === 'resume' && key.ctrl && input === 'a') {
+					void toggleResumeScope()
+					return
+				}
+				if (phase === 'resume' && key.ctrl && input === 'r') {
+					const target = resumeList[selectedResumeRef.current]
+					if (!target) return
+					if (target.folder !== undefined) {
+						setResumeNotice('Open that conversation from its own folder to rename it.')
+						return
+					}
+					setResumeNotice(undefined)
+					setResumeRenaming(target.named ? target.title : '')
+					return
+				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
 					setSelectedResume((index) =>
 						moveSelection(
@@ -12911,11 +13159,26 @@ function AppBody({
 					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
 					const conv = resumeList[selectedResumeRef.current]
+					if (conv?.folder !== undefined) {
+						setResumeNotice(
+							`That conversation belongs to ${conv.folder}. Open Namzu in that folder to continue it.`,
+						)
+						return
+					}
 					if (conv)
 						void (phase === 'unarchive'
 							? restoreArchivedConversation(conv)
 							: resumeConversation(conv))
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
+				else {
+					// Anything else typed narrows the list.
+					const next = editLine(resumeQuery, { ...key, input })
+					if (next !== null) {
+						setResumeQuery(next)
+						setResumeNotice(undefined)
+						setSelectedResume(0)
+					}
+				}
 				return
 			}
 			// Trust gate owns the keyboard until the folder is trusted or we exit.
@@ -13865,14 +14128,20 @@ function AppBody({
 	// tool-end hand-off. The monitor publishes terminal state synchronously,
 	// while the provider event that removes the generic tool row arrives on the
 	// next tick; filtering only live children made that raw row flash back.
-	const visibleActiveTools = activeTools.filter(
-		(tool) =>
-			tool.fold === undefined &&
-			(tool.toolName.toLowerCase() !== 'agent' ||
-				!(tool.turnId
-					? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
-					: representedUnscopedSubagentToolUseIds.has(tool.id))),
-	)
+	const visibleActiveTools = activeTools
+		.filter(
+			(tool) =>
+				tool.fold === undefined &&
+				(tool.toolName.toLowerCase() !== 'agent' ||
+					!(tool.turnId
+						? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
+						: representedUnscopedSubagentToolUseIds.has(tool.id))),
+		)
+		.map((tool) =>
+			tool.command !== undefined && offeredCommands.has(tool.command)
+				? { ...tool, canBackground: true as const }
+				: tool,
+		)
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
@@ -14142,6 +14411,10 @@ function AppBody({
 						conversations={resumeList}
 						selected={selectedResume}
 						mode={phase === 'unarchive' ? 'restore' : 'resume'}
+						query={resumeQuery}
+						scope={resumeScope}
+						renaming={resumeRenaming}
+						{...(resumeNotice !== undefined ? { notice: resumeNotice } : {})}
 					/>
 				) : phase === 'edit' ? (
 					rewind ? (
@@ -14207,7 +14480,11 @@ function AppBody({
 						scheduleReviewPrompt === null ? (
 							<LiveActivity
 								compact={compactWork}
-								{...(compacting || summarising ? { activityLabel: COMPACTING_LABEL } : {})}
+								{...(compacting || summarising
+									? { activityLabel: COMPACTING_LABEL }
+									: workingStepLabel
+										? { activityLabel: workingStepLabel }
+										: {})}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								compacting={compacting}
@@ -14531,6 +14808,7 @@ function AppBody({
 									onLeave: () => setQueueSelection(null),
 								}}
 								onSendNow={sendPendingNow}
+								onBackgroundCommand={backgroundRunningCommand}
 								onStopAllAgents={requestStopAllAgents}
 								railFocused={railFocus !== null}
 								userCommands={userCommands}
@@ -14593,6 +14871,7 @@ function AppBody({
 						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
+						sandboxShell={sandboxShell}
 						composerMounted={showComposerSurface}
 						restingHint={ctx.statusLine === undefined}
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
@@ -14945,6 +15224,7 @@ export function permissionPicker(
 	mode: PermissionMode,
 	more = false,
 	availability: ModeAvailability = { bypass: true, auto: true },
+	sandboxedShell = false,
 ): Extract<ChoicePickerState, { kind: 'permission-mode' }> {
 	const current = mode
 	const values = more
@@ -14975,7 +15255,7 @@ export function permissionPicker(
 			const disabledReason = unavailable(value)
 			return {
 				label: permissionModeLabel(value),
-				description: permissionModeDescription(value),
+				description: permissionModeDescription(value, { sandboxedShell }),
 				current: value === current,
 				...(disabledReason ? { disabledReason } : {}),
 			}

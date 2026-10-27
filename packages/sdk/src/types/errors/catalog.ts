@@ -1,4 +1,9 @@
-import { ProviderError, classifyProviderError } from '../provider/errors.js'
+import {
+	ProviderError,
+	type TransportCause,
+	classifyProviderError,
+	readTransportCause,
+} from '../provider/errors.js'
 import { isNamzuError } from './index.js'
 
 /**
@@ -33,6 +38,8 @@ export interface ErrorFacts {
 	readonly retryAfterMs?: number
 	/** A hint the throw site attached directly. See {@link readHint}. */
 	readonly hint?: string
+	/** When the failure is the network path rather than the provider: which part of it. */
+	readonly transport?: TransportCause
 }
 
 export interface ErrorCatalogRule {
@@ -91,10 +98,12 @@ export function factsOf(err: unknown): ErrorFacts {
 				? classifyProviderError(err)
 				: undefined
 	if (providerFailure) {
+		const transport = readTransportCause(providerFailure)
 		return {
 			code: providerFailure.code,
 			message,
 			name: providerFailure.name,
+			...(transport !== undefined ? { transport } : {}),
 			...(providerFailure.status !== undefined ? { status: providerFailure.status } : {}),
 			...(providerFailure.retryAfterMs !== undefined
 				? { retryAfterMs: providerFailure.retryAfterMs }
@@ -159,7 +168,7 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		id: 'provider.rate_limit',
 		when: (facts) => facts.code === 'rate_limit' || facts.status === 429,
 		message: 'The provider is rate limiting this turn.',
-		hint: 'Respect the provider retry delay when reported. Lower concurrency, or wait for the quota window to reset before resuming.',
+		hint: 'Wait for the provider retry delay when reported, or for the quota window to reset, before resuming. When the wait is long, continue on another model or provider.',
 	},
 	{
 		id: 'provider.context_overflow',
@@ -175,6 +184,26 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 			(facts.status !== undefined && facts.status >= 500),
 		message: 'The provider is failing on its own side.',
 		hint: 'Nothing in the turn is wrong. Resume from the last checkpoint once the provider recovers.',
+	},
+	{
+		// Before the general network rule: a proxy that wants a sign-in and a
+		// certificate nobody trusts each have a fix the general advice does not name.
+		id: 'provider.proxy_auth',
+		when: (facts) => facts.transport === 'proxy_auth_required',
+		message: 'The network proxy asked for a sign-in before it would pass the request on.',
+		hint: 'Put the proxy user name and password in the proxy address (for example HTTPS_PROXY=http://user:password@host:port), or ask whoever runs the proxy for access.',
+	},
+	{
+		id: 'provider.proxy_refused',
+		when: (facts) => facts.transport === 'proxy_refused',
+		message: 'The network proxy refused to pass the request on.',
+		hint: 'Check the proxy address and the NO_PROXY list, and ask whoever runs the proxy whether this host is allowed to reach the provider.',
+	},
+	{
+		id: 'provider.untrusted_certificate',
+		when: (facts) => facts.transport === 'untrusted_certificate',
+		message: 'The connection was refused because its certificate is not trusted.',
+		hint: 'If a proxy or firewall inspects encrypted traffic, set NODE_EXTRA_CA_CERTS to the file holding its certificate authority and start again.',
 	},
 	{
 		id: 'provider.network',

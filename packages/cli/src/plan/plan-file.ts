@@ -42,3 +42,29 @@ export async function readPlan(planPath: string): Promise<string | undefined> {
 		return undefined
 	}
 }
+
+/** The most of the plan carried across a compaction, in characters (about 5,000 tokens). */
+export const MAX_CARRIED_PLAN_CHARS = 20_000
+
+/**
+ * What a compaction carries of the plan: where the file is and what it says
+ * now, so the work in progress can keep following it. `undefined` when no plan
+ * has been written.
+ */
+export async function planCarriedAcrossCompaction(planPath: string): Promise<string | undefined> {
+	const plan = await readPlan(planPath)
+	if (plan === undefined) return undefined
+	const text =
+		plan.length > MAX_CARRIED_PLAN_CHARS
+			? `${plan.slice(0, MAX_CARRIED_PLAN_CHARS)}\n… [the rest of the plan is in the file]`
+			: plan
+	return [
+		'### Plan file',
+		'',
+		`A plan from plan mode is saved at ${planPath}. Its current text:`,
+		'',
+		text.trimEnd(),
+		'',
+		'If this plan is relevant to the work in progress, keep following it.',
+	].join('\n')
+}

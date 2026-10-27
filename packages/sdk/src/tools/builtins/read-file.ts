@@ -102,7 +102,9 @@ export const ReadFileTool = defineTool({
 			const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
 			if (!capped.ok) return refusedRead(input.path, buffer.length, capped.message, true)
 			const rendered = capped.rendered
-			recordObservedRead(context, input.path, content, rendered)
+			const unchanged = unchangedRead(context, input.path, input, content, buffer.length)
+			if (unchanged) return unchanged
+			recordObservedRead(context, input.path, content, rendered, input)
 
 			return {
 				success: true,
@@ -149,7 +151,12 @@ export const ReadFileTool = defineTool({
 		const capped = renderCappedRead(content, buffer.length, input, capOptions(input, context))
 		if (!capped.ok) return refusedRead(filePath, buffer.length, capped.message, false)
 		const rendered = capped.rendered
-		recordObservedRead(context, filePath, content, rendered)
+		const unchanged =
+			retained === undefined
+				? unchangedRead(context, filePath, input, content, buffer.length)
+				: undefined
+		if (unchanged) return unchanged
+		recordObservedRead(context, filePath, content, rendered, input)
 
 		return {
 			success: true,
@@ -243,14 +250,69 @@ function recordObservedRead(
 	key: string,
 	content: string,
 	rendered: RenderedRead,
+	input: ReadWindowInput,
 ): void {
 	const tracker = context.fileReadTracker
 	if (!tracker) return
 	if (!rendered.partial && tracker.recordFullRead && context.toolUseId) {
 		tracker.recordFullRead(key, content, context.toolUseId, fingerprintContent(rendered.output))
-		return
+	} else {
+		tracker.recordRead(key, content)
 	}
-	tracker.recordRead(key, content)
+	if (tracker.recordReadWindow && context.toolUseId) {
+		tracker.recordReadWindow(key, windowKey(input), {
+			callId: context.toolUseId,
+			renderedFingerprint: fingerprintContent(rendered.output),
+			contentFingerprint: fingerprintContent(content),
+		})
+	}
+}
+
+type ReadWindowInput = {
+	readonly readRange?: readonly number[] | undefined
+	readonly offset?: number | undefined
+	readonly limit?: number | undefined
+	readonly allow_large?: boolean | undefined
+}
+
+/** The lines a read asked for, as one comparable string. */
+function windowKey(input: ReadWindowInput): string {
+	const range = input.readRange
+	const lines = range
+		? `r${range[0]}-${range[1]}`
+		: `o${input.offset ?? 0}l${input.limit === undefined ? 'all' : input.limit}`
+	return input.allow_large === true ? `${lines}+large` : lines
+}
+
+/**
+ * The answer to a repeat read of the same lines of a file that has not changed.
+ *
+ * The earlier result is still in front of the model, so returning the lines a
+ * second time only spends the window. It is given ONLY while that is true:
+ * the body must fingerprint the same as at the earlier read, and the earlier
+ * receipt must still be in the conversation exactly as the tool returned it
+ * (the host says so through `receiptVisible`). A receipt that was cleared,
+ * summarised away or annotated is no answer, and the lines are returned again.
+ */
+function unchangedRead(
+	context: ToolContext,
+	key: string,
+	input: ReadWindowInput,
+	content: string,
+	bytes: number,
+) {
+	const tracker = context.fileReadTracker
+	if (!tracker?.readWindow || !context.receiptVisible) return undefined
+	const earlier = tracker.readWindow(key, windowKey(input))
+	if (!earlier || earlier.contentFingerprint !== fingerprintContent(content)) return undefined
+	if (!context.receiptVisible(earlier.callId, earlier.renderedFingerprint)) return undefined
+	return {
+		success: true as const,
+		output:
+			'Unchanged since your earlier read of the same lines. That result is still current; use it instead of reading again.',
+		data: { path: key, unchanged: true },
+		facts: { kind: 'read' as const, path: key, bytes, unchanged: true },
+	}
 }
 
 function describeStructuredBinaryRead(path: string, buffer: Buffer): string | null {

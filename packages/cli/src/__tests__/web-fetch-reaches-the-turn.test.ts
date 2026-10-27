@@ -1,6 +1,6 @@
 /**
- * `web.fetch: true` reaches the turn as a tool, a provider and a rule — and
- * its absence reaches it as none of the three.
+ * `web.fetch` (on unless set to `false`) reaches the turn as a tool, a provider
+ * and a rule — and `false` reaches it as none of the three.
  *
  * Three hops, each droppable one function short of the provider:
  *
@@ -9,10 +9,10 @@
  *               → `web.fetch` provider handed to query()
  *               → the citation guidance registered as a contribution
  *
- * The negative half is the one that matters for the default: a session that
- * did not opt in must not carry the tool, because a tool the model can see
- * is a tool it will reach for, and URL fetching must stay absent. Independent web search is
- * enabled by default and tested separately below.
+ * The negative half is the one that matters for a person who opted out: a
+ * session configured with `fetch: false` must not carry the tool, because a
+ * tool the model can see is a tool it will reach for. Independent web search is
+ * tested separately below.
  */
 
 import { mkdirSync, mkdtempSync } from 'node:fs'
@@ -163,17 +163,30 @@ describe('web.fetch', () => {
 		expect(turn.hasGuidance).toBe(true)
 	})
 
-	it('keeps fetch off by default while using supported native search', async () => {
+	it('is on by default, with hosted search alongside', async () => {
 		const turn = await drive(undefined)
 
-		expect(turn.toolNames).not.toContain('web_fetch')
+		expect(turn.toolNames).toContain('web_fetch')
 		expect(turn.toolNames).not.toContain('web_search')
 		expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
-		expect(turn.web).toBeUndefined()
-		expect(turn.hasGuidance).toBe(false)
+		expect(turn.web?.fetch).toBeDefined()
+		expect(turn.hasGuidance).toBe(true)
 	})
 
-	it('is off when the key is present but false', async () => {
+	it('reviews a fetch as a network call, so a new domain is asked about', async () => {
+		const turn = await drive(undefined)
+		const { isReviewExempt } = await import('@namzu/sdk')
+		const registry = new ToolManager({
+			toolsets: queryCalls[0]!.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		expect(
+			isReviewExempt(registry, 'web_fetch', { url: 'https://example.com/', prompt: 'x' }),
+		).toBe(false)
+		await turn.session.close()
+	})
+
+	it('is off when the key is false', async () => {
 		const turn = await drive({ fetch: false })
 
 		expect(turn.toolNames).not.toContain('web_fetch')
@@ -189,7 +202,7 @@ describe('web.fetch', () => {
 })
 
 it('passes explicit hosted search to the turn without mounting a local search function', async () => {
-	const turn = await drive({ search: 'live', backend: 'native' })
+	const turn = await drive({ search: 'live', backend: 'native', fetch: false })
 	expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 	expect(turn.toolNames).not.toContain('web_search')
 	expect(turn.web).toBeUndefined()

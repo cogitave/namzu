@@ -54,6 +54,17 @@ describe('interruptionRow', () => {
 		)
 		expect(INTERRUPTED_BY_STEER_TEXT).toBe('Interrupted')
 	})
+
+	it('says the command carries on when it was moved to the background', () => {
+		for (const steered of [false, true]) {
+			expect(
+				interruptionRow({ callRunning: true, steered, movedToBackground: true }),
+			).toMatchObject({
+				content: 'Interrupted · The command continues in the background',
+				glyph: '⎿',
+			})
+		}
+	})
 })
 
 describe('the finished, failed, stopped table', () => {

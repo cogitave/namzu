@@ -47,6 +47,8 @@ does not apply; the token rule does.
   The result is a short note with the size that names `file` or `xxd` as the next step; it reports as a
   failed read, like the Office and image notes.
 
+A repeat read of lines the model already has, in a file that has not changed, is answered with one sentence (`Unchanged since your earlier read of the same lines. That result is still current; use it instead of reading again.`) and `facts.unchanged: true`, the row reading `Read name · unchanged`. It applies only to the same window (`readRange`, or `offset` and `limit`), and only while three things hold: the whole file fingerprints the same as at that read, the host passed `ToolContext.receiptVisible` (`query()` always does, and there is no switch to turn the answer off under it; a host that calls the tool outside `query()` passes none and gets the lines), and that function says the earlier receipt is still, byte for byte, in the conversation. A receipt cleared, summarised away or annotated by a hook is no answer, so the lines are returned again. The read ledger is not touched by the answer, and a host that cannot say what is shown never gets one. A custom `FileReadTracker` takes part through the optional `recordReadWindow` and `readWindow`.
+
 `read` declares `selfLimitingOutput: true` ([ToolDefinition](tool-execution.md)): the turn's default per-result
 cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its
 bound. A host that sets `maxToolOutputChars` explicitly still bounds it.

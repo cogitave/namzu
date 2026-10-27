@@ -14,7 +14,7 @@ A mode decides what happens to a call that no rule decided. The `[permissions]` 
 
 | Word | Reads as | Runs without a question | Still asks (or is refused when nobody can be asked) |
 | --- | --- | --- | --- |
-| `prompt` | the default | reads and the read-only shell commands | everything else |
+| `prompt` | the default | reads and the read-only shell commands; with the [sandbox](tool-boundary.md#shell-commands-inside-the-sandbox-run-without-a-question) on and confining, every shell command inside it | everything else; a command that leaves the sandbox always asks |
 | `accept-edits` | **Accept edits** | also `edit` and `write`, and `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` and `sed` when every path they name is inside your folders | everything else; a catastrophic `rm` still asks |
 | `plan` | **Plan (read-only)** | reads | any change is refused until you leave plan mode |
 | `bypass` | **Bypass permissions** | everything below | the list under [What bypass and auto still ask](#what-bypass-and-auto-still-ask) |
@@ -136,6 +136,12 @@ When two or more questions belong together, a dim `2 of 3` sits at the right of 
 A call that is waiting for its yes shows in the transcript as a dim, static dot with its usual title, and a shell command adds a dim `Waiting…` where `Running…` will go. When the call starts, that row becomes its running row. A waiting row is drawn when the call's own question opens, so a call that is still queued behind earlier ones shows no row until then, and a call that was refused has its row removed. A connected server's tool is named by its server and tool in plain words (`slack · post`) in the title and the question, not by the name the model calls it. In the transcript the call reads `slack · post(hello)`, with a few words of what it was asked rather than its raw input, and its result is what the server said, without the frame that marks it for the model.
 
 A first look at the screen is still asked as one question, before the calls that need it, and a scheduled run holds what needs a person instead of asking. A workflow's agents count as another agent's questions and queue behind your own.
+
+### When the session ends with a question open
+
+A question is answered by a person in the window that asked it. If Namzu is closed or killed while one is open, the calls it asked about did not run, and they are not asked about again when the conversation is resumed: nothing is replayed, and no earlier answer carries over. The transcript shows each such call as `Not run · it was waiting for approval when the session ended` (a call queued behind it reads `Not run · the session ended before it started`; a call that had started and has no result still reads `Interrupted`). `/resume` closes the left-over turn with one line (`Those calls were waiting for your approval when the session ended, so they did not run. Say what to do next.`), and sending a message does the same before it goes out. The model's next request carries an error result for each of those calls saying it did not run, nothing was changed, and to call it again if it is still needed, so it asks afresh and you answer afresh.
+
+A killed session's turn is held for up to five minutes before another window can close it. Within that time a message or `/resume` says `This conversation is in use by another window. It is available again in about N minutes.` rather than offering to stop a reply that belongs to a process this window does not control; the same sentence is shown whenever the conversation's reply is held by a process other than this one.
 
 ## Large calls
 

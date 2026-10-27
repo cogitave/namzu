@@ -28,6 +28,31 @@ export interface WorkingState {
 	 * of the state".
 	 */
 	evicted: Record<string, number>
+	/**
+	 * Bodies a compaction puts back after the summary: the skills the model
+	 * loaded and the files it read. Kept apart from the slots above because
+	 * they are verbatim text, not a summary of it, and are never rendered into
+	 * the working-memory block.
+	 */
+	restorable?: RestorableState
+}
+
+/** A skill the model loaded, as its instructions read. */
+export interface RestorableSkill {
+	readonly name: string
+	readonly body: string
+}
+
+/** A file the model read, as the read returned it. */
+export interface RestorableFile {
+	readonly path: string
+	readonly text: string
+}
+
+/** Oldest first; a later load or read of the same name or path replaces and moves to the end. */
+export interface RestorableState {
+	skills: RestorableSkill[]
+	files: RestorableFile[]
 }
 
 export interface PinSlot {

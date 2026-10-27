@@ -663,6 +663,27 @@ describe('the notification says which task and what it produced', () => {
 		expect(text).toContain('the findings')
 	})
 
+	it('tells the supervisor the user has not seen the result and to report it', () => {
+		const one = formatCompletionNotification([handleFor('tsk_1', 'one')])
+		expect(one).toContain('The user has not seen it; tell them what it found in your next message.')
+		const two = formatCompletionNotification([handleFor('tsk_1', 'one'), handleFor('tsk_2', 'two')])
+		expect(two).toContain(
+			'The user has not seen them; tell them what each found in your next message.',
+		)
+	})
+
+	it('has the delegated-work entry ask for a check that each result was reported', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		inbox.launched('done' as TaskId)
+		f.settle(handleFor('done'))
+		const finished = inbox.describeSettledWork(new Set()) as string
+		expect(finished).toContain(
+			'before you end a reply check that the result of every finished task has been reported to the user, once',
+		)
+	})
+
 	it('names the tool that fetches the rest when it truncates', () => {
 		const text = formatCompletionNotification([handleFor('tsk_42', 'x'.repeat(10_000))])
 

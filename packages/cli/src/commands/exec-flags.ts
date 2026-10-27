@@ -24,6 +24,8 @@ import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
 import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import { McpServerFileError, mergeLaunchMcpServers } from '../integrations/mcp/shared-file.js'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { REASONING_EFFORT_LEVELS } from './effort-levels.js'
 import { durationMs } from './provider-wait.js'
@@ -32,9 +34,17 @@ export { REASONING_EFFORT_LEVELS }
 
 /** A nonnegative safe integer; zero disables the corresponding turn limit. */
 function turnLimit(value: string, flag: string): number {
-	const n = Number(value.trim())
+	const n = /^\d+(\.\d+)?$/u.test(value.trim()) ? Number(value.trim()) : Number.NaN
 	if (!value.trim() || !Number.isSafeInteger(n) || n < 0)
 		throw new Error(`${flag} takes a safe whole number at least 0 (unlimited), got ${value}`)
+	return n
+}
+
+/** A positive, finite dollar amount, or an error naming the flag. */
+function dollars(value: string, flag: string): number {
+	const n = Number(value.trim())
+	if (!value.trim() || !Number.isFinite(n) || n <= 0)
+		throw new Error(`${flag} takes a number of dollars greater than 0, got ${value}`)
 	return n
 }
 
@@ -85,6 +95,26 @@ export interface ExecFlags {
 	 */
 	waitForProviderMs: number | null
 	/**
+	 * `--append-system-prompt <text|@file>`: standing instructions added to the
+	 * uncached tail of the system prompt for this run. The value as given; the
+	 * command reads the file when it starts with `@`.
+	 */
+	appendSystemPrompt: string | null
+	/**
+	 * `--max-budget-usd <amount>`: the turn stops when its priced spend reaches
+	 * this many dollars. Null means the flag was not given and the config decides.
+	 */
+	maxBudgetUsd: number | null
+	/** `--allowed-tools <list>`, repeatable: permission `allow` entries for this run. */
+	allowedTools: string[]
+	/** `--disallowed-tools <list>`, repeatable: permission `deny` entries for this run. */
+	disallowedTools: string[]
+	/**
+	 * `--fallback-model <provider/model[,…]>`, repeatable: the models to fall
+	 * over to, in order, for this run.
+	 */
+	fallbackModels: string[]
+	/**
 	 * `--gate '<command>'`, repeatable — commands that must pass before the
 	 * turn is allowed to settle.
 	 *
@@ -109,6 +139,12 @@ export interface ExecFlags {
 	 * the command resolves it against the process's directory.
 	 */
 	outputSchema: string | null
+	/**
+	 * `--mcp-config <file>`, repeatable: tool servers for this run, in the same
+	 * `{ "mcpServers": { ... } }` shape a project's `.mcp.json` uses. The paths
+	 * as given; the command resolves them against the process's directory.
+	 */
+	mcpConfigs: string[]
 	/**
 	 * `--flags` this parser does not know.
 	 *
@@ -137,10 +173,16 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		maxIterations: null,
 		tokenBudget: null,
 		waitForProviderMs: null,
+		appendSystemPrompt: null,
+		maxBudgetUsd: null,
+		allowedTools: [],
+		disallowedTools: [],
+		fallbackModels: [],
 		gates: [],
 		gateRetries: null,
 		json: false,
 		outputSchema: null,
+		mcpConfigs: [],
 		unknown: [],
 		rest: [],
 	}
@@ -231,6 +273,31 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
+		if (
+			take(
+				a,
+				'append-system-prompt',
+				(v) => {
+					out.appendSystemPrompt = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'max-budget-usd',
+				(v) => {
+					out.maxBudgetUsd = dollars(v, '--max-budget-usd')
+				},
+				idx,
+			)
+		)
+			continue
+		if (take(a, 'allowed-tools', (v) => out.allowedTools.push(v), idx)) continue
+		if (take(a, 'disallowed-tools', (v) => out.disallowedTools.push(v), idx)) continue
+		if (take(a, 'fallback-model', (v) => out.fallbackModels.push(v), idx)) continue
 		if (a === '--continue' || a === '-c') {
 			out.continueLast = true
 			continue
@@ -250,6 +317,18 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 				trimmed((v) => {
 					out.outputSchema = v
 				}),
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'mcp-config',
+				(v) => {
+					const file = v.trim()
+					if (file) out.mcpConfigs.push(file)
+				},
 				idx,
 			)
 		)
@@ -524,4 +603,19 @@ export function applyProviderFlags(
 	// where neither flag was given, and the branch above covers `--provider`.
 	const remodelled: ProviderChoice = { id: head.id, model: flags.model as string }
 	return { ...prefs, providers: [remodelled, ...rest] }
+}
+
+/** The tool servers this run starts: the config's, plus each `--mcp-config` file's. */
+export function launchMcpServers(
+	configured: McpServersConfig | undefined,
+	files: readonly string[],
+): { readonly servers: McpServersConfig | undefined } | { readonly error: string } {
+	try {
+		return {
+			servers: mergeLaunchMcpServers(configured, files, (file) => resolve(process.cwd(), file)),
+		}
+	} catch (error) {
+		if (error instanceof McpServerFileError) return { error: error.message }
+		throw error
+	}
 }

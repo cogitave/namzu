@@ -95,6 +95,14 @@ export interface TurnLimitsConfig {
 	/** Total turn duration in milliseconds. Omitted or 0 means unlimited. */
 	readonly timeoutMs?: number
 	/**
+	 * Dollars one turn may spend, priced from the model's rates, before it stops
+	 * with `cost_limit`. Omitted or 0 means unlimited. `namzu exec
+	 * --max-budget-usd` overrides it for one run. The check runs between model
+	 * calls, so the last call can finish past the limit. A model with no known
+	 * rate is refused rather than allowed to spend unmeasured.
+	 */
+	readonly costLimitUsd?: number
+	/**
 	 * Milliseconds a headless `namzu exec` may spend waiting out provider
 	 * pauses — a rate limit, an outage — resuming from its checkpoint after
 	 * each, before it stops with exit code 75. Default 0: a pause ends it at once.
@@ -203,7 +211,10 @@ export interface WebConfig {
 	readonly search?: 'off' | 'cached' | 'live'
 	/** Auto prefers declared native support, otherwise Exa. Explicit choices never silently switch. */
 	readonly backend?: 'auto' | 'exa' | 'native'
-	/** Mount `web_fetch` over the guarded provider. Default `false`. */
+	/**
+	 * Mount `web_fetch` over the guarded provider. Default `true`; each new domain is
+	 * asked once. `false` removes the tool.
+	 */
 	readonly fetch?: boolean
 }
 

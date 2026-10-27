@@ -8,8 +8,10 @@
  * streams one JSON event per line instead (`./exec-json.ts`). With
  * `--output-schema <file>` the final answer is bound to that JSON Schema.
  *
- * Non-interactive, so there's no approval prompt — tools auto-run, but the
- * safety gate still hard-denies catastrophic commands. A one-shot is a
+ * Non-interactive, so there's no approval prompt — tools auto-run, except that
+ * a fetch from a web address is asked about per domain and, with no one to ask,
+ * answered by the classifier; the safety gate still hard-denies catastrophic
+ * commands. A one-shot is a
  * conversation like any other: its session log is kept under the project in
  * `NAMZU_HOME`, so `--continue` picks it up and `namzu drain` can finish a
  * turn it parked.
@@ -31,8 +33,10 @@ import {
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
+import { pendingProjectMcpServers } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { closeSessions, openSessions, startConversation } from '../integrations/sessions/store.js'
 import {
@@ -61,16 +65,18 @@ import {
 	type ExecFlags,
 	applyProviderFlags,
 	buildGate,
+	launchMcpServers,
 	loadSkillsContext,
 	parseExecFlags,
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './exec-flags.js'
-import { execJson } from './exec-json.js'
+import { execJson, writeJsonLine } from './exec-json.js'
 import { EXEC_MONITOR_CAP_MS, monitorReportMessage, watchMonitors } from './exec-monitors.js'
 import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
+import { describeSpendStop, resolveRunFlags } from './run-flags.js'
 import { readStdin } from './stdin.js'
 import type { CommandDef, CommandHandlerArgs } from './types.js'
 
@@ -164,6 +170,7 @@ async function execPrint(
 	const limitsFromFlags = {
 		...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 		...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		...(flags.maxBudgetUsd !== null ? { costLimitUsd: flags.maxBudgetUsd } : {}),
 	}
 	if (flags.unknown.length > 0) {
 		// A shell caller learns about a bad argument from `$?`, so this is 64
@@ -175,6 +182,7 @@ async function execPrint(
 		ctx.formatter.error({ message: structuredOutput.error })
 		return EXIT_USAGE
 	}
+
 	// `--session` keys a host's conversation for `--json`. This mode resumes
 	// with --continue or --resume; accepting the key and ignoring it would
 	// answer against no history while looking like it answered against one.
@@ -233,6 +241,19 @@ async function execPrint(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	if ('error' in mcpServers) {
+		ctx.formatter.error({ message: mcpServers.error })
+		return EXIT_USAGE
+	}
+	// A project's shared tool servers start only once the person approved them,
+	// and nobody can be asked here: say so once, so a missing server is not a mystery.
+	try {
+		const { pending } = pendingProjectMcpServers({ cwd })
+		if (pending.length > 0) ctx.formatter.info(pendingServersMessage(pending))
+	} catch {
+		// A broken .mcp.json is reported by the load itself.
+	}
 
 	// Project commands are code-like launch authority: discover and expand
 	// them only after the target folder has crossed the same trust boundary
@@ -240,6 +261,7 @@ async function execPrint(
 	const expansion = expandHeadlessCommand(prompt, {
 		cwd,
 		builtins: hostCommandNames(),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 	})
 	if (expansion.kind === 'refused') {
 		ctx.formatter.error({ message: expansion.reason })
@@ -268,6 +290,14 @@ async function execPrint(
 		return 1
 	}
 	prefs = applyProviderFlags(prefs, flags)
+	// The appended instructions, the tool lists and the fallback chain: read
+	// before anything is opened, so a typo costs nothing.
+	const run = resolveRunFlags(flags, prefs)
+	if ('error' in run) {
+		ctx.formatter.error({ message: run.error })
+		return EXIT_USAGE
+	}
+	prefs = run.prefs
 
 	// A permission the operator wrote and which was silently dropped is the
 	// worst outcome available here: they believe a control is in force and it
@@ -295,7 +325,7 @@ async function execPrint(
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
 	const permissions = compilePermissionLayers(
-		permissionLayersOf(ctx.config),
+		[...permissionLayersOf(ctx.config), ...run.permissionLayers],
 		ctx.config.permissionChecks,
 	)
 	for (const d of permissions.diagnostics) {
@@ -379,6 +409,7 @@ async function execPrint(
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		conversationSessions: sessions,
 		rules: permissions.rules,
+		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
 		...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 		// The operator's --gate commands, as a standing condition on the
 		// answer. Spread rather than passed as undefined so a turn without
@@ -389,7 +420,7 @@ async function execPrint(
 		// Run from the user's own terminal, so a page can be opened on their
 		// desktop. Never `exec --json`, `drain` or a scheduled run.
 		openUrl: true,
-		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+		...(mcpServers.servers ? { mcpServers: mcpServers.servers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
@@ -487,6 +518,11 @@ async function execPrint(
 	// The budgets of the turns before the last one: a workflow the model started
 	// is reported on in a turn of its own, and the command spent both.
 	const earlierBudgets: NonNullable<typeof measured.budget>[] = []
+	// Dollars spent by the turns before the one running, and by the one running:
+	// the spend limit belongs to the whole command, not to each turn in it.
+	let closedTurnsUsd = 0
+	let openTurnUsd = 0
+	const spendLimitUsd = flags.maxBudgetUsd ?? ctx.config.limits?.costLimitUsd ?? 0
 	const spend = () => commandSpend(earlierBudgets, measured.budget, session.workflows)
 	const jsonResult = (value: string) => ({
 		text: value,
@@ -545,6 +581,8 @@ async function execPrint(
 			// stderr, like every other status line, so it reaches a person
 			// watching without contaminating the answer a caller piped.
 			else if (event.kind === 'context') ctx.formatter.info(event.text)
+			// Which model took over, on stderr with the other status lines.
+			else if (event.kind === 'provider-fallback') ctx.formatter.info(event.text)
 			else if (event.kind === 'error' || event.kind === 'paused') {
 				if (event.budget) measured.budget = event.budget
 				stop.failed = describeTurnInterruption(event)
@@ -555,6 +593,7 @@ async function execPrint(
 				if (event.kind === 'paused') stop.paused = event
 			} else if (event.kind === 'usage') {
 				measured.usage = event
+				openTurnUsd = event.cost.totalCost
 				if (event.budget) measured.budget = event.budget
 			} else if (event.kind === 'done') {
 				// Deltas include preliminary and rejected answers. Settlement
@@ -671,6 +710,12 @@ async function execPrint(
 			? undefined
 			: await monitorWatch?.report({ signal: turnAbort.signal })
 		if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
+		closedTurnsUsd += openTurnUsd
+		openTurnUsd = 0
+		if (spendLimitUsd > 0 && closedTurnsUsd >= spendLimitUsd) {
+			stopReason = 'cost_limit'
+			break
+		}
 		ctx.formatter.info(
 			workflowReport !== undefined
 				? 'workflow finished: the model is reporting on it'
@@ -688,7 +733,9 @@ async function execPrint(
 					...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
 					...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
 				],
-				turnOptions,
+				spendLimitUsd > 0
+					? { ...turnOptions, limits: { costLimitUsd: spendLimitUsd - closedTurnsUsd } }
+					: turnOptions,
 			),
 		)
 		if (text.trim().length === 0) text = before
@@ -748,8 +795,12 @@ async function execPrint(
 	// `namzu exec … > out.txt && deploy` proceeded on the empty file.
 	ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(text.trim()) : text.trim())
 	if (stopReason && stopReason !== 'end_turn') {
+		const partial = text.trim() ? ' — the output above is partial' : ''
 		ctx.formatter.error({
-			message: `turn did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
+			message:
+				stopReason === 'cost_limit'
+					? `${describeSpendStop(spendLimitUsd)}${partial}`
+					: `turn did not finish normally: ${stopReason}${partial}`,
 		})
 		return 1
 	}
@@ -779,6 +830,7 @@ export const execCommand: CommandDef = {
 		'  --json                Stream one JSON event per line instead of the reply',
 		'  --output-schema <f>   Bind the final answer to the JSON Schema in file f,',
 		'                        using the provider’s native structured output',
+		'  --mcp-config <f>      Add the tool servers in file f for this run; repeatable',
 		'  --cwd <path>          Directory the agent works in (default: this one)',
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',
@@ -791,6 +843,20 @@ export const execCommand: CommandDef = {
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Main-loop iteration limit (default 50; 0 unlimited)',
 		'  --token-budget <n>    Tree token limit (default unlimited; 0 removes a configured cap)',
+		'  --append-system-prompt <text|@file>',
+		'                        Add standing instructions for this run; @file reads them',
+		'                        from a file. They go after the cached part of the prompt.',
+		'  --max-budget-usd <n>  Stop when the priced spend reaches n dollars (checked between',
+		'                        model calls; each delegated agent is held to n on its own,',
+		'                        so total spend can be higher; config: limits.costLimitUsd)',
+		'  --allowed-tools <list>',
+		'                        Allow these tools without asking, e.g. "edit bash(git status*)";',
+		'                        repeatable. A deny rule still wins.',
+		'  --disallowed-tools <list>',
+		'                        Refuse these tools, e.g. "bash(rm *)"; repeatable',
+		'  --fallback-model <provider/model[,…]>',
+		'                        Models to fall over to, in order, when the first cannot',
+		'                        answer; replaces the saved fallbacks for this run',
 		'  --effort <level>      Explicit reasoning effort (supported levels depend on the model)',
 		'  --wait-for-provider <d>  Wait out provider pauses (a rate limit, an outage)',
 		'                        for up to this long in total — 90s, 30m, 2h — resuming',
@@ -870,7 +936,22 @@ export const execCommand: CommandDef = {
 		'when the folder has not been trusted, which only a person can change.',
 	].join('\n'),
 	handler: withTerminationHandling(async (args, termination) => {
-		const flags = parseExecFlags(args.rawArgs)
+		let flags: ExecFlags
+		try {
+			flags = parseExecFlags(args.rawArgs)
+		} catch (error) {
+			// A value the parser refuses (`--max-budget-usd lots`) is a wrong
+			// argument, not a fault in Namzu: said in a sentence, with the code a
+			// wrong argument has in each mode, instead of a crash report.
+			const message = error instanceof Error ? error.message : String(error)
+			if (args.rawArgs.includes('--json')) {
+				writeJsonLine({ kind: 'error', message })
+				writeJsonLine({ kind: 'done' })
+				return 0
+			}
+			args.ctx.formatter.error({ message })
+			return EXIT_USAGE
+		}
 		const structuredOutput = loadExecOutputSchema(flags.outputSchema)
 		return flags.json
 			? execJson(args, termination, flags, structuredOutput)

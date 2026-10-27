@@ -47,6 +47,8 @@ export {
 } from './runtime/jobs/job-id.js'
 export type {
 	BackgroundJob,
+	ForegroundCommand,
+	ForegroundHandoffReason,
 	BackgroundJobOutput,
 	BackgroundJobRegistryConfig,
 	BackgroundJobStatus,

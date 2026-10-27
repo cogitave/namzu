@@ -29,6 +29,27 @@ describe('launchPreferences', () => {
 		])
 	})
 
+	it('--fallback-model sets the models after the saved primary, for this launch only', () => {
+		expect(launchPreferences(saved, { fallbackModels: ['openai/small,haiku'] })?.providers).toEqual(
+			[
+				{ id: 'anthropic', model: 'a-1' },
+				{ id: 'openai', model: 'small' },
+				{ id: 'anthropic', model: 'haiku' },
+			],
+		)
+	})
+
+	it('--fallback-model follows --provider and --model', () => {
+		expect(
+			launchPreferences(saved, { provider: 'zen', model: 'm', fallbackModels: ['openai'] })
+				?.providers,
+		).toEqual([{ id: 'zen', model: 'm' }, { id: 'openai' }])
+	})
+
+	it('cannot apply --fallback-model to nothing', () => {
+		expect(launchPreferences(null, { fallbackModels: ['openai'] })).toBeNull()
+	})
+
 	it('cannot apply --model to nothing', () => {
 		expect(launchPreferences(null, { model: 'm' })).toBeNull()
 	})
@@ -41,10 +62,12 @@ describe('launchPreferences', () => {
 })
 
 describe('choosesModel', () => {
-	it('is true only for a provider or a model', () => {
+	it('is true only for a provider, a model or fallback models', () => {
 		expect(choosesModel(undefined)).toBe(false)
 		expect(choosesModel({ effort: 'high', permissionMode: 'plan' })).toBe(false)
 		expect(choosesModel({ model: 'm' })).toBe(true)
 		expect(choosesModel({ provider: 'p' })).toBe(true)
+		expect(choosesModel({ fallbackModels: ['openai'] })).toBe(true)
+		expect(choosesModel({ fallbackModels: [] })).toBe(false)
 	})
 })

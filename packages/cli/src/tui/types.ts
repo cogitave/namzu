@@ -15,6 +15,7 @@ import type {
 	DecisionConfig,
 	HooksConfig,
 	MemoryCliConfig,
+	NamzuCliConfig,
 	PluginConfig,
 	RoutingConfig,
 	SandboxConfig,
@@ -183,6 +184,11 @@ export interface TuiContext {
 	 */
 	readonly rules?: readonly AuthorizationRule[]
 	/**
+	 * `--append-system-prompt`: standing instructions for this launch's turns,
+	 * already read from the file when one was named. Session-only, never saved.
+	 */
+	readonly appendSystem?: string
+	/**
 	 * External tool servers from the operator's config, by the same reasoning as
 	 * `rules`: a config file belongs to the user, not to a command, and a server
 	 * they declared has to be there whichever way they started namzu.
@@ -256,6 +262,8 @@ export interface TuiContext {
 	readonly sandbox?: SandboxConfig
 	/** Opted-in terminal notification settings from the resolved CLI config. */
 	readonly tui?: TuiConfig
+	/** The resolved `telemetry` block, for the health checks `/doctor` runs. */
+	readonly telemetry?: NamzuCliConfig['telemetry']
 	/**
 	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
 	 * resolved once in `cli.ts` before the TUI launches. Optional for the

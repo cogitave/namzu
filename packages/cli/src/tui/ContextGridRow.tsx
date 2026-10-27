@@ -63,6 +63,14 @@ export function ContextGridRow({ view }: { readonly view: ContextView }) {
 					</Text>
 				</Box>
 			) : null}
+			{view.cacheNote ? (
+				<Box marginTop={view.windowNote ? 0 : 1}>
+					<Text>
+						<Text bold>{view.cacheNote.label}</Text>
+						<Text dimColor>{view.cacheNote.value}</Text>
+					</Text>
+				</Box>
+			) : null}
 			{view.sections.map((section) => (
 				<Box key={section.title} flexDirection="column" marginTop={1}>
 					<Text>

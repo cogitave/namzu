@@ -245,6 +245,19 @@ describe('the shell cell data', () => {
 		})
 	})
 
+	it('says a command that was already running continues in the background', () => {
+		const { shell } = tidyCommandOutput(
+			facts({ background: true, continued: true }),
+			"Command was moved to the background as job b1 at the person's request; it was not stopped.",
+		)
+		expect(shell).toEqual({
+			stdout: [],
+			stderr: [],
+			failed: false,
+			note: 'Continues in the background (↓ to manage)',
+		})
+	})
+
 	it('reads a conversation saved before facts the same way', () => {
 		const failed = tidyTerminalOutput('partial\nError: Command exited with code 2').shell
 		expect(failed).toMatchObject({

@@ -347,6 +347,7 @@ describe('computer use session reachability', () => {
 				'Agent',
 				'update_memory',
 				'wait_for_task',
+				'web_fetch',
 				// The built-in skills are loaded through it.
 				'skill',
 				// The Pal tools are mounted but not sent: this owner has no Pals

@@ -30,6 +30,8 @@ export interface ChecklistItem {
 	readonly status: ChecklistStatus
 	/** Ids of tasks this one waits on; absent when it waits on none. */
 	readonly blockedBy?: readonly string[]
+	/** What the working row says while this step is in progress; the subject when absent. */
+	readonly activeForm?: string
 }
 
 /** One text-presentation, single-cell mark per status. */

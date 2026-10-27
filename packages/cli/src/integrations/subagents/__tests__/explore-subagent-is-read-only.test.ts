@@ -20,7 +20,12 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { EXPLORE_SUBAGENT, GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
+import {
+	EXPLORE_SUBAGENT,
+	GENERAL_PURPOSE_SUBAGENT,
+	PLAN_SUBAGENT,
+	createSubagentRuntime,
+} from '../runtime.js'
 
 afterEach(() => {
 	vi.restoreAllMocks()
@@ -74,7 +79,11 @@ async function toolsOf(registered: readonly AgentDefinition[], id: string) {
 describe('the explore sub-agent', () => {
 	it('is offered beside general-purpose', async () => {
 		const { runtime } = await runtimeWithBuiltins()
-		expect(runtime.allowedAgentIds).toEqual([GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT])
+		expect(runtime.allowedAgentIds).toEqual([
+			GENERAL_PURPOSE_SUBAGENT,
+			EXPLORE_SUBAGENT,
+			PLAN_SUBAGENT,
+		])
 		// The schema the model is validated against accepts the new type and
 		// still refuses one it does not know.
 		const accepts = (subagent_type: string) =>
@@ -102,5 +111,94 @@ describe('the explore sub-agent', () => {
 		const { registered } = await runtimeWithBuiltins()
 		const { names } = await toolsOf(registered, GENERAL_PURPOSE_SUBAGENT)
 		for (const name of ['read', 'write', 'edit', 'bash']) expect(names).toContain(name)
+	})
+})
+
+describe('the plan sub-agent', () => {
+	it('is offered, and the schema accepts it', async () => {
+		const { runtime } = await runtimeWithBuiltins()
+		expect(runtime.allowedAgentIds).toContain(PLAN_SUBAGENT)
+		expect(
+			runtime.agentTool.inputSchema.safeParse({
+				description: 'd',
+				prompt: 'p',
+				subagent_type: PLAN_SUBAGENT,
+			}).success,
+		).toBe(true)
+		expect(runtime.agentTool.description).toContain('"plan"')
+	})
+
+	it('carries the explore roster and no tool that changes anything', async () => {
+		const { registered } = await runtimeWithBuiltins()
+		const plan = await toolsOf(registered, PLAN_SUBAGENT)
+		const explore = await toolsOf(registered, EXPLORE_SUBAGENT)
+
+		expect(plan.names).toEqual(explore.names)
+		for (const mutating of ['write', 'edit', 'bash']) {
+			expect(plan.names, `${mutating} must not reach a planner`).not.toContain(mutating)
+		}
+	})
+
+	it('asks for a step plan with files and risks, under the shared working rules', async () => {
+		const { registered } = await runtimeWithBuiltins()
+		const { prompt } = await toolsOf(registered, PLAN_SUBAGENT)
+
+		expect(prompt).toContain('reading and searching tools only')
+		expect(prompt).toContain('numbered steps')
+		expect(prompt).toContain('risks')
+		expect(prompt).toContain('## How you work')
+		expect(prompt).not.toBe((await toolsOf(registered, EXPLORE_SUBAGENT)).prompt)
+	})
+
+	it('is a read-only launch, so starting one needs no question', async () => {
+		const { runtime } = await runtimeWithBuiltins()
+		expect(runtime.launchesReadOnlyAgent({ subagent_type: PLAN_SUBAGENT })).toBe(true)
+		expect(runtime.launchesReadOnlyAgent({ subagent_type: GENERAL_PURPOSE_SUBAGENT })).toBe(false)
+	})
+})
+
+describe('a project file named plan', () => {
+	it('is the planner that starts, with the tools its file allows rather than the read-only roster', async () => {
+		const replaced: AgentDefinition[] = []
+		vi.spyOn(AgentRegistry.prototype, 'replace').mockImplementation(function (
+			this: AgentRegistry,
+			_id,
+			def,
+		) {
+			replaced.push(def as AgentDefinition)
+		})
+		const parent = await subagentParentFixture(process.cwd())
+		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
+			cwd: process.cwd(),
+			model: 'test-model',
+			buildProvider: () => new MockLLMProvider({ turns: [] }),
+			buildTools: fullTools,
+			definitions: [
+				{
+					name: PLAN_SUBAGENT,
+					description: 'Plans, and may edit the plan file.',
+					prompt: 'PROJECT PLANNER',
+					readOnly: false,
+					path: '/p/.namzu/agents/plan.md',
+					source: 'project',
+				},
+			],
+		})
+		try {
+			expect(runtime.allowedAgentIds.filter((id) => id === PLAN_SUBAGENT)).toHaveLength(1)
+			const file = replaced.find((d) => d.info.id === PLAN_SUBAGENT)
+			if (!file?.configBuilder) throw new Error('the project file did not replace the planner')
+			const config = (await file.configBuilder({})) as unknown as {
+				toolsets: readonly Toolset[]
+				systemPrompt?: string
+			}
+			const names = config.toolsets.flatMap((ts) => ts.tools()).map((tool) => tool.name)
+			expect(config.systemPrompt).toContain('PROJECT PLANNER')
+			expect(config.systemPrompt).not.toContain('numbered steps')
+			for (const mutating of ['write', 'edit', 'bash']) expect(names).toContain(mutating)
+		} finally {
+			await runtime.close()
+		}
 	})
 })

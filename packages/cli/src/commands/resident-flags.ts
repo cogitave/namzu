@@ -107,6 +107,16 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--max-revisions must not exceed 4096.')
 	const run = parseExecFlags(forwarded)
 	if (run.unknown.length) throw new Error(`Unknown option(s): ${run.unknown.join(', ')}.`)
+	if (
+		run.appendSystemPrompt !== null ||
+		run.maxBudgetUsd !== null ||
+		run.allowedTools.length > 0 ||
+		run.disallowedTools.length > 0 ||
+		run.fallbackModels.length > 0
+	)
+		throw new Error(
+			'--append-system-prompt, --max-budget-usd, --allowed-tools, --disallowed-tools and --fallback-model apply to exec and the interactive terminal, not to a resident.',
+		)
 	if (run.permissionMode && !isPermissionModeName(run.permissionMode))
 		throw new Error(
 			'Invalid --permission-mode; use prompt, accept-edits, plan, bypass, auto or strict.',
@@ -159,9 +169,9 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--outcome must be wait, complete or blocked.')
 	if (run.session || run.resume || run.continueLast || run.waitForProviderMs !== null)
 		throw new Error('Resident work cannot use conversation resume or provider-retry flags.')
-	if (run.json || run.outputSchema !== null)
+	if (run.json || run.outputSchema !== null || run.mcpConfigs.length > 0)
 		throw new Error(
-			'--json and --output-schema are exec options; resident work does not take them.',
+			'--json, --output-schema and --mcp-config are exec options; resident work does not take them.',
 		)
 	if (!execution && (maxSteps !== null || own.has('--max-idle-ms')))
 		throw new Error('--max-steps and --max-idle-ms apply to resident run or start.')

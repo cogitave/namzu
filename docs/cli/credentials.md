@@ -112,6 +112,15 @@ words for `--debug`; the structured text of `exec` and scheduled runs says the s
 `provider.permission` catalogue entry no longer claims a key authenticated: a 403 only says the
 request was refused.
 
+When Zen rate limits a free model (the allowance is per model), the terminal app says "The free
+allowance for this model is used up for now. It should reset in about 15h 00m. Pick another model
+with /model, or choose another provider. A Zen API key also works." The reset time appears only when
+the service named one, and the service's own words stay behind `--debug`. A paused reply leads with
+the same ways on instead of "wait". A paid model, or another provider, keeps the ordinary "is limiting
+requests right now" wording. The `provider.rate_limit` catalogue hint no longer advises lowering
+concurrency; it says to wait for the retry delay or the quota window, or to continue on another model
+or provider.
+
 On a terminal too short for the whole screen, the list is scrolled rather than
 drawn past the bottom of it: the rows that do not fit are reached with the arrow
 keys, and the window follows the cursor. What stays put is the notice at the top

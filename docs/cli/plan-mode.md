@@ -12,6 +12,12 @@ generated: { by: process:claude-code, at: 2026-10-19T00:00:00Z }
 
 Plan mode (`‖ plan mode on`, reached with Shift+Tab or `/permissions plan`) lets the model read, search and think but not change anything. Since 2026-10-19 it also has a way out that does not depend on you typing "go ahead": the model writes its plan to a file, presents it, and you approve it. The labels are in our own words. [Terminal design](terminal-design.md) and [Slash commands](slash-commands.md#permissions) describe the rest of the mode.
 
+## Proposing plan mode
+
+The model can propose planning before a change that is not small (a new feature, several reasonable approaches, an edit across several files or one that alters existing behaviour, an architectural choice, a task whose scope has to be explored first) by calling `enter_plan_mode`. The tool is deferred: it costs one line in the deferred list and is loaded only when the model looks for it. It takes no arguments and asks you "Enter plan mode?" with two rows, "Yes, plan first" and "No, go ahead". Only a yes switches the session, through the same change Shift+Tab makes, and the transcript says `Permissions: Plan (read-only) for this conversation.` The model then reads that plan mode is on, where the plan file is, and that it ends by presenting the plan with `exit_plan_mode`. Any other answer (no, Esc, a closed question) leaves the mode alone and tells the model to carry on directly.
+
+It does not ask when the answer cannot matter: in Auto mode (you chose not to be consulted per step) it switches straight away, and in plan mode it only says plan mode is already on. Every other mode asks, bypass included, and the question is the tool's own screen, so no second "do you want to run" box opens in front of it. When nobody can be asked (a headless run, a scheduled run), it does not switch; the model is told to carry on. Delegated agents and `namzu exec` do not have the tool.
+
 ## The plan file
 
 Plan mode keeps one plan file per session, inside the session's own directory:
@@ -53,14 +59,14 @@ A turn in the terminal is fed hidden reminders through the SDK's [reminder chann
 
 The full text: change nothing except the plan file, understand the request and look for code to reuse, settle on one approach, write context, approach, files, reuse and verification, and end the turn only by asking the user a question or by calling `exit_plan_mode`, never by asking in plain text whether the plan is fine.
 
-**Task-list nudge.** After 10 model turns (assistant messages) without `task_create` or `task_update`, and at most once per 10 model turns, the model is reminded that the task tools exist and shown the current list (`#<id>. [<status>] <subject>`). The counts come from the conversation, so they survive a resume and start again when compaction shed the history they were counting.
+**Task-list nudge.** After 10 model turns (assistant messages) without `task_create` or `task_update`, and at most once per 10 model turns, the model is reminded that the task tools exist and shown the current list (`#<id>. [<status>] <subject>`). The nudge speaks only while the current request has run three or more tool steps, because a list is for work of that size; a long conversation of short requests is not nudged. It is a hidden reminder for the model alone: the transcript, `/export`, a resumed conversation and the history a host reads never show it, and its text tells the model to keep it out of its replies. The counts come from the conversation, so they survive a resume and start again when compaction shed the history they were counting.
 
 ## What this does not do, and what is open
 
 - **No clear-context row.** The "Yes, clear context and …" rows appear only with a setting; Namzu has no setting and no clear-and-continue path, so they are not offered.
 - **No plan editing in the box.** The plan is read-only in the box (the file can be edited on disk before answering, and the next `exit_plan_mode` reads it again).
 - **No cloud refinement row** and no `plansDirectory`.
-- **No `ultraplan`, no phased exploration prompt with a built-in plan agent**; the full reminder says to use read-only explore agents for wide questions.
+- **No `ultraplan` and no phased exploration prompt**; the full reminder says to use read-only explore agents for wide questions. The `Agent` tool also offers a read-only `plan` type that returns a step plan; see [Delegated work](delegated-work.md#built-in-agent-types).
 - **An empty plan.** The tool answers the model that there is nothing to approve.
 - **Esc with no words** keeps planning.
 - **Desktop and `namzu exec`** do not have the box, the tool or the reminders. Desktop would need: the `exit_plan_mode` tool mounted by the CLI host with a request/answer pair on the host protocol (the plan, its path, `bypassAvailable`; an answer of mode or words), a plan review view with the same three rows and a text field, the host forwarding `reminders`/`planApproval` to its sessions, the plan file reachable from the conversation, and the ACP bridge deciding what an ACP client sees (today only the native-engine adapter for a foreign agent reacts to that agent's own plan-exit request; see [Native engines](native-engines.md)).

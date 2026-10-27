@@ -8,6 +8,7 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 
+import { backgroundHint } from './foreground-handoff.js'
 import { motionAllowed, useReducedMotion } from './motion.js'
 import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
 import { shellRunningRows, shellToneColor } from './shell-cell.js'
@@ -36,6 +37,8 @@ export interface ActiveTool {
 	readonly web?: WebActivity
 	/** A shell call's command; set, the call is drawn as a command cell (`● Bash(…)` over `⎿ Running…`). */
 	readonly command?: string
+	/** A shell call that has run long enough to be moved to the background: a dim hint says how. */
+	readonly canBackground?: true
 	/** The last few output lines the shell call has reported, oldest first. */
 	readonly tail?: readonly string[]
 	/** Asked about or waiting behind another question: drawn quiet, with a static dim dot. */
@@ -358,6 +361,13 @@ export function LiveActivity({
 										</Text>
 									</Box>
 								))}
+								{t.canBackground ? (
+									<Box paddingLeft={RESULT_GUTTER_WIDTH}>
+										<Text color={theme.text.muted} wrap="truncate-end">
+											{backgroundHint()}
+										</Text>
+									</Box>
+								) : null}
 							</Box>
 						</Box>
 					)

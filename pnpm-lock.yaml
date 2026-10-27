@@ -186,6 +186,9 @@ importers:
       string-width:
         specifier: 8.2.1
         version: 8.2.1
+      undici:
+        specifier: ^7.30.0
+        version: 7.30.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -8800,8 +8803,7 @@ snapshots:
 
   undici@6.28.1: {}
 
-  undici@7.30.0:
-    optional: true
+  undici@7.30.0: {}
 
   unified@11.0.5:
     dependencies:

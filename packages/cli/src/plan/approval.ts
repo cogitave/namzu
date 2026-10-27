@@ -66,3 +66,4 @@ export function planApprovalRows(bypassAvailable: boolean): readonly PlanApprova
 }
 
 export const EXIT_PLAN_MODE_TOOL_NAME = 'exit_plan_mode'
+export const ENTER_PLAN_MODE_TOOL_NAME = 'enter_plan_mode'

@@ -107,6 +107,24 @@ describe('history repair notices', () => {
 		expect(text).not.toMatch(/History warning|fresh-history|orphan|idempotent|\d/)
 	})
 
+	it('says calls that never started did not happen, instead of asking for a check', () => {
+		const text = describeHistoryRepairNotice({
+			source: 'fresh-history',
+			interruptedCalls: 2,
+			neverRanCalls: 2,
+		})
+		expect(text).toBe(
+			'Some tool calls in this conversation never started, so Namzu marked them as not run. Nothing they asked for happened.',
+		)
+		expect(
+			describeHistoryRepairNotice({
+				source: 'fresh-history',
+				interruptedCalls: 2,
+				neverRanCalls: 1,
+			}),
+		).toContain('Check any files or commands')
+	})
+
 	it('explains a cut-off earlier reply', () => {
 		const text = describeHistoryRepairNotice({
 			source: 'abandoned-checkpoint',

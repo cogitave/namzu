@@ -1,4 +1,4 @@
-import type { FileReadTracker } from '../types/tool/index.js'
+import type { FileReadTracker, ReadWindowEntry } from '../types/tool/index.js'
 import { fingerprintContent } from './builtins/content-fingerprint.js'
 
 /** Host-owned observation ledger. Share only across turns of the same conversation and filesystem. */
@@ -48,7 +48,31 @@ export function createFileReadTracker(): FileReadTracker {
 			chains.delete(key)
 		}
 	}
+	// The last few windows read of each file, newest last. Bounded because a
+	// long session reads many files and a window key is cheap to repeat.
+	const windows = new Map<string, Map<string, ReadWindowEntry>>()
+	const MAX_WINDOWS_PER_FILE = 6
+	const MAX_WINDOWED_FILES = 512
 	return {
+		recordReadWindow(key, window, entry) {
+			let forFile = windows.get(key)
+			if (forFile) windows.delete(key)
+			else forFile = new Map()
+			forFile.delete(window)
+			forFile.set(window, entry)
+			while (forFile.size > MAX_WINDOWS_PER_FILE) {
+				const oldest = forFile.keys().next().value
+				if (oldest === undefined) break
+				forFile.delete(oldest)
+			}
+			windows.set(key, forFile)
+			while (windows.size > MAX_WINDOWED_FILES) {
+				const oldest = windows.keys().next().value
+				if (oldest === undefined) break
+				windows.delete(oldest)
+			}
+		},
+		readWindow: (key, window) => windows.get(key)?.get(window),
 		recordRead: observe,
 		recordFullRead(key, content, callId, renderedFingerprint) {
 			observe(key, content)

@@ -86,6 +86,10 @@ export interface SkillInfo {
 	readonly invocation?: 'model' | 'operator' | 'both'
 	/** Tools the session must have for the model to be offered it (`metadata.namzu-requires-tools`). */
 	readonly requiresTools?: readonly string[]
+	/** What the composer shows after `/<name> ` (`argument-hint`). */
+	readonly argumentHint?: string
+	/** `user-invocable: false`: the skill is for the model only and gets no `/<name>`. */
+	readonly userInvocable?: false
 	/** Lower-precedence `SKILL.md` files of the same name this one hides. */
 	readonly shadows?: readonly string[]
 }
@@ -178,10 +182,17 @@ interface ParsedSkill {
 	readonly description?: string
 	readonly invocation?: 'model' | 'operator' | 'both'
 	readonly requiresTools?: readonly string[]
+	readonly argumentHint?: string
+	readonly userInvocable?: false
 	readonly body: string
 }
 
-const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.includes(key)
+/**
+ * The kernel loader's keys plus the two this host reads for the person's side
+ * of a skill: the hint shown after `/<name> ` and whether `/<name>` exists.
+ */
+const READS_SKILL_KEY = (key: string): boolean =>
+	SKILL_FRONTMATTER_KEYS.includes(key) || key === 'argument-hint' || key === 'user-invocable'
 
 /**
  * Split `SKILL.md` into frontmatter (name/description) + body.
@@ -221,7 +232,7 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 	// list, as the Agent Skills format writes it; the kernel's loader accepts
 	// the same.
 	const { values, body } = parseFrontmatter(raw, source, {
-		lists: ['allowed-tools'],
+		lists: ['allowed-tools', 'argument-hint'],
 		readsKey: READS_SKILL_KEY,
 	})
 
@@ -242,6 +253,10 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 			: declared === 'model' || declared === 'operator' || declared === 'both'
 				? declared
 				: undefined
+	const hint =
+		values['argument-hint']?.kind === 'scalar' ? values['argument-hint'].value : undefined
+	const invocable =
+		values['user-invocable']?.kind === 'scalar' ? values['user-invocable'].value : undefined
 	const metadata = values.metadata?.kind === 'mapping' ? values.metadata.entries : undefined
 	const requiresTools = parseRequiredTools(
 		metadata && Object.hasOwn(metadata, 'namzu-requires-tools')
@@ -254,6 +269,8 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 		description,
 		...(invocation ? { invocation } : {}),
 		...(requiresTools ? { requiresTools } : {}),
+		...(hint?.trim() ? { argumentHint: hint.trim() } : {}),
+		...(invocable === 'false' ? { userInvocable: false as const } : {}),
 		body,
 	}
 }
@@ -318,6 +335,8 @@ function readSkillsFrom(dir: string, tier: SkillTier): SkillInfo[] {
 			tier,
 			...(parsed.invocation ? { invocation: parsed.invocation } : {}),
 			...(parsed.requiresTools ? { requiresTools: parsed.requiresTools } : {}),
+			...(parsed.argumentHint ? { argumentHint: parsed.argumentHint } : {}),
+			...(parsed.userInvocable === false ? { userInvocable: false as const } : {}),
 		})
 	}
 	return skills

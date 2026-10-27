@@ -16,6 +16,7 @@
 * [Startup time](startup.md) - What loads before the first screen or request, the lazy command list, the compile cache, how `exec` treats piped input, and `scripts/bench-startup.mjs` with reference numbers.
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
+* [Project instructions](project-instructions.md) - Your own file, each directory's AGENTS.md, rule files and the private AGENTS.local.md, the order they apply in, @path includes, conditional rules and what is refused.
 * [Plan mode](plan-mode.md) - The plan file, the exit_plan_mode tool and its approval box, the mode the approval switches to, and the hidden reminders (plan mode's and the task-list nudge).
 * [Delegated work](delegated-work.md) - Background child sessions, queued corrections, completion, ownership and replay from child logs.
 * [Workflows in the CLI](workflows.md) - The workflow tool: when the model is offered it, the review before it starts, how its agents run and appear, how to stop or skip, and what the model is told when it ends.
@@ -39,6 +40,8 @@ The operator application.
 * [Permission modes](permission-modes.md) - The six modes (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, what bypass and auto still ask, the `permissions.defaultMode`, `disableBypassMode`, `disableAutoMode` and `autoMode` settings, and how the auto classifier picks its model.
 * [Permission layers and remembered answers](permission-layers.md) - How the permissions tables of the config layers combine (a deny from any layer wins), where "don't ask again" is written, and which shell commands run without a prompt.
 * [Launch flags](launch-flags.md) - `--provider`, `--model`, `--effort` and `--permission-mode` on the interactive session: session-only, how they combine with the saved choice and `--yolo`, and what happens when one cannot be honoured.
+* [Flags for one run](run-flags.md) - `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model` and `--max-budget-usd`: where each goes, how each combines with the config, and what a bad value does.
+* [Proxies and certificates](network.md) - `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for providers, tool servers and the web tools, `NODE_EXTRA_CA_CERTS`, a client certificate, the doctor row, and what the setting does not reach.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Turn undo](turn-undo.md) - The durable, turn-keyed file history behind undo and /restore, and the plan that decides what undoing a turn may write.

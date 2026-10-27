@@ -23,6 +23,7 @@ import {
 	type QueuedHintEpisode,
 	nextQueuedHintEpisode,
 } from './composer-hints.js'
+import { isBackgroundChord } from './foreground-handoff.js'
 import { fitHints } from './key-hints.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
@@ -36,7 +37,7 @@ import {
 	stripAttachmentChips,
 } from './paste-chips.js'
 import { explainFailure } from './plain-failure.js'
-import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
+import { type SlashCommand, argumentHintFor, matchSlashCommands } from './slashCommands.js'
 import { wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -179,6 +180,12 @@ export interface ComposerProps {
 	readonly queuedHintCount?: QueuedHintCount
 	/** ctrl+x ctrl+s: deliver the waiting messages now instead of at the next boundary. */
 	readonly onSendNow?: () => void
+	/**
+	 * ctrl+b: move the shell command that is running in the foreground to the
+	 * background. Returns whether there was one to move; when there was not, the
+	 * key keeps its editing meaning (cursor left).
+	 */
+	readonly onBackgroundCommand?: () => boolean
 	/** ctrl+x ctrl+k: stop the background agents (the host arms and confirms). */
 	readonly onStopAllAgents?: () => void
 	/** The agents rail has the keyboard: the composer stays on screen, dim. */
@@ -612,6 +619,7 @@ export function Composer({
 	queuedEdit,
 	queuedHintCount,
 	onSendNow,
+	onBackgroundCommand,
 	onStopAllAgents,
 	railFocused = false,
 	onCycleMode,
@@ -742,6 +750,7 @@ export function Composer({
 	// window, not to navigation: slicing here made every later command
 	// unreachable no matter how many times the operator pressed Down.
 	const commandSuggestions = plainText ? [] : matchSlashCommands(value, userCommands, builtins)
+	const argumentHint = plainText ? undefined : argumentHintFor(value, userCommands)
 	const activeMention = activeFileMention(value, cursor)
 	const fileSuggestions = activeMention
 		? matchMentionableFiles(activeMention.query, mentionCandidates)
@@ -992,6 +1001,7 @@ export function Composer({
 				sendNowChordRef.current = true
 				return
 			}
+			if (isBackgroundChord(input, key) && onBackgroundCommand?.()) return
 			if (chordArmed && key.ctrl && input === 's' && onSendNow) {
 				onSendNow()
 				return
@@ -1669,6 +1679,7 @@ export function Composer({
 							{renderSegments(beforeSegments)}
 							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
 							{renderSegments(afterSegments)}
+							{argumentHint ? <Text color={theme.text.muted}>{argumentHint}</Text> : null}
 							{displayValue.trailingEllipsis ? ' …' : ''}
 						</Text>
 					)}

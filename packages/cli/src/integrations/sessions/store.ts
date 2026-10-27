@@ -20,7 +20,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { lstatSync, mkdirSync } from 'node:fs'
-import { lstat, readdir, realpath } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -118,6 +118,10 @@ export interface RecentConversation {
 	readonly updatedAt: string
 	readonly count: number
 	readonly preview?: string
+	/** The first thing the person typed, line breaks kept, for search and the picker's preview. */
+	readonly firstPrompt?: string
+	/** The folder's short name; set only on rows listed from another folder. */
+	readonly folder?: string
 }
 
 export interface OpenSessionsOptions {
@@ -751,6 +755,37 @@ export async function closableProviderPause(
 	return pending.size === 0 ? { turnId: active.turnId } : undefined
 }
 
+/**
+ * The turn left on questions about tool calls whose process is gone: the
+ * session ended while a person was being asked, so nothing can answer them any
+ * more. Those calls never ran. The question is not asked again; the turn is
+ * closed and the person goes on with their next message. A pause that waits
+ * for anything else (a sign-in, a plan, a scheduled run) is not this.
+ */
+export async function unansweredReviewPark(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<{ readonly turnId: string } | undefined> {
+	const facts = await requireConversationInScope(s, sessionId, 'inspect conversation')
+	const active = facts.activeTurn
+	if (!active) return undefined
+	// A turn another process is still running owns its questions.
+	const state = await DiskSessionLog.at(s.paths, { sessionId }).activeTurn()
+	if (!state || state.turnId !== active.turnId || state.state === 'running') return undefined
+	const pending = new Map<string, string>()
+	for (const record of facts.records) {
+		if (record.type === 'turn_paused' && record.turnId === active.turnId && record.handoff)
+			return undefined
+		if (record.type === 'decision_requested' && record.turnId === active.turnId)
+			pending.set(record.decisionId, record.request.type)
+		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
+			pending.delete(record.decisionId)
+	}
+	if (pending.size === 0) return undefined
+	for (const type of pending.values()) if (type !== 'tool_review') return undefined
+	return { turnId: active.turnId }
+}
+
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	return listConversations(s, false, limit)
@@ -842,30 +877,94 @@ async function listConversations(
 			continue
 		}
 		if (!archived && messages.length === 0) continue
-		const everything = recordedMessages(facts.records)
-		out.push({
-			id: row.id,
-			title: displayTitleOf(facts),
-			preview: [...everything]
-				.reverse()
-				.find(
-					(message): message is UserMessage =>
-						message.role === 'user' && message.source === undefined,
-				)
-				?.content.replace(/\s+/g, ' ')
-				.trim()
-				.slice(0, 240),
-			named: facts.named,
-			updatedAt: facts.updatedAt,
-			count: messages.filter(
-				(message) =>
-					(message.role === 'user' && message.source === undefined) ||
-					(message.role === 'assistant' &&
-						typeof message.content === 'string' &&
-						message.content.trim().length > 0),
-			).length,
-		})
+		out.push(recentRow(row.id, facts, messages))
 		if (out.length >= boundedLimit) break
+	}
+	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+/** One picker row from a conversation's facts and folded messages. */
+function recentRow(
+	id: SessionId,
+	facts: ConversationFacts,
+	messages: readonly Message[],
+): RecentConversation {
+	const typed = recordedMessages(facts.records).filter(
+		(message): message is UserMessage => message.role === 'user' && message.source === undefined,
+	)
+	const first = typed[0]?.content.trim().slice(0, 600)
+	return {
+		id,
+		title: displayTitleOf(facts),
+		preview: typed.at(-1)?.content.replace(/\s+/g, ' ').trim().slice(0, 240),
+		...(first ? { firstPrompt: first } : {}),
+		named: facts.named,
+		updatedAt: facts.updatedAt,
+		count: messages.filter(
+			(message) =>
+				(message.role === 'user' && message.source === undefined) ||
+				(message.role === 'assistant' &&
+					typeof message.content === 'string' &&
+					message.content.trim().length > 0),
+		).length,
+	}
+}
+
+/**
+ * Recent conversations from the other folders of this installation, newest
+ * first, each carrying its folder's short name.
+ *
+ * Read-only: a conversation belongs to the folder it was started in, so these
+ * rows are listed and found, not opened from here. A folder whose records
+ * cannot be read is left out rather than failing the list.
+ */
+export async function listOtherFolders(
+	s: Pick<CliSessions, 'root' | 'slug' | 'tenantId' | 'index'>,
+	limit = 50,
+): Promise<RecentConversation[]> {
+	const bounded = Math.max(0, Math.min(Math.floor(limit), 100))
+	if (bounded === 0) return []
+	const rows = (await s.index.listSessions({ rootsOnly: true, includeArchived: false }))
+		.filter((row) => row.slug !== s.slug && !row.archived)
+		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+		.slice(0, bounded * 3)
+	const folders = new Map<string, { paths: SessionPaths; name: string } | null>()
+	const folderOf = async (slug: string) => {
+		if (folders.has(slug)) return folders.get(slug) ?? null
+		let found: { paths: SessionPaths; name: string } | null = null
+		try {
+			const raw = await readFile(join(s.root, 'projects', slug, 'project.json'), 'utf8')
+			const doc = JSON.parse(raw) as { cwd?: unknown }
+			const cwd = typeof doc.cwd === 'string' ? doc.cwd : ''
+			found = {
+				paths: new SessionPaths({ home: s.root, slug }),
+				name: cwd.split(/[\\/]/).filter(Boolean).pop() || 'another folder',
+			}
+		} catch {
+			found = null
+		}
+		folders.set(slug, found)
+		return found
+	}
+	const out: RecentConversation[] = []
+	for (const row of rows) {
+		const folder = await folderOf(row.slug)
+		if (!folder) continue
+		try {
+			const facts = await readConversationFacts(folder, row.id, 'tolerant')
+			if (
+				!facts ||
+				facts.archived ||
+				(facts.started.tenantId !== undefined && facts.started.tenantId !== s.tenantId)
+			)
+				continue
+			const messages = await foldConversation(folder, row.id, facts.records)
+			if (messages.length === 0) continue
+			out.push({ ...recentRow(row.id, facts, messages), folder: folder.name })
+		} catch {
+			continue
+		}
+		if (out.length >= bounded) break
 	}
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }

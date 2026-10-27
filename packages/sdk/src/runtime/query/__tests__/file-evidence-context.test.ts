@@ -749,6 +749,8 @@ describe('what is recorded about files', () => {
 		const later = recordFileEvidence([entry('a.txt'), entry('b.txt', 'w2')], [first]) as string
 		expect(later).not.toContain('each entry')
 		expect(later).toContain('replaces the earlier entries for that path')
+		// A later record still names the fields it carries, so it reads on its own.
+		expect(later).toContain('`bodyInCall` and `observedFingerprint` read as before')
 		expect(entries(later)).toEqual([entry('b.txt', 'w2')])
 	})
 

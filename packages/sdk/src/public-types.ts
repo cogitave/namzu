@@ -353,6 +353,9 @@ export type {
 	ToolResultSlot,
 	WorkingState,
 	PinSlot,
+	RestorableFile,
+	RestorableSkill,
+	RestorableState,
 	WorkingStatePin,
 } from './compaction/index.js'
 export type * from './eval/index.js'

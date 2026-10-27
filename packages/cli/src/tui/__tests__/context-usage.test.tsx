@@ -121,6 +121,12 @@ describe('collecting the view', () => {
 		expect(stale.text).toMatch(/~\d(?:\.\d)?k\/200k tokens/)
 	})
 
+	it('carries the prompt cache lifetime through when the provider lets it be chosen', async () => {
+		const view = await collectContextView(sources({ cacheLifetime: '1 hour' }))
+		expect(view.cacheNote?.value).toBe('1 hour')
+		expect((await collectContextView(sources())).cacheNote).toBeUndefined()
+	})
+
 	it('leaves out a list with nothing in it', async () => {
 		const view = await collectContextView(sources())
 		expect(view.sections).toEqual([])
@@ -157,6 +163,14 @@ describe('the drawn view', () => {
 		expect(text).toContain('└ AGENTS.md: 500 tokens')
 		const gridRows = screen.viewport().filter((line) => /^\s*[⛁⛀⛶⛝]( [⛁⛀⛶⛝]){9}/u.test(line))
 		expect(gridRows).toHaveLength(10)
+	})
+
+	it('draws the prompt cache lifetime under the legend', async () => {
+		const view = await collectContextView(sources({ cacheLifetime: '5 minutes' }))
+		const screen = await renderToScreen(<ContextGridRow view={view} />, { cols: 100, rows: 40 })
+		mounted = screen
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('Prompt cache lifetime: 5 minutes')
 	})
 
 	it('draws a five by five grid on a narrow terminal', async () => {

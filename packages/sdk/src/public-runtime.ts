@@ -543,6 +543,9 @@ export {
 	EXPLORE_AGENT_ID,
 	EXPLORE_AGENT_PROMPT,
 	MAX_AGENT_FILE_CHARS,
+	PLAN_AGENT_DESCRIPTION,
+	PLAN_AGENT_ID,
+	PLAN_AGENT_PROMPT,
 	parseAgentFile,
 	parseAgentMarkdown,
 } from './agents/index.js'
@@ -782,6 +785,10 @@ export type {
 	WithProviderFallbackOptions,
 	WithProviderRetryOptions,
 } from './provider/index.js'
+// Which part of the network path a failed request tripped on (a proxy that
+// wants a sign-in, an untrusted certificate), read off the failure's causes.
+export { readTransportCause } from './types/provider/errors.js'
+export type { TransportCause } from './types/provider/errors.js'
 // The curve `ProviderRetryConfig` extends and `query({ toolRetryBackoff })`
 // takes a partial of. Both public surfaces name it, so a consumer has to be
 // able to name it too — a type reachable only through an inline `import(...)`
@@ -1340,6 +1347,7 @@ export {
 	WorkingStateManager,
 } from './compaction/index.js'
 export type {
+	ToolHistoryRepairOptions,
 	ToolHistoryRepairReport,
 	ToolHistoryRepairResult,
 } from './compaction/index.js'

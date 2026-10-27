@@ -53,7 +53,9 @@ describe('the operator is told, every time', () => {
 		expect(mapped?.kind).toBe('provider-fallback')
 		const text = (mapped as { text: string }).text
 
-		expect(text).toBe('Anthropic was too busy, so Namzu used OpenAI for the rest of that reply.')
+		expect(text).toBe(
+			'Anthropic was too busy, so Namzu used OpenAI (gpt-4o) for the rest of that reply.',
+		)
 		expect(text).not.toMatch(/primary provider|fallback #|HTTP|429|rate_limit/)
 	})
 
@@ -62,9 +64,26 @@ describe('the operator is told, every time', () => {
 			toAgentEvent(fallbackEvent({ code: 'some_new_code' }), presenter) as { text: string }
 		).text
 		expect(text).toBe(
-			'Anthropic could not answer, so Namzu used OpenAI for the rest of that reply.',
+			'Anthropic could not answer, so Namzu used OpenAI (gpt-4o) for the rest of that reply.',
 		)
 		expect(text).not.toContain('some_new_code')
+	})
+
+	it('names both models when the same provider falls over to another of its models', () => {
+		const text = (
+			toAgentEvent(
+				fallbackEvent({
+					fromProviderId: 'anthropic',
+					fromModel: 'claude-opus-4-7',
+					toProviderId: 'anthropic',
+					toModel: 'claude-haiku-4-5',
+				}),
+				presenter,
+			) as { text: string }
+		).text
+		expect(text).toBe(
+			'Anthropic (claude-opus-4-7) was too busy, so Namzu used Anthropic (claude-haiku-4-5) for the rest of that reply.',
+		)
 	})
 
 	it('adds the chain position, models, status and code under --debug', () => {

@@ -32,3 +32,6 @@ eval-report.json
 # nested git repository, so committing it would embed a gitlink nobody can
 # clone.
 .claude/worktrees/
+
+# Private per-checkout agent notes (see docs/cli/project-instructions.md)
+AGENTS.local.md
