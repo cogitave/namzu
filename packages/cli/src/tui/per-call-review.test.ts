@@ -72,6 +72,16 @@ describe('what a re-check may approve', () => {
 		expect(accept.modeCovers(edit)).toBe(true)
 		expect(accept.modeCovers(shell)).toBe(false)
 		expect(accept.modeCovers({ ...edit, isDestructive: true })).toBe(false)
+		// A write is always flagged destructive; the mode covers it like an edit.
+		expect(accept.modeCovers({ ...edit, name: 'write', isDestructive: true })).toBe(true)
+		expect(
+			accept.modeCovers({
+				...edit,
+				name: 'write',
+				isDestructive: true,
+				escalation: { outsidePaths: ['/etc/x'] },
+			}),
+		).toBe(false)
 	})
 
 	it('covers nothing in prompt, plan or strict', () => {
