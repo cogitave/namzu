@@ -279,6 +279,9 @@ export function failureFactsLine(
 	}
 }
 
+/** A file edit or overwrite refused because the file moved after it was read. */
+const FILE_CHANGED_LINE = 'File changed since it was read, nothing written'
+
 /**
  * The short text a refused call of a file, search or language tool reads as,
  * only where a refusal is worth a label of its own: a missing file, a file
@@ -308,6 +311,10 @@ export function shortToolFailure(
 	if (name === 'read') {
 		if (missing) return error('File not found')
 		return refused ? error('Error reading file') : undefined
+	}
+	// A copy gone stale says so: the person can see nothing was written and why.
+	if ((name === 'edit' || name === 'write') && reason === 'changed_on_disk') {
+		return error(FILE_CHANGED_LINE)
 	}
 	if (name === 'edit') {
 		if (reason === 'not_read') return { text: 'File must be read first', tone: 'muted' }

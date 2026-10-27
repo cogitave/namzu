@@ -286,9 +286,11 @@ export function toolEndRows(
 	}
 	if (event.declined) {
 		// The person's own No: neither a failure nor a mystery. The model's
-		// refusal text is for the model and is not shown. A refused edit or
-		// write shows what it would have changed, dimmed.
-		const refused = proposedBody(start?.proposed, ctx.cwd)
+		// refusal text is for the model and is not shown. A refused edit shows
+		// what it would have changed, dimmed; a refused write shows only that it
+		// was declined, since the file it proposed is not something to read.
+		const refused =
+			start?.proposed?.kind === 'edit' ? proposedBody(start.proposed, ctx.cwd) : undefined
 		return rows([
 			{
 				role: 'tool',

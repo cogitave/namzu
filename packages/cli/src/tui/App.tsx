@@ -331,15 +331,17 @@ import {
 	COMPACTING_LABEL,
 	COMPACT_NOT_SAVED_TEXT,
 	COMPACT_RESULT_HINT,
-	COMPACT_RESULT_TEXT,
 	NOTHING_TO_COMPACT_TEXT,
+	compactResultLine,
 	compactionSummaryLines,
+	estimateHistoryTokens,
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { buildContextRow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
+import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
@@ -411,6 +413,7 @@ import {
 	withTakenOverRow,
 	withoutQueuedRow,
 } from './queued-calls.js'
+import { noResumeText } from './resume-empty.js'
 import {
 	REWIND_COUNT_BUDGET_MS,
 	type RewindOption,
@@ -516,6 +519,7 @@ import {
 	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
+	readReviewedFile,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import type { FoldOp } from './read-search-group.js'
@@ -6597,9 +6601,7 @@ function AppBody({
 				if (others.length === 0) {
 					pushMessage(
 						'system',
-						needle
-							? `No conversation in this folder matches "${query?.trim()}". /resume lists them all.`
-							: 'No past conversations to resume in this folder yet.',
+						noResumeText({ query: query?.trim() ?? '', anyHere: recent.length > 0 }),
 					)
 					return
 				}
@@ -7912,6 +7914,7 @@ function AppBody({
 			const summary = buildPermissionSummary(review.text, {
 				describeUiRef: (ref) => reviewSessionRef.current?.describeComputerUseRef?.(ref),
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
+				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
 				withheld: review.withheld,
 			})
@@ -8099,7 +8102,13 @@ function AppBody({
 							`Plan approved · ${permissionModeLabel(answer.mode)}`,
 							false,
 							'✓',
-							[`Saved to ${request.planPath}`, '', ...request.plan.trimEnd().split('\n')],
+							[
+								isSessionPlanPath(request.planPath)
+									? 'Saved as the plan'
+									: `Saved to ${request.planPath}`,
+								'',
+								...request.plan.trimEnd().split('\n'),
+							],
 						)
 					} else if (answer.feedback) {
 						// The tool's own row already says the plan was not approved.
@@ -11502,7 +11511,8 @@ function AppBody({
 								// The same lossless record `runTurn` reads — including an earlier
 								// compaction summary and attachments. The transcript is only its
 								// rendered view and is never rebuilt into history.
-								const result = await session.compact(modelHistoryRef.current, slash.instructions)
+								const historyBefore = modelHistoryRef.current
+								const result = await session.compact(historyBefore, slash.instructions)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
@@ -11530,15 +11540,18 @@ function AppBody({
 								// result where /compact ran. Rows dropped from the front are already
 								// printed by `<Static>`, so remount the projection just as `/resume`
 								// does when it replaces the log.
+								const resultLine = compactResultLine({
+									shed: result.shed,
+									tokensBefore: estimateHistoryTokens(historyBefore),
+									tokensAfter: estimateHistoryTokens(result.messages),
+								})
 								resetTranscript()
 								setMessages((prev) => {
 									const kept = keepRecentRows(prev, keptTurns)
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: durable
-											? COMPACT_RESULT_TEXT
-											: `${COMPACT_RESULT_TEXT}. ${COMPACT_NOT_SAVED_TEXT}`,
+										content: durable ? resultLine : `${resultLine}. ${COMPACT_NOT_SAVED_TEXT}`,
 										glyph: CLOSING_GLYPH,
 										glyphColor: tokenColor('text.muted'),
 										meta: COMPACT_RESULT_HINT,

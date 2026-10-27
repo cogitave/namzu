@@ -317,7 +317,7 @@ it('keeps /compact and its result where it ran, below the turns that stay', asyn
 		expect(compactCalls).toBe(1)
 		const shown = text(screen)
 		const echo = shown.indexOf('› /compact')
-		const result = shown.indexOf('Compacted (ctrl+o')
+		const result = shown.indexOf('Compacted · ')
 		expect(echo).toBeGreaterThan(shown.indexOf('Answer to second question'))
 		expect(result).toBeGreaterThan(echo)
 		expect(shown).not.toMatch(/Verifier|\[COMPACTED/)

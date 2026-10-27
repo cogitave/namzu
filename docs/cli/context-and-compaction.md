@@ -44,8 +44,8 @@ What the transcript shows is deliberately short. While
 a pass runs, the live area says `Compacting conversation…` with the spinner and
 the clock (for `/compact`, and for every in-turn automatic pass: the SDK emits a
 `compaction_started` event when the pass begins, and the row stays until the
-pass completes, fails, or clearing alone made room). `/compact` then leaves `› /compact` and `✻ Compacted (ctrl+o to see
-full summary)` where it ran, below the turns that stay; the summary, without the marker the model reads, opens with
+pass completes, fails, or clearing alone made room). `/compact` then leaves `› /compact` and `✻ Compacted · 12 messages summarized · context about 190k to 20k tokens (ctrl+o to see
+full summary)` where it ran (the sizes are estimates from the conversation's text and are left out when nothing got smaller), below the turns that stay; the summary, without the marker the model reads, opens with
 Ctrl+O instead of sitting under the row. An automatic pass leaves `✻ Conversation
 compacted (ctrl+o for history)`, and Ctrl+O shows what became what. A resumed
 conversation shows the same row at the top. The rows kept after `/compact` start
