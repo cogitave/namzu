@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SqliteResidentLearningStore } from '@namzu/sdk'
+import { SqliteLearningStore } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { residentLearningStore } from '../../integrations/resident/learning-storage.js'
 import { lookupResident, residentDirectoryFor } from '../../integrations/resident/storage.js'
+import { learnCommand, learningCommand } from '../learn.js'
 import { residentCommand } from '../resident.js'
 import type { CommandContext } from '../types.js'
 
@@ -207,9 +208,9 @@ it('retains evaluator failure and partial usage without activating a skill', asy
 
 it('preserves acknowledged activation in the output when the final journal write fails', async () => {
 	await command(['add', '--trust', 'Inspect sources.'])
-	const original = SqliteResidentLearningStore.prototype.append
-	vi.spyOn(SqliteResidentLearningStore.prototype, 'append').mockImplementation(function (
-		this: SqliteResidentLearningStore,
+	const original = SqliteLearningStore.prototype.append
+	vi.spyOn(SqliteLearningStore.prototype, 'append').mockImplementation(function (
+		this: SqliteLearningStore,
 		event,
 	) {
 		if (event.kind === 'finished') return Promise.reject(new Error('Synthetic disk failure.'))
@@ -289,4 +290,76 @@ it('selects a stored failure through the host module and does not replay it on a
 	expect(observations.printed[0]?.observations).toEqual([
 		expect.objectContaining({ attemptedCycleId: expect.any(String) }),
 	])
+})
+
+it('`namzu learn` and `namzu learning` behave as their resident aliases', async () => {
+	await command(['add', '--trust', 'Inspect sources.'])
+	const path = moduleFile()
+	const top = async (def: typeof learnCommand, args: string[]) => {
+		const printed: Record<string, unknown>[] = []
+		const errors: string[] = []
+		const code = await def.handler({
+			ctx: {
+				config: {},
+				formatter: {
+					name: 'json',
+					print: (value) => printed.push(value as Record<string, unknown>),
+					info: () => {},
+					error: (value) => errors.push(value.message),
+				},
+			} as CommandContext,
+			rawArgs: [...args, '--cwd', cwd],
+		})
+		return { code, printed, errors }
+	}
+	const untrusted = await top(learnCommand, [path])
+	expect(untrusted.code).toBe(77)
+	expect(existsSync(join(root, 'imported'))).toBe(false)
+	const ran = await top(learnCommand, [path, '--trust'])
+	expect(ran.errors).toEqual([])
+	expect(ran.code).toBe(0)
+	expect((await (await resident()).agenda.read())?.learning?.skills[0]?.name).toBe('source-check')
+	const viaTop = await top(learningCommand, [])
+	const viaResident = await command(['learning'])
+	expect(viaTop.code).toBe(0)
+	expect(viaTop.printed).toEqual(viaResident.printed)
+	expect((viaTop.printed[0]?.cycles as unknown[]).length).toBe(1)
+})
+
+it('lists what conversations kept without a resident', async () => {
+	const { openSessions } = await import('../../integrations/sessions/store.js')
+	const { createSessionLearningFeed } = await import('../../integrations/learning/session-feed.js')
+	const { loadIdentity } = await import('../../integrations/state/identity.js')
+	const { SessionPaths } = await import('@namzu/sdk')
+	const sessions = await openSessions(cwd)
+	const paths = new SessionPaths({ home: sessions.root, slug: sessions.slug })
+	const stamp = Date.now().toString(16).padStart(12, '0')
+	const id = `${stamp.slice(0, 8)}-${stamp.slice(8)}-7def-8123-456789abcdef`
+	const feed = createSessionLearningFeed({
+		paths,
+		tenantId: loadIdentity(sessions.root).tenantId,
+		projectId: sessions.projectId,
+		sessionId: id,
+	})
+	feed.observe({ kind: 'done', turnId: id, stopReason: 'timeout' })
+	await feed.flush()
+	const printed: Record<string, unknown>[] = []
+	const run = (args: string[]) =>
+		learningCommand.handler({
+			ctx: {
+				config: {},
+				formatter: {
+					name: 'json',
+					print: (value) => printed.push(value as Record<string, unknown>),
+					info: () => {},
+					error: () => {},
+				},
+			} as CommandContext,
+			rawArgs: [...args, '--cwd', cwd],
+		})
+	expect(await run(['--sessions'])).toBe(0)
+	expect((printed[0]?.observations as unknown[]).length).toBe(1)
+	expect(String(printed[0]?.text)).toContain('stop:timeout')
+	expect(await run(['--sessions', '--after', '1'])).toBe(0)
+	expect(printed[1]?.text).toBe('No conversation observations recorded.')
 })

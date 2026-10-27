@@ -2,17 +2,17 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rename, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ResidentLearningState } from '@namzu/sdk'
+import type { LearningState } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { residentLearningSources } from './learning-sources.js'
+import { learningSources } from './sources.js'
 
 const dirs: string[] = []
 afterEach(async () => {
 	for (const dir of dirs) await removeTempDir(dir)
 	dirs.length = 0
 })
-const learning = (keys: string[]): ResidentLearningState => ({
+const learning = (keys: string[]): LearningState => ({
 	revision: 1,
 	preferences: [],
 	lastChange: { key: 'test', source: 'test', reason: 'fixture' },
@@ -41,7 +41,7 @@ it('reobserves changed bytes, atomic replacement and deletion with the same reso
 	const file = join(root, 'map.json')
 	const key = 'workspace-file:map.json'
 	await writeFile(file, 'one')
-	const resolve = residentLearningSources(root, learning([key]))
+	const resolve = learningSources(root, learning([key]))
 	expect(resolve()).toEqual([{ key, revision: sha('one') }])
 	await writeFile(file, 'two')
 	expect(resolve()).toEqual([{ key, revision: sha('two') }])
@@ -67,7 +67,7 @@ it('does not verify traversal, symlinks, unknown keys, directories or oversized 
 	await mkdir(join(root, 'folder'))
 	await writeFile(join(root, 'huge'), 'x'.repeat(256 * 1024 + 1))
 	expect(
-		residentLearningSources(
+		learningSources(
 			root,
 			learning([
 				'host:policy',

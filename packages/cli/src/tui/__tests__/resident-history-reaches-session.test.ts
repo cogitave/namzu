@@ -10,7 +10,7 @@ import {
 	createUserMessage,
 	generateSessionId,
 	generateTurnId,
-	hashResidentSkill,
+	hashLearningSkill,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -242,7 +242,7 @@ it('loads only requested resident guidance, rejects foreign and settled turns, a
 		description: 'Verify a receipt.',
 		body: 'UNIQUE_LEARNED_BODY: retain the complete receipt identifier.',
 	}
-	const hash = hashResidentSkill(candidate)
+	const hash = hashLearningSkill(candidate)
 	const evidence = {
 		key: 'host-fixture',
 		source: 'test',

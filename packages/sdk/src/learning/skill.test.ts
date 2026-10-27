@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { HarnessTrial, HarnessVerificationBatch } from '../../eval/harness-verification.js'
-import type { CaseResult } from '../../eval/types.js'
+import type { HarnessTrial, HarnessVerificationBatch } from '../eval/harness-verification.js'
+import type { CaseResult } from '../eval/types.js'
 import {
-	type ResidentSkillCandidate,
-	type ResidentSkillEvaluation,
-	hashResidentSkill,
-	projectResidentLearning,
-	promoteResidentSkill,
-	restoreResidentSkill,
-	reviseResidentProfile,
-} from './learning.js'
+	type LearningSkillCandidate,
+	type LearningSkillEvaluation,
+	hashLearningSkill,
+	projectLearning,
+	promoteLearningSkill,
+	restoreLearningSkill,
+	reviseLearningProfile,
+} from './skill.js'
 
 function evidence(key: string) {
 	return { key, source: 'host:fixture', reason: 'Checked against the retained fixture evidence.' }
@@ -86,8 +86,8 @@ function batch(
 	}
 }
 
-function evaluation(candidate: ResidentSkillCandidate = skill(), baselineRevision = 'none') {
-	const digest = hashResidentSkill(candidate)
+function evaluation(candidate: LearningSkillCandidate = skill(), baselineRevision = 'none') {
+	const digest = hashLearningSkill(candidate)
 	return {
 		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
 		verification: batch('verification', baselineRevision, digest),
@@ -99,28 +99,28 @@ describe('source-bound learning', () => {
 	it('binds exploration purpose to its digest and requires explicit projection', () => {
 		const task = skill()
 		const policy = { ...task, purpose: 'exploration' as const }
-		expect(hashResidentSkill(task)).toBe(hashResidentSkill({ ...task, purpose: 'task' }))
-		expect(hashResidentSkill(policy)).not.toBe(hashResidentSkill(task))
-		const state = promoteResidentSkill(undefined, policy, evaluation(policy), evidence('policy'))
+		expect(hashLearningSkill(task)).toBe(hashLearningSkill({ ...task, purpose: 'task' }))
+		expect(hashLearningSkill(policy)).not.toBe(hashLearningSkill(task))
+		const state = promoteLearningSkill(undefined, policy, evaluation(policy), evidence('policy'))
 		const options = { maxChars: 10_000, skillNames: [task.name] }
-		const ordinary = projectResidentLearning(state, options)
+		const ordinary = projectLearning(state, options)
 		expect(ordinary.text).toBe('')
 		expect(ordinary.withheldSkills).toEqual([
 			{ name: task.name, reason: 'different-purpose', sourceKeys: [] },
 		])
-		expect(
-			projectResidentLearning(state, { ...options, purpose: 'exploration' }).includedSkills,
-		).toEqual([task.name])
+		expect(projectLearning(state, { ...options, purpose: 'exploration' }).includedSkills).toEqual([
+			task.name,
+		])
 		const tampered = {
 			...state,
 			skills: state.skills.map((s) => ({ ...s, purpose: 'task' as const })),
 		}
-		expect(() => projectResidentLearning(tampered, options)).toThrow()
+		expect(() => projectLearning(tampered, options)).toThrow()
 		expect(() =>
-			promoteResidentSkill(
+			promoteLearningSkill(
 				state,
 				task,
-				evaluation(task, hashResidentSkill(policy)),
+				evaluation(task, hashLearningSkill(policy)),
 				evidence('repurpose'),
 			),
 		).toThrow('purpose')
@@ -131,33 +131,31 @@ describe('source-bound learning', () => {
 			purpose: 'exploration' as const,
 			sources: [{ key: 'service', revision: 'v1' }],
 		}
-		const state = promoteResidentSkill(
+		const state = promoteLearningSkill(
 			undefined,
 			policy,
 			evaluation(policy),
 			evidence('sourced-policy'),
 		)
 		const options = { maxChars: 10_000, skillNames: [policy.name], purpose: 'exploration' as const }
-		expect(projectResidentLearning(state, options).withheldSkills[0]?.reason).toBe(
-			'unverified-source',
-		)
-		expect(
-			projectResidentLearning(state, { ...options, sources: policy.sources }).includedSkills,
-		).toEqual([policy.name])
+		expect(projectLearning(state, options).withheldSkills[0]?.reason).toBe('unverified-source')
+		expect(projectLearning(state, { ...options, sources: policy.sources }).includedSkills).toEqual([
+			policy.name,
+		])
 	})
 	it('cannot bypass protection through direct promotion or omit a failed control from the selection', () => {
 		const candidate = skill()
 		const measured = evaluation(candidate)
 		expect(() =>
-			promoteResidentSkill(
+			promoteLearningSkill(
 				undefined,
 				candidate,
-				{ ...measured, protection: undefined as unknown as ResidentSkillEvaluation['protection'] },
+				{ ...measured, protection: undefined as unknown as LearningSkillEvaluation['protection'] },
 				evidence('absent'),
 			),
 		).toThrow()
 		expect(() =>
-			promoteResidentSkill(
+			promoteLearningSkill(
 				undefined,
 				candidate,
 				{
@@ -170,7 +168,7 @@ describe('source-bound learning', () => {
 		const control = measured.confirmation.candidate[2]
 		if (!control) throw new Error('Missing control.')
 		control.result = result('confirmation-1', false)
-		expect(() => promoteResidentSkill(undefined, candidate, measured, evidence('loss'))).toThrow(
+		expect(() => promoteLearningSkill(undefined, candidate, measured, evidence('loss'))).toThrow(
 			'reject',
 		)
 	})
@@ -178,13 +176,13 @@ describe('source-bound learning', () => {
 	const b = { key: 'database:policy', revision: 'revision-2' }
 	const candidate = { ...skill(), sources: [a, b] }
 	const active = () =>
-		promoteResidentSkill(undefined, candidate, evaluation(candidate), evidence('bound'))
+		promoteLearningSkill(undefined, candidate, evaluation(candidate), evidence('bound'))
 	it('binds canonical dependencies to approval and rejects duplicate identities', () => {
-		expect(hashResidentSkill(candidate)).toBe(hashResidentSkill({ ...candidate, sources: [b, a] }))
-		expect(hashResidentSkill(candidate)).not.toBe(hashResidentSkill(skill()))
-		expect(() => hashResidentSkill({ ...candidate, sources: [a, a] })).toThrow()
+		expect(hashLearningSkill(candidate)).toBe(hashLearningSkill({ ...candidate, sources: [b, a] }))
+		expect(hashLearningSkill(candidate)).not.toBe(hashLearningSkill(skill()))
+		expect(() => hashLearningSkill({ ...candidate, sources: [a, a] })).toThrow()
 		expect(() =>
-			promoteResidentSkill(
+			promoteLearningSkill(
 				undefined,
 				{ ...candidate, sources: [b] },
 				evaluation(candidate),
@@ -196,13 +194,13 @@ describe('source-bound learning', () => {
 		const state = JSON.parse(JSON.stringify(active()))
 		const options = { maxChars: 10000, skillNames: [candidate.name] }
 		for (const sources of [undefined, [a], [a, { ...b, revision: 'revision-3' }]]) {
-			const result = projectResidentLearning(state, { ...options, sources })
+			const result = projectLearning(state, { ...options, sources })
 			expect(result.text).not.toContain(candidate.body)
 			expect(result.includedSkills).toEqual([])
 			expect(result.withheldSkills).toHaveLength(1)
 			expect(result.omitted).toBe(1)
 		}
-		expect(projectResidentLearning(state, { ...options, sources: [b, a] }).includedSkills).toEqual([
+		expect(projectLearning(state, { ...options, sources: [b, a] }).includedSkills).toEqual([
 			candidate.name,
 		])
 		expect(state.skills[0].body).toBe(candidate.body)
@@ -212,12 +210,12 @@ describe('source-bound learning', () => {
 
 describe('versioned resident preferences', () => {
 	it('corrects the named previous evidence without mutating the original profile', () => {
-		const first = reviseResidentProfile(undefined, {
+		const first = reviseLearningProfile(undefined, {
 			identity: 'A careful research assistant.',
 			preferences: [{ key: 'response-language', value: 'English', supersedes: null }],
 			evidence: evidence('operator-1'),
 		})
-		const next = reviseResidentProfile(first, {
+		const next = reviseLearningProfile(first, {
 			preferences: [{ key: 'response-language', value: 'Turkish', supersedes: 'operator-1' }],
 			evidence: evidence('operator-2'),
 		})
@@ -234,33 +232,33 @@ describe('versioned resident preferences', () => {
 	})
 
 	it('refuses an unacknowledged correction, stale supersession and recycled evidence', () => {
-		const current = reviseResidentProfile(undefined, {
+		const current = reviseLearningProfile(undefined, {
 			identity: 'A careful researcher.',
 			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
 			evidence: evidence('observed-style'),
 		})
 		for (const supersedes of [null, 'another-observation']) {
 			expect(() =>
-				reviseResidentProfile(current, {
+				reviseLearningProfile(current, {
 					preferences: [{ key: 'style', value: 'Detailed', supersedes }],
 					evidence: evidence('new-style'),
 				}),
 			).toThrow()
 		}
 		expect(() =>
-			reviseResidentProfile(current, {
+			reviseLearningProfile(current, {
 				preferences: [{ key: 'style', value: 'Detailed', supersedes: 'observed-style' }],
 				evidence: evidence('observed-style'),
 			}),
 		).toThrow()
 		expect(() =>
-			reviseResidentProfile(current, {
+			reviseLearningProfile(current, {
 				identity: 'A completely different role.',
 				evidence: evidence('observed-style'),
 			}),
 		).toThrow()
 		expect(() =>
-			reviseResidentProfile(current, {
+			reviseLearningProfile(current, {
 				preferences: [{ key: 'new-preference', value: 'Value', supersedes: 'absent-fact' }],
 				evidence: evidence('new-fact'),
 			}),
@@ -270,7 +268,7 @@ describe('versioned resident preferences', () => {
 	it('refuses duplicate keys and bounds preferences, identity and values', () => {
 		const proof = evidence('bounded-profile')
 		expect(() =>
-			reviseResidentProfile(undefined, {
+			reviseLearningProfile(undefined, {
 				preferences: [
 					{ key: 'style', value: 'Short', supersedes: null },
 					{ key: 'style', value: 'Long', supersedes: null },
@@ -283,19 +281,19 @@ describe('versioned resident preferences', () => {
 			value: `value-${index}`,
 			supersedes: null,
 		}))
-		const full = reviseResidentProfile(undefined, { preferences, evidence: proof })
+		const full = reviseLearningProfile(undefined, { preferences, evidence: proof })
 		expect(full.preferences).toHaveLength(32)
 		expect(() =>
-			reviseResidentProfile(full, {
+			reviseLearningProfile(full, {
 				preferences: [{ key: 'overflow', value: 'No room', supersedes: null }],
 				evidence: evidence('overflow'),
 			}),
 		).toThrow()
 		expect(() =>
-			reviseResidentProfile(undefined, { identity: 'x'.repeat(4_001), evidence: proof }),
+			reviseLearningProfile(undefined, { identity: 'x'.repeat(4_001), evidence: proof }),
 		).toThrow()
 		expect(() =>
-			reviseResidentProfile(undefined, {
+			reviseLearningProfile(undefined, {
 				preferences: [{ key: 'oversized', value: 'x'.repeat(1_001), supersedes: null }],
 				evidence: proof,
 			}),
@@ -304,7 +302,7 @@ describe('versioned resident preferences', () => {
 
 	it.each(['key', 'source', 'reason'] as const)('requires a nonempty evidence %s', (field) => {
 		expect(() =>
-			reviseResidentProfile(undefined, {
+			reviseLearningProfile(undefined, {
 				identity: 'A careful assistant.',
 				evidence: { ...evidence('observation'), [field]: '   ' },
 			}),
@@ -317,7 +315,7 @@ describe('versioned resident preferences', () => {
 			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
 			evidence: evidence('source-before'),
 		}
-		const retained = reviseResidentProfile(undefined, input)
+		const retained = reviseLearningProfile(undefined, input)
 		const preference = input.preferences[0]
 		if (!preference) throw new Error('Missing preference fixture.')
 		preference.value = 'Changed after commit'
@@ -335,31 +333,31 @@ describe('versioned resident preferences', () => {
 describe('evaluated resident skills', () => {
 	it('hashes the validated named content deterministically and detects content changes', () => {
 		const candidate = skill()
-		const hash = hashResidentSkill(candidate)
+		const hash = hashLearningSkill(candidate)
 		expect(hash).toMatch(/^[a-f0-9]{64}$/)
 		expect(
-			hashResidentSkill({
+			hashLearningSkill({
 				body: candidate.body,
 				name: candidate.name,
 				description: candidate.description,
 			}),
 		).toBe(hash)
-		expect(hashResidentSkill(skill('A different instruction.'))).not.toBe(hash)
-		expect(() => hashResidentSkill({ ...candidate, name: '   ' })).toThrow()
-		expect(() => hashResidentSkill({ ...candidate, body: '   ' })).toThrow()
+		expect(hashLearningSkill(skill('A different instruction.'))).not.toBe(hash)
+		expect(() => hashLearningSkill({ ...candidate, name: '   ' })).toThrow()
+		expect(() => hashLearningSkill({ ...candidate, body: '   ' })).toThrow()
 	})
 
 	it('activates only the exact evaluated content and keeps independent snapshots', () => {
 		const candidate = skill()
 		const proof = evidence('verified-candidate')
-		const profile = reviseResidentProfile(undefined, {
+		const profile = reviseLearningProfile(undefined, {
 			identity: 'Research assistant',
 			preferences: [{ key: 'style', value: 'Concise', supersedes: null }],
 			evidence: evidence('profile'),
 		})
 		const original = structuredClone(profile)
-		const expectedHash = hashResidentSkill(candidate)
-		const promoted = promoteResidentSkill(profile, candidate, evaluation(candidate), proof)
+		const expectedHash = hashLearningSkill(candidate)
+		const promoted = promoteLearningSkill(profile, candidate, evaluation(candidate), proof)
 		expect(promoted.revision).toBe(profile.revision + 1)
 		expect(promoted.skills).toHaveLength(1)
 		expect(promoted.skills[0]).toMatchObject({ ...candidate, hash: expectedHash, evidence: proof })
@@ -377,36 +375,36 @@ describe('evaluated resident skills', () => {
 		(phase) => {
 			const candidate = skill()
 			const tested = evaluation(candidate)
-			tested[phase].candidateRevision = hashResidentSkill(skill('An unrelated candidate.'))
+			tested[phase].candidateRevision = hashLearningSkill(skill('An unrelated candidate.'))
 			expect(() =>
-				promoteResidentSkill(undefined, candidate, tested, evidence('wrong-digest')),
+				promoteLearningSkill(undefined, candidate, tested, evidence('wrong-digest')),
 			).toThrow()
 		},
 	)
 
 	it('requires comparisons against the currently active skill in both evidence rounds', () => {
 		const original = skill()
-		const active = promoteResidentSkill(
+		const active = promoteLearningSkill(
 			undefined,
 			original,
 			evaluation(original),
 			evidence('first'),
 		)
 		const replacement = skill('Read, cross-check and cite the source.')
-		const baseline = hashResidentSkill(original)
+		const baseline = hashLearningSkill(original)
 		for (const phase of ['verification', 'confirmation'] as const) {
 			const stale = evaluation(replacement, baseline)
 			stale[phase].baselineRevision = 'none'
-			expect(() => promoteResidentSkill(active, replacement, stale, evidence('stale'))).toThrow()
+			expect(() => promoteLearningSkill(active, replacement, stale, evidence('stale'))).toThrow()
 		}
-		const updated = promoteResidentSkill(
+		const updated = promoteLearningSkill(
 			active,
 			replacement,
 			evaluation(replacement, baseline),
 			evidence('second'),
 		)
 		expect(updated.skills).toHaveLength(1)
-		expect(updated.skills[0]?.hash).toBe(hashResidentSkill(replacement))
+		expect(updated.skills[0]?.hash).toBe(hashLearningSkill(replacement))
 		expect(active.skills[0]?.hash).toBe(baseline)
 	})
 
@@ -417,7 +415,7 @@ describe('evaluated resident skills', () => {
 			const tested = evaluation(candidate)
 			if (fault === 'missing-confirmation') {
 				expect(() =>
-					promoteResidentSkill(
+					promoteLearningSkill(
 						undefined,
 						candidate,
 						{ verification: tested.verification, protection: tested.protection },
@@ -440,34 +438,34 @@ describe('evaluated resident skills', () => {
 				tested.verification.attributions = []
 			}
 			expect(() =>
-				promoteResidentSkill(undefined, candidate, tested, evidence('rejected')),
+				promoteLearningSkill(undefined, candidate, tested, evidence('rejected')),
 			).toThrow()
 		},
 	)
 
 	it('rolls back as a new revision while preserving current preferences and identity', () => {
 		const original = skill()
-		const first = promoteResidentSkill(undefined, original, evaluation(original), evidence('first'))
+		const first = promoteLearningSkill(undefined, original, evaluation(original), evidence('first'))
 		const replacement = skill('A verified revised procedure.')
-		const second = promoteResidentSkill(
+		const second = promoteLearningSkill(
 			first,
 			replacement,
-			evaluation(replacement, hashResidentSkill(original)),
+			evaluation(replacement, hashLearningSkill(original)),
 			evidence('second'),
 		)
-		const current = reviseResidentProfile(second, {
+		const current = reviseLearningProfile(second, {
 			identity: 'The current research identity.',
 			preferences: [{ key: 'language', value: 'Turkish', supersedes: null }],
 			evidence: evidence('new-profile'),
 		})
-		const restored = restoreResidentSkill(current, first, original.name, evidence('rollback'))
+		const restored = restoreLearningSkill(current, first, original.name, evidence('rollback'))
 		expect(restored.revision).toBe(current.revision + 1)
 		expect(restored.skills[0]?.hash).toBe(first.skills[0]?.hash)
 		expect(restored.preferences).toEqual(current.preferences)
 		expect(restored.identity).toEqual(current.identity)
 		expect(restored.lastChange.key).toBe('rollback')
-		expect(current.skills[0]?.hash).toBe(hashResidentSkill(replacement))
-		const removed = restoreResidentSkill(restored, undefined, original.name, evidence('disable'))
+		expect(current.skills[0]?.hash).toBe(hashLearningSkill(replacement))
+		const removed = restoreLearningSkill(restored, undefined, original.name, evidence('disable'))
 		expect(removed.revision).toBe(restored.revision + 1)
 		expect(removed.skills).toEqual([])
 		expect(removed.preferences).toEqual(current.preferences)
@@ -477,9 +475,7 @@ describe('evaluated resident skills', () => {
 
 describe('bounded resident learning projection', () => {
 	it('includes only named skills and counts missing selections even without a profile', () => {
-		expect(
-			projectResidentLearning(undefined, { maxChars: 1_000, skillNames: ['missing'] }),
-		).toEqual({
+		expect(projectLearning(undefined, { maxChars: 1_000, skillNames: ['missing'] })).toEqual({
 			text: '',
 			revision: null,
 			includedSkills: [],
@@ -487,15 +483,15 @@ describe('bounded resident learning projection', () => {
 			withheldSkills: [],
 		})
 		const candidate = skill()
-		const current = promoteResidentSkill(
+		const current = promoteLearningSkill(
 			undefined,
 			candidate,
 			evaluation(candidate),
 			evidence('selected'),
 		)
-		const unselected = projectResidentLearning(current, { maxChars: 10_000, skillNames: [] })
+		const unselected = projectLearning(current, { maxChars: 10_000, skillNames: [] })
 		expect(unselected).toMatchObject({ text: '', includedSkills: [], omitted: 0 })
-		const selected = projectResidentLearning(current, {
+		const selected = projectLearning(current, {
 			maxChars: 10_000,
 			skillNames: [candidate.name, 'missing'],
 		})
@@ -506,30 +502,30 @@ describe('bounded resident learning projection', () => {
 			kind: 'evaluated-guidance',
 			name: candidate.name,
 			body: candidate.body,
-			hash: hashResidentSkill(candidate),
+			hash: hashLearningSkill(candidate),
 		})
 	})
 
 	it('honors the exact UTF-16 character boundary without emitting partial instructions', () => {
 		const candidate = skill('Önce kanıtı oku. 🔎\nSonra sonucu doğrula; belirsizse dur.')
-		const current = promoteResidentSkill(
+		const current = promoteLearningSkill(
 			undefined,
 			candidate,
 			evaluation(candidate),
 			evidence('unicode'),
 		)
-		const full = projectResidentLearning(current, {
+		const full = projectLearning(current, {
 			maxChars: 10_000,
 			skillNames: [candidate.name],
 		})
-		const exact = projectResidentLearning(current, {
+		const exact = projectLearning(current, {
 			maxChars: full.text.length,
 			skillNames: [candidate.name],
 		})
 		expect(exact.text).toBe(full.text)
 		expect(JSON.parse(exact.text).body).toBe(candidate.body)
 		expect(exact.omitted).toBe(0)
-		const short = projectResidentLearning(current, {
+		const short = projectLearning(current, {
 			maxChars: full.text.length - 1,
 			skillNames: [candidate.name],
 		})
@@ -539,13 +535,13 @@ describe('bounded resident learning projection', () => {
 	it('keeps a smaller selected skill when an earlier instruction does not fit', () => {
 		const large = { ...skill('x'.repeat(3_500)), name: 'large-guidance' }
 		const small = { ...skill('Verify first.'), name: 'small-guidance' }
-		const first = promoteResidentSkill(undefined, large, evaluation(large), evidence('large'))
-		const current = promoteResidentSkill(first, small, evaluation(small), evidence('small'))
-		const smallOnly = projectResidentLearning(current, {
+		const first = promoteLearningSkill(undefined, large, evaluation(large), evidence('large'))
+		const current = promoteLearningSkill(first, small, evaluation(small), evidence('small'))
+		const smallOnly = projectLearning(current, {
 			maxChars: 10_000,
 			skillNames: [small.name],
 		})
-		const projected = projectResidentLearning(current, {
+		const projected = projectLearning(current, {
 			maxChars: smallOnly.text.length,
 			skillNames: [large.name, small.name],
 		})
@@ -557,35 +553,35 @@ describe('bounded resident learning projection', () => {
 
 	it('counts all omitted profile entries at zero budget and refreshes after correction and rollback', () => {
 		const candidate = skill()
-		const learned = promoteResidentSkill(
+		const learned = promoteLearningSkill(
 			undefined,
 			candidate,
 			evaluation(candidate),
 			evidence('skill'),
 		)
-		const current = reviseResidentProfile(learned, {
+		const current = reviseLearningProfile(learned, {
 			identity: 'A careful assistant.',
 			preferences: [{ key: 'language', value: 'English', supersedes: null }],
 			evidence: evidence('old-profile'),
 		})
 		expect(
-			projectResidentLearning(current, { maxChars: 0, skillNames: [candidate.name, 'missing'] }),
+			projectLearning(current, { maxChars: 0, skillNames: [candidate.name, 'missing'] }),
 		).toMatchObject({
 			text: '',
 			includedSkills: [],
 			omitted: 4,
 		})
-		const corrected = reviseResidentProfile(current, {
+		const corrected = reviseLearningProfile(current, {
 			preferences: [{ key: 'language', value: 'Turkish', supersedes: 'old-profile' }],
 			evidence: evidence('corrected-profile'),
 		})
-		const removed = restoreResidentSkill(
+		const removed = restoreLearningSkill(
 			corrected,
 			undefined,
 			candidate.name,
 			evidence('disable-skill'),
 		)
-		const projected = projectResidentLearning(removed, {
+		const projected = projectLearning(removed, {
 			maxChars: 10_000,
 			skillNames: [candidate.name],
 		})
@@ -603,13 +599,13 @@ describe('bounded resident learning projection', () => {
 
 	it('rejects invalid budgets, duplicate selections and tampered evaluated content', () => {
 		for (const maxChars of [-1, 1.5, Number.POSITIVE_INFINITY, 64_001]) {
-			expect(() => projectResidentLearning(undefined, { maxChars, skillNames: [] })).toThrow()
+			expect(() => projectLearning(undefined, { maxChars, skillNames: [] })).toThrow()
 		}
 		expect(() =>
-			projectResidentLearning(undefined, { maxChars: 100, skillNames: ['same', 'same'] }),
+			projectLearning(undefined, { maxChars: 100, skillNames: ['same', 'same'] }),
 		).toThrow()
 		const candidate = skill()
-		const current = promoteResidentSkill(
+		const current = promoteLearningSkill(
 			undefined,
 			candidate,
 			evaluation(candidate),
@@ -624,7 +620,7 @@ describe('bounded resident learning projection', () => {
 			})),
 		}
 		expect(() =>
-			projectResidentLearning(substituted, { maxChars: 10_000, skillNames: [candidate.name] }),
+			projectLearning(substituted, { maxChars: 10_000, skillNames: [candidate.name] }),
 		).toThrow()
 	})
 })

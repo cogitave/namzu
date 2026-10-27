@@ -4,10 +4,12 @@ title: Resident work in the CLI
 description: Explicit foreground execution of durable pursuits, project-bound state, pause observation and inspected recovery.
 resource: packages/cli/src/commands/resident.ts
 tags: [cli, agents, continuity, recovery]
-status: draft
+status: deprecated
 ---
 
 # Resident work in the CLI
+
+> **Deprecated.** Residents are deprecated and will be removed in the next major release. Learning (see [learning](../sdk/learning.md)) keeps working through `namzu learn`, but `runLearningCycle` still takes a resident agenda as its activation target until learning gets its own in the next major release, so the resident agenda store stays in use for learning until then. For recurring work use `namzu schedule`, for work that spans turns use `/goal`, and for parallel work use background agents in the terminal app. The resident exports of `@namzu/sdk` and every `namzu resident` action are marked deprecated and print a removal notice.
 
 `namzu resident` is the first CLI host for the SDK's
 [resident experiment](../sdk/resident-agents.md). It retains authorized work
@@ -467,7 +469,7 @@ decision-shape review and any explicitly configured command gate.
 
 ## Explicit learning experiments
 
-`learn` runs a deliberately selected executable host module through the SDK's
+`learn` (also available as the top-level [`namzu learn`](learning.md)) runs a deliberately selected executable host module through the SDK's
 [stored learning cycle](../sdk/resident-learning-storage.md). `learning` inspects
 its durable records without executing the module or starting a model:
 
@@ -484,7 +486,7 @@ resident. The module must be an explicit regular `.learning.js` or `.learning.mj
 file with a default factory. There is no automatic module discovery or replay.
 
 The factory receives `{cwd, tenantId, projectId, agentKey, signal, store}` and
-returns `Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
+returns `Omit<LearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
 It should only configure callbacks and read retained evidence: all model and
 review calls belong inside the charged `explore`, `generate` and `evaluate` callbacks.
 The CLI supplies the bound agenda, cancellation and durable journal. The factory
@@ -500,7 +502,7 @@ journal. No supplied correction is required. This is an explicitly invoked
 host capability; ordinary conversations do not automatically start experiments.
 
 A host may instead return
-`Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
+`Omit<LearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
 and record independently scored turns through `store.observe`. The SDK then
 [selects one retained failure](../sdk/resident-learning-discovery.md), bound to
 the installed guidance and the authorized evaluation conditions. This mode

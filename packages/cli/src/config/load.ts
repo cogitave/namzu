@@ -56,6 +56,11 @@ import {
 	mergeComposerTriggers,
 } from './composer-triggers.js'
 import { configMetadataLiteral } from './debug.js'
+import {
+	MAX_LEARNING_TOKENS,
+	MIN_LEARNING_TOKENS,
+	mergeLearningGenerator,
+} from './learning-generator.js'
 import type {
 	BrowserConfig,
 	CodeAnalysisConfig,
@@ -730,6 +735,46 @@ const CONFIG_READERS: ConfigReaders = {
 	hypermode: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	learningObservations: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	learningGenerator: (v, context) => {
+		if (typeof v === 'boolean') return v
+		if (!isConfigMapping(v))
+			return invalidConfigValue(context, [], 'must be true, false or a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw)) {
+			if (key !== 'enabled' && key !== 'cycleTokens' && key !== 'dailyTokens')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a learningGenerator setting (enabled, cycleTokens, dailyTokens)',
+				)
+		}
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
+		for (const key of ['cycleTokens', 'dailyTokens'] as const) {
+			const value = raw[key]
+			if (
+				value !== undefined &&
+				(typeof value !== 'number' ||
+					!Number.isSafeInteger(value) ||
+					value < MIN_LEARNING_TOKENS ||
+					value > MAX_LEARNING_TOKENS)
+			)
+				return invalidConfigValue(
+					context,
+					[key],
+					`must be a whole number from ${MIN_LEARNING_TOKENS} to ${MAX_LEARNING_TOKENS}`,
+				)
+		}
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+			...(raw.cycleTokens !== undefined ? { cycleTokens: raw.cycleTokens as number } : {}),
+			...(raw.dailyTokens !== undefined ? { dailyTokens: raw.dailyTokens as number } : {}),
+		}
 	},
 	// Shape only. Per-entry validation belongs to `compilePermissions`, which
 	// reports a bad effect or an unusable pattern as a diagnostic the user
@@ -1816,6 +1861,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	statusLine: undefined,
 	// Changes what the model is told on every turn; a file decision, never a variable a shell profile could carry invisibly.
 	hypermode: undefined,
+	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
+	learningObservations: undefined,
+	// Spends tokens in the background and changes what conversations are told; a file decision.
+	learningGenerator: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
@@ -2034,6 +2083,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'codeAnalysis' && layer.config.codeAnalysis) {
 				// `enabled: false` holds: a later file may turn the tool off, never back on.
 				out.codeAnalysis = mergeCodeAnalysisConfig(out.codeAnalysis, layer.config.codeAnalysis)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'learningGenerator' && layer.config.learningGenerator !== undefined) {
+				// A project layer only lowers. See `mergeLearningGenerator`.
+				out.learningGenerator = mergeLearningGenerator(
+					out.learningGenerator,
+					layer.config.learningGenerator,
+					isProjectSource(layer.sourceFor(key)),
+				)
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}

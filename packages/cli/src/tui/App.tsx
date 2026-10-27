@@ -89,6 +89,10 @@ import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '..
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
+	type QuestionGate,
+	createQuestionGate,
+} from '../integrations/learning/generator-trigger.js'
+import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
 	writeTerminalNotification,
@@ -1411,6 +1415,27 @@ function AppBody({
 	/** For the scheduler integration's loop timer, which reads it outside render. */
 	const stateRef = useRef(state)
 	stateRef.current = state
+	/** Learned-by-itself notices waiting for the turn in flight to end. */
+	const learnedQueueRef = useRef<string[]>([])
+	const flushLearnedRef = useRef<() => void>(() => {})
+	flushLearnedRef.current = () => {
+		if (stateRef.current !== 'idle' || abortRef.current !== null) return
+		const lines = learnedQueueRef.current.splice(0)
+		if (lines.length === 0) return
+		setMessages((prev) => [
+			...prev,
+			...lines.map((content) => ({
+				id: nextId(),
+				role: 'system' as const,
+				content,
+				glyph: systemRowStyle('notice').glyph,
+				glyphColor: systemRowStyle('notice').color,
+			})),
+		])
+	}
+	useEffect(() => {
+		if (state === 'idle') flushLearnedRef.current()
+	}, [state])
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	// True when the sentence that stopped startup already says what to do next, so
 	// the screen adds no second line of advice under it.
@@ -2489,6 +2514,10 @@ function AppBody({
 	}
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
+	/** Open while any question waits on the person; the background learning cycle reads it. */
+	const learningQuestionsRef = useRef<QuestionGate | null>(null)
+	if (learningQuestionsRef.current === null) learningQuestionsRef.current = createQuestionGate()
+	const learningQuestions = learningQuestionsRef.current
 	/** The questions waiting on the person, one on screen at a time. */
 	const permissionAsksRef = useRef<AskQueue<PendingPermission> | null>(null)
 	if (permissionAsksRef.current === null) {
@@ -2514,7 +2543,11 @@ function AppBody({
 					setState((current) => (current === 'awaiting-permission' ? 'thinking' : current))
 				}
 			},
-			() => setPermissionCount(permissionAsksRef.current?.count()),
+			() => {
+				setPermissionCount(permissionAsksRef.current?.count())
+				// The background learning cycle holds still while any question is open.
+				learningQuestions.set((permissionAsksRef.current?.open ?? 0) > 0)
+			},
 		)
 	}
 	const permissionAsks = permissionAsksRef.current
@@ -5352,6 +5385,20 @@ function AppBody({
 								? { additionalDirectories: activeCtx.additionalDirectories }
 								: {}),
 							...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
+							learningObservations: activeCtx.learningObservations !== false,
+							// Learn by itself in the background of this conversation, unless the
+							// config key turned it off.
+							backgroundLearning: {
+								config: activeCtx.learningGenerator,
+								questions: learningQuestions,
+								// One dim row when a revision was activated; the cycle never
+								// asks, and the row names how to undo it.
+								// Held until no turn is streaming, so the row never lands mid-turn.
+								onLearned: (line) => {
+									learnedQueueRef.current.push(line)
+									flushLearnedRef.current()
+								},
+							},
 							enableComputerUse: true,
 							// The browser tools, when the config did not switch them off. The
 							// profile is the one `/browser profile` chose, else the config's.

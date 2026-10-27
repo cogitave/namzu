@@ -2,14 +2,16 @@
 type: Design
 title: Resident learning cycle
 description: One host-authorized experiment from recorded failure to generated guidance, paired evaluation, fresh confirmation and durable activation.
-resource: packages/sdk/src/manager/resident/learning-cycle.ts
+resource: packages/sdk/src/learning/cycle.ts
 tags: [sdk, agents, learning, evaluation]
 status: draft
 ---
 
 # Resident learning cycle
 
-`runResidentLearningCycle` connects the existing [resident learning](resident-learning.md)
+The learning code is not resident-specific: it lives in the [learning module](learning.md), and the old `Resident`-prefixed names are deprecated aliases. This page keeps its name because the activation target is still a resident's agenda.
+
+`runLearningCycle` connects the existing [resident learning](resident-learning.md)
 and [harness verification](harness-verification.md) contracts. It generates one
 instructional candidate from a recorded failure, requests independent evaluation
 and fresh confirmation, and activates accepted content through the agenda's
@@ -25,9 +27,20 @@ comparison and the distinction between persisted guidance and recursive
 improvement of the improvement procedure. This API does not train model weights,
 execute generated skill code or establish a generalization result.
 
+## Status and what is missing
+
+Verified 2026-10-26. The cycle is `@experimental`. From the CLI it is reached
+through `namzu learn <file> --trust` with a host-supplied `<file>.learning.js`
+generator, or through Namzu's own built-in generator (the terminal runs it by itself; see [Learning in the CLI](../cli/learning.md#learning-by-itself)).
+The cycle handles one candidate per run: there is no fan-out, composition or
+blind selection among candidates yet. The `resources` option is a per-cycle budget
+cap, not a trigger policy: it bounds what one cycle may spend and does not
+decide when a cycle runs. The [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
+lists what is built, what is opt-in and the staged plan.
+
 ## Host responsibilities and execution
 
-`ResidentLearningCycleOptions` requires an agenda with `read` and `promoteSkill`,
+`LearningCycleOptions` requires an agenda with `read` and `promoteSkill`,
 a `skillName`, a bounded `failure` containing evidence and a trace, a cancellation
 signal, a resource policy, a `protection` plan and three callbacks:
 
@@ -43,7 +56,7 @@ signal, a resource policy, a `protection` plan and three callbacks:
   stage (`verification` or `confirmation`). It runs and retains its own cases,
   scoring and trace attribution, then returns a `HarnessVerificationBatch` and
   `usageComplete`. Existing `runExperiment` is the intended execution mechanism.
-- `record` durably appends each `ResidentLearningCycleEvent` before acknowledging.
+- `record` durably appends each `LearningCycleEvent` before acknowledging.
   A host can use an owned JSONL file or the optional
   [SQLite learning store](resident-learning-storage.md). Events are delivered
   in sequence even when a callback records several run receipts concurrently.
@@ -64,7 +77,7 @@ silently receive evaluation produced for a different baseline. The workflow
 does not hold the agenda locked during model calls.
 
 Normalized name, description, body and any host-declared source bindings identify a candidate through
-`hashResidentSkill`. A changed name or mismatched evaluation revision is refused.
+`hashLearningSkill`. A changed name or mismatched evaluation revision is refused.
 An identical candidate is rejected without evaluation. The existing review gate
 requires at least five tasks with exactly two trials per side, independently
 attributed improvement, no observed regression or ambiguous measurement, and a
@@ -93,7 +106,7 @@ guidance is readable but has no retroactively invented preservation evidence.
 
 Each callback must await `context.recordUsage` for every non-overlapping execution,
 including generation, unsuccessful cases, reviewers and other side calls.
-`ResidentLearningReceipt` contains a UUID `turnId`, `tokens` and `costUsd`.
+`LearningReceipt` contains a UUID `turnId`, `tokens` and `costUsd`.
 Unknown fields are `null`. Duplicate UUIDs, including case aliases, are refused;
 an invalid receipt invalidates the stage even if the callback catches the error.
 There are at most 1,024 receipts in one cycle. Token totals must remain safe
@@ -116,7 +129,7 @@ reservation or an in-flight spending ceiling**. The host must impose turn limits
 and propagate the signal to every model, tool and evaluator it owns. The workflow
 waits for callbacks and does not detach an uncooperative executor on cancellation.
 
-`ResidentLearningConsumption` preserves known totals, unknown receipt counts and
+`LearningConsumption` preserves known totals, unknown receipt counts and
 unfinished stages. The older numeric `HarnessReview.usage.costUsd` cannot express
 unpriced work; use the cycle's consumption fields for that decision. A callback
 that fails after recording some runs retains those receipts and leaves its stage
@@ -148,12 +161,12 @@ already running pursuit.
 
 ```ts
 import {
-  runResidentLearningCycle,
-  type ResidentLearningCycleOptions,
+  runLearningCycle,
+  type LearningCycleOptions,
 } from '@namzu/sdk'
 
-async function evaluateOneSkill(host: ResidentLearningCycleOptions) {
-  const result = await runResidentLearningCycle(host)
+async function evaluateOneSkill(host: LearningCycleOptions) {
+  const result = await runLearningCycle(host)
   return {
     status: result.status,
     candidate: result.candidateRevision,

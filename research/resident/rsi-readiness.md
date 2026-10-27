@@ -52,6 +52,88 @@ completed 40 fixture pursuits; measured selection with patience two completed
 payoff. Lower consumption alone cannot justify promotion. Those figures are
 development fixtures, not current production success rates.
 
+## Verified status, 2026-10-26
+
+Checked against `origin/main` at `0aa415967`. The comparison method is the
+public paper "Harness^2: Recursive Agent Harnessing for an Open World"
+(arXiv 2610.14224): candidate harnesses are proposed, executed, composed and
+selected blind, with a library of experience kept across tasks. The assessment
+above is a snapshot from 2026-09-14; this section supersedes its "Remaining
+gap" column.
+
+**Built.**
+
+- Paired, confirmation-gated verification and the no-regression protection plan
+  (`packages/sdk/src/eval/harness-verification.ts`, `harness-protection.ts`).
+- The learning cycle from candidate to activation and exact-revision rollback
+  (`packages/sdk/src/manager/resident/learning-cycle.ts`). It is `@experimental`
+  and is reached only through the explicit command
+  `namzu resident learn <file> --trust`. It is not on a default product path.
+- Retained-failure discovery over a durable store.
+- Recovery without dead ends: the turn ladders for a full context, an
+  unsupported image, a reasoning-only reply and a provider fallback.
+- Proposed-then-confirmed skills in the interactive terminal, and the deferred
+  `code_analysis` tool over `@namzu/analysis`.
+
+**Built on the learning cycle, 2026-10-26.** Conversations keep the failures and
+recoveries they already classify as observations (a reference, a fixed one
+sentence, local, 30 days). A leak tripwire refuses evaluator-side material in
+evidence and candidates. An experience library with a typed edit ledger keeps
+what each cycle tried and how it ended. A built-in generator proposes one
+revision of one instruction skill on an allowlisted surface, and a built-in
+scenario evaluation checks it (blind grading, protection tasks, a fresh second
+round). Owner update 2026-10-26: this runs by itself in the background of the
+interactive terminal, on by default (`learningGenerator: false` turns it off),
+bounded per cycle and per day, and every activation is exact-revision and
+revertible with `namzu learn --undo`. The generic cycle (`runLearningCycle`)
+stays `@experimental`, and `namzu learn <module> --trust` still runs a
+host-supplied experiment.
+
+**Missing.**
+
+- Fan-out: propose several candidates, execute each, compose, select blind. The
+  cycle handles one candidate per run.
+- Blind, anonymised selection among candidates (the evaluation's grading is
+  blind between the two sides, not a selection among many).
+- Lessons written by the generator (cue, evidence, confidence). The ledger and
+  verdicts are recorded; lessons are not yet produced.
+- Failure-gated triggering beyond a count of new observations.
+- Authoring of Namzu's own tools, hooks, agents or configuration, editing its
+  own source, and recursive improvement of the improvement procedure. None is
+  started, and the Muse experiment found retained raw experience as accurate as
+  generated guidance, so the payoff of a generator is unproven for Namzu. The
+  built-in evaluation's scenarios are fixed and general; it can show that a
+  revision does no harm and changes recovery behaviour, not that it helps a
+  project's own tasks.
+
+**Cost control.** `resources` (a unit and a maximum number of units) and usage
+receipts bound what one cycle may spend. The built-in generator sets it to 120,000
+tokens by default, keeps a daily allowance of 300,000, requires 5 new
+observations and a 6 hour pause before it starts by itself, and waits for an
+idle conversation before each model call.
+
+### Staged plan
+
+Order: 0, 1, 3, 2, 4, then measure. 5 and 6 only if 4 shows a gain.
+
+| Step | Work | Safety floor |
+| --- | --- | --- |
+| 0 | This status, and the cost label above | None touched |
+| 1 | Bridge from failures and recoveries the runtime already classifies to observations: references into the session log, a short redacted summary, local only, pruned after 30 days, a config key turns it off | Observations only, no activation |
+| 3 | Leak tripwire for candidates (evaluator and answer canaries, grader-verdict markers) | It is part of the floor |
+| 2 | Experience library and typed edit ledger beside observations | Read-only data, pinned evaluator revision |
+| 4 | Built-in generator, single surface (instruction skills). Owner update 2026-10-26: automatic in the background and on by default, a config key turns it off; spend bounded per cycle and per day; `namzu learn` runs a cycle by hand and lists or undoes what was learned | Allowlist is instruction skills only; permission review, protected paths, the dangerous-pattern floor and the learning code itself are never on the editable surface; activation is by exact revision, gated by paired verification and a fresh confirmation round, and revertible |
+| 5 | Execute-and-compose with blind selection on the workflow tool | Candidates run sandboxed; paired verification still gates activation |
+| 6 | Scheduled or failure-gated runs with mandatory per-job permissions | One run at a time |
+| 7-8 | Parity workflow, self-source map and `code_navigation`; `@namzu/analysis` phase B | Read-only |
+| 9 | Native analysis lane (Rust in CI and packaging are owner decisions) | Behind a config key |
+| 10-12 | Own tools, hooks, agents and config with revisions; own-source edits in a managed worktree; recursive improvement | Safety floor never editable by itself; owner approval to switch |
+
+Defaults chosen where the plan asked the owner, so they can be changed:
+observations record only failures and recoveries the runtime already classifies
+and are never uploaded. The generator was chosen opt-in, then changed by the
+owner on 2026-10-26 to run by itself and be on by default.
+
 ## Research with a direct architectural consequence
 
 **Darwin Gödel Machine** evolves coding agents through code modifications,
@@ -175,3 +257,7 @@ passed both rounds (8/10 to 10/10) while preserving all 16 unrelated trials. A
 scripted counterexample with aggregate improvement and one collateral loss was
 rejected. This closes an acceptance-coverage gap; representative task selection,
 long-term interference and recursive improvement remain unproven.
+
+## Open owner decision: learning without a resident
+
+`namzu learn --sessions` reads the conversation observations and activates into the project's own guidance (a revisioned store beside them), which later conversations start with; with a host module that supplies the generator and the independent evaluation. Namzu's own generator needs no module: it runs by itself in the terminal and by hand through `namzu learn`.

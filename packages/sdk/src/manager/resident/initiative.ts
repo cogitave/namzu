@@ -11,7 +11,11 @@ export const residentObservationSchema = z.object({
 	costUnits: cost.nullable(),
 })
 
-/** @experimental Host-validated outcome and measured resource use, never model self-confidence. */
+/**
+ * @experimental Host-validated outcome and measured resource use, never model self-confidence.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentObservation = Readonly<z.infer<typeof residentObservationSchema>>
 
 export const residentFeedbackSchema = z.object({
@@ -29,7 +33,11 @@ export const residentFeedbackSchema = z.object({
 		.max(8),
 })
 
-/** @experimental Last eight observations; best progress and stagnation survive eviction. */
+/**
+ * @experimental Last eight observations; best progress and stagnation survive eviction.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentFeedback = Readonly<
 	Omit<z.infer<typeof residentFeedbackSchema>, 'observations'>
 > & {
@@ -69,7 +77,11 @@ export function freezeResidentFeedback(value: ResidentFeedback): ResidentFeedbac
 	})
 }
 
-/** @experimental Policy units are chosen by the host; scores are heuristics, not probabilities. */
+/**
+ * @experimental Policy units are chosen by the host; scores are heuristics, not probabilities.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentSelectionConfig {
 	readonly progressValue: number
 	readonly initialExpectedProgress: number
@@ -77,7 +89,11 @@ export interface ResidentSelectionConfig {
 	readonly maxStagnantSteps?: number
 }
 
-/** @experimental Explainable inputs for a single selection; unknown cost is not zero. */
+/**
+ * @experimental Explainable inputs for a single selection; unknown cost is not zero.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentCandidate {
 	readonly pursuitId: string
 	readonly reason:
@@ -92,7 +108,11 @@ export interface ResidentCandidate {
 	readonly score: number | null
 }
 
-/** @experimental Choice is bound to the whole agenda revision used to compute it. */
+/**
+ * @experimental Choice is bound to the whole agenda revision used to compute it.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export interface ResidentSelection {
 	readonly agendaRevision: number
 	readonly pursuitId: string | null
@@ -100,7 +120,11 @@ export interface ResidentSelection {
 	readonly candidates: readonly ResidentCandidate[]
 }
 
-/** @experimental Pure local selection; perform inference inside budgeted steps, not here. */
+/**
+ * @experimental Pure local selection; perform inference inside budgeted steps, not here.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
+ */
 export type ResidentSelector = (agenda: ResidentAgendaState, now: number) => ResidentSelection
 
 function meanObservedCost(observations: readonly ResidentObservation[]): number {
@@ -119,6 +143,8 @@ function meanObservedCost(observations: readonly ResidentObservation[]): number 
  * @experimental Cost-aware continuation with an explicit abstention choice.
  * This is a measured-progress heuristic, not Bayesian value of computation.
  * A finite bootstrap allowance permits delayed payoffs but may stop too early.
+ *
+ * @deprecated Residents are deprecated and removed in the next major release. Learning (`runLearningCycle` and the other `Learning*` names) keeps working, but `runLearningCycle` still takes a resident agenda until learning gets its own activation target in the next major release; for long-running work use scheduled tasks (`LocalTaskScheduler`), session goals and background agents.
  */
 export function createResidentSelector(config: ResidentSelectionConfig): ResidentSelector {
 	const policy = z

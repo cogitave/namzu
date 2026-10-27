@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { generateProjectId, generateTenantId } from '../../utils/id.js'
-import type { ResidentLearningCycleEvent, ResidentLearningCycleResult } from './learning-cycle.js'
-import { SqliteResidentLearningStore } from './learning-store.js'
+import { generateProjectId, generateTenantId } from '../utils/id.js'
+import type { LearningCycleEvent, LearningCycleResult } from './cycle.js'
+import { SqliteLearningStore } from './store.js'
 
 const RECEIPT_SESSION = randomUUID()
 
@@ -27,9 +27,9 @@ function fixture() {
 			agentKey: 'default',
 		},
 	}
-	const store = new SqliteResidentLearningStore(options)
+	const store = new SqliteLearningStore(options)
 	const cycleId = randomUUID()
-	const start: ResidentLearningCycleEvent = {
+	const start: LearningCycleEvent = {
 		cycleId,
 		sequence: 1,
 		kind: 'started',
@@ -43,7 +43,7 @@ function fixture() {
 	return { root, options, store, cycleId, start }
 }
 
-const result = (cycleId: string, tokens = 0): ResidentLearningCycleResult => ({
+const result = (cycleId: string, tokens = 0): LearningCycleResult => ({
 	cycleId,
 	status: 'failed',
 	reason: 'Evaluator interrupted.',
@@ -62,7 +62,7 @@ describe('SQLite resident learning journal', () => {
 	it('reopens exploration evidence and its usage stage without replaying execution', async () => {
 		const f = fixture()
 		await f.store.append(f.start)
-		const observation: ResidentLearningCycleEvent = {
+		const observation: LearningCycleEvent = {
 			cycleId: f.cycleId,
 			sequence: 2,
 			kind: 'exploration',
@@ -85,7 +85,7 @@ describe('SQLite resident learning journal', () => {
 				receipt: { sessionId: RECEIPT_SESSION, turnId: randomUUID(), tokens: 7, costUsd: null },
 			},
 		})
-		const reader = new SqliteResidentLearningStore({ ...f.options, readOnly: true })
+		const reader = new SqliteLearningStore({ ...f.options, readOnly: true })
 		expect(await reader.events(f.cycleId, { after: 1 })).toContainEqual(observation)
 		expect((await reader.get(f.cycleId))?.recordedUsage.tokens).toBe(7)
 	})
@@ -105,7 +105,7 @@ describe('SQLite resident learning journal', () => {
 			result: null,
 			recordedUsage: { tokens: 7, receipts: 1, unknownCosts: 1 },
 		})
-		const terminal: ResidentLearningCycleEvent = {
+		const terminal: LearningCycleEvent = {
 			cycleId: f.cycleId,
 			sequence: 3,
 			kind: 'finished',
@@ -113,7 +113,7 @@ describe('SQLite resident learning journal', () => {
 		}
 		await f.store.append(terminal)
 		const before = readFileSync(f.options.databasePath)
-		const reader = new SqliteResidentLearningStore({
+		const reader = new SqliteLearningStore({
 			...f.options,
 			readOnly: true,
 		})
@@ -132,7 +132,7 @@ describe('SQLite resident learning journal', () => {
 
 	it('inspection of an absent database never creates state', async () => {
 		const f = fixture()
-		const reader = new SqliteResidentLearningStore({
+		const reader = new SqliteLearningStore({
 			...f.options,
 			readOnly: true,
 		})
@@ -218,7 +218,7 @@ describe('SQLite resident learning journal', () => {
 			await f.store.putArtifact(f.cycleId, 'failure', {
 				private: 'owned evidence',
 			})
-			const other = new SqliteResidentLearningStore({
+			const other = new SqliteLearningStore({
 				...f.options,
 				scope: {
 					...f.options.scope,
@@ -279,7 +279,7 @@ describe('SQLite resident learning journal', () => {
 			kind: 'activation-requested',
 			data: {},
 		})
-		const reopened = new SqliteResidentLearningStore({
+		const reopened = new SqliteLearningStore({
 			...f.options,
 			readOnly: true,
 		})
@@ -307,9 +307,38 @@ describe('SQLite resident learning journal', () => {
 		db.exec('PRAGMA user_version = 99')
 		db.close()
 		const before = readFileSync(f.options.databasePath)
-		await expect(
-			new SqliteResidentLearningStore({ ...f.options, readOnly: true }).list(),
-		).rejects.toThrow('version 99')
+		await expect(new SqliteLearningStore({ ...f.options, readOnly: true }).list()).rejects.toThrow(
+			'version 99',
+		)
 		expect(readFileSync(f.options.databasePath)).toEqual(before)
+	})
+})
+
+describe('pruning observations', () => {
+	const observation = (turn: string, taskKey: string) => ({
+		skillName: 'inspect',
+		evaluatorRevision: 'rev-1',
+		baselineRevision: 'none' as const,
+		sessionId: randomUUID(),
+		turnId: turn,
+		taskKey,
+		outcome: 'failed' as const,
+		usageComplete: true,
+		evidence: { key: 'k', source: 'host', reason: 'It failed.' },
+		trace: 'trace',
+	})
+
+	it('drops the unclaimed observations the host chooses and keeps the rest', async () => {
+		const { store } = fixture()
+		await store.observe(observation(randomUUID(), 'old'))
+		await store.observe(observation(randomUUID(), 'new'))
+		const removed = await store.pruneObservations((record) => record.taskKey === 'old')
+		expect(removed).toBe(1)
+		expect((await store.observations()).map((o) => o.taskKey)).toEqual(['new'])
+	})
+
+	it('is a no-op on a store that was never written', async () => {
+		const { store } = fixture()
+		expect(await store.pruneObservations(() => true)).toBe(0)
 	})
 })

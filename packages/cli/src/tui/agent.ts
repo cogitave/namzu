@@ -269,6 +269,27 @@ import {
 } from '../integrations/decision/model.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
+	type LearningGeneratorConfig,
+	resolveGeneratorSettings,
+} from '../integrations/learning/generator-settings.js'
+import {
+	type QuestionGate,
+	createBackgroundLearning,
+	withBackgroundLearning,
+} from '../integrations/learning/generator-trigger.js'
+import { describeLearned } from '../integrations/learning/learned-notice.js'
+import {
+	type SideLearningModel,
+	createLearningLedger,
+	createSideLearningModel,
+} from '../integrations/learning/learning-model.js'
+import { readProjectGuidance } from '../integrations/learning/project-guidance.js'
+import {
+	createSessionLearningFeed,
+	withSessionLearningFeed,
+} from '../integrations/learning/session-feed.js'
+import { openLearningTarget } from '../integrations/learning/session-store.js'
+import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
 	type McpServersConfig,
@@ -332,6 +353,7 @@ import { type ConversationContext, ensureSessionStarted } from '../integrations/
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
+import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
@@ -1188,6 +1210,12 @@ export interface AgentSession {
 	 * them, in which case no such request is made.
 	 */
 	readonly sideModel?: SideModel
+	/**
+	 * The model built-in learning uses: the small model's route through the
+	 * configured provider, with each call's tokens counted. Absent where the
+	 * session has no side model.
+	 */
+	readonly learning?: SideLearningModel
 	/**
 	 * The browser the `browser` and `browser_act` tools drive, when this
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
@@ -2196,6 +2224,28 @@ export interface AgentSessionOptions {
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
+	/**
+	 * Keep this conversation's failures and unrecovered stops as learning
+	 * observations in the project's own state directory. Default `false`; the
+	 * interactive terminal and `exec` pass it unless the `learningObservations`
+	 * config key is `false`. Ephemeral sessions never keep any.
+	 */
+	readonly learningObservations?: boolean
+	/**
+	 * Learn by itself from those observations, in the background of this
+	 * conversation (see `NamzuCliConfig.learningGenerator`). Only a host with a
+	 * person present and a long-lived session passes it, the interactive
+	 * terminal; the value is the config key as written, and absent in that host
+	 * means the default (on). Ignored for an ephemeral session or when
+	 * observations are not kept.
+	 */
+	readonly backgroundLearning?: {
+		readonly config: LearningGeneratorConfig | undefined
+		/** One plain line, told once per activated revision, for the host to show. */
+		readonly onLearned?: (line: string) => void
+		/** Open while a question waits on the person; the cycle holds still meanwhile. */
+		readonly questions?: QuestionGate
+	}
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
@@ -2522,6 +2572,25 @@ export async function createAgentSession(
 		)
 	}
 	const scope = options.scope ?? mintScope(projectId, options.sessionId)
+	// Failures and unrecovered stops this conversation already classifies are kept
+	// as learning observations (references and a short redacted sentence, local
+	// to the project, dropped after 30 days). Only a host that asks gets it.
+	const learningFeed =
+		options.learningObservations === true && !options.ephemeral
+			? createSessionLearningFeed({
+					paths,
+					// The installation's own tenant, so `namzu learning --sessions` finds it again.
+					tenantId: readIdentity(paths.home)?.tenantId ?? scope.tenantId,
+					projectId,
+					sessionId: String(scope.sessionId),
+				})
+			: undefined
+	// Guidance this project activated (by `namzu learn --sessions` or the background
+	// cycle), read once so the text is the same on every turn of the session. It rides
+	// the per-turn `context` placement: an observation to weigh, never system authority.
+	const projectGuidance = options.ephemeral
+		? null
+		: await readProjectGuidance(paths, readIdentity(paths.home)?.tenantId ?? scope.tenantId)
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -3316,6 +3385,7 @@ export async function createAgentSession(
 	// Requests beside the conversation (its title, the answer `web_fetch` extracts)
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
+	let learning: SideLearningModel | undefined
 	const webCapability = options.web?.fetch
 		? {
 				// A page may be ten mebibytes; the guard's own
@@ -3710,6 +3780,31 @@ export async function createAgentSession(
 			},
 			ledger: sub.sideLedger,
 			debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+		})
+		const learningLedger = createLearningLedger()
+		learning = createSideLearningModel({
+			side: createSideModel({
+				active: () => ({
+					providerId: turnRouteTarget?.provider ?? primary.id,
+					model: turnRouteTarget?.model ?? model,
+				}),
+				configured: options.smallModel,
+				isKnownProvider: (id) => findDetected(detected, id as ProviderId) != null,
+				buildProvider: (sessionId, target) =>
+					providerForModel(sessionId, target.providerId as ProviderId, target.model),
+				offerable: (providerId, listed) => {
+					const found = findDetected(detected, providerId as ProviderId)
+					return (
+						found != null &&
+						canSelectModel(found.entry, found.apiKey, listed.id) &&
+						isOfferableModel(providerId, listed.id)
+					)
+				},
+				ledger: learningLedger,
+				debug: (message, error) => cliLogger().debug(message, exceptionAttributes(error)),
+			}),
+			ledger: learningLedger,
+			sessionId: scope.sessionId,
 		})
 		// The parent's own toolsets, and only ever these — and only where
 		// somebody is there to read it, the same condition `ask_user_question`
@@ -4881,7 +4976,7 @@ export async function createAgentSession(
 			if (failure) yield { kind: 'error', message: failure.message }
 		})()
 	}
-	return {
+	const agentSession: AgentSession = {
 		hasProvider: true,
 		autoMode: {
 			available: sessionClassifier !== undefined,
@@ -5125,6 +5220,7 @@ export async function createAgentSession(
 				}
 			: {}),
 		...(sideModel ? { sideModel } : {}),
+		...(learning ? { learning } : {}),
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
@@ -5593,6 +5689,12 @@ export async function createAgentSession(
 								},
 							})
 						}
+						if (projectGuidance)
+							promptContributions.register({
+								id: 'namzu.learning.project-guidance',
+								placement: 'context',
+								render: () => projectGuidance,
+							})
 						promptContributions.register({
 							id: 'namzu.turn-snapshot',
 							placement: 'context',
@@ -6001,6 +6103,27 @@ export async function createAgentSession(
 				})
 			}),
 	}
+	const watched = learningFeed ? withSessionLearningFeed(agentSession, learningFeed) : agentSession
+	// Learning by itself: the person's own conversation, never an ephemeral one.
+	const background = options.backgroundLearning
+	if (!background || !learningFeed || !learning) return watched
+	const generator = resolveGeneratorSettings(background.config)
+	if (!generator.enabled) return watched
+	const tenantId = readIdentity(paths.home)?.tenantId ?? scope.tenantId
+	return withBackgroundLearning(
+		watched,
+		createBackgroundLearning({
+			settings: generator,
+			openTarget: () => openLearningTarget(paths, tenantId, projectId),
+			learning,
+			...(background.questions ? { questions: background.questions } : {}),
+			flushObservations: () => learningFeed.flush(),
+			onOutcome: (outcome) => {
+				const line = describeLearned(outcome)
+				if (line) background.onLearned?.(line)
+			},
+		}),
+	)
 }
 
 /**

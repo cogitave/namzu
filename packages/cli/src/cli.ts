@@ -25,6 +25,8 @@ import {
 	evalCommand,
 	execCommand,
 	historyCommand,
+	learnCommand,
+	learningCommand,
 	loginCommand,
 	logoutCommand,
 	mcpCommand,
@@ -423,6 +425,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		doctorCommand,
 		execCommand,
 		residentCommand,
+		learnCommand,
+		learningCommand,
 		loginCommand,
 		logoutCommand,
 		mcpCommand,
@@ -441,7 +445,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	]) {
 		registerCommandOrLazy(program, def, {
 			getContext:
-				def === residentCommand
+				def === residentCommand || def === learnCommand || def === learningCommand
 					? getResidentContext
 					: def === stateCommand ||
 							def === worktreeCommand ||
@@ -632,6 +636,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { composerTriggers: resolvedCtx.config.composerTriggers }
 						: {}),
 					...(resolvedCtx.config.hypermode === true ? { hypermode: true } : {}),
+					...(resolvedCtx.config.learningObservations === false
+						? { learningObservations: false }
+						: {}),
+					...(resolvedCtx.config.learningGenerator !== undefined
+						? { learningGenerator: resolvedCtx.config.learningGenerator }
+						: {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),

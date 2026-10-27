@@ -375,6 +375,7 @@ async function execPrint(
 			tenantId: sessions.tenantId,
 		},
 		stateRoot: sessions.root,
+		learningObservations: ctx.config.learningObservations !== false,
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		conversationSessions: sessions,
 		rules: permissions.rules,

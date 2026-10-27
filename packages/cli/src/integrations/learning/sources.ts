@@ -9,24 +9,24 @@ import {
 	statSync,
 } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import type { ResidentLearningSource, ResidentLearningState } from '@namzu/sdk'
+import type { LearningSource, LearningState } from '@namzu/sdk'
 
 const PREFIX = 'workspace-file:'
 const MAX_BYTES = 256 * 1024
 const MAX_TOTAL_BYTES = 1024 * 1024
 
 /** Resolve only declared local file dependencies; no credentials, network or model calls. */
-export function residentLearningSources(
+export function learningSources(
 	cwd: string,
-	learning?: ResidentLearningState,
-): () => readonly ResidentLearningSource[] {
+	learning?: LearningState,
+): () => readonly LearningSource[] {
 	const keys = [
 		...new Set(
 			learning?.skills.flatMap((skill) => skill.sources?.map((source) => source.key) ?? []) ?? [],
 		),
 	]
 	return () => {
-		const observations: ResidentLearningSource[] = []
+		const observations: LearningSource[] = []
 		let remaining = MAX_TOTAL_BYTES
 		const root = realpathSync(cwd)
 		for (const key of keys) {

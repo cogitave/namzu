@@ -7,11 +7,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../config/runtime.js'
-import {
-	type ResidentLearningState,
-	hashResidentSkill,
-	projectResidentLearning,
-} from '../../manager/resident/learning.js'
+import { type LearningState, hashLearningSkill, projectLearning } from '../../learning/skill.js'
 import type { ResidentState } from '../../manager/resident/store.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { drainQuery } from '../../runtime/query/index.js'
@@ -89,14 +85,14 @@ function segments(options: Partial<ResidentStepPromptOptions> = {}) {
 	return { ...prompt, context: contributions.render('context', {}).join('\n\n') }
 }
 
-function learning(): ResidentLearningState {
+function learning(): LearningState {
 	const evidence = { key: 'approved-1', source: 'host:test', reason: 'Approved fixture guidance.' }
 	const candidate = {
 		name: 'checked-identifiers',
 		description: 'Retain exact evidence identifiers.',
 		body: 'Keep exact receipt identifiers and distinguish reported evidence from fresh observations.',
 	}
-	const hash = hashResidentSkill(candidate)
+	const hash = hashLearningSkill(candidate)
 	return {
 		revision: 1,
 		identity: { text: 'An assistant that checks source evidence.', evidence },
@@ -124,7 +120,7 @@ describe('resident context separates stable guidance from the admitted snapshot'
 		const original = learning()
 		const source = { key: 'host:policy', revision: 'one' }
 		const candidate = { ...original.skills[0]!, sources: [source] }
-		const hash = hashResidentSkill(candidate)
+		const hash = hashLearningSkill(candidate)
 		const admitted = {
 			...original,
 			skills: [
@@ -257,7 +253,7 @@ describe('resident context separates stable guidance from the admitted snapshot'
 			})),
 		}
 		for (const current of [profile, large]) {
-			const projection = projectResidentLearning(current, {
+			const projection = projectLearning(current, {
 				maxChars: 12_000,
 				skillNames: current.skills.map((skill) => skill.name),
 			})
@@ -368,7 +364,7 @@ it('keeps the admitted objective, evidence and project policy through every quer
 	const original = learning()
 	const dependency = { key: 'fixture:current-receipt', revision: 'before-inspection' }
 	const candidate = { ...original.skills[0]!, body: 'SOURCE_BOUND_SENTINEL', sources: [dependency] }
-	const hash = hashResidentSkill(candidate)
+	const hash = hashLearningSkill(candidate)
 	const bound = {
 		...original,
 		skills: [

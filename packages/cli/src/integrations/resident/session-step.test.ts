@@ -4,13 +4,13 @@ import { join } from 'node:path'
 
 import {
 	DiskResidentAgenda,
+	type LearningState,
 	ResidentHost,
-	type ResidentLearningState,
 	type ResidentStepContext,
 	createResidentStepContributions,
 	generateSessionId,
 	generateTurnId,
-	hashResidentSkill,
+	hashLearningSkill,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -819,9 +819,9 @@ it.each(['task', 'exploration'] as const)(
 			description: 'Check source evidence.',
 			body: 'Compare each claim with its source.',
 		}
-		const hash = hashResidentSkill(candidate)
+		const hash = hashLearningSkill(candidate)
 		const evidence = { key: 'verified', source: 'host', reason: 'Approved fixture' }
-		const learning: ResidentLearningState = {
+		const learning: LearningState = {
 			revision: 1,
 			identity: { text: 'A concise researcher.', evidence },
 			preferences: [{ key: 'language', value: 'Turkish', evidence }],

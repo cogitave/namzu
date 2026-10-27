@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { residentLearningEvidenceSchema } from './learning.js'
+import { learningEvidenceSchema } from './skill.js'
 
 const label = z.string().trim().min(1).max(256)
 export const learningTargetSchema = z.object({
@@ -23,22 +23,22 @@ export const learningObservationSchema = learningTargetSchema.extend({
 	outcome: z.enum(['passed', 'failed', 'execution-error', 'unresolved']),
 	/** Host verified all execution receipts have settled. This is not a model assertion. */
 	usageComplete: z.boolean(),
-	evidence: residentLearningEvidenceSchema,
+	evidence: learningEvidenceSchema,
 	trace: z.string().trim().min(1).max(32_000),
 })
 
 /** @experimental Host-scored observation; failures need retained traces and a versioned evaluator. */
-export type ResidentLearningObservation = Readonly<
+export type LearningObservation = Readonly<
 	Omit<z.infer<typeof learningObservationSchema>, 'evidence'>
 > & {
 	readonly evidence: Readonly<z.infer<typeof learningObservationSchema>['evidence']>
 }
 
 /** @experimental Current evaluator and installed skill revision authorized for one experiment. */
-export type ResidentLearningTarget = Readonly<z.infer<typeof learningTargetSchema>>
+export type LearningTarget = Readonly<z.infer<typeof learningTargetSchema>>
 
 /** @experimental Stable insertion order; a claimed cycle may have no live executor. */
-export interface ResidentLearningObservationRecord extends ResidentLearningObservation {
+export interface LearningObservationRecord extends LearningObservation {
 	readonly ordinal: number
 	readonly attemptedCycleId: string | null
 }
