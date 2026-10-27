@@ -11452,6 +11452,7 @@ function AppBody({
 								cwd: ctx.cwd,
 								columns: terminal.columns,
 								model: slashCtx.modelSummary ?? undefined,
+								providerId: currentProvider,
 								mcp: slashCtx.mcp(),
 								skillsConfig: ctx.skills,
 							})

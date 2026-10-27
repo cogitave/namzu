@@ -11,6 +11,7 @@ import {
 } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
+import { renderRestoredContext } from '../../../../compaction/restore.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import {
@@ -1002,6 +1003,24 @@ async function runCompactionCheckInner(
 	} else {
 		compactedContent = serializeState(manager.getState())
 	}
+
+	// Skills the model loaded and files it read go back verbatim after the
+	// summary, with whatever the host wants carried across (its plan file).
+	let hostNote: string | undefined
+	try {
+		hostNote = await ctx.postCompactionContext?.()
+	} catch (error) {
+		// A host note is an addition; the pass does not depend on it.
+		ctx.log.warn('The host note for a compaction could not be read — leaving it out', {
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
+			'exception.message': error instanceof Error ? error.message : String(error),
+		})
+	}
+	const restored = renderRestoredContext(manager.getState(), {
+		contextWindowTokens: budget,
+		...(hostNote ? { hostNote } : {}),
+	})
+	if (restored) compactedContent = `${compactedContent}\n\n${restored}`
 
 	// The pointer is only worth a line when both tools it names are mounted.
 	const mounted = new Set(ctx.tools?.listNames?.() ?? [])

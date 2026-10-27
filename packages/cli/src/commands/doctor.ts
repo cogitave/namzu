@@ -1,6 +1,7 @@
 import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } from '@namzu/sdk'
 
 import type { NamzuCliConfig } from '../config/schema.js'
+import { cacheLifetimeCheck } from '../doctor/checks/cache-lifetime.js'
 import { builtInDoctorChecks } from '../doctor/checks/index.js'
 import { sessionExportCheck } from '../doctor/checks/session-export.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
@@ -264,6 +265,7 @@ export async function runDoctorCommand(
 	// invocation's resolved config, and a check registered without one could
 	// only report "unknown", which is the answer nobody runs `doctor` for.
 	registry.register(sessionExportCheck(config))
+	registry.register(cacheLifetimeCheck(config))
 
 	const opts: RunDoctorOptions = {
 		registry,

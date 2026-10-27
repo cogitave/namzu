@@ -20,3 +20,23 @@ export function setPromptCacheTtl(ttl: PromptCacheTtl | undefined): void {
 export function promptCacheTtl(): PromptCacheTtl | undefined {
 	return configured
 }
+
+/**
+ * Providers that let the caller choose how long the prompt cache lives.
+ *
+ * Only a provider whose driver takes the setting; for every other one a
+ * lifetime would be a number nobody chose and nothing honours, so it is not
+ * shown.
+ */
+const PROVIDERS_WITH_CACHE_LIFETIME: ReadonlySet<string> = new Set(['anthropic'])
+
+export function providerOffersCacheLifetime(providerId: string | null | undefined): boolean {
+	return (
+		providerId !== null && providerId !== undefined && PROVIDERS_WITH_CACHE_LIFETIME.has(providerId)
+	)
+}
+
+/** The lifetime in use, as a person reads it. An unset value is the provider's own five minutes. */
+export function describeCacheLifetime(ttl: PromptCacheTtl | undefined): string {
+	return ttl === '1h' ? '1 hour' : '5 minutes'
+}

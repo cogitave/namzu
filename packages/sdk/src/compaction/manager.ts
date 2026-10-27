@@ -4,9 +4,17 @@ import type {
 	FileSlot,
 	PinSlot,
 	PlanSlot,
+	RestorableState,
 	ToolResultSlot,
 	WorkingState,
 } from './types.js'
+
+/** Skills kept for restoring; the oldest is dropped past this. */
+export const MAX_RESTORABLE_SKILLS = 8
+/** Files kept for restoring; the oldest is dropped past this. */
+export const MAX_RESTORABLE_FILES = 12
+/** Characters of one skill or file kept for restoring (a little over the 5,000 tokens a restore shows, so the cut is visible). */
+export const MAX_RESTORABLE_CHARS = 24_000
 
 /** Pins kept at most; the oldest is dropped past this, and the drop is counted. */
 export const MAX_PINS = 40
@@ -21,6 +29,10 @@ export function truncateStateText(text: string, max: number): string {
 	const last = head.charCodeAt(head.length - 1)
 	if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1)
 	return `${head}${marker}`
+}
+
+function normalizeRestorablePath(path: string): string {
+	return path.trim().replace(/^\.\//, '')
 }
 
 function createEmptyState(): WorkingState {
@@ -88,6 +100,47 @@ export class WorkingStateManager {
 		} else {
 			this.state.files.set(path, { path, actions: [action] })
 		}
+	}
+
+	private restorableState(): RestorableState {
+		if (!this.state.restorable) this.state.restorable = { skills: [], files: [] }
+		return this.state.restorable
+	}
+
+	/**
+	 * Remember a skill's instructions so a compaction can put them back.
+	 * `append` adds a later page of a skill that arrives in pages.
+	 */
+	recordSkillBody(name: string, body: string, append = false): void {
+		const key = name.trim()
+		if (key.length === 0 || body.trim().length === 0) return
+		const restorable = this.restorableState()
+		const index = restorable.skills.findIndex((skill) => skill.name === key)
+		const previous = index >= 0 ? restorable.skills[index] : undefined
+		const joined = append && previous ? `${previous.body}${body}` : body
+		if (index >= 0) restorable.skills.splice(index, 1)
+		restorable.skills.push({ name: key, body: joined.slice(0, MAX_RESTORABLE_CHARS) })
+		while (restorable.skills.length > MAX_RESTORABLE_SKILLS) restorable.skills.shift()
+	}
+
+	/** Remember what a read returned so a compaction can put it back. */
+	recordFileText(path: string, text: string): void {
+		const key = normalizeRestorablePath(path)
+		if (key.length === 0 || text.trim().length === 0) return
+		const restorable = this.restorableState()
+		const index = restorable.files.findIndex((file) => file.path === key)
+		if (index >= 0) restorable.files.splice(index, 1)
+		restorable.files.push({ path: key, text: text.slice(0, MAX_RESTORABLE_CHARS) })
+		while (restorable.files.length > MAX_RESTORABLE_FILES) restorable.files.shift()
+	}
+
+	/** A file that was changed after it was read no longer has a body worth restoring. */
+	forgetFileText(path: string): void {
+		const files = this.state.restorable?.files
+		if (!files) return
+		const key = normalizeRestorablePath(path)
+		const index = files.findIndex((file) => file.path === key)
+		if (index >= 0) files.splice(index, 1)
 	}
 
 	addDecision(decision: string): void {

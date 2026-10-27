@@ -815,6 +815,13 @@ export interface QueryParams {
 	projectInstructionContext?: ProjectInstructionContext
 
 	/**
+	 * Text the host wants carried across a compaction, such as where its plan
+	 * file is. Asked once per pass, after the summary is written; the answer is
+	 * appended to the restored context. Returning nothing adds nothing.
+	 */
+	postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
+	/**
 	 * Where this conversation's durable state lives.
 	 *
 	 * Supplies the permission mode when `turnConfig.permissionMode` names
@@ -1656,6 +1663,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const compactionConfig = params.compactionConfig
 			? CompactionConfigSchema.parse(params.compactionConfig)
 			: undefined
+		// The live history, so a tool can ask whether an earlier receipt is still in it.
+		toolExecutor.setHistoryView(() => ctx.recorder.messages)
 		if (compactionConfig && compactionConfig.strategy !== 'disabled') {
 			workingStateManager = new WorkingStateManager(compactionConfig)
 			toolExecutor.setWorkingStateManager(workingStateManager)
@@ -1828,6 +1837,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
 			...(params.projectInstructionContext
 				? { projectInstructionContext: params.projectInstructionContext }
+				: {}),
+			...(params.postCompactionContext
+				? { postCompactionContext: params.postCompactionContext }
 				: {}),
 			...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
 			resolveModelContextWindow: async (model) => {

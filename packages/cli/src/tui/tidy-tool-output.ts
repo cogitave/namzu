@@ -363,6 +363,7 @@ export function factsHeadline(facts: ToolFacts | undefined): string | undefined 
 		case 'read': {
 			const name = fileName(facts.path)
 			if (facts.binary) return `Read ${name} · not text`
+			if (facts.unchanged) return `Read ${name} · unchanged`
 			if (facts.partial && facts.returnedLines !== undefined && facts.totalLines !== undefined) {
 				return `Read ${name} · ${facts.returnedLines.toLocaleString('en-US')} of ${plural(facts.totalLines, 'line')}`
 			}
