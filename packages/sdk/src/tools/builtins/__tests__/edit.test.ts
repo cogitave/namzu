@@ -413,3 +413,12 @@ describe('EditTool', () => {
 		expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\nomega\n')
 	})
 })
+
+describe('the edit description gives the reason for its size budget', () => {
+	it('says why the payload stays under 12000 characters', () => {
+		expect(EditTool.description).toContain(
+			'under 12000 characters, because a longer payload can be cut off mid-call and fail',
+		)
+		expect(EditTool.description).not.toContain('Self-budget')
+	})
+})
