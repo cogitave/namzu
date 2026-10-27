@@ -107,7 +107,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 | `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
 | `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
-| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. |
+| `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. `/context` shows the lifetime in use under the legend (only with a provider that can be asked), and `namzu doctor` has a `providers.cache-lifetime` row that reports it and, with the default, suggests `1h` for long sessions or frequent pauses of more than five minutes. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
@@ -237,6 +237,8 @@ System prompt, System tools, MCP tools, MCP server instructions, Custom agents,
 Memory files, Skills and Messages, then Free space. A category with nothing in
 it is left out. Messages is what is left of the provider's measured size once
 the other categories are taken out, so the lines add up to the window.
+
+When the provider lets the prompt cache lifetime be chosen, `Prompt cache lifetime: 5 minutes` (or `1 hour`) follows the legend.
 
 The Autocompact buffer (the room kept for a reply plus 13,000 tokens, 33,000 on
 a 200,000-token window) and an `Auto-compact window:` line appear only when the

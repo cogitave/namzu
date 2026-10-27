@@ -13,6 +13,11 @@ import { type AgentFileDefinition, analyzeContextUsage, estimateTextTokens } fro
 import type { Message } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import {
+	describeCacheLifetime,
+	promptCacheTtl,
+	providerOffersCacheLifetime,
+} from '../integrations/providers/prompt-cache-ttl.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { type SkillInfo, discoverSkills } from '../skills/store.js'
 import type { AgentSession } from './agent.js'
@@ -46,6 +51,8 @@ export interface ContextSources {
 	readonly terminalColumns: number
 	readonly model?: string
 	readonly autoCompact: boolean
+	/** The prompt cache lifetime in use, as words; absent when there is nothing to show. */
+	readonly cacheLifetime?: string
 	readonly systemPrompt?: string
 	readonly tools: readonly { name: string; tokens: number; server?: string }[]
 	readonly messages: readonly Message[]
@@ -220,6 +227,7 @@ export async function collectContextView(sources: ContextSources): Promise<Conte
 		breakdown,
 		windowSource: source,
 		autoCompact: sources.autoCompact,
+		...(sources.cacheLifetime ? { cacheLifetime: sources.cacheLifetime } : {}),
 		approximate: sources.sizeOutOfDate === true || !sources.context.measured,
 		...(sources.model ? { model: sources.model } : {}),
 		terminalColumns: sources.terminalColumns,
@@ -239,6 +247,8 @@ export interface ContextRowInput {
 	readonly cwd: string
 	readonly columns: number
 	readonly model?: string | undefined
+	/** The provider answering now; the cache lifetime is shown only where it can be chosen. */
+	readonly providerId?: string | null | undefined
 	readonly mcp: ReturnType<SlashContext['mcp']>
 	readonly skillsConfig?: SkillsConfig | undefined
 }
@@ -272,6 +282,9 @@ export async function buildContextRow(input: ContextRowInput): Promise<ContextVi
 		terminalColumns: input.columns,
 		...(input.model ? { model: input.model } : {}),
 		autoCompact: true,
+		...(providerOffersCacheLifetime(input.providerId)
+			? { cacheLifetime: describeCacheLifetime(promptCacheTtl()) }
+			: {}),
 		...(inventory?.systemPrompt ? { systemPrompt: inventory.systemPrompt } : {}),
 		tools: inventory?.tools ?? [],
 		messages: input.messages,

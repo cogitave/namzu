@@ -91,6 +91,8 @@ export interface ContextView {
 	readonly usage: string
 	readonly legend: readonly LegendLine[]
 	readonly windowNote?: { readonly label: string; readonly value: string }
+	/** How long the provider keeps the prompt cache; only for a provider that lets it be chosen. */
+	readonly cacheNote?: { readonly label: string; readonly value: string }
 	readonly sections: readonly ContextSection[]
 	readonly suggestions: readonly ContextSuggestion[]
 	/** Lines under the advice, such as what the automatic cleanup has done. */
@@ -356,6 +358,8 @@ export interface BuildViewInput {
 	/** The context size is an estimate, or the window was assumed. */
 	readonly approximate: boolean
 	readonly model?: string
+	/** The prompt cache lifetime in use, as words; absent when the provider has no choice to show. */
+	readonly cacheLifetime?: string
 	readonly terminalColumns: number
 	readonly sections: readonly ContextSection[]
 	readonly memoryFiles: SuggestionInput['memoryFiles']
@@ -399,6 +403,10 @@ export function buildContextView(input: BuildViewInput): ContextView {
 	lines.push(usage, '', 'Estimated usage by category')
 	for (const line of legend) lines.push(`${line.glyph} ${line.name}: ${line.value}`)
 	if (windowNote) lines.push('', `${windowNote.label}${windowNote.value}`)
+	const cacheNote = input.cacheLifetime
+		? { label: 'Prompt cache lifetime: ', value: input.cacheLifetime }
+		: undefined
+	if (cacheNote) lines.push(...(windowNote ? [] : ['']), `${cacheNote.label}${cacheNote.value}`)
 	for (const section of input.sections) {
 		lines.push('', `${section.title} · ${section.hint}`)
 		for (const group of section.groups) {
@@ -422,6 +430,7 @@ export function buildContextView(input: BuildViewInput): ContextView {
 		usage,
 		legend,
 		...(windowNote ? { windowNote } : {}),
+		...(cacheNote ? { cacheNote } : {}),
 		sections: input.sections,
 		suggestions,
 		text: lines.join('\n'),
