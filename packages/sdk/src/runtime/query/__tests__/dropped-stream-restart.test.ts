@@ -70,11 +70,13 @@ const wholeCall = (): StreamChunk[] => [
 
 /** Attempt N plays `attempts[N]`; an attempt that ends in `'drop'` throws a network failure. */
 class DroppingProvider implements LLMProvider {
-	readonly id = 'dropping'
 	readonly name = 'Dropping'
 	calls = 0
 	readonly seen: unknown[][] = []
-	constructor(private readonly attempts: ReadonlyArray<readonly (StreamChunk | 'drop')[]>) {}
+	constructor(
+		private readonly attempts: ReadonlyArray<readonly (StreamChunk | 'drop')[]>,
+		readonly id = 'dropping',
+	) {}
 
 	async *chatStream(params: { messages: unknown[] }): AsyncIterable<StreamChunk> {
 		this.seen.push([...params.messages])
@@ -94,7 +96,11 @@ describe('a stream that drops while a tool call is being written', () => {
 		workdirs = []
 	})
 
-	async function run(provider: DroppingProvider, maxRetries: number) {
+	async function run(
+		provider: DroppingProvider,
+		maxRetries: number,
+		fallbacks: readonly DroppingProvider[] = [],
+	) {
 		const write = vi.fn(async () => ({ success: true, output: 'written' }))
 		const tools = testToolset({
 			name: 'write_file',
@@ -110,6 +116,9 @@ describe('a stream that drops while a tool call is being written', () => {
 		const result = await drainQuery(
 			{
 				provider,
+				...(fallbacks.length > 0
+					? { fallbackProviders: fallbacks.map((member) => ({ provider: member })) }
+					: {}),
 				// No wait between tries: nothing here depends on how long a wait takes.
 				retry: { maxRetries, initialDelayMs: 0, maxDelayMs: 0 },
 				toolsets: [tools],
@@ -187,6 +196,29 @@ describe('a stream that drops while a tool call is being written', () => {
 		expect(completed).toMatchObject([{ stopReason: 'refusal', content: 'The answer begins' }])
 		expect(events.find((e) => e.type === 'turn_paused')).toMatchObject({
 			providerError: { kind: 'network' },
+		})
+	})
+
+	it('moves a chain on to its next member and says the half-written call is void', async () => {
+		const primary = new DroppingProvider([[...halfWrittenCall(), 'drop']])
+		const next = new DroppingProvider(
+			[
+				[...wholeCall()],
+				[
+					{ id: 'x', delta: { content: 'Done.' } },
+					{ id: 'x', delta: {}, finishReason: 'stop', usage: ZERO_USAGE },
+				],
+			],
+			'next',
+		)
+		const { result, events, write } = await run(primary, 0, [next])
+
+		expect(result.stopReason).not.toBe('paused')
+		expect(write).toHaveBeenCalledTimes(1)
+		expect(events.find((e) => e.type === 'provider_fallback')).toMatchObject({
+			fromProviderId: 'dropping',
+			toProviderId: 'next',
+			restart: true,
 		})
 	})
 })

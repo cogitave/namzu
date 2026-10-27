@@ -8338,6 +8338,20 @@ function AppBody({
 	const applyEvent = useCallback(
 		(event: AgentEvent, st: StreamState) => {
 			if (st.learning) observeTurnEvent(st.learning, event)
+			// A request that starts over (a retry, or the next member of a chain):
+			// what the failed attempt showed of the reply is void.
+			const voidStreamedReply = () => {
+				if (st.releaseTimer) clearTimeout(st.releaseTimer)
+				st.releaseTimer = undefined
+				st.pending = ''
+				st.text = st.text.slice(0, st.messageTextStart ?? st.text.length)
+				st.streamedChars = 0
+				setTurnTokens(st.reportedOutputTokens ?? 0)
+				const abandoned = st.assistantId
+				st.assistantId = null
+				if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
+			}
+			if (event.kind === 'provider-fallback' && event.restart) voidStreamedReply()
 			// The wait notice lasts until the provider answers with anything else.
 			if (event.kind === 'provider-wait') {
 				const notice = describeProviderWait(event, scheduleLiveRef.current?.model?.provider)
@@ -8345,17 +8359,7 @@ function AppBody({
 				setProviderWaitNotice(notice)
 				// The failed attempt had already streamed part of a reply and the
 				// request starts over: what it showed is void.
-				if (event.restart) {
-					if (st.releaseTimer) clearTimeout(st.releaseTimer)
-					st.releaseTimer = undefined
-					st.pending = ''
-					st.text = st.text.slice(0, st.messageTextStart ?? st.text.length)
-					st.streamedChars = 0
-					setTurnTokens(st.reportedOutputTokens ?? 0)
-					const abandoned = st.assistantId
-					st.assistantId = null
-					if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
-				}
+				if (event.restart) voidStreamedReply()
 			} else if (event.kind === 'hook-status') {
 				// A hook's own words for what it is doing, on the same line and with
 				// the same lifetime: until anything else arrives.

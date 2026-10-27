@@ -481,6 +481,7 @@ export async function* streamProviderTurn(
 					code: chunk.fallback.code,
 					...(chunk.fallback.status !== undefined ? { status: chunk.fallback.status } : {}),
 					reason: chunk.fallback.reason,
+					...(chunk.fallback.restart ? { restart: true } : {}),
 				})
 				yield* drainPending()
 				if (chunk.fallback.restart) discardAttempt()

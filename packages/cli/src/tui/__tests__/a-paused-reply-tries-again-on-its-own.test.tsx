@@ -39,6 +39,8 @@ const facts = vi.hoisted(() => ({
 	outcomes: [] as Array<'paused' | 'done'>,
 	/** Holds the first send open when set, so the screen stays busy. */
 	hold: undefined as Promise<void> | undefined,
+	/** Plays a chain that moves on after the first member streamed a few words. */
+	fallbackRestart: false,
 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
@@ -74,6 +76,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 				},
 				send: async function* (): AsyncIterable<AgentEvent> {
 					facts.sends += 1
+					if (facts.fallbackRestart) {
+						yield { kind: 'delta', text: 'the first member began' } as AgentEvent
+						yield { kind: 'provider-fallback', text: 'Namzu used another model.', restart: true }
+						yield { kind: 'delta', text: 'the second member answered' } as AgentEvent
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+						return
+					}
 					if (facts.sends === 1) {
 						yield pausedByNetwork()
 						if (facts.hold) await facts.hold
@@ -97,6 +106,7 @@ beforeEach(() => {
 	facts.resumes = 0
 	facts.outcomes = ['done']
 	facts.hold = undefined
+	facts.fallbackRestart = false
 	vi.useFakeTimers({
 		toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
 	})
@@ -231,5 +241,19 @@ describe('a pause that mends itself', () => {
 		release()
 		await vi.advanceTimersByTimeAsync(2_000)
 		await until(() => facts.resumes === 1, 'did not go on once free')
+	})
+})
+
+describe('a chain that moves on after a half-written reply', () => {
+	it('takes back what the failed member showed of the reply', async () => {
+		facts.fallbackRestart = true
+		const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test' }} />)
+		mounted.push(harness)
+		await until(() => flat(harness.lastFrame()).includes('Type a message'), 'no composer')
+		harness.stdin.write('go')
+		await vi.advanceTimersByTimeAsync(40)
+		harness.stdin.write('\r')
+		await until(() => flat(harness.lastFrame()).includes('the second member answered'), 'no answer')
+		expect(flat(harness.lastFrame())).not.toContain('the first member began')
 	})
 })
