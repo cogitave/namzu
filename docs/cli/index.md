@@ -39,6 +39,7 @@ The operator application.
 * [Permission modes](permission-modes.md) - The six modes (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, what bypass and auto still ask, the `permissions.defaultMode`, `disableBypassMode`, `disableAutoMode` and `autoMode` settings, and how the auto classifier picks its model.
 * [Permission layers and remembered answers](permission-layers.md) - How the permissions tables of the config layers combine (a deny from any layer wins), where "don't ask again" is written, and which shell commands run without a prompt.
 * [Launch flags](launch-flags.md) - `--provider`, `--model`, `--effort` and `--permission-mode` on the interactive session: session-only, how they combine with the saved choice and `--yolo`, and what happens when one cannot be honoured.
+* [Proxies and certificates](network.md) - `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for providers, tool servers and the web tools, `NODE_EXTRA_CA_CERTS`, a client certificate, the doctor row, and what the setting does not reach.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Turn undo](turn-undo.md) - The durable, turn-keyed file history behind undo and /restore, and the plan that decides what undoing a turn may write.

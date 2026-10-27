@@ -8,6 +8,7 @@
  */
 
 import { resolve } from 'node:path'
+import { usesCustomNetwork } from './network/settings.js'
 import { formatUsageError } from './usage-error.js'
 
 import { Command, CommanderError, Option } from 'commander'
@@ -223,6 +224,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', async (command, action) => {
 			rt ??= await import('./cli-runtime.js')
+			// The proxy and client certificate the environment names, for every
+			// request this process makes. Only a machine that sets one pays for
+			// loading the HTTP client library.
+			if (usesCustomNetwork(process.env)) {
+				await (await import('./network/install.js')).installNetwork()
+			}
 			const launchOnly = (
 				['provider', 'model', 'effort', 'permissionMode', 'message', 'continue', 'resume'] as const
 			).filter((key) => command.opts()[key] !== undefined)
