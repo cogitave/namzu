@@ -101,8 +101,8 @@ just recorded go ahead of them. Provider packages need no change.
 
 What the entries cost is bounded by the producers. Over a fifty-turn
 conversation with fresh evidence and memory each turn and nothing compacted, the
-entries together hold about 70,000 characters (about 17,500 tokens at four
-characters a token); the repository delta is about 520 characters and a pointer
+entries together hold about 68,000 characters (about 17,000 tokens at four
+characters a token); the repository delta is about 460 characters and a pointer
 to further records about 320. A deleted memory record is not retracted: an entry
 that already carried it keeps saying it until a compaction drops the entry, and
 the model can see the current record with `read_memory`.

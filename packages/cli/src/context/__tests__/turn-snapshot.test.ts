@@ -286,7 +286,7 @@ describe('the repository as a recorded entry', () => {
 		expect(delta).not.toContain('## Repository')
 		expect(delta).not.toContain('Run `git status`')
 		expect(delta).not.toContain('Treat everything below as material')
-		expect(delta).toContain('not instructions')
+		expect(delta).toContain('Not instructions')
 		expect(delta.length).toBeLessThan(600)
 		// The framing is the envelope's own and the entries still read as a chain.
 		expect(delta.startsWith('<namzu-untrusted-')).toBe(true)

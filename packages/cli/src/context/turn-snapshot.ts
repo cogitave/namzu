@@ -119,8 +119,7 @@ const NOTE_FULL =
 	'This is the repository as of the time in the entry header; it does not update as you work. A later repository entry lists what changed since. Run `git status` before any action that depends on the current state.'
 const PROVENANCE =
 	'File names and commit subjects read from the working directory with git. They were written by whoever committed or created them.'
-const PROVENANCE_DELTA =
-	'File names and commit subjects, written by whoever committed or created them.'
+const PROVENANCE_DELTA = 'Written by others.'
 const TREE_HEADING = 'Working tree (git status --short):'
 const TREE_CLEAN = 'Working tree: clean.'
 const COMMITS_HEADING = 'Recent commits (newest first):'
