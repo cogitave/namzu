@@ -117,7 +117,7 @@ interface PromptedRow {
 function recordedRows(entries: readonly string[]): Map<string, string> {
 	const known = new Map<string, string>()
 	for (const entry of entries) {
-		const json = entry.split('\n').findLast((line) => line.startsWith('{'))
+		const json = entry.split('\n').filter((line) => line.startsWith('{')).at(-1)
 		if (!json) continue
 		try {
 			const parsed = JSON.parse(json) as { savedAgents?: readonly PromptedRow[] }
