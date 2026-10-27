@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-27
+
+- **Update** [Context limits](sdk/context-limits.md#what-the-summary-keeps): the compaction summary lists each file once with what was done to it, names the details added by the summary check `## Missing Details`, and restates the newest request under `## Current Goal` (replacing the `Latest request:` prefix). Sub-agents get a final-report section in place of the person-facing one, and the environment block leads with its framing line. `.changeset/subagent-compaction-wording-sdk.md` (`@namzu/sdk` patch), `.changeset/subagent-compaction-wording-cli.md` (`@namzu/cli` patch).
+
 ## 2026-10-26
 
 - **Update** [Learning in the CLI](cli/learning.md): merged with the per-call review and the one prompt composer. A call the review did not let run (your No, or a call that went with the turn your No ended) is not recorded as a failed tool; the background cycle neither starts nor makes a model call while a question waits on you; the learned guidance still rides the per-turn context placement (never the cached system prompt) and now says Namzu learned it, since the background cycle activates it without a confirmation. `.changeset/learning-refusals-and-questions.md` (`@namzu/cli` patch, `@namzu/sdk` minor).
