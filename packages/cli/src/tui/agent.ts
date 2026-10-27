@@ -420,6 +420,7 @@ import {
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
@@ -2476,7 +2477,9 @@ export async function createAgentSession(
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
 	})
-	const sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
+	// The operator's rules and the remembered answers; the in-sandbox shell
+	// allowance is added behind them once the sandbox below is resolved.
+	let sessionRules: readonly AuthorizationRule[] = [...(options.rules ?? []), sessionAllows.rule]
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
 	 * This process's observation ledger for one conversation, seeded from that
@@ -2945,6 +2948,10 @@ export async function createAgentSession(
 		})
 		throw err
 	}
+	// Shell commands inside a sandbox that confines the file system and the
+	// process table run without a question; behind every rule the operator
+	// wrote and every answer given at a prompt. An escape still asks.
+	sessionRules = withSandboxShell(sessionRules, sandbox)
 	// AFTER resolveSandbox returns — the honest report of what THIS turn got,
 	// never what was attempted. `unconfined` decides the severity: per the
 	// design, this is "the single highest-value line in the whole design,

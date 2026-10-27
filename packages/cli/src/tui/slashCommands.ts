@@ -52,6 +52,7 @@ import {
 	permissionModeFromName,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
@@ -1472,7 +1473,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: renderPermissions(ctx.permissions, true),
+					content: renderPermissions(
+						ctx.permissions,
+						true,
+						sandboxRunsShellUnasked(ctx.sandbox ?? undefined),
+					),
 				}
 			}
 			const chosen = permissionModeFromName(mode)
@@ -2053,7 +2058,11 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 			([key, value]) => `${key}: ${key === 'Executable' ? homePath(value) : value}`,
 		),
 		...(ctx.sessionId ? [`Conversation: ${ctx.sessionId}`] : []),
-		...renderPermissions(ctx.permissions, details).split('\n'),
+		...renderPermissions(
+			ctx.permissions,
+			details,
+			sandboxRunsShellUnasked(ctx.sandbox ?? undefined),
+		).split('\n'),
 	]
 	const sandbox = ctx.sandbox
 	if (!sandbox) {
@@ -2089,11 +2098,12 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 export function renderPermissions(
 	permissions: SlashContext['permissions'],
 	details = false,
+	sandboxedShell = false,
 ): string {
 	const current = permissions.currentMode()
 	const effective = current.mode
 	const lines = [
-		`Permissions: ${permissionModeLabel(effective)}. ${permissionModeDescription(effective)}`,
+		`Permissions: ${permissionModeLabel(effective)}. ${permissionModeDescription(effective, { sandboxedShell })}`,
 	]
 	if (!details) return lines.join('\n')
 	if (current.source === 'launch-bypass')

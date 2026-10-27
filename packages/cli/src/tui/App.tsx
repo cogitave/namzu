@@ -198,6 +198,7 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
+import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
@@ -1633,6 +1634,11 @@ function AppBody({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
+	// Whether shell commands inside this session's sandbox run without asking:
+	// the footer and the mode descriptions say so.
+	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
+	const sandboxShellRef = useRef(sandboxShell)
+	sandboxShellRef.current = sandboxShell
 	// The shell commands running in the foreground that Ctrl+B can move to the
 	// background; each is offered once it has run for a couple of seconds.
 	const [offeredCommands, setOfferedCommands] = useState<ReadonlySet<string>>(new Set())
@@ -4068,7 +4074,7 @@ function AppBody({
 			if (announce) {
 				pushMessage(
 					'system',
-					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode)}`,
+					`Permissions: ${permissionModeLabel(mode)} for this conversation. ${permissionModeDescription(mode, { sandboxedShell: sandboxShellRef.current })}`,
 				)
 			} else if (mode === 'classify' && !autoModeNoticeShownRef.current) {
 				// Shift+Tab is a reflex and its reply is the footer, but this mode
@@ -4937,7 +4943,12 @@ function AppBody({
 			}
 			if (picker.kind === 'permission-mode') {
 				if (value === 'more') {
-					const child = permissionPicker(permissionModeRef.current, true, permissionAvailability())
+					const child = permissionPicker(
+						permissionModeRef.current,
+						true,
+						permissionAvailability(),
+						sandboxShellRef.current,
+					)
 					setSelectedChoice(
 						Math.max(
 							0,
@@ -10879,6 +10890,7 @@ function AppBody({
 							permissionModeRef.current,
 							false,
 							permissionAvailability(),
+							sandboxShellRef.current,
 						)
 						setSelectedChoice(
 							Math.max(
@@ -14634,6 +14646,7 @@ function AppBody({
 						dialogOpen={boxOwnsKeys}
 						permissionMode={displayedPermissionMode}
 						canCycleMode
+						sandboxShell={sandboxShell}
 						composerMounted={showComposerSurface}
 						restingHint={ctx.statusLine === undefined}
 						shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
@@ -14986,6 +14999,7 @@ export function permissionPicker(
 	mode: PermissionMode,
 	more = false,
 	availability: ModeAvailability = { bypass: true, auto: true },
+	sandboxedShell = false,
 ): Extract<ChoicePickerState, { kind: 'permission-mode' }> {
 	const current = mode
 	const values = more
@@ -15016,7 +15030,7 @@ export function permissionPicker(
 			const disabledReason = unavailable(value)
 			return {
 				label: permissionModeLabel(value),
-				description: permissionModeDescription(value),
+				description: permissionModeDescription(value, { sandboxedShell }),
 				current: value === current,
 				...(disabledReason ? { disabledReason } : {}),
 			}
