@@ -1,5 +1,3 @@
-import type { InterruptionKind } from './plain-interruption.js'
-
 /**
  * How a paused reply comes back on its own.
  *
@@ -17,15 +15,6 @@ export function autoResumeDelayMs(attempt: number): number {
 	const last = AUTO_RESUME_DELAYS_MS.length - 1
 	const index = Math.min(Math.max(Math.trunc(attempt), 1) - 1, last)
 	return AUTO_RESUME_DELAYS_MS[index] ?? 300_000
-}
-
-/**
- * Pauses that pass by themselves: the provider could not be reached, or had
- * trouble on its side. A rejected key, a refused request or a full context
- * window do not, and wait for the person.
- */
-export function isAutoResumable(kind: InterruptionKind): boolean {
-	return kind === 'network' || kind === 'server'
 }
 
 export interface AutoResumeTimers {

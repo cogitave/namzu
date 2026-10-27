@@ -382,7 +382,7 @@ import {
 import { reducedMotion, useReducedMotion } from './motion.js'
 import { nextTask, nextTaskLine } from './next-task.js'
 import { isRepeatedNotice } from './notices.js'
-import { autoResumeDelayMs, isAutoResumable, startAutoResume } from './pause-auto-resume.js'
+import { autoResumeDelayMs, startAutoResume } from './pause-auto-resume.js'
 import {
 	type TerminalPerCallReview,
 	appendTypedReason,
@@ -406,6 +406,7 @@ import {
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
+	isSelfMending,
 } from './plain-interruption.js'
 import {
 	emptyPluginReport,
@@ -8902,7 +8903,7 @@ function AppBody({
 						// typing a new message moves on and /resume stays available.
 						// A connection that would not hold passes by itself, so the pause
 						// tries again on a schedule until the person stops it.
-						if (isAutoResumable(classifyInterruption(event))) {
+						if (isSelfMending(event)) {
 							const attempt = autoResumeAttemptRef.current + 1
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({

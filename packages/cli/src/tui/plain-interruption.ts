@@ -151,6 +151,16 @@ function refusedCertificate(event: Interruption): boolean {
 	)
 }
 
+/**
+ * A pause that passes by itself: the provider could not be reached or had
+ * trouble on its side, and nothing about the failure says another try meets
+ * the same refusal. A refused certificate is not one of these.
+ */
+export function isSelfMending(event: Interruption): boolean {
+	const kind = classifyInterruption(event)
+	return (kind === 'network' || kind === 'server') && !refusedCertificate(event)
+}
+
 function copyFor(
 	kind: InterruptionKind,
 	name: string,
@@ -372,7 +382,7 @@ export function describePlainInterruption(
 		const what = kind === 'unknown' && vendor ? `${capitalise(stem(vendor))}.` : copy.what
 		const wait = kind === 'rate_limit' ? retryAfterMs(event) : undefined
 		rows.push(
-			(kind === 'network' || kind === 'server') && !refusedCertificate(event)
+			isSelfMending(event)
 				? selfMendingPause(what, kind)
 				: pauseSentence(
 						wait === undefined ? stem(what) : `${stem(what)}. Wait about ${formatSpan(wait)}`,

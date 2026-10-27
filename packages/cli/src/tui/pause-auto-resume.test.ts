@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-	AUTO_RESUME_DELAYS_MS,
-	autoResumeDelayMs,
-	isAutoResumable,
-	startAutoResume,
-} from './pause-auto-resume.js'
+import { AUTO_RESUME_DELAYS_MS, autoResumeDelayMs, startAutoResume } from './pause-auto-resume.js'
 
 describe('the schedule a paused reply tries again on', () => {
 	it('waits longer each time and then holds at the last step', () => {
@@ -18,22 +13,6 @@ describe('the schedule a paused reply tries again on', () => {
 	it('never goes below the first step', () => {
 		expect(autoResumeDelayMs(0)).toBe(15_000)
 		expect(autoResumeDelayMs(-3)).toBe(15_000)
-	})
-
-	it('mends only what can pass by itself', () => {
-		expect(isAutoResumable('network')).toBe(true)
-		expect(isAutoResumable('server')).toBe(true)
-		for (const kind of [
-			'auth',
-			'permission',
-			'rate_limit',
-			'model_not_found',
-			'context',
-			'bad_request',
-			'unknown',
-		] as const) {
-			expect(isAutoResumable(kind)).toBe(false)
-		}
 	})
 })
 

@@ -7,6 +7,7 @@ import {
 	describePlainInterruption,
 	describeProviderWait,
 	describeProviderWaitClock,
+	isSelfMending,
 } from './plain-interruption.js'
 import type { Interruption } from './turn-interruption.js'
 
@@ -269,6 +270,51 @@ describe('a connection failure that is not a dropped connection', () => {
 		expect(text).toContain('could not verify the security certificate of OpenAI')
 		expect(text).not.toContain('tries again on its own')
 		expectPlain(text)
+	})
+
+	it('does not try a refused certificate again by itself, whatever the code', () => {
+		for (const providerCode of [
+			'SELF_SIGNED_CERT_IN_CHAIN',
+			'CERT_HAS_EXPIRED',
+			'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+			'ERR_TLS_CERT_ALTNAME_INVALID',
+		]) {
+			expect(
+				isSelfMending(
+					paused({
+						explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+						providerError: { kind: 'network', providerId: 'openai', providerCode },
+					}),
+				),
+			).toBe(false)
+		}
+	})
+
+	it('tries a dropped connection and a provider fault again by itself', () => {
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.network', message: 'x', hint: 'y' },
+					providerError: { kind: 'network', providerId: 'openai', providerCode: 'ECONNRESET' },
+				}),
+			),
+		).toBe(true)
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.unavailable', message: 'x', hint: 'y' },
+					providerError: { kind: 'server', providerId: 'openai' },
+				}),
+			),
+		).toBe(true)
+		expect(
+			isSelfMending(
+				paused({
+					explanation: { id: 'provider.auth', message: 'x', hint: 'y' },
+					providerError: { kind: 'auth', providerId: 'openai' },
+				}),
+			),
+		).toBe(false)
 	})
 })
 
