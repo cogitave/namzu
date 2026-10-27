@@ -256,6 +256,9 @@ export interface IterationContext {
 	/** Live project policy; separate from human inbound continuation. */
 	readonly projectInstructionContext?: ProjectInstructionContext
 
+	/** Host text appended to the restored context after a compaction. */
+	readonly postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
 	readonly workingStateManager?: WorkingStateManager
 
 	/**

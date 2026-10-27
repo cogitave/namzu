@@ -77,6 +77,16 @@ and the raw JSONL storage shape. Oversized archival failures still preserve the
 history, but 3 MiB is now an offloading threshold rather than the previous manual
 compaction refusal limit.
 
+# After a compaction
+
+A summary says that a skill was loaded and a file was read; it cannot give the next step the skill's instructions or the file's lines. So each pass puts the most recent of both back, verbatim, under `## Restored after compaction` at the end of the summary:
+
+- the skills the conversation loaded, newest first, up to 8, at most 5,000 tokens each and 25,000 together;
+- the files it read, newest first, up to 5, at most 5,000 tokens each and 50,000 together. Instruction files (`AGENTS.md`, `AGENTS.local.md`, rule files) and the plan file are not repeated, a file that was changed after it was read is left out because its text is behind the disk, and a read that failed has nothing to restore;
+- the plan from plan mode, when there is one: where the file is and what it says now (cut at about 5,000 tokens).
+
+The caps shrink on a small window: files may take at most a tenth of it and skills a twentieth, so a 100,000-token window restores about 10,000 and 5,000 tokens. A body that does not fit is cut and says so. What was restored survives a resumed session and the next compaction, and the model is told a file may have changed since it was read. `/compact` and `/compact <what to keep>` restore the same things.
+
 # The `compaction` key
 
 In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from the environment:

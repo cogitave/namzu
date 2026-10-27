@@ -118,6 +118,13 @@ export interface BaseAgentConfig {
 	/** Live project policy, flushed independently of human continuation text. */
 	projectInstructionContext?: ProjectInstructionContext
 
+	/**
+	 * Text the host wants carried across a compaction, such as where its plan
+	 * file is. Asked once per pass, after the summary is written; the answer is
+	 * appended to the restored context. Returning nothing adds nothing.
+	 */
+	postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
 	allowedTools?: readonly string[]
 
 	/**

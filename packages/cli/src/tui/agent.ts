@@ -422,7 +422,7 @@ import { type SessionAllow, createSessionAllows } from '../permissions/session-a
 import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
-import { isPlanFileWrite } from '../plan/plan-file.js'
+import { isPlanFileWrite, planCarriedAcrossCompaction } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
 import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
@@ -4821,6 +4821,9 @@ export async function createAgentSession(
 						? { consolidateInto: memoryStore }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
+					...(resumePlanPath
+						? { postCompactionContext: () => planCarriedAcrossCompaction(resumePlanPath) }
+						: {}),
 					paths,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 					...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -5039,8 +5042,13 @@ export async function createAgentSession(
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
+				const planNote =
+					options.planApproval && !options.ephemeral
+						? await planCarriedAcrossCompaction(paths.planFile({ sessionId }))
+						: undefined
 				const common = {
 					config: compactionConfigFor(options.compaction),
+					...(planNote ? { restoreNote: planNote } : {}),
 					provider: providerForSession(sessionId),
 					model,
 					signal,
@@ -6011,6 +6019,9 @@ export async function createAgentSession(
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
+								...(planPath
+									? { postCompactionContext: () => planCarriedAcrossCompaction(planPath) }
+									: {}),
 								opts: turnOpts,
 								resumeHandler,
 								approvalPolicyName: modeControl.initialName,

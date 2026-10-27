@@ -6,6 +6,7 @@ import { unknownProgramInLine } from '../../authorization/program.js'
 import { type SkillGrantSet, compileSkillGrant } from '../../authorization/skill-grant.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
+import { recordRestorable } from '../../compaction/restore.js'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
@@ -2611,6 +2612,13 @@ export class ToolExecutor {
 
 		if (this.workingStateManager) {
 			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
+			// What the model was shown, kept whole so a compaction can put it back.
+			recordRestorable(this.workingStateManager, {
+				toolName,
+				input,
+				output: typeof modelContent === 'string' ? modelContent : output,
+				success: !effectiveIsError,
+			})
 			for (const pin of this.config.abortSignal.aborted ? [] : (result.workingState ?? [])) {
 				this.workingStateManager.pin(pin.key, pin.text, toolName)
 			}

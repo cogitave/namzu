@@ -17,6 +17,7 @@ import {
 } from './extractor.js'
 import { WorkingStateManager } from './manager.js'
 import { planCompaction } from './plan.js'
+import { recordRestorable, renderRestoredContext } from './restore.js'
 import { findRetainedIndices } from './retention.js'
 import { buildCompactionMessage, isCompactionMessage } from './summary.js'
 import { type CompactionVerificationOptions, buildVerifiedSummary } from './verifier.js'
@@ -69,6 +70,8 @@ export interface CompactNowInput extends CompactionVerificationOptions {
 	 * model at the originals ({@link COMPACTION_RECOVERY_NOTE}). Absent adds none.
 	 */
 	readonly recoveryNote?: string
+	/** Text the host wants carried across, such as where its plan file is; added to the restored context. */
+	readonly restoreNote?: string
 }
 
 async function publishManualCompaction(
@@ -116,6 +119,23 @@ function splice(
 	return { messages: [...preservedSystem, summary, ...retainedOlder, ...recentMessages], summary }
 }
 
+/** The summary with the loaded skills and read files put back after it. */
+function withRestoredContext(
+	body: string,
+	manager: WorkingStateManager,
+	input: CompactNowInput,
+): string {
+	const window = resolveContextWindow(
+		input.contextWindowTokens ?? input.config.contextWindowTokens,
+		input.model,
+	)
+	const restored = renderRestoredContext(manager.getState(), {
+		contextWindowTokens: window.tokens,
+		...(input.restoreNote ? { hostNote: input.restoreNote } : {}),
+	})
+	return restored ? `${body}\n\n${restored}` : body
+}
+
 /** Build the state a host-triggered pass is about to replace. */
 function populateWorkingState(
 	manager: WorkingStateManager,
@@ -124,6 +144,7 @@ function populateWorkingState(
 ): void {
 	let firstUser = true
 	const toolNames = new Map<string, string>()
+	const toolInputs = new Map<string, unknown>()
 
 	for (const message of messages) {
 		switch (message.role) {
@@ -139,17 +160,26 @@ function populateWorkingState(
 				if (message.content) extractFromAssistantMessage(manager, message.content, config)
 				for (const call of message.toolCalls ?? []) {
 					toolNames.set(call.id, call.function.name)
+					try {
+						toolInputs.set(call.id, JSON.parse(call.function.arguments))
+					} catch {
+						// Unparseable arguments restore nothing.
+					}
 					extractFromToolCall(manager, call.function.name, call.function.arguments)
 				}
 				break
-			case 'tool':
-				extractFromToolResult(
-					manager,
-					toolNames.get(message.toolCallId) ?? 'tool',
-					toolResultToText(message.content),
-					message.isError === true,
-				)
+			case 'tool': {
+				const toolName = toolNames.get(message.toolCallId) ?? 'tool'
+				const text = toolResultToText(message.content)
+				extractFromToolResult(manager, toolName, text, message.isError === true)
+				recordRestorable(manager, {
+					toolName,
+					input: toolInputs.get(message.toolCallId),
+					output: text,
+					success: message.isError !== true,
+				})
 				break
+			}
 			case 'system':
 				break
 		}
@@ -218,7 +248,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 
 	const { messages, summary } = splice(
 		preservedSystem,
-		body,
+		withRestoredContext(body, manager, input),
 		retainedOlder,
 		plan.recentMessages,
 		input.recoveryNote,
@@ -230,7 +260,6 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		usage,
 	})
 }
-
 export interface CompactRegionInput extends CompactNowInput {
 	/** First index to summarise, inclusive. */
 	readonly start: number
@@ -311,7 +340,10 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 
 	// Same cross-run ownership as compactNow: a selected region has been
 	// replaced outside a turn, so its only surviving account is pinned.
-	const summary = { ...buildCompactionMessage(body, input.recoveryNote), retain: true }
+	const summary = {
+		...buildCompactionMessage(withRestoredContext(body, manager, input), input.recoveryNote),
+		retain: true,
+	}
 	const out = [...messages.slice(0, start), summary, ...retainedSelected, ...messages.slice(end)]
 
 	// Checked after the splice, not only before it. The edges being
