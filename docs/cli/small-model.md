@@ -114,7 +114,7 @@ replaces the older part of the conversation; see
 [Who writes the summary](context-and-compaction.md#who-writes-the-summary). Unlike a title, it
 runs only on a model that was set aside: `smallModel` or the provider's cheapest text model. When the
 route falls back to the conversation's own model, or the call fails, the summary Namzu extracts
-without a model is used. `compaction.modelSummary: false` turns it off.
+without a model is used. `compaction.modelSummary: false` turns it off. The part being replaced, including tool output, is sent to that small model, which may belong to another provider than the conversation, so turn the summary off if that part must stay with one provider. The call has a total limit of two minutes (`compaction.modelSummaryTimeoutMs`); past it the extracted summary is used.
 
 ## The away recap
 

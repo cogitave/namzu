@@ -164,6 +164,8 @@ export const CompactionConfigSchema = z.object({
 	modelSummaryInputChars: z.number().int().positive().optional(),
 	/** Characters of one tool result the summary model reads. Default 1,500. */
 	modelSummaryToolResultChars: z.number().int().positive().optional(),
+	/** Longest the whole summary call may take, in milliseconds, however steadily it streams. Past it the extracted summary is used. Default 120,000. */
+	modelSummaryTimeoutMs: z.number().int().positive().optional(),
 	richStateThreshold: z.number().int().positive().default(15),
 	convoTextBudget: z.number().int().positive().default(12_000),
 	maxSentencesPerTurn: z.number().int().positive().default(5),

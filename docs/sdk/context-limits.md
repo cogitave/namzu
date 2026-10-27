@@ -182,10 +182,15 @@ this one replaces (its restored files left off) and the extracted notes go in ta
 by a per-request marker, and the request asks for no tools and a reply of at most
 `modelSummaryMaxTokens` (default 4,096). What `compactNow` was asked to keep goes in the same kind
 of block as for the verifier. A request that overflows the model's window is retried with half the
-transcript, up to three times.
+transcript, up to three times. The whole call is also held to `modelSummaryTimeoutMs` (default
+120,000 ms) from request to last chunk, so a model that streams slowly but steadily cannot hold the
+pass; past it the extracted summary is used. Text from a tool, the assistant or an attachment that
+has a line starting with `[` has a backslash put before it, so a line such as `[person]: ...` inside
+a tool result cannot pass for the start of a request, and the prompt says only a label at the start
+of an entry counts.
 
 The extracted notes stay the fallback. With no route, a route that resolves nothing,
-`modelSummary: false`, a call that fails or stalls (the shared stream idle bound applies), or a
+`modelSummary: false`, a call that fails, stalls (the shared stream idle bound applies) or runs past its total limit, or a
 reply with no `<summary>` in it, the summary is built from the extracted state exactly as before,
 with its verifier step where `llmVerification` or instructions call for it. The verifier does not
 run on top of a model-written summary. A cancellation is passed on, never swallowed.
