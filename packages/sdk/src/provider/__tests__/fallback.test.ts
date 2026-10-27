@@ -256,6 +256,28 @@ describe('withProviderFallback', () => {
 		})
 	})
 
+	it('names the model the head of the chain was asked for when it was declared without one', async () => {
+		const primary = member('primary', [
+			() => {
+				throw httpError(500)
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('ok')
+			},
+		])
+		const wrapped = withProviderFallback([
+			{ provider: primary },
+			{ provider: fallback, model: 'small' },
+		])
+
+		const notices = (await collectChunks(wrapped.chatStream(PARAMS))).flatMap((c) =>
+			c.fallback ? [c.fallback] : [],
+		)
+		expect(notices[0]).toMatchObject({ fromModel: PARAMS.model, toModel: 'small' })
+	})
+
 	it('asks each member for ITS model, not the request’s', async () => {
 		const primary = member('primary', [
 			() => {
