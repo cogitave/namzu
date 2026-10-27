@@ -6644,7 +6644,7 @@ function AppBody({
 			return
 		}
 		doctorRunningRef.current = true
-		pushMessage('system', 'Checking…')
+		const progressId = pushMessage('system', 'Checking…')
 		try {
 			const { runLiveDoctor } = await import('../doctor/live.js')
 			const { describePlainDoctor } = await import('../doctor/plain-report.js')
@@ -6652,8 +6652,10 @@ function AppBody({
 				...(ctxRef.current.telemetry ? { telemetry: ctxRef.current.telemetry } : {}),
 			})
 			const plain = describePlainDoctor(report)
+			setMessages((rows) => rows.filter((row) => row.id !== progressId))
 			pushSystem(plain.level, plain.content, { detail: plain.detail })
 		} catch (err) {
+			setMessages((rows) => rows.filter((row) => row.id !== progressId))
 			pushSystem('error', explainFailure(err, 'Could not run the health check.'))
 		} finally {
 			doctorRunningRef.current = false
