@@ -329,6 +329,7 @@ const WIRE_VALUE_FILES = [
 	'packages/cli/src/tui/__tests__/token-refresh-reaches-session.test.ts',
 	'packages/cli/src/tui/model-selection-intent.test.ts',
 	'packages/cli/src/tui/model-switch.test.ts',
+	'packages/cli/src/tui/__tests__/a-manual-summary-points-at-the-conversation-tools.test.ts',
 	// A sandbox backend drives one containment mechanism and has to speak
 	// its API — the same category as a provider driver. The exemption stops
 	// at `backends/`: the package's own public surface is prose about
