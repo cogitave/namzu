@@ -1,5 +1,24 @@
 # @namzu/sandbox
 
+## 32.0.0
+
+### Patch Changes
+
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+- Updated dependencies [d8059dc]
+  - @namzu/sdk@57.0.0
+
 ## 31.0.0
 
 ### Patch Changes

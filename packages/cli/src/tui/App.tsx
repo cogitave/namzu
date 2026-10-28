@@ -410,6 +410,7 @@ import {
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
+	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
