@@ -3,6 +3,7 @@ import {
 	resolveTriggerThreshold,
 } from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
+import { replaceableSummaries, summarizeWithModel } from '../../../../compaction/model-summary.js'
 import {
 	type CompactionPlan,
 	DEFAULT_SOFT_TARGET,
@@ -960,7 +961,51 @@ async function runCompactionCheckInner(
 
 	let compactedContent: string
 
-	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
+	// A model the host set aside writes the summary when it can. Its own cost
+	// goes on the turn's ledger at the price of the model that answered. When
+	// there is no such model, or its call does not give a summary, the
+	// extracted state below is used, with its verifier step where that applies.
+	let modelRoute: { providerId: string; model: string } | undefined
+	const modelWritten = !ctx.compactionSummaryRoute
+		? undefined
+		: await summarizeWithModel({
+				manager,
+				olderMessages,
+				previousSummaries: replaceableSummaries(systemMessages),
+				config,
+				resolveRoute: async (signal) => {
+					const route = await ctx.compactionSummaryRoute?.(signal)
+					if (route) {
+						modelRoute = {
+							providerId: route.providerId ?? ctx.recorder.servingProviderId,
+							model: route.model,
+						}
+					}
+					return route
+				},
+				onUsage: (usage) => {
+					if (modelRoute) ctx.recorder.accumulateUsage(usage, modelRoute)
+				},
+				signal: ctx.abortController.signal,
+				onFallback: (reason, error) => {
+					if (reason === 'no_route') return
+					if (error !== undefined) noteCompactionError(ctx, error)
+					ctx.log.warn(
+						'The model-written compaction summary was not used — using the extracted state',
+						{
+							[NAMZU.TURN_ID]: ctx.recorder.turnId,
+							'namzu.runtime.reason': reason,
+							...(error !== undefined
+								? { 'exception.message': error instanceof Error ? error.message : String(error) }
+								: {}),
+						},
+					)
+				},
+			})
+
+	if (modelWritten !== undefined) {
+		compactedContent = modelWritten
+	} else if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
 		// Named once and used twice on purpose. The model the summariser is
 		// asked for is also the model its tokens are priced at, and computing
 		// the two separately is how they drift — a router that sends compaction

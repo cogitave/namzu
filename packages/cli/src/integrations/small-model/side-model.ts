@@ -97,9 +97,23 @@ export interface SideRequest {
 	readonly timing: 'in-turn' | 'beside-turn'
 }
 
+/** A small model and a provider already built for it, for a caller that makes the call itself. */
+export interface SideProvider {
+	readonly provider: LLMProvider
+	readonly providerId: string
+	readonly model: string
+}
+
 export interface SideModel {
 	/** The route a side request would take now. Never throws. */
 	route(sessionId: SessionId, signal: AbortSignal): Promise<SideRoute>
+	/**
+	 * The small model's provider, for a caller that sends its own request and
+	 * counts its own tokens. Resolves `undefined` when no small model is set
+	 * aside (the route fell back to the conversation's own model) or no
+	 * credential reaches it; never throws.
+	 */
+	smallProvider(sessionId: SessionId, signal: AbortSignal): Promise<SideProvider | undefined>
 	/** The reply text, or `undefined` when the request could not be made or counted. */
 	ask(request: SideRequest): Promise<string | undefined>
 }
@@ -200,5 +214,20 @@ export function createSideModel(deps: SideModelDeps): SideModel {
 		}
 	}
 
-	return { route, ask }
+	const smallProvider = async (
+		sessionId: SessionId,
+		signal: AbortSignal,
+	): Promise<SideProvider | undefined> => {
+		try {
+			const chosen = await route(sessionId, signal)
+			if (chosen.source === 'main') return undefined
+			const provider = await deps.buildProvider(sessionId, chosen)
+			return { provider, providerId: chosen.providerId, model: chosen.model }
+		} catch (error) {
+			deps.debug?.('side model: no provider for the small model', error)
+			return undefined
+		}
+	}
+
+	return { route, ask, smallProvider }
 }

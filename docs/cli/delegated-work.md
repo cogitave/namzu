@@ -28,18 +28,59 @@ client construction instead of reusing the token captured at startup.
 
 ## Built-in agent types
 
-The `Agent` tool offers three built-in types beside any agent files:
+The `Agent` tool offers four built-in types beside any agent files:
 
 | Type | Tools | Returns |
 |---|---|---|
 | `general-purpose` (default) | the parent's working set | the result of the task |
 | `explore` | reading and searching tools only | an answer with paths and line numbers |
 | `plan` | the same reading and searching tools | a step plan: the approach, numbered steps naming the files they change, the files to read first, and the risks and open questions |
+| `fork` | the same working set as `general-purpose` | one report, written by a worker that has read this conversation |
 
 `plan` is for the moment a design is wanted before code changes, without spending
 the parent's context on exploration. It cannot edit, write or run commands. An
 agent file named `plan` replaces the built-in of that name. Plan mode itself is
 unchanged; see [Plan mode](plan-mode.md).
+
+### Forks
+
+`subagent_type: "fork"` starts a worker that continues the conversation instead
+of starting from nothing. It is never the default: the model picks it when a side
+task would fill its context with output it will not need again, such as an
+open-ended survey, and a prompt that is only the directive (what to do, where the
+scope ends) is enough, because the fork has read everything the model has.
+
+What a fork inherits:
+
+- the conversation up to and including the message that launched it, with every
+  call in that message answered by a short note (its own says it started the
+  fork) so the history is valid; a compaction summary is kept, the system
+  message is not repeated. The copies are new messages in the fork's own
+  conversation: they carry none of the ids the parent's saved conversation gave
+  them, so a parent holding recorded messages and reminders starts a fork like any
+  other;
+- the system prompt of the conversation, used as it is;
+- the model the turn runs on, including a scheduled job's;
+- the sub-agent working set of tools, which has no `Agent` tool. This differs from the parent's own list, so the tool definitions are not shared with the parent's request.
+
+When a child fails before it answers, its row and the parent's result say why in plain words.
+
+What it does not get: its own `model`, `provider`, `effort` or `role` (the call
+is refused when it names one), a way to start sub-agents or forks (a call from a
+conversation that is already a fork's is refused too), or a saved description to
+be rebuilt from after a restart. It may be given `workspace: "worktree"` like any
+child; its directive then tells it that paths in the conversation point to the
+parent's checkout.
+
+Its result returns the way every child's does: a blocking call returns the
+report, a background one sends a task notification, and the report is the
+fork's final message. Reviews are unchanged: a fork launch is asked about like a
+general-purpose one, and every call the fork makes runs under the parent turn's
+live mode and rules. A fork sends the conversation again, so it costs about
+what the conversation costs per request; a provider that caches the prefix
+charges less for the repeated part. Launching one without a conversation to
+continue (a workflow step, for example) is refused with a pointer to
+`general-purpose`.
 
 In the terminal the `Agent` tool runs in the background by default: it returns
 the task UUID after launch and the model carries on, and it is told it will be
@@ -150,7 +191,7 @@ mode, exactly as before — a network tool such as `web_search` included. What
 the operator is no longer asked is whether a reader may start. The cost it can
 run up is bounded by the tree budget the turn already carries.
 
-Every other launch is reviewed as before: a general-purpose agent, an agent
+Every other launch is reviewed as before: a general-purpose agent, a fork, an agent
 file without `readOnly: true`, and a read-only agent sent to another provider
 or model or given an effort, or requesting `workspace: "worktree"`. A batch that mixes a read-only launch with any of
 those is reviewed as one batch.

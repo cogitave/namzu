@@ -159,6 +159,16 @@ describe('command-specific help', () => {
 		expect(feedback).toContain('Unavailable: Nothing to rate yet.')
 	})
 
+	it('lists the keyboard shortcuts with /help keys', () => {
+		const output = helpText('/help keys')
+		expect(output.split('\n')[0]).toBe('Keyboard shortcuts')
+		expect(output).toContain('Alt+P')
+		expect(output).toContain('Choose a model')
+		expect(output).toContain('Ctrl+S')
+		expect(output).toContain('Ctrl+_')
+		expect(output).toContain('Alt+T')
+	})
+
 	it('uses the same catalogue for help, execution and availability checks', () => {
 		const unavailable = vi.fn((current: SlashContext) =>
 			current.builtins?.some((command) => command.name === 'custom')

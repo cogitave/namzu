@@ -10,6 +10,7 @@ import { SkillGrantSet } from '../../authorization/skill-grant.js'
 import { repairToolMessageHistory, toolHistoryRepairChanged } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
+import type { CompactionSummaryRouter } from '../../compaction/model-summary.js'
 import type { ContextReducer } from '../../compaction/reducer.js'
 import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
@@ -820,6 +821,12 @@ export interface QueryParams {
 	 * appended to the restored context. Returning nothing adds nothing.
 	 */
 	postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
+	/**
+	 * Names the model that writes a compaction summary. Asked once per pass;
+	 * resolving nothing, or a call that fails, keeps the extracted summary.
+	 */
+	compactionSummaryRoute?: CompactionSummaryRouter
 
 	/**
 	 * Where this conversation's durable state lives.
@@ -1841,6 +1848,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.postCompactionContext
 				? { postCompactionContext: params.postCompactionContext }
 				: {}),
+			...(params.compactionSummaryRoute
+				? { compactionSummaryRoute: params.compactionSummaryRoute }
+				: {}),
 			...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
 			resolveModelContextWindow: async (model) => {
 				if (!modelContextWindows.has(model)) {
@@ -2351,6 +2361,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						? `${segments.static}\n\n---\n\n${segments.dynamic}`
 						: segments.static
 
+				toolExecutor.setSystemPromptView(() => assembledPrompt)
 				ctx.recorder.markRunning()
 				// A resumed turn already began; `turn_resuming` above continued it.
 				if (!params.resumeFromCheckpoint) {

@@ -361,6 +361,7 @@ import {
 	hypermodeOnMessage,
 } from './hypermode.js'
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
+import { isAction, isChordAction, isChordLead } from './keymap.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
@@ -451,6 +452,7 @@ import {
 	sourceDeliveryLine,
 	sourceDeliveryReadError,
 } from './schedule/source-deliveries.js'
+import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
@@ -598,6 +600,7 @@ import {
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
 import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
@@ -661,6 +664,8 @@ export type ExternalEditorAdapter = (request: {
 	readonly seed: string
 	readonly cwd: string
 	readonly signal: AbortSignal
+	/** The key that opened the editor, as a person reads it. */
+	readonly pressed?: string
 }) => Promise<string>
 
 type LifecyclePhase =
@@ -712,6 +717,7 @@ type DirectChildNotice = {
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
+	readonly pressed?: string
 	readonly controller: AbortController
 	readonly resolve: (text: string) => void
 	readonly reject: (error: unknown) => void
@@ -1351,8 +1357,8 @@ type JobSurface = {
 	readonly notice?: string
 }
 
-const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal }) =>
-	editDraftInExternalEditor(seed, { cwd, signal })
+const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal, pressed }) =>
+	editDraftInExternalEditor(seed, { cwd, signal, ...(pressed !== undefined ? { pressed } : {}) })
 
 /**
  * The App, drawn inside the theme epoch: a theme change redraws this component,
@@ -1597,6 +1603,12 @@ function AppBody({
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
 	const turnLimitsOverrideRef = useRef<Partial<TurnGuards>>({})
+	/** The level Alt+T switched thinking off from, put back when it is switched on. */
+	const thinkingOffFromRef = useRef<ReasoningEffort | undefined>(undefined)
+	/** What was typed when a key opened a chooser, set by the submit and taken when the chooser opens. */
+	const keybindingDraftRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
+	/** The draft waiting for the chooser that took the screen to close. */
+	const chooserDraftRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
 	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
 		reasoningEffortRef.current = next
 		setReasoningEffortState(next)
@@ -2040,9 +2052,24 @@ function AppBody({
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
+	/**
+	 * The row that says a reply is paused while it mends itself. Every failed try
+	 * rewrites this one row instead of adding another; it is forgotten when the
+	 * run of tries ends (`autoResumeAttemptRef` back to 0).
+	 */
+	const selfMendingPauseRowRef = useRef(new SelfMendingPauseRow())
 	/** Redraws the countdown in the hint line once a second while a pause mends itself. */
 	const [, setAutoResumeTick] = useState(0)
 	const composerDraftTokenRef = useRef(0)
+	// A chooser a key opened has closed and the conversation is back: the draft
+	// typed before it returns, once. Choosers other than that key's never carry one.
+	useEffect(() => {
+		const kept = chooserDraftRef.current
+		if (!kept || phase !== 'ready' || choicePicker !== null) return
+		chooserDraftRef.current = null
+		composerDraftTokenRef.current += 1
+		setComposerDraft({ token: composerDraftTokenRef.current, ...kept })
+	}, [phase, choicePicker])
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
@@ -3117,7 +3144,7 @@ function AppBody({
 	}, [terminal, resetTranscript, scrollOpen, transcriptScreen])
 
 	const requestExternalEditor = useCallback(
-		(seed: string): Promise<string> => {
+		(seed: string, pressed?: string): Promise<string> => {
 			if (
 				phase !== 'ready' ||
 				state !== 'idle' ||
@@ -3138,6 +3165,7 @@ function AppBody({
 				const request: PendingExternalEditor = {
 					token: {},
 					seed,
+					...(pressed !== undefined ? { pressed } : {}),
 					controller: new AbortController(),
 					resolve,
 					reject,
@@ -3164,6 +3192,7 @@ function AppBody({
 			try {
 				edited = await externalEditor({
 					seed: request.seed,
+					...(request.pressed !== undefined ? { pressed: request.pressed } : {}),
 					cwd: trustedCwdRef.current,
 					signal: request.controller.signal,
 				})
@@ -4280,6 +4309,40 @@ function AppBody({
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
 	)
+
+	/** Alt+T: thinking off is the model's `none` level; on puts back the level it had. */
+	const toggleThinking = useCallback((): void => {
+		const note = (text: string): void =>
+			addNotice({ key: 'thinking-toggle', text, priority: 'immediate', timeoutMs: 4_000 })
+		const levels = session?.reasoningEffortLevels
+		if (!session?.hasProvider || !levels?.length) {
+			note('This model has no thinking setting')
+			return
+		}
+		if (!levels.includes('none')) {
+			note('Thinking cannot be switched off for this model · /effort sets how much it thinks')
+			return
+		}
+		if (
+			state !== 'idle' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			permissionResolveRef.current !== null ||
+			compactingRef.current
+		) {
+			note('Wait for the reply to finish before changing thinking')
+			return
+		}
+		if (reasoningEffortRef.current === 'none') {
+			setReasoningEffort(thinkingOffFromRef.current)
+			thinkingOffFromRef.current = undefined
+			note('Thinking on')
+			return
+		}
+		thinkingOffFromRef.current = reasoningEffortRef.current
+		setReasoningEffort('none')
+		note('Thinking off')
+	}, [addNotice, hasUnsettledTurn, session, setReasoningEffort, state])
 
 	const stepReasoningEffort = useCallback(
 		(direction: 'lower' | 'raise'): void => {
@@ -5481,6 +5544,8 @@ function AppBody({
 									}
 								: {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+							// The composer is ready at once; each server's tools join as it connects.
+							toolServers: 'background',
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
@@ -5682,15 +5747,25 @@ function AppBody({
 						`Skipped ${relative(activeCtx.cwd, skip.path) || skip.path}: ${skip.reason}`,
 					)
 				}
-				for (const server of s.mcpConnected) {
-					pushMessage('system', `Tool server ${server.name} · ${server.toolCount} tools`)
+				// Servers connect in the background: each is reported when it settles
+				// (a person can read the line and fix their config; a headless run
+				// refuses instead). One that is already settled is reported now.
+				const reportedToolServers = new Set<string>()
+				const reportToolServer = (name: string) => {
+					if (reportedToolServers.has(name)) return
+					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
+					const row = toolServerRow(
+						name,
+						s.mcpStatus?.() ?? { connected: s.mcpConnected, failed: s.mcpFailed },
+					)
+					if (!row) return
+					reportedToolServers.add(name)
+					if (row.level === 'warning') pushSystem('warning', row.text)
+					else pushMessage('system', row.text)
 				}
-				// Reported and carried on, where a headless run refuses: there is a
-				// person here who can read this and fix their config, and taking the
-				// whole session away from them would not help them do it.
-				for (const server of s.mcpFailed) {
-					pushMessage('system', `Tool server ${server.name} is not available: ${server.reason}`)
-				}
+				s.onMcpSettled?.(reportToolServer)
+				for (const server of s.mcpConnected) reportToolServer(server.name)
+				for (const server of s.mcpFailed) reportToolServer(server.name)
 			} else {
 				setPhase('unhealthy')
 				if (s.errorHint) pushMessage('system', s.errorHint, false, STARTUP_STOP_GLYPH)
@@ -6497,6 +6572,8 @@ function AppBody({
 		async (resume?: {
 			/** Continuing a turn a tool paused for a person: what the tool asked for. */
 			readonly handoffReason?: string | undefined
+			/** A try the schedule made by itself: it adds no line of its own to the transcript. */
+			readonly automatic?: boolean
 		}): Promise<boolean> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
@@ -6586,7 +6663,7 @@ function AppBody({
 				}
 				// Said once the turn really continues: a scheduled park can still
 				// be left waiting or abandoned above.
-				pushMessage('system', PAUSED_TURN_LINES.resuming)
+				if (!resume?.automatic) pushMessage('system', PAUSED_TURN_LINES.resuming)
 				for await (const event of session.resumePaused({
 					turnId: active.turnId,
 					signal: ac.signal,
@@ -6695,7 +6772,7 @@ function AppBody({
 				const parked = handoffParkRef.current
 				void (async () => {
 					try {
-						await resumeActiveTurn()
+						await resumeActiveTurn({ automatic: true })
 					} catch {
 						// An attempt that failed to start is an attempt that did not take.
 					}
@@ -7170,6 +7247,7 @@ function AppBody({
 			// A pause belongs to the conversation it paused; another one does not inherit it.
 			setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			selfMendingPauseRowRef.current.forget()
 			resetSubagentActivity()
 			session?.resetTaskStore?.()
 			activeTurnTokenRef.current = null
@@ -7353,6 +7431,7 @@ function AppBody({
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
 				autoResumeAttemptRef.current = 0
+				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -7938,6 +8017,7 @@ function AppBody({
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
 				autoResumeAttemptRef.current = 0
+				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
@@ -9032,6 +9112,7 @@ function AppBody({
 				case 'done': {
 					// A reply that came through ends the run of tries a pause was making.
 					autoResumeAttemptRef.current = 0
+					selfMendingPauseRowRef.current.forget()
 					setSummarising(false)
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
@@ -9132,12 +9213,24 @@ function AppBody({
 							reason: event.handoff.reason,
 						})
 					} else {
-						pushSystem('warning', describePlainInterruption(event, plainOptions()))
+						const pauseText = describePlainInterruption(event, plainOptions())
 						// Enter on an empty composer continues it, like a tool's pause;
 						// typing a new message moves on and /resume stays available.
 						// A connection that would not hold passes by itself, so the pause
 						// tries again on a schedule until the person stops it.
 						if (isSelfMending(event)) {
+							// One row for the whole run of tries: a later pause rewrites it.
+							const rowId = selfMendingPauseRowRef.current.reusable(
+								autoResumeAttemptRef.current,
+								new Set(messagesLiveRef.current.map((row) => row.id)),
+							)
+							if (rowId !== null) {
+								setMessages((rows) =>
+									rows.map((row) => (row.id === rowId ? { ...row, content: pauseText } : row)),
+								)
+							} else {
+								selfMendingPauseRowRef.current.remember(pushSystem('warning', pauseText))
+							}
 							const attempt = autoResumeAttemptRef.current + 1
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({
@@ -9145,6 +9238,8 @@ function AppBody({
 								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
 							})
 						} else {
+							selfMendingPauseRowRef.current.forget()
+							pushSystem('warning', pauseText)
 							setHandoffPark({ turnId: event.turnId })
 						}
 					}
@@ -10436,10 +10531,18 @@ function AppBody({
 				const restore = (notice: string) => {
 					setViewNotice(notice)
 					composerDraftTokenRef.current += 1
+					// A key that asked for a chooser put no text of its own in the composer.
+					const kept = meta.source === 'keybinding' ? (meta.draft ?? { text: '' }) : undefined
 					setComposerDraft({
 						token: composerDraftTokenRef.current,
-						text: value,
-						...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+						text: kept ? kept.text : value,
+						...(kept
+							? kept.attachments?.length
+								? { attachments: [...kept.attachments] }
+								: {}
+							: attachments && attachments.length > 0
+								? { attachments: [...attachments] }
+								: {}),
 					})
 				}
 				const text = value.trim()
@@ -10491,10 +10594,15 @@ function AppBody({
 			// The operator moved on; a parked turn is still there for /resume.
 			setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			selfMendingPauseRowRef.current.forget()
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
 			const fromLoop = meta.source === 'operator-loop' || meta.source === 'model-loop'
-			if (!fromLoop) setHistory((prev) => [...prev, value])
+			// A key that opens a chooser is not something the operator wrote, so it
+			// leaves no line for Up to bring back. What was typed beside it waits
+			// here until the chooser opens, and returns when it closes.
+			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
+			if (!fromLoop && meta.source !== 'keybinding') setHistory((prev) => [...prev, value])
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -11120,6 +11228,7 @@ function AppBody({
 						setPickerDetected(null)
 						setPickerSelectionKind('provider-and-model')
 						setPickerInitialView('models')
+						chooserDraftRef.current = keybindingDraftRef.current
 						setPhase('picker')
 						return
 					case 'permission-mode': {
@@ -11192,9 +11301,14 @@ function AppBody({
 								values.findIndex((value) => value === current),
 							),
 						)
-						setChoicePicker(
-							reasoningEffortPicker(session, current, false, hypermodeRef.current) ?? null,
+						const effortChooser = reasoningEffortPicker(
+							session,
+							current,
+							false,
+							hypermodeRef.current,
 						)
+						if (effortChooser) chooserDraftRef.current = keybindingDraftRef.current
+						setChoicePicker(effortChooser ?? null)
 						return
 					}
 					case 'login':
@@ -13144,7 +13258,7 @@ function AppBody({
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
-				if (key.escape || (key.ctrl && input === 'c')) exitWithSummary()
+				if (key.escape || isAction('app:interrupt', input, key)) exitWithSummary()
 				return
 			}
 			// The provider picker owns its own keyboard — arrows, digits, enter,
@@ -13160,7 +13274,7 @@ function AppBody({
 			// key is dead" but the worse "the first press does something invisible
 			// and the second exits", with nothing on screen naming either.
 			if (phase === 'picker') {
-				if (key.ctrl && input === 'c') exitWithSummary()
+				if (isAction('app:interrupt', input, key)) exitWithSummary()
 				return
 			}
 			// The rewind dialog owns the keyboard while open.
@@ -13177,7 +13291,7 @@ function AppBody({
 					closeRewind()
 					return
 				}
-				if (key.ctrl && input === 'c' && !view.state.busy) {
+				if (isAction('app:interrupt', input, key) && !view.state.busy) {
 					closeRewind()
 					return
 				}
@@ -13204,7 +13318,7 @@ function AppBody({
 				if (resumeCommittedRef.current) return
 				// A name being typed owns the keys until it is saved or put away.
 				if (resumeRenaming !== null) {
-					if (key.escape || (key.ctrl && input === 'c')) setResumeRenaming(null)
+					if (key.escape || isAction('app:interrupt', input, key)) setResumeRenaming(null)
 					else if (key.return) {
 						const target = resumeList[selectedResumeRef.current]
 						const value = resumeRenaming
@@ -13255,7 +13369,7 @@ function AppBody({
 						void (phase === 'unarchive'
 							? restoreArchivedConversation(conv)
 							: resumeConversation(conv))
-				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
+				} else if (key.escape || isAction('app:interrupt', input, key)) setPhase('ready')
 				else {
 					// Anything else typed narrows the list.
 					const next = editLine(resumeQuery, { ...key, input })
@@ -13275,7 +13389,7 @@ function AppBody({
 				// second — so an accidental refusal is the recoverable direction,
 				// and making the escape hatch hesitate on the program's first screen
 				// would read as a hang.
-				if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) {
+				if (ch === 'n' || key.escape || isAction('app:interrupt', input, key)) {
 					exitWithSummary()
 					return
 				}
@@ -13303,7 +13417,7 @@ function AppBody({
 				// Sending it is a refusal, so it is never held back by the settle window.
 				const typing = permissionReasonRef.current
 				if (typing !== null) {
-					if (key.ctrl && input === 'c') {
+					if (isAction('app:interrupt', input, key)) {
 						interruptTurn()
 						return
 					}
@@ -13358,7 +13472,7 @@ function AppBody({
 				}
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
-				if (key.ctrl && input === 'c') {
+				if (isAction('app:interrupt', input, key)) {
 					// At a question of the person's own turn, Ctrl+C ends like a plain No:
 					// the kernel settles every call and the turn closes with one row.
 					if (permission && endsTurnOnNo(permission)) {
@@ -13432,7 +13546,7 @@ function AppBody({
 				// The Return that submitted /jobs must not also inspect or stop a
 				// row before the new screen has painted.
 				if (jobSurfaceCommittedRef.current !== shellView) return
-				if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+				if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
 					setJobSurface(null)
 					return
 				}
@@ -13597,10 +13711,10 @@ function AppBody({
 				} else if (key.escape) {
 					setRailFocus(null)
 					return
-				} else if (key.ctrl && input === 'x') {
+				} else if (isChordLead(input, key)) {
 					railChordRef.current = true
 					return
-				} else if (key.ctrl && input === 'k' && chordPending) {
+				} else if (chordPending && isChordAction('chat:killAgents', input, key)) {
 					// Background agents only; workflows are stopped one at a time with `x`.
 					requestStopAllAgents()
 					return
@@ -13663,7 +13777,7 @@ function AppBody({
 					setRailFocus(null)
 				}
 			}
-			if (key.ctrl && input === 't') {
+			if (isAction('app:openAgents', input, key)) {
 				if (agentSurfaceRef.current) {
 					setAgentSurface(null)
 					return
@@ -13713,7 +13827,7 @@ function AppBody({
 						return
 					}
 					const hasPhaseLevel = workflow ? cockpitEntryFocus(workflow) === 'phases' : false
-					if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+					if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
 					}
@@ -13879,7 +13993,7 @@ function AppBody({
 						setViewNotice(undefined)
 						return
 					}
-					if (key.ctrl && input === 'c') {
+					if (isAction('app:interrupt', input, key)) {
 						if (railActionFor(selected) === 'stop') session?.stopSubagent?.(selected.viewId)
 						setAgentSurface(null)
 						setViewNotice(undefined)
@@ -13904,7 +14018,7 @@ function AppBody({
 				} else {
 					if (
 						(!agentView.composing && input.toLowerCase() === 'q') ||
-						(key.ctrl && input === 'c')
+						isAction('app:interrupt', input, key)
 					) {
 						setAgentSurface(null)
 						return
@@ -13972,7 +14086,7 @@ function AppBody({
 					const option = options[index]
 					if (option) applyChoiceSelection(picker.options.indexOf(option))
 				}
-				if (key.escape || (key.ctrl && input === 'c')) {
+				if (key.escape || isAction('app:interrupt', input, key)) {
 					reviewChoiceInFlightRef.current = null
 					setSelectedChoice(0)
 					setChoicePicker(key.escape ? (picker.back ?? null) : null)
@@ -14064,7 +14178,7 @@ function AppBody({
 				// selection made against a picker the operator has not seen yet.
 				if (copyPickerCommittedRef.current !== copyPickerRef.current) return
 				const targets = copyPickerRef.current.targets
-				if (key.escape || (key.ctrl && input === 'c')) {
+				if (key.escape || isAction('app:interrupt', input, key)) {
 					setCopyPicker(null)
 					return
 				}
@@ -14100,7 +14214,7 @@ function AppBody({
 			// view-only boundary: model history, durable history and the active
 			// conversation remain untouched. A live turn is refused instead of
 			// erasing the only visible account of work that is still changing.
-			if (key.ctrl && input === 'l') {
+			if (isAction('chat:clearScreen', input, key)) {
 				if (state !== 'idle' || abortRef.current || hasUnsettledTurn()) {
 					pushMessage('system', 'Ctrl+L is unavailable while a reply is in progress.')
 					return
@@ -14122,6 +14236,7 @@ function AppBody({
 				setHandoffPark(null)
 				if (key.return) {
 					autoResumeAttemptRef.current = 0
+					selfMendingPauseRowRef.current.forget()
 					void resumeActiveTurn({ handoffReason: parked.reason })
 				} else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
@@ -14139,15 +14254,14 @@ function AppBody({
 			}
 			// Ctrl+O opens the detailed transcript: every row whole, thinking
 			// included. It replaces the composer until a key closes it.
-			if (key.ctrl && input === 'o') {
+			if (isAction('app:toggleTranscript', input, key)) {
 				setTranscriptScreen(true)
 				return
 			}
 			// Ctrl+D on an empty composer arms the same exit Ctrl+C does; with
 			// anything typed it stays the composer's delete-forward key.
 			if (
-				key.ctrl &&
-				input === 'd' &&
+				isAction('app:exit', input, key) &&
 				phase === 'ready' &&
 				!composerHasDraft &&
 				permission === null &&
@@ -14158,7 +14272,7 @@ function AppBody({
 				armExit('Ctrl-D')
 				return
 			}
-			if (key.ctrl && input === 'c') {
+			if (isAction('app:interrupt', input, key)) {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
 				// (which spammed "Interrupted." lines).
@@ -14879,6 +14993,7 @@ function AppBody({
 								onClearedDraft={(text) => setHistory((prev) => [...prev, text])}
 								onStepReasoningEffort={stepReasoningEffort}
 								onExternalEdit={requestExternalEditor}
+								onToggleThinking={toggleThinking}
 								onEditPrevious={openPromptEditor}
 								draftToRestore={composerDraft}
 								onDraftRestored={(token) =>

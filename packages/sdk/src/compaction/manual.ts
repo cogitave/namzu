@@ -16,6 +16,11 @@ import {
 	extractFromUserMessage,
 } from './extractor.js'
 import { WorkingStateManager } from './manager.js'
+import {
+	type CompactionSummaryRouter,
+	replaceableSummaries,
+	summarizeWithModel,
+} from './model-summary.js'
 import { planCompaction } from './plan.js'
 import { recordRestorable, renderRestoredContext } from './restore.js'
 import { findRetainedIndices } from './retention.js'
@@ -72,6 +77,33 @@ export interface CompactNowInput extends CompactionVerificationOptions {
 	readonly recoveryNote?: string
 	/** Text the host wants carried across, such as where its plan file is; added to the restored context. */
 	readonly restoreNote?: string
+	/**
+	 * Names the model that writes the summary. Its tokens come back in
+	 * {@link CompactionResult.usage}. Absent, or when its call fails, the
+	 * summary is built from the extracted state as before.
+	 */
+	readonly summaryRoute?: CompactionSummaryRouter
+}
+
+/** The model-written summary of `span` for a host-triggered pass, if one can be had. */
+async function modelWrittenBody(
+	input: CompactNowInput,
+	manager: WorkingStateManager,
+	span: readonly Message[],
+	earlier: readonly Message[],
+	onUsage: (usage: TokenUsage) => void,
+): Promise<string | undefined> {
+	return summarizeWithModel({
+		manager,
+		olderMessages: span,
+		previousSummaries: replaceableSummaries(earlier),
+		config: input.config,
+		resolveRoute: input.summaryRoute,
+		onUsage,
+		signal: input.signal,
+		streamIdleTimeoutMs: input.streamIdleTimeoutMs,
+		instructions: input.instructions,
+	})
 }
 
 async function publishManualCompaction(
@@ -230,21 +262,24 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, plan.olderMessages, input.config)
 	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
-	const body = await buildVerifiedSummary(
-		manager,
-		[...plan.olderMessages],
-		input.provider,
-		input.config,
-		(reported) => {
-			usage = accumulateTokenUsage(usage, reported)
-		},
-		input.model ?? '',
-		{
-			signal: input.signal,
-			streamIdleTimeoutMs: input.streamIdleTimeoutMs,
-			instructions: input.instructions,
-		},
-	)
+	const onUsage = (reported: TokenUsage) => {
+		usage = accumulateTokenUsage(usage, reported)
+	}
+	const body =
+		(await modelWrittenBody(input, manager, plan.olderMessages, plan.systemMessages, onUsage)) ??
+		(await buildVerifiedSummary(
+			manager,
+			[...plan.olderMessages],
+			input.provider,
+			input.config,
+			onUsage,
+			input.model ?? '',
+			{
+				signal: input.signal,
+				streamIdleTimeoutMs: input.streamIdleTimeoutMs,
+				instructions: input.instructions,
+			},
+		))
 
 	const { messages, summary } = splice(
 		preservedSystem,
@@ -322,21 +357,24 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, messages.slice(start, end), input.config)
 	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
-	const body = await buildVerifiedSummary(
-		manager,
-		messages.slice(start, end),
-		input.provider,
-		input.config,
-		(reported) => {
-			usage = accumulateTokenUsage(usage, reported)
-		},
-		input.model ?? '',
-		{
-			signal: input.signal,
-			streamIdleTimeoutMs: input.streamIdleTimeoutMs,
-			instructions: input.instructions,
-		},
-	)
+	const onUsage = (reported: TokenUsage) => {
+		usage = accumulateTokenUsage(usage, reported)
+	}
+	const body =
+		(await modelWrittenBody(input, manager, messages.slice(start, end), [], onUsage)) ??
+		(await buildVerifiedSummary(
+			manager,
+			messages.slice(start, end),
+			input.provider,
+			input.config,
+			onUsage,
+			input.model ?? '',
+			{
+				signal: input.signal,
+				streamIdleTimeoutMs: input.streamIdleTimeoutMs,
+				instructions: input.instructions,
+			},
+		))
 
 	// Same cross-run ownership as compactNow: a selected region has been
 	// replaced outside a turn, so its only surviving account is pinned.

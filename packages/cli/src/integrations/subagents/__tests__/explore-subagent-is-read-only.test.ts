@@ -20,6 +20,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { subagentParentFixture } from '../__fixtures__/parent.js'
+import { FORK_SUBAGENT } from '../fork.js'
 import {
 	EXPLORE_SUBAGENT,
 	GENERAL_PURPOSE_SUBAGENT,
@@ -83,6 +84,7 @@ describe('the explore sub-agent', () => {
 			GENERAL_PURPOSE_SUBAGENT,
 			EXPLORE_SUBAGENT,
 			PLAN_SUBAGENT,
+			FORK_SUBAGENT,
 		])
 		// The schema the model is validated against accepts the new type and
 		// still refuses one it does not know.

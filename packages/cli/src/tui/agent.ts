@@ -76,6 +76,7 @@ import {
 	type CodeAnalysisProvider,
 	type CompactionConfig,
 	type CompactionResult,
+	type CompactionSummaryRouter,
 	type CompletionInbox,
 	type CostInfo,
 	DiskSessionCheckpointStore,
@@ -138,6 +139,7 @@ import {
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
+	type TokenUsage,
 	type ToolCallEscalation,
 	type ToolCallSummary,
 	type ToolCallView,
@@ -300,6 +302,7 @@ import {
 	type FailedMcpServer,
 	type McpServersConfig,
 	connectMcpServers,
+	startMcpServers,
 } from '../integrations/mcp/servers.js'
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
@@ -1468,7 +1471,15 @@ export interface AgentSession {
 	readonly mcpStatus?: () => {
 		readonly connected: readonly ConnectedMcpServer[]
 		readonly failed: readonly FailedMcpServer[]
+		/** Tool servers still being reached; absent when the session waited for all of them. */
+		readonly pending?: readonly string[]
 	}
+	/**
+	 * Called once for each tool server as it connects or fails, in a session
+	 * that opened without waiting for them (`toolServers: 'background'`).
+	 * Returns the unsubscribe function.
+	 */
+	readonly onMcpSettled?: (listener: (name: string) => void) => () => void
 	/**
 	 * Delegates this session can dispatch to. Empty when the subagent runtime
 	 * did not come up, which is non-fatal and leaves the session doing its own
@@ -2301,6 +2312,13 @@ export interface AgentSessionOptions {
 	 * config. Absent means none, which is what it meant before they existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/**
+	 * Whether opening the session waits for the tool servers. `'wait'` (the
+	 * default, what headless runs need) returns once each has answered or
+	 * failed. `'background'` returns at once; the tools of each server join
+	 * as it connects, and `onMcpSettled` reports each one.
+	 */
+	readonly toolServers?: 'wait' | 'background'
 	/** Executable extension runtime. Absent or disabled performs no discovery. */
 	readonly plugins?: PluginConfig
 	/**
@@ -3345,33 +3363,41 @@ export async function createAgentSession(
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
-	const mcp = await connectMcpServers(options.mcpServers, { cwd })
+	const mcp =
+		options.toolServers === 'background'
+			? startMcpServers(options.mcpServers, { cwd })
+			: await connectMcpServers(options.mcpServers, { cwd })
 	toolsets.push(...mcp.toolsets)
 	// External connector discovery is reported separately from executable
 	// plugin discovery. Folding both counts together would make a failed server
 	// indistinguishable from a plugin that never enabled.
-	cliLogger().info('discovery complete', {
-		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
-		'namzu.discovery.kind': 'connector',
-		'namzu.discovery.count': mcp.connected.length,
-		'namzu.discovery.tool_count': mcp.tools.length,
-		'namzu.discovery.failed_count': mcp.failed.length,
-	})
-	for (const server of mcp.connected) {
-		cliLogger().debug('connector discovered', {
+	const logConnectorDiscovery = (): void => {
+		cliLogger().info('discovery complete', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 			'namzu.discovery.kind': 'connector',
-			'namzu.connector.name': server.name,
-			'namzu.connector.tool_count': server.toolCount,
+			'namzu.discovery.count': mcp.connected.length,
+			'namzu.discovery.tool_count': mcp.tools.length,
+			'namzu.discovery.failed_count': mcp.failed.length,
 		})
+		for (const server of mcp.connected) {
+			cliLogger().debug('connector discovered', {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+				'namzu.discovery.kind': 'connector',
+				'namzu.connector.name': server.name,
+				'namzu.connector.tool_count': server.toolCount,
+			})
+		}
+		for (const server of mcp.failed) {
+			cliLogger().debug('connector failed to connect', {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+				'namzu.discovery.kind': 'connector',
+				'namzu.connector.name': server.name,
+			})
+		}
 	}
-	for (const server of mcp.failed) {
-		cliLogger().debug('connector failed to connect', {
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
-			'namzu.discovery.kind': 'connector',
-			'namzu.connector.name': server.name,
-		})
-	}
+	// A session that did not wait reports once every server has answered.
+	if (options.toolServers === 'background') void mcp.ready.then(logConnectorDiscovery)
+	else logConnectorDiscovery()
 	// Detected once per session, not per capability check an operator might
 	// separately run via `namzu doctor`. Package probes still supply optional
 	// package details; the aggregate overrides capabilities whose runtime
@@ -3466,6 +3492,9 @@ export async function createAgentSession(
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<TurnId, SessionScope>()
+	// The most recent turn, whose ledger takes the tokens of a compaction made
+	// between turns (the small model's summary); a compaction has no turn of its own.
+	let latestTurn: { readonly sessionId: SessionId; readonly turnId: TurnId } | undefined
 	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
 	// The token target ("+500k") the person typed for a turn: the ceiling a
 	// workflow started in it sees as `budget.total`.
@@ -4435,6 +4464,34 @@ export async function createAgentSession(
 		manager.refresh()
 		return manager
 	}
+	// The small model that writes the compaction summary, asked once per pass.
+	// None set aside (the route falls back to the conversation's own model), no
+	// credential for it, or `compaction.modelSummary: false` keeps the summary
+	// the kernel extracts.
+	const summaryRouteFor = (sessionId: SessionId): CompactionSummaryRouter | undefined =>
+		options.compaction?.modelSummary === false
+			? undefined
+			: async (signal) =>
+					sideModel?.smallProvider(sessionId, signal ?? new AbortController().signal)
+	// Tokens the small model spent on a summary written between turns go on the
+	// latest turn's ledger, the way a title is counted.
+	const counted = async <T extends { readonly usage: TokenUsage } | null>(
+		sessionId: SessionId,
+		pending: Promise<T>,
+	): Promise<T> => {
+		const result = await pending
+		if (result) countCompactionSpend(sessionId, result.usage)
+		return result
+	}
+	const countCompactionSpend = (sessionId: SessionId, usage: TokenUsage): void => {
+		if (!latestTurn || usage.totalTokens <= 0) return
+		void subagentRuntime?.sideLedger.chargeLater({
+			turnId: latestTurn.turnId,
+			sessionId,
+			estimatedPromptTokens: usage.promptTokens,
+			usage,
+		})
+	}
 	// A summary written outside a turn points at the conversation tools only
 	// while both are mounted, the rule an in-turn compaction follows.
 	const recoveryNoteIfMounted = (): { recoveryNote?: string } => {
@@ -4835,6 +4892,7 @@ export async function createAgentSession(
 			delegatedResumeHandlers.set(entry.turnId, resumeHandler)
 			delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
 			delegationScopes.set(entry.turnId, turnScope)
+			latestTurn = { sessionId: turnScope.sessionId, turnId: entry.turnId }
 			delegationLimits.set(entry.turnId, resumedLimits)
 			if (route && pinned)
 				delegationModels.set(entry.turnId, {
@@ -4896,6 +4954,9 @@ export async function createAgentSession(
 					projectInstructionContext: projectInstructions.createTurnContext(),
 					...(resumePlanPath
 						? { postCompactionContext: () => planCarriedAcrossCompaction(resumePlanPath) }
+						: {}),
+					...(summaryRouteFor(entry.sessionId)
+						? { compactionSummaryRoute: summaryRouteFor(entry.sessionId) }
 						: {}),
 					paths,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
@@ -5130,6 +5191,7 @@ export async function createAgentSession(
 					signal,
 					...(instructions ? { instructions } : {}),
 					...recoveryNoteIfMounted(),
+					...(summaryRouteFor(sessionId) ? { summaryRoute: summaryRouteFor(sessionId) } : {}),
 				}
 				// A durable conversation compacts its own log: the kernel folds the
 				// context from it and appends a `compaction{ trigger: 'manual' }`
@@ -5139,17 +5201,20 @@ export async function createAgentSession(
 				if (sessions && !options.ephemeral) {
 					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
 						throw new Error('Manual compaction is outside the current conversation scope.')
-					return await compactSession({
-						...common,
+					return await counted(
 						sessionId,
-						...(trigger === 'idle' ? { trigger } : {}),
-						locator: {
-							log: DiskSessionLog.at(paths, { sessionId }),
-							index: sessions.index,
-						},
-					})
+						compactSession({
+							...common,
+							sessionId,
+							...(trigger === 'idle' ? { trigger } : {}),
+							locator: {
+								log: DiskSessionLog.at(paths, { sessionId }),
+								index: sessions.index,
+							},
+						}),
+					)
 				}
-				return compactNow({ ...common, messages })
+				return await counted(sessionId, compactNow({ ...common, messages }))
 			}),
 		compactRange: ({ messages, from, until, instructions }) =>
 			operations.promise(undefined, async (signal) => {
@@ -5163,6 +5228,7 @@ export async function createAgentSession(
 					signal,
 					...(instructions ? { instructions } : {}),
 					...recoveryNoteIfMounted(),
+					...(summaryRouteFor(sessionId) ? { summaryRoute: summaryRouteFor(sessionId) } : {}),
 				}
 				if (sessions && !options.ephemeral) {
 					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
@@ -5173,16 +5239,19 @@ export async function createAgentSession(
 							'That message is no longer in the active context. Choose a more recent message.',
 						)
 					}
-					return await compactSessionRange({
-						...common,
+					return await counted(
 						sessionId,
-						...(from?.id ? { from: from.id } : {}),
-						...(until?.id ? { until: until.id } : {}),
-						locator: {
-							log: DiskSessionLog.at(paths, { sessionId }),
-							index: sessions.index,
-						},
-					})
+						compactSessionRange({
+							...common,
+							sessionId,
+							...(from?.id ? { from: from.id } : {}),
+							...(until?.id ? { until: until.id } : {}),
+							locator: {
+								log: DiskSessionLog.at(paths, { sessionId }),
+								index: sessions.index,
+							},
+						}),
+					)
 				}
 				const at = (message: Message | undefined, fallback: number): number => {
 					if (!message) return fallback
@@ -5194,12 +5263,15 @@ export async function createAgentSession(
 					}
 					return found
 				}
-				return compactRegion({
-					...common,
-					messages,
-					start: at(from, 0),
-					end: at(until, messages.length),
-				})
+				return await counted(
+					sessionId,
+					compactRegion({
+						...common,
+						messages,
+						start: at(from, 0),
+						end: at(until, messages.length),
+					}),
+				)
 			}),
 		// Reads the same manager the session composed, at call time — the pair
 		// of `promptExemptTools` below, and for the same reason.
@@ -5377,6 +5449,7 @@ export async function createAgentSession(
 							})
 							liveModeControls.add(control)
 							delegationScopes.set(turnId, turnScope)
+							latestTurn = { sessionId: turnScope.sessionId, turnId }
 							delegationLimits.set(turnId, resolveTurnGuards(options.limits, opts?.limits))
 							delegatedResumeHandlers.set(turnId, control.handler)
 							delegatedReviewAllowedCalls.set(turnId, control.reviewAllowedCalls)
@@ -5515,6 +5588,7 @@ export async function createAgentSession(
 			return mcp.failed
 		},
 		mcpStatus: () => mcp.current(),
+		...(options.toolServers === 'background' ? { onMcpSettled: mcp.onSettled } : {}),
 		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
 			// Git for Windows is missing and the shell tool runs cmd.exe: said once, here.
@@ -5677,6 +5751,7 @@ export async function createAgentSession(
 						if (opts?.onModelSwitch) modelSwitchHandlers.set(turnId, opts.onModelSwitch)
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
+						latestTurn = { sessionId: turnScope.sessionId, turnId }
 						delegationLimits.set(turnId, turnLimits)
 						const typedTarget = parseTokenTarget(opts?.typedInput ?? '')
 						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)
@@ -6117,6 +6192,9 @@ export async function createAgentSession(
 								projectInstructionContext: projectInstructions.createTurnContext(),
 								...(planPath
 									? { postCompactionContext: () => planCarriedAcrossCompaction(planPath) }
+									: {}),
+								...(summaryRouteFor(turnScope.sessionId)
+									? { compactionSummaryRoute: summaryRouteFor(turnScope.sessionId) }
 									: {}),
 								opts: turnOpts,
 								resumeHandler,
@@ -6952,6 +7030,7 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
 		...(compaction?.contextWindowTokens !== undefined
 			? { contextWindowTokens: compaction.contextWindowTokens }
 			: {}),
+		...(compaction?.modelSummary !== undefined ? { modelSummary: compaction.modelSummary } : {}),
 	}
 }
 

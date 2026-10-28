@@ -2,6 +2,7 @@ import type { AdvisoryContext } from '../../../../advisory/context.js'
 import type { SkillGrantSet } from '../../../../authorization/skill-grant.js'
 import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
+import type { CompactionSummaryRouter } from '../../../../compaction/model-summary.js'
 import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
@@ -258,6 +259,9 @@ export interface IterationContext {
 
 	/** Host text appended to the restored context after a compaction. */
 	readonly postCompactionContext?: () => string | undefined | Promise<string | undefined>
+
+	/** Where a model-written compaction summary is asked for; see {@link CompactionSummaryRouter}. */
+	readonly compactionSummaryRoute?: CompactionSummaryRouter
 
 	readonly workingStateManager?: WorkingStateManager
 

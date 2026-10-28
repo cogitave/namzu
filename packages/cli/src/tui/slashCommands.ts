@@ -3,6 +3,7 @@ import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { isToolServerTimeout } from './tool-server-rows.js'
 import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
@@ -56,6 +57,7 @@ import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
+import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
 import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
 import type { ThemeSetting } from './theme-palettes.js'
@@ -359,6 +361,8 @@ export interface SlashContext {
 			readonly name: string
 			readonly reason: string
 		}[]
+		/** Tool servers still being reached. */
+		readonly pending?: readonly string[]
 	} | null
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
@@ -669,6 +673,13 @@ export function parseSlash(line: string): ParsedSlash | null {
 /** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
 function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	const name = args[0]?.replace(/^\//, '')
+	if (
+		args.length === 1 &&
+		name === 'keys' &&
+		!(ctx.builtins ?? CLI_LOCAL_COMMANDS).some((c) => c.name === 'keys')
+	) {
+		return { kind: 'message', role: 'system', content: keysHelpText() }
+	}
 	if (args.length !== 1 || !name) {
 		return {
 			kind: 'message',
@@ -910,9 +921,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'help',
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {
-			usage: ['/help', '/help <command>'],
+			usage: ['/help', '/help <command>', '/help keys'],
 			details: [
-				'Without a name, opens the command menu. With a name, shows help without running the command.',
+				'Without a name, opens the command menu. With a name, shows help without running the command. `/help keys` lists the keyboard shortcuts.',
 			],
 		},
 		action: (ctx, args) => {
@@ -1989,14 +2000,21 @@ function reviewTargetPrompt(target: readonly string[]): string {
 
 export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false): string {
 	if (mcp === null) return 'Not connected yet. Tool servers have not been checked.'
-	if (mcp.connected.length === 0 && mcp.failed.length === 0) {
+	const pending = mcp.pending ?? []
+	if (mcp.connected.length === 0 && mcp.failed.length === 0 && pending.length === 0) {
 		return 'No tool servers configured. Add mcpServers to namzu.config.json.'
 	}
 	const lines = [
-		`Tool servers: ${mcp.connected.length} connected, ${mcp.failed.length} unavailable.`,
+		`Tool servers: ${[
+			`${mcp.connected.length} connected`,
+			...(mcp.failed.length > 0 ? [`${mcp.failed.length} unavailable`] : []),
+			...(pending.length > 0 ? [`${pending.length} connecting`] : []),
+		].join(', ')}.`,
 	]
 	for (const server of mcp.connected) {
-		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
+		lines.push(
+			`${server.name}: connected, ${server.tools.length} ${server.tools.length === 1 ? 'tool' : 'tools'}`,
+		)
 		const drift = server.drift
 		if (drift) {
 			for (const name of drift.added) lines.push(`  added: ${terminalDisplayText(name)}`)
@@ -2015,7 +2033,11 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 			for (const tool of server.tools) lines.push(`  ${tool}`)
 		}
 	}
-	for (const server of mcp.failed) lines.push(`${server.name}: unavailable — ${server.reason}`)
+	for (const server of mcp.failed) {
+		const reason = isToolServerTimeout(server.reason) ? 'did not answer in time' : server.reason
+		lines.push(`${server.name}: unavailable — ${reason}`)
+	}
+	for (const name of pending) lines.push(`${name}: connecting…`)
 	if (!details && mcp.connected.length > 0) lines.push('/mcp tools to list available tools.')
 	return lines.join('\n')
 }

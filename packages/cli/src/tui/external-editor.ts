@@ -92,17 +92,21 @@ export function parseExternalEditorCommand(raw: string): readonly string[] {
 
 export function resolveExternalEditorCommand(
 	env: Readonly<NodeJS.ProcessEnv> = process.env,
+	/** The key the person pressed, as `keyLabel` words it; the refusal names it. */
+	pressed = 'the editor key',
 ): readonly string[] {
 	const visual = env.VISUAL?.trim()
 	const editor = env.EDITOR?.trim()
 	const raw = visual || editor
-	if (!raw) throw new ExternalEditorError('set VISUAL or EDITOR before pressing Ctrl+G')
+	if (!raw) throw new ExternalEditorError(`set VISUAL or EDITOR before pressing ${pressed}`)
 	return parseExternalEditorCommand(raw)
 }
 
 export interface ExternalEditorOptions {
 	readonly cwd: string
 	readonly env?: Readonly<NodeJS.ProcessEnv>
+	/** The key that opened the editor, for a refusal that names it. */
+	readonly pressed?: string
 	readonly signal?: AbortSignal
 	readonly temporaryRoot?: string
 }
@@ -117,7 +121,7 @@ export async function editDraftInExternalEditor(
 	options: ExternalEditorOptions,
 ): Promise<string> {
 	options.signal?.throwIfAborted()
-	const command = resolveExternalEditorCommand(options.env)
+	const command = resolveExternalEditorCommand(options.env, options.pressed)
 	const directory = await mkdtemp(join(options.temporaryRoot ?? tmpdir(), 'namzu-editor-'))
 	const draftPath = join(directory, 'draft.md')
 	let edited: string | undefined

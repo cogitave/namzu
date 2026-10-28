@@ -23,8 +23,9 @@ import {
 	type QueuedHintEpisode,
 	nextQueuedHintEpisode,
 } from './composer-hints.js'
-import { isBackgroundChord } from './foreground-handoff.js'
+import { createUndoStack } from './composer-undo.js'
 import { fitHints } from './key-hints.js'
+import { isAction, isChordAction, isChordLead, pressedKeyLabel, primaryKeyLabel } from './keymap.js'
 import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
@@ -63,6 +64,9 @@ import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
 
 /** The footer notice that offers the second Esc. */
 const ESC_CLEAR_KEY = 'escape-again-to-clear'
+const STASH_KEY = 'draft-stash'
+const STASH_NOTICE_MS = 3000
+const STASH_RESTORED_NOTICE_MS = 5000
 /** The second Esc clears inside this window. */
 export const ESC_CLEAR_WINDOW_MS = 800
 /** The notice outlives the window by 200 ms: a press in between only arms again. */
@@ -128,7 +132,9 @@ export interface ComposerProps {
 	/** Step through the active model's published reasoning menu. */
 	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
-	readonly onExternalEdit?: (seed: string) => Promise<string>
+	readonly onExternalEdit?: (seed: string, pressed?: string) => Promise<string>
+	/** Alt+T: switch the model's thinking on or off. The host words the outcome. */
+	readonly onToggleThinking?: () => void
 	/** Empty-composer Esc ×2 (inside REWIND_DOUBLE_ESC_MS) asks App to open the rewind picker. */
 	readonly onEditPrevious?: () => void
 	/** One-shot prompt restored after App has created a source-preserving fork. */
@@ -233,6 +239,7 @@ export type SubmitSource =
 	| 'composer'
 	| 'composer-dropdown'
 	| 'command-picker'
+	| 'keybinding'
 	| 'operator-loop'
 	| 'model-loop'
 	| 'launch-message'
@@ -262,7 +269,16 @@ export type SubmitMeta =
 			 */
 			readonly onlyTriggers: boolean
 	  }
-	| { readonly source: Exclude<SubmitSource, 'composer'> }
+	| {
+			readonly source: 'keybinding'
+			/**
+			 * What was typed when the key was pressed. A chooser the key opens takes
+			 * the screen, so the host keeps this and puts it back when the chooser
+			 * closes. Absent when nothing was typed.
+			 */
+			readonly draft?: Omit<ComposerDraft, 'token'>
+	  }
+	| { readonly source: Exclude<SubmitSource, 'composer' | 'keybinding'> }
 
 export interface ComposerDraft {
 	readonly token: number
@@ -608,6 +624,7 @@ export function Composer({
 	onClearedDraft,
 	onStepReasoningEffort,
 	onExternalEdit,
+	onToggleThinking,
 	onEditPrevious,
 	draftToRestore = null,
 	onDraftRestored,
@@ -862,6 +879,18 @@ export function Composer({
 		else setOverride(nearest, 'dropped')
 	}
 
+	const undoRef = useRef(createUndoStack())
+	/** The draft set aside with Ctrl+S, brought back by Ctrl+S on an empty draft or after the next message. */
+	const stashRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
+	/** Save the draft as it is now, ahead of an edit that makes it `after`. */
+	const recordUndo = useCallback((after: string, typed: string | null) => {
+		undoRef.current.record(
+			{ value: valueRef.current, cursor: cursorRef.current, spans: spansRef.current },
+			after,
+			typed,
+		)
+	}, [])
+
 	/**
 	 * One edit of the draft, by the operator (`typed`) or not. The characters
 	 * it inserts are remembered as typed or not, and the draft's other spans
@@ -874,15 +903,24 @@ export function Composer({
 			setHistorySearch(null)
 			setHistoryIndex(-1)
 			const edit = diffEdit(valueRef.current, nextValue, cursorRef.current)
+			// One typed character is part of a run; anything else is an edit of its own.
+			const inserted = nextValue.slice(edit.start, edit.start + edit.insertLength)
+			recordUndo(
+				nextValue,
+				origin === 'typed' && edit.deleteEnd === edit.start && inserted.length > 0
+					? inserted
+					: null,
+			)
 			const spans = applyEdit(spansRef.current, edit, origin)
 			const overrides = shiftOverrides(overridesRef.current, edit)
 			setBuffer(nextValue, nextCursor, origin, spans)
 			overridesRef.current = overrides
 		},
-		[setBuffer, setHistoryIndex, setHistorySearch],
+		[recordUndo, setBuffer, setHistoryIndex, setHistorySearch],
 	)
 
 	const reset = useCallback(() => {
+		undoRef.current.clear()
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
 		setHistorySearch(null)
@@ -994,20 +1032,56 @@ export function Composer({
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
+			const openExternalEditor = (pressed: string): void => {
+				if (!onExternalEdit) {
+					onNotice?.('External editor support is unavailable in this terminal.')
+					return
+				}
+				const seed = expandChips(valueRef.current, pasteStoreRef.current).trim()
+				void onExternalEdit(seed, pressed)
+					.then((edited) => {
+						// An image the editor text no longer names stays attached: its chip goes back.
+						let cleaned = edited.trimEnd()
+						for (const attachment of attachmentsRef.current) {
+							const chip = chipFor(attachment, idFor(attachment))
+							if (!cleaned.includes(chip)) cleaned += `${cleaned ? ' ' : ''}${chip}`
+						}
+						clearPastes()
+						setHistoryIndex(-1)
+						setHistorySearch(null)
+						setSelectedIndex(0)
+						historyDraftRef.current = null
+						verticalColumnRef.current = null
+						recordUndo(cleaned, null)
+						setBuffer(cleaned, cleaned.length, 'editor')
+					})
+					.catch((error: unknown) => {
+						onNotice?.(
+							// The editor module words its own refusals for a person ("set VISUAL or EDITOR…").
+							error instanceof Error && error.name === 'ExternalEditorError'
+								? `Cannot open your editor: ${error.message}.`
+								: explainFailure(error, 'Cannot open your editor.'),
+						)
+					})
+			}
 			// ctrl+x ctrl+s, a two-key chord: any other key in between drops it.
 			const chordArmed = sendNowChordRef.current
 			sendNowChordRef.current = false
-			if (key.ctrl && input === 'x') {
+			if (isChordLead(input, key)) {
 				sendNowChordRef.current = true
 				return
 			}
-			if (isBackgroundChord(input, key) && onBackgroundCommand?.()) return
-			if (chordArmed && key.ctrl && input === 's' && onSendNow) {
+			if (isAction('task:background', input, key) && onBackgroundCommand?.()) return
+			if (chordArmed && isChordAction('chat:sendNow', input, key) && onSendNow) {
 				onSendNow()
 				return
 			}
-			if (chordArmed && key.ctrl && input === 'k' && onStopAllAgents) {
+			if (chordArmed && isChordAction('chat:killAgents', input, key) && onStopAllAgents) {
 				onStopAllAgents()
+				return
+			}
+			if (chordArmed && isChordAction('chat:externalEditor', input, key)) {
+				openExternalEditor(pressedKeyLabel('chat:externalEditor', input, key, true))
 				return
 			}
 			if (queuedEdit) {
@@ -1086,7 +1160,7 @@ export function Composer({
 				}
 				return false
 			}
-			if (key.meta && key.upArrow && onRecallQueued) {
+			if (isAction('chat:recallQueued', input, key) && onRecallQueued) {
 				if (valueRef.current.length > 0 || attachmentsRef.current.length > 0) {
 					onNotice?.('Send or clear the current draft before recalling a queued message.')
 					return
@@ -1098,7 +1172,7 @@ export function Composer({
 			if (
 				!hasLiveSuggestions &&
 				onStepReasoningEffort &&
-				((key.shift && key.downArrow) || (key.meta && input === ','))
+				isAction('chat:effortLower', input, key)
 			) {
 				onStepReasoningEffort('lower')
 				return
@@ -1106,7 +1180,7 @@ export function Composer({
 			if (
 				!hasLiveSuggestions &&
 				onStepReasoningEffort &&
-				((key.shift && key.upArrow) || (key.meta && input === '.'))
+				isAction('chat:effortRaise', input, key)
 			) {
 				onStepReasoningEffort('raise')
 				return
@@ -1147,9 +1221,21 @@ export function Composer({
 						armed.length > 0 && detection.onlyTriggers && currentAttachments.length === 0,
 				})
 				reset()
+				// A draft set aside comes back once the message in its place is sent.
+				const stashed = stashRef.current
+				if (stashed && !message.startsWith('/')) {
+					stashRef.current = null
+					restoreDraft(stashed)
+					onFooterNotice?.({
+						key: STASH_KEY,
+						text: 'Draft restored',
+						priority: 'immediate',
+						timeoutMs: STASH_RESTORED_NOTICE_MS,
+					})
+				}
 				return true
 			}
-			if ((key.return && (key.shift || key.meta)) || input === '\n') {
+			if (isAction('chat:newline', input, key) || input === '\n') {
 				const position = cursorRef.current
 				editBuffer(
 					valueRef.current.slice(0, position) + '\n' + valueRef.current.slice(position),
@@ -1157,7 +1243,73 @@ export function Composer({
 				)
 				return
 			}
-			if (key.ctrl && (input === 'r' || input === 's')) {
+			if (isAction('chat:undo', input, key)) {
+				const previous = undoRef.current.undo()
+				if (!previous) return
+				verticalColumnRef.current = null
+				historyDraftRef.current = null
+				setHistorySearch(null)
+				setHistoryIndex(-1)
+				setSelectedIndex(0)
+				setBuffer(previous.value, previous.cursor, 'typed', previous.spans)
+				return
+			}
+			// A key that opens a chooser keeps what was typed: the draft goes to the
+			// host with the request and comes back when the chooser closes.
+			const typedDraft = (): Omit<ComposerDraft, 'token'> | undefined => {
+				const text = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				if (text.trim().length === 0 && attachmentsRef.current.length === 0) return undefined
+				return {
+					text,
+					...(attachmentsRef.current.length ? { attachments: attachmentsRef.current } : {}),
+				}
+			}
+			if (isAction('chat:modelPicker', input, key) && !plainText) {
+				const draft = typedDraft()
+				onSubmit('/model', undefined, 'submit', {
+					source: 'keybinding',
+					...(draft ? { draft } : {}),
+				})
+				return
+			}
+			if (isAction('chat:thinkingToggle', input, key) && !plainText) {
+				onToggleThinking?.()
+				return
+			}
+			if (isAction('chat:stash', input, key) && historySearchRef.current === null && !plainText) {
+				const empty = valueRef.current.trim().length === 0 && attachmentsRef.current.length === 0
+				if (empty) {
+					const stashed = stashRef.current
+					if (!stashed) return
+					stashRef.current = null
+					onFooterNoticeRemove?.(STASH_KEY)
+					restoreDraft(stashed)
+					return
+				}
+				const draft = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				// A draft already set aside is not overwritten: the two trade places,
+				// and the same key swaps them back.
+				const earlier = stashRef.current
+				stashRef.current = {
+					text: draft,
+					...(attachmentsRef.current.length ? { attachments: attachmentsRef.current } : {}),
+				}
+				reset()
+				if (earlier) restoreDraft(earlier)
+				onFooterNotice?.({
+					key: STASH_KEY,
+					text: earlier
+						? `Swapped with the draft set aside · ${primaryKeyLabel('chat:stash')} to swap back`
+						: `Draft set aside · ${primaryKeyLabel('chat:stash')} to bring it back`,
+					priority: 'immediate',
+					timeoutMs: STASH_NOTICE_MS,
+				})
+				return
+			}
+			if (
+				isAction('history:search', input, key) ||
+				(historySearchRef.current !== null && isAction('historySearch:newer', input, key))
+			) {
 				verticalColumnRef.current = null
 				const browsedHistoryDraft = historyDraftRef.current
 				historyDraftRef.current = null
@@ -1179,10 +1331,9 @@ export function Composer({
 						position: -1,
 					}
 				}
-				const position =
-					input === 'r'
-						? Math.min(search.position + 1, search.matches.length - 1)
-						: Math.max(search.position - 1, -1)
+				const position = isAction('history:search', input, key)
+					? Math.min(search.position + 1, search.matches.length - 1)
+					: Math.max(search.position - 1, -1)
 				const next = { ...search, position }
 				setHistorySearch(next)
 				if (position < 0) setBuffer(next.draft.value, next.draft.cursor, 'typed', next.draft.spans)
@@ -1202,19 +1353,19 @@ export function Composer({
 				submit('submit')
 				return
 			}
-			if (key.tab && key.shift) {
+			if (isAction('chat:cycleMode', input, key)) {
 				// Shift+Tab cycles the permission mode. Before the plain-Tab
 				// branch below, which would otherwise queue the draft.
 				onCycleMode?.()
 				return
 			}
-			if (key.tab) {
+			if (isAction('chat:queue', input, key)) {
 				if (plainText) return
 				if (acceptSuggestion()) return
 				submit('queue')
 				return
 			}
-			if (key.escape) {
+			if (isAction('chat:cancel', input, key)) {
 				// A running turn owns Esc. App aborts it on this same keypress,
 				// and clearing the draft too would punish the operator for
 				// following the hint the status bar is showing them.
@@ -1264,7 +1415,7 @@ export function Composer({
 				})
 				return
 			}
-			if (key.backspace && (key.meta || key.ctrl)) {
+			if (isAction('edit:deleteWordBack', input, key) && key.backspace) {
 				const source = valueRef.current
 				const position = cursorRef.current
 				const start = previousWordBoundary(source, position)
@@ -1301,20 +1452,20 @@ export function Composer({
 				editBuffer(valueRef.current.slice(0, previous) + valueRef.current.slice(position), previous)
 				return
 			}
-			if (key.delete || (key.ctrl && input === 'd')) {
+			if (isAction('edit:deleteForward', input, key)) {
 				const position = cursorRef.current
 				const next = nextGraphemeBoundary(valueRef.current, position)
 				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(next), position)
 				return
 			}
-			if ((key.leftArrow && (key.meta || key.ctrl)) || (key.meta && input === 'b')) {
+			if (isAction('edit:wordLeft', input, key)) {
 				verticalColumnRef.current = null
 				const previous = previousWordBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = previous
 				setCursorState(previous)
 				return
 			}
-			if ((key.rightArrow && (key.meta || key.ctrl)) || (key.meta && input === 'f')) {
+			if (isAction('edit:wordRight', input, key)) {
 				verticalColumnRef.current = null
 				const next = nextWordBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
@@ -1331,14 +1482,14 @@ export function Composer({
 				onOpenAgents()
 				return
 			}
-			if (key.leftArrow || (key.ctrl && input === 'b')) {
+			if (isAction('edit:charLeft', input, key)) {
 				verticalColumnRef.current = null
 				const previous = previousGraphemeBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = previous
 				setCursorState(previous)
 				return
 			}
-			if (key.rightArrow || (key.ctrl && input === 'f')) {
+			if (isAction('edit:charRight', input, key)) {
 				verticalColumnRef.current = null
 				const next = nextGraphemeBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
@@ -1357,21 +1508,21 @@ export function Composer({
 					setSelectedIndex((index) => Math.min(liveSuggestionCount - 1, index + suggestionWindow))
 				return
 			}
-			if (key.home || (key.ctrl && input === 'a')) {
+			if (isAction('edit:lineStart', input, key)) {
 				verticalColumnRef.current = null
 				const start = lineStart(valueRef.current, cursorRef.current)
 				cursorRef.current = start
 				setCursorState(start)
 				return
 			}
-			if (key.end || (key.ctrl && input === 'e')) {
+			if (isAction('edit:lineEnd', input, key)) {
 				verticalColumnRef.current = null
 				const end = lineEnd(valueRef.current, cursorRef.current)
 				cursorRef.current = end
 				setCursorState(end)
 				return
 			}
-			if (key.upArrow || (key.ctrl && input === 'p')) {
+			if (isAction('edit:linePrevious', input, key)) {
 				if (hasLiveSuggestions) {
 					setSelectedIndex((i) => Math.max(0, i - 1))
 					return
@@ -1402,7 +1553,7 @@ export function Composer({
 				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
 				return
 			}
-			if (key.downArrow || (key.ctrl && input === 'n')) {
+			if (isAction('edit:lineNext', input, key)) {
 				if (hasLiveSuggestions) {
 					setSelectedIndex((i) => Math.min(liveSuggestionCount - 1, i + 1))
 					return
@@ -1438,36 +1589,8 @@ export function Composer({
 				setBuffer(history[history.length - 1 - next] ?? '', undefined, 'recalled')
 				return
 			}
-			if (key.ctrl && input === 'g') {
-				if (!onExternalEdit) {
-					onNotice?.('External editor support is unavailable in this terminal.')
-					return
-				}
-				const seed = expandChips(valueRef.current, pasteStoreRef.current).trim()
-				void onExternalEdit(seed)
-					.then((edited) => {
-						// An image the editor text no longer names stays attached: its chip goes back.
-						let cleaned = edited.trimEnd()
-						for (const attachment of attachmentsRef.current) {
-							const chip = chipFor(attachment, idFor(attachment))
-							if (!cleaned.includes(chip)) cleaned += `${cleaned ? ' ' : ''}${chip}`
-						}
-						clearPastes()
-						setHistoryIndex(-1)
-						setHistorySearch(null)
-						setSelectedIndex(0)
-						historyDraftRef.current = null
-						verticalColumnRef.current = null
-						setBuffer(cleaned, cleaned.length, 'editor')
-					})
-					.catch((error: unknown) => {
-						onNotice?.(
-							// The editor module words its own refusals for a person ("set VISUAL or EDITOR…").
-							error instanceof Error && error.name === 'ExternalEditorError'
-								? `Cannot open your editor: ${error.message}.`
-								: explainFailure(error, 'Cannot open your editor.'),
-						)
-					})
+			if (isAction('chat:externalEditor', input, key)) {
+				openExternalEditor(pressedKeyLabel('chat:externalEditor', input, key))
 				return
 			}
 			// Ctrl+V / Alt+V: pull an image off the clipboard and hold it as an attachment.
@@ -1476,7 +1599,7 @@ export function Composer({
 			// a press that produces no chip and no words is indistinguishable from
 			// a key that was never wired up — and the operator's next move differs
 			// per reason: copy an image, install a tool, or stop pressing it.
-			if ((key.ctrl || key.meta) && input === 'v') {
+			if (isAction('chat:imagePaste', input, key)) {
 				if (plainText) {
 					onNotice?.(
 						'Messages to a child accept text. Paste text using the terminal paste command.',
@@ -1500,7 +1623,7 @@ export function Composer({
 				}
 				return
 			}
-			if (key.ctrl && input === 'w') {
+			if (isAction('edit:deleteWordBack', input, key)) {
 				const source = valueRef.current
 				const position = cursorRef.current
 				const start = previousWordBoundary(source, position)
@@ -1509,21 +1632,21 @@ export function Composer({
 				editBuffer(result.value, result.cursor)
 				return
 			}
-			if (key.ctrl && input === 'u') {
+			if (isAction('edit:deleteToLineStart', input, key)) {
 				const position = cursorRef.current
 				const start = lineStart(valueRef.current, position)
 				if (start < position) killBufferRef.current = valueRef.current.slice(start, position)
 				editBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
 				return
 			}
-			if (key.ctrl && input === 'k') {
+			if (isAction('edit:deleteToLineEnd', input, key)) {
 				const position = cursorRef.current
 				const end = lineEnd(valueRef.current, position)
 				if (position < end) killBufferRef.current = valueRef.current.slice(position, end)
 				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
 				return
 			}
-			if (key.meta && input === 'd') {
+			if (isAction('edit:deleteWordForward', input, key)) {
 				const source = valueRef.current
 				const position = cursorRef.current
 				const end = nextWordBoundary(source, position)
@@ -1532,7 +1655,7 @@ export function Composer({
 				editBuffer(result.value, result.cursor)
 				return
 			}
-			if (key.ctrl && input === 'y') {
+			if (isAction('edit:yank', input, key)) {
 				const killed = killBufferRef.current
 				if (killed.length === 0) return
 				const position = cursorRef.current
@@ -1545,7 +1668,7 @@ export function Composer({
 			}
 			// Alt+W: drop the trigger nearest the cursor, or bring one back, or
 			// arm one the row only suggested.
-			if (key.meta && input === 'w') {
+			if (isAction('chat:triggerToggle', input, key)) {
 				toggleNearestTrigger()
 				return
 			}

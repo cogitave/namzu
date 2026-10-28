@@ -39,7 +39,7 @@
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { platform } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
@@ -374,13 +374,15 @@ export function expandCommand(command: UserCommand, args: string): ExpandResult 
 	}
 	if (trimmed.length === 0) return { ok: true, prompt: command.template }
 
+	// Which file, not where it lives: a skill's file is always named SKILL.md,
+	// so it is told by its folder.
+	const file = basename(command.path)
+	const fileName = file === 'SKILL.md' ? `${basename(dirname(command.path))}/${file}` : file
 	return {
 		ok: false,
 		reason: [
-			`/${command.name} takes no arguments, but you gave: ${trimmed}`,
-			'',
-			`Add ${ARGUMENTS_TOKEN} where they belong in ${command.path}, and they will be`,
-			'substituted there. Running it now would silently discard them.',
+			`/${command.name} does not take extra text, so “${trimmed}” was not used.`,
+			`Run /${command.name} on its own, or edit ${fileName} to say where extra text goes.`,
 		].join('\n'),
 	}
 }

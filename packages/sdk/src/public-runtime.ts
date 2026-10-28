@@ -1323,6 +1323,10 @@ export { isWorkingMemoryMessage } from './runtime/query/iteration/phases/working
 // `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly
 // that before this line existed.
 export type { CompactNowInput, CompactionResult } from './compaction/manual.js'
+export type {
+	CompactionSummaryRoute,
+	CompactionSummaryRouter,
+} from './compaction/model-summary.js'
 
 export {
 	buildVerifiedSummary,

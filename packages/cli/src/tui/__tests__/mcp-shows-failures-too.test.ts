@@ -86,4 +86,22 @@ describe('renderMcp', () => {
 		expect(renderMcp(null)).toMatch(/Not connected yet/)
 		expect(renderMcp(null)).not.toMatch(/No tool servers configured/)
 	})
+
+	it('says "1 tool" for one tool and leaves out a zero count of unavailable servers', () => {
+		const one = renderMcp({
+			connected: [{ name: 'tickets', tools: ['mcp__tickets__create'] }],
+			failed: [],
+		})
+		expect(one).toContain('tickets: connected, 1 tool')
+		expect(one).not.toContain('1 tools')
+		expect(one).not.toContain('0 unavailable')
+		expect(one.split('\n')[0]).toBe('Tool servers: 1 connected.')
+		const two = renderMcp({
+			connected: [{ name: 'tickets', tools: ['a', 'b'] }],
+			failed: [{ name: 'search', reason: 'timed out' }],
+			pending: ['x'],
+		})
+		expect(two).toContain('tickets: connected, 2 tools')
+		expect(two.split('\n')[0]).toBe('Tool servers: 1 connected, 1 unavailable, 1 connecting.')
+	})
 })

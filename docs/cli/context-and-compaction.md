@@ -15,8 +15,9 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 `/compact` takes optional text, `/compact keep the failing test names`. The text
 is given to the model step of the summary as part of what to keep, and that step
 runs even where the project has `llmVerification` off, because it is the only
-step that can act on free text. Without text, `/compact` makes no model call, as
-before. The text is cut to 2,000 characters.
+step that can act on free text. Without text, `/compact` makes a model call only
+for the small model's summary (see [Who writes the summary](#who-writes-the-summary)); with
+`compaction.modelSummary: false` it makes none, as before. The text is cut to 2,000 characters.
 
 In a recorded conversation, `/compact` retains removed original messages before
 installing or saving the summary. This includes user-provided details omitted
@@ -77,6 +78,18 @@ and the raw JSONL storage shape. Oversized archival failures still preserve the
 history, but 3 MiB is now an offloading threshold rather than the previous manual
 compaction refusal limit.
 
+# Who writes the summary
+
+The summary is written by the small model (see [The small model for side jobs](small-model.md):
+`smallModel`, else the cheapest text model of your provider), for `/compact`, `/compact <what to keep>`
+and every automatic pass. It reads the part being replaced, with each tool result cut to its start and
+end, and writes your requests in your own words, what was being done, and the next step. A model that is
+not set aside, one that cannot be reached, a call that fails or runs too long, or a reply that has no
+summary in it, all fall back to the summary Namzu extracts without a model, and the pass goes on. The
+call's tokens are counted on the turn it belongs to (a `/compact` between turns is counted on the latest
+turn). Set `compaction.modelSummary: false` to always use the extracted summary and make no model call
+unless `/compact` was given text.
+
 # After a compaction
 
 A summary says that a skill was loaded and a file was read; it cannot give the next step the skill's instructions or the file's lines. So each pass puts the most recent of both back, verbatim, under `## Restored after compaction` at the end of the summary:
@@ -105,6 +118,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
 | `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
 | `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
+| `modelSummary` | Optional boolean, default `true`. Let the small model write the compaction summary; see [Who writes the summary](#who-writes-the-summary). `false` keeps the summary Namzu extracts itself, and the previous behaviour of `/compact` making no model call without text. |
 | `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
 | `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
 | `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. `/context` shows the lifetime in use under the legend (only with a provider that can be asked), and `namzu doctor` has a `providers.cache-lifetime` row that reports it and, with the default, suggests `1h` for long sessions or frequent pauses of more than five minutes. |

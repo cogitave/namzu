@@ -47,7 +47,9 @@ import {
 	type MCPToolsetOptions,
 	type MCPTransportUnion,
 	type ToolDefinition,
+	type ToolSource,
 	type Toolset,
+	deferred,
 	mcpToolset,
 	requireApproval,
 } from '@namzu/sdk'
@@ -250,7 +252,18 @@ export interface McpConnection {
 	current(): {
 		readonly connected: readonly ConnectedMcpServer[]
 		readonly failed: readonly FailedMcpServer[]
+		/** Servers still being reached, in config order. Empty once every one has answered or failed. */
+		readonly pending: readonly string[]
 	}
+	/** Names of the servers still being reached. Read live. */
+	readonly pending: readonly string[]
+	/** Settles once every server has either connected or failed. Never rejects. */
+	readonly ready: Promise<void>
+	/**
+	 * Called once for each server as it connects or fails, after its tools have
+	 * joined {@link toolsets}. Returns the unsubscribe function.
+	 */
+	onSettled(listener: (name: string) => void): () => void
 	/** Servers whose transports are connected right now. Read live. */
 	readonly connected: readonly ConnectedMcpServer[]
 	/** Startup failures plus transports that failed or closed later. Read live. */
@@ -627,58 +640,136 @@ function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions
 	}
 }
 
-export async function connectMcpServers(
+/** Servers reached at once: ones that start a child process, and ones reached over the network. */
+export const LOCAL_CONNECT_BATCH = 3
+export const REMOTE_CONNECT_BATCH = 20
+
+export interface McpStartOptions {
+	readonly cwd: string
+	/** At most this many child-process servers connect at once. Default {@link LOCAL_CONNECT_BATCH}. */
+	readonly localBatch?: number
+	/** At most this many remote servers connect at once. Default {@link REMOTE_CONNECT_BATCH}. */
+	readonly remoteBatch?: number
+}
+
+type LiveServer = {
+	readonly client: MCPClient
+	readonly name: string
+	readonly toolsets: readonly Toolset[]
+	readonly discovery: {
+		readonly added: Set<string>
+		readonly removed: Set<string>
+		readonly changed: Set<string>
+		readonly refused: Map<
+			'tools' | 'prompts' | 'resources',
+			readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+		>
+	}
+}
+
+/**
+ * The two entries a server owns in the session's roster, present before the
+ * server has answered. They carry no tools until it does, then show its tools
+ * and tell the tool manager to look again.
+ */
+function placeholderToolsets(
+	name: string,
+	spec: McpServerSpec,
+	mounted: () => readonly Toolset[] | undefined,
+	listeners: Set<() => void>,
+): readonly [Toolset, Toolset] {
+	const source: ToolSource = {
+		id: `mcp:${name}`,
+		kind: 'mcp_server',
+		name,
+		mcpServer: { name, readOnlyHintTrusted: spec.readOnlyHintTrusted === true },
+	}
+	const onChange = (listener: () => void): (() => void) => {
+		listeners.add(listener)
+		return () => listeners.delete(listener)
+	}
+	const main: Toolset = {
+		source,
+		tools: () => mounted()?.[0]?.tools() ?? [],
+		onChange,
+		close: async () => {
+			await mounted()?.[0]?.close?.()
+		},
+	}
+	const resources = deferred({
+		source,
+		tools: () => mounted()?.[1]?.tools() ?? [],
+		onChange,
+		close: async () => {
+			await mounted()?.[1]?.close?.()
+		},
+	})
+	return [main, resources]
+}
+
+/**
+ * Begin connecting every declared server and return at once.
+ *
+ * The caller gets a roster that is complete in shape and empty of tools; each
+ * server's tools join it as the server answers, and the tool manager is told
+ * (`onChange`) so the next turn sees them. Servers are reached in parallel,
+ * child-process ones a few at a time and remote ones many at a time, each
+ * still bounded by its own connect deadline. A server that does not answer
+ * costs the others nothing.
+ */
+export function startMcpServers(
 	config: McpServersConfig | undefined,
-	options: { readonly cwd: string },
-): Promise<McpConnection> {
+	options: McpStartOptions,
+): McpConnection {
 	const entries = Object.entries(config ?? {})
-	const toolsets: Toolset[] = []
 	const startupFailed: FailedMcpServer[] = []
 	const clients: MCPClient[] = []
-	const liveServers: Array<{
-		readonly client: MCPClient
-		readonly name: string
-		readonly toolsets: readonly Toolset[]
-		readonly discovery: {
-			readonly added: Set<string>
-			readonly removed: Set<string>
-			readonly changed: Set<string>
-			readonly refused: Map<
-				'tools' | 'prompts' | 'resources',
-				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
-			>
-		}
-	}> = []
+	const slots: Toolset[] = []
+	// By position in the config, so the order a person reads does not depend on
+	// which server happened to answer first.
+	const live: Array<LiveServer | undefined> = entries.map(() => undefined)
+	// Closed before every server answered: servers not yet started stay unstarted.
+	let closed = false
+	const pending = new Set<string>()
+	const settledListeners = new Set<(name: string) => void>()
+	const jobs: Array<{ readonly remote: boolean; readonly run: () => Promise<void> }> = []
 
-	// Sequential, not parallel. Each server may spawn a process and each is
-	// bounded separately; a parallel fan-out would make the worst case the sum
-	// of nothing and the failure output arrive interleaved, for a saving that
-	// matters only to someone running many servers, who has other problems.
-	for (const [name, spec] of entries) {
+	const finish = (name: string): void => {
+		pending.delete(name)
+		for (const listener of [...settledListeners]) {
+			try {
+				listener(name)
+			} catch {
+				// A listener that throws must not stop another server from being reported.
+			}
+		}
+	}
+
+	entries.forEach(([name, spec], index) => {
 		const shapeProblem = serverSpecProblem(spec)
 		if (shapeProblem) {
 			startupFailed.push({ name, reason: shapeProblem })
-			continue
+			return
 		}
 		const transport = transportFor(spec, options.cwd)
 		if (typeof transport === 'string') {
 			startupFailed.push({ name, reason: transport })
-			continue
+			return
 		}
 		const deadline = connectDeadlineFor(spec)
 		if (typeof deadline === 'string') {
 			startupFailed.push({ name, reason: deadline })
-			continue
+			return
 		}
 		const eraProbeTimeoutMs = eraProbeTimeoutFor(spec)
 		if (typeof eraProbeTimeoutMs === 'string') {
 			startupFailed.push({ name, reason: eraProbeTimeoutMs })
-			continue
+			return
 		}
 		const toolsetOptions = toolsetOptionsFor(spec, name)
 		if (typeof toolsetOptions === 'string') {
 			startupFailed.push({ name, reason: toolsetOptions })
-			continue
+			return
 		}
 		let connectedTransport: MCPTransportUnion
 		try {
@@ -686,7 +777,7 @@ export async function connectMcpServers(
 				transport.type === 'streamable-http' ? withSavedMcpOAuth(transport) : transport
 		} catch (error) {
 			startupFailed.push({ name, reason: reasonOf(error) })
-			continue
+			return
 		}
 		let client: MCPClient
 		try {
@@ -697,9 +788,9 @@ export async function connectMcpServers(
 			})
 		} catch (error) {
 			startupFailed.push({ name, reason: reasonOf(error) })
-			continue
+			return
 		}
-		const discovery = {
+		const discovery: LiveServer['discovery'] = {
 			added: new Set<string>(),
 			removed: new Set<string>(),
 			changed: new Set<string>(),
@@ -708,90 +799,159 @@ export async function connectMcpServers(
 				readonly { name: string; reason: 'not_allowed' | 'denied' }[]
 			>(),
 		}
-		const deadlineAt = Date.now() + deadline
-		let closeTail: Promise<void> = Promise.resolve()
-		const closeClient = (): Promise<void> => {
-			const closing = closeTail.then(() =>
-				withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`),
-			)
-			closeTail = closing.catch(() => {})
-			return closing
-		}
-		const closeLateClient = () => {
-			void closeClient().catch(() => {})
-		}
-		try {
-			await withDeadline(client.connect(), deadline, `server "${name}"`, closeLateClient)
-			const remaining = deadlineAt - Date.now()
-			if (remaining <= 0) {
-				throw new Error(
-					`server "${name}" discovering its tools did not answer within ${deadline}ms`,
+		let mounted: readonly Toolset[] | undefined
+		const changeListeners = new Set<() => void>()
+		const placeholders = placeholderToolsets(name, spec, () => mounted, changeListeners)
+		slots.push(...placeholders)
+		pending.add(name)
+		// Every client, connected or not yet: a session closed while a server is
+		// still being reached must not leave its child process behind.
+		clients.push(client)
+
+		const run = async (): Promise<void> => {
+			if (closed) {
+				finish(name)
+				return
+			}
+			const deadlineAt = Date.now() + deadline
+			let closeTail: Promise<void> = Promise.resolve()
+			const closeClient = (): Promise<void> => {
+				const closing = closeTail.then(() =>
+					withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`),
 				)
+				closeTail = closing.catch(() => {})
+				return closing
 			}
-			const discovered = await withDeadline(
-				mcpToolset(client, {
-					...toolsetOptions,
-					onDrift: ({ drift }) => {
-						for (const item of drift.added) discovery.added.add(item)
-						for (const item of drift.removed) discovery.removed.add(item)
-						for (const item of drift.changed) discovery.changed.add(item)
-					},
-					onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
-				}),
-				remaining,
-				`server "${name}" discovering its tools`,
-				(result) => {
-					if (result.status === 'rejected') {
-						closeLateClient()
-						return
-					}
-					void (async () => {
-						await Promise.all(
-							result.value.map((entry) =>
-								withDeadline(
-									Promise.resolve(entry.close?.()),
-									CLOSE_TIMEOUT_MS,
-									`closing late toolset "${name}"`,
-								).catch(() => {}),
-							),
-						)
-						closeLateClient()
-					})().catch(() => {})
-				},
-			)
-			const mounted = spec.requireApproval
-				? discovered.map((entry) => requireApproval(entry))
-				: [...discovered]
-			toolsets.push(...mounted)
-			liveServers.push({ client, name, toolsets: mounted, discovery })
-			clients.push(client)
-		} catch (err) {
-			startupFailed.push({ name, reason: reasonOf(err) })
-			// A half-connected client still owns a child process. Tearing it down
-			// here is the difference between a failed server and a leaked one.
-			//
-			// Bounded, and deliberately not dependent on what a transport does
-			// when it is closed having never connected — the shipped transports
-			// disagree about that (one returns early, one notifies), the
-			// divergence is a known one, and a shutdown path that only works
-			// under one of the two answers is a shutdown path waiting to hang.
-			// Nothing here reads the client's state afterwards either.
+			const closeLateClient = () => {
+				void closeClient().catch(() => {})
+			}
 			try {
-				await closeClient()
-			} catch {
-				// Already gone, never started, or refusing to answer. The failure is
-				// already recorded and there is nothing further to do about it.
+				await withDeadline(client.connect(), deadline, `server "${name}"`, closeLateClient)
+				const remaining = deadlineAt - Date.now()
+				if (remaining <= 0) {
+					throw new Error(
+						`server "${name}" discovering its tools did not answer within ${deadline}ms`,
+					)
+				}
+				const discovered = await withDeadline(
+					mcpToolset(client, {
+						...toolsetOptions,
+						onDrift: ({ drift }) => {
+							for (const item of drift.added) discovery.added.add(item)
+							for (const item of drift.removed) discovery.removed.add(item)
+							for (const item of drift.changed) discovery.changed.add(item)
+						},
+						onRefused: ({ kind, refused }) => discovery.refused.set(kind, refused),
+					}),
+					remaining,
+					`server "${name}" discovering its tools`,
+					(result) => {
+						if (result.status === 'rejected') {
+							closeLateClient()
+							return
+						}
+						void (async () => {
+							await Promise.all(
+								result.value.map((entry) =>
+									withDeadline(
+										Promise.resolve(entry.close?.()),
+										CLOSE_TIMEOUT_MS,
+										`closing late toolset "${name}"`,
+									).catch(() => {}),
+								),
+							)
+							closeLateClient()
+						})().catch(() => {})
+					},
+				)
+				if (closed) {
+					// The session ended while this server was still being reached. Its
+					// tools are not mounted; what it opened is closed.
+					await Promise.all(
+						discovered.map((entry) =>
+							withDeadline(
+								Promise.resolve(entry.close?.()),
+								CLOSE_TIMEOUT_MS,
+								`closing late toolset "${name}"`,
+							).catch(() => {}),
+						),
+					)
+					await closeClient().catch(() => {})
+					return
+				}
+				const ready = spec.requireApproval
+					? discovered.map((entry) => requireApproval(entry))
+					: [...discovered]
+				// The real entries' own changes (a server adding a tool later) reach the
+				// roster through the same slots.
+				for (const entry of ready) {
+					entry.onChange?.(() => {
+						for (const listener of [...changeListeners]) listener()
+					})
+				}
+				mounted = ready
+				live[index] = { client, name, toolsets: ready, discovery }
+				for (const listener of [...changeListeners]) listener()
+			} catch (err) {
+				startupFailed.push({ name, reason: reasonOf(err) })
+				// A half-connected client still owns a child process. Tearing it down
+				// here is the difference between a failed server and a leaked one.
+				//
+				// Bounded, and deliberately not dependent on what a transport does
+				// when it is closed having never connected — the shipped transports
+				// disagree about that (one returns early, one notifies), the
+				// divergence is a known one, and a shutdown path that only works
+				// under one of the two answers is a shutdown path waiting to hang.
+				// Nothing here reads the client's state afterwards either.
+				try {
+					await closeClient()
+				} catch {
+					// Already gone, never started, or refusing to answer. The failure is
+					// already recorded and there is nothing further to do about it.
+				}
+			} finally {
+				finish(name)
 			}
 		}
+		jobs.push({ remote: transport.type !== 'stdio', run })
+	})
+
+	// Two pools, so a few slow child processes never hold back the servers that
+	// are only a network round trip away.
+	const pool = async (work: ReadonlyArray<() => Promise<void>>, size: number): Promise<void> => {
+		let next = 0
+		const width = Math.max(1, Math.min(Math.floor(size) || 1, work.length))
+		await Promise.all(
+			Array.from({ length: width }, async () => {
+				for (;;) {
+					const job = work[next++]
+					if (!job) return
+					await job().catch(() => {})
+				}
+			}),
+		)
 	}
+	const ready: Promise<void> = Promise.all([
+		pool(
+			jobs.filter((job) => !job.remote).map((job) => job.run),
+			options.localBatch ?? LOCAL_CONNECT_BATCH,
+		),
+		pool(
+			jobs.filter((job) => job.remote).map((job) => job.run),
+			options.remoteBatch ?? REMOTE_CONNECT_BATCH,
+		),
+	]).then(() => undefined)
 
 	const current = (): {
 		connected: readonly ConnectedMcpServer[]
 		failed: readonly FailedMcpServer[]
+		pending: readonly string[]
 	} => {
 		const connected: ConnectedMcpServer[] = []
 		const failed: FailedMcpServer[] = [...startupFailed]
-		for (const { client, name, toolsets: serverToolsets, discovery } of liveServers) {
+		for (const server of live) {
+			if (!server) continue
+			const { client, name, toolsets: serverToolsets, discovery } = server
 			const state = client.getState()
 			if (state.status === 'connected') {
 				const names = serverToolsets.flatMap((entry) => entry.tools().map((tool) => tool.name))
@@ -822,14 +982,21 @@ export async function connectMcpServers(
 						: `connection is ${state.status}`),
 			})
 		}
-		return { connected, failed }
+		return { connected, failed, pending: [...pending] }
 	}
+
+	// Once every server has answered, the roster is the servers' own toolsets, as
+	// it was when sessions waited for them; until then, the slots they will fill.
+	const roster = (): readonly Toolset[] =>
+		pending.size === 0 ? live.flatMap((server) => (server ? [...server.toolsets] : [])) : slots
 
 	return {
 		get tools() {
-			return toolsets.flatMap((entry) => entry.tools())
+			return roster().flatMap((entry) => entry.tools())
 		},
-		toolsets,
+		get toolsets() {
+			return roster()
+		},
 		current,
 		get connected() {
 			return current().connected
@@ -837,8 +1004,17 @@ export async function connectMcpServers(
 		get failed() {
 			return current().failed
 		},
+		get pending() {
+			return [...pending]
+		},
+		ready,
+		onSettled: (listener) => {
+			settledListeners.add(listener)
+			return () => settledListeners.delete(listener)
+		},
 		close: async () => {
-			await Promise.all(toolsets.map((entry) => entry.close?.()))
+			closed = true
+			await Promise.all(roster().map((entry) => entry.close?.()))
 			await Promise.all(
 				clients.map((c) =>
 					withDeadline(c.disconnect(), CLOSE_TIMEOUT_MS, 'closing a tool server').catch(() => {
@@ -851,4 +1027,18 @@ export async function connectMcpServers(
 			)
 		},
 	}
+}
+
+/**
+ * Connect every declared server and wait until each has answered or failed.
+ * Headless runs use this: nobody is there to read a row that arrives later,
+ * and a run that starts without its tools has to say so before it starts.
+ */
+export async function connectMcpServers(
+	config: McpServersConfig | undefined,
+	options: McpStartOptions,
+): Promise<McpConnection> {
+	const connection = startMcpServers(config, options)
+	await connection.ready
+	return connection
 }
