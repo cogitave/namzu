@@ -1,5 +1,33 @@
 # @namzu/cli
 
+## 43.0.0
+
+### Major Changes
+
+- c37a4ba: `/compact` and every automatic compaction now have the small model write the summary, where before `/compact` without text made no model call and an automatic pass used a summary Namzu extracts by matching phrases. The small model is `smallModel`, else the cheapest text model of your provider; it reads the part being replaced and writes your requests in your own words, the current work and the next step. When no small model is set aside, it cannot be reached, its call fails or stalls, or it returns no summary, Namzu uses the extracted summary as before and the compaction goes on. The call is counted on the turn's token ledger (a `/compact` between turns, on the latest turn), so it spends tokens where nothing was spent before.
+
+  To keep the old behaviour, set `compaction: { modelSummary: false }` in `namzu.config.json` or `~/.namzu/config.yaml`. A conversation with no small model (the route falls back to your own model) is unchanged.
+
+### Minor Changes
+
+- c37a4ba: The `Agent` tool gains `subagent_type: "fork"`: a worker that starts from the conversation that launched it, under the same system prompt, on the same model, with the same tools as any sub-agent, and returns one report like other children. Write only the directive as its prompt; do not pass `model`, `provider`, `effort` or `role` (the call is refused). A fork cannot start forks or sub-agents, and a launch is asked about like a general-purpose agent. A project agent file named `fork` still replaces the built-in.
+- c37a4ba: The terminal answers its keys through one registry of actions, and `/help keys` lists the keyboard shortcuts of the chat screen, grouped, with what each does. Existing keys do nothing different; if you remap nothing, there is nothing to do.
+- c37a4ba: New chat shortcuts. Ctrl+S sets the draft aside and brings it back (also after the next message you send); Ctrl+\_ undoes edits to the draft; Alt+P opens the model chooser, adds nothing to the history and gives back what you had typed when the chooser closes; Alt+T switches thinking off and on for models that offer an off level (a note in the footer says so otherwise; `/effort` stays the chooser); a second Ctrl+S swaps with the draft already set aside instead of replacing it; Ctrl+X Ctrl+E opens your editor like Ctrl+G, and a missing editor names the key you pressed. One thing changes: Ctrl+S on its own used to start a forward history search that did nothing, so it now sets the draft aside; inside an open search it still steps to a newer match.
+- c37a4ba: The interactive session no longer waits for tool servers before the composer is ready. They connect in parallel in the background (child-process servers three at a time, remote ones twenty), each one is reported in plain words when it connects or fails ("It did not answer in time." instead of the deadline in milliseconds), and its tools join at the next turn; a message sent before a server has connected does not have its tools yet. Headless runs (`exec`, JSON output, scheduled jobs, the agent protocol server) are unchanged and still wait. A reply paused by a lost connection now keeps one pause line across failed tries, the resume list keeps `ctrl+r rename` in a narrow terminal, `/doctor` names a waiting update and its command, and a command or skill refused for extra text says so without the placeholder name or the full path.
+
+### Patch Changes
+
+- c37a4ba: The model-written compaction summary is held to a total time limit and reads a transcript that tool output cannot forge. New optional `compaction.modelSummaryTimeoutMs` (default 120000) ends the summary call however steadily it streams and keeps the extracted summary; before this, only a stalled stream ended it. Lines in tool results, assistant text, attachments and call arguments that begin with `[` now have a backslash put before them in the transcript the small model reads, so a line like `[person]: ...` inside a tool result is not taken for a request. Nothing to change to keep working.
+
+  The part of the conversation being replaced goes to the small model, which may belong to another provider than the conversation; set `compaction: { modelSummary: false }` to keep it with one provider.
+
+- c37a4ba: A fork sub-agent no longer fails before its first request when the conversation it continues holds saved messages. A child that fails now says why in plain words on its row and in the parent's result, instead of showing an internal refusal.
+- c37a4ba: A tool server that finishes connecting after the session has closed is now closed instead of being mounted. `/mcp` says `1 tool` for a single tool and leaves out the `0 unavailable` count when every server is up. A reply paused by a lost connection no longer rewrites an older pause line once a pause of a different kind has appeared or the run of automatic tries has started over. Nothing to change on your side.
+- Updated dependencies [c37a4ba]
+- Updated dependencies [c37a4ba]
+- Updated dependencies [c37a4ba]
+  - @namzu/sdk@57.1.0
+
 ## 42.0.0
 
 ### Major Changes
