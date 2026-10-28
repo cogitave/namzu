@@ -169,6 +169,28 @@ describe('the total time limit of the summary call', () => {
 		expect(reasons).toEqual([])
 	})
 
+	it('covers the shorter retries after an overflow too, not each one afresh', async () => {
+		vi.useFakeTimers()
+		let calls = 0
+		const overflowing = {
+			id: 'mock',
+			name: 'mock',
+			// biome-ignore lint/correctness/useYield: it fails before it streams anything
+			async *chatStream() {
+				calls++
+				await new Promise((resolve) => setTimeout(resolve, 50_000))
+				throw new Error('the prompt is too long for this model')
+			},
+		} as unknown as MockLLMProvider
+		const { result, reasons } = run(overflowing)
+		await vi.advanceTimersByTimeAsync(119_999)
+		expect(reasons).toEqual([])
+		await vi.advanceTimersByTimeAsync(1)
+		expect(await result).toBeUndefined()
+		expect(calls).toBe(3)
+		expect(reasons[0]?.[1]).toBeInstanceOf(ModelSummaryTimeoutError)
+	})
+
 	it('is not what a cancellation looks like', async () => {
 		vi.useFakeTimers()
 		const controller = new AbortController()
