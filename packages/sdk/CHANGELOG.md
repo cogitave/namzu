@@ -1,5 +1,16 @@
 # Changelog
 
+## 57.1.0
+
+### Minor Changes
+
+- c37a4ba: The model-written compaction summary is held to a total time limit and reads a transcript that tool output cannot forge. New optional `compaction.modelSummaryTimeoutMs` (default 120000) ends the summary call however steadily it streams and keeps the extracted summary; before this, only a stalled stream ended it. Lines in tool results, assistant text, attachments and call arguments that begin with `[` now have a backslash put before them in the transcript the small model reads, so a line like `[person]: ...` inside a tool result is not taken for a request. Nothing to change to keep working.
+
+  The part of the conversation being replaced goes to the small model, which may belong to another provider than the conversation; set `compaction: { modelSummary: false }` to keep it with one provider.
+
+- c37a4ba: A delegate can now continue the caller's conversation. `ToolContext.conversation` (set by `query()` on every tool call) reads the messages the model is shown and the assembled system prompt, and `CreateTaskOptions.inheritedMessages` places messages before the child's prompt. Both are optional and additive: a host that sets neither sees no change, and a tool that needs the conversation should refuse when `context.conversation` is absent. The default sub-agent doctrine now says a fresh sub-agent starts with none of the caller's context and describes the fork type for hosts that offer it.
+- c37a4ba: A host can now have a compaction summary written by a model it names. `QueryParams` and `AgentConfig` take `compactionSummaryRoute`, and `compactNow`, `compactSession`, `compactRegion` and `compactSessionRange` take `summaryRoute`: a function that resolves `{ provider, model, providerId? }`, or nothing. When it resolves a route, that model reads the span being replaced (tool results cut to `modelSummaryToolResultChars`, default 1,500 characters; the whole transcript to `modelSummaryInputChars`, default 240,000, keeping the first request and the newest entries) and writes the summary, with the person's requests quoted, the current work and the next step. An automatic pass charges the call to the turn at the route's model and provider; a host-triggered pass returns it in `CompactionResult.usage`. Nothing changes for a host that does not pass a route. When the route resolves nothing, the call fails, times out or returns no summary, the summary is the extracted working state as before, with its verifier step where `llmVerification` applies; the verifier does not run on top of a model-written summary. New optional `CompactionConfig` keys: `modelSummary` (default true; false ignores the route), `modelSummaryMaxTokens` (4,096), `modelSummaryInputChars`, `modelSummaryToolResultChars`. New exported types: `CompactionSummaryRoute`, `CompactionSummaryRouter`.
+
 ## 57.0.0
 
 ### Major Changes
