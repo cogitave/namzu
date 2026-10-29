@@ -14,13 +14,20 @@
  * name: reviewer
  * description: Reviews a diff for correctness and convention drift.
  * tools: read, grep, glob          # optional allowlist, intersected with the parent's set
- * model: claude-sonnet-4-5         # optional override
+ * disallowedTools: bash            # optional; removed from whatever the rest allows
+ * model: claude-sonnet-4-5         # optional override; `inherit` keeps the session's
+ * effort: high                     # optional reasoning effort
+ * maxTurns: 20                     # optional cap on the agent's own turns
+ * background: true                 # optional; runs in the background unless the call says otherwise
+ * isolation: worktree              # optional; its own Git checkout
+ * skills: release-notes            # optional; skills loaded into its prompt
  * readOnly: true                   # optional; keeps only read-only tools
+ * permissionMode: plan              # optional; a mode name the host lists
  * ---
  * You review changes for this repository. Cite file:line for every finding …
  * ```
  *
- * `tools` is one comma-separated line: this kernel's frontmatter reader
+ * `tools`, `disallowedTools` and `skills` are each one comma-separated line: this kernel's frontmatter reader
  * refuses block lists and flow sequences by design, so there is no other
  * form to accept.
  *
@@ -36,6 +43,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import type { ReasoningEffort } from '../types/provider/chat.js'
 import { parseFrontmatter } from '../utils/frontmatter.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -52,6 +60,17 @@ export const DEFAULT_RESERVED_AGENT_NAMES: ReadonlySet<string> = new Set([
 	'explore',
 ])
 
+const EFFORT_LEVELS: ReadonlySet<string> = new Set<ReasoningEffort>([
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+])
+
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
 
 export interface AgentFileDefinition {
@@ -61,7 +80,25 @@ export interface AgentFileDefinition {
 	readonly prompt: string
 	/** Tool names the agent may use; absent means the parent's working set. */
 	readonly tools?: readonly string[]
+	/** Tool names removed from the roster whatever else allows them. */
+	readonly disallowedTools?: readonly string[]
+	/** Absent means the session's model; `model: inherit` in a file is the same thing. */
 	readonly model?: string
+	/** Reasoning effort the agent runs with, when its model supports it. */
+	readonly effort?: ReasoningEffort
+	/** The most turns the agent takes before it stops; a positive whole number. */
+	readonly maxTurns?: number
+	/** The agent runs in the background when the call does not say. */
+	readonly background?: boolean
+	/** `worktree`: the agent works in its own Git checkout. */
+	readonly isolation?: 'worktree'
+	/** Skills whose instructions are loaded into the agent's prompt. */
+	readonly skills?: readonly string[]
+	/**
+	 * The permission mode the file asks for, as the word the host accepts. The
+	 * host decides what it may do with it; the kernel only keeps it.
+	 */
+	readonly permissionMode?: string
 	readonly readOnly: boolean
 	readonly path: string
 	/** The host's label for the root this file came from (`user`, `project`, …). */
@@ -87,6 +124,11 @@ export interface DiscoveredAgentDefinitions {
 export interface DiscoverAgentDefinitionsOptions {
 	/** Names refused in a file. Defaults to `DEFAULT_RESERVED_AGENT_NAMES`. */
 	readonly reserved?: ReadonlySet<string>
+	/**
+	 * The words a `permissionMode:` line may use. A file naming any other word
+	 * is reported and skipped. Absent: any non-empty word is kept.
+	 */
+	readonly permissionModes?: ReadonlySet<string>
 	readonly log?: Logger
 }
 
@@ -114,7 +156,12 @@ export async function discoverAgentDefinitions(
 			continue
 		}
 		for (const file of files) {
-			const found = await parseAgentFile(join(root.dir, file), root.source, options.reserved)
+			const found = await parseAgentFile(
+				join(root.dir, file),
+				root.source,
+				options.reserved,
+				options.permissionModes,
+			)
 			if ('reason' in found) skipped.push(found)
 			else byName.set(found.name, found)
 		}
@@ -126,6 +173,7 @@ export async function parseAgentFile(
 	path: string,
 	source: string,
 	reserved: ReadonlySet<string> = DEFAULT_RESERVED_AGENT_NAMES,
+	permissionModes?: ReadonlySet<string>,
 ): Promise<AgentFileDefinition | SkippedAgentFile> {
 	let raw: string
 	try {
@@ -139,7 +187,7 @@ export async function parseAgentFile(
 			reason: `could not be read: ${error instanceof Error ? error.message : String(error)}`,
 		}
 	}
-	return parseAgentMarkdown(raw, path, source, reserved)
+	return parseAgentMarkdown(raw, path, source, reserved, permissionModes)
 }
 
 /** Pure: the file's text to a definition, or the reason it is refused. */
@@ -148,6 +196,7 @@ export function parseAgentMarkdown(
 	path: string,
 	source: string,
 	reserved: ReadonlySet<string> = DEFAULT_RESERVED_AGENT_NAMES,
+	permissionModes?: ReadonlySet<string>,
 ): AgentFileDefinition | SkippedAgentFile {
 	if (!raw.trimStart().startsWith('---')) {
 		return { path, reason: 'has no frontmatter; an agent file starts with `---` and a `name:`' }
@@ -184,9 +233,73 @@ export function parseAgentMarkdown(
 		}
 		tools = list
 	}
-	const model = scalar(values.model)
-	if (values.model !== undefined && (model === undefined || model.trim().length === 0)) {
+	const listed = (key: 'disallowedTools' | 'skills') => {
+		const value = values[key]
+		if (value === undefined) return { ok: true as const, list: undefined }
+		const list = stringList(value)
+		if (list === undefined || list.length === 0) {
+			return { ok: false as const, reason: `\`${key}:\` must be a non-empty, comma-separated list` }
+		}
+		return { ok: true as const, list }
+	}
+	const denied = listed('disallowedTools')
+	if (!denied.ok) return { path, reason: denied.reason }
+	const preloaded = listed('skills')
+	if (!preloaded.ok) return { path, reason: preloaded.reason }
+
+	const modelText = scalar(values.model)
+	if (values.model !== undefined && (modelText === undefined || modelText.trim().length === 0)) {
 		return { path, reason: '`model:` must be a model name' }
+	}
+	// `inherit` is the same as no line: the session's own model.
+	const model = modelText?.trim().toLowerCase() === 'inherit' ? undefined : modelText
+	let effort: ReasoningEffort | undefined
+	if (values.effort !== undefined) {
+		const level = scalar(values.effort)?.trim().toLowerCase()
+		if (level === undefined || !EFFORT_LEVELS.has(level)) {
+			return {
+				path,
+				reason: `\`effort:\` must be one of ${[...EFFORT_LEVELS].join(', ')}`,
+			}
+		}
+		effort = level as ReasoningEffort
+	}
+	let maxTurns: number | undefined
+	if (values.maxTurns !== undefined) {
+		const text = scalar(values.maxTurns)?.trim()
+		if (text === undefined || !/^[1-9][0-9]{0,8}$/.test(text)) {
+			return { path, reason: '`maxTurns:` must be a positive whole number' }
+		}
+		maxTurns = Number(text)
+	}
+	let background: boolean | undefined
+	if (values.background !== undefined) {
+		const flag = scalar(values.background)
+		if (flag !== 'true' && flag !== 'false') {
+			return { path, reason: '`background:` must be true or false' }
+		}
+		background = flag === 'true'
+	}
+	let isolation: 'worktree' | undefined
+	if (values.isolation !== undefined) {
+		if (scalar(values.isolation)?.trim() !== 'worktree') {
+			return { path, reason: '`isolation:` must be worktree' }
+		}
+		isolation = 'worktree'
+	}
+	let permissionMode: string | undefined
+	if (values.permissionMode !== undefined) {
+		const word = scalar(values.permissionMode)?.trim()
+		if (word === undefined || word.length === 0) {
+			return { path, reason: '`permissionMode:` must be a mode name' }
+		}
+		if (permissionModes && !permissionModes.has(word)) {
+			return {
+				path,
+				reason: `\`permissionMode: ${word}\` is not one of ${[...permissionModes].join(', ')}`,
+			}
+		}
+		permissionMode = word
 	}
 	let readOnly = false
 	if (values.readOnly !== undefined) {
@@ -211,7 +324,14 @@ export function parseAgentMarkdown(
 		description: description.trim(),
 		prompt,
 		...(tools ? { tools } : {}),
+		...(denied.list ? { disallowedTools: denied.list } : {}),
 		...(model ? { model: model.trim() } : {}),
+		...(effort ? { effort } : {}),
+		...(maxTurns !== undefined ? { maxTurns } : {}),
+		...(background !== undefined ? { background } : {}),
+		...(isolation ? { isolation } : {}),
+		...(preloaded.list ? { skills: preloaded.list } : {}),
+		...(permissionMode ? { permissionMode } : {}),
 		readOnly,
 		path,
 		source,

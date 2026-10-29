@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 
 # Skills and allowed-tools
 
-A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description`, optional `allowed-tools`, `invocation`, `license`, `compatibility`, `metadata`) and a markdown body. The system prompt lists the skills the model may use. The body reaches the model when it calls the `skill` tool (`SkillTool`, `packages/sdk/src/tools/builtins/skill.ts`) with the skill's listed name. A host registers that tool next to a `SkillRegistry` and passes the registry to `query()` as `skillRegistry`. The tool presents a call as `Read skill <name>` (`List skills` without a name) and hides a successful result (`presentResult` with `visibility: 'hidden'`), so a host draws one row for it and does not print the body, which is written for the model.
+A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description`, optional `allowed-tools`, `invocation`, `license`, `compatibility`, `metadata`, and the fields under [Skills that run as a delegated agent](#skills-that-run-as-a-delegated-agent)) and a markdown body. The system prompt lists the skills the model may use. The body reaches the model when it calls the `skill` tool (`SkillTool`, `packages/sdk/src/tools/builtins/skill.ts`) with the skill's listed name. A host registers that tool next to a `SkillRegistry` and passes the registry to `query()` as `skillRegistry`. The tool presents a call as `Read skill <name>` (`List skills` without a name) and hides a successful result (`presentResult` with `visibility: 'hidden'`), so a host draws one row for it and does not print the body, which is written for the model.
 
 # The skill's directory
 
@@ -43,6 +43,31 @@ const tools = toolset('skills', [
 - The skill is still **loaded** from the registry's own path. The answer is bound into the continuation cursor, so a directory that changes between pages makes the cursor stale.
 
 Without the option (`SkillTool` is `createSkillTool()`), nothing changes: a load names no directory, the listing carries the registry's `location`, and `${CLAUDE_SKILL_DIR}` expands to the registry's directory. A `SkillRegistryRef.catalog()` entry may carry `directory`, the host's directory the resolver is asked about; `SkillRegistry.catalog()` always sets it to `Skill.dirPath`. The system prompt's manifest still shows `<location>` as the registry's path.
+
+# Skills that run as a delegated agent
+
+Six more optional keys say when the model should use a skill and how it runs. `SkillMetadata` carries them as `whenToUse`, `context`, `agent`, `model`, `effort` and `background`.
+
+| Key | Meaning |
+| --- | --- |
+| `when_to_use` | Guidance for the model, shown after the description as `<description> - <when_to_use>` in the prompt manifest and in the `skill` tool's listing (`skillModelDescription`). |
+| `context` | `fork` runs the skill as a delegated agent; `inline` or absent loads it into the conversation, as before. |
+| `agent` | The delegated agent type for a `fork` skill. |
+| `model` | The model of that agent. `inherit` reads as absent. |
+| `effort` | Its requested reasoning effort (`none` to `ultra`). Forwarded independently of `model`; the host's delegation tool validates whether that combination is supported. |
+| `background` | `true` launches the agent in the background; `false` waits for its report. |
+
+The `skill` tool takes an optional `args` string, what to apply the skill to. For a `fork` skill, and only on a first call, the tool hands the skill's instructions (after `Arguments: <args>`) to the turn's `Agent` tool through `ToolContext.dispatchTool`, with `agent` as `subagent_type` and `model`, `effort` and `background` as `model`, `effort` and `run_in_background`, and returns the agent's result as its own, so a refusal comes back as the failure it was. The delegated agent starts with none of the conversation, so `args` is all it learns about the task. When the turn has no `Agent` tool, or no way to dispatch one, the skill loads inline with a line saying so. An inline skill ignores `model`, `effort` and `agent`: it runs on the turn's own model.
+
+The skill tool preserves an effort-only fork request in its dispatch input without inventing a model or provider. A host that requires an explicit model may refuse it; that failure is returned to the caller. `model: inherit` reads as no model, so it does not satisfy such a host's explicit-model requirement. For example, the CLI currently requires `model` when selecting child effort; set a concrete host-supported model alongside `effort` there.
+
+Dispatch is not proof that a host applies every field. The SDK's `buildAgentTool` (`tools/coordinator/agent.ts`) accepts only `description`, `prompt` and `subagent_type`; it has no per-call model, effort or background selection. Those overrides need a host-installed `Agent` tool that supports them (such as the CLI's), and the skill tool does not extend that host contract.
+
+**Current limits.** `ToolContext.dispatchTool` dispatches registered tools; it is not a current-turn model/effort selector. There is no inline selection hook in `SkillToolOptions` or `ToolContext`. Inline skills (including the no-delegation fallback) therefore keep the turn's existing model and effort; the tool does not create a child to simulate inline execution or switch a provider. `agent` and `background` apply only to delegated execution. A skill's `hooks` and `paths` frontmatter are not interpreted by this loader: no skill-local hooks are registered and no path-triggered activation is performed. Directory translation through `resolveModelDirectory` only describes reachable files, not activation or model selection. Operator activation is host-owned and is not routed through this tool.
+
+On any other load `args` is printed as an `Arguments:` line above the first page of the instructions.
+
+These keys are read leniently, the other way round from `invocation`: a value this loader cannot use (`context: sideways`, `effort: 5000`, `background: maybe`) or a spelling the frontmatter reader does not implement (`when_to_use: >-`, `model: [a, b]`) leaves the key absent and the skill loads. `parseFrontmatter` takes a `tolerates` predicate for that (`SKILL_FRONTMATTER_TOLERATED_KEYS`).
 
 # What allowed-tools means
 

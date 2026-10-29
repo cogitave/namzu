@@ -54,6 +54,14 @@ describe('parseSkillMarkdown', () => {
 		expect(parsed.body).toBe('Arr matey.')
 	})
 
+	it('still lists a skill whose run-shaping fields use YAML the reader cannot take', () => {
+		const parsed = parseSkillMarkdown(
+			'---\nname: pirate\ndescription: talk like a pirate\nwhen_to_use: >-\n  when asked\nmodel: [a, b]\n---\nArr matey.',
+		)
+		expect(parsed.name).toBe('pirate')
+		expect(parsed.body).toBe('Arr matey.')
+	})
+
 	it('treats a file with no frontmatter as all body', () => {
 		const parsed = parseSkillMarkdown('just a body')
 		expect(parsed.name).toBeUndefined()

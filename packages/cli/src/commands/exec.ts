@@ -29,6 +29,7 @@ import {
 	TurnCancelled,
 	asSessionId,
 	createAssistantMessage,
+	generateSessionId,
 } from '@namzu/sdk'
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
@@ -38,13 +39,19 @@ import { resolveTrustedProjectContext } from '../config/trusted-project-context.
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { closeSessions, openSessions, startConversation } from '../integrations/sessions/store.js'
+import {
+	closeSessions,
+	forkConversation,
+	openSessions,
+	startConversation,
+} from '../integrations/sessions/store.js'
 import {
 	type AttachedSessionExport,
 	attachSessionExport,
 } from '../integrations/telemetry/session-export.js'
 import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { loadOutputSchema } from '../output-schema.js'
+import { createFormatter } from '../output/index.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { launchRefusal } from '../permissions/launch.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -186,6 +193,13 @@ async function execPrint(
 	// `--session` keys a host's conversation for `--json`. This mode resumes
 	// with --continue or --resume; accepting the key and ignoring it would
 	// answer against no history while looking like it answered against one.
+	if (flags.forkSession && !flags.continueLast && flags.resume === null) {
+		ctx.formatter.error({
+			message:
+				'--fork-session copies a conversation to carry on in; pass --continue or --resume <id> with it',
+		})
+		return EXIT_USAGE
+	}
 	if (flags.session !== null) {
 		ctx.formatter.error({
 			message:
@@ -360,54 +374,92 @@ async function execPrint(
 			return 1
 		}
 	}
-	let sessions: Awaited<ReturnType<typeof openSessions>>
+	const ephemeral = flags.noSessionPersistence
+	let sessions: Awaited<ReturnType<typeof openSessions>> | undefined
 	try {
-		sessions = await openSessions(cwd)
+		// A fresh transient run must never open a durable conversation store.
+		// Resume opens only the source, for reading its history below.
+		if (!ephemeral || flags.continueLast || flags.resume !== null) {
+			sessions = ephemeral ? await openSessions(cwd, { readOnly: true }) : await openSessions(cwd)
+		}
 	} catch (error) {
 		await sessionExport?.shutdown()
+		if (ephemeral && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+			ctx.formatter.error({
+				message: `no previous conversation in ${cwd} — run without --continue or --resume to start one, or pass --cwd if you meant a different directory`,
+			})
+			return EXIT_USAGE
+		}
 		ctx.formatter.error({
 			message: `workspace state is unavailable: ${error instanceof Error ? error.message : String(error)}`,
 		})
 		return 1
 	}
 	const resume = await resolveResume(
-		sessions,
+		sessions ?? null,
 		{ continueLast: flags.continueLast, sessionId: flags.resume },
 		cwd,
 	)
 	if (resume.kind === 'error') {
 		ctx.formatter.error({ message: resume.message })
+		if (sessions) closeSessions(sessions)
 		await sessionExport?.shutdown()
 		return EXIT_USAGE
 	}
-	const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
+	// A copy, when asked for or when nothing may be kept: a run that keeps no
+	// record must not append to the conversation it picked up.
+	let prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
 	// A new one-shot is a new conversation: its log starts here, so the turn
 	// the kernel records has somewhere to go and `--continue` can find it.
 	let sessionId: ReturnType<typeof asSessionId>
 	try {
-		sessionId =
-			resume.kind === 'resumed' ? asSessionId(resume.sessionId) : await startConversation(sessions)
+		if (ephemeral) {
+			// New log ownership: durable message ids belong to the source journal,
+			// not to this run's in-memory log. Never create a durable fork.
+			prior = prior.map(({ id: _id, ...message }) => message)
+			sessionId = generateSessionId()
+			if (sessions) closeSessions(sessions)
+			sessions = undefined
+		} else if (sessions && resume.kind === 'resumed' && flags.forkSession) {
+			const copy = await forkConversation(sessions, asSessionId(resume.sessionId))
+			sessionId = copy.id
+			prior = copy.messages
+		} else if (sessions) {
+			sessionId =
+				resume.kind === 'resumed'
+					? asSessionId(resume.sessionId)
+					: await startConversation(sessions)
+		} else {
+			throw new Error('conversation store is unavailable')
+		}
 	} catch (error) {
-		closeSessions(sessions)
+		if (sessions) closeSessions(sessions)
 		await sessionExport?.shutdown()
 		ctx.formatter.error({
 			message: `could not start a conversation: ${error instanceof Error ? error.message : String(error)}`,
 		})
 		return 1
 	}
+	const release = async (): Promise<void> => {
+		if (sessions) closeSessions(sessions)
+	}
 	const session = await createAgentSession(prefs, probe.detected, {
 		cwd,
 		...(structuredOutput ? { structuredOutput } : {}),
-		scope: {
-			sessionId,
-			topicId: sessions.topicId,
-			projectId: sessions.projectId,
-			tenantId: sessions.tenantId,
-		},
-		stateRoot: sessions.root,
+		...(sessions
+			? {
+					scope: {
+						sessionId,
+						topicId: sessions.topicId,
+						projectId: sessions.projectId,
+						tenantId: sessions.tenantId,
+					},
+					stateRoot: sessions.root,
+					conversationSessions: sessions,
+				}
+			: { sessionId, ephemeral: true }),
 		learningObservations: ctx.config.learningObservations !== false,
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
-		conversationSessions: sessions,
 		rules: permissions.rules,
 		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
 		...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
@@ -442,7 +494,7 @@ async function execPrint(
 	})
 	if (!session.hasProvider) {
 		await session.close()
-		closeSessions(sessions)
+		await release()
 		await sessionExport?.shutdown()
 		ctx.formatter.error({
 			message: session.errorHint ?? 'agent is not ready',
@@ -451,7 +503,7 @@ async function execPrint(
 	}
 	if (modeResult.mode === 'classify' && session.autoMode?.available === false) {
 		await session.close()
-		closeSessions(sessions)
+		await release()
 		await sessionExport?.shutdown()
 		ctx.formatter.error({ message: session.autoMode.reason ?? 'Auto mode is not available.' })
 		return EXIT_USAGE
@@ -468,7 +520,7 @@ async function execPrint(
 			})
 		}
 		await session.close()
-		closeSessions(sessions)
+		await release()
 		await sessionExport?.shutdown()
 		return 1
 	}
@@ -507,7 +559,15 @@ async function execPrint(
 	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
 
 	if (resume.kind === 'resumed') {
-		ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)
+		const copied =
+			sessionId === resume.sessionId
+				? ''
+				: ephemeral
+					? ' · as a copy that is not kept'
+					: ` · carrying on in a copy, ${sessionId}`
+		ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages${copied}`)
+	} else if (ephemeral) {
+		ctx.formatter.info('this run is not kept')
 	}
 
 	let text = ''
@@ -565,10 +625,14 @@ async function execPrint(
 	}
 	termination.onTerminate(async (signal) => {
 		stopped = true
-		ctx.formatter.error({ message: stoppedBy(signal, sessionId, phase, stop.paused) })
+		ctx.formatter.error({
+			message: ephemeral
+				? `stopped by ${signal}; this run is not kept`
+				: stoppedBy(signal, sessionId, phase, stop.paused),
+		})
 		turnAbort.abort(new TurnCancelled('user'))
 		await session.close()
-		closeSessions(sessions)
+		await release()
 		await sessionExport?.shutdown()
 	})
 	const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
@@ -754,7 +818,7 @@ async function execPrint(
 	// server is a child process, and an `exec` that returns without closing
 	// leaves it behind.
 	await session.close()
-	closeSessions(sessions)
+	await release()
 	// Drained with the session, not at process exit: a buffering sink that
 	// only flushed on `beforeExit` loses its tail whenever the CLI is
 	// interrupted, which is exactly the turn somebody wanted the record of.
@@ -828,6 +892,13 @@ export const execCommand: CommandDef = {
 		'',
 		'Options:',
 		'  --json                Stream one JSON event per line instead of the reply',
+		'  --print, -p           Explicit headless print mode (exec is already headless)',
+		'  --output-format <f>   text | json (final result) | stream-json (same as --json)',
+		'  --input-format <f>    text | stream-json; explicit text stdin is prompt material.',
+		'                        stream-json requires streaming output; one native user',
+		'                        message per line: {"role":"user","content":"..."}.',
+		'                        Each line starts a turn as it arrives, before stdin EOF.',
+		'                        No prompt arguments; each turn ends with done.',
 		'  --output-schema <f>   Bind the final answer to the JSON Schema in file f,',
 		'                        using the provider’s native structured output',
 		'  --mcp-config <f>      Add the tool servers in file f for this run; repeatable',
@@ -837,6 +908,12 @@ export const execCommand: CommandDef = {
 		'  --skills <a,b,c>      Load these skills as context for the turn',
 		'  --continue, -c        Resume the most recent conversation here',
 		'  --resume <id>         Resume that conversation, and no other',
+		'  --fork-session        With --continue or --resume: carry on in a copy, leaving',
+		'                        the original as it was',
+		'  --no-session-persistence',
+		'                        Keep no record of this run; a resumed conversation is',
+		'                        worked on in memory and the original is not written to.',
+		'                        With --json: explicit stateless mode; refuses --session',
 		'  --session <id>        With --json: bind the turn to the host conversation',
 		'                        keyed by this id',
 		'  --gate <command>      Verify proposed answers with this command; repeatable',
@@ -944,7 +1021,13 @@ export const execCommand: CommandDef = {
 			// argument, not a fault in Namzu: said in a sentence, with the code a
 			// wrong argument has in each mode, instead of a crash report.
 			const message = error instanceof Error ? error.message : String(error)
-			if (args.rawArgs.includes('--json')) {
+			if (
+				args.rawArgs.includes('--json') ||
+				args.rawArgs.includes('--output-format=stream-json') ||
+				args.rawArgs.some(
+					(arg, index) => arg === '--output-format' && args.rawArgs[index + 1] === 'stream-json',
+				)
+			) {
 				writeJsonLine({ kind: 'error', message })
 				writeJsonLine({ kind: 'done' })
 				return 0
@@ -953,8 +1036,20 @@ export const execCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 		const structuredOutput = loadExecOutputSchema(flags.outputSchema)
+		const formatted =
+			flags.outputFormat === 'text' || flags.outputFormat === 'json'
+				? {
+						...args,
+						ctx: {
+							...args.ctx,
+							formatter: createFormatter(flags.outputFormat, {
+								quiet: contextLogging(args.ctx).level === 'silent',
+							}),
+						},
+					}
+				: args
 		return flags.json
-			? execJson(args, termination, flags, structuredOutput)
-			: execPrint(args, termination, flags, structuredOutput)
+			? execJson(formatted, termination, flags, structuredOutput)
+			: execPrint(formatted, termination, flags, structuredOutput)
 	}),
 }

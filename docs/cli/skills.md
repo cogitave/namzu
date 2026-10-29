@@ -46,8 +46,19 @@ the same directory whether the CLI runs from source or from `dist/`.
 At the start of a session the CLI registers every usable winner's metadata
 (`packages/cli/src/skills/catalog.ts`). Each turn then gets:
 
-- a manifest, `<available_skills>` in the system prompt, with each skill's
-  name, description and location;
+- a list of the skills the model may invoke, sent as a hidden reminder
+  (`packages/cli/src/reminders/skills.ts`) and not in the system prompt: the
+  whole list the first time the conversation hears it, afterwards only the
+  skills that are new or whose description changed, plus explicit withdrawals
+  for skills no longer offered (including when the last skill disappears).
+  Repeated turns do not repeat a withdrawal; a re-added skill is announced
+  again even if its description is unchanged. This is replayed from the
+  surviving reminders, with no separate session counter. A skill written or
+  removed while the session runs does not change the cached prefix. A skill
+  past the size limit is named without a description. Compaction that drops
+  earlier announcements makes the conversation hear the missing entries again;
+  retained withdrawals still apply in order. These are catalogue updates, not
+  body activation: bodies remain loaded on demand by the `skill` tool;
 - the `skill` tool, which loads a body by name, or lists every skill with its
   description (paged) when called without a name. It is never deferred behind
   tool search.
@@ -267,7 +278,8 @@ import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone
 ## Frontmatter
 
 `name`, `description`, `license`, `compatibility`, `allowed-tools`,
-`invocation`, `disable-model-invocation` and `metadata` are read by the
+`invocation`, `disable-model-invocation`, `metadata`, `when_to_use`, `context`,
+`agent`, `model`, `effort` and `background` are read by the
 model's catalog; the terminal also reads `argument-hint` and
 `user-invocable` for the command. Any other
 key is skipped whole, whatever YAML it uses, so a skill written for another
@@ -276,6 +288,30 @@ here with those fields ignored. The read keys are still parsed strictly: a
 list or block scalar in one of them refuses the file
 (`packages/sdk/src/skills/loader.ts` `SKILL_FRONTMATTER_KEYS`,
 `packages/sdk/src/utils/frontmatter.ts` `readsKey`).
+
+`when_to_use` is shown to the model after the description. `context: fork`
+makes the `skill` tool run the skill as a sub-agent (`agent` names its type,
+`model` and `effort` its model, `background` whether the turn waits) and hand
+back its report; the sub-agent sees only the skill and the `args` the model
+passed. A skill the operator turns on with `/skills <name>` stays in the
+prompt and runs inline, whatever its `context`. Those six keys are read
+leniently: a value the loader cannot use, or one written as a block scalar or
+list, leaves the key out and the skill still loads
+([Skills and allowed-tools](../sdk/skills.md#skills-that-run-as-a-delegated-agent)).
+
+For a fork skill, `effort` is forwarded even without `model`, not silently
+ignored. The CLI's delegated-agent host currently requires an explicit model
+when selecting effort and returns a failure for an effort-only request. Set a
+concrete supported `model` alongside `effort`; `model: inherit` reads as absent
+and does not satisfy that requirement. The skill tool does not infer a model
+or provider to work around host validation.
+
+Inline selection remains unsupported: loading a skill inline or activating it
+with `/skills <name>` does not change the turn's model or reasoning effort.
+The existing tool-dispatch capability is not a current-turn selection hook.
+`hooks` and `paths` in skill frontmatter remain ignored: they neither install
+skill-local hooks nor trigger activation by path. These are unresolved host
+integration surfaces, not supported skill behavior.
 
 The model is offered a skill only when the kernel's loader accepts it: `name`
 must match the directory name (lowercase letters, digits and single hyphens)

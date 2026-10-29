@@ -1,14 +1,23 @@
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { z } from 'zod'
-import type { ToolContext } from '../../types/tool/index.js'
+import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import type { ToolFacts } from '../../types/tool/presentation.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { resolveRetainedOutput } from '../retained-output.js'
 import { looksBinary } from '../text-window.js'
+import { TEXT_MAX_INPUT_BYTES, readBoundedChunks, readBoundedFile } from './bounded-file-read.js'
 import { fingerprintContent } from './content-fingerprint.js'
+import {
+	type MediaRead,
+	NOTEBOOK_MAX_BYTES,
+	PDF_MAX_BYTES,
+	readNotebook,
+	readPdfPages,
+} from './read-media.js'
 import { type RenderedRead, humanBytes, renderCappedRead } from './read-render.js'
+import { MAX_BYTES as IMAGE_MAX_BYTES, inspectImageBytes } from './view-image.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
@@ -35,6 +44,12 @@ const inputSchema = z.object({
 		.optional()
 		.describe('Starting line number (0-indexed). Defaults to 0 (beginning of file).'),
 	limit: z.coerce.number().optional().describe('Maximum number of lines to read'),
+	pages: z
+		.string()
+		.optional()
+		.describe(
+			'For a PDF: the pages to render as images, one page ("3") or one range ("1-5"), at most 20 pages per request. Required for a PDF of more than 10 pages.',
+		),
 	allow_large: z
 		.boolean()
 		.optional()
@@ -46,7 +61,7 @@ const inputSchema = z.object({
 export const ReadFileTool = defineTool({
 	name: 'read',
 	description:
-		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue. A file over 256 KiB is refused unless a window is named, and a result over about 25,000 tokens is cut to a first page that names the next call; pass allow_large only when you need all of it.',
+		'Reads a file and returns its contents with line numbers. Also reads images (PNG, JPEG, WebP), which come back as pictures; PDFs, whose pages come back as images (pass pages, for example "1-5", at most 20 pages per request; a PDF of more than 10 pages needs it); and Jupyter notebooks (.ipynb), which come back as cells with their outputs. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue. A file over 256 KiB is refused unless a window is named, and a result over about 25,000 tokens is cut to a first page that names the next call; pass allow_large only when you need all of it.',
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -78,8 +93,17 @@ export const ReadFileTool = defineTool({
 		const retained = await resolveRetainedOutput(context.retainedOutputDirectory, input.path)
 		// Sandbox-aware: route through sandbox.readFile() when available
 		if (context.sandbox && retained === undefined) {
-			const buffer = await context.sandbox.readFile(input.path)
-			const binaryGuidance = describeStructuredBinaryRead(input.path, buffer)
+			const sandbox = context.sandbox
+			const buffer = await readBoundedChunks(
+				(offset, length) =>
+					sandbox.readFile(input.path, { offset, length, signal: context.abortSignal }),
+				PDF_MAX_BYTES,
+				context.abortSignal,
+				(prefix) => inputLimit(input.path, prefix),
+			)
+			const media = await readMediaFile(buffer, input.path, input, context, true)
+			if (media) return media
+			const binaryGuidance = describeStructuredBinaryRead(input.path)
 			if (binaryGuidance) {
 				return {
 					success: false,
@@ -121,15 +145,22 @@ export const ReadFileTool = defineTool({
 		}
 
 		const filePath = retained ?? (await resolveWithinAnyReal(toolRoots(context), input.path))
+		// Pictures, PDFs and notebooks are not text: they have their own size
+		// limits and are never numbered, so the text cap below does not apply.
+		const namesMediaFile = namesMedia(filePath)
 		// Refused on the size alone, before the file is in memory, when no window
 		// was named: the cap exists so a huge file is never loaded to be refused.
-		if (input.readRange === undefined && input.limit === undefined) {
+		if (!namesMediaFile && input.readRange === undefined && input.limit === undefined) {
 			const { size } = await stat(filePath)
 			const early = renderCappedRead('', size, input, capOptions(input, context))
 			if (!early.ok) return refusedRead(filePath, size, early.message, false)
 		}
-		const buffer = await readFile(filePath)
-		const binaryGuidance = describeStructuredBinaryRead(filePath, buffer)
+		const buffer = await readBoundedFile(filePath, PDF_MAX_BYTES, context.abortSignal, (prefix) =>
+			inputLimit(filePath, prefix),
+		)
+		const media = await readMediaFile(buffer, filePath, input, context, false)
+		if (media) return media
+		const binaryGuidance = describeStructuredBinaryRead(filePath)
 		if (binaryGuidance) {
 			return {
 				success: false,
@@ -171,6 +202,117 @@ export const ReadFileTool = defineTool({
 		}
 	},
 })
+
+type MediaKind = 'image' | 'pdf' | 'notebook'
+
+/**
+ * What a file is by its bytes, never by its name: a text file called `.png` is
+ * still text. A notebook is JSON, so only its extension can name it.
+ */
+function mediaKindOf(path: string, buffer: Buffer): MediaKind | undefined {
+	if (buffer.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) return 'image'
+	if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image'
+	if (buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP')
+		return 'image'
+	if (buffer.subarray(0, 4).toString('utf8') === '%PDF') return 'pdf'
+	if (extname(path).toLowerCase() === '.ipynb') return 'notebook'
+	return undefined
+}
+
+/** A name that suggests a file the text cap should not judge. */
+function namesMedia(path: string): boolean {
+	return ['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.ipynb'].includes(extname(path).toLowerCase())
+}
+
+function inputLimit(path: string, prefix: Buffer): number {
+	const kind = mediaKindOf(path, prefix)
+	return kind ? mediaLimit(kind) : TEXT_MAX_INPUT_BYTES
+}
+
+function mediaLimit(kind: MediaKind): number {
+	return kind === 'image' ? IMAGE_MAX_BYTES : kind === 'pdf' ? PDF_MAX_BYTES : NOTEBOOK_MAX_BYTES
+}
+
+function mediaFailure(path: string, bytes: number, message: string, sandboxed: boolean) {
+	return {
+		success: false as const,
+		output: message,
+		error: message,
+		data: { path, ...(sandboxed ? { sandboxed: true } : {}) },
+		facts: { kind: 'read' as const, path, bytes },
+	}
+}
+
+function tooLargeMedia(path: string, bytes: number, kind: MediaKind) {
+	const what = kind === 'image' ? 'Image' : kind === 'pdf' ? 'PDF' : 'Notebook'
+	return mediaFailure(
+		path,
+		bytes,
+		`${what} file (${humanBytes(bytes)}) exceeds the maximum size this tool can read (${humanBytes(mediaLimit(kind))}).`,
+		false,
+	)
+}
+
+/**
+ * An image, a PDF or a notebook, as what the model can use: the picture itself,
+ * the pages of the PDF as pictures, or the notebook's cells with their output.
+ * Undefined for any other file, which is read as text.
+ */
+async function readMediaFile(
+	buffer: Buffer,
+	path: string,
+	input: { readonly pages?: string | undefined },
+	context: ToolContext,
+	sandboxed: boolean,
+): Promise<ToolResult | undefined> {
+	const kind = mediaKindOf(path, buffer)
+	if (!kind) return undefined
+	if (buffer.length > mediaLimit(kind)) return tooLargeMedia(path, buffer.length, kind)
+	if (kind === 'image') {
+		try {
+			const result = await inspectImageBytes(
+				{ path, bytes: buffer, sandboxed },
+				context.abortSignal,
+			)
+			return {
+				...result,
+				facts: { kind: 'read' as const, path, bytes: buffer.length },
+			}
+		} catch (error) {
+			return mediaFailure(
+				path,
+				buffer.length,
+				error instanceof Error ? error.message : String(error),
+				sandboxed,
+			)
+		}
+	}
+	const media: MediaRead =
+		kind === 'pdf'
+			? await readPdfPages(buffer, input.pages, path, context.abortSignal)
+			: readNotebook(buffer, path)
+	if (!media.ok) return mediaFailure(path, buffer.length, media.message, sandboxed)
+	const text = media.parts
+		.filter((part) => part.type === 'text')
+		.map((part) => part.text)
+		.join('\n')
+	const hasImage = media.parts.some((part) => part.type === 'image')
+	return {
+		success: true as const,
+		output: text,
+		...(hasImage
+			? {
+					content: media.parts.map((part) =>
+						part.type === 'text'
+							? { type: 'text' as const, text: part.text }
+							: { type: 'image' as const, mediaType: part.mediaType, data: part.data },
+					),
+				}
+			: {}),
+		data: { path, ...(sandboxed ? { sandboxed: true } : {}), ...media.facts },
+		facts: { kind: 'read' as const, path, bytes: buffer.length },
+	}
+}
 
 function capOptions(
 	input: { path: string; allow_large?: boolean | undefined },
@@ -315,33 +457,12 @@ function unchangedRead(
 	}
 }
 
-function describeStructuredBinaryRead(path: string, buffer: Buffer): string | null {
+function describeStructuredBinaryRead(path: string): string | null {
 	const ext = extname(path).toLowerCase()
-	const image = buffer.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
-		? 'PNG'
-		: buffer[0] === 0xff && buffer[1] === 0xd8
-			? 'JPEG'
-			: buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP'
-				? 'WebP'
-				: null
-	if (image) {
-		return [
-			`The file "${path}" is a ${image} raster image, not UTF-8 text.`,
-			'Use an available view_image tool with this path to inspect the actual pixels. Reading binary bytes as text does not provide visual evidence.',
-			'If image inspection is unavailable, open the file in an application and use an available screenshot tool; report the limitation if neither can show the image.',
-		].join('\n')
-	}
 	if (ext === '.docx') return buildStructuredBinaryGuidance(path, 'DOCX', 'python-docx')
 	if (ext === '.pptx') return buildStructuredBinaryGuidance(path, 'PPTX', 'python-pptx')
 	if (ext === '.xlsx') return buildStructuredBinaryGuidance(path, 'XLSX', 'openpyxl')
-	if (ext === '.pdf' || startsWithPdfHeader(buffer)) {
-		return buildStructuredBinaryGuidance(path, 'PDF', 'pdftotext or PyMuPDF')
-	}
 	return null
-}
-
-function startsWithPdfHeader(buffer: Buffer): boolean {
-	return buffer.length >= 4 && buffer.subarray(0, 4).toString('utf8') === '%PDF'
 }
 
 function buildStructuredBinaryGuidance(path: string, format: string, extractor: string): string {

@@ -6,6 +6,7 @@
 
 import { Box, Text, useStdout } from 'ink'
 
+import { pullRequestLabel } from '../integrations/github/pull-request.js'
 import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
@@ -104,6 +105,9 @@ export function ResumePicker({
 										: displayConversationTitle(c.title)}
 								</Text>
 							</Box>
+							{c.pr !== undefined && (
+								<Text color={theme.text.muted}> {pullRequestLabel(c.pr)}</Text>
+							)}
 							{c.folder !== undefined && <Text color={theme.text.muted}> {c.folder}</Text>}
 							<Text color={theme.text.muted}> {relativeTime(c.updatedAt)}</Text>
 						</Box>

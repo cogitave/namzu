@@ -213,7 +213,11 @@ describe('grep bounds file discovery before reading', () => {
 		})
 		const result = await GrepTool.execute(args(), context(sandbox))
 		expect(result.success).toBe(true)
-		expect(sandbox.readFile).toHaveBeenCalledExactlyOnceWith(`${ROOT}/small.ts`)
+		expect(sandbox.readFile).toHaveBeenCalledExactlyOnceWith(`${ROOT}/small.ts`, {
+			offset: 0,
+			length: 64 * 1024,
+			signal: expect.any(AbortSignal),
+		})
 	})
 
 	it('preserves readable matches while reporting unreadable files as incomplete', async () => {

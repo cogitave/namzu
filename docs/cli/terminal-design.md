@@ -790,7 +790,7 @@ turn has lasted more than 16 s; elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
 row separates the last transcript row from the Working row. With no token for
 more than 10 s the label blends toward `rgb(171,43,63)`, fully at 20 s, easing in
 and out; it never tints while a tool runs, the model is thinking, a compaction
-runs or a question waits for you, and it resets on the next token. The count is the provider's reported output
+runs or a question waits for you, and it resets on the next token. The reasoning row under it names how long one stretch has run: `thinking`, `still thinking` from 10 s, `thinking more` from 20 s, `thinking some more` from 30 s, `deep in thought` from 45 s, followed by the model's own summary when it gave one; when the stretch ends the row reads `thought for 12s` (whole seconds, at least 1) for two seconds. The count is the provider's reported output
 tokens for the turn plus an estimate (characters over four) of the reply and
 reasoning streamed since that report, redrawn at most five times a second; it
 is absent until the model has written something. On a narrow terminal the

@@ -48,10 +48,19 @@ Three rules hold for every trigger:
 | `workflow` | the word `workflow` or `workflows` at the start or end of a clause | arms | For this turn only: namzu tells the model a workflow was asked for, which opts the turn into the `workflow` tool. You still read and approve the script before anything starts ([Workflows](workflows.md)). |
 | `save-skill` | "save this as a skill", "turn it into a skill", "bunu skill olarak kaydet", "bunu skill'e çevir", "bundan bir skill yap" … | arms | After the turn, if it completed and did tool work, runs exactly `/skills save` ([Learning from a task](skills.md#learning-from-a-task)). |
 | `schedule` | "schedule this", "run it every day", "bunu her sabah çalıştır" … | suggests | Armed with Alt+W: namzu asks the model to propose a job with the `schedule` tool, which you confirm on screen ([Scheduled tasks](scheduled-tasks.md)). |
-| `max-effort` | "think as hard as you can", "en yüksek eforla düşün" | off | Armed: effort pinned to the model's highest published level (`max` where there is one) for this turn. |
+| `max-effort` | the word `ultrathink` at a clause edge, "think as hard as you can", "en yüksek eforla düşün" | off | Armed: effort pinned to the model's highest published level (`max` where there is one) for this turn. |
 
 The hypermode phrases "delegate this to subagents", "use subagents for this",
 "bunu alt ajanlara dağıt" and "bunu alt ajanlarla yap" arm it too.
+
+The deep-thinking keyword `ultrathink` belongs to `max-effort`; it does not
+change that trigger's **off** default. Set `composerTriggers.builtin.max-effort`
+to `suggest` to show a suggestion you can arm with Alt+W, or `arm` to arm
+strictly matched, directly typed words. `off` disables both the keyword and
+the phrases. A model with no published effort menu cannot apply it: Namzu
+never invents an effort level. Pasted or recalled text only suggests, even
+with `arm` configured. This is an interactive composer shorthand, not a
+headless prompt directive.
 
 A message that is **only** a save-as-skill phrase (and words like `please`,
 `lütfen`, `bunu`) runs `/skills save` instead of being sent, and the row says

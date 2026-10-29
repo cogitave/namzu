@@ -192,6 +192,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 						skills: [],
 						hookModules: [],
 						mcpServers: [],
+						commands: [],
+						agents: [],
 					},
 				],
 				setEnabled: async (_name, enabled) => {

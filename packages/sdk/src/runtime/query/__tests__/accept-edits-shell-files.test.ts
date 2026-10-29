@@ -6,13 +6,14 @@
  * and any other program still ask.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import { testToolset } from '../../../test-support/toolset.js'
+import { forgetCarriedDirectories, recordDirectory } from '../../../tools/builtins/bash-cwd.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import { ToolManager } from '../../../toolsets/manager.js'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
@@ -152,4 +153,22 @@ describe('accept-edits and shell file commands', () => {
 		)
 		expect(prompt).toHaveBeenCalledTimes(1)
 	})
+})
+
+describe('accept-edits resolves carried shell cwd', () => {
+	it.skipIf(process.platform === 'win32')(
+		'does not auto-approve a plain name inside carried .git/hooks',
+		async () => {
+			const cwd = join(project, '.git', 'hooks')
+			mkdirSync(cwd, { recursive: true })
+			const capture = join(project, 'capture')
+			writeFileSync(capture, cwd)
+			await recordDirectory(SESSION_ID, capture, { workingDirectory: project })
+			try {
+				expect(await asks('touch pre-commit')).toBe(true)
+			} finally {
+				forgetCarriedDirectories()
+			}
+		},
+	)
 })

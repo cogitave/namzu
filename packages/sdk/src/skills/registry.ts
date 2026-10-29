@@ -1,11 +1,12 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { RegistryCollisionError } from '../registry/collision.js'
-import type {
-	Skill,
-	SkillChain,
-	SkillDisclosureLevel,
-	SkillLoadResult,
+import {
+	type Skill,
+	type SkillChain,
+	type SkillDisclosureLevel,
+	type SkillLoadResult,
+	skillModelDescription,
 } from '../types/skills/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -273,7 +274,7 @@ export class SkillRegistry {
 			const skill = loaded.skill
 			entries.push({
 				registeredName,
-				description: skill.metadata.description,
+				description: skillModelDescription(skill.metadata),
 				location: join(skill.dirPath, SKILL_FILENAME),
 				directory: skill.dirPath,
 				...(skill.metadata.allowedTools === undefined

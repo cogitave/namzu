@@ -17,6 +17,11 @@ export type ReminderKind =
 	| 'hypermode-on'
 	| 'hypermode-exit'
 	| 'environment'
+	| 'model'
+	| 'skill-listing'
+	| 'mcp-instructions'
+	| 'changed-file'
+	| 'memory-index'
 	| 'mode-auto'
 	| 'mode-unattended'
 	| 'mode-strict'
@@ -32,6 +37,11 @@ const KINDS: ReadonlySet<string> = new Set<ReminderKind>([
 	'hypermode-on',
 	'hypermode-exit',
 	'environment',
+	'model',
+	'skill-listing',
+	'mcp-instructions',
+	'changed-file',
+	'memory-index',
 	'mode-auto',
 	'mode-unattended',
 	'mode-strict',

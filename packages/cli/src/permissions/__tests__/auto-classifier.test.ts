@@ -226,3 +226,40 @@ describe('whether the auto mode can be entered', () => {
 		).toContain('small model')
 	})
 })
+
+describe('the calls it refused', () => {
+	const usage = { promptTokens: 40, completionTokens: 2, totalTokens: 42 }
+
+	it('are kept, newest first, with the call and the reason', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{ text: '<verdict>block', usage },
+				{
+					text: '<verdict>block</verdict><rule>Data sent out</rule><reason>It uploads the file.</reason>',
+					usage,
+				},
+				{ text: '<verdict>allow</verdict>', usage },
+			],
+		})
+		const { classifier } = build({ providerFor: async () => provider })
+
+		await inTurn(() => classifier.review(request))
+		await inTurn(() => classifier.review(request))
+
+		expect(classifier.recentBlocks()).toEqual([
+			{ tool: 'bash', summary: 'npm test', reason: 'It uploads the file.' },
+		])
+	})
+
+	it('leave out a check that could not be completed', async () => {
+		const { classifier } = build({
+			providerFor: async () => {
+				throw new Error('no credential')
+			},
+		})
+
+		await inTurn(() => classifier.review(request))
+
+		expect(classifier.recentBlocks()).toEqual([])
+	})
+})

@@ -2,7 +2,12 @@ import { generateSessionId } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import type { RecentConversation } from '../integrations/sessions/store.js'
-import { editLine, filterConversations, openingLines } from './resume-picker-state.js'
+import {
+	editLine,
+	filterConversations,
+	onlyLinkedToPullRequest,
+	openingLines,
+} from './resume-picker-state.js'
 
 const row = (over: Partial<RecentConversation>): RecentConversation => ({
 	id: generateSessionId(),
@@ -48,5 +53,40 @@ describe('editing a line', () => {
 		expect(editLine('ab', { input: 'a', ctrl: true })).toBeNull()
 		expect(editLine('ab', { input: '', upArrow: true })).toBeNull()
 		expect(editLine('ab', { input: '\u0007' })).toBeNull()
+	})
+})
+
+describe('the pull request filter', () => {
+	const linked = row({
+		title: 'Fix login',
+		pr: { number: 42, url: 'https://github.com/acme/widgets/pull/42', repository: 'acme/widgets' },
+	})
+	const other = row({
+		title: 'Tidy docs',
+		pr: { number: 7, url: 'https://github.com/acme/widgets/pull/7', repository: 'acme/widgets' },
+	})
+	const plain = row({ title: 'Chat' })
+	const list = [linked, other, plain]
+
+	it('lists every linked conversation and drops the rest', () => {
+		expect(onlyLinkedToPullRequest(list, { kind: 'any' }).map((r) => r.title)).toEqual([
+			'Fix login',
+			'Tidy docs',
+		])
+	})
+	it('narrows to the pull request named', () => {
+		expect(
+			onlyLinkedToPullRequest(list, { kind: 'number', number: 42 }).map((r) => r.title),
+		).toEqual(['Fix login'])
+	})
+	it('leaves the list alone with no filter', () => {
+		expect(onlyLinkedToPullRequest(list, null)).toHaveLength(3)
+	})
+	it('lets a search find a conversation by its pull request', () => {
+		expect(filterConversations(list, 'pr #42').map((r) => r.title)).toEqual(['Fix login'])
+		expect(filterConversations(list, 'acme/widgets').map((r) => r.title)).toEqual([
+			'Fix login',
+			'Tidy docs',
+		])
 	})
 })

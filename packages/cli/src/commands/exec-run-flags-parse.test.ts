@@ -75,3 +75,21 @@ describe('describeSpendStop', () => {
 		expect(describeSpendStop(0)).toMatch(/^stopped at the spend limit;/)
 	})
 })
+
+describe('the session flags parse into the shared exec input', () => {
+	it('reads --fork-session and --no-session-persistence without touching the prompt', () => {
+		expect(
+			parseExecFlags(['--no-session-persistence', '--fork-session', '--continue', 'go on']),
+		).toMatchObject({
+			noSessionPersistence: true,
+			forkSession: true,
+			continueLast: true,
+			unknown: [],
+			rest: ['go on'],
+		})
+		expect(parseExecFlags(['go'])).toMatchObject({
+			noSessionPersistence: false,
+			forkSession: false,
+		})
+	})
+})

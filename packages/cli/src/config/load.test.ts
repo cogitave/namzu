@@ -411,6 +411,9 @@ describe('semantic validation of known file settings', () => {
 			},
 			'telemetry.sessionExport.eventTypes[1]',
 		],
+		[{ telemetry: { otlp: 'on' } }, 'telemetry.otlp'],
+		[{ telemetry: { otlp: { endpoint: 4318 } } }, 'telemetry.otlp.endpoint'],
+		[{ telemetry: { otlp: { headers: { a: 1 } } } }, 'telemetry.otlp.headers.a'],
 		[{ tui: { notifications: true, notificationMethod: 'desktop' } }, 'tui.notificationMethod'],
 		[{ toolResultScreens: 'correspondence' }, 'toolResultScreens'],
 		[{ toolResultScreens: ['injection', 'nope'] }, 'toolResultScreens[1]'],
@@ -819,6 +822,67 @@ describe('hooks', () => {
 				'hooks:\n  turn_end:\n    - command: x\n      statusMessage: ""\n',
 				'hooks.turn_end[0].statusMessage',
 			],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
+	it('reads http and prompt hooks and the exec form, async and onFailure options', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			[
+				'hooks:',
+				'  pre_tool_use:',
+				'    - command: ./guard',
+				'      args: ["--strict", "a b"]',
+				'      onFailure: block',
+				'    - type: http',
+				'      url: https://hooks.example.test/check',
+				'      headers: { Authorization: "Bearer ${TOKEN}" }',
+				'      allowedEnvVars: [TOKEN]',
+				'      onFailure: block',
+				'    - type: prompt',
+				'      prompt: "Does this touch production? $ARGUMENTS"',
+				'  turn_end:',
+				'    - command: ./log.sh',
+				'      async: true',
+				'',
+			].join('\n'),
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
+			pre_tool_use: [
+				{ command: './guard', args: ['--strict', 'a b'], onFailure: 'block' },
+				{
+					type: 'http',
+					url: 'https://hooks.example.test/check',
+					headers: { Authorization: 'Bearer ${TOKEN}' },
+					allowedEnvVars: ['TOKEN'],
+					onFailure: 'block',
+				},
+				{ type: 'prompt', prompt: 'Does this touch production? $ARGUMENTS' },
+			],
+			turn_end: [{ command: './log.sh', async: true }],
+		})
+
+		for (const [bad, path] of [
+			['hooks:\n  turn_end:\n    - type: agent\n      prompt: x\n', 'hooks.turn_end[0].type'],
+			['hooks:\n  turn_end:\n    - type: http\n', 'hooks.turn_end[0].url'],
+			['hooks:\n  turn_end:\n    - type: http\n      url: ftp://x.test\n', 'hooks.turn_end[0].url'],
+			['hooks:\n  turn_end:\n    - type: prompt\n', 'hooks.turn_end[0].prompt'],
+			// A setting of one kind on another is refused rather than ignored.
+			[
+				'hooks:\n  turn_end:\n    - type: http\n      url: http://x.test\n      command: y\n',
+				'hooks.turn_end[0].command',
+			],
+			[
+				'hooks:\n  turn_end:\n    - command: x\n      onFailure: ignore\n',
+				'hooks.turn_end[0].onFailure',
+			],
+			['hooks:\n  turn_end:\n    - command: x\n      args: nope\n', 'hooks.turn_end[0].args'],
+			['hooks:\n  turn_end:\n    - command: x\n      async: soon\n', 'hooks.turn_end[0].async'],
 		]) {
 			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
 			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)

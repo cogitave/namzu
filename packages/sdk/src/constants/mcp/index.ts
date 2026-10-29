@@ -70,6 +70,9 @@ export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
  */
 export const DEFAULT_MCP_REQUEST_TIMEOUT_MS = 30_000
 
+/** JSON-RPC 2.0 reserved code for parameters the receiver cannot accept. */
+export const JSON_RPC_INVALID_PARAMS = -32602
+
 /** JSON-RPC 2.0 reserved code for an unimplemented method. */
 export const JSON_RPC_METHOD_NOT_FOUND = -32601
 

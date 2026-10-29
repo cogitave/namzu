@@ -93,6 +93,12 @@ export interface SkillRegistryRef {
 						 * silent `both` — the fail-open answer.
 						 */
 						invocation?: 'model' | 'operator' | 'both'
+						/** `fork` hands the skill to a delegated agent; see `SkillMetadata.context`. */
+						context?: 'inline' | 'fork'
+						agent?: string
+						model?: string
+						effort?: import('../provider/chat.js').ReasoningEffort
+						background?: boolean
 					}
 					body?: string
 					/** The skill's directory, which `${CLAUDE_SKILL_DIR}` in `allowed-tools` names. */
@@ -324,6 +330,22 @@ export interface FileReadTracker {
 	 * only as a rendering, and nothing may be replayed on top of it.
 	 */
 	recordFullRead?(key: string, content: string, callId: string, renderedFingerprint: string): void
+	/**
+	 * Optional body of a file whose latest observation was the whole file (a
+	 * full read, a full write, or an edit's result), for a host that wants to
+	 * show what changed under it. Absent after a windowed read, for a file too
+	 * large to keep, and once the ledger has dropped the oldest bodies.
+	 */
+	fullBody?(key: string): string | undefined
+	/** Optional: the keys {@link fullBody} holds a body for, oldest first. */
+	fullBodyPaths?(): readonly string[]
+	/**
+	 * Optional: record that the whole file now reads `content`, as an
+	 * observation with no witness (the host has told the model about it, or
+	 * read it itself). Advances the fingerprint and the kept body, so the next
+	 * mutation compares against this body and not the one before it.
+	 */
+	recordFullBody?(key: string, content: string): void
 	/**
 	 * Optional witness of the full read above: the call whose receipt holds the
 	 * body, and the fingerprint of what that call emitted.

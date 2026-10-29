@@ -121,6 +121,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 	}
 	const publish = () => {
 		if (closed) return
+		discardStale()
 		try {
 			writePeerRecord(runtime.sessionsDir, record())
 		} catch (error) {
@@ -134,16 +135,30 @@ export async function openLivePeers(options: LivePeersOptions) {
 	}
 	const discardStale = () => {
 		const owner = options.owner()
+		const mode = options.mode()
 		let dropped = 0
+		let modeChanged = 0
 		for (let index = pending.length - 1; index >= 0; index--) {
-			if (pending[index]?.owner !== owner) {
+			const mail = pending[index]
+			if (!mail) continue
+			if (mail.owner !== owner) {
 				pending.splice(index, 1)
 				dropped++
+			} else if (mail.from.mode !== mode) {
+				// Admission is not a grant to run this context under a later mode.
+				// Recheck at peek AND consumption: a scheduled idle wake can outlive
+				// a mode change. Discard rather than inventing approval or replay.
+				pending.splice(index, 1)
+				modeChanged++
 			}
 		}
 		if (dropped)
 			options.report(
 				`${dropped} peer message(s) were not delivered because the conversation changed.`,
+			)
+		if (modeChanged)
+			options.report(
+				`${modeChanged} peer message(s) were not delivered because the permission mode changed.`,
 			)
 	}
 	const receive = (request: DeliverRequest): DeliverResponse => {

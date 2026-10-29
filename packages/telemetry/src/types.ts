@@ -4,6 +4,13 @@ export interface TelemetryConfig {
 	serviceName: string
 	serviceVersion?: string
 	exporterType: ExporterType
+	/** Per-signal overrides; omitted values use exporterType for compatibility. */
+	traceExporterType?: ExporterType
+	metricExporterType?: ExporterType
+	/** This package ships HTTP/JSON OTLP exporters. Other transports are rejected. */
+	otlpProtocol?: 'http/json'
+	traceOtlpProtocol?: 'http/json'
+	metricOtlpProtocol?: 'http/json'
 	otlpEndpoint?: string
 	otlpHeaders?: Record<string, string>
 	metricExportIntervalMs?: number

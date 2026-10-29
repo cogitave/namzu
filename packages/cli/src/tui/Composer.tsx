@@ -26,7 +26,7 @@ import {
 import { createUndoStack } from './composer-undo.js'
 import { fitHints } from './key-hints.js'
 import { isAction, isChordAction, isChordLead, pressedKeyLabel, primaryKeyLabel } from './keymap.js'
-import { activeFileMention, matchMentionableFiles, mentionText } from './mentions.js'
+import { type MentionExtra, activeFileMention, matchMentionSuggestions } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
 import {
@@ -95,6 +95,8 @@ export interface ComposerProps {
 	readonly builtins?: readonly SlashCommand[]
 	/** Project-relative paths admitted once by App for `@` completion. */
 	readonly mentionCandidates?: readonly string[]
+	/** Sub-agents and tool-server resources the `@` picker offers beside files. */
+	readonly mentionExtras?: readonly MentionExtra[]
 	/**
 	 * Draw nothing, but stay mounted and keep the draft.
 	 *
@@ -616,6 +618,7 @@ export function Composer({
 	userCommands = [],
 	builtins,
 	mentionCandidates = [],
+	mentionExtras = [],
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
@@ -770,7 +773,7 @@ export function Composer({
 	const argumentHint = plainText ? undefined : argumentHintFor(value, userCommands)
 	const activeMention = activeFileMention(value, cursor)
 	const fileSuggestions = activeMention
-		? matchMentionableFiles(activeMention.query, mentionCandidates)
+		? matchMentionSuggestions(activeMention.query, mentionCandidates, mentionExtras)
 		: []
 	const suggestionKind =
 		commandSuggestions.length > 0 ? 'command' : fileSuggestions.length > 0 ? 'file' : null
@@ -1116,7 +1119,7 @@ export function Composer({
 				: matchSlashCommands(valueRef.current, userCommands, builtins)
 			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
 			const liveFileSuggestions = liveMention
-				? matchMentionableFiles(liveMention.query, mentionCandidates)
+				? matchMentionSuggestions(liveMention.query, mentionCandidates, mentionExtras)
 				: []
 			const liveSuggestionKind =
 				liveCommandSuggestions.length > 0
@@ -1138,9 +1141,9 @@ export function Composer({
 					return true
 				}
 				if (liveSuggestionKind === 'file' && liveMention) {
-					const path = liveFileSuggestions[liveSelection]
-					if (!path) return false
-					const replacement = `${mentionText(path)} `
+					const picked = liveFileSuggestions[liveSelection]
+					if (!picked) return false
+					const replacement = `${picked.insert} `
 					// A quoted token the person closed already: the closing quote
 					// belongs to the mention being replaced, not to the text after it.
 					const isQuoted = valueRef.current[liveMention.start + 1] === '"'
@@ -1859,15 +1862,22 @@ export function Composer({
 				</Box>
 			) : suggestionKind === 'file' ? (
 				<Box flexDirection="column" paddingTop={1} width="100%">
-					{visibleFileSuggestions.map((path, i) => {
+					{visibleFileSuggestions.map((row, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (
 							<Text
-								key={path}
+								key={`${row.kind}:${row.label}`}
 								color={absoluteIndex === selIdx ? theme.accent.user : theme.text.secondary}
 								bold={absoluteIndex === selIdx}
+								wrap="truncate-end"
 							>
-								{absoluteIndex === selIdx ? '› ' : '  '}@{path}
+								{absoluteIndex === selIdx ? '› ' : '  '}@{row.label}
+								{row.description ? (
+									<Text color={theme.text.muted} bold={false}>
+										{'  '}
+										{row.description}
+									</Text>
+								) : null}
 							</Text>
 						)
 					})}

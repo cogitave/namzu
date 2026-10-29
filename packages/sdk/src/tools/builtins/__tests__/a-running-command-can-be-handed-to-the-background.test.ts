@@ -142,7 +142,7 @@ describe('a running foreground command the person hands to the background', () =
 		const registry = new BackgroundJobRegistry()
 		const child = runningCommand()
 		const pending = BashTool.execute(
-			{ command: 'sleep 60 && echo done', timeout: 600_000 },
+			{ command: 'sleep 20 && echo done', timeout: 600_000 },
 			turn(registry),
 		)
 		vi.advanceTimersByTime(FOREGROUND_HANDOFF_AFTER_MS)

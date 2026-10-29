@@ -59,6 +59,8 @@ function fixture(
 			skills: [],
 			hookModules: [],
 			mcpServers: [],
+			commands: [],
+			agents: [],
 		}
 		const setEnabled = vi.fn(async (_name: string, enabled: boolean) => {
 			status = enabled ? 'enabled' : 'disabled'

@@ -5,10 +5,23 @@
  * decisions, so they are testable without a terminal.
  */
 
+import {
+	type PullRequestFilter,
+	matchesPullRequestFilter,
+} from '../integrations/github/pull-request.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
 
 /** Which conversations the picker lists. */
 export type ResumeScope = 'folder' | 'all'
+
+/** `--from-pr`: only the conversations linked to a pull request, or to the one named. */
+export function onlyLinkedToPullRequest(
+	conversations: readonly RecentConversation[],
+	filter: PullRequestFilter | null,
+): readonly RecentConversation[] {
+	if (filter === null) return conversations
+	return conversations.filter((conversation) => matchesPullRequestFilter(conversation.pr, filter))
+}
 
 /** Conversations whose title, first message or last message contains every word typed. */
 export function filterConversations(
@@ -18,7 +31,12 @@ export function filterConversations(
 	const words = query.toLowerCase().split(/\s+/).filter(Boolean)
 	if (words.length === 0) return conversations
 	return conversations.filter((conversation) => {
-		const haystack = [conversation.title, conversation.firstPrompt, conversation.preview]
+		const haystack = [
+			conversation.title,
+			conversation.firstPrompt,
+			conversation.preview,
+			conversation.pr ? `pr #${conversation.pr.number} ${conversation.pr.repository}` : undefined,
+		]
 			.filter((part): part is string => typeof part === 'string')
 			.join('\n')
 			.toLowerCase()

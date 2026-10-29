@@ -159,7 +159,10 @@ test('an exact release-history attribution does not exempt adjacent log prose', 
 		"- **Update** Scoped the Anthropic provider's optional Claude Code version probe out of framework filesystem tracing so server bundles do not absorb the consumer's complete project tree.\n"
 	writeFileSync(join(root, 'docs/log.md'), attribution)
 	assert.equal(runAudit(root).status, 0)
-	writeFileSync(join(root, 'docs/log.md'), `${attribution}- **Update** Claude shapes this project.\n`)
+	writeFileSync(
+		join(root, 'docs/log.md'),
+		`${attribution}- **Update** Claude shapes this project.\n`,
+	)
 	const result = runAudit(root)
 	assert.equal(result.status, 1)
 	assert.match(result.stderr, /docs\/log\.md/)
@@ -190,7 +193,8 @@ test('a wrapped named import is identity, but the next declaration and broken im
 
 	writeFileSync(
 		source,
-		"import {\n\t/" + "/ We copied Claude to name this.\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
+		'import {\n\t/' +
+			"/ We copied Claude to name this.\n\tclaudeCredentialSearchPaths,\n} from './owner.js'\n",
 	)
 	assert.equal(runAudit(root).status, 1)
 
@@ -206,7 +210,10 @@ test('a wrapped named import is identity, but the next declaration and broken im
 	)
 	assert.equal(runAudit(root).status, 1)
 
-	writeFileSync(source, declaration.replace("} from './owner.js'", "} from './owner.js' /" + '/ Claude shaped this'))
+	writeFileSync(
+		source,
+		declaration.replace("} from './owner.js'", "} from './owner.js' /" + '/ Claude shaped this'),
+	)
 	assert.equal(runAudit(root).status, 1)
 
 	writeFileSync(source, 'import {\n\tclaudeCredentialSearchPaths,\n}\nconst local = 1\n')
@@ -226,7 +233,10 @@ test('device provider attribution stays scoped to integration docs and exact cre
 	assert.equal(unrelated.status, 1)
 	assert.match(unrelated.stderr, /docs\/cli\/unrelated.md/)
 	writeFileSync(join(root, 'docs/cli/unrelated.md'), '# Unrelated documentation\n')
-	writeFileSync(join(root, 'packages/cli/src/tui/agent.ts'), '/' + '/ We copied Gemini here\nconst gemini = 1\n')
+	writeFileSync(
+		join(root, 'packages/cli/src/tui/agent.ts'),
+		'/' + '/ We copied Gemini here\nconst gemini = 1\n',
+	)
 	const result = runAudit(root)
 	assert.equal(result.status, 1)
 	assert.match(result.stderr, /packages\/cli\/src\/tui\/agent.ts/)
@@ -237,6 +247,40 @@ test('a URL inside a string literal is a wire value, while a trailing comment is
 	const file = join(root, 'packages/sdk/src/clean.ts')
 	writeFileSync(file, 'export const modelUrl = `https://huggingface.co/org/model/${1}`\n')
 	assert.equal(runAudit(root).status, 0)
-	writeFileSync(file, "export const modelUrl = 'https://huggingface.co/x' // shaped like Hugging Face\n")
+	writeFileSync(
+		file,
+		"export const modelUrl = 'https://huggingface.co/x' // shaped like Hugging Face\n",
+	)
 	assert.equal(runAudit(root).status, 1)
+})
+
+test('service entry points and provider-boundary fixtures have exact-path wire exemptions', () => {
+	const root = repository()
+	const cases = [
+		{
+			path: 'packages/cli/src/commands/github.ts',
+			source:
+				'/** Write GitHub Actions workflows that run Namzu. */\n' +
+				'const help = `Run Namzu from GitHub Actions\n(default anthropic)\n`\n',
+		},
+		...['ephemeral-paused-turn', 'model-identity-reaches-provider'].map((name) => ({
+			path: `packages/cli/src/tui/__tests__/${name}.test.ts`,
+			source: 'const selected = PROVIDER_REGISTRY.anthropic\n',
+		})),
+	]
+	for (const { path, source } of cases) {
+		const file = join(root, path)
+		mkdirSync(dirname(file), { recursive: true })
+		writeFileSync(file, source)
+		assert.equal(runAudit(root).status, 0, path)
+
+		// Neither a sibling nor an appended filename inherits the exception.
+		for (const neighbour of [file.replace(/[^/]+$/, 'unrelated.ts'), `${file}.extra.ts`]) {
+			writeFileSync(neighbour, source)
+			const result = runAudit(root)
+			assert.equal(result.status, 1, result.stderr)
+			assert.match(result.stderr, /external-name reference/)
+			rmSync(neighbour)
+		}
+	}
 })

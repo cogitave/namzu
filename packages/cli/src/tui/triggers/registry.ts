@@ -202,7 +202,7 @@ export const BUILTIN_TRIGGERS: readonly TriggerDefinition[] = [
 	{
 		id: 'max-effort',
 		label: 'max effort',
-		keywords: [],
+		keywords: ['ultrathink'],
 		phrases: {
 			en: [both('think (as hard as you can|at max effort|at maximum effort)')],
 			tr: [right('en yüksek (eforla|çabayla) {düşün}')],

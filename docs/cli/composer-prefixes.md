@@ -33,13 +33,22 @@ Bounds: a command that has not ended after 60 seconds is stopped with its owned 
 
 ## `@path` — attach a file
 
-`@src/auth.ts` anywhere in a message sends that file's text with it as a `<file>` block; the message you see keeps the readable `@path`. Only files inside the working directory are read, a file is cut at 60,000 characters, and a mention that does not name a readable file stays plain text.
+`@src/auth.ts` anywhere in a message sends that file's text with it as a `<file>` block; the message you see keeps the readable `@path`. Only regular files resolving inside the working directory are read. Reads use chunks of at most 16 KiB, not a whole-file allocation, and stop at the file size observed when opened even if it grows. Missing, replaced or unreadable paths stay plain text.
+
+File expansion attempts at most 32 distinct file/range mentions per message. Each file contributes at most 60,000 characters; the message has a 240,000-character file-content budget (plus truncation markers and block labels). Scanning stops at 8 MiB per file and 16 MiB across the message, including bytes skipped to reach a line range. Later mentions beyond those budgets stay plain text. These limits do not change the working-directory boundary or grant access outside it.
 
 - **Names.** Letters, digits and combining marks of any script, and `_ - . / \ ( ) [ ] ~ :` may stand bare. A path with anything else, a space included, is written in quotes: `@"my docs/notes v2.md"`. Completion offers the files git lists (tracked and not ignored) and writes the quotes for you when the name needs them.
-- **Lines.** `@file.ts#L10-20` sends lines 10 to 20 inclusive and `#L7` sends line 7; the block says `lines="10-20"`. The 60,000-character cap applies to the lines sent, so a range deep in a large file is reachable. A range written backwards sends the whole file.
+- **Lines.** `@file.ts#L10-20` sends lines 10 to 20 inclusive and `#L7` sends line 7; the block says `lines="10-20"`. The 60,000-character cap applies to the lines sent. Preceding lines are scanned without retaining them; a range is reachable only within the byte-scan budgets above. If its first line is not reached, the mention stays plain text. A range written backwards sends the whole file.
 - **Trailing punctuation.** A sentence's `,` `.` `;` `:` `!` `?`, and a `)` or `]` with no opener in the token, are not part of the name: `(see @a.ts)` mentions `a.ts`.
 
-Not available: `@agent-<type>` to name a subagent (the list of agent types lives inside the delegation runtime and is not offered to the composer), a configurable file-suggestion command, and a setting to include ignored files.
+### Agents and tool-server resources
+
+The same `@` list also offers the sub-agents a session can hand work to and the resources its connected tool servers publish, with a short description beside each.
+
+- **Agents.** `@"reviewer (agent)"` (or `@agent-reviewer`) names a sub-agent: `explore`, `plan` and every agent defined in `.namzu/agents/` or `~/.namzu/agents/`. Nothing is inlined; the message carries a short `<mentioned-agent>` note that tells the model to give the fitting part of the request to that agent. A name that is not a known agent stays a file path.
+- **Resources.** `@"docs:docs://guide"` names a resource a connected tool server published (`server:address`). The text is read when the message starts a turn and sent as a block marked with a fresh marker and a line saying it came from the tool server, to be read as information. The server's allow and deny lists apply, only an address the server listed is read, a server set to ask for approval before use is left out of the list, a resource is cut at 60,000 characters, and one that cannot be read is left out without stopping the message. A message sent while a turn is already running leaves the mention as written.
+
+Not available: resource templates (`@server:template/{id}` with completion of its values), a configurable file-suggestion command, and a setting to include ignored files.
 
 ## Neither is read for composer triggers
 

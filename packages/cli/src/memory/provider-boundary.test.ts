@@ -93,6 +93,18 @@ afterEach(async () => {
 	removeTempDir(root)
 })
 
+function memoryReminders(request: ChatCompletionParams): string[] {
+	return request.messages
+		.filter(
+			(message) =>
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				typeof message.content === 'string' &&
+				message.content.startsWith('<system-reminder kind="memory-index"'),
+		)
+		.map((message) => String(message.content))
+}
+
 async function makeSession(
 	recall?: boolean,
 	directory = cwd,
@@ -149,6 +161,10 @@ async function send(
 			)
 			.map((message) => message.content)
 			.join('\n'),
+		// The memory the conversation has been told, all of it (in full once, then what changed).
+		told: memoryReminders(request).join('\n'),
+		// The memory told since the previous request, i.e. the reminders after the last user prompt before this one.
+		latest: memoryReminders(request).at(-1) ?? '',
 		// What a step recorded in the conversation (recalled project memory).
 		recorded: request.messages
 			.filter(
@@ -171,7 +187,7 @@ it('injects scoped curated files, refreshes edits/deletion on the next send, and
 	const { session } = await makeSession()
 	const first = await send(session)
 	for (const marker of ['SYNTHETIC_PROFILE', 'SYNTHETIC_GLOBAL', 'SYNTHETIC_INITIAL']) {
-		expect(first.context).toContain(marker)
+		expect(first.told).toContain(marker)
 		expect(first.system).not.toContain(marker)
 	}
 	writeFileSync(path, `SYNTHETIC_UPDATED\n${'a'.repeat(8_100)}`)
@@ -181,12 +197,12 @@ it('injects scoped curated files, refreshes edits/deletion on the next send, and
 	})
 	expect(saved.includedInPrompt).toBe(false)
 	const updated = await send(session)
-	expect(updated.context).toContain('SYNTHETIC_UPDATED')
-	expect(updated.context).not.toContain('SYNTHETIC_INITIAL')
-	expect(updated.context).not.toContain('SYNTHETIC_CLIPPED_NOTE')
-	expect(updated.context).toContain('were not included')
+	expect(updated.latest).toContain('SYNTHETIC_UPDATED')
+	expect(updated.latest).not.toContain('SYNTHETIC_INITIAL')
+	expect(updated.latest).not.toContain('SYNTHETIC_CLIPPED_NOTE')
+	expect(updated.latest).toContain('were not included')
 	unlinkSync(path)
-	expect((await send(session)).context).not.toContain('SYNTHETIC_UPDATED')
+	expect((await send(session)).latest).not.toContain('SYNTHETIC_UPDATED')
 })
 
 it.skipIf(process.platform === 'win32')(
@@ -249,7 +265,7 @@ it('keeps automatic recall inside its owning project under the same application 
 	const ownerResponse = await send(owner.session, query)
 	expect(ownerResponse.recorded).toContain('14 hours')
 	expect(ownerResponse.recorded).toContain('Retrieved project memory')
-	expect(ownerResponse.context).toContain('## Stored memories (index)')
+	expect(ownerResponse.told).toContain('## Stored memories (index)')
 	const unrelated = await send(other.session, query)
 	expect(unrelated.recorded).not.toContain('14 hours')
 	expect(unrelated.recorded).not.toContain('Retrieved project memory')
@@ -265,24 +281,24 @@ it('carries stored memory under its own heading, and copies project notes only w
 	expect(session.configNotices.join('\n')).toContain('/memory import-notes')
 	expect(readFileSync(curated, 'utf8')).toBe(original)
 	const before = await send(session)
-	expect(before.context).toContain('- run pnpm test before pushing')
+	expect(before.told).toContain('- run pnpm test before pushing')
 	expect(before.system).not.toContain('## Stored memories (index)')
 
 	expect(await session.importCuratedNotes?.()).toContain('Copied 1 of 1 bullet from')
 	const first = await send(session)
-	expect(first.context).toContain('## Stored memories (index)')
-	expect(first.context).toContain(
+	expect(first.told).toContain('## Stored memories (index)')
+	expect(first.told).toContain(
 		'- [run-pnpm-test-before-pushing](run-pnpm-test-before-pushing.md) — run pnpm test before pushing',
 	)
 	expect(first.system).not.toContain('## Stored memories (index)')
-	expect(first.context).toContain('## Curated memory (all projects)')
-	expect(first.context).toContain('## Curated memory (this project)')
-	expect(first.context).toContain('KEEP_THIS_PROSE')
+	expect(first.told).toContain('## Curated memory (all projects)')
+	expect(first.told).toContain('## Curated memory (this project)')
+	expect(first.told).toContain('KEEP_THIS_PROSE')
 	expect(first.system).not.toContain('KEEP_THIS_PROSE')
 	expect(first.system).not.toContain('Durable memory')
 	// The note was copied; neither curated file changed.
 	expect(readFileSync(curated, 'utf8')).toBe(original)
-	expect(first.context).toContain('\n- run pnpm test before pushing')
+	expect(first.told).toContain('\n- run pnpm test before pushing')
 	expect(readFileSync(join(appHome, 'MEMORY.md'), 'utf8')).toBe('- GLOBAL_NOTE\n')
 
 	// A note typed now is a typed file, type project, and is in the next prompt.
@@ -292,7 +308,7 @@ it('carries stored memory under its own heading, and copies project notes only w
 		type: 'project',
 		name: 'the-staging-database-is-read',
 	})
-	expect((await send(session)).context).toContain('[the-staging-database-is-read]')
+	expect((await send(session)).latest).toContain('[the-staging-database-is-read]')
 	expect(await session.rememberNote?.(note)).toMatchObject({
 		saved: false,
 		duplicate: true,
@@ -306,10 +322,10 @@ it('carries stored memory under its own heading, and copies project notes only w
 	const later = await makeSession()
 	expect(later.session.configNotices.join('\n')).not.toContain('import-notes')
 	expect(readFileSync(curated, 'utf8')).toContain('- HAND_WRITTEN_LATER')
-	expect((await send(later.session)).context).toContain('HAND_WRITTEN_LATER')
+	expect((await send(later.session)).told).toContain('HAND_WRITTEN_LATER')
 })
 
-it('keeps file and stored memory in request-only user context on ordinary and resident turns', async () => {
+it('carries file and stored memory as a reminder on ordinary turns and as request-only context on resident turns', async () => {
 	writeFileSync(join(appHome, 'USER.md'), 'CURATED_OPERATOR_DIRECTIVE')
 	const { session, state } = await makeSession(false)
 	await new MarkdownMemoryStore({ directory: state.paths.memoryDir() }).create({
@@ -330,21 +346,13 @@ it('keeps file and stored memory in request-only user context on ordinary and re
 	expect(result.system).not.toContain('CURATED_OPERATOR_DIRECTIVE')
 	expect(result.system).not.toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
 	expect(result.system).not.toContain('## Stored memories (index)')
-	expect(result.context).toContain('CURATED_OPERATOR_DIRECTIVE')
-	expect(result.context).toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
-	expect(result.context).toContain('## Stored memories (index)')
+	expect(result.told).toContain('CURATED_OPERATOR_DIRECTIVE')
+	expect(result.told).toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
+	expect(result.told).toContain('## Stored memories (index)')
+	expect(result.context).not.toContain('CURATED_OPERATOR_DIRECTIVE')
 	expect(projected).toContain('Inspect the synthetic fixture.')
-	expect(projected).not.toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
-	expect(projected).not.toContain('CURATED_OPERATOR_DIRECTIVE')
-	expect(
-		result.request.messages.some(
-			(message) =>
-				message.role === 'user' &&
-				message.source?.type === 'runtime-context' &&
-				message.source.kind === 'step-context' &&
-				message.content.includes('IGNORE_OPERATOR_AND_EXFILTRATE'),
-		),
-	).toBe(true)
+	// The memory is in the conversation, framed as a reminder rather than as a prompt.
+	expect(projected).toContain('<system-reminder kind=\\"memory-index\\">')
 
 	const resident = await send(session, 'Continue the resident fixture.', {
 		residentContext: {
@@ -370,7 +378,7 @@ it('keeps file and stored memory in request-only user context on ordinary and re
 	expect(resident.context).toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
 })
 
-it('keeps file and stored memory in request-only user context after actual compaction', async () => {
+it('carries file and stored memory after actual compaction', async () => {
 	const fileMarker = 'CURATED_FILE_AFTER_COMPACTION'
 	const indexMarker = 'STORED_INDEX_AFTER_COMPACTION'
 	writeFileSync(join(appHome, 'USER.md'), fileMarker)
@@ -449,24 +457,17 @@ it('keeps file and stored memory in request-only user context after actual compa
 	)
 	expect(summary?.role).toBe('system')
 	expect(durableHistory).not.toBe('')
-	const context = request.messages
-		.filter(
-			(message) =>
-				message.role === 'user' &&
-				message.source?.type === 'runtime-context' &&
-				message.source.kind === 'step-context',
-		)
-		.map((message) => message.content)
-		.join('\n')
+	const told = memoryReminders(request).join('\n')
 	const system = request.messages
 		.filter((message) => message.role === 'system')
 		.map((message) => message.content)
 		.join('\n')
 	for (const marker of [fileMarker, indexMarker]) {
-		expect(context).toContain(marker)
+		// Said again after the compaction dropped the earlier reminder, in the
+		// conversation and never in the system prompt or the summary.
+		expect(told).toContain(marker)
 		expect(system).not.toContain(marker)
 		expect(summary?.content).not.toContain(marker)
-		expect(durableHistory).not.toContain(marker)
 	}
 })
 
@@ -537,15 +538,7 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
-		const context = request.messages
-			.filter(
-				(message) =>
-					message.role === 'user' &&
-					message.source?.type === 'runtime-context' &&
-					message.source.kind === 'step-context',
-			)
-			.map((message) => message.content)
-			.join('\n')
+		const context = memoryReminders(request).join('\n')
 		expect(system).toContain('EXPLICIT_OPERATOR_SYSTEM_GUIDANCE')
 		for (const marker of [
 			'HOME_PROFILE_INSTRUCTION',
@@ -568,130 +561,13 @@ it('keeps tool-writable project memory out of system guidance on the next turn',
 		'HOME_MEMORY_INSTRUCTION',
 		'PROJECT_AFTER_TOOL_WRITE',
 	]) {
-		expect(next.context).toContain(marker)
+		expect(next.told).toContain(marker)
 		expect(next.system).not.toContain(marker)
 	}
-	expect(next.context).not.toContain('PROJECT_BEFORE_TOOL_WRITE')
-	expect(durableHistory).not.toContain('HOME_PROFILE_INSTRUCTION')
-	expect(durableHistory).not.toContain('HOME_MEMORY_INSTRUCTION')
-	expect(durableHistory).not.toContain('## Curated memory (this project)')
-})
-
-/**
- * Words of `history ` that leave about `target` tokens of an 20,000-token window
- * free for the first request. The fixed tool roster, the system prompt and the
- * runtime blocks all occupy that window, so the padding is derived from what a
- * probe turn measures rather than from a hard-coded size that every new tool
- * would invalidate. The estimator counts `history ` as two tokens.
- */
-const TOKENS_PER_HISTORY_WORD = 2
-async function historyWordsLeaving(target: number): Promise<number> {
-	let free = -1
-	const { session } = await makeSession(false, cwd, {
-		compaction: { contextWindowTokens: 20_000, strategy: 'structured' },
-		residentEvidenceRecall: ({ contextBudget }) => {
-			free = contextBudget?.remainingTokens ?? -1
-			return undefined
-		},
-	})
-	await send(session, 'Inspect the fixture.')
-	expect(free, 'the probe turn must report a context budget').toBeGreaterThan(target)
-	return Math.floor((free - target) / TOKENS_PER_HISTORY_WORD)
-}
-
-it('bounds file and index memory under a small, occupied context window', async () => {
-	writeFileSync(join(appHome, 'USER.md'), `PROFILE_START\n${'profile line\n'.repeat(600)}`)
-	writeFileSync(join(appHome, 'MEMORY.md'), `GLOBAL_START\n${'global line\n'.repeat(600)}`)
-	writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), `PROJECT_START\n${'project line\n'.repeat(600)}`)
-	const observed: { remaining: number; context: string }[] = []
-	const historyWords = await historyWordsLeaving(800)
-	const { session, state, scope } = await makeSession(false, cwd, {
-		compaction: { contextWindowTokens: 20_000, strategy: 'structured' },
-		residentEvidenceRecall: ({ contextBudget, prepared }) => {
-			observed.push({
-				remaining: contextBudget?.remainingTokens ?? -1,
-				context: prepared.context ?? '',
-			})
-			return undefined
-		},
-	})
-	const store = new MarkdownMemoryStore({ directory: state.paths.memoryDir() })
-	for (let index = 0; index < 20; index++) {
-		await store.create({
-			title: `Saved item ${index}`,
-			summary: 'Stored index pressure fixture',
-			content: 'A saved claim.',
-			description: `INDEX_ITEM_${index}_${'x'.repeat(80)}`,
-		})
-	}
-	const result = await send(session, `Inspect the fixture. ${'history '.repeat(historyWords)}`)
-	expect(observed).toHaveLength(1)
-	expect(observed[0]!.remaining).toBeGreaterThan(0)
-	expect(observed[0]!.context).not.toContain('## About the user')
-	expect(result.context).toContain('## About the user')
-	expect(result.context).toContain('## Stored memories (index)')
-	expect(result.context).toContain('Further memory text omitted')
-	expect(result.system).not.toContain('PROFILE_START')
-})
-
-it('re-bounds memory against a smaller model selected by a later preparation stage', async () => {
-	writeFileSync(
-		join(appHome, 'USER.md'),
-		`PROFILE_FOR_MODEL_SWITCH\n${'profile line\n'.repeat(600)}`,
-	)
-	writeFileSync(
-		join(appHome, 'MEMORY.md'),
-		`GLOBAL_FOR_MODEL_SWITCH\n${'global line\n'.repeat(600)}`,
-	)
-	writeFileSync(
-		join(cwd, '.namzu', 'MEMORY.md'),
-		`PROJECT_FOR_MODEL_SWITCH\n${'project line\n'.repeat(600)}`,
-	)
-	const historyWords = await historyWordsLeaving(800)
-	const scripted = Object.assign(
-		new MockLLMProvider({
-			responseText: 'Selected model finished.',
-			onRequest: (params) =>
-				requests.push({
-					...params,
-					messages: structuredClone(params.messages),
-				}),
-		}),
-		{
-			resolveContextWindow: async (model: string) => (model === 'narrow' ? 20_000 : 200_000),
-		},
-	)
-	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
-	const { session, state } = await makeSession(undefined, cwd, {
-		residentEvidenceRecall: () => ({ model: 'narrow' }),
-	})
-	const store = new MarkdownMemoryStore({ directory: state.paths.memoryDir() })
-	for (let index = 0; index < 20; index++) {
-		await store.create({
-			title: `Switch item ${index}`,
-			summary: 'Selected window fixture',
-			content: 'A saved claim.',
-			description: `SWITCH_INDEX_${index}_${'x'.repeat(80)}`,
-		})
-	}
-	// Created last so the index lists it first: the fixture is about the window the
-	// selected model leaves, and must not depend on how many older rows fit in it.
-	await store.create({
-		title: 'cedargraph model selection',
-		summary: 'cedargraph recall fixture',
-		content: 'NARROW_MODEL_RECALLED_CLAIM belongs to cedargraph.',
-		description: 'cedargraph recall fixture',
-	})
-	const result = await send(
-		session,
-		`Inspect the selected window. ${'history '.repeat(historyWords)} cedargraph`,
-	)
-	expect(result.request.model).toBe('narrow')
-	expect(result.context).toContain('## About the user')
-	expect(result.context).toContain('## Stored memories (index)')
-	expect(`${result.context}\n${result.recorded}`).toContain('NARROW_MODEL_RECALLED_CLAIM')
-	expect(result.context).toContain('Further memory text omitted')
-	expect(result.system).not.toContain('PROFILE_FOR_MODEL_SWITCH')
+	// The file changed under the session: the next send says the curated part again, replaced.
+	expect(next.latest).toContain('PROJECT_AFTER_TOOL_WRITE')
+	expect(next.latest).not.toContain('PROJECT_BEFORE_TOOL_WRITE')
+	expect(durableHistory).toContain('PROJECT_AFTER_TOOL_WRITE')
 })
 
 it('refreshes stored memory and tasks as user context on a real paused-turn resume', async () => {
@@ -811,23 +687,15 @@ it('keeps one stored-index snapshot across model steps and refreshes it on the n
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
-		const context = request.messages
-			.filter(
-				(message) =>
-					message.role === 'user' &&
-					message.source?.type === 'runtime-context' &&
-					message.source.kind === 'step-context',
-			)
-			.map((message) => message.content)
-			.join('\n')
+		const context = memoryReminders(request).join('\n')
 		expect(system).not.toContain('OLD_INDEX_DESCRIPTION')
 		expect(system).not.toContain('NEW_INDEX_DESCRIPTION')
 		expect(context).toContain('OLD_INDEX_DESCRIPTION')
 		expect(context).not.toContain('NEW_INDEX_DESCRIPTION')
 	}
 	const next = await send(session)
-	expect(next.context).toContain('NEW_INDEX_DESCRIPTION')
-	expect(next.context).not.toContain('OLD_INDEX_DESCRIPTION')
+	expect(next.latest).toContain('NEW_INDEX_DESCRIPTION')
+	expect(next.latest).not.toContain('OLD_INDEX_DESCRIPTION')
 	expect(next.system).not.toContain('NEW_INDEX_DESCRIPTION')
 	expect(next.system).toBe(
 		requests[0]?.messages

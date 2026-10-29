@@ -28,6 +28,8 @@ import {
 	readShellLine,
 	shellPathAccess,
 } from '../../authorization/shell-paths.js'
+import { effectiveBashWorkingDirectory } from '../../tools/builtins/bash-cwd.js'
+import { BashTool } from '../../tools/builtins/bash.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type {
@@ -83,10 +85,11 @@ export type ReviewMode =
 	 *
 	 * Where `auto` approves what remains after the questions a person must
 	 * answer (a path outside the roots, a program nobody can name, a protected
-	 * write), `bypass` also approves those. It still asks, or refuses when
+	 * write), `bypass` approves outside paths and unknown programs but not protected
+	 * writes. It still asks, or refuses when
 	 * nobody can be asked: a `deny` rule (the gate refuses before this is
 	 * reached), an `ask` rule or a hook that asked for a person, a catastrophic
-	 * removal, a tool's own `requiresApproval`, a sandbox escape, and a call
+	 * removal, a protected write, a tool's own `requiresApproval`, a sandbox escape, and a call
 	 * whose safety checks did not finish. The dangerous-pattern floor refuses in
 	 * the gate, unchanged. With nobody to ask, whatever would have been asked is
 	 * refused.
@@ -571,14 +574,15 @@ function isPermissive(mode: ReviewMode): boolean {
 
 /**
  * Whether the call is one of the few no mode may settle in advance: a rule or
- * hook asked for a person, a sandbox escape, a catastrophic removal, a check
- * that did not finish, or a tool that always needs approval. The dangerous
+ * hook asked for a person, a sandbox escape, a protected write, a catastrophic
+ * removal, a check that did not finish, or a tool that always needs approval. The dangerous
  * pattern floor and `deny` rules are not here: the gate refuses those first.
  */
 function isBypassImmune(tc: ToolCallSummary): boolean {
 	return (
 		tc.authorization?.askRule === true ||
 		tc.escalation?.sandboxEscape === true ||
+		(tc.escalation?.protectedPaths?.length ?? 0) > 0 ||
 		tc.escalation?.dangerousRemoval !== undefined ||
 		tc.escalation?.unfinishedCheck !== undefined ||
 		tc.requiresApproval === true
@@ -592,6 +596,9 @@ function immuneRefusal(
 ): string | undefined {
 	if (!escapeConfirmed && toolCalls.some((tc) => tc.escalation?.sandboxEscape === true)) {
 		return SANDBOX_ESCAPE_UNATTENDED_REFUSAL
+	}
+	if (toolCalls.some((tc) => (tc.escalation?.protectedPaths?.length ?? 0) > 0)) {
+		return PROTECTED_PATH_UNATTENDED_REFUSAL
 	}
 	if (toolCalls.some((tc) => tc.escalation?.dangerousRemoval !== undefined)) {
 		return DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
@@ -879,7 +886,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 	 * path, a path in a variable, a program nobody can name or a `sed` script
 	 * that can run something is not that.
 	 */
-	const shellFileCommandsInRoots = async (tc: ToolCallSummary): Promise<boolean> => {
+	const shellFileCommandsInRoots = async (
+		tc: ToolCallSummary,
+		sessionId?: string,
+	): Promise<boolean> => {
 		const rootList = rootsNow()
 		if (rootList.length === 0) return false
 		if (
@@ -906,23 +916,39 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (invocation.program === 'sed' && !sedOnlyEdits(invocation.args)) return false
 		}
 		if (shellPathAccess(reading).uses.some((use) => use.unresolved)) return false
-		const found = await shellEscalations(line, dialect, { roots: rootList, reviewOutside: true })
-		return (
-			found.outsidePaths.length === 0 &&
-			found.protectedPaths.length === 0 &&
-			found.dangerousRemoval === undefined
+		const cwd =
+			tool.execute === BashTool.execute && rootList[0] !== undefined
+				? effectiveBashWorkingDirectory(sessionId, rootList[0])
+				: undefined
+		const found = await shellEscalations(line, dialect, {
+			roots: rootList,
+			...(cwd !== undefined ? { cwd } : {}),
+			reviewOutside: true,
+		})
+		// A standalone review request carries no sandbox attribution. Retain the
+		// original-root reading too: missing execution metadata can only ask more,
+		// never approve a call the old reading would have sent to a person.
+		const baseline =
+			cwd !== undefined && cwd !== rootList[0]
+				? await shellEscalations(line, dialect, { roots: rootList, reviewOutside: true })
+				: found
+		return [found, baseline].every(
+			(reading) =>
+				reading.outsidePaths.length === 0 &&
+				reading.protectedPaths.length === 0 &&
+				reading.dangerousRemoval === undefined,
 		)
 	}
 
 	/** What `accept-edits` approves without asking: edits, exempt reads and file commands inside the roots. */
-	const acceptEditsAllows = async (tc: ToolCallSummary): Promise<boolean> =>
+	const acceptEditsAllows = async (tc: ToolCallSummary, sessionId?: string): Promise<boolean> =>
 		!tc.authorization?.explicitReview &&
 		tc.escalation === undefined &&
 		!tc.isDestructive &&
 		tc.requiresApproval !== true &&
 		(ACCEPT_EDITS_TOOLS.has(tc.name) ||
 			exempt(tc.name, tc.input) ||
-			(await shellFileCommandsInRoots(tc)))
+			(await shellFileCommandsInRoots(tc, sessionId)))
 
 	/**
 	 * Whether a rule's `allow` is one the classifier should not defer to: the
@@ -944,7 +970,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 	}
 
 	/** Whether `classify` decides this call without the classifier: it would not be asked, or is plainly safe. */
-	const neverSent = async (tc: ToolCallSummary): Promise<boolean> => {
+	const neverSent = async (tc: ToolCallSummary, sessionId?: string): Promise<boolean> => {
 		if (tc.authorization?.decision === 'allow' && !allowRuleTooWide(tc)) return true
 		// A name on the safe list is safe for what it does in the session; a read of
 		// /etc/shadow is still a read of /etc/shadow, and a person's own ask is
@@ -965,7 +991,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		) {
 			return true
 		}
-		return acceptEditsAllows(tc)
+		return acceptEditsAllows(tc, sessionId)
 	}
 
 	return async (request, context?: ResumeContext): Promise<HITLResumeDecision> => {
@@ -1043,7 +1069,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					request.toolCalls.map((tc) =>
 						// The mode covers a write although the flag is set; the classifier
 						// still judges one, so only this branch lifts the flag.
-						acceptEditsAllows(isFileWrite(tc.name) ? { ...tc, isDestructive: false } : tc),
+						acceptEditsAllows(
+							isFileWrite(tc.name) ? { ...tc, isDestructive: false } : tc,
+							request.sessionId,
+						),
 					),
 				)
 			).every(Boolean)
@@ -1093,7 +1122,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				const transcript = context?.transcript() ?? []
 				for (const tc of live) {
 					// The questions a person must answer are asked of a person, never of a model.
-					if (isBypassImmune(tc) || (await neverSent(tc))) continue
+					if (isBypassImmune(tc) || (await neverSent(tc, request.sessionId))) continue
 					const decision = await classifier.review({
 						call: tc,
 						transcript,

@@ -67,6 +67,18 @@ export class TelemetryProvider {
 	 * returns early for `'none'`.
 	 */
 	async start(): Promise<void> {
+		const traces = this.config.traceExporterType ?? this.config.exporterType
+		const metricsExporter = this.config.metricExporterType ?? this.config.exporterType
+		// Validate before registering either global pipeline. JavaScript callers
+		// can supply values outside the TypeScript union.
+		for (const [signal, exporter, protocol] of [
+			['traces', traces, this.config.traceOtlpProtocol ?? this.config.otlpProtocol],
+			['metrics', metricsExporter, this.config.metricOtlpProtocol ?? this.config.otlpProtocol],
+		]) {
+			if (exporter === 'otlp' && protocol !== undefined && protocol !== 'http/json') {
+				throw new Error(`Unsupported OTLP ${signal} protocol: ${protocol}; use http/json.`)
+			}
+		}
 		const resource = resourceFromAttributes({
 			'service.name': this.config.serviceName,
 			'service.version': this.config.serviceVersion ?? VERSION,
@@ -81,9 +93,9 @@ export class TelemetryProvider {
 			// not the pipeline.
 			...((this.config.spanProcessors ?? []) as readonly SpanProcessor[]),
 		]
-		if (this.config.exporterType !== 'none') {
+		if (traces !== 'none') {
 			const traceExporter =
-				this.config.exporterType === 'otlp'
+				traces === 'otlp'
 					? new OTLPTraceExporter({
 							url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/traces` : undefined,
 							headers: this.config.otlpHeaders,
@@ -96,9 +108,9 @@ export class TelemetryProvider {
 		this.tracerProvider = tracerProvider
 
 		const metricReaders: PeriodicExportingMetricReader[] = []
-		if (this.config.exporterType !== 'none') {
+		if (metricsExporter !== 'none') {
 			const metricExporter =
-				this.config.exporterType === 'otlp'
+				metricsExporter === 'otlp'
 					? new OTLPMetricExporter({
 							url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/metrics` : undefined,
 							headers: this.config.otlpHeaders,
@@ -116,16 +128,14 @@ export class TelemetryProvider {
 	}
 
 	async shutdown(): Promise<void> {
-		try {
-			if (this.meterProvider) {
-				await this.meterProvider.shutdown()
+		// One failed exporter must not prevent the other signal from draining.
+		for (const provider of [this.meterProvider, this.tracerProvider]) {
+			try {
+				await provider?.shutdown()
+			} catch (err) {
+				// biome-ignore lint/suspicious/noConsole: shutdown is the error-of-last-resort path; no app logger available here
+				console.error('[@namzu/telemetry] Telemetry shutdown error:', toErrorMessage(err))
 			}
-			if (this.tracerProvider) {
-				await this.tracerProvider.shutdown()
-			}
-		} catch (err) {
-			// biome-ignore lint/suspicious/noConsole: shutdown is the error-of-last-resort path; no app logger available here
-			console.error('[@namzu/telemetry] Telemetry shutdown error:', toErrorMessage(err))
 		}
 	}
 }

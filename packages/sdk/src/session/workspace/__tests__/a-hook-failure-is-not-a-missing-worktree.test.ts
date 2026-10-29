@@ -130,7 +130,8 @@ describe('a worktree add that reports failure', () => {
 
 		await driverWith(exec).create({ label: 'w1' })
 
-		expect(seen).toHaveLength(1)
+		// The add, then the one read of the commit the checkout starts on; no list.
+		expect(seen.map((argv) => argv.includes('list'))).toEqual([false, false])
 		expect(seen[0]).toContain('add')
 	})
 })

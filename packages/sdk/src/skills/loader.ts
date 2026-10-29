@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import type { ReasoningEffort } from '../types/provider/chat.js'
 import type {
 	Skill,
 	SkillDisclosureLevel,
@@ -31,7 +32,27 @@ export const SKILL_FRONTMATTER_KEYS: readonly string[] = Object.freeze([
 	'invocation',
 	'disable-model-invocation',
 	'metadata',
+	'when_to_use',
+	'context',
+	'agent',
+	'model',
+	'effort',
+	'background',
 ])
+
+/**
+ * The keys added after other tools' skills already used them. A value in one
+ * that this reader cannot take (`when_to_use: >-`, `model: [a, b]`) leaves the
+ * key absent instead of refusing the skill.
+ */
+export const SKILL_FRONTMATTER_TOLERATED_KEYS: readonly string[] = [
+	'when_to_use',
+	'context',
+	'agent',
+	'model',
+	'effort',
+	'background',
+]
 
 const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.includes(key)
 
@@ -44,6 +65,7 @@ const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.include
 export const SKILL_FRONTMATTER_OPTIONS = {
 	lists: ['allowed-tools'],
 	readsKey: READS_SKILL_KEY,
+	tolerates: (key: string): boolean => SKILL_FRONTMATTER_TOLERATED_KEYS.includes(key),
 } as const
 
 /**
@@ -161,6 +183,27 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 		}
 	}
 
+	// The fields that shape how the skill RUNS are read leniently, the other
+	// way round from the access fields above: a value this loader does not
+	// understand (`effort: 5000`, `context: sideways`) leaves the skill at its
+	// plain behaviour rather than refusing a skill written for another agent.
+	const whenToUse = scalarAt(values, 'when_to_use')?.trim()
+	if (whenToUse) skillMetadata.whenToUse = whenToUse
+
+	if (scalarAt(values, 'context') === 'fork') skillMetadata.context = 'fork'
+	const agent = scalarAt(values, 'agent')?.trim()
+	if (agent) skillMetadata.agent = agent
+	const model = scalarAt(values, 'model')?.trim()
+	if (model && model.toLowerCase() !== 'inherit') skillMetadata.model = model
+	const effort = scalarAt(values, 'effort')?.trim().toLowerCase()
+	if (effort && (REASONING_EFFORTS as readonly string[]).includes(effort)) {
+		skillMetadata.effort = effort as ReasoningEffort
+	}
+	const background = scalarAt(values, 'background')
+	if (background === 'true' || background === 'false') {
+		skillMetadata.background = background === 'true'
+	}
+
 	const extra = mappingAt(values, 'metadata')
 	if (extra && Object.keys(extra).length > 0) {
 		skillMetadata.metadata = { ...extra }
@@ -168,6 +211,17 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 
 	return skillMetadata
 }
+
+const REASONING_EFFORTS: readonly ReasoningEffort[] = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+]
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 

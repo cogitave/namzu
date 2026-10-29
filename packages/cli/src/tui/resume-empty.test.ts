@@ -18,4 +18,13 @@ describe('what /resume says when it has nothing to offer', () => {
 	it('names what was searched for when a search finds nothing', () => {
 		expect(noResumeText({ query: 'billing', anyHere: true })).toContain('"billing"')
 	})
+
+	it('says no conversation is linked to a pull request, naming the number when one was asked for', () => {
+		expect(noResumeText({ query: '', anyHere: true, pr: { kind: 'any' } })).toContain(
+			'linked to a pull request',
+		)
+		expect(noResumeText({ query: '', anyHere: true, pr: { kind: 'number', number: 42 } })).toBe(
+			'No conversation in this folder is linked to pull request #42.',
+		)
+	})
 })

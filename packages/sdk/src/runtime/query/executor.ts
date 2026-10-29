@@ -14,6 +14,11 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import {
+	effectiveBashWorkingDirectory,
+	pinBashWorkingDirectory,
+} from '../../tools/builtins/bash-cwd.js'
+import { BashTool } from '../../tools/builtins/bash.js'
 import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
 import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell.js'
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
@@ -98,6 +103,9 @@ import {
 
 export type { EmitEvent } from './events.js'
 import type { EmitEvent, SessionEventDraft } from './events.js'
+
+/** Input and identity needed by the shared direct/nested safety checks. */
+type PreparedSafetyCall = Pick<PreparedDirectCall, 'kind' | 'toolName' | 'input'>
 
 export type PreparedDirectCall =
 	| {
@@ -708,6 +716,7 @@ export class ToolExecutor {
 	private parentSpan?: Span
 	private readonly toolCallBudget?: ToolCallBudget
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
+	private readonly preparedBashDirectories = new WeakMap<PreparedSafetyCall, string>()
 	/** Ephemeral proof of actual execution; restored messages do not acquire it. */
 	private readonly recordedObservations = new Map<
 		string,
@@ -1180,7 +1189,7 @@ export class ToolExecutor {
 	 * safety checks did not run is the one a person must look at.
 	 */
 	private async escalationOrUnfinished(
-		call: PreparedDirectCall,
+		call: PreparedSafetyCall,
 	): Promise<ToolCallEscalation | undefined> {
 		try {
 			return await this.escalationOf(call)
@@ -1212,12 +1221,19 @@ export class ToolExecutor {
 	 * roots is not mounted there to be approved. The escape is looked at only
 	 * WITH one, since without one there is nothing to escape.
 	 */
-	private async escalationOf(call: PreparedDirectCall): Promise<ToolCallEscalation | undefined> {
+	private async escalationOf(call: PreparedSafetyCall): Promise<ToolCallEscalation | undefined> {
 		if (call.kind === 'synthetic') return undefined
 		const tool = this.config.tools.get(call.toolName)
 		if (!tool || call.input === null || typeof call.input !== 'object') return undefined
 		const input = call.input as Record<string, unknown>
 		const sandboxed = this.sandboxed
+		const shellCwd =
+			tool.execute === BashTool.execute
+				? effectiveBashWorkingDirectory(this.config.sessionId, this.config.workingDirectory, {
+						sandboxed,
+					})
+				: undefined
+		if (shellCwd !== undefined) this.preparedBashDirectories.set(call, shellCwd)
 		let outsidePaths: string[] | undefined
 		if (
 			this.config.outsideRootAccess === 'review' &&
@@ -1240,7 +1256,7 @@ export class ToolExecutor {
 			tool.sandboxEscapeArgument !== undefined &&
 			input[tool.sandboxEscapeArgument] === true
 		const unknownProgram = this.unknownProgramOf(tool, input, sandboxed)
-		const reaches = await this.pathEscalationsOf(tool, input, sandboxed)
+		const reaches = await this.pathEscalationsOf(tool, input, sandboxed, shellCwd)
 		if (reaches.outsidePaths.length > 0) {
 			outsidePaths = [...new Set([...(outsidePaths ?? []), ...reaches.outsidePaths])]
 		}
@@ -1281,6 +1297,7 @@ export class ToolExecutor {
 		>,
 		input: Record<string, unknown>,
 		sandboxed: boolean,
+		shellCwd?: string,
 	): Promise<{
 		outsidePaths: readonly string[]
 		protectedPaths: readonly string[]
@@ -1303,6 +1320,7 @@ export class ToolExecutor {
 				const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
 				const found = await shellEscalations(line, dialect, {
 					roots,
+					...(shellCwd !== undefined ? { cwd: shellCwd } : {}),
 					reviewOutside: this.config.outsideRootAccess === 'review' && !sandboxed,
 				})
 				protectedPaths.push(...found.protectedPaths)
@@ -1598,6 +1616,10 @@ export class ToolExecutor {
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
 				report: (message: string, fraction?: number) => progress.report(message, fraction),
 			}
+			if (preparedCall) {
+				const cwd = this.preparedBashDirectories.get(preparedCall)
+				if (cwd !== undefined) pinBashWorkingDirectory(ctx, cwd)
+			}
 			const run = async () => {
 				try {
 					results[i] = await this.executeSingle(
@@ -1849,7 +1871,10 @@ export class ToolExecutor {
 		signal.throwIfAborted()
 		// Preparation detaches input synchronously before its first await.
 		// Admission must not add an earlier yield where the caller can mutate it.
-		const preparedCall = await this.prepareNestedCall(name, input, signal)
+		const preparedCall = {
+			...(await this.prepareNestedCall(name, input, signal)),
+			toolName: name,
+		}
 		signal.throwIfAborted()
 		if (this.toolCallBudget) {
 			const refusal = await this.toolCallBudget.admit(1, 'nested', signal)
@@ -1932,12 +1957,15 @@ export class ToolExecutor {
 		} catch {
 			needsApproval = true
 		}
-		if (needsApproval || (gateResult && gateResult.decision !== 'allow')) {
-			const reason = needsApproval
-				? `Blocked: "${name}" requires the person's approval for every call, and an approval cannot be requested from inside another tool. Call it directly.`
-				: gateResult?.decision === 'deny'
-					? `Blocked by the authorization gate: ${gateResult.reason}`
-					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult?.reason}`
+		const nestedEscalation = await this.escalationOrUnfinished(preparedCall)
+		if (nestedEscalation || needsApproval || (gateResult && gateResult.decision !== 'allow')) {
+			const reason = nestedEscalation
+				? 'Blocked: this nested call reaches a protected path, removal floor, outside-root boundary or another safety escalation. Call it directly so it can be reviewed.'
+				: needsApproval
+					? `Blocked: "${name}" requires the person's approval for every call, and an approval cannot be requested from inside another tool. Call it directly.`
+					: gateResult?.decision === 'deny'
+						? `Blocked by the authorization gate: ${gateResult.reason}`
+						: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult?.reason}`
 			const output = deniedToolOutput(name, reason)
 			// Same fail-closed durability rule as a direct gate denial: if the
 			// configured session log cannot record the refusal, do not quietly carry
@@ -2010,6 +2038,8 @@ export class ToolExecutor {
 			report: (message: string, fraction?: number) => progress.report(message, fraction),
 		}
 
+		const nestedCwd = this.preparedBashDirectories.get(preparedCall)
+		if (nestedCwd !== undefined) pinBashWorkingDirectory(childContext, nestedCwd)
 		await this.emitEvent({
 			type: 'tool_executing',
 			turnId: this.config.turnId,

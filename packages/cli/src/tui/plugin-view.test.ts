@@ -14,6 +14,8 @@ it('projects only declared public metadata and neutralizes terminal controls', (
 		skills: [],
 		hookModules: ['hook.mjs'],
 		mcpServers: ['ledger-mcp'],
+		commands: [],
+		agents: [],
 		...{ env: { TOKEN: 'NEVER_DISPLAY_ME' } },
 	})
 	expect(text).not.toContain('NEVER_DISPLAY_ME')

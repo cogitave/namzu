@@ -230,11 +230,13 @@ well. A tighter test would pass that value through and leave the server
 trying to base64-decode `a?b`.
 
 `clientCapabilities` is `{}` because this client does not fulfil server input
-requests. The [2026-07-28 revision](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+requests on a modern connection. The [2026-07-28 revision](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
 deprecates roots, sampling and logging; elicitation remains current. Form and
 URL-mode elicitation now travel inside MRTR `input_required` results instead of
 the former server-initiated `elicitation/create` channel. Namzu does not yet
-fulfil either elicitation mode, and MRTR forbids a conforming server from
+fulfil either elicitation mode on a modern connection (form mode over a legacy
+connection is answered, see
+[Elicitation on a legacy connection](#elicitation-on-a-legacy-connection)), and MRTR forbids a conforming server from
 requesting a capability this client has not declared.
 
 **A modern connection deliberately does none of the following**, all of
@@ -777,6 +779,33 @@ a client "MUST treat an absent resultType as complete". The other MUST is
 just as literal: "a resultType of any value unrecognized by the client MUST
 be considered invalid" — `decodeResult` throws `MCPInvalidResultTypeError`
 rather than passing an unknown shape through as if it meant something.
+
+### Elicitation on a legacy connection
+
+A legacy-era server asks for input with a server-initiated `elicitation/create`
+request. A client built with `MCPClientConfig.onElicitation` declares
+`elicitation: {}` (form mode only) in its `initialize` and passes each form
+request to that handler as `{ serverName, message, requestedSchema }`; without
+the handler nothing is declared and the request is refused as an unknown
+method, as before.
+
+```ts sketch
+const client = new MCPClient({
+	serverName: 'notes',
+	transport,
+	onElicitation: async ({ message }) => {
+		const answer = await askThePerson(message)
+		return answer ? { action: 'accept', content: { name: answer } } : { action: 'decline' }
+	},
+})
+```
+
+The handler returns `accept` with the values, `decline` (an explicit no) or
+`cancel` (closed without choosing); one that throws answers `cancel`. A
+`notifications/cancelled` for the request, or the connection ending, aborts the
+`signal` passed to the handler and no reply is sent. A request in URL mode is
+refused as invalid params without reaching the handler, and the client never
+logs the values the person gave. A modern connection still declares nothing.
 
 ### Why namzu almost never sees `input_required` with anything in it
 

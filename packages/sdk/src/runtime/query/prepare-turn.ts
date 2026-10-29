@@ -89,6 +89,8 @@ export interface PreparedTurn {
 	readonly approvalPolicy: SessionApprovalPolicy
 	readonly eventTranslator: EventTranslator
 	readonly executeUserInterruptHooks: (terminalError: unknown) => Promise<void>
+	/** Tell `turn_failure` hooks the root turn failed; never throws, never fires for a cancellation. */
+	readonly executeTurnFailureHooks: (terminalError: unknown) => Promise<void>
 	/**
 	 * Repair reports this turn owes its log.
 	 *
@@ -823,6 +825,36 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			}
 		}
 
+		const executeTurnFailureHooks = async (terminalError: unknown): Promise<void> => {
+			// A cancellation is the operator's own act, a child's failure reaches its
+			// parent as a tool result, and the turn is already failed: this is a
+			// notice, so nothing it does may change how the turn settles.
+			if (
+				!params.pluginManager ||
+				params.parentSessionId !== undefined ||
+				ctx.abortController.signal.aborted ||
+				isCallerAbortError(terminalError, ctx.abortController.signal)
+			) {
+				return
+			}
+			try {
+				await params.pluginManager.executeHooks(
+					'turn_failure',
+					{
+						sessionId: ctx.sessionId,
+						turnId: ctx.turnId,
+						error: toErrorMessage(terminalError),
+					},
+					eventTranslator.emitEvent,
+				)
+			} catch (error) {
+				ctx.log.error('Turn failure hooks did not settle cleanly', {
+					[NAMZU.TURN_ID]: ctx.turnId,
+					...errorAttributes(error),
+				})
+			}
+		}
+
 		return {
 			turnConfig,
 			budget,
@@ -836,6 +868,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			approvalPolicy,
 			eventTranslator,
 			executeUserInterruptHooks,
+			executeTurnFailureHooks,
 			pendingHistoryRepairs,
 			initialMessages,
 			historyIds,

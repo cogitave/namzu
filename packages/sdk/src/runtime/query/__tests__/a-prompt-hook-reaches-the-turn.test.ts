@@ -164,6 +164,43 @@ describe('a delegated session ending', () => {
 	})
 })
 
+describe('a delegated session starting', () => {
+	it('fires subagent_start with the parent and the agent, before the prompt hook', async () => {
+		const seen: Seen[] = []
+		const parent = { sessionId: generateSessionId(), turnId: generateTurnId() }
+		await run(seen, { parent })
+		const order = seen.map((s) => s.event)
+		expect(order.indexOf('subagent_start')).toBeLessThan(order.indexOf('user_prompt_submit'))
+		const ctx = pick(seen, 'subagent_start')
+		expect(ctx?.parentSessionId).toBe(parent.sessionId)
+		expect(ctx?.parentTurnId).toBe(parent.turnId)
+		expect(ctx?.agentType).toBe('A')
+		expect(pick(seen, 'subagent_stop')?.agentType).toBe('A')
+	})
+
+	it('hands what a hook annotated to the child as context for its turn', async () => {
+		const seen: Seen[] = []
+		const parent = { sessionId: generateSessionId(), turnId: generateTurnId() }
+		const { requests } = await run(seen, {
+			parent,
+			answer: (event) =>
+				event === 'subagent_start' ? [{ action: 'annotate', text: 'use the staging db' }] : [],
+		})
+		expect(
+			requests[0]?.messages.some(
+				(message) =>
+					message.role === 'user' && String(message.content).includes('use the staging db'),
+			),
+		).toBe(true)
+	})
+
+	it('is not fired for a root turn', async () => {
+		const seen: Seen[] = []
+		await run(seen)
+		expect(seen.map((s) => s.event)).not.toContain('subagent_start')
+	})
+})
+
 describe('a compaction pass', () => {
 	it('is bracketed by pre_compact and post_compact carrying the numbers', async () => {
 		const seen: Seen[] = []

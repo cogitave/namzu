@@ -122,7 +122,9 @@ describe('query deferred tool discovery', () => {
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
-		expect(systemPrompt).toContain('Use search_tools to load these before use:')
+		expect(systemPrompt).toContain(
+			"Only when a needed deferred tool's schema is absent from the current runtime tools parameter, use search_tools with its exact name to load it:",
+		)
 		expect(systemPrompt).toContain('- generate_document')
 		expect(systemPrompt).not.toContain(
 			'Deferred tools are discoverable but not executable until the runtime activates them',
@@ -311,7 +313,9 @@ describe('query deferred tool discovery', () => {
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
-		expect(systemPrompt).toContain('Use search_tools to load these before use:')
+		expect(systemPrompt).toContain(
+			"Only when a needed deferred tool's schema is absent from the current runtime tools parameter, use search_tools with its exact name to load it:",
+		)
 		expect(systemPrompt).toContain('- generate_document')
 	})
 

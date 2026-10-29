@@ -142,7 +142,11 @@ export interface TuiContext {
 	 * `namzu --resume` with no title that matches: open the `/resume` picker once
 	 * the screen is ready, pre-filtered by `query` when one was given.
 	 */
-	readonly openResumePicker?: { readonly query?: string }
+	readonly openResumePicker?: {
+		readonly query?: string
+		/** Only conversations linked to a pull request (or to this one). */
+		readonly pr?: import('../integrations/github/pull-request.js').PullRequestFilter
+	}
 	/** Required Pal owner for a Pal CLI launch; the durable log pins its profile revision. */
 	readonly palId?: string
 	/**
@@ -184,6 +188,8 @@ export interface TuiContext {
 	 * reflex.
 	 */
 	readonly rules?: readonly AuthorizationRule[]
+	/** Refresh only the host-owned local permission layer after an editor save. */
+	readonly reloadPermissionRules?: () => void
 	/**
 	 * `--append-system-prompt`: standing instructions for this launch's turns,
 	 * already read from the file when one was named. Session-only, never saved.

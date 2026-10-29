@@ -90,9 +90,15 @@ import { resolveComposerTriggers } from '../config/composer-triggers.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
+	type PullRequestFilter,
+	type PullRequestLink,
+	pullRequestOfShellCall,
+} from '../integrations/github/pull-request.js'
+import {
 	type QuestionGate,
 	createQuestionGate,
 } from '../integrations/learning/generator-trigger.js'
+import { mcpPersonCommand } from '../integrations/mcp/person-commands.js'
 import {
 	approveShownMcpServers,
 	pendingServersMessage,
@@ -135,6 +141,7 @@ import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
+import { askSideQuestion } from '../integrations/sessions/side-question.js'
 import {
 	type CliSessions,
 	ConversationIndexRefreshError,
@@ -144,6 +151,7 @@ import {
 	closableProviderPause,
 	forkConversation,
 	forkConversationBeforeUser,
+	linkConversationToPullRequest,
 	listArchived,
 	listOtherFolders,
 	listRecent,
@@ -410,7 +418,6 @@ import {
 import { StartupRefusal, explainFailure, isMachineError } from './plain-failure.js'
 import {
 	type ProviderWaitNotice,
-	classifyInterruption,
 	debugRequested,
 	describePlainInterruption,
 	describeProviderWait,
@@ -432,7 +439,12 @@ import {
 	withoutQueuedRow,
 } from './queued-calls.js'
 import { noResumeText } from './resume-empty.js'
-import { type ResumeScope, editLine, filterConversations } from './resume-picker-state.js'
+import {
+	type ResumeScope,
+	editLine,
+	filterConversations,
+	onlyLinkedToPullRequest,
+} from './resume-picker-state.js'
 import {
 	REWIND_COUNT_BUDGET_MS,
 	type RewindOption,
@@ -530,7 +542,13 @@ import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
 import { mergeGroupRows } from './group-rows.js'
-import { expandFileMentions, listMentionableFiles } from './mentions.js'
+import { type MentionSources, NO_MENTION_SOURCES, loadMentionSources } from './mention-sources.js'
+import {
+	type ExpandedMessage,
+	attachMentionedResources,
+	expandFileMentions,
+	listMentionableFiles,
+} from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import { PauseClock } from './pause-clock.js'
 import {
@@ -1213,6 +1231,8 @@ type QueuedPrompt =
 			readonly attachments?: readonly MessageAttachment[]
 			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
 			readonly skillFlow?: true
+			/** Server-selected data attached as host context, never reparsed for mentions or slash commands. */
+			readonly mcpContext?: string
 			/** Only an operator-composed message can be returned to the composer. */
 			readonly recallable?: true
 			/** The typed command when a slash action expanded it into `text` for the model. */
@@ -1636,6 +1656,32 @@ function AppBody({
 	/** Git-admitted file paths cached once per successful session hydration. */
 	const [mentionCandidates, setMentionCandidates] = useState<readonly string[]>([])
 	const mentionLoadOwnerRef = useRef<object | null>(null)
+	/** Sub-agents and tool-server resources the `@` picker offers, and the names a sent message may use. */
+	const [mentionSources, setMentionSources] = useState<MentionSources>(NO_MENTION_SOURCES)
+	const mentionSourcesRef = useRef<MentionSources>(NO_MENTION_SOURCES)
+	mentionSourcesRef.current = mentionSources
+	useEffect(() => {
+		if (!session || palDefinitionRef.current) {
+			setMentionSources(NO_MENTION_SOURCES)
+			return
+		}
+		const controller = new AbortController()
+		const refresh = () => {
+			void loadMentionSources({
+				cwd: ctx.cwd,
+				...(session.mcpResources ? { resources: session.mcpResources } : {}),
+				signal: controller.signal,
+			}).then((next) => {
+				if (!controller.signal.aborted) setMentionSources(next)
+			})
+		}
+		refresh()
+		const stop = session.onMcpSettled?.(refresh)
+		return () => {
+			controller.abort()
+			stop?.()
+		}
+	}, [session, ctx.cwd])
 	/** A frequently edited file of this repository, for the first prompt's example. */
 	const [exampleFile, setExampleFile] = useState<string | undefined>(undefined)
 	/** Which example to show; chosen once per launch so it does not change while the operator reads it. */
@@ -1940,18 +1986,25 @@ function AppBody({
 	const [resumeHere, setResumeList] = useState<readonly RecentConversation[]>([])
 	const [resumeOthers, setResumeOthers] = useState<readonly RecentConversation[] | null>(null)
 	const [resumeQuery, setResumeQuery] = useState('')
+	// `--from-pr`: the picker lists only conversations linked to a pull request.
+	const [resumePr, setResumePr] = useState<PullRequestFilter | null>(null)
 	const [resumeScope, setResumeScope] = useState<ResumeScope>('folder')
 	const [resumeRenaming, setResumeRenaming] = useState<string | null>(null)
 	const [resumeNotice, setResumeNotice] = useState<string | undefined>(undefined)
 	const resumeList = useMemo(
 		() =>
 			filterConversations(
-				resumeScope === 'all' && resumeOthers
-					? [...resumeHere, ...resumeOthers].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-					: resumeHere,
+				onlyLinkedToPullRequest(
+					resumeScope === 'all' && resumeOthers
+						? [...resumeHere, ...resumeOthers].sort((a, b) =>
+								b.updatedAt.localeCompare(a.updatedAt),
+							)
+						: resumeHere,
+					resumePr,
+				),
 				resumeQuery,
 			),
-		[resumeHere, resumeOthers, resumeScope, resumeQuery],
+		[resumeHere, resumeOthers, resumeScope, resumeQuery, resumePr],
 	)
 	const {
 		selection: selectedResume,
@@ -2729,6 +2782,10 @@ function AppBody({
 	const pendingGeneratedTitleRef = useRef<
 		{ readonly sessionId: SessionId; readonly title: string } | undefined
 	>(undefined)
+	// Pull requests a shell call opened or changed while a turn held the log; saved when the turn ends.
+	const pendingPullRequestLinksRef = useRef<
+		{ readonly sessionId: SessionId; readonly link: PullRequestLink }[]
+	>([])
 	const lastTerminalTitleRef = useRef<string | undefined>(undefined)
 	/**
 	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
@@ -3077,6 +3134,7 @@ function AppBody({
 	const exportingRef = useRef(false)
 	/** A goal mutation is ordered before any later conversation command. */
 	const goalCommandInFlightRef = useRef(false)
+	const mcpCommandInFlightRef = useRef(false)
 	/**
 	 * Whether a conversation has been chosen and is still being read.
 	 *
@@ -5488,6 +5546,9 @@ function AppBody({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(activeCtx.reloadPermissionRules
+					? { reloadPermissionRules: activeCtx.reloadPermissionRules }
+					: {}),
 				// The composer opens on the saved or automatic model. The effort menu
 				// waits for the provider's model listing, not the person.
 				deferEffortCatalogue: true,
@@ -5601,6 +5662,7 @@ function AppBody({
 							cwd: activeCtx.cwd,
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 							skillCommands: 'all',
+							...(s.pluginCommandDirs ? { pluginCommandDirs: s.pluginCommandDirs } : {}),
 							reserved: hostCommandNames(),
 						})
 				// Construction and validation precede the saved change. There is no
@@ -6459,6 +6521,10 @@ function AppBody({
 		jobs: () => session?.jobs?.() ?? [],
 		hooks: () => session?.hooks,
 		directories: () => session?.directories?.list() ?? [],
+		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
+		...(session?.reloadPermissionRules
+			? { reloadPermissionRules: session.reloadPermissionRules }
+			: {}),
 		compaction: session
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
@@ -6799,7 +6865,7 @@ function AppBody({
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const doResume = useCallback(
-		async (query?: string) => {
+		async (query?: string, pr?: PullRequestFilter) => {
 			const sessions =
 				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
 			if (!sessions) {
@@ -6818,14 +6884,19 @@ function AppBody({
 				// Don't offer the active (empty/just-started) conversation.
 				const needle = query?.trim() ?? ''
 				const everyone = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
-				const others = filterConversations(everyone, needle)
+				const others = filterConversations(onlyLinkedToPullRequest(everyone, pr ?? null), needle)
 				if (others.length === 0) {
 					pushMessage(
 						'system',
-						noResumeText({ query: query?.trim() ?? '', anyHere: recent.length > 0 }),
+						noResumeText({
+							query: query?.trim() ?? '',
+							anyHere: recent.length > 0,
+							...(pr ? { pr } : {}),
+						}),
 					)
 					return
 				}
+				setResumePr(pr ?? null)
 				setResumeList(everyone)
 				setResumeOthers(null)
 				setResumeQuery(needle)
@@ -7529,6 +7600,22 @@ function AppBody({
 		],
 	)
 
+	/** Link the conversation to the pull requests its shell calls changed, once no turn holds the log. */
+	const flushPullRequestLinks = useCallback(async () => {
+		const sessions = sessionsRef.current
+		if (!sessions) return
+		for (const pending of [...pendingPullRequestLinksRef.current]) {
+			try {
+				await linkConversationToPullRequest(sessions, pending.sessionId, pending.link)
+				pendingPullRequestLinksRef.current = pendingPullRequestLinksRef.current.filter(
+					(item) => item !== pending,
+				)
+			} catch {
+				// The log is held by a turn; the turn's end calls this again.
+			}
+		}
+	}, [])
+
 	/** Save a title the model wrote, once no turn holds the log. A busy log is tried again at the next turn's end. */
 	const flushGeneratedTitle = useCallback(async () => {
 		const pending = pendingGeneratedTitleRef.current
@@ -7600,6 +7687,8 @@ function AppBody({
 		// A different conversation: nothing about the old one's countdown applies.
 		awayRecapRef.current?.reset()
 		manualRecapRef.current?.abort()
+		for (const asking of sideQuestionRefs.current) asking.abort()
+		sideQuestionRefs.current.clear()
 		setConversationNames({})
 		const sessions = sessionsRef.current
 		if (!sessionId || !sessions || !conversationMaterializedRef.current) return
@@ -8864,6 +8953,23 @@ function AppBody({
 							(event.turnId === undefined || tool.turnId === event.turnId),
 					)
 					const done = i >= 0 ? running[i] : undefined
+					// A shell call that opened or changed a pull request links the conversation to it.
+					if (event.toolName === 'bash') {
+						const linked = pullRequestOfShellCall({
+							command: done?.command,
+							output: event.output,
+							isError: event.isError,
+						})
+						const linkedSession = scopeRef.current?.sessionId
+						if (linked && linkedSession) {
+							pendingPullRequestLinksRef.current = [
+								...pendingPullRequestLinksRef.current.filter(
+									(item) => item.sessionId !== linkedSession || item.link.url !== linked.url,
+								),
+								{ sessionId: linkedSession, link: linked },
+							]
+						}
+					}
 					if (i >= 0) {
 						activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
 						setActiveTools(activeToolsRef.current)
@@ -9401,10 +9507,29 @@ function AppBody({
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
 			// a file-mention command.
-			const expanded =
-				prompt.kind === 'human'
-					? expandFileMentions(text, ctx.cwd)
-					: { sendText: text, attached: [] as readonly string[] }
+			const named = prompt.kind === 'human' ? mentionSourcesRef.current : NO_MENTION_SOURCES
+			const filesExpanded: ExpandedMessage =
+				prompt.kind === 'human' && prompt.mcpContext !== undefined
+					? { sendText: text, attached: [], inlined: prompt.mcpContext }
+					: prompt.kind === 'human'
+						? expandFileMentions(text, ctx.cwd, undefined, named.known)
+						: { sendText: text, attached: [] as readonly string[] }
+			// Resources a tool server publishes are read here, where waiting is
+			// allowed; a message sent into a running turn leaves them as written.
+			const mcpGeneration = conversationGenRef.current
+			const expanded = session?.mcpResources
+				? await attachMentionedResources(
+						filesExpanded,
+						text,
+						(server, uri) =>
+							session.mcpResources?.read(server, uri, appLifetime.signal, (request) =>
+								conversationGenRef.current === mcpGeneration
+									? onPermission(request)
+									: Promise.resolve({ kind: 'reject' as const }),
+							) ?? Promise.resolve(null),
+					)
+				: filesExpanded
+			if (conversationGenRef.current !== mcpGeneration || appLifetime.signal.aborted) return
 			const { sendText, attached, inlined } = expanded
 			const historyBeforeTurn = modelHistoryRef.current
 			// File contents are not the operator's words. They travel as their own
@@ -10151,7 +10276,10 @@ function AppBody({
 				unsettledTurnGenerationsRef.current.delete(turnToken)
 				// Not while a queued message is about to start the next turn: both
 				// would claim the log, and the turn does not wait for the lease.
-				if (queuedRef.current.length === 0) void flushGeneratedTitle()
+				if (queuedRef.current.length === 0) {
+					void flushGeneratedTitle()
+					void flushPullRequestLinks()
+				}
 				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
@@ -11233,6 +11361,45 @@ function AppBody({
 						return
 					case 'permission-mode': {
 						applyPermissionMode(slash.mode)
+						// `/plan <description>`: once the mode is in force the
+						// description goes on as the next message, the way a
+						// typed one does.
+						if (slash.thenPrompt !== undefined && permissionModeRef.current === slash.mode) {
+							outgoing = slash.thenPrompt
+							break
+						}
+						return
+					}
+					case 'side-question': {
+						const sideModel = idleStateRef.current.session?.sideModel
+						const sessionId = scopeRef.current?.sessionId
+						if (!sideModel || !sessionId) {
+							pushSystem('warning', "Couldn't answer a side question: no model is connected yet.")
+							return
+						}
+						const controller = new AbortController()
+						sideQuestionRefs.current.add(controller)
+						const generation = conversationGenRef.current
+						const turn = recapTurnRef.current
+						void askSideQuestion({
+							sideModel,
+							sessionId,
+							turnId: turn?.sessionId === sessionId ? turn.turnId : generateTurnId(),
+							question: slash.question,
+							turns: recapTurns(messagesLiveRef.current),
+							signal: controller.signal,
+						})
+							.catch(() => undefined)
+							.then((answer) => {
+								sideQuestionRefs.current.delete(controller)
+								if (conversationGenRef.current !== generation || controller.signal.aborted) return
+								pushSystem(
+									answer === undefined ? 'warning' : 'notice',
+									answer === undefined
+										? "Couldn't answer the side question. Ask it in the main conversation instead."
+										: `/btw ${slash.question}\n${answer}`,
+								)
+							})
 						return
 					}
 					case 'permission-mode-picker': {
@@ -11673,6 +11840,52 @@ function AppBody({
 										: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
 								)
 							})
+						return
+					}
+					case 'mcp-person': {
+						if (mcpCommandInFlightRef.current || state !== 'idle' || abortRef.current) {
+							pushMessage(
+								'system',
+								'Wait for the current reply or MCP request to finish before selecting MCP content.',
+							)
+							return
+						}
+						const generation = conversationGenRef.current
+						mcpCommandInFlightRef.current = true
+						setState('thinking')
+						void (async () => {
+							try {
+								const actions = session?.mcpActions?.({
+									signal: appLifetime.signal,
+									onPermission: (request) =>
+										conversationGenRef.current === generation
+											? onPermission(request)
+											: Promise.resolve({ kind: 'reject' as const }),
+								})
+								const outcome = await mcpPersonCommand(slash.args, actions)
+								if (
+									conversationGenRef.current !== generation ||
+									appLifetime.signal.aborted ||
+									!outcome
+								)
+									return
+								if (outcome.kind === 'message') pushMessage('system', outcome.text)
+								else {
+									// Bypass handleSubmit: remote content is data, not another
+									// slash command, @file read, trigger or typed instruction.
+									advanceQueueContinuation()
+									enqueueQueued({ kind: 'human', text: value, mcpContext: outcome.text })
+								}
+							} finally {
+								mcpCommandInFlightRef.current = false
+								if (
+									conversationGenRef.current === generation &&
+									!abortRef.current &&
+									!permissionResolveRef.current
+								)
+									setState('idle')
+							}
+						})()
 						return
 					}
 					case 'prompt':
@@ -12227,7 +12440,12 @@ function AppBody({
 			if (mode === 'submit' && !skillFlow) {
 				const inbox = activeTurnInboxRef.current
 				if (inbox) {
-					const expanded = expandFileMentions(outgoing, ctx.cwd)
+					const expanded = expandFileMentions(
+						outgoing,
+						ctx.cwd,
+						undefined,
+						mentionSourcesRef.current.known,
+					)
 					if (
 						inbox.accept({
 							prompt,
@@ -12354,6 +12572,7 @@ function AppBody({
 		null,
 	)
 	const manualRecapRef = useRef<AbortController | null>(null)
+	const sideQuestionRefs = useRef<Set<AbortController>>(new Set())
 	const pushRecap = useCallback(
 		(text: string) => {
 			const id = nextId()
@@ -12496,7 +12715,7 @@ function AppBody({
 		if (request === undefined) return
 		if (phase !== 'ready' || state !== 'idle' || permission !== null || textPrompt !== null) return
 		launchResumePickerRef.current = undefined
-		void doResume(request.query)
+		void doResume(request.query, request.pr)
 	}, [phase, state, permission, textPrompt, doResume])
 	// `--message`: the launch's first message, sent once the session can take it. The ref is
 	// spent before the call, so neither a re-render, a resume nor a reload can send it twice.
@@ -15022,6 +15241,7 @@ function AppBody({
 									description: command.unavailable?.(slashCtx) ?? command.description,
 								}))}
 								mentionCandidates={mentionCandidates}
+								mentionExtras={mentionSources.extras}
 								history={history}
 								{...(composerTriggers ? { triggers: composerTriggers } : {})}
 								turnActive={!compacting && (state === 'thinking' || state === 'tool')}

@@ -9,7 +9,7 @@ tags: [cli, plugins, tools, skills, hooks]
 # Plugins in the CLI
 
 Namzu's SDK plugin runtime is connected to the CLI. A plugin can contribute
-tools, skills, JavaScript hooks and stdio MCP servers. The CLI runs its plugin
+tools, skills, JavaScript hooks, stdio MCP servers, slash commands and agents. The CLI runs its plugin
 runtime in the main agent session; delegated agents receive separate toolset
 rosters and do not inherit executable plugins.
 
@@ -69,6 +69,45 @@ accept `url`, `headers`, `inheritEnv` or `requireApproval`: configure a remote
 server in `mcpServers`, and use a source permission rule for a plugin-owned
 server. `connectors` and `personas` in plugin manifests are not supported and
 are refused rather than ignored.
+
+### Commands and agents
+
+A manifest can list folders of markdown files, relative to the plugin folder:
+
+```json
+{
+  "name": "ledger",
+  "version": "1.0.0",
+  "description": "Ledger review",
+  "commands": ["commands"],
+  "agents": ["agents"]
+}
+```
+
+Each `.md` file in a `commands` folder is a slash command written like the
+files in `.namzu/commands/` (a prompt template with an optional `description`
+and `argument-hint`, and `$ARGUMENTS`). It is named after its plugin, so
+`commands/audit.md` in `ledger` is `/ledger__audit`. Each `.md` file in an
+`agents` folder is an agent file written like the ones in `.namzu/agents/`, and
+the model sees it as `ledger__<name>`. A command or agent file of the user or
+project with the same full name wins over the plugin's. A folder that does not
+exist, or that leads outside the plugin folder through a link, is skipped and
+named in the log. Paths with `..` or a drive or root are refused when the
+manifest is read.
+
+Commands and agents come from plugins that start enabled and stay as they
+were at startup: disabling a plugin from `/plugins` removes its tools, skills
+and hooks at once, and its commands and agents after the next start. These
+files run no code of their own, but an agent runs with the tools its file names.
+
+### Try a plugin for one launch
+
+`namzu --plugin-dir <folder>` loads the plugin in that folder for this launch
+only, even when `plugins.enabled` is not set and from outside the project. The
+flag may be repeated, and also applies before `namzu exec`. Naming the folder is
+the consent: the plugin's tool modules, hooks and MCP servers run, so name only
+folders you trust. Nothing is written to the configuration, and the saved
+start-up state in `/plugins` still applies.
 
 A JavaScript tool module must export complete tool definitions, including an
 `inputSchema` that the SDK can parse and render. A missing or unusable schema

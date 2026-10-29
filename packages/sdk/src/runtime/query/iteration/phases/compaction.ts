@@ -443,7 +443,10 @@ export async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
 	if (!breaker) return false
 	// Already announced: the turn is on its way out; do not say it twice.
 	if (breaker.stop !== undefined) return true
-	if (!breaker.wouldTrip(ctx.recorder.currentIteration)) return false
+	if (
+		!breaker.wouldTrip(ctx.recorder.currentIteration, estimateMessagesTokens(ctx.recorder.messages))
+	)
+		return false
 	ctx.log.warn('Compaction keeps refilling — stopping the turn', {
 		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		[NAMZU.ITERATION]: ctx.recorder.currentIteration,
@@ -509,6 +512,7 @@ async function applyReducer(
 	const messages = ctx.recorder.messages
 	const before = messages.length
 	const beforeChars = totalChars(messages)
+	const beforeTokens = estimateMessagesTokens(messages)
 
 	let next: readonly Message[] | undefined
 	try {
@@ -595,7 +599,11 @@ async function applyReducer(
 		reduction.contextWindowTokens,
 		measurement.windowSource,
 	)
-	compactionBreaker(ctx)?.recordCompaction(ctx.recorder.currentIteration)
+	compactionBreaker(ctx)?.recordCompaction(
+		ctx.recorder.currentIteration,
+		beforeTokens,
+		estimateMessagesTokens(messages),
+	)
 }
 
 /**
@@ -1122,6 +1130,7 @@ async function runCompactionCheckInner(
 
 	const live = ctx.recorder.messages
 	const oldCount = live.length
+	const beforeTokens = estimateMessagesTokens(live)
 	// Retained history can survive in full while a summary adds another copy
 	// of its facts. Even an unretained span may be smaller than the cumulative
 	// summary. Compare both candidates with the same estimator, rather than
@@ -1196,5 +1205,9 @@ async function runCompactionCheckInner(
 		reachedResetThreshold: reachedReset,
 	})
 	await emitContextUsageSnapshot(ctx, newEstimate, budget, window.source)
-	compactionBreaker(ctx)?.recordCompaction(ctx.recorder.currentIteration)
+	compactionBreaker(ctx)?.recordCompaction(
+		ctx.recorder.currentIteration,
+		beforeTokens,
+		estimateMessagesTokens(live),
+	)
 }

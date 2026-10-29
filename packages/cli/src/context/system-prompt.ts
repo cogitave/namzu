@@ -23,7 +23,7 @@
  * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no | no |
  * | environment               | yes          | yes          | no, it rides in the dynamic block | child reads its own |
  * | extra system / note       | yes          | yes, the same skills prompt and note a turn gets | no | no |
- * | skills overflow note      | yes          | yes          | yes           | no        |
+ * | skills overflow note      | no, the skill-list reminder carries it | yes | yes | no |
  *
  * Sub-agents are built by `integrations/subagents/runtime.ts` from a role
  * prompt of their own; they share the working doctrine by import and nothing
@@ -43,7 +43,7 @@ import {
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 
 export const DEFERRED_TOOL_GUIDANCE =
-	'Before using a tool listed under deferred_tools, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
 
 export interface SessionPromptInput {
 	/** A resident step carries its own context; it gets the identity and little else. */

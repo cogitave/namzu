@@ -16,7 +16,9 @@ import type {
 	ReviewedExecution,
 	ToolCallDeclines,
 	ToolCallDenials,
+	ToolCallOutcome,
 } from '../../executor.js'
+import { applyLifecycleHookResults } from '../../plugin-hooks.js'
 import {
 	awaitProjectInstructionCallback,
 	replaceProjectInstructionSnapshot,
@@ -212,11 +214,81 @@ export async function* runToolReview(
 	/** Set only where a person's No is known, so a policy refusal never lands in it. */
 	let declines: ToolCallDeclines | undefined
 
+	/**
+	 * Tell `permission_denied` hooks about each call refused without a person's
+	 * No: a rule, the mode's policy, a classifier or a hook. Observational, so
+	 * a hook's answer changes nothing; one that throws is logged, not allowed to
+	 * fail the step.
+	 */
+	const announceRefusals = async (denials?: ToolCallDenials): Promise<void> => {
+		if (!ctx.pluginManager || !denials || denials.size === 0) return
+		for (const summary of toolCallSummaries) {
+			const reason = denials.get(summary.id)
+			if (reason === undefined || declines?.has(summary.id)) continue
+			if (ctx.abortController.signal.aborted) return
+			try {
+				await ctx.pluginManager.executeHooks(
+					'permission_denied',
+					{
+						sessionId: ctx.recorder.sessionId,
+						turnId: ctx.recorder.turnId,
+						toolName: summary.name,
+						toolInput: summary.input,
+						reason,
+						signal: ctx.abortController.signal,
+					},
+					ctx.emitEvent,
+				)
+			} catch (error) {
+				if (ctx.abortController.signal.aborted) return
+				ctx.log.warn('A permission_denied hook failed', {
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
+	}
+
+	/**
+	 * Tell `post_tool_batch` hooks that every call of this step has settled.
+	 * Fires once per step, before the next model request. A hook may ask for the
+	 * turn to stop once this step is done; an `error` fails the turn like any
+	 * other lifecycle hook.
+	 */
+	const announceBatch = async (outcomes: readonly ToolCallOutcome[]): Promise<void> => {
+		if (!ctx.pluginManager || ctx.abortController.signal.aborted) return
+		const inputs = new Map(toolCallSummaries.map((summary) => [summary.id, summary.input]))
+		const toolCalls = outcomes.map((outcome) => ({
+			toolCallId: outcome.toolCallId,
+			toolName: outcome.toolName,
+			toolInput: inputs.get(outcome.toolCallId),
+			output: outcome.output,
+			isError: outcome.isError === true,
+		}))
+		if (toolCalls.length === 0) return
+		const results = await ctx.pluginManager.executeHooks(
+			'post_tool_batch',
+			{
+				sessionId: ctx.recorder.sessionId,
+				turnId: ctx.recorder.turnId,
+				toolCalls,
+				signal: ctx.abortController.signal,
+			},
+			ctx.emitEvent,
+		)
+		applyLifecycleHookResults('post_tool_batch', results)
+		for (const result of results) {
+			if (result.action === 'continue' && result.halt) {
+				ctx.toolExecutor.requestHalt?.(result.halt.reason)
+			}
+		}
+	}
+
 	/** Executes the batch, answering every call, and appends the results. */
 	const settleBatch = async (
 		denials?: ToolCallDenials,
 		review?: ReviewedExecution,
 	): Promise<void> => {
+		await announceRefusals(denials)
 		const startedAt = Date.now()
 		const batch = await ctx.toolExecutor.executeBatch(
 			response,
@@ -228,6 +300,7 @@ export async function* runToolReview(
 		)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
+		await announceBatch(batch.results)
 		// Registry receipts are ordered by actual completion, include nested
 		// dispatches, and exclude denials/recovered results. A successful possible
 		// mutation permits another experiment; unrelated reads cannot do so.
@@ -533,9 +606,7 @@ export async function* runToolReview(
 			toolCall.authorization = {
 				decision: gateResult.decision,
 				...(gateResult.reason ? { reason: gateResult.reason } : {}),
-				...(gateResult.decision === 'review' && (gateResult.matchedRule || hookAsked)
-					? { explicitReview: true as const }
-					: {}),
+				...(ruleAsked || hookAsked ? { explicitReview: true as const } : {}),
 				...(ruleAsked || hookAsked ? { askRule: true as const } : {}),
 				...(gateResult.decision === 'allow' && allowRuleScope(gateResult.matchedRule)
 					? { allowScope: allowRuleScope(gateResult.matchedRule) }

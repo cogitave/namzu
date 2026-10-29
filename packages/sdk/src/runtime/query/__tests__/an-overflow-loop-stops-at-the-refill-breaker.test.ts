@@ -27,6 +27,7 @@ afterEach(async () => {
 
 it('stops a re-read loop at the refill breaker after a handful of calls', async () => {
 	let calls = 0
+	let overflows = 0
 	class Overflowing extends MockLLMProvider {
 		override async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 			calls++
@@ -35,6 +36,7 @@ it('stops a re-read loop at the refill breaker after a handful of calls', async 
 				0,
 			)
 			if (size > 30_000) {
+				overflows++
 				throw Object.assign(new Error('prompt is too long'), { status: 400 })
 			}
 			yield* super.chatStream(params)
@@ -102,4 +104,7 @@ it('stops a re-read loop at the refill breaker after a handful of calls', async 
 	// Eight today; the unguarded loop took 61 and ended only when the cleared
 	// placeholders filled the window.
 	expect(calls).toBeLessThanOrEqual(10)
+	// One initial overflow, followed by three actual refills. This also proves
+	// recovery was allowed rather than stopping on the first provider rejection.
+	expect(overflows).toBe(4)
 })

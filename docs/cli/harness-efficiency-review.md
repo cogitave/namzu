@@ -107,10 +107,16 @@ either model. Deterministic kernel tests separately verify compacted evidence
 recovery after reopening, conversation ownership, ordered writes, background
 parent progress, single correction delivery and parent cancellation.
 
-First finish discovery feedback: `packages/sdk/src/tools/builtins/search-tools.ts`
-still claims that every unmatched query refers to already active tools. Distinguish
-an active match, naming the callable tool, from an unknown query; preserve tool
-allowlists in both branches. This SDK correction is outside the current patch.
+Discovery feedback now reports no matching deferred tools without claiming
+that an unknown query names an active tool. Active tools are called from their
+visible runtime schemas, not found through deferred search. The SDK catalogue
+and CLI guidance explicitly describe the catalogue as a snapshot, not live
+status: search only when a needed deferred schema is absent. Retained,
+source-bound receipts keep loaded schemas available across sends until
+compaction; readiness, allow-lists and authorization remain independent gates.
+Deterministic session tests cover loading once, direct same-turn use and a
+later send's direct call without another search. This is contract coverage,
+not a live-model efficiency measurement.
 
 | Priority | Confirmed behavior and proposed change | Acceptance measurement |
 | --- | --- | --- |

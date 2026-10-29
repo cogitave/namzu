@@ -8,6 +8,7 @@ import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../utils/log/create-logger.js'
+import { compactionBreaker } from './compaction-breaker.js'
 import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
@@ -104,6 +105,25 @@ describe('a structured summary must reclaim estimated prompt space', () => {
 			{ type: 'compaction_started', reason: 'threshold' },
 			{ type: 'compaction_failed', cause: 'shed_nothing' },
 		])
+	})
+
+	it('keeps reducing above-trigger history without claiming it refilled', async () => {
+		const { ctx, messages, events } = context()
+		Object.assign(ctx.compactionConfig ?? {}, { circuitBreaker: true })
+		for (let iteration = 1; iteration <= 6; iteration++) {
+			Object.assign(ctx.recorder, { currentIteration: iteration })
+			// A shrinking historical span is still worth reducing each time, but
+			// never returns to the previous pre-compaction size. The system floor
+			// alone remains above the trigger, so another check is not a refill.
+			messages.splice(-2, 0, { role: 'user', content: 'detail '.repeat(250 * (7 - iteration)) })
+			const before = estimateMessagesTokens(messages)
+			await runCompactionCheck(ctx)
+			expect(estimateMessagesTokens(messages)).toBeLessThan(before)
+			expect(estimateMessagesTokens(messages)).toBeGreaterThan(1_400)
+		}
+		expect(events.filter((event) => event.type === 'compaction_completed')).toHaveLength(6)
+		expect(events.some((event) => event.type === 'compaction_failed')).toBe(false)
+		expect(compactionBreaker(ctx)?.stop).toBeUndefined()
 	})
 
 	it('still commits a summary that replaces substantially larger unretained history', async () => {

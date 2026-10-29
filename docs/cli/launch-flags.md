@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --permission-mode, --message, --continue and --resume on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --permission-mode, --message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -44,7 +44,7 @@ namzu --resume "billing fix"  # the conversation with exactly that title
 namzu -r 11de68ce-02f2-49e4-a7e4-7f29355d7aaf
 ```
 
-These apply to the interactive session only (the same flags on `namzu exec` are separate and refuse rather than open a picker). `-c` / `--continue` opens the most recent conversation in this folder, and says so and exits 64 when there is none. `-r` / `--resume` with no value opens the `/resume` picker as soon as the composer is ready. With a value shaped like a conversation id it resumes that conversation or refuses with the cause; with any other value it resumes the one conversation whose title is exactly that, and otherwise opens the picker with the value as a search (case-insensitive, over the title and the opening message), or says nothing matched. Passing both is refused, and so is either flag before a subcommand or before `resume`. `--resume` takes the next word as its value, so write `namzu -c resume <id>` rather than `namzu --resume resume`; a value that begins with a dash needs `--resume=<value>`.
+These apply to the interactive session only (the same flags on `namzu exec` are separate and refuse rather than open a picker). `-c` / `--continue` opens the most recent conversation in this folder, and says so and exits 64 when there is none. `-r` / `--resume` with no value opens the `/resume` picker as soon as the composer is ready. With a value shaped like a conversation id it resumes that conversation or refuses with the cause; with any other value it resumes the one conversation whose title is exactly that, and otherwise opens the picker with the value as a search (case-insensitive, over the title and the opening message), or says nothing matched. Passing both is refused, and so is either flag before a subcommand or before `resume`. `--from-pr [value]` opens the same picker with only the conversations linked to a pull request, or to the one the number or address names ([GitHub workflows and pull request links](github.md#finding-the-conversations-of-a-pull-request)); it is refused beside `--continue` or `--resume`, and before a subcommand. `--resume` takes the next word as its value, so write `namzu -c resume <id>` rather than `namzu --resume resume`; a value that begins with a dash needs `--resume=<value>`.
 
 ## How they combine with what is saved
 

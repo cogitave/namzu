@@ -104,6 +104,7 @@ For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the serv
 | `inheritEnv` | stdio | Names of variables copied from the operator's own environment. The child gets process plumbing plus what is named, never the whole environment — a server that needs one token is granted that token, and a reviewer can see which. |
 | `url`, `headers` | HTTP | The server's endpoint and the headers every request carries. Redirects are refused: a credentialed body is never replayed to a location the config did not name. A header value may also be a `${VAR}` reference (below). |
 | `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number no greater than 2,147,483,647 ms, Node's maximum timer delay; anything else is refused with a reason. |
+| `requestTimeoutMs` | both | Deadline for each MCP round trip, including prompt/resource discovery and reads. Unset preserves the SDK's 30,000 ms default. Must be finite and positive, no greater than 2,147,483,647 ms; invalid values fail this server by name. Independent of the startup `connectTimeoutMs`. |
 | `eraProbeTimeoutMs` | both | How long this server's era probe — see below — waits for an answer, in milliseconds. Defaults to the SDK's own `2000`, clamped to `connectTimeoutMs`. Must be a positive number; anything else is refused with a reason. |
 | `allow`, `deny` | both | Lists of server-reported tool, prompt or resource names, before the `mcp__` prefix. `deny` wins over `allow`; malformed lists fail that server by name. |
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |
@@ -175,10 +176,85 @@ The interactive session does not wait for tool servers. The composer is ready at
 
 A headless run (`namzu exec`, `--output-format json`, a scheduled job, the agent protocol server) still waits for every server before its first model call, because nobody is there to read a line that arrives later.
 
+## When a server asks you for input
+
+A server that speaks the earlier protocol revision can ask you to fill in a
+short form (a name, a number, a yes or no, one or several choices). In an
+interactive session each field appears as a question on the same card the
+model's own questions use, led by the server's name and what it asks for, and
+a field marked optional says so. A value that does not fit the field (a
+number outside its range, a text that is not an email, a missing required
+answer) is asked again with the reason. Skipping the card tells the server you
+declined; closing the turn tells it you cancelled. A form with more than eight
+fields, or one with nested objects, is declined without showing anything.
+Headless runs (`exec`) never tell servers they may ask, and a request from a
+server in the newer revision is not answered. Asking you to open a link is not
+supported.
+
 ## When a server does not work
 
 Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number, or a known field such as `args`, `env`, `inheritEnv` or `headers` had the wrong shape. A malformed entry cannot stop a different configured server from connecting or prevent an earlier connection from being closed. What is done about a failure differs by surface. A person in the interactive session sees the line, in plain words (a timeout reads "It did not answer in time."), and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot `namzu exec` leaves nothing behind.
 
-`/mcp tools` shows the current names and any instructions the server supplied during initialization. It also shows names added or removed after discovery, changed tool definitions held at their earlier version, and current allow/deny refusals for tools, prompts and resources. Instructions are server-authored text, displayed as such; they do not change the host's authorization rules. With `instructions: true`, the current text also reaches each model request inside an untrusted envelope tagged with the server name. A disconnected server contributes nothing until it reconnects. The two resource tools are deferred until discovered by name. Closing the session stops reconnect attempts before disconnecting transports.
+`/mcp tools` shows the current names and any instructions the server supplied during initialization. It also shows names added or removed after discovery, changed tool definitions held at their earlier version, and current allow/deny refusals for tools, prompts and resources. Instructions are server-authored text, displayed as such; they do not change the host's authorization rules. With `instructions: true`, the current text reaches the model inside an untrusted envelope tagged with the server name, sent as a hidden reminder the first time and again only for a server whose text changed (a server that stops supplying text is reported as no longer applying), not in every request. A disconnected server contributes nothing until it reconnects. The two resource tools are deferred until discovered by name. Closing the session stops reconnect attempts before disconnecting transports.
+
+
+## Select a prompt or attach a resource
+
+In an idle interactive session, `/mcp prompts [server]` lists admitted prompts
+and their required/optional arguments. Run one explicitly with
+`/mcp prompt <server> <name> [argument=value ...]`. Arguments are strings;
+missing required values, undeclared names, duplicate names and tokens without
+`=` are refused before `prompts/get`. Values may contain `=` but not whitespace:
+these commands use the existing whitespace-separated slash arguments, not shell
+quoting. The prompt is fetched only for that invocation; it does not become a
+new system prompt or change the tool catalogue.
+
+`/mcp resources [server]` lists the same published resources the `@` picker uses.
+`/mcp resource <server> <uri>` attaches the text of one listed resource. It cannot
+fetch an arbitrary URL, unlisted URI, resource template, image or binary blob.
+The existing `@server:uri` picker/mention path uses the same resource registry
+and permission boundary. Background picker discovery cannot ask for approval;
+use the explicit listing command when discovery needs review.
+
+Discovery and reads check the session's live source, tool-name and exact-input
+permission rules. Discovery uses `mcp__<server>__list_resources` and
+`mcp__<server>__list_prompts` (a person-facing discovery permission name, not a
+new model tool). Prompt fetch uses the existing `mcp_prompt_<server>_<name>`
+name; resource reads use `mcp__<server>__read_resource` with `{ uri }`. Explicit
+denials are not bypassed by a user-invoked command, and an ask still requires the
+approval screen even in bypass mode. No reviewer means refusal. Server-specific
+allow/deny lists also apply. As with mentions, a server with `requireApproval:
+true` is omitted from direct prompt/resource attachment; use its reviewed model
+tools instead. A disconnected server contributes nothing.
+
+Server-authored roles remain labels inside untrusted text, never conversation
+roles. Fetched text is attached as host context beside the operator's command;
+it is not reparsed as a slash command, file mention or composer trigger. Explicit resource attachments and prompt message bodies have a 30,000-character
+aggregate body budget before the provenance envelope is rendered. A message's
+`@` resource attachments together, including their framing, fit within 30,000
+characters and the shared 240,000-character inline context ceiling with file
+attachments; at most 32 resource reads are attempted. Unsupported prompt media is
+represented by a note, not fetched or attached. Truncation does not cut the
+closing provenance delimiter. Framing identifies the source; it is not a claim
+that prompt injection has been prevented. Server errors are withheld rather
+than printing arbitrary remote error bodies.
+
+## Bounded MCP results
+
+CLI-mounted MCP tools keep their live definitions, source, approval flags and
+existing deferral behavior, but no longer forward unlimited results. Results
+that exceed a conservative 30,000-character serialization budget are replaced
+by a bounded text excerpt in a fresh untrusted envelope, with an explicit
+truncation notice. Secondary fields (including structured data and rich media)
+are omitted in that case so they cannot carry the oversized payload through a
+second channel. Error text is separately bounded to 1,000 characters. Success
+or failure is preserved: truncation does not undo a server operation. Ask for a
+smaller result or split a request if the complete payload is needed.
+
+These are bounds at the CLI result/attachment boundary, not transport byte or
+server-memory limits: a response has already been decoded by the SDK when the
+CLI applies them. `requestTimeoutMs` bounds each round trip, not the sum of a
+paged listing, retries, or a whole composed prompt selection. Elicitation hooks
+and URL-based elicitation are outside these prompt/resource commands.

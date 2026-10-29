@@ -353,6 +353,8 @@ export interface SessionAllows {
 	 */
 	add(allows: readonly SessionAllow[]): string | undefined
 	list(): readonly SessionAllow[]
+	/** Withdraw cached answers after the operator replaces the saved local rules. */
+	clear(): void
 	/** One kernel rule that consults the store at every call. */
 	readonly rule: AuthorizationRule
 }
@@ -418,6 +420,10 @@ export function createSessionAllows(
 			return undefined
 		},
 		list: () => [...entries],
+		clear() {
+			entries.length = 0
+			rebuild()
+		},
 		rule: {
 			type: 'predicate',
 			description: 'allowed by an answer at a prompt',

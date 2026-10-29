@@ -55,7 +55,13 @@ The transcript attributes peer text to the other terminal. Durable history uses
 approval. The receiving terminal retains its own rules, mode, budgets and
 credentials. Automatic acceptance requires a verified live TUI sender in the
 same project and the same permission mode. A different mode is refused rather
-than treated as consent. Turning messaging on does not approve any tool call.
+than treated as consent, including when the receiver uses bypass mode. The
+receiver checks its current mode again before an idle wake consumes mail and
+before busy-turn delivery. If the mode changes after acceptance, incompatible
+pending mail is discarded with a local notice, not replayed under the new mode;
+returning to the previous mode does not revive it. A queued receipt therefore
+remains an acceptance receipt, not a promise of later delivery. Turning messaging
+on does not approve any tool call.
 
 The response is **queued**, **refused**, or **unreachable**. Queued means accepted
 into the live inbox, not understood or completed. No receipt after a send means

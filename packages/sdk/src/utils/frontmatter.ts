@@ -145,6 +145,18 @@ export interface FrontmatterOptions {
 	 * key is parsed and refused exactly as before.
 	 */
 	readonly readsKey?: (key: string) => boolean
+	/**
+	 * Read keys that are read when they are plain and skipped, rather than
+	 * refused, when they are not: a value in a block scalar, a flow sequence
+	 * or flow mapping, or one written as indented lines under the key.
+	 *
+	 * For a key added to a loader after skills written for other tools already
+	 * used it in a spelling this reader cannot take. Refusing the file over
+	 * such a key would turn a skill that loaded into one that does not, for the
+	 * sake of a field that only adds behaviour. The key then reads as absent,
+	 * which is what it meant to everything before it was read.
+	 */
+	readonly tolerates?: (key: string) => boolean
 }
 
 export interface ParsedFrontmatter {
@@ -281,6 +293,15 @@ export function parseFrontmatter(
 		}
 		skipping = false
 		const value = normalizeScalar(line.slice(colonIdx + 1))
+
+		if (
+			options.tolerates?.(key) &&
+			(value === '' || UNSUPPORTED_YAML.some(({ pattern }) => pattern.test(value)))
+		) {
+			currentKey = key
+			skipping = true
+			continue
+		}
 
 		if (listKeys.has(key) && /^\[.*\]$/.test(value)) {
 			currentKey = key

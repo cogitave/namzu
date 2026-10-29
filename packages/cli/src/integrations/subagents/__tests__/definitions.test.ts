@@ -60,9 +60,36 @@ describe('discoverAgentDefinitions', () => {
 			expect(await discoverAgentDefinitions({ cwd: empty, home: empty })).toEqual({
 				definitions: [],
 				skipped: [],
+				missingSkills: [],
 			})
 		} finally {
 			removeTempDir(empty)
 		}
+	})
+
+	it('loads the skills a file names into its prompt, and names the ones it cannot find', async () => {
+		const skillDir = join(cwd, '.namzu', 'skills', 'release-notes')
+		mkdirSync(skillDir, { recursive: true })
+		writeFileSync(
+			join(skillDir, 'SKILL.md'),
+			'---\nname: release-notes\ndescription: Writes release notes.\n---\nLead with what breaks.',
+		)
+		writeFileSync(
+			join(projectAgentsDir(cwd), 'scribe.md'),
+			'---\nname: scribe\ndescription: Writes.\nskills: release-notes, nowhere\n---\nWrite it.',
+		)
+
+		const { definitions, missingSkills } = await discoverAgentDefinitions({ cwd, home })
+
+		const scribe = definitions.find((d) => d.name === 'scribe')
+		expect(scribe?.prompt).toContain('Write it.')
+		expect(scribe?.prompt).toContain('### Skill: release-notes')
+		expect(scribe?.prompt).toContain('Lead with what breaks.')
+		expect(missingSkills).toEqual([
+			{
+				path: join(projectAgentsDir(cwd), 'scribe.md'),
+				reason: 'skill nowhere was not found',
+			},
+		])
 	})
 })

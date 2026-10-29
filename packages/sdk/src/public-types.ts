@@ -231,8 +231,13 @@ export type {
 	SkippedAgentFile,
 } from './agents/file-definitions.js'
 export type {
+	HttpHookEntry,
+	PromptHookEntry,
 	ShellHookEntry,
 	ShellHookEvent,
+	ShellHookHandler,
+	ShellHookJudge,
+	ShellHookOnFailure,
 	ShellHookInput,
 	ShellHookOptions,
 	ShellHookOutcome,

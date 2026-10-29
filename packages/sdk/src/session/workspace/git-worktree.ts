@@ -147,11 +147,19 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			})
 		}
 
+		// The commit the checkout starts on, so a later look can tell a child that
+		// committed from one that did not. Left out when it cannot be read: a ref
+		// without it is always treated as changed.
+		const baseCommit = await this.exec('git', ['-C', worktreePath, 'rev-parse', 'HEAD'])
+			.then((r) => r.stdout.trim() || undefined)
+			.catch(() => undefined)
+
 		const meta: GitWorktreeBackendMeta = {
 			backend: 'git-worktree',
 			repoRoot,
 			branch,
 			worktreePath,
+			...(baseCommit ? { baseCommit } : {}),
 		}
 
 		this.log.info('git-worktree created', {
@@ -202,6 +210,25 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				[NAMZU.SESSION_ID]: ref.id,
 				'namzu.session.path': owned.worktreePath,
 			})
+			// A branch still on its starting commit holds nothing, so it goes with
+			// its checkout. Compare and delete under Git's ref lock: a branch that
+			// advanced after the worktree listing must keep its new commits.
+			if (owned.baseCommit !== undefined && registered.head === owned.baseCommit) {
+				await this.exec('git', [
+					'-C',
+					owned.repoRoot,
+					'update-ref',
+					'--no-deref',
+					'-d',
+					`refs/heads/${owned.branch}`,
+					owned.baseCommit,
+				]).catch((cause) =>
+					this.log.warn('git-worktree branch left behind', {
+						'namzu.session.branch': owned.branch,
+						'namzu.session.cause': cause instanceof Error ? cause.message : String(cause),
+					}),
+				)
+			}
 		} catch (cause) {
 			// Two concurrent disposals can both observe the entry before one wins.
 			// Re-read after failure and accept only repository evidence that the
@@ -282,10 +309,13 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			throw new WorkspaceBackendError({ op: 'inspect:status', kind: this.kind, cause })
 		}
 
+		const baseCommit = owned.baseCommit
 		return {
 			exists: true,
 			currentRef: entry.branch ?? entry.head ?? ref.meta.branch,
 			isDirty: statusStdout.trim().length > 0,
+			// Unknown (no recorded start, or HEAD unreadable) reads as "has commits".
+			hasNewCommits: baseCommit === undefined || entry.head !== baseCommit,
 		}
 	}
 
@@ -329,6 +359,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				repoRoot,
 				branch,
 				worktreePath,
+				...(ref.meta.baseCommit ? { baseCommit: ref.meta.baseCommit } : {}),
 			}
 		} catch (cause) {
 			throw new WorkspaceBackendError({ op: `${op}:ownership`, kind: this.kind, cause })

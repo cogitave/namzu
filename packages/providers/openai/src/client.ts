@@ -234,7 +234,7 @@ function assertCitationsSupported(
 export function toOpenAIMessages(
 	messages: ChatCompletionParams['messages'],
 ): ChatCompletionMessageParam[] {
-	return messages.map((msg): ChatCompletionMessageParam => {
+	const converted = messages.map((msg): ChatCompletionMessageParam => {
 		if (msg.role === 'system') {
 			return { role: 'system', content: msg.content }
 		}
@@ -311,6 +311,13 @@ export function toOpenAIMessages(
 		}
 		return assistant
 	})
+	// Interrupted or foreign reasoning-only turns can have no content on this
+	// wire. Do not send invalid empty assistant entries, or invent filler text.
+	// Filter after conversion: only fields this driver actually sends count.
+	// Keep tool-only turns and leave the source history (including reasoning) intact.
+	return converted.filter(
+		(msg) => msg.role !== 'assistant' || Boolean(msg.content) || (msg.tool_calls?.length ?? 0) > 0,
+	)
 }
 
 /**

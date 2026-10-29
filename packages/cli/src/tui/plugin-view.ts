@@ -30,6 +30,8 @@ export function pluginDetails(plugin: CliPluginInfo): string {
 		`Registered skills: ${plugin.skills.join(', ') || 'none'}`,
 		`Declared hook modules: ${plugin.hookModules.join(', ') || 'none'}`,
 		`Declared MCP servers: ${plugin.mcpServers.join(', ') || 'none'}`,
+		`Slash commands: ${plugin.commands.map((name) => `/${name}`).join(', ') || 'none'}`,
+		`Agents: ${plugin.agents.join(', ') || 'none'}`,
 		'Use /plugins to remember the current state for future conversations.',
 	]
 	return rows.map(choiceDisplayText).join('\n')

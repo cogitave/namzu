@@ -3,14 +3,14 @@ import { open } from 'node:fs/promises'
 import { inflateSync } from 'node:zlib'
 import { z } from 'zod'
 import { admitMcpImageBatch } from '../../connector/mcp/image-admission.js'
-import type { ToolContext, ToolDefinition } from '../../types/tool/index.js'
+import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { STANDARD_SCREENSHOT_LIMITS, fitPng, screenshotTargetSize } from './computer-use-image.js'
 
 // 16 MiB becomes less than the runtime's 24 MiB encoded rich-content budget.
 // Admission is per artifact; the runtime still budgets accumulated images.
-const MAX_BYTES = 16 * 1024 * 1024
+export const MAX_BYTES = 16 * 1024 * 1024
 const READ_CHUNK_BYTES = 1024 * 1024
 const MAX_EDGE = 16_384
 const MAX_PIXELS = 16_000_000
@@ -55,7 +55,7 @@ async function readBounded(
 	}
 }
 
-async function readArtifact(
+export async function readArtifact(
 	path: string,
 	context: ToolContext,
 ): Promise<{ path: string; bytes: Buffer; sandboxed: boolean }> {
@@ -168,7 +168,7 @@ function webpDimensions(bytes: Buffer): Pick<Raster, 'width' | 'height'> {
 	return dimensions ?? malformed()
 }
 
-function describeRaster(bytes: Buffer): Raster {
+export function describeRaster(bytes: Buffer): Raster {
 	let raster: Raster
 	if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
 		if (bytes.length < 33) malformed()
@@ -314,6 +314,75 @@ async function validatedPng(bytes: Buffer, raster: Raster): Promise<Buffer> {
 }
 
 /**
+ * Validate and fit the bytes of a saved image and shape them as a tool result
+ * carrying the pixels. `view_image` and an image `read` share this, so both
+ * give the model the same checked picture and the same source dimensions.
+ */
+export async function inspectImageBytes(
+	artifact: { readonly path: string; readonly bytes: Buffer; readonly sandboxed: boolean },
+	signal: AbortSignal,
+): Promise<ToolResult> {
+	const source = describeRaster(artifact.bytes)
+	if (
+		!admitMcpImageBatch([
+			{
+				type: 'image',
+				mimeType: source.mediaType,
+				data: artifact.bytes.toString('base64'),
+			},
+		])
+	)
+		malformed()
+	signal.throwIfAborted()
+	let image = {
+		data: artifact.bytes,
+		width: source.width,
+		height: source.height,
+	}
+	if (source.mediaType === 'image/png') {
+		const png = await validatedPng(artifact.bytes, source)
+		image = await fitPng(png, STANDARD_SCREENSHOT_LIMITS)
+	} else {
+		const target = screenshotTargetSize(source.width, source.height)
+		if (target.width !== source.width || target.height !== source.height)
+			throw new Error(
+				`This ${source.mediaType} image needs resizing. JPEG/WebP decoding and resizing are unavailable here; export a PNG (or a smaller JPEG/WebP) and inspect that file.`,
+			)
+	}
+	signal.throwIfAborted()
+	const validation = source.mediaType === 'image/png' ? 'decoded' : 'container'
+	const output = `Image artifact: ${artifact.path} (${source.width}x${source.height}, ${source.mediaType}); shown at ${image.width}x${image.height}.`
+	return {
+		success: true,
+		output,
+		content: [
+			{
+				type: 'text',
+				text: `${output}\n${validation === 'container' ? 'The complete container and dimensions were validated; compressed JPEG/WebP pixels were not decoded by this tool. ' : ''}Inspect these pixels for visual evidence. This saved artifact is not a current computer_use screenshot; capture the application before GUI input.`,
+			},
+			{
+				type: 'image',
+				mediaType: source.mediaType,
+				data: image.data.toString('base64'),
+			},
+		],
+		data: {
+			path: artifact.path,
+			sandboxed: artifact.sandboxed,
+			artifact: true,
+			mediaType: source.mediaType,
+			sourceWidth: source.width,
+			sourceHeight: source.height,
+			width: image.width,
+			height: image.height,
+			sourceBytes: artifact.bytes.length,
+			sha256: createHash('sha256').update(artifact.bytes).digest('hex'),
+			validation,
+		},
+	}
+}
+
+/**
  * Inspect an artifact without granting screen-coordinate authority. An image
  * file can be a reference, render or export; it is never a computer_use frame.
  */
@@ -343,64 +412,7 @@ export function createViewImageTool(
 				return { success: false, output: message, error: message }
 			}
 			const artifact = await readArtifact(input.path, context)
-			const source = describeRaster(artifact.bytes)
-			if (
-				!admitMcpImageBatch([
-					{
-						type: 'image',
-						mimeType: source.mediaType,
-						data: artifact.bytes.toString('base64'),
-					},
-				])
-			)
-				malformed()
-			context.abortSignal.throwIfAborted()
-			let image = {
-				data: artifact.bytes,
-				width: source.width,
-				height: source.height,
-			}
-			if (source.mediaType === 'image/png') {
-				const png = await validatedPng(artifact.bytes, source)
-				image = await fitPng(png, STANDARD_SCREENSHOT_LIMITS)
-			} else {
-				const target = screenshotTargetSize(source.width, source.height)
-				if (target.width !== source.width || target.height !== source.height)
-					throw new Error(
-						`This ${source.mediaType} image needs resizing. JPEG/WebP decoding and resizing are unavailable here; export a PNG (or a smaller JPEG/WebP) and inspect that file.`,
-					)
-			}
-			context.abortSignal.throwIfAborted()
-			const validation = source.mediaType === 'image/png' ? 'decoded' : 'container'
-			const output = `Image artifact: ${artifact.path} (${source.width}x${source.height}, ${source.mediaType}); shown at ${image.width}x${image.height}.`
-			return {
-				success: true,
-				output,
-				content: [
-					{
-						type: 'text',
-						text: `${output}\n${validation === 'container' ? 'The complete container and dimensions were validated; compressed JPEG/WebP pixels were not decoded by this tool. ' : ''}Inspect these pixels for visual evidence. This saved artifact is not a current computer_use screenshot; capture the application before GUI input.`,
-					},
-					{
-						type: 'image',
-						mediaType: source.mediaType,
-						data: image.data.toString('base64'),
-					},
-				],
-				data: {
-					path: artifact.path,
-					sandboxed: artifact.sandboxed,
-					artifact: true,
-					mediaType: source.mediaType,
-					sourceWidth: source.width,
-					sourceHeight: source.height,
-					width: image.width,
-					height: image.height,
-					sourceBytes: artifact.bytes.length,
-					sha256: createHash('sha256').update(artifact.bytes).digest('hex'),
-					validation,
-				},
-			}
+			return inspectImageBytes(artifact, context.abortSignal)
 		},
 	})
 }

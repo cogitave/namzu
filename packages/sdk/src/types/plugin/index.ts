@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+	MAX_AGENT_DIRS_PER_PLUGIN,
+	MAX_COMMAND_DIRS_PER_PLUGIN,
 	MAX_CONNECTORS_PER_PLUGIN,
 	MAX_HOOKS_PER_PLUGIN,
 	MAX_MCP_SERVERS_PER_PLUGIN,
@@ -100,10 +102,27 @@ export type PluginHookEvent =
 	/** A compaction pass is about to run / has run. Carries `compaction`. */
 	| 'pre_compact'
 	| 'post_compact'
-	/** A child session's turn ended. Fired after its own `turn_end`; carries `parentSessionId` and `parentTurnId`. */
+	/**
+	 * A child session is starting, before its first prompt. Carries `parentSessionId`,
+	 * `parentTurnId` and `agentType`. A hook may `annotate` to add context to the
+	 * child's turn.
+	 */
+	| 'subagent_start'
+	/** A child session's turn ended. Fired after its own `turn_end`; carries `parentSessionId`, `parentTurnId` and `agentType`. */
 	| 'subagent_stop'
+	/**
+	 * A child session's turn is starting. Fired right after its own
+	 * `turn_start`; carries `parentSessionId` and `parentTurnId`. Observational.
+	 */
+	| 'subagent_start'
 	| 'turn_start'
 	| 'turn_end'
+	/**
+	 * A turn ended because the model call or the turn itself failed, not because
+	 * the model finished. Carries `error` (the message). Observational: the turn
+	 * has already failed.
+	 */
+	| 'turn_failure'
 	| 'turn_interrupt'
 	| 'pre_tool_use'
 	| 'post_tool_use'
@@ -113,6 +132,19 @@ export type PluginHookEvent =
 	 * and `toolResult`.
 	 */
 	| 'post_tool_use_failure'
+	/**
+	 * Every tool call of one model step has settled, before the next model
+	 * request. Fired once per step; carries `toolCalls`. `post_tool_use` fires
+	 * per call and calls may run side by side, so this is the place to look at
+	 * the step as a whole. `continue` may carry `halt`.
+	 */
+	| 'post_tool_batch'
+	/**
+	 * A tool call was refused without a person saying No: by a rule, the
+	 * policy of the current mode, a classifier, or a hook. Carries `toolName`,
+	 * `toolInput` and `reason`. Observational.
+	 */
+	| 'permission_denied'
 	/**
 	 * A person is about to be asked whether a tool call may run. Carries
 	 * `toolName` and `toolInput`. A hook may answer before the question is
@@ -151,13 +183,17 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'session_end':
 		case 'pre_compact':
 		case 'post_compact':
+		case 'subagent_start':
 		case 'subagent_stop':
 		case 'turn_start':
 		case 'turn_end':
+		case 'turn_failure':
 		case 'turn_interrupt':
 		case 'pre_tool_use':
 		case 'post_tool_use':
 		case 'post_tool_use_failure':
+		case 'post_tool_batch':
+		case 'permission_denied':
 		case 'permission_request':
 		case 'notification':
 		case 'pre_llm_call':
@@ -217,6 +253,16 @@ export interface PluginCompactionInfo {
 	readonly contextWindowTokens: number
 }
 
+/** One call in a `post_tool_batch` hook's context. */
+export interface PluginToolBatchCall {
+	readonly toolCallId: string
+	readonly toolName: string
+	readonly toolInput: unknown
+	/** The text the model was given for the call, a refusal or an error included. */
+	readonly output: string
+	readonly isError: boolean
+}
+
 /** What a `notification` hook is shown. */
 export interface PluginNotificationInfo {
 	/**
@@ -234,10 +280,12 @@ export interface PluginHookContext {
 	readonly event: PluginHookEvent
 	/** The host's session. Always present. */
 	readonly sessionId: SessionId
-	/** The session that delegated, on `subagent_stop`. */
+	/** The session that delegated, on `subagent_start` and `subagent_stop`. */
 	readonly parentSessionId?: SessionId
-	/** The turn whose tool call spawned the child, on `subagent_stop`. */
+	/** The turn whose tool call spawned the child, on `subagent_start` and `subagent_stop`. */
 	readonly parentTurnId?: TurnId
+	/** The name of the agent the child runs, on `subagent_start` and `subagent_stop`. */
+	readonly agentType?: string
 	/** The operator's prompt, on `user_prompt_submit`. */
 	readonly prompt?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
@@ -245,6 +293,12 @@ export interface PluginHookContext {
 	readonly toolName?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
+	/** The calls of one model step with their outcomes, on `post_tool_batch`. */
+	readonly toolCalls?: readonly PluginToolBatchCall[]
+	/** Why the call was refused, on `permission_denied`. */
+	readonly reason?: string
+	/** The failure's message, on `turn_failure`. */
+	readonly error?: string
 	/** What the host is telling the operator, on `notification`. */
 	readonly notification?: PluginNotificationInfo
 	/**
@@ -406,19 +460,27 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 /** Actions the query can interpret for a particular hook event. */
 export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_prompt_submit'
 	? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
-	: E extends 'pre_tool_use'
-		? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
-		: E extends 'post_tool_use'
-			? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
-			: E extends 'post_tool_use_failure'
-				? Extract<PluginHookResult, { action: 'continue' | 'error' }>
-				: E extends 'permission_request'
-					? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
-					: E extends 'turn_end' | 'subagent_stop' | 'pre_compact'
-						? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-						: E extends 'turn_interrupt' | 'session_start' | 'session_end' | 'notification'
-							? Extract<PluginHookResult, { action: 'continue' }>
-							: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+	: E extends 'subagent_start'
+		? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
+		: E extends 'pre_tool_use'
+			? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
+			: E extends 'post_tool_use'
+				? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
+				: E extends 'post_tool_use_failure'
+					? Extract<PluginHookResult, { action: 'continue' | 'error' }>
+					: E extends 'permission_request'
+						? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
+						: E extends 'turn_end' | 'subagent_stop' | 'pre_compact'
+							? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+							: E extends
+										| 'turn_interrupt'
+										| 'session_start'
+										| 'session_end'
+										| 'notification'
+										| 'turn_failure'
+										| 'permission_denied'
+								? Extract<PluginHookResult, { action: 'continue' }>
+								: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
@@ -475,6 +537,18 @@ export interface PluginManifest {
 	readonly mcpServers?: readonly PluginMCPServerConfig[]
 	readonly connectors?: readonly string[]
 	readonly personas?: readonly string[]
+	/**
+	 * Folders of markdown prompt files, relative to the plugin folder. Each
+	 * file is a slash command named `<plugin>__<file name>`. The runtime does
+	 * not read them: the host that owns slash commands does.
+	 */
+	readonly commands?: readonly string[]
+	/**
+	 * Folders of markdown agent files, relative to the plugin folder. Each
+	 * file is an agent type named `<plugin>__<name>`. Read by the host that
+	 * owns delegation, not by the runtime.
+	 */
+	readonly agents?: readonly string[]
 }
 
 export const PluginMCPServerConfigSchema = z
@@ -486,6 +560,16 @@ export const PluginMCPServerConfigSchema = z
 		connectTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
 	})
 	.strict()
+
+/** A folder inside the plugin: relative, no `..` step, no drive or root. */
+const PluginRelativeDirSchema = z
+	.string()
+	.min(1)
+	.refine(
+		(value) =>
+			!/^([a-zA-Z]:|[\\/])/.test(value) && !value.split(/[\\/]/).some((part) => part === '..'),
+		'must be a folder inside the plugin, with no ".." and no absolute path',
+	)
 
 export const PluginManifestSchema = z.object({
 	name: z
@@ -503,6 +587,8 @@ export const PluginManifestSchema = z.object({
 	mcpServers: z.array(PluginMCPServerConfigSchema).max(MAX_MCP_SERVERS_PER_PLUGIN).optional(),
 	connectors: z.array(z.string()).max(MAX_CONNECTORS_PER_PLUGIN).optional(),
 	personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),
+	commands: z.array(PluginRelativeDirSchema).max(MAX_COMMAND_DIRS_PER_PLUGIN).optional(),
+	agents: z.array(PluginRelativeDirSchema).max(MAX_AGENT_DIRS_PER_PLUGIN).optional(),
 })
 
 // ---------------------------------------------------------------------------

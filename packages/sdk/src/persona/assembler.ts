@@ -1,5 +1,5 @@
 import type { AgentPersona, OutputDiscipline } from '../types/persona/index.js'
-import { type Skill, isInvocableBy } from '../types/skills/index.js'
+import { type Skill, isInvocableBy, skillModelDescription } from '../types/skills/index.js'
 
 export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): string {
 	const sections: string[] = []
@@ -58,7 +58,7 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 			const lines = [
 				'<skill>',
 				`<name>${s.metadata.name}</name>`,
-				`<description>${s.metadata.description.trim()}</description>`,
+				`<description>${skillModelDescription(s.metadata)}</description>`,
 				`<location>${s.dirPath}/SKILL.md</location>`,
 			]
 			if (s.metadata.compatibility) {

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Flags for one run
-description: --append-system-prompt, --allowed-tools, --disallowed-tools, --fallback-model and --max-budget-usd on namzu exec and the interactive session; where each goes in the prompt, how each combines with the config, and what a bad value does.
+description: --append-system-prompt, --allowed-tools, --disallowed-tools, --fallback-model, --max-budget-usd, --fork-session and --no-session-persistence on namzu exec and the interactive session; where each goes in the prompt, how each combines with the config, and what a bad value does.
 resource: packages/cli/src/commands/run-flags.ts
 tags: [cli, headless, permissions, providers, limits]
 status: stable
@@ -59,3 +59,13 @@ A fallback lasts for the rest of that reply only. The next reply starts again wi
 ## Spend limit
 
 `--max-budget-usd <amount>` stops a headless run when its priced spend reaches the amount; it takes a number above zero. A delegated agent is held to the full amount on its own, so a run that delegates can spend more than the amount in total. See [Turn limits](turn-limits.md#spend-limit) for what is counted, the exit code and what happens with a model that has no price.
+
+## Keeping or copying the conversation
+
+`namzu exec` records each run as a conversation that `--continue` and `--resume <id>` can pick up. Two flags change that for one run.
+
+`--fork-session` goes with `--continue` or `--resume <id>`. The run carries on in a copy of that conversation, the line `resuming <id> ... carrying on in a copy, <new id>` names the copy, and the original is left exactly as it was. Without one of the two it is refused with exit status 64, because there is nothing to copy.
+
+`--no-session-persistence` runs against an in-memory session log from the outset. No conversation journal or durable fork is created, even while the turn is running or if the process crashes, so `--continue` will not find it and `namzu drain` has nothing to finish. With `--continue` or `--resume <id>`, existing history is read through an in-memory index without initializing persistent metadata, then copied into the transient run; the original is never written to. `--wait-for-provider` can resume a pause in this process, but a paused turn cannot be resumed after the process exits. Other state a run may touch (memory, project files), and explicitly configured telemetry/session exports, are not disabled by this flag.
+
+`exec --json` accepts `--no-session-persistence` as an explicit spelling of its default stateless mode; it refuses the flag beside `--session` rather than silently losing the host's keyed history. `--fork-session` is refused by `exec --json`. Resident work refuses both flags because it owns its sessions.

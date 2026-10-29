@@ -47,6 +47,12 @@ export interface WorkspaceInspection {
 	exists: boolean
 	currentRef: string
 	isDirty: boolean
+	/**
+	 * Whether the workspace moved off the commit it started on. Absent when the
+	 * backend cannot tell; a caller deciding whether to keep it treats absent
+	 * as `true`.
+	 */
+	hasNewCommits?: boolean
 }
 
 /**

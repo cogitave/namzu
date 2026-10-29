@@ -100,8 +100,12 @@ export interface SubSession {
 	failureMode: FailureMode
 	completionMode: CompletionMode
 	workspaceId: WorkspaceId | null
-	/** Keep this delegated workspace when the child ends or its session is archived. */
-	workspaceRetention?: 'retain'
+	/**
+	 * Keep this delegated workspace when the child ends or its session is
+	 * archived. `retain-changed` keeps it only if the child changed something;
+	 * a workspace that is still there is therefore one worth keeping.
+	 */
+	workspaceRetention?: 'retain' | 'retain-changed'
 	/**
 	 * For interventions, the immutable artifact being addressed. Chains form
 	 * a strict acyclic DAG — see session-hierarchy.md §4.5.

@@ -1,8 +1,9 @@
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
 import { walkFilesLocally } from '../../sandbox/file-walk.js'
 import type { SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { defineTool } from '../defineTool.js'
 import {
@@ -13,6 +14,7 @@ import {
 	toolRoots,
 } from '../paths.js'
 import { relativePosix, resolveWithinPosix } from '../posix-path.js'
+import { readBoundedChunks, readBoundedFile } from './bounded-file-read.js'
 
 /** A remote read has no signal parameter; stop consuming it when the turn ends. */
 async function readWithSignal(read: () => Promise<Buffer>, signal?: AbortSignal): Promise<Buffer> {
@@ -57,6 +59,46 @@ export const DEFAULT_HEAD_LIMIT = 250
 /** A matching or context line longer than this is replaced by a notice, not printed. */
 export const MAX_LINE_COLUMNS = 500
 
+/** File kinds for the `type` argument: extensions (without the dot) and exact file names. */
+const FILE_TYPES: Record<string, { ext: string[]; names?: string[] }> = {
+	js: { ext: ['js', 'jsx', 'mjs', 'cjs'] },
+	ts: { ext: ['ts', 'tsx', 'mts', 'cts'] },
+	py: { ext: ['py', 'pyi'] },
+	rust: { ext: ['rs'] },
+	go: { ext: ['go'] },
+	java: { ext: ['java'] },
+	kotlin: { ext: ['kt', 'kts'] },
+	swift: { ext: ['swift'] },
+	c: { ext: ['c', 'h'] },
+	cpp: { ext: ['cc', 'cpp', 'cxx', 'hpp', 'hh', 'hxx', 'h'] },
+	cs: { ext: ['cs'] },
+	rb: { ext: ['rb', 'rake', 'gemspec'] },
+	php: { ext: ['php'] },
+	sh: { ext: ['sh', 'bash', 'zsh'] },
+	md: { ext: ['md', 'markdown', 'mdx'] },
+	json: { ext: ['json', 'jsonc'] },
+	yaml: { ext: ['yml', 'yaml'] },
+	toml: { ext: ['toml'] },
+	html: { ext: ['html', 'htm'] },
+	css: { ext: ['css', 'scss', 'sass', 'less'] },
+	sql: { ext: ['sql'] },
+	xml: { ext: ['xml'] },
+	make: { ext: ['mk', 'mak'], names: ['Makefile', 'makefile', 'GNUmakefile'] },
+	docker: { ext: [], names: ['Dockerfile'] },
+}
+FILE_TYPES.javascript = FILE_TYPES.js as { ext: string[] }
+FILE_TYPES.typescript = FILE_TYPES.ts as { ext: string[] }
+FILE_TYPES.python = FILE_TYPES.py as { ext: string[] }
+FILE_TYPES.rs = FILE_TYPES.rust as { ext: string[] }
+FILE_TYPES.markdown = FILE_TYPES.md as { ext: string[] }
+
+function matchesType(path: string, kind: { ext: string[]; names?: string[] }): boolean {
+	const name = path.slice(path.lastIndexOf('/') + 1)
+	if (kind.names?.includes(name)) return true
+	const dot = name.lastIndexOf('.')
+	return dot > 0 && kind.ext.includes(name.slice(dot + 1))
+}
+
 const inputSchema = z.object({
 	pattern: z.string().describe('Regular expression pattern to search for in file contents'),
 	path: z
@@ -74,6 +116,24 @@ const inputSchema = z.object({
 		.min(0)
 		.default(0)
 		.describe('Number of lines to show before and after each match'),
+	before_context: z.coerce
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe('Lines before each content match; overrides context_lines for this side.'),
+	after_context: z.coerce
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe('Lines after each content match; overrides context_lines for this side.'),
+	only_matching: z
+		.boolean()
+		.optional()
+		.describe(
+			'In content mode, print each matched substring instead of the whole line. Ignores context.',
+		),
 	output_mode: z
 		.enum(['files_with_matches', 'content', 'count'])
 		.default('files_with_matches')
@@ -94,6 +154,18 @@ const inputSchema = z.object({
 		.min(0)
 		.default(0)
 		.describe('Skip this many entries before applying head_limit, to page through results.'),
+	multiline: z
+		.boolean()
+		.optional()
+		.describe(
+			'Let a pattern span lines: "." also matches a newline, and "^" and "$" match at line starts and ends. Content mode prints every line a match covers.',
+		),
+	type: z
+		.string()
+		.optional()
+		.describe(
+			'Only search files of this kind, e.g. "js", "ts", "py", "rust", "go", "java", "md". Narrows what include selects.',
+		),
 	max_results: z.coerce
 		.number()
 		.int()
@@ -117,7 +189,7 @@ function isBinaryContent(buffer: Buffer): boolean {
 export const GrepTool = defineTool({
 	name: 'grep',
 	description:
-		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Searches with a bounded traversal and identifies incomplete searches. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
+		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Set multiline for a pattern that spans lines and type (js, py, rust, ...) to search one kind of file. In content mode, before_context and after_context override symmetric context_lines; only_matching returns matched substrings without context. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Searches with a bounded traversal and identifies incomplete searches. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
 	inputSchema,
 	category: 'analysis',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -146,7 +218,18 @@ export const GrepTool = defineTool({
 
 	async execute(input, context) {
 		context.abortSignal?.throwIfAborted()
-		const flags = input.case_sensitive ? 'g' : 'gi'
+		const multiline = input.multiline === true
+		const flags = `${(input.case_sensitive ?? true) ? 'g' : 'gi'}${multiline ? 'ms' : ''}`
+		const fileType = input.type
+			? FILE_TYPES[input.type.toLowerCase().replace(/^\./, '')]
+			: undefined
+		if (input.type && !fileType) {
+			return {
+				success: false,
+				output: '',
+				error: `Unknown file type "${input.type}". Known types: ${Object.keys(FILE_TYPES).sort().join(', ')}. Use include for another pattern.`,
+			}
+		}
 		let regex: RegExp
 		try {
 			regex = new RegExp(input.pattern, flags)
@@ -189,6 +272,8 @@ export const GrepTool = defineTool({
 		// `max_results` predates `head_limit`; it keeps meaning "at most this many".
 		const headLimit = input.head_limit ?? input.max_results ?? DEFAULT_HEAD_LIMIT
 		const offset = input.offset ?? 0
+		const beforeContext = input.before_context ?? input.context_lines ?? 0
+		const afterContext = input.after_context ?? input.context_lines ?? 0
 		// Content lines in output order. Only content mode uses them as the
 		// result; the other modes build from `matchedFiles`.
 		const results: string[] = []
@@ -213,6 +298,7 @@ export const GrepTool = defineTool({
 					)
 				}
 				filesSearched++
+				if (fileType && !matchesType(entry.path, fileType)) continue
 				if (entry.size > MAX_FILE_SIZE) continue
 
 				let content: string
@@ -221,10 +307,15 @@ export const GrepTool = defineTool({
 					const buffer = await readWithSignal(
 						() =>
 							sandbox
-								? sandbox.readFile(filePath)
+								? readBoundedChunks(
+										(offset, length) =>
+											sandbox.readFile(filePath, { offset, length, signal: context.abortSignal }),
+										MAX_FILE_SIZE,
+										context.abortSignal,
+									)
 								: resolveWithinReal(root, filePath).then((path) => {
 										contained = path
-										return readFile(path, { signal: context.abortSignal })
+										return readBoundedFile(path, MAX_FILE_SIZE, context.abortSignal)
 									}),
 						context.abortSignal,
 					)
@@ -245,36 +336,47 @@ export const GrepTool = defineTool({
 							.split(sep)
 							.join('/')}`
 
-				for (let i = 0; i < lines.length; i++) {
-					context.abortSignal?.throwIfAborted()
-					const line = lines[i] ?? ''
-					regex.lastIndex = 0
-					if (!regex.test(line)) continue
+				if (mode === 'content' && input.only_matching) {
+					for (const fragment of matchingFragments(content, regex, multiline)) {
+						context.abortSignal?.throwIfAborted()
+						if (fileMatches++ === 0) filesMatched++
+						totalMatches++
+						results.push(`${relPath}:${fragment.line}:${clipLine(fragment.text, 'matching')}`)
+						if (headLimit > 0 && results.length >= offset + headLimit) {
+							pageHasMore = true
+							break
+						}
+					}
+					if (pageHasMore) break
+					continue
+				}
 
+				// Each hit is the first and last line (0-based) a match covers.
+				const hits = multiline ? multilineHits(content, regex) : lineHits(lines, regex, context)
+				// Count mode reports matching lines, so a line covered twice counts once.
+				const countedLines = new Set<number>()
+				for (const [first, last] of hits) {
+					context.abortSignal?.throwIfAborted()
 					if (fileMatches === 0) filesMatched++
 					fileMatches++
 					totalMatches++
 					// A file list only needs to know that the file matches.
 					if (mode === 'files_with_matches') break
-					if (mode === 'count') continue
+					if (mode === 'count') {
+						for (let j = first; j <= last; j++) countedLines.add(j)
+						continue
+					}
 
-					if (input.context_lines > 0) {
-						const start = Math.max(0, i - input.context_lines)
-						const end = Math.min(lines.length - 1, i + input.context_lines)
-
-						if (results.length > 0) {
-							results.push('--')
-						}
-
-						for (let j = start; j <= end; j++) {
-							const prefix = j === i ? ':' : '-'
-							const text = lines[j] ?? ''
-							results.push(
-								`${relPath}${prefix}${j + 1}${prefix}${clipLine(text, j === i ? 'matching' : 'context')}`,
-							)
-						}
-					} else {
-						results.push(`${relPath}:${i + 1}:${clipLine(line, 'matching')}`)
+					const before = Math.max(0, first - beforeContext)
+					const after = Math.min(lines.length - 1, last + afterContext)
+					if ((beforeContext > 0 || afterContext > 0) && results.length > 0) results.push('--')
+					for (let j = before; j <= after; j++) {
+						if (headLimit > 0 && results.length >= offset + headLimit) break
+						const hit = j >= first && j <= last
+						const prefix = hit ? ':' : '-'
+						results.push(
+							`${relPath}${prefix}${j + 1}${prefix}${clipLine(lines[j] ?? '', hit ? 'matching' : 'context')}`,
+						)
 					}
 
 					// A full page ends the search: another file is not read just to
@@ -285,6 +387,7 @@ export const GrepTool = defineTool({
 						break
 					}
 				}
+				if (mode === 'count' && fileMatches > 0) fileMatches = countedLines.size
 
 				if (fileMatches > 0 && mode !== 'content') {
 					matchedFiles.push({
@@ -403,4 +506,71 @@ async function sortByNewest<T extends { relPath: string; host?: string }>(
 	return stamped
 		.sort((a, b) => b.mtime - a.mtime || a.file.relPath.localeCompare(b.file.relPath))
 		.map((entry) => entry.file)
+}
+
+/** One hit per matching line. */
+function lineHits(
+	lines: readonly string[],
+	regex: RegExp,
+	context: ToolContext,
+): [number, number][] {
+	const hits: [number, number][] = []
+	for (let i = 0; i < lines.length; i++) {
+		context.abortSignal?.throwIfAborted()
+		regex.lastIndex = 0
+		if (regex.test(lines[i] ?? '')) hits.push([i, i])
+	}
+	return hits
+}
+
+/** One hit per match over the whole text, from the line it starts on to the line it ends on. */
+function multilineHits(content: string, regex: RegExp): [number, number][] {
+	const hits: [number, number][] = []
+	const starts = [0]
+	for (let i = content.indexOf('\n'); i !== -1; i = content.indexOf('\n', i + 1)) starts.push(i + 1)
+	const lineOf = (offset: number): number => {
+		let lo = 0
+		let hi = starts.length - 1
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1
+			if ((starts[mid] ?? 0) <= offset) lo = mid
+			else hi = mid - 1
+		}
+		return lo
+	}
+	regex.lastIndex = 0
+	for (let m = regex.exec(content); m !== null; m = regex.exec(content)) {
+		const text = m[0]
+		if (text.length === 0) {
+			regex.lastIndex++
+			continue
+		}
+		// A match that ends on a newline covers the lines before it, not the next one.
+		const end = m.index + text.length - (text.endsWith('\n') ? 1 : 0)
+		hits.push([lineOf(m.index), lineOf(Math.max(m.index, end))])
+	}
+	return hits
+}
+
+/** Lazy fragments: a dense file never allocates every match before paging. */
+function* matchingFragments(content: string, regex: RegExp, multiline: boolean) {
+	const subjects = multiline ? [content] : content.split('\n')
+	let line = 1
+	for (const subject of subjects) {
+		regex.lastIndex = 0
+		let previous = 0
+		for (let match = regex.exec(subject); match !== null; match = regex.exec(subject)) {
+			if (multiline) {
+				for (let i = previous; i < match.index; i++) if (subject[i] === '\n') line++
+				previous = match.index
+			}
+			if (match[0].length === 0) {
+				regex.lastIndex++
+				continue
+			}
+			// Keep a multiline substring on one output row, never forge path rows.
+			yield { line, text: match[0].replace(/\n/g, '\\n') }
+		}
+		if (!multiline) line++
+	}
 }

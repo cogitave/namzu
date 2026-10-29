@@ -249,7 +249,7 @@ export interface ToolCallSummary {
 		explicitReview?: true
 		/**
 		 * A rule written to ask a person (a `review` rule), or a hook that asked
-		 * for one, requested this review. Unlike {@link explicitReview} it is not
+		 * for one, requested this review. Like {@link explicitReview}, it is not
 		 * set when an `allow` rule was demoted to review because the call reaches
 		 * past its boundary. `bypass` and `classify` keep this question for a
 		 * person; they answer the demoted kind themselves.

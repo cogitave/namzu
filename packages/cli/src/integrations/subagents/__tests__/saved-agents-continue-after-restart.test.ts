@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -9,11 +9,14 @@ import {
 	SessionPaths,
 	type ToolContext,
 	type TurnId,
+	WriteFileTool,
+	createReviewHandler,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { createSubagentRuntime } from '../runtime.js'
+import { type SubagentRuntimeOptions, createSubagentRuntime } from '../runtime.js'
 import type { SavedAgent } from '../saved-agents.js'
 
 const directories: string[] = []
@@ -28,6 +31,7 @@ async function runProgram(
 	saved: (id: string) => SavedAgent | undefined,
 	label: string,
 	known: readonly string[] = ['alt-model'],
+	runtimeOptions: Partial<SubagentRuntimeOptions> = {},
 ) {
 	const requests: ChatCompletionParams[] = []
 	const models: (string | undefined)[] = []
@@ -70,6 +74,7 @@ async function runProgram(
 				}
 			},
 		}),
+		...runtimeOptions,
 	})
 	const contextFor = (turnId: TurnId): ToolContext => ({
 		sessionId: parent.scope.sessionId,
@@ -83,11 +88,14 @@ async function runProgram(
 }
 
 /** A finished agent of a program that has since exited. */
-async function finishedBeforeRestart(launch: Record<string, unknown> = {}) {
+async function finishedBeforeRestart(
+	launch: Record<string, unknown> = {},
+	runtimeOptions: Partial<SubagentRuntimeOptions> = {},
+) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-restart-'))
 	directories.push(cwd)
 	const parent = await subagentParentFixture(cwd)
-	const before = await runProgram(cwd, parent, () => undefined, 'BEFORE')
+	const before = await runProgram(cwd, parent, () => undefined, 'BEFORE', undefined, runtimeOptions)
 	const receipt = await before.runtime.agentTool.execute(
 		{ description: 'investigate', prompt: 'ORIGINAL_TASK', run_in_background: false, ...launch },
 		before.contextFor(parent.scope.turnId),
@@ -147,6 +155,69 @@ describe('an agent saved by an earlier run of the program', () => {
 			const rail = after.runtime.activity.getSnapshot()
 			expect(rail).toHaveLength(1)
 			expect(rail[0]?.description).toBe('investigate')
+		} finally {
+			await after.runtime.close()
+		}
+	})
+
+	it('reapplies the current agent file mode to a continuation after restart', async () => {
+		const definitions: NonNullable<SubagentRuntimeOptions['definitions']> = [
+			{
+				name: 'worker',
+				description: 'A worker',
+				prompt: 'Work on the task',
+				readOnly: false,
+				path: '/project/.namzu/agents/worker.md',
+				source: 'project',
+				permissionMode: 'plan',
+			},
+		]
+		const world = await finishedBeforeRestart({ subagent_type: 'worker' }, { definitions })
+		const narrowedReview = vi.fn(() => ({
+			resumeHandler: createReviewHandler({ mode: 'plan' }),
+			reviewAllowedCalls: () => true,
+		}))
+		const after = await runProgram(
+			world.cwd,
+			world.parent,
+			(id) => (id === world.childId ? world.record() : undefined),
+			'AFTER',
+			undefined,
+			{
+				definitions,
+				resolveAgentReview: narrowedReview,
+				buildTools: () => [toolset('test', [WriteFileTool])],
+				buildProvider: () =>
+					new MockLLMProvider({
+						turns: [
+							{
+								toolCalls: [
+									{
+										id: 'write-1',
+										name: 'write',
+										args: { path: 'blocked.txt', content: 'must not run' },
+									},
+								],
+							},
+							{ text: 'done' },
+						],
+					}),
+			},
+		)
+		const turn = world.parent.addTurn()
+		try {
+			const sent = await after.runtime.sendMessageTool.execute(
+				{ task_id: world.childId, message: 'Continue the task' },
+				after.contextFor(turn),
+			)
+			expect(sent.success).toBe(true)
+			const result = await after.runtime.waitForTaskTool.execute(
+				{ task_id: world.childId },
+				after.contextFor(turn),
+			)
+			expect(result.success).toBe(true)
+			expect(narrowedReview).toHaveBeenCalledWith(turn, 'plan')
+			expect(existsSync(join(world.cwd, 'blocked.txt'))).toBe(false)
 		} finally {
 			await after.runtime.close()
 		}

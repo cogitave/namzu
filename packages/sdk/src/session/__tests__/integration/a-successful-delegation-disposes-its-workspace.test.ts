@@ -122,6 +122,8 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 	readonly kind = 'git-worktree' as const
 	readonly created: WorkspaceRef[] = []
 	readonly disposed: WorkspaceId[] = []
+	/** What a look at the checkout reports; a test sets it before the child ends. */
+	inspection: WorkspaceInspection | Error = { exists: true, currentRef: 'x', isDirty: false }
 	private counter = 0
 
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
@@ -152,7 +154,8 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 	}
 
 	async inspect(_ref: WorkspaceRef): Promise<WorkspaceInspection> {
-		throw new Error('unused in this test')
+		if (this.inspection instanceof Error) throw this.inspection
+		return this.inspection
 	}
 }
 
@@ -422,6 +425,52 @@ describe('a delegated child does not outlive its workspace', () => {
 			expect(subSession?.workspaceRetention).toBe('retain')
 		},
 	)
+
+	describe('a checkout kept only when the child changed something', () => {
+		const retainChanged = {
+			mode: 'isolated',
+			backend: 'git-worktree',
+			retention: 'retain-changed',
+		} as const
+
+		it.each(['completed', 'failed'] as const)(
+			'removes the checkout of a %s child that left it untouched',
+			async (outcome) => {
+				const { manager, driver, options, taskContext } = await harness(outcome)
+				driver.inspection = { exists: true, currentRef: 'x', isDirty: false, hasNewCommits: false }
+				const task = await manager.sendMessage(
+					{ ...options, workspace: retainChanged },
+					taskContext,
+				)
+				await manager.waitForCompletion(task.taskId)
+				if (outcome === 'failed') await vi.waitFor(() => expect(driver.disposed).toHaveLength(1))
+				expect(driver.disposed).toEqual([driver.created[0]?.id])
+			},
+		)
+
+		it.each([
+			['uncommitted changes', { isDirty: true, hasNewCommits: false }],
+			['new commits', { isDirty: false, hasNewCommits: true }],
+			['no way to tell whether it moved', { isDirty: false }],
+		] as const)('keeps the checkout when it has %s', async (_name, seen) => {
+			const { store, manager, driver, parentSession, options, taskContext } =
+				await harness('completed')
+			driver.inspection = { exists: true, currentRef: 'x', ...seen }
+			const task = await manager.sendMessage({ ...options, workspace: retainChanged }, taskContext)
+			await manager.waitForCompletion(task.taskId)
+			expect(driver.disposed).toEqual([])
+			const [subSession] = await store.getChildren(parentSession.id, tenant)
+			expect(subSession?.workspaceRetention).toBe('retain-changed')
+		})
+
+		it('keeps the checkout when it cannot be inspected', async () => {
+			const { manager, driver, options, taskContext } = await harness('completed')
+			driver.inspection = new Error('git unavailable')
+			const task = await manager.sendMessage({ ...options, workspace: retainChanged }, taskContext)
+			await manager.waitForCompletion(task.taskId)
+			expect(driver.disposed).toEqual([])
+		})
+	})
 
 	it('removes an unadmitted checkout when its workspace record cannot be saved', async () => {
 		const { store, manager, driver, options, taskContext } = await harness('completed')

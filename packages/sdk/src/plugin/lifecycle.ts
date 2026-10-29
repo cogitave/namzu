@@ -180,6 +180,8 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 		...(mcpServers ? { mcpServers: Object.freeze(mcpServers) } : {}),
 		...(manifest.connectors ? { connectors: Object.freeze([...manifest.connectors]) } : {}),
 		...(manifest.personas ? { personas: Object.freeze([...manifest.personas]) } : {}),
+		...(manifest.commands ? { commands: Object.freeze([...manifest.commands]) } : {}),
+		...(manifest.agents ? { agents: Object.freeze([...manifest.agents]) } : {}),
 	})
 }
 
@@ -438,11 +440,23 @@ export class PluginLifecycleManager {
 		if (index >= 0) this.listeners.splice(index, 1)
 	}
 
-	async install(pluginDir: string, scope: PluginScope): Promise<PluginDefinition> {
+	/**
+	 * `options.authorityRoot` names the folder the plugin must stay inside when
+	 * it is not the scope's own root: a plugin a person points at directly for
+	 * one session is its own authority. It applies to this admission only.
+	 */
+	async install(
+		pluginDir: string,
+		scope: PluginScope,
+		options: { readonly authorityRoot?: string } = {},
+	): Promise<PluginDefinition> {
 		// Admission and enable read the same constructor-owned capability. The
 		// loader defaults this to false for direct callers; a manager that really
 		// owns the registry is the authority that can opt the manifest in.
-		const rootDir = await resolveWithinReal(this.scopeRoots[scope], pluginDir)
+		const rootDir = await resolveWithinReal(
+			options.authorityRoot ?? this.scopeRoots[scope],
+			pluginDir,
+		)
 		const manifest = immutableManifest(
 			await loadPluginManifest(rootDir, {
 				skillsSupported: Boolean(this.skillRegistry),

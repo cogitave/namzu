@@ -60,6 +60,19 @@ additional narrowing, while an explicit empty list reveals nothing. A
 no-match result describes the permitted roster; it does not reveal whether
 another tool exists outside that scope.
 
+## The catalogue is not live availability status
+
+The prompt's `available_tools` and `deferred_tools` catalogue is a discovery
+snapshot, not live status. The **current runtime tools parameter** is
+authoritative: when a tool's schema is visible there, call it directly, even
+if the boot-time catalogue lists it under `deferred_tools`. Do not search
+again merely because that older listing remains in the prompt. Only when a
+needed deferred schema is absent should the model call `search_tools` with
+its exact name. A successful reveal makes the schema available on the next
+model request in the same turn and, with retained source-bound receipts,
+on later sends. Compaction resets receipts as described below; readiness,
+step allow-lists and authorization still apply independently of discovery.
+
 ## A successful result can load deferred schemas
 
 `search_tools` is one way to load a deferred schema; a tool's own

@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from '../provider/chat.js'
+
 /**
  * Who may reach for a skill.
  *
@@ -37,6 +39,52 @@ export interface SkillMetadata {
 	invocation?: SkillInvocation
 
 	metadata?: Record<string, string>
+
+	/**
+	 * When the model should reach for the skill, in the author's words.
+	 * Shown to the model next to the description (`when_to_use`); see
+	 * {@link skillModelDescription}.
+	 */
+	whenToUse?: string
+
+	/**
+	 * Where the skill runs. `fork` hands its instructions to a delegated agent
+	 * and returns that agent's report; absent or `inline` loads them into the
+	 * current conversation.
+	 */
+	context?: 'inline' | 'fork'
+
+	/** The delegated agent type a `fork` skill runs as (`agent`). */
+	agent?: string
+
+	/**
+	 * The model a `fork` skill's delegated agent runs on (`model`). An inline
+	 * skill runs on the turn's own model; this does not switch it.
+	 */
+	model?: string
+
+	/**
+	 * The reasoning effort requested for a `fork` skill's delegated agent
+	 * (`effort`), even without `model`. The host validates the combination;
+	 * this does not switch the current turn's effort for an inline skill.
+	 */
+	effort?: ReasoningEffort
+
+	/** Whether a `fork` skill's agent runs in the background (`background`). */
+	background?: boolean
+}
+
+/**
+ * What the model reads as a skill's description: the description, then the
+ * author's `when_to_use` guidance when there is one.
+ */
+export function skillModelDescription(metadata: {
+	description: string
+	whenToUse?: string
+}): string {
+	const description = metadata.description.trim()
+	const when = metadata.whenToUse?.trim()
+	return when ? `${description} - ${when}` : description
 }
 
 /** What a skill that says nothing means. */

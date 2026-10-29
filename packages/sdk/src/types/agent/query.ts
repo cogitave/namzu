@@ -18,6 +18,8 @@ import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface QueryAgentConfig extends BaseAgentConfig {
 	systemPrompt?: string
+	/** Host lifecycle hooks; forwarded unchanged to the child query. */
+	pluginManager?: QueryParams['pluginManager']
 	/** Provider-hosted search for this turn; the selected driver must support it. */
 	webSearch?: { mode: 'live' | 'cached' }
 

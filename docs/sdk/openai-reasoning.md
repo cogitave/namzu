@@ -9,6 +9,18 @@ status: stable
 
 # OpenAI reasoning effort
 
+## Empty assistant history on the API wire
+
+The API-key Chat Completions driver omits assistant entries that have neither
+content nor tool calls after wire conversion. Interrupted replies or
+reasoning-only turns from another provider can otherwise become invalid empty
+assistant messages. This is outbound normalization, not a rewrite of the stored
+conversation: original reasoning remains in history, tool-only assistant turns
+and their results are preserved, and no placeholder answer or foreign private
+reasoning is inserted into the request. It applies to both streaming and
+non-streaming Chat Completions requests; the subscription Responses driver
+retains its separate native replay rules below.
+
 `CodexProvider.listModels(signal?)` reads the account's actual subscription model
 catalogue and publishes each model's `reasoningEffortLevels` and
 `reasoningEffortDefault` in its `ModelInfo`. There is no subscription model-name

@@ -52,6 +52,11 @@ export interface LiveModeControl {
 	readonly handler: ResumeHandler
 	/** The policy name the turn starts under (`approvalPolicyName`). */
 	readonly initialName: PermissionMode
+	/**
+	 * The review handler for one fixed mode, for a delegated agent whose file
+	 * names its own. It does not follow the turn's live mode.
+	 */
+	handlerForMode(mode: PermissionMode): ResumeHandler
 	/** The mode decisions are made under right now. */
 	current(): PermissionMode
 	/**
@@ -128,6 +133,7 @@ export function createLiveModeControl(options: LiveModeOptions): LiveModeControl
 	const initialName = options.recorded ?? options.initial
 	return {
 		handler,
+		handlerForMode: handlerOf,
 		initialName,
 		current,
 		reviewAllowedCalls: () => modeReviewsAllowedCalls(current()),

@@ -22,13 +22,13 @@ import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
 
 /**
- * A sub-agent has no mode of its own.
+ * A sub-agent follows its parent's mode unless its agent file names a
+ * narrower one (`a-child-runs-in-its-agent-files-mode.test.ts`).
  *
  * Its calls are decided by the handler of the turn that started it, in that
  * turn's mode as it is when each call is made. So a child is in `bypass` only
  * when its parent is, an `accept-edits` or `auto` parent cannot be widened by
- * anything the child says about itself (there is nothing to say: an agent file
- * names a model and tools, never a mode), and a parent that drops back to
+ * anything the child says about itself, and a parent that drops back to
  * `prompt` takes the child with it.
  */
 

@@ -25,11 +25,52 @@ namzu exec --json --session my-window-7 "refactor the parser" \
 It takes the same options as the default mode (`--provider`, `--model`,
 `--effort`, `--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`,
 `--output-schema`, `--mcp-config`, the limit flags, the [per-run flags](run-flags.md) and the `[permissions]` config table),
-except `--continue`, `--resume` and `--wait-for-provider`, which are refused by
+except `--continue`, `--resume`, `--fork-session` and `--wait-for-provider`, which are refused by
 name rather than ignored. With `--output-schema <file>` the settled answer in
 `done.text` is JSON bound to that schema; a schema that cannot be loaded is an
 `error` event and exit 0, because the caller can fix it. See
 [Exit codes of `namzu exec`](exec-exit-codes.md#a-structured-answer---output-schema).
+
+## Explicit input and output formats
+
+`namzu exec --print` (or `-p`) explicitly selects headless execution; `exec`
+is already headless. `--output-format text` prints the final text,
+`--output-format json` prints the native final-result JSON value (the same
+formatter as `namzu --format json exec`), and `--output-format stream-json`
+is an alias for the existing `--json` event stream. Conflicting `--json` and
+non-streaming output formats are refused. Without these flags, existing
+formatting and stdin behavior are unchanged.
+
+`--input-format text` treats stdin as prompt text, even with streaming
+output. Alongside a prompt argument it is appended inside `<stdin>` tags;
+without one it supplies the prompt. Without `--input-format`, `--json` keeps
+its existing optional JSON `Message[]` history input described below.
+
+`--input-format stream-json` requires `--json` or `--output-format stream-json`
+and a pipe on stdin, with no prompt arguments. This is **Namzu's native input
+format**, not a compatibility promise for another program's wire protocol:
+
+```json
+{"role":"user","content":"Inspect the parser"}
+{"role":"user","content":"Now explain the result"}
+```
+
+Each nonblank line is a JSON user message with nonempty string `content` and
+an optional finite numeric `timestamp`; Namzu assigns the runtime timestamp.
+Other fields, roles and runtime provenance are refused. UTF-8 split across
+chunks, CRLF, blank lines and a final line without a newline are supported.
+One line is limited to 1 MiB. A malformed first line starts no session; a
+malformed later line reports an error and closes the session without starting
+another turn.
+
+The first complete line starts a turn **before stdin closes**. Further lines
+are processed sequentially in the same agent session, after the previous
+turn's settled history and any workflow reports. Each input turn emits its
+own `done`; `init` is emitted once. EOF closes the session. A paused or busy
+turn stops the input run instead of starting another turn over it. Explicit
+`--session` uses the same persisted conversation throughout; without it the
+whole input run stays in memory, also with `--no-session-persistence`.
+The configured/flag dollar budget is shared across turns, not reset per line.
 
 ## The stream
 
@@ -38,6 +79,7 @@ NDJSON, so stdout stays a clean protocol stream.
 
 | `kind` | When |
 |---|---|
+| `init` | Once, before the turn and after any notices: `cwd`, `provider`, `model`, `permissionMode`, `tools` (names), `mcpServers` (`name` and `status`, `connected` or `failed`), `slashCommands`, and `sessionId` when `--session` bound one. |
 | `delta` | Assistant text as it streams. Earlier deltas may include progress, or an answer later rejected by verification. |
 | `reasoning` | A reasoning block, when the model exposes one. |
 | `tool-start`, `tool-progress`, `tool-end` | Around each tool call, keyed by `toolUseId`. |
@@ -61,7 +103,11 @@ is appended to the session log, where `namzu history --session <key>` reads it
 back.
 
 Without `--session`, prior history may be supplied on stdin as one JSON
-`Message[]`, and nothing is persisted: the call is a stateless one-shot.
+`Message[]`, and no conversation journal is persisted: the call uses an
+in-memory session log without opening a durable conversation store. Explicit
+`--no-session-persistence` selects the same mode; combining it with `--session`
+is refused rather than silently ignoring the keyed history. This does not
+disable other project state or explicitly configured telemetry exports.
 Invalid or provider-incomplete tool history is refused before a turn starts.
 A tool call's `metadata.inputError` (see
 [Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) is

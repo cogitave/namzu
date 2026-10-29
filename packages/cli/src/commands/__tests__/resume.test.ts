@@ -286,3 +286,52 @@ describe('interactive --continue / --resume', () => {
 		expect(out.kind).toBe('error')
 	})
 })
+
+describe('--from-pr', () => {
+	it('opens the picker narrowed to every conversation linked to a pull request', async () => {
+		const out = await resolveTuiResume(
+			sessions,
+			{ continueLast: false, resume: null, fromPr: true },
+			CWD,
+		)
+
+		expect(out).toEqual({ kind: 'picker', pr: { kind: 'any' } })
+		expect(listRecent).not.toHaveBeenCalled()
+	})
+
+	it('narrows to one pull request by number or by address', async () => {
+		const byNumber = await resolveTuiResume(
+			sessions,
+			{ continueLast: false, resume: null, fromPr: '42' },
+			CWD,
+		)
+		const byAddress = await resolveTuiResume(
+			sessions,
+			{ continueLast: false, resume: null, fromPr: 'https://github.com/acme/widgets/pull/42' },
+			CWD,
+		)
+
+		expect(byNumber).toEqual({ kind: 'picker', pr: { kind: 'number', number: 42 } })
+		expect(byAddress).toEqual(byNumber)
+	})
+
+	it('refuses a value that is not a pull request, naming the flag', async () => {
+		const out = await resolveTuiResume(
+			sessions,
+			{ continueLast: false, resume: null, fromPr: 'soon' },
+			CWD,
+		)
+
+		expect(out).toMatchObject({ kind: 'error', message: expect.stringContaining('--from-pr') })
+	})
+
+	it('cannot be combined with --continue or --resume', async () => {
+		for (const request of [
+			{ continueLast: true, resume: null, fromPr: true as const },
+			{ continueLast: false, resume: 'x', fromPr: true as const },
+		]) {
+			const out = await resolveTuiResume(sessions, request, CWD)
+			expect(out).toMatchObject({ kind: 'error', message: expect.stringContaining('--from-pr') })
+		}
+	})
+})

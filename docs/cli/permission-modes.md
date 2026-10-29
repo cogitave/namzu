@@ -155,7 +155,7 @@ A call's input can be larger than one line of the session log may be. It is then
 
 ## Sub-agents
 
-A sub-agent has no mode of its own. It borrows the handler of the turn that started it, so each of its calls is decided in that turn's mode as it is when the call is made: a child runs in `bypass` only while its parent does, an `accept-edits` or `auto` parent is not widened by anything the child does, and Shift+Tab back to `prompt` reaches a child that is already running. An agent file names a model and tools, never a mode.
+A sub-agent borrows the review channel of the turn that started it, so each call follows the parent's live mode. An agent file may narrow a parent in `prompt` to `plan` or `accept-edits`; it cannot grant `bypass` or `auto`, and every other parent mode remains authoritative. The same rule applies when a saved child is continued after a process restart, using the current agent definition. Shift+Tab reaches a child that is already running; see [the mode an agent file asks for](delegated-work.md#the-mode-an-agent-file-asks-for).
 
 ## Headless runs
 
