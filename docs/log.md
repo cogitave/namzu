@@ -2,6 +2,8 @@
 
 ## 2026-10-29
 
+- **Update** [Compaction circuit breaker](sdk/context-limits.md#the-circuit-breaker): restored host reminders and recorded context no longer count as tool-driven refills after compaction. They still count toward request budgets; actual conversation and tool-output growth retains the refill guard. Reproduced through the native terminal on a resumed long session, with deterministic coverage for repeated small reads. `.changeset/compaction-host-context-refill.md` (`@namzu/sdk` patch).
+
 - **Update** [Agent ownership](sdk/agent-ownership.md): disposal of an unchanged worktree deletes its branch only while the ref still equals the recorded starting commit, preserving commits published after inspection.
 
 - **Update** [Delegated work](cli/delegated-work.md): a saved file-defined agent re-applies the current definition’s permission mode after a process restart, through the new parent turn’s review channel. A resumed plan-mode child is covered against a real attempted file write.

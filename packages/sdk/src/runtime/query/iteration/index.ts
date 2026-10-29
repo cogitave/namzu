@@ -3,10 +3,7 @@ import {
 	extractFromAssistantMessage,
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
-import {
-	estimateMessageTokens,
-	estimateMessagesTokens,
-} from '../../../compaction/token-estimate.js'
+import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import {
 	AUTO_CONTINUATION_USER_MESSAGE,
 	REASONING_CUT_USER_MESSAGE,
@@ -82,7 +79,7 @@ import {
 } from './outstanding-work.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { compactionBreaker } from './phases/compaction-breaker.js'
+import { compactionBreaker, estimateRefillTokens } from './phases/compaction-breaker.js'
 import {
 	AUTOMATIC_COMPACTION_FAILED,
 	OVERFLOW_RELIEF_LIMIT,
@@ -2180,7 +2177,7 @@ export class IterationOrchestrator {
 						}
 						// A rung that sheds too little to change the verdict is not worth a
 						// provider call; climb to the next one at once.
-						const tokensBeforeRelief = estimateMessagesTokens(recorder.messages)
+						const tokensBeforeRelief = estimateRefillTokens(recorder.messages)
 						let shed = false
 						while (!shed && overflowReliefs < OVERFLOW_RELIEF_LIMIT) {
 							overflowReliefs++
@@ -2195,7 +2192,7 @@ export class IterationOrchestrator {
 							compactionBreaker(this.ctx)?.recordCompaction(
 								iterationNum,
 								tokensBeforeRelief,
-								estimateMessagesTokens(recorder.messages),
+								estimateRefillTokens(recorder.messages),
 							)
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
 								[NAMZU.TURN_ID]: recorder.turnId,

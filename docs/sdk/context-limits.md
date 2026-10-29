@@ -119,6 +119,11 @@ turn:
   has returned to at least its size before the previous compaction, and that
   compaction actually reduced it. The before, after and next-check sizes use
   the same history estimator, not a mixture of provider usage and estimates.
+  For this refill check, runtime-provenance reminders and recorded context
+  entries are excluded: compaction may shed them and the host may announce
+  them again on the next request. They still count toward the request budget
+  and compaction trigger. Operator messages and tool output count toward
+  refills even if their text looks like a host note.
   A useful but insufficient reduction that leaves the context above the
   trigger is not itself a refill; neither is growth smaller than the space
   just shed. A relief of a context

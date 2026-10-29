@@ -29,7 +29,11 @@ import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { applyLifecycleHookResults } from '../../plugin-hooks.js'
-import { COMPACTION_REFILL_MESSAGE, compactionBreaker } from './compaction-breaker.js'
+import {
+	COMPACTION_REFILL_MESSAGE,
+	compactionBreaker,
+	estimateRefillTokens,
+} from './compaction-breaker.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
@@ -444,7 +448,7 @@ export async function stopOnRefill(ctx: IterationContext): Promise<boolean> {
 	// Already announced: the turn is on its way out; do not say it twice.
 	if (breaker.stop !== undefined) return true
 	if (
-		!breaker.wouldTrip(ctx.recorder.currentIteration, estimateMessagesTokens(ctx.recorder.messages))
+		!breaker.wouldTrip(ctx.recorder.currentIteration, estimateRefillTokens(ctx.recorder.messages))
 	)
 		return false
 	ctx.log.warn('Compaction keeps refilling — stopping the turn', {
@@ -512,7 +516,7 @@ async function applyReducer(
 	const messages = ctx.recorder.messages
 	const before = messages.length
 	const beforeChars = totalChars(messages)
-	const beforeTokens = estimateMessagesTokens(messages)
+	const beforeTokens = estimateRefillTokens(messages)
 
 	let next: readonly Message[] | undefined
 	try {
@@ -602,7 +606,7 @@ async function applyReducer(
 	compactionBreaker(ctx)?.recordCompaction(
 		ctx.recorder.currentIteration,
 		beforeTokens,
-		estimateMessagesTokens(messages),
+		estimateRefillTokens(messages),
 	)
 }
 
@@ -1130,7 +1134,7 @@ async function runCompactionCheckInner(
 
 	const live = ctx.recorder.messages
 	const oldCount = live.length
-	const beforeTokens = estimateMessagesTokens(live)
+	const beforeTokens = estimateRefillTokens(live)
 	// Retained history can survive in full while a summary adds another copy
 	// of its facts. Even an unretained span may be smaller than the cumulative
 	// summary. Compare both candidates with the same estimator, rather than
@@ -1208,6 +1212,6 @@ async function runCompactionCheckInner(
 	compactionBreaker(ctx)?.recordCompaction(
 		ctx.recorder.currentIteration,
 		beforeTokens,
-		estimateMessagesTokens(live),
+		estimateRefillTokens(live),
 	)
 }

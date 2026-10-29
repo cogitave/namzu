@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import { estimateMessagesTokens } from '../../../../../compaction/token-estimate.js'
-import type { Message } from '../../../../../types/message/index.js'
+import {
+	type Message,
+	createRuntimeContextMessage,
+	createTurnContextEntry,
+} from '../../../../../types/message/index.js'
 import type { SessionEvent } from '../../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../../utils/log/create-logger.js'
-import { CompactionBreaker, compactionBreaker } from '../compaction-breaker.js'
+import {
+	CompactionBreaker,
+	compactionBreaker,
+	estimateRefillTokens,
+} from '../compaction-breaker.js'
 import { runCompactionCheck } from '../compaction.js'
 import type { IterationContext } from '../context.js'
 
@@ -143,6 +151,26 @@ describe('compaction that keeps refilling stops the turn', () => {
 })
 
 describe('refill accounting uses the space shed, not just elapsed iterations', () => {
+	it('ignores host provenance while counting identical operator and tool text', () => {
+		const reminder = createRuntimeContextMessage('A large file appeared. '.repeat(100), 'reminder')
+		const context = createTurnContextEntry('repository', 'Repository state. '.repeat(100))
+		const operator = user(reminder.content as string)
+		const tool: Message = {
+			role: 'tool',
+			content: context.content,
+			toolCallId: 'read-1',
+			timestamp: 1,
+		}
+		expect(estimateRefillTokens([reminder, context, operator, tool])).toBe(
+			estimateMessagesTokens([operator, tool]),
+		)
+		expect(estimateRefillTokens([operator, tool])).toBeGreaterThan(0)
+		// Request budgets must still include the host's context.
+		expect(estimateMessagesTokens([reminder, context, operator, tool])).toBeGreaterThan(
+			estimateRefillTokens([reminder, context, operator, tool]),
+		)
+	})
+
 	it('counts three full quick refills and leaves the failure guard independent', () => {
 		const breaker = new CompactionBreaker()
 		expect(breaker.wouldTrip(1, 1_000)).toBe(false)

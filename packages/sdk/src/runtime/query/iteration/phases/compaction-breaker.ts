@@ -19,7 +19,27 @@
  * share a count.
  */
 
+import { estimateMessageTokens } from '../../../../compaction/token-estimate.js'
+import { type Message, isTurnContextEntry } from '../../../../types/message/index.js'
+import { isReminderMessage } from '../../reminders.js'
 import type { IterationContext } from './context.js'
+
+/**
+ * Conversation growth for the refill guard. Compaction sheds host reminders
+ * and recorded context so the host can announce them again; their return is
+ * not evidence of a tool refilling the window. Budgeting still includes them.
+ * Use provenance, not text that an operator or tool could happen to quote.
+ */
+export function estimateRefillTokens(messages: readonly Message[]): number {
+	return messages.reduce(
+		(total, message) =>
+			total +
+			(isReminderMessage(message) || isTurnContextEntry(message)
+				? 0
+				: estimateMessageTokens(message)),
+		0,
+	)
+}
 
 /** Consecutive failed passes after which automatic compaction stops. */
 export const COMPACTION_FAILURE_LIMIT = 3
