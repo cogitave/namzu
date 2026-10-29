@@ -327,6 +327,8 @@ export interface SubagentRuntimeOptions {
 	readonly resolveLimits?: (turnId: TurnId) => TurnLimitsConfig | undefined
 	/** Main-loop iterations for built-in children. Omitted or 0 is unlimited. */
 	readonly maxIterations?: number
+	/** Per-call output allowance inherited from the invoking turn. */
+	readonly maxResponseTokens?: number
 	/** Turn duration for children in milliseconds. Omitted or 0 is unlimited. */
 	readonly timeoutMs?: number
 	/**
@@ -3302,6 +3304,9 @@ function buildDefinition(
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				maxIterations: cappedTurns(limits.maxIterations, file?.maxTurns),
+				...(limits.maxResponseTokens !== undefined
+					? { maxResponseTokens: limits.maxResponseTokens }
+					: {}),
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
 				...(pluginManager ? { pluginManager } : {}),

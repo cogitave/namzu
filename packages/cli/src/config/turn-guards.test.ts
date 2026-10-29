@@ -34,6 +34,32 @@ it('zero removes inherited run caps without disabling accounting', () => {
 	})
 })
 
+it('loads a per-call output allowance without changing aggregate turn budgets', () => {
+	const limits = loadConfig(fixture({ maxResponseTokens: 32_768 })).limits
+	expect(limits?.maxResponseTokens).toBe(32_768)
+	expect(resolveTurnGuards({ tokenBudget: 1000, maxIterations: 5 }, limits)).toMatchObject({
+		maxResponseTokens: 32_768,
+		tokenBudget: 1000,
+		maxIterations: 5,
+	})
+	expect(
+		resolveTurnGuards({ maxResponseTokens: 32_768 }, { maxResponseTokens: 65_536 }),
+	).toHaveProperty('maxResponseTokens', 65_536)
+	expect(resolveTurnGuards()).not.toHaveProperty('maxResponseTokens')
+})
+
+it.each([0, -1, 1.5, null, '32768', Number.MAX_SAFE_INTEGER + 1])(
+	'refuses an invalid per-call output allowance: %j',
+	(value) => {
+		expect(() => loadConfig(fixture({ maxResponseTokens: value }))).toThrow(
+			'limits.maxResponseTokens',
+		)
+		expect(() => resolveTurnGuards({ maxResponseTokens: value as number })).toThrow(
+			'maxResponseTokens',
+		)
+	},
+)
+
 it.each([-1, 1.5, null, 'unlimited', Number.MAX_SAFE_INTEGER + 1])(
 	'rejects invalid configured run limits: %j',
 	(value) => {

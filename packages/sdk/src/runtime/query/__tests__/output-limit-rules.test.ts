@@ -89,6 +89,42 @@ describe('continuation after an output-limit cut', () => {
 		expect(result.stopReason).toBe('end_turn')
 	})
 
+	it('continues an empty output cutoff even when the provider exposes no reasoning', async () => {
+		const provider = new MockLLMProvider({
+			turns: [{ finishReason: 'length' }, { text: 'Recovered answer' }],
+		})
+		const result = await run(provider, { maxOutputContinuations: 3 })
+		expect(provider.requests).toHaveLength(2)
+		expect(
+			provider.requests[1]?.messages.some((m) => m.content === REASONING_CUT_USER_MESSAGE),
+		).toBe(true)
+		expect(provider.requests[1]?.toolChoice).not.toBe('none')
+		expect(result.result).toBe('Recovered answer')
+		expect(result.stopReason).toBe('end_turn')
+	})
+
+	it.each([0, 3])('bounds repeated empty cutoffs with the configured cap %i', async (cap) => {
+		const provider = new MockLLMProvider({ turns: [{ finishReason: 'length' }] })
+		const result = await run(provider, { maxOutputContinuations: cap })
+		expect(provider.requests).toHaveLength(cap + 1)
+		expect(result.stopReason).toBe('output_limit')
+		expect(result.lastError).toMatch(/output limit/)
+	})
+
+	it('keeps the legacy empty-completion fallback when no bounded continuation was requested', async () => {
+		const provider = new MockLLMProvider({ turns: [{ finishReason: 'length' }] })
+		await run(provider)
+		expect(provider.requests).toHaveLength(2)
+		expect(
+			provider.requests[1]?.messages.some(
+				(m) =>
+					m.role === 'user' &&
+					m.source?.type === 'runtime-context' &&
+					m.source.kind === 'auto-continuation',
+			),
+		).toBe(false)
+	})
+
 	it('a cut during reasoning gets the shorter-think nudge', async () => {
 		let calls = 0
 		class ReasoningCut extends MockLLMProvider {

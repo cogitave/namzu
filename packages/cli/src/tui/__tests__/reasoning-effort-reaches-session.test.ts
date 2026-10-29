@@ -56,6 +56,35 @@ function detected(...ids: ProviderId[]): DetectedProvider[] {
 }
 
 describe('the TUI reasoning-effort hop', () => {
+	it.each([
+		{ configured: undefined, override: undefined, expected: 8192 },
+		{ configured: 32_768, override: undefined, expected: 32_768 },
+		{ configured: 16_384, override: 32_768, expected: 32_768 },
+	])('preserves the default or configured per-call output allowance: %j', async (test) => {
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({
+			provider: new MockLLMProvider(),
+		} as never)
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'openai', model: 'fixture-model' }],
+				subagents: { active: [] },
+			} as Preferences,
+			detected('openai'),
+			{ cwd, limits: { maxResponseTokens: test.configured } },
+		)
+		try {
+			for await (const _event of session.send([], {
+				limits: { maxResponseTokens: test.override },
+			})) {
+				// Observe the actual query configuration constructed for this turn.
+			}
+			expect(queryCalls[0]?.turnConfig).toHaveProperty('maxResponseTokens', test.expected)
+		} finally {
+			await session.close()
+		}
+	})
 	it('discovers an unseen model menu and default from its own provider catalogue', async () => {
 		const provider = Object.assign(new MockLLMProvider(), {
 			listModels: vi.fn(async () => [

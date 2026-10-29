@@ -1449,6 +1449,7 @@ const CONFIG_READERS: ConfigReaders = {
 			if (
 				![
 					'maxIterations',
+					'maxResponseTokens',
 					'tokenBudget',
 					'timeoutMs',
 					'waitForProviderMs',
@@ -1458,7 +1459,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
+					'is not a limit (maxIterations, maxResponseTokens, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
 			if (key === 'costLimitUsd') {
@@ -1466,7 +1467,7 @@ const CONFIG_READERS: ConfigReaders = {
 					return invalidConfigValue(context, [key], 'must be a number of dollars, 0 or more')
 				continue
 			}
-			const minimum = key === 'waitForProviderMs' ? 1 : 0
+			const minimum = key === 'waitForProviderMs' || key === 'maxResponseTokens' ? 1 : 0
 			if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
 				return invalidConfigValue(context, [key], `must be a safe whole number at least ${minimum}`)
 			if (key === 'timeoutMs' && value > 2_147_483_647)

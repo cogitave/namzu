@@ -147,7 +147,16 @@ earlier behaviour (nudge every time, bounded by `maxIterations`). Past the cap
 the turn stops with stop reason `output_limit` and a last error naming the limit. A
 cut that happens while the model is still reasoning, before any text or tool
 call, gets a different nudge (think much more briefly) and counts against the
-same cap. The Namzu CLI sets the cap to 3.
+same cap. An empty cutoff with no exposed reasoning also receives that bounded
+nudge when the host supplies a nonnegative safe-integer cap, including `0` to
+stop immediately. An embedding that omits the cap retains the earlier empty
+completion fallback. The Namzu CLI sets the cap to 3.
+
+When the runtime collects a closing response after an empty completion, it
+publishes the collected answer as `text_delta` events between `message_started`
+and `message_completed`, using that response's durable message id. Streaming
+hosts can display the closing answer without reconstructing it from completion
+metadata; text-part ids and phases are retained when supplied.
 
 When a provider says the prompt fits but prompt plus the requested output cap
 does not ("input length and `max_tokens` exceed context limit: A + B > C"), the

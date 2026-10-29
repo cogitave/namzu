@@ -1492,10 +1492,10 @@ export class IterationOrchestrator {
 						// Auto-continuation after an output-ceiling cutoff.
 						//
 						// Guards:
-						//   - `hasContent` so we don't loop forever on an
-						//     empty cutoff (a provider occasionally emits
-						//     `stop_reason: max_tokens` with no content
-						//     when an injected pre-fill blocks the model).
+						//   - An empty cutoff with no exposed reasoning only retries
+						//     under an explicit cap. Compatible endpoints can spend
+						//     the output allowance without exposing any text; without
+						//     a cap the legacy empty-completion fallback stays bounded.
 						//   - `!forceFinalize` so the forced-finalize path
 						//     never auto-continues — that path is invoked
 						//     specifically to extract a closing summary.
@@ -1508,16 +1508,18 @@ export class IterationOrchestrator {
 							!hasContent &&
 							(response.message.toolCalls?.length ?? 0) === 0 &&
 							(response.message.reasoning?.length ?? 0) > 0
+						const cap = this.ctx.maxOutputContinuations
+						const boundedEmptyCut =
+							!hasContent && cap !== undefined && Number.isSafeInteger(cap) && cap >= 0
 						if (
 							!forceFinalize &&
 							response.finishReason === 'length' &&
 							response.finishDetail !== 'context_window' &&
-							(hasContent || cutDuringReasoning)
+							(hasContent || cutDuringReasoning || boundedEmptyCut)
 						) {
 							// A host that opted in gets a cap on the nudges: a model that
 							// overruns its output limit every time would otherwise spend the
 							// whole turn on it. Past the cap the turn stops, and says why.
-							const cap = this.ctx.maxOutputContinuations
 							if (cap !== undefined && this.outputContinuations >= cap) {
 								this.ctx.log.warn('LLM kept hitting max_tokens — stopping the turn', {
 									[NAMZU.TURN_ID]: recorder.turnId,
@@ -1539,7 +1541,7 @@ export class IterationOrchestrator {
 							}
 							this.outputContinuations++
 							this.ctx.log.info(
-								cutDuringReasoning
+								cutDuringReasoning || boundedEmptyCut
 									? 'LLM hit max_tokens while reasoning — nudging to answer briefly'
 									: 'LLM hit max_tokens mid-text — auto-continuing',
 								{
@@ -1550,7 +1552,9 @@ export class IterationOrchestrator {
 							)
 							recorder.pushMessage(
 								createRuntimeContextMessage(
-									cutDuringReasoning ? REASONING_CUT_USER_MESSAGE : AUTO_CONTINUATION_USER_MESSAGE,
+									cutDuringReasoning || boundedEmptyCut
+										? REASONING_CUT_USER_MESSAGE
+										: AUTO_CONTINUATION_USER_MESSAGE,
 									'auto-continuation',
 								),
 							)
@@ -3001,6 +3005,34 @@ export class IterationOrchestrator {
 				iteration: this.ctx.recorder.currentIteration,
 				messageId: finalMessageId,
 			})
+			// This call was collected, so it produced no live deltas. Publish
+			// its actual text before completion as the normal stream does;
+			// otherwise a streaming host can show the turn ending with no answer.
+			const parts = response.message.textParts
+			if (parts?.length) {
+				for (const part of parts) {
+					if (!part.text) continue
+					await this.ctx.emitEvent({
+						type: 'text_delta',
+						turnId: this.ctx.recorder.turnId,
+						iteration: this.ctx.recorder.currentIteration,
+						messageId: finalMessageId,
+						text: part.text,
+						textPart: {
+							id: part.id,
+							...(part.phase ? { phase: part.phase } : {}),
+						},
+					})
+				}
+			} else if (response.message.content) {
+				await this.ctx.emitEvent({
+					type: 'text_delta',
+					turnId: this.ctx.recorder.turnId,
+					iteration: this.ctx.recorder.currentIteration,
+					messageId: finalMessageId,
+					text: response.message.content,
+				})
+			}
 			await this.ctx.emitEvent({
 				type: 'message_completed',
 				turnId: this.ctx.recorder.turnId,
