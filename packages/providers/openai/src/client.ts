@@ -107,6 +107,41 @@ export function openAIReasoningEffortLevels(model: string): readonly ReasoningEf
 	return undefined
 }
 
+/** Optional declarations returned by compatible model catalogues. Missing is unknown. */
+function compatibleModelMetadata(model: unknown): Partial<ModelInfo> {
+	const row = model as Record<string, unknown>
+	const result: Partial<ModelInfo> = {}
+	for (const [wire, field] of [
+		['context_window_tokens', 'contextWindow'],
+		['maximum_output_tokens', 'maxOutputTokens'],
+	] as const) {
+		const value = row[wire]
+		if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) result[field] = value
+	}
+	const vocabulary: readonly string[] = [
+		'none',
+		'minimal',
+		'low',
+		'medium',
+		'high',
+		'xhigh',
+		'max',
+		'ultra',
+	]
+	const offered = row.supported_reasoning_efforts
+	if (
+		Array.isArray(offered) &&
+		offered.every((level) => typeof level === 'string' && vocabulary.includes(level)) &&
+		new Set(offered).size === offered.length
+	) {
+		result.reasoningEffortLevels = [...offered] as ReasoningEffort[]
+		const defaultEffort = row.reasoning_effort
+		if (typeof defaultEffort === 'string' && offered.includes(defaultEffort))
+			result.reasoningEffortDefault = defaultEffort as ReasoningEffort
+	}
+	return result
+}
+
 function assertOpenAIReasoningEffort(model: string, effort: ReasoningEffort | undefined): void {
 	if (effort === undefined) return
 	const supported = openAIReasoningEffortLevels(model)
@@ -445,6 +480,15 @@ export class OpenAIProvider implements LLMProvider {
 				try {
 					const choice = chunk.choices[0]
 					const delta = choice?.delta
+					// Compatible endpoints can expose public reasoning under either
+					// spelling. Structured or encrypted values are not public text.
+					const extra = delta as { reasoning_content?: unknown; reasoning?: unknown } | undefined
+					const reasoning =
+						typeof extra?.reasoning_content === 'string'
+							? extra.reasoning_content
+							: typeof extra?.reasoning === 'string'
+								? extra.reasoning
+								: undefined
 
 					const toolCalls = delta?.tool_calls?.map((tc) => ({
 						index: tc.index,
@@ -460,6 +504,7 @@ export class OpenAIProvider implements LLMProvider {
 
 					const hasDelta =
 						(delta?.content !== undefined && delta.content !== null) ||
+						(reasoning !== undefined && reasoning.length > 0) ||
 						(toolCalls && toolCalls.length > 0)
 					const finishReason = choice?.finish_reason
 						? mapFinishReason(choice.finish_reason)
@@ -473,6 +518,9 @@ export class OpenAIProvider implements LLMProvider {
 						id: chunk.id,
 						delta: {
 							content: delta?.content ?? undefined,
+							...(reasoning
+								? { reasoning: { index: 0, type: 'thinking' as const, text: reasoning } }
+								: {}),
 							toolCalls,
 						},
 						finishReason,
@@ -521,6 +569,7 @@ export class OpenAIProvider implements LLMProvider {
 		return page.data.map((m) => ({
 			id: m.id,
 			name: m.id,
+			...compatibleModelMetadata(m),
 			supportsToolUse: true,
 			supportsStreaming: true,
 		}))

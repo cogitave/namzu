@@ -133,7 +133,17 @@ export function resolveTriggerThreshold(
 	configured: number | undefined,
 	windowTokens: number,
 	maxOutputTokens?: number,
+	autoCompactWindowTokens?: number,
 ): number {
+	if (
+		autoCompactWindowTokens !== undefined &&
+		(!Number.isSafeInteger(autoCompactWindowTokens) || autoCompactWindowTokens <= 0)
+	)
+		throw new RangeError('autoCompactWindowTokens must be a positive safe integer.')
+	if (autoCompactWindowTokens !== undefined && windowTokens > 0) {
+		const window = Math.min(windowTokens, autoCompactWindowTokens)
+		return (resolveTriggerThreshold(configured, window, maxOutputTokens) * window) / windowTokens
+	}
 	if (configured !== undefined) return configured
 	if (!(windowTokens > 0)) return MIN_DERIVED_TRIGGER_FRACTION
 	const reserve = Math.min(

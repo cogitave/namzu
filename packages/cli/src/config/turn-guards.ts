@@ -8,6 +8,8 @@ export type TurnGuardKey = 'tokenBudget' | 'maxIterations' | 'timeoutMs'
 export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
 	/** Dollars the turn may spend; absent means no spend limit. */
 	costLimitUsd?: number
+	/** Per-call output allowance; absent keeps each host's existing default. */
+	maxResponseTokens?: number
 }
 
 const GUARD_KEYS = ['tokenBudget', 'maxIterations', 'timeoutMs'] as const
@@ -29,6 +31,12 @@ export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)
 					`Invalid ${key}: use a nonnegative safe integer${key === 'timeoutMs' ? ' at most 2147483647' : ''}. 0 means unlimited.`,
 				)
 			resolved[key] = value
+		}
+		const response = layer?.maxResponseTokens
+		if (response !== undefined) {
+			if (!Number.isSafeInteger(response) || response <= 0)
+				throw new Error('Invalid maxResponseTokens: use a positive safe integer.')
+			resolved.maxResponseTokens = response
 		}
 		const spend = layer?.costLimitUsd
 		if (spend === undefined) continue
@@ -67,6 +75,9 @@ export async function readStoredTurnGuards(
 			tokenBudget: config.tokenBudget as number,
 			maxIterations: config.maxIterations as number,
 			timeoutMs: config.timeoutMs as number,
+			...(config.maxResponseTokens !== undefined
+				? { maxResponseTokens: config.maxResponseTokens as number }
+				: {}),
 			...(typeof config.costLimitUsd === 'number' ? { costLimitUsd: config.costLimitUsd } : {}),
 		})
 	}

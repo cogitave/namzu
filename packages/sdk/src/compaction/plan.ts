@@ -168,7 +168,12 @@ export function planSalienceWorkingSet(input: {
 		reclaimedTokens: working.reclaimedTokens,
 		reliefWasEnough:
 			(estimatedTokens - working.reclaimedTokens) / budget <
-			resolveTriggerThreshold(config.triggerThreshold, budget, input.maxOutputTokens),
+			resolveTriggerThreshold(
+				config.triggerThreshold,
+				budget,
+				input.maxOutputTokens,
+				config.autoCompactWindowTokens,
+			),
 		working,
 	}
 }
@@ -198,7 +203,12 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 			const reliefWasEnough =
 				!input.force &&
 				(estimatedTokens - reclaimedTokens) / budget <
-					resolveTriggerThreshold(config.triggerThreshold, budget, input.maxOutputTokens)
+					resolveTriggerThreshold(
+						config.triggerThreshold,
+						budget,
+						input.maxOutputTokens,
+						config.autoCompactWindowTokens,
+					)
 			return {
 				kind: 'cleared',
 				messages: edit.messages,

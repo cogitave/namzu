@@ -23,6 +23,7 @@ import { resolve } from 'node:path'
 import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
 import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
+import { positiveTokenCount } from '../config/model-environment.js'
 import type { SkillsConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { McpServerFileError, mergeLaunchMcpServers } from '../integrations/mcp/shared-file.js'
@@ -99,6 +100,8 @@ export interface ExecFlags {
 	maxIterations: number | null
 	/** `--token-budget <n>`: cumulative token limit; 0 is unlimited. */
 	tokenBudget: number | null
+	/** Per-call output tokens, including reasoning; must be positive. */
+	maxOutputTokens: number | null
 	/**
 	 * `--wait-for-provider <duration>`: how long the turn may spend waiting out
 	 * provider pauses (a rate limit, an outage) before it gives up with 75.
@@ -188,6 +191,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		skills: [],
 		maxIterations: null,
 		tokenBudget: null,
+		maxOutputTokens: null,
 		waitForProviderMs: null,
 		appendSystemPrompt: null,
 		maxBudgetUsd: null,
@@ -218,6 +222,17 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 	const trimmed = (assign: (v: string | null) => void) => (v: string) => assign(v.trim() || null)
 	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
 		const a = rawArgs[idx.v]
+		if (
+			take(
+				a,
+				'max-output-tokens',
+				(value) => {
+					out.maxOutputTokens = positiveTokenCount(value, '--max-output-tokens')
+				},
+				idx,
+			)
+		)
+			continue
 		if (
 			take(
 				a,

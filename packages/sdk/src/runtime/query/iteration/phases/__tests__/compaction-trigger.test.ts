@@ -27,7 +27,12 @@ function historyOf(tokens: number): Message[] {
 	return build(chars)
 }
 
-function run(windowTokens: number, tokens: number, threshold?: number) {
+function run(
+	windowTokens: number,
+	tokens: number,
+	threshold?: number,
+	autoCompactWindowTokens?: number,
+) {
 	let reduced = 0
 	const messages = historyOf(tokens)
 	const ctx = {
@@ -38,6 +43,7 @@ function run(windowTokens: number, tokens: number, threshold?: number) {
 			contextWindowTokens: windowTokens,
 			keepRecentMessages: 2,
 			...(threshold !== undefined ? { triggerThreshold: threshold } : {}),
+			...(autoCompactWindowTokens !== undefined ? { autoCompactWindowTokens } : {}),
 		},
 		contextReducer: () => {
 			reduced++
@@ -53,6 +59,11 @@ function run(windowTokens: number, tokens: number, threshold?: number) {
 }
 
 describe('the summary trigger', () => {
+	it('uses the configured compact window inside the larger real model window', async () => {
+		expect((await run(1_048_576, 700_000, undefined, 786_432)).reduced).toBe(0)
+		expect((await run(1_048_576, 800_000, undefined, 786_432)).reduced).toBe(1)
+		expect((await run(1_048_576, 800_000)).reduced).toBe(0)
+	})
 	it('does not fire below 167,000 tokens of a 200,000 window', async () => {
 		const out = await run(200_000, 160_000)
 		expect(out.estimate).toBeLessThan(167_000)

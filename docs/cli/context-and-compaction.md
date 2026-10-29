@@ -102,7 +102,7 @@ The caps shrink on a small window: files may take at most a tenth of it and skil
 
 # The `compaction` key
 
-In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from the environment:
+In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user):
 
 ```json
 { "compaction": { "strategy": "salience", "contextWindowTokens": 200000 } }
@@ -112,6 +112,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | --- | --- |
 | `strategy` | `salience` (the default), the scored working set described in [The salience-scored working set](../sdk/salience-working-set.md), or `structured`, the previous behaviour: positional retention and a pass only at the trigger. |
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
+| `autoCompactWindowTokens` | A separate window for automatic summaries, capped to the model context. `NAMZU_AUTO_COMPACT_WINDOW` overrides this member alone; the output reserve, buffer and salience soft target still apply. See [context limits](../sdk/context-limits.md#the-summary-trigger). |
 | `triggerThreshold` | The fraction of the window at which older history is summarised. Absent, the kernel derives it as the window less room for the reply (the model's output cap, at most 20,000 tokens) less a 13,000-token buffer, so about 83.5% of a 200,000-token window (167,000 tokens) and 96.7% of a 1,000,000-token one. It never drops below half the window. It was a flat 0.7 before; set `0.7` to keep that. |
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
@@ -128,7 +129,9 @@ separate: [structured memory](../sdk/memory.md) describes the records and tools;
 `memory.recall: false` disables automatic per-step recall while retaining the
 explicit memory tools and the selected writer.
 
-A strategy is a property of a project's sessions, which is why the key is file-only, like `hooks`.
+A strategy is a property of a project's sessions and stays file-only. The
+process-local `NAMZU_AUTO_COMPACT_WINDOW` export changes only the automatic
+summary window; it does not change the strategy or declare provider capacity.
 
 The retained-preview policy applies to new output in ordinary recorded turns
 and resumed turns, including nested tool receipts. It does not rewrite older

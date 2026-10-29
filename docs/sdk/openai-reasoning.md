@@ -75,6 +75,23 @@ projection, refresh, malformed metadata, rejection before transport and exact
 outbound effort fields without live model requests. They establish driver
 behavior, not account access or the backend's execution strategy for a level.
 
+## Compatible API catalogues and reasoning
+
+The API-key Chat Completions driver also reads optional compatible-endpoint
+declarations from `/models`: positive safe integers `context_window_tokens`
+and `maximum_output_tokens` become `ModelInfo.contextWindow` and
+`maxOutputTokens`. A valid, duplicate-free `supported_reasoning_efforts` array
+becomes `reasoningEffortLevels`; its `reasoning_effort` default is retained only
+when it belongs to that menu. Missing or malformed declarations remain unknown.
+The CLI uses these model rows when discovering an unfamiliar model's effort
+menu, without a model-name allowlist.
+
+Streaming string fields `delta.reasoning_content` and `delta.reasoning` are
+preserved as thinking deltas (`reasoning_content` takes precedence). This keeps
+reasoning-only output cutoffs observable to the runtime. Object-valued or
+encrypted reasoning fields are not treated as displayable text. These optional
+fields do not change the driver's outbound history normalization described above.
+
 ## Hosted web search
 
 The Codex subscription driver also supports opt-in `webSearch: { mode: 'live' }`

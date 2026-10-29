@@ -202,6 +202,7 @@ export async function execJson(
 	const limitsFromFlags = {
 		...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 		...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		...(flags.maxOutputTokens !== null ? { maxResponseTokens: flags.maxOutputTokens } : {}),
 		...(flags.maxBudgetUsd !== null ? { costLimitUsd: flags.maxBudgetUsd } : {}),
 	}
 	if (flags.unknown.length > 0) return fail(unknownOptionMessage(flags.unknown))

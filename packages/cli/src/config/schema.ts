@@ -106,6 +106,8 @@ export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.limits`. */
 export interface TurnLimitsConfig {
+	/** Per model call output allowance, including reasoning. Omitted keeps 8192. Must be positive. */
+	readonly maxResponseTokens?: number
 	/** Main-loop iterations one turn may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
 	/** Aggregate prompt and completion tokens for the turn and descendants. Omitted or 0 means unlimited. */
@@ -145,6 +147,8 @@ export interface WorkflowCliConfig {
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
+	/** Automatic-summary window, bounded by the real model context without redefining it. */
+	readonly autoCompactWindowTokens?: number
 	/** Bounded historical evidence recall in recorded conversations. Default true; false disables it. */
 	readonly recallEvidence?: boolean
 	/** Resolve follow-up search references with a metered model call when recall is enabled. Default true. */

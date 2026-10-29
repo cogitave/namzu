@@ -1306,8 +1306,15 @@ describe('smallModel', () => {
 		expect(cfg.smallModel).toBeUndefined()
 	})
 
-	it('cannot be set from the environment', () => {
-		expect(ENV_VARIABLE_NAMES.smallModel).toBeUndefined()
+	it('accepts an explicit side-model export from the operator', () => {
+		expect(ENV_VARIABLE_NAMES.smallModel).toBe('NAMZU_SMALL_MODEL')
+		expect(
+			loadConfig({
+				home: userConfig(''),
+				cwd: tmpdir(),
+				env: { NAMZU_SMALL_MODEL: 'openai/side-model' },
+			}).smallModel,
+		).toBe('openai/side-model')
 	})
 })
 

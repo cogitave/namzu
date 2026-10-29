@@ -1,5 +1,7 @@
 # CLI
 
+* [Process-local model profiles](model-profiles.md) - Export main, side and delegated model choices, effort, output allowance and automatic-summary window for one process.
+
 * [Pals in the CLI](pals.md) - Saved identities, local guest computers, terminal chat and exact conversation ownership.
 * [namzu computer](computer.md) - Check, set up and stop the Windows Pal computer, in plain words and as JSON lines for Desktop.
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.

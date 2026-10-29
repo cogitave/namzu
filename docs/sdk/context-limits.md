@@ -33,6 +33,17 @@ characters-per-token estimate for a string.
 
 ## The summary trigger
 
+`compactionConfig.autoCompactWindowTokens` optionally sets a smaller window for
+automatic summaries, capped to the actual model window. The output reserve and
+buffer are taken from that smaller window; an explicit `triggerThreshold`
+fraction is applied to it too. The actual model context size and provider
+capabilities remain unchanged. For a 1,048,576-token model with a 786,432-token
+automatic-summary window and at least 20,000 output tokens, the derived summary
+trigger is 753,432 tokens. Salience eviction may still begin earlier at its
+soft target. Omitting the setting preserves the existing trigger.
+
+`resolveTriggerThreshold` accepts the optional window as its fourth argument.
+
 `compactionConfig.triggerThreshold` is optional. Set, it is the fraction of the
 context window at which older history is summarised, exactly as written.
 Absent, `resolveTriggerThreshold(undefined, windowTokens, maxOutputTokens?)`
@@ -147,7 +158,16 @@ earlier behaviour (nudge every time, bounded by `maxIterations`). Past the cap
 the turn stops with stop reason `output_limit` and a last error naming the limit. A
 cut that happens while the model is still reasoning, before any text or tool
 call, gets a different nudge (think much more briefly) and counts against the
-same cap. The Namzu CLI sets the cap to 3.
+same cap. An empty cutoff with no exposed reasoning also receives that bounded
+nudge when the host supplies a nonnegative safe-integer cap, including `0` to
+stop immediately. An embedding that omits the cap retains the earlier empty
+completion fallback. The Namzu CLI sets the cap to 3.
+
+When the runtime collects a closing response after an empty completion, it
+publishes the collected answer as `text_delta` events between `message_started`
+and `message_completed`, using that response's durable message id. Streaming
+hosts can display the closing answer without reconstructing it from completion
+metadata; text-part ids and phases are retained when supplied.
 
 When a provider says the prompt fits but prompt plus the requested output cap
 does not ("input length and `max_tokens` exceed context limit: A + B > C"), the

@@ -10,6 +10,12 @@ generated: { by: human:bahadirarda, at: 2026-10-08T00:00:00Z }
 
 # Launch flags for the interactive session
 
+The [process-local model profile](model-profiles.md) also accepts model choices
+through environment variables. Explicit `--provider`, `--model` and `--effort`
+flags win over those defaults. `--max-output-tokens <n>` sets the per-call output
+allowance for an interactive launch, including `namzu resume`, without editing
+config or preferences; pass it after `exec` for headless work.
+
 ```sh
 namzu --provider openai --model gpt-5 --effort high --permission-mode plan
 namzu --model gpt-5                # re-model the saved primary for this launch

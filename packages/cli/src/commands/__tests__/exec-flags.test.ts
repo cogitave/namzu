@@ -19,6 +19,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { EXIT_USAGE } from '../../exit-codes.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { type AgentEvent, createAgentSession } from '../../tui/agent.js'
+import { parseExecFlags } from '../exec-flags.js'
 import { composePrompt, execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
@@ -145,6 +146,32 @@ async function run(
 }
 
 describe('headless reasoning effort', () => {
+	it('parses the per-call output flag in both spellings and keeps it out of the prompt', () => {
+		for (const args of [
+			['--max-output-tokens', '32768', 'hello'],
+			['--max-output-tokens=32768', 'hello'],
+		]) {
+			const flags = parseExecFlags(args)
+			expect(flags.maxOutputTokens).toBe(32768)
+			expect(flags.rest).toEqual(['hello'])
+		}
+	})
+	it('uses exported model/effort defaults, with explicit flags winning', async () => {
+		vi.stubEnv('NAMZU_PROVIDER', 'openai')
+		vi.stubEnv('NAMZU_MODEL', 'env-model')
+		vi.stubEnv('NAMZU_EFFORT_LEVEL', 'max')
+		try {
+			expect((await run(['--model', 'flag-model', '--effort', 'low', 'hello'])).code).toBe(0)
+			expect(seen).toMatchObject({
+				provider: 'openai',
+				model: 'flag-model',
+				effort: 'low',
+				prompt: 'hello',
+			})
+		} finally {
+			vi.unstubAllEnvs()
+		}
+	})
 	it('forwards low to the turn instead of adding it to the prompt', async () => {
 		const { code } = await run(['--effort', 'low', 'hello'])
 		expect(code).toBe(0)

@@ -69,8 +69,23 @@ describe('readStoredTurnGuards', () => {
 		expect(await readStoredTurnGuards(log, generateTurnId())).toBeUndefined()
 	})
 
+	it('restores the per-call allowance rather than reverting a resumed turn to 8192', async () => {
+		const { log, turnId } = await sessionWithTurn({
+			model: 'm',
+			tokenBudget: 0,
+			maxIterations: 0,
+			timeoutMs: 0,
+			maxResponseTokens: 32_768,
+		})
+		expect(await readStoredTurnGuards(log, turnId)).toHaveProperty('maxResponseTokens', 32_768)
+	})
+
 	it('refuses a turn record that lacks one of its original limits', async () => {
-		const { log, turnId } = await sessionWithTurn({ model: 'm', tokenBudget: 1, timeoutMs: 1 })
+		const { log, turnId } = await sessionWithTurn({
+			model: 'm',
+			tokenBudget: 1,
+			timeoutMs: 1,
+		})
 		await expect(readStoredTurnGuards(log, turnId)).rejects.toThrow(
 			'Turn record does not contain its original limits',
 		)

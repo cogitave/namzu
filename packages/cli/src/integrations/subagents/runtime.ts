@@ -321,12 +321,19 @@ export interface SubagentRuntimeOptions {
 	 */
 	readonly savedAgents?: (sessionId: SessionId) => SavedAgentHistory
 	readonly model: string
+	/** Operator's default for ordinary children; explicit choices and pinned agent files win. */
+	readonly defaultModel?: DelegatedModel
+	/** Process-local defaults; explicit child selections and agent-file effort win. */
+	readonly defaultEffort?: ReasoningEffort
+	readonly compactionConfig?: NamzuCliAgentConfig['compactionConfig']
 	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
 	/** Immutable settings captured by the invoking turn, including TUI overrides. */
 	readonly resolveLimits?: (turnId: TurnId) => TurnLimitsConfig | undefined
 	/** Main-loop iterations for built-in children. Omitted or 0 is unlimited. */
 	readonly maxIterations?: number
+	/** Per-call output allowance inherited from the invoking turn. */
+	readonly maxResponseTokens?: number
 	/** Turn duration for children in milliseconds. Omitted or 0 is unlimited. */
 	readonly timeoutMs?: number
 	/**
@@ -1482,7 +1489,7 @@ export async function createSubagentRuntime(
 			: // A file agent that pins its own model keeps it; any other child
 				// of a turn on another model than the session's runs on that one.
 				fileAgent?.model === undefined
-				? inherited
+				? ((!forks && requestedModel === undefined ? opts.defaultModel : undefined) ?? inherited)
 				: undefined
 		let agentId = fileAgent?.name ?? readOnlyType ?? GENERAL_PURPOSE_SUBAGENT
 		const persona = typeof role === 'string' ? role.trim() : ''
@@ -3302,11 +3309,19 @@ function buildDefinition(
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				maxIterations: cappedTurns(limits.maxIterations, file?.maxTurns),
+				...(limits.maxResponseTokens !== undefined
+					? { maxResponseTokens: limits.maxResponseTokens }
+					: {}),
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
 				...(pluginManager ? { pluginManager } : {}),
+				...(opts.compactionConfig ? { compactionConfig: opts.compactionConfig } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...(selection?.effort || file?.effort ? { effort: selection?.effort ?? file?.effort } : {}),
+				...(selection?.effort ||
+				file?.effort ||
+				(inheritedPrompt === undefined && opts.defaultEffort)
+					? { effort: selection?.effort ?? file?.effort ?? opts.defaultEffort }
+					: {}),
 				toolsets: resolvedToolsets,
 				systemPrompt: [
 					base,

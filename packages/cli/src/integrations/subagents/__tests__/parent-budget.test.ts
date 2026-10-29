@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	CompactionConfigSchema,
 	MockLLMProvider,
 	SessionPaths,
 	type Toolset,
@@ -21,10 +22,108 @@ afterEach(() => {
 
 describe('CLI delegation uses the parent token limit', () => {
 	it.each([
+		{ requested: undefined, expected: 'profile-child' },
+		{ requested: 'override-child', expected: 'override-child' },
+		{ requested: 'parent-model', expected: 'parent-model' },
+	])('uses the operator child default while respecting an explicit model: %j', async (test) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-profile-'))
+		directories.push(cwd)
+		const parent = await subagentParentFixture(cwd)
+		const provider = new MockLLMProvider({ turns: [{ text: 'CHILD_OK' }] })
+		const runtime = await createSubagentRuntime({
+			cwd,
+			model: 'parent-model',
+			resolveParent: parent.resolveParent,
+			defaultModel: { provider: 'openai', model: 'profile-child' },
+			defaultEffort: 'max',
+			maxResponseTokens: 32768,
+			compactionConfig: CompactionConfigSchema.parse({ autoCompactWindowTokens: 786432 }),
+			resolveModel: async (request) => ({ provider: 'openai', model: request.model }),
+			buildProvider: () => provider,
+			buildTools: () => [],
+		})
+		try {
+			const result = await runtime.agentTool.execute(
+				{
+					description: 'profile probe',
+					prompt: 'return a greeting',
+					...(test.requested ? { model: test.requested } : {}),
+				},
+				{
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
+					workingDirectory: cwd,
+					abortSignal: new AbortController().signal,
+					env: {},
+					log() {},
+				},
+			)
+			expect(result.success).toBe(true)
+			expect(provider.requests[0]).toMatchObject({
+				model: test.expected,
+				maxTokens: 32768,
+				effort: 'max',
+			})
+		} finally {
+			await runtime.close()
+		}
+	})
+	it.each([
+		{ launch: undefined, inherited: undefined, expected: undefined },
+		{ launch: 16_384, inherited: undefined, expected: 16_384 },
+		{ launch: 16_384, inherited: 32_768, expected: 32_768 },
+	])('sends and records the invoking turn output allowance: %j', async (test) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-output-'))
+		directories.push(cwd)
+		const parent = await subagentParentFixture(cwd)
+		const stateRoot = join(cwd, 'state')
+		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		const runtime = await createSubagentRuntime({
+			cwd,
+			model: 'mock',
+			maxResponseTokens: test.launch,
+			resolveLimits: () => ({ maxResponseTokens: test.inherited }),
+			resolveParent: parent.resolveParent,
+			paths: new SessionPaths({
+				home: stateRoot,
+				slug: '-work-child-output',
+			}),
+			buildProvider: () => provider,
+			buildTools: () => [],
+		})
+		try {
+			const result = await runtime.agentTool.execute(
+				{ description: 'inspect', prompt: 'report' },
+				{
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
+					workingDirectory: cwd,
+					abortSignal: new AbortController().signal,
+					env: {},
+					log() {},
+				},
+			)
+			expect(result.success).toBe(true)
+			expect(provider.requests).toHaveLength(1)
+			expect(provider.requests[0]?.maxTokens).toBe(test.expected)
+			const children = await childTurnRecords(stateRoot)
+			expect(children).toHaveLength(1)
+			expect(children[0]?.started?.config.maxResponseTokens).toBe(test.expected)
+		} finally {
+			await runtime.close()
+		}
+	})
+	it.each([
 		{ maxIterations: undefined, requests: 43, success: true },
 		{ maxIterations: 0, requests: 43, success: true },
 		{ maxIterations: 2, override: 0, requests: 43, success: true },
-		{ maxIterations: 2, override: 0, launchCaps: true, requests: 43, success: true },
+		{
+			maxIterations: 2,
+			override: 0,
+			launchCaps: true,
+			requests: 43,
+			success: true,
+		},
 		{ maxIterations: 0, override: 2, requests: 2, success: false },
 		{ maxIterations: 2, requests: 2, success: false },
 	])(

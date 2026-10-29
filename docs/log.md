@@ -2,6 +2,10 @@
 
 ## 2026-10-29
 
+- **Update** [Process-local model profiles](cli/model-profiles.md), [Launch flags](cli/launch-flags.md) and [Context limits](sdk/context-limits.md#the-summary-trigger): add export-based main/side/delegated model choices, effort, per-call output and automatic-summary windows; explicit flags win and real provider context remains separate from the compact window. Extend `.changeset/compatible-empty-output-recovery.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
+
+- **Update** [Turn limits](cli/turn-limits.md#per-call-output-allowance), [Output limits](sdk/context-limits.md#output-limits), [OpenAI reasoning](sdk/openai-reasoning.md#compatible-api-catalogues-and-reasoning): add `limits.maxResponseTokens`, preserve compatible catalogues' explicit reasoning menus and token limits, retain streamed reasoning, retry empty output cutoffs under an explicit continuation cap, and publish collected closing answers to streaming hosts. `.changeset/compatible-empty-output-recovery.md` (`@namzu/cli` minor, `@namzu/sdk` minor, `@namzu/openai` patch).
+
 - **Update** [Compaction circuit breaker](sdk/context-limits.md#the-circuit-breaker): restored host reminders and recorded context no longer count as tool-driven refills after compaction. They still count toward request budgets; actual conversation and tool-output growth retains the refill guard. Reproduced through the native terminal on a resumed long session, with deterministic coverage for repeated small reads. `.changeset/compaction-host-context-refill.md` (`@namzu/sdk` patch).
 
 - **Update** [Agent ownership](sdk/agent-ownership.md): disposal of an unchanged worktree deletes its branch only while the ref still equals the recorded starting commit, preserving commits published after inspection.

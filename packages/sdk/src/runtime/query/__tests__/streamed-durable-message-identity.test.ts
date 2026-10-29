@@ -168,6 +168,20 @@ it('keeps the forced closing summary identity equal to its durable answer', asyn
 	expect(terminal.settlement?.resultMessageId).toBe(closing.messageId)
 })
 
+it('publishes the collected closing answer to streaming consumers after an empty completion', async () => {
+	const { events, turn } = await run([{ text: '' }, { text: 'Visible closing answer' }])
+	const closing = events.find(
+		(event) => event.type === 'message_completed' && event.stopReason === 'forced_finalize',
+	)
+	if (closing?.type !== 'message_completed') throw new Error('Missing actual collected summary')
+	expect(turn.result).toBe('Visible closing answer')
+	expect(
+		events
+			.filter((event) => event.type === 'text_delta' && event.messageId === closing.messageId)
+			.map((event) => (event.type === 'text_delta' ? event.text : '')),
+	).toEqual(['Visible closing answer'])
+})
+
 it('delivers the same real query answer identity through an initialized ACP prompt', async () => {
 	const session = memorySession()
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-acp-identity-'))

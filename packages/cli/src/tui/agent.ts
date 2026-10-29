@@ -229,6 +229,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { readModelLaunchEnvironment } from '../config/model-environment.js'
 import type {
 	CodeAnalysisConfig,
 	CompactionCliConfig,
@@ -372,6 +373,7 @@ import {
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import { type ConversationContext, ensureSessionStarted } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
+import { parseSmallModel } from '../integrations/small-model/route.js'
 import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
@@ -2546,6 +2548,7 @@ export async function createAgentSession(
 	detected: readonly DetectedProvider[],
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
+	const modelEnvironment = readModelLaunchEnvironment()
 	if (options.palEnvironment) {
 		const { createPalAgentSession } = await import('../pals/agent-session.js')
 		return createPalAgentSession(prefs, detected, options)
@@ -3731,7 +3734,24 @@ export async function createAgentSession(
 			worktreeStateRoot: paths.home,
 			model,
 			tokenBudget: options.limits?.tokenBudget,
+			...(modelEnvironment.subagentModel
+				? {
+						defaultModel: (() => {
+							const target = parseSmallModel(
+								modelEnvironment.subagentModel,
+								primary.id,
+								(id) => id in PROVIDER_REGISTRY,
+							)
+							return { provider: target.providerId, model: target.model }
+						})(),
+					}
+				: {}),
+			...(modelEnvironment.effort ? { defaultEffort: modelEnvironment.effort } : {}),
+			...(options.compaction?.autoCompactWindowTokens !== undefined
+				? { compactionConfig: compactionConfigFor(options.compaction) }
+				: {}),
 			maxIterations: options.limits?.maxIterations,
+			maxResponseTokens: options.limits?.maxResponseTokens,
 			resolveLimits: (turnId) => delegationLimits.get(turnId),
 			resolveTurnModel: (turnId) => delegationModels.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
@@ -5074,7 +5094,7 @@ export async function createAgentSession(
 						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 						...resumedLimits,
-						maxResponseTokens: 8192,
+						maxResponseTokens: resumedLimits.maxResponseTokens ?? 8192,
 						permissionMode: 'auto',
 						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 					},
@@ -7255,6 +7275,9 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
 		...(compaction?.contextWindowTokens !== undefined
 			? { contextWindowTokens: compaction.contextWindowTokens }
 			: {}),
+		...(compaction?.autoCompactWindowTokens !== undefined
+			? { autoCompactWindowTokens: compaction.autoCompactWindowTokens }
+			: {}),
 		...(compaction?.modelSummary !== undefined ? { modelSummary: compaction.modelSummary } : {}),
 	}
 }
@@ -7493,7 +7516,7 @@ async function* runTurn({
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(webSearch ? { webSearch } : {}),
 				...resolveTurnGuards(limits),
-				maxResponseTokens: 8192,
+				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,

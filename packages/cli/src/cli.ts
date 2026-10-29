@@ -45,6 +45,7 @@ import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
 import type { ConfigDebugSnapshot } from './config/debug.js'
 import type { loadConfigWithProvenance } from './config/load.js'
+import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-environment.js'
 import type { NamzuCliConfig } from './config/schema.js'
 import {
 	bindTrustedProjectContext,
@@ -66,6 +67,7 @@ const PER_RUN_FLAG_KEYS: ReadonlySet<string> = new Set([
 	'disallowedTools',
 	'fallbackModel',
 	'maxBudgetUsd',
+	'maxOutputTokens',
 ])
 
 /** A repeatable option's accumulator: each use adds one value. */
@@ -220,6 +222,18 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.addOption(
 			new Option(
+				'--max-output-tokens <n>',
+				'Output allowance per model call for this launch, including reasoning; overrides NAMZU_MAX_OUTPUT_TOKENS and limits.maxResponseTokens.',
+			).argParser((value) => {
+				try {
+					return positiveTokenCount(value, '--max-output-tokens')
+				} catch (error) {
+					throw new CommanderError(EX_USAGE, 'commander.invalidArgument', (error as Error).message)
+				}
+			}),
+		)
+		.addOption(
+			new Option(
 				'--effort <level>',
 				'Reasoning effort for this launch only. A level the model does not offer is reported and the default stays.',
 			).choices(REASONING_EFFORT_LEVELS),
@@ -309,6 +323,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'disallowedTools',
 					'fallbackModel',
 					'maxBudgetUsd',
+					'maxOutputTokens',
 				] as const
 			).filter((key) => command.opts()[key] !== undefined)
 			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
@@ -582,6 +597,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				addDir?: string[]
 				provider?: string
 				model?: string
+				maxOutputTokens?: number
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
@@ -701,12 +717,21 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					launchPlan = { ...launchPlan, mode: 'prompt', source: 'default' }
 				}
 			}
-			const provider = launchOpts.provider?.trim()
-			const model = launchOpts.model?.trim()
+			let modelEnvironment: ReturnType<typeof readModelLaunchEnvironment>
+			try {
+				modelEnvironment = readModelLaunchEnvironment()
+			} catch (error) {
+				getBootstrapContext().formatter.error({ message: (error as Error).message })
+				setExitCode(EXIT_BAD_CONFIG)
+				return
+			}
+			const provider = (launchOpts.provider ?? modelEnvironment.provider)?.trim()
+			const model = (launchOpts.model ?? modelEnvironment.model)?.trim()
+			const effort = launchOpts.effort ?? modelEnvironment.effort
 			const launchSettings = {
 				...(provider ? { provider } : {}),
 				...(model ? { model } : {}),
-				...(launchOpts.effort ? { effort: launchOpts.effort } : {}),
+				...(effort ? { effort } : {}),
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
 					? { permissionMode: launchPlan.mode }
 					: {}),
@@ -798,7 +823,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.statusLine ? { statusLine: resolvedCtx.config.statusLine } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
-					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
+					...(resolvedCtx.config.limits || launchOpts.maxOutputTokens !== undefined
+						? {
+								limits: {
+									...resolvedCtx.config.limits,
+									...(launchOpts.maxOutputTokens !== undefined
+										? { maxResponseTokens: launchOpts.maxOutputTokens }
+										: {}),
+								},
+							}
+						: {}),
 					...(resolvedCtx.config.workflow ? { workflow: resolvedCtx.config.workflow } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
