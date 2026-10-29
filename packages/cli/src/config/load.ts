@@ -47,7 +47,12 @@ import {
 	narrower,
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
-import { type PermissionsConfig, mergePermissionTables } from '../permissions/rules.js'
+import { foldRuleLists } from '../permissions/rule-strings.js'
+import {
+	type PermissionsConfig,
+	bindPermissionTableToSource,
+	mergePermissionTables,
+} from '../permissions/rules.js'
 import {
 	type SettingsAuthority,
 	mergePermissionSettings,
@@ -74,6 +79,7 @@ import type {
 	ComposerTriggerArming,
 	ComposerTriggerId,
 	ComposerTriggerLanguage,
+	OtlpExportConfig,
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
@@ -422,7 +428,11 @@ export function readPermissionLayers(
 			layers.push({
 				source,
 				path,
-				permissions: splitPermissionsTable(config.permissions ?? {}, 'operator', source).rules,
+				permissions: bindPermissionTableToSource(
+					splitPermissionsTable(config.permissions ?? {}, 'operator', source).rules,
+					path,
+					source === 'local-file',
+				),
 				...(browserDenies.length > 0 ? { browserDenies } : {}),
 			})
 	}
@@ -784,14 +794,23 @@ const SKILLS_CONFIG_KEYS: readonly string[] = [
 ]
 
 /** The keys one `hooks` entry may carry. */
-const HOOK_ENTRY_KEYS: readonly string[] = [
-	'command',
+const HOOK_COMMON_KEYS: readonly string[] = [
+	'type',
 	'matcher',
 	'timeoutMs',
 	'if',
 	'once',
 	'statusMessage',
+	'onFailure',
 ]
+
+const HOOK_KIND_KEYS = {
+	command: ['command', 'args', 'async'],
+	http: ['url', 'headers', 'allowedEnvVars'],
+	prompt: ['prompt'],
+} as const satisfies Record<string, readonly string[]>
+
+const HOOK_ENTRY_KEYS: readonly string[] = [...HOOK_COMMON_KEYS, ...HOOK_KIND_KEYS.command]
 
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
@@ -884,7 +903,14 @@ const CONFIG_READERS: ConfigReaders = {
 		// checked here, where a typo can still name its file and line.
 		const problem = permissionSettingsProblem(v as Readonly<Record<string, unknown>>)
 		if (problem) return invalidConfigValue(context, problem.path, problem.message)
-		return v as PermissionsConfig
+		// `allow`, `ask` and `deny` lists of `Tool(specifier)` strings are a
+		// second spelling of the per-tool table; fold them in here so every
+		// later reader sees the table.
+		const folded = foldRuleLists(v as Readonly<Record<string, unknown>>)
+		if (folded.problem) {
+			return invalidConfigValue(context, folded.problem.path, folded.problem.message)
+		}
+		return folded.table as PermissionsConfig
 	},
 	// Shape only, like `permissions` and for the same reason: per-entry
 	// validation belongs to `verifyPermissionChecks`, which reports a bad
@@ -1168,29 +1194,43 @@ const CONFIG_READERS: ConfigReaders = {
 				if (!isConfigMapping(entry)) {
 					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
 				}
-				const raw = entry as {
-					command?: unknown
-					matcher?: unknown
-					timeoutMs?: unknown
-					if?: unknown
-					once?: unknown
-					statusMessage?: unknown
+				const raw = entry as Record<string, unknown>
+				const kind = raw.type === undefined ? 'command' : raw.type
+				if (kind !== 'command' && kind !== 'http' && kind !== 'prompt') {
+					return invalidConfigValue(
+						context,
+						[event, index, 'type'],
+						'must be "command", "http" or "prompt"',
+					)
 				}
+				const allowedKeys = [...HOOK_COMMON_KEYS, ...HOOK_KIND_KEYS[kind]]
 				for (const key of Object.keys(entry)) {
-					if (!HOOK_ENTRY_KEYS.includes(key)) {
+					if (!allowedKeys.includes(key)) {
 						return invalidConfigValue(
 							context,
 							[event, index, key],
-							'is not a recognized hook setting',
+							kind === 'command' && HOOK_ENTRY_KEYS.includes(key)
+								? 'is not a recognized hook setting'
+								: `is not a setting of a ${kind} hook`,
 						)
 					}
 				}
-				if (typeof raw.command !== 'string' || raw.command.trim().length === 0) {
+				const text = (key: string): string | undefined => {
+					const value = raw[key]
+					return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+				}
+				if (kind === 'command' && text('command') === undefined) {
 					return invalidConfigValue(
 						context,
 						[event, index, 'command'],
 						'must be a non-empty string',
 					)
+				}
+				if (kind === 'http' && text('url') === undefined) {
+					return invalidConfigValue(context, [event, index, 'url'], 'must be a non-empty string')
+				}
+				if (kind === 'prompt' && text('prompt') === undefined) {
+					return invalidConfigValue(context, [event, index, 'prompt'], 'must be a non-empty string')
 				}
 				if (raw.matcher !== undefined && typeof raw.matcher !== 'string') {
 					return invalidConfigValue(context, [event, index, 'matcher'], 'must be a string')
@@ -1207,30 +1247,111 @@ const CONFIG_READERS: ConfigReaders = {
 						'must be a positive integer',
 					)
 				}
-				if (raw.if !== undefined && (typeof raw.if !== 'string' || raw.if.trim().length === 0)) {
+				if (raw.if !== undefined && text('if') === undefined) {
 					return invalidConfigValue(context, [event, index, 'if'], 'must be a non-empty string')
 				}
 				if (raw.once !== undefined && typeof raw.once !== 'boolean') {
 					return invalidConfigValue(context, [event, index, 'once'], 'must be true or false')
 				}
-				if (
-					raw.statusMessage !== undefined &&
-					(typeof raw.statusMessage !== 'string' || raw.statusMessage.trim().length === 0)
-				) {
+				if (raw.statusMessage !== undefined && text('statusMessage') === undefined) {
 					return invalidConfigValue(
 						context,
 						[event, index, 'statusMessage'],
 						'must be a non-empty string',
 					)
 				}
-				parsed.push({
-					command: raw.command,
-					...(raw.matcher !== undefined ? { matcher: raw.matcher } : {}),
-					...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs } : {}),
-					...(raw.if !== undefined ? { if: raw.if } : {}),
-					...(raw.once !== undefined ? { once: raw.once } : {}),
-					...(raw.statusMessage !== undefined ? { statusMessage: raw.statusMessage } : {}),
-				})
+				if (
+					raw.onFailure !== undefined &&
+					raw.onFailure !== 'continue' &&
+					raw.onFailure !== 'block'
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'onFailure'],
+						'must be "continue" or "block"',
+					)
+				}
+				if (raw.async !== undefined && typeof raw.async !== 'boolean') {
+					return invalidConfigValue(context, [event, index, 'async'], 'must be true or false')
+				}
+				if (
+					raw.args !== undefined &&
+					(!Array.isArray(raw.args) || raw.args.some((item) => typeof item !== 'string'))
+				) {
+					return invalidConfigValue(context, [event, index, 'args'], 'must be a list of strings')
+				}
+				if (
+					raw.allowedEnvVars !== undefined &&
+					(!Array.isArray(raw.allowedEnvVars) ||
+						raw.allowedEnvVars.some((item) => typeof item !== 'string'))
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'allowedEnvVars'],
+						'must be a list of variable names',
+					)
+				}
+				if (raw.headers !== undefined) {
+					if (
+						!isConfigMapping(raw.headers) ||
+						Object.values(raw.headers).some((item) => typeof item !== 'string')
+					) {
+						return invalidConfigValue(
+							context,
+							[event, index, 'headers'],
+							'must be a mapping of header names to text',
+						)
+					}
+				}
+				if (kind === 'http') {
+					let protocol: string | undefined
+					try {
+						protocol = new URL(raw.url as string).protocol
+					} catch {
+						protocol = undefined
+					}
+					if (protocol !== 'http:' && protocol !== 'https:') {
+						return invalidConfigValue(
+							context,
+							[event, index, 'url'],
+							'must be an http or https address',
+						)
+					}
+				}
+				const shared = {
+					...(raw.matcher !== undefined ? { matcher: raw.matcher as string } : {}),
+					...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs as number } : {}),
+					...(raw.if !== undefined ? { if: raw.if as string } : {}),
+					...(raw.once !== undefined ? { once: raw.once as boolean } : {}),
+					...(raw.statusMessage !== undefined
+						? { statusMessage: raw.statusMessage as string }
+						: {}),
+					...(raw.onFailure !== undefined
+						? { onFailure: raw.onFailure as 'continue' | 'block' }
+						: {}),
+				}
+				if (kind === 'http') {
+					parsed.push({
+						type: 'http',
+						url: raw.url as string,
+						...(raw.headers !== undefined
+							? { headers: raw.headers as Record<string, string> }
+							: {}),
+						...(raw.allowedEnvVars !== undefined
+							? { allowedEnvVars: raw.allowedEnvVars as string[] }
+							: {}),
+						...shared,
+					})
+				} else if (kind === 'prompt') {
+					parsed.push({ type: 'prompt', prompt: raw.prompt as string, ...shared })
+				} else {
+					parsed.push({
+						command: raw.command as string,
+						...(raw.args !== undefined ? { args: raw.args as string[] } : {}),
+						...(raw.async !== undefined ? { async: raw.async as boolean } : {}),
+						...shared,
+					})
+				}
 			}
 			out[event] = parsed
 		}
@@ -1530,8 +1651,34 @@ const CONFIG_READERS: ConfigReaders = {
 	// config rather than selecting either "off" or a different redactor set.
 	telemetry: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { sessionExport?: unknown }
-		if (raw.sessionExport === undefined) return {}
+		const raw = v as { sessionExport?: unknown; otlp?: unknown }
+		let otlp: OtlpExportConfig | undefined
+		if (raw.otlp !== undefined) {
+			if (!isConfigMapping(raw.otlp))
+				return invalidConfigValue(context, ['otlp'], 'must be a mapping')
+			const o = raw.otlp as { endpoint?: unknown; headers?: unknown }
+			if (o.endpoint !== undefined && (typeof o.endpoint !== 'string' || o.endpoint === '')) {
+				return invalidConfigValue(context, ['otlp', 'endpoint'], 'must be a non-empty string')
+			}
+			let headers: Record<string, string> | undefined
+			if (o.headers !== undefined) {
+				if (!isConfigMapping(o.headers)) {
+					return invalidConfigValue(context, ['otlp', 'headers'], 'must be a mapping')
+				}
+				headers = {}
+				for (const [name, value] of Object.entries(o.headers as Record<string, unknown>)) {
+					if (typeof value !== 'string') {
+						return invalidConfigValue(context, ['otlp', 'headers', name], 'must be a string')
+					}
+					headers[name] = value
+				}
+			}
+			otlp = {
+				...(o.endpoint !== undefined ? { endpoint: o.endpoint as string } : {}),
+				...(headers ? { headers } : {}),
+			}
+		}
+		if (raw.sessionExport === undefined) return otlp ? { otlp } : {}
 		const se = raw.sessionExport
 		if (!isConfigMapping(se)) {
 			return invalidConfigValue(context, ['sessionExport'], 'must be a mapping')
@@ -1585,6 +1732,7 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 
 		return {
+			...(otlp ? { otlp } : {}),
 			sessionExport: {
 				destination: entry.destination,
 				...(eventTypes !== undefined ? { eventTypes } : {}),
@@ -2181,7 +2329,11 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 					settingsAuthorityOf(source),
 					describeSource(source),
 				)
-				permissionTables.push(split.rules)
+				permissionTables.push(
+					'path' in source
+						? bindPermissionTableToSource(split.rules, source.path, source.kind === 'local-file')
+						: split.rules,
+				)
 				out.permissions = mergePermissionTables(permissionTables)
 				out.permissionLayers = [...permissionTables]
 				provenance[key] = source

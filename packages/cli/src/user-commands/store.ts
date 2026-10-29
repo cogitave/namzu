@@ -45,7 +45,7 @@ import type { SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
 import { type SkillInfo, discoverSkills, loadSkillBody } from '../skills/store.js'
 
-export type UserCommandSource = 'user' | 'project' | 'skill'
+export type UserCommandSource = 'user' | 'project' | 'skill' | 'plugin'
 
 export interface UserCommand {
 	/** Invoked as `/<name>`. The filename without `.md`. */
@@ -88,7 +88,12 @@ export function projectCommandsDir(cwd: string = process.cwd()): string {
 	return join(cwd, '.namzu', 'commands')
 }
 
-function readCommandsFrom(dir: string, source: UserCommandSource): UserCommand[] {
+function readCommandsFrom(
+	dir: string,
+	source: UserCommandSource,
+	/** A plugin's name: the command is then `/<plugin>__<file>`. */
+	plugin?: string,
+): UserCommand[] {
 	let files: string[]
 	try {
 		files = readdirSync(dir, { withFileTypes: true })
@@ -102,7 +107,7 @@ function readCommandsFrom(dir: string, source: UserCommandSource): UserCommand[]
 	const out: UserCommand[] = []
 	for (const file of files) {
 		const path = join(dir, file)
-		const name = file.slice(0, -'.md'.length)
+		const name = `${plugin !== undefined ? `${plugin}__` : ''}${file.slice(0, -'.md'.length)}`
 		let raw: string
 		try {
 			raw = readFileSync(path, 'utf8')
@@ -170,6 +175,12 @@ export function discoverUserCommands(
 		 * files gets exactly those.
 		 */
 		skillCommands?: 'all' | 'declared' | 'none'
+		/**
+		 * Folders of command files that enabled plugins contribute. Each file is
+		 * named `<plugin>__<file>`, so a plugin cannot take another command's
+		 * name; the user's and project's own files still shadow a plugin's.
+		 */
+		pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
 	} = {},
 ): UserCommand[] {
 	const reserved = new Set(opts.reserved ?? [])
@@ -186,6 +197,9 @@ export function discoverUserCommands(
 
 	const byName = new Map<string, UserCommand>()
 	for (const c of skillCommands(opts)) byName.set(c.name, c) // a command file shadows a skill
+	for (const source of opts.pluginCommandDirs ?? []) {
+		for (const c of readCommandsFrom(source.dir, 'plugin', source.plugin)) byName.set(c.name, c)
+	}
 	for (const c of user) byName.set(c.name, c)
 	for (const c of project) byName.set(c.name, c) // project wins
 

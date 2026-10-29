@@ -24,7 +24,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SKILL_FRONTMATTER_KEYS, parseFrontmatter } from '@namzu/sdk'
+import {
+	SKILL_FRONTMATTER_KEYS,
+	SKILL_FRONTMATTER_TOLERATED_KEYS,
+	parseFrontmatter,
+} from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
 
@@ -234,6 +238,7 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 	const { values, body } = parseFrontmatter(raw, source, {
 		lists: ['allowed-tools', 'argument-hint'],
 		readsKey: READS_SKILL_KEY,
+		tolerates: (key) => SKILL_FRONTMATTER_TOLERATED_KEYS.includes(key),
 	})
 
 	// A non-scalar `name` or `description` is dropped rather than rendered:

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { parseAllowedTools } from '../../authorization/skill-grant.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 export { parseAllowedTools }
@@ -87,6 +88,13 @@ const inputSchema = z.object({
 		.optional()
 		.describe(
 			'The skill to load, exactly as listed in the available-skills manifest. Omit it to list model-invocable skills.',
+		),
+	args: z
+		.string()
+		.max(8000)
+		.optional()
+		.describe(
+			'What to apply the skill to, in your own words. A skill that runs as a delegated agent sees only this and its own instructions, so say what it needs. Omit it on a continuation.',
 		),
 	cursor: z
 		.string()
@@ -306,6 +314,9 @@ function pageSkillBody(input: {
 
 export const SKILL_TOOL_NAME = 'skill'
 
+/** The tool a skill that sets `context: fork` is handed to. */
+const DELEGATION_TOOL_NAME = 'Agent'
+
 /**
  * Build the `skill` tool, with what the host knows about where its model's
  * tools run. {@link SkillTool} is this with no options.
@@ -471,6 +482,40 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 				}
 			}
 
+			const argsLine =
+				input.args !== undefined && input.args.trim() !== ''
+					? `Arguments: ${input.args.trim()}\n\n`
+					: ''
+
+			// A skill that asks to run as a delegated agent is handed to the turn's
+			// delegation tool, with the agent type, model and effort it names. It
+			// is only attempted on a first call: a continuation belongs to an
+			// inline load. Without that tool this turn the skill loads inline, and
+			// says so, instead of failing.
+			let forkUnavailable = ''
+			if (skill.metadata.context === 'fork' && input.cursor === undefined) {
+				if (context.dispatchTool && context.toolRegistry?.has(DELEGATION_TOOL_NAME)) {
+					return runForkedSkill({
+						name: input.name,
+						skill,
+						argsLine,
+						dispatch: context.dispatchTool,
+						header: resolveModelDirectory
+							? directoryHeader(
+									nonEmpty(
+										await resolveModelDirectory(
+											{ name: input.name, directory: skill.dirPath },
+											directoryContextOf(context.sandbox),
+										),
+									),
+								)
+							: '',
+					})
+				}
+				forkUnavailable =
+					'[This skill is written to run as a delegated agent, but this turn cannot delegate. Follow its instructions yourself.]\n\n'
+			}
+
 			const allowed = parseAllowedTools(skill.metadata.allowedTools)
 			// Asked on every call, first page or continuation: the digest binds
 			// the answer, so a mount that changed between pages is a stale cursor
@@ -491,7 +536,7 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 				// pattern is matched against a command line the model writes, and it
 				// writes the path it was told.
 				skillDirectory: resolveModelDirectory ? modelDirectory : skill.dirPath,
-				header: resolveModelDirectory ? directoryHeader(modelDirectory) : '',
+				header: forkUnavailable + (resolveModelDirectory ? directoryHeader(modelDirectory) : ''),
 				invocation,
 			}
 			const digest = snapshotDigest(snapshot)
@@ -528,7 +573,8 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			}
 			const notice = grantNotice(allowed, grant, context.grantSkillTools !== undefined)
 			const page = pageSkillBody({
-				snapshot,
+				snapshot:
+					start === 0 && argsLine ? { ...snapshot, header: argsLine + snapshot.header } : snapshot,
 				digest,
 				start,
 				notice,
@@ -618,4 +664,47 @@ function grantNotice(
 	}
 	lines.push(unchanged)
 	return `\n\n[${lines.join(' ')}]`
+}
+
+/**
+ * Run a `context: fork` skill through the turn's delegation tool.
+ *
+ * The delegated agent starts with none of the conversation, so its prompt is
+ * the skill's instructions plus the arguments the model gave. The skill's
+ * `agent`, `model`, `effort` and `background` pass straight through. The host's
+ * delegation tool decides whether effort without a model is supported. Never
+ * discard the request or invent a model to make it pass host validation.
+ */
+async function runForkedSkill(input: {
+	readonly name: string
+	readonly skill: {
+		readonly metadata: {
+			readonly agent?: string
+			readonly model?: string
+			readonly effort?: string
+			readonly background?: boolean
+		}
+		readonly body?: string
+	}
+	readonly argsLine: string
+	readonly header: string
+	readonly dispatch: NonNullable<ToolContext['dispatchTool']>
+}) {
+	const { metadata, body } = input.skill
+	const result = await input.dispatch(DELEGATION_TOOL_NAME, {
+		description: `Skill ${input.name}`,
+		prompt: `${input.header}${input.argsLine}${body ?? '(this skill has no body)'}`,
+		...(metadata.agent === undefined ? {} : { subagent_type: metadata.agent }),
+		...(metadata.model === undefined ? {} : { model: metadata.model }),
+		...(metadata.effort === undefined ? {} : { effort: metadata.effort }),
+		...(metadata.background === undefined ? {} : { run_in_background: metadata.background }),
+	})
+	return {
+		...result,
+		data: {
+			...(typeof result.data === 'object' && result.data !== null ? result.data : {}),
+			skill: input.name,
+			forked: true,
+		},
+	}
 }

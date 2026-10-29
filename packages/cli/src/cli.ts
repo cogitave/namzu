@@ -25,6 +25,7 @@ import {
 	drainCommand,
 	evalCommand,
 	execCommand,
+	githubCommand,
 	historyCommand,
 	learnCommand,
 	learningCommand,
@@ -51,6 +52,7 @@ import {
 } from './config/trusted-project-context.js'
 import { debugRequested } from './debug-requested.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
+import type { PullRequestFilter } from './integrations/github/pull-request.js'
 import type { ZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
@@ -149,6 +151,19 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'namzu.zen_catalogue.reason': error instanceof Error ? error.message : String(error),
 				})
 		}
+	}
+
+	// Spans and metrics to a collector, only when asked for. Started once, on
+	// the first resolved config; drained in the `finally` below.
+	let otlpExport: ReturnType<typeof import('./cli-runtime.js').startOtlpExport> | undefined
+	const beginOtlpExport = (config: NamzuCliConfig): void => {
+		if (otlpExport !== undefined) return
+		otlpExport = runtime().startOtlpExport({
+			config: config.telemetry?.otlp,
+			env: process.env,
+			serviceVersion: CLI_VERSION,
+			warn: (message) => runtime().cliLogger().warn(message),
+		})
 	}
 
 	// What needs the SDK, loaded by the `preAction` hook the first time a command
@@ -250,8 +265,18 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			'Resume a conversation by id or exact title; with no value, or a value that matches no title, open the picker (the value pre-filters it).',
 		)
 		.option(
+			'--from-pr [value]',
+			'Open the picker with only the conversations linked to a pull request; a number or address narrows it to that one.',
+		)
+		.option(
 			'--add-dir <path>',
 			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
+			(value: string, previous: string[]) => [...previous, value],
+			[] as string[],
+		)
+		.option(
+			'--plugin-dir <path>',
+			'Load the plugin in this folder for this launch, without turning plugins on in the configuration; repeatable. It runs the plugin’s code, so name only folders you trust.',
 			(value: string, previous: string[]) => [...previous, value],
 			[] as string[],
 		)
@@ -278,6 +303,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'message',
 					'continue',
 					'resume',
+					'fromPr',
 					'appendSystemPrompt',
 					'allowedTools',
 					'disallowedTools',
@@ -300,10 +326,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			}
 			if (
 				action.name() === 'resume' &&
-				(command.opts().continue !== undefined || command.opts().resume !== undefined)
+				(command.opts().continue !== undefined ||
+					command.opts().resume !== undefined ||
+					command.opts().fromPr !== undefined)
 			)
 				command.error(
-					'--continue and --resume choose a conversation to open; `namzu resume <conversation-id>` already names one.',
+					'--continue, --resume and --from-pr choose a conversation to open; `namzu resume <conversation-id>` already names one.',
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
 				)
 			if (action.name() === 'resume' && command.opts().message !== undefined)
@@ -343,8 +371,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			verbose?: boolean
 			logFormat?: string
 			profile?: string
+			pluginDir?: string[]
 		}>()
-		const { config: fileConfig, provenance } = load()
+		const { config: loadedConfig, provenance } = load()
+		// `--plugin-dir` is a launch decision, so it joins the plugin settings here
+		// and never reaches a file. Folders are taken relative to where Namzu was
+		// started.
+		const launchDirs = [...new Set((globalOpts.pluginDir ?? []).map((dir) => resolve(dir)))]
+		const fileConfig =
+			launchDirs.length > 0
+				? { ...loadedConfig, plugins: { ...loadedConfig.plugins, launchDirs } }
+				: loadedConfig
 		const cliFormat: FormatName | undefined = (() => {
 			if (globalOpts.format === undefined) return undefined
 			if (isFormatName(globalOpts.format)) return globalOpts.format
@@ -407,6 +444,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const loaded = runtime().loadConfigWithProvenance(selectedConfigOpts(target))
 		const trusted = buildContext(() => loaded)
 		runtime().emitBootNarrative(loaded.provenance, loaded.config)
+		beginOtlpExport(loaded.config)
 		trustedContexts.set(target, trusted)
 		return trusted
 	}
@@ -503,6 +541,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		scheduleCommand,
 		browserCommand,
 		worktreeCommand,
+		githubCommand,
 	]) {
 		registerCommandOrLazy(program, def, {
 			getContext:
@@ -521,7 +560,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === skillsCommand ||
 								def === upgradeCommand ||
 								def === scheduleCommand ||
-								def === browserCommand
+								def === browserCommand ||
+								def === githubCommand
 							? getBootstrapContext
 							: getContext,
 			setExitCode,
@@ -552,16 +592,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				maxBudgetUsd?: string
 				continue?: boolean
 				resume?: string | true
+				fromPr?: string | true
 			}>()
 			// `-c` / `-r`: pick the conversation before anything else is built, so a
 			// refusal costs no provider discovery and never falls back to a new one.
 			let conversationId = initialConversationId
-			let openResumePicker: { readonly query?: string } | undefined = pickConversation
-				? {}
-				: undefined
+			let openResumePicker:
+				| { readonly query?: string; readonly pr?: PullRequestFilter }
+				| undefined = pickConversation ? {} : undefined
 			if (
 				conversationId === undefined &&
-				(launchOpts.continue || launchOpts.resume !== undefined)
+				(launchOpts.continue || launchOpts.resume !== undefined || launchOpts.fromPr !== undefined)
 			) {
 				const { resolveTuiResume } = await import('./commands/resume.js')
 				const { openSessions, closeSessions } = await import('./integrations/sessions/store.js')
@@ -575,7 +616,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				try {
 					outcome = await resolveTuiResume(
 						sessions,
-						{ continueLast: launchOpts.continue === true, resume: launchOpts.resume ?? null },
+						{
+							continueLast: launchOpts.continue === true,
+							resume: launchOpts.resume ?? null,
+							fromPr: launchOpts.fromPr ?? null,
+						},
 						process.cwd(),
 					)
 				} finally {
@@ -588,7 +633,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				}
 				if (outcome.kind === 'open') conversationId = outcome.sessionId
 				if (outcome.kind === 'picker')
-					openResumePicker = outcome.query === undefined ? {} : { query: outcome.query }
+					openResumePicker = {
+						...(outcome.query === undefined ? {} : { query: outcome.query }),
+						...(outcome.pr === undefined ? {} : { pr: outcome.pr }),
+					}
 			}
 			const structuredOutput = launchOpts.outputSchema
 				? (await import('./output-schema.js')).loadOutputSchema(
@@ -690,6 +738,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				for (const message of browserSites?.diagnostics ?? []) {
 					resolvedCtx.formatter.error({ message })
 				}
+				const livePermissionRules = runtime().createLivePermissionRules({
+					cwd,
+					layers: [
+						...runtime().permissionLayersOf(resolvedCtx.config),
+						...runFlags.permissionLayers,
+					],
+					...(browserSites ? { browserRules: browserSites.rules } : {}),
+				})
 				const additionalDirectories = [
 					...(resolvedCtx.config.additionalDirectories ?? []),
 					...(launchOpts.addDir ?? []),
@@ -716,9 +772,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						: {}),
 					...(Object.keys(launchSettings).length > 0 ? { launchSettings } : {}),
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-					rules: browserSites
-						? runtime().withBrowserSiteRules(permissions.rules, browserSites.rules)
-						: permissions.rules,
+					rules: livePermissionRules.rules,
+					reloadPermissionRules: livePermissionRules.reload,
 					...(browserSites ? { browser: { ...browserConfig, sites: browserSites.sites } } : {}),
 					logging: resolvedCtx.logging,
 					...(conversationId ? { initialConversationId: conversationId } : {}),
@@ -886,6 +941,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return EXIT_INTERNAL_ERROR
 	} finally {
 		catalogueRefresh?.cancel()
+		await (await otlpExport)?.shutdown()
 	}
 }
 

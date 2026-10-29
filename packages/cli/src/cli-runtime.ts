@@ -18,6 +18,7 @@ export {
 	loadConfigWithProvenance,
 } from './config/load.js'
 export { resolveRunFlags } from './commands/run-flags.js'
+export { startOtlpExport } from './integrations/telemetry/otlp-export.js'
 export { startZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
 export { resolveNamzuHome } from './integrations/state/home.js'
 export {
@@ -32,6 +33,7 @@ export { hasAcknowledgedBypass, acknowledgeBypass } from './permissions/consent.
 export { askBypassConsent } from './permissions/consent-prompt.js'
 export { planLaunchMode } from './permissions/launch.js'
 export { permissionModeFromName } from './permissions/mode.js'
+export { createLivePermissionRules } from './permissions/live-rules.js'
 export {
 	compilePermissionLayers,
 	compilePermissions,

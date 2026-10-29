@@ -17,7 +17,10 @@ import { compilePermissions } from '../../permissions/rules.js'
 import { type AgentEvent, type AgentSessionOptions, createAgentSession } from '../agent.js'
 
 interface Request {
-	readonly messages: readonly { readonly role: string; readonly content?: unknown }[]
+	readonly messages: readonly {
+		readonly role: string
+		readonly content?: unknown
+	}[]
 	readonly tools: readonly { readonly function: { readonly name: string } }[]
 }
 
@@ -56,7 +59,10 @@ const save = {
 let cwd: string
 let requests: Request[]
 
-function response(tool?: { readonly name: string; readonly input: unknown }): Response {
+function response(tool?: {
+	readonly name: string
+	readonly input: unknown
+}): Response {
 	const chunk = {
 		id: 'chatcmpl-deferred-fixture',
 		object: 'chat.completion.chunk',
@@ -72,7 +78,10 @@ function response(tool?: { readonly name: string; readonly input: unknown }): Re
 									index: 0,
 									id: `call_${requests.length}`,
 									type: 'function',
-									function: { name: tool.name, arguments: JSON.stringify(tool.input) },
+									function: {
+										name: tool.name,
+										arguments: JSON.stringify(tool.input),
+									},
 								},
 							],
 						}
@@ -211,7 +220,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 
 	it('does not require optional web tools when selecting the eager core', async () => {
 		mockProvider(() => response())
-		const session = await open({ toolLoading: 'deferred', web: { search: 'off', fetch: false } })
+		const session = await open({
+			toolLoading: 'deferred',
+			web: { search: 'off', fetch: false },
+		})
 		try {
 			for await (const _ of session.send([createUserMessage('Inspect the fixture')])) {
 				// No network capability is configured for this send.
@@ -236,10 +248,16 @@ describe('explicit tool loading reaches the real session and query', () => {
 
 	it('loads the requested runtime task tool and keeps it active for the next send', async () => {
 		mockProvider((_request, index) => {
-			if (index % 3 === 0)
-				return response({ name: 'search_tools', input: { query: 'task_create' } })
-			if (index % 3 === 1)
-				return response({ name: 'task_create', input: { subject: 'Check fixture evidence' } })
+			if (index === 0)
+				return response({
+					name: 'search_tools',
+					input: { query: 'task_create' },
+				})
+			if (index === 1 || index === 3)
+				return response({
+					name: 'task_create',
+					input: { subject: 'Check fixture evidence' },
+				})
 			return response()
 		})
 		const session = await open({ toolLoading: 'deferred' })
@@ -256,8 +274,8 @@ describe('explicit tool loading reaches the real session and query', () => {
 					kind: 'done',
 					stopReason: 'end_turn',
 				})
-				expect(requests).toHaveLength((turn + 1) * 3)
-				const [first, second, third] = requests.slice(turn * 3, turn * 3 + 3)
+				expect(requests).toHaveLength(turn === 0 ? 3 : 5)
+				const [first, second, third] = requests.slice(turn === 0 ? 0 : 3)
 				// Availability is derived from what the session's own history has
 				// revealed (plan.md v3 §2), and that history persists across sends
 				// of the same session — so once turn 0 reveals `task_create`, turn
@@ -269,8 +287,12 @@ describe('explicit tool loading reaches the real session and query', () => {
 					).sort(),
 				)
 				expect(names(second)).toContain('task_create')
-				expect(names(third)).toContain('task_create')
-				expect(JSON.stringify(third.messages)).toContain('Task created:')
+				if (third) {
+					expect(names(third)).toContain('task_create')
+					expect(JSON.stringify(third.messages)).toContain('Task created:')
+				} else {
+					expect(JSON.stringify(second.messages)).toContain('Task created:')
+				}
 				const prompt = JSON.stringify(first.messages)
 				for (const retained of [
 					'PROJECT_INSTRUCTION_MUST_REMAIN',
@@ -283,7 +305,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 					'<deferred_tools>',
 					'Agent',
 					'save_memory',
-					'Before using a tool listed under deferred_tools',
+					'Only when a needed deferred tool schema is absent',
 				])
 					expect(prompt).toContain(retained)
 				expect(
@@ -310,6 +332,12 @@ describe('explicit tool loading reaches the real session and query', () => {
 			failed: [],
 			pending: [],
 			ready: Promise.resolve(),
+			listPrompts: async () => [],
+			getPrompt: async () => {
+				throw new Error('No prompts in the discovery fixture')
+			},
+			listResources: async () => [],
+			readResource: async () => null,
 			onSettled: () => () => {},
 			current: () => ({ connected: [], failed: [], pending: [] }),
 			close: async () => {},
@@ -335,7 +363,11 @@ describe('explicit tool loading reaches the real session and query', () => {
 		'keeps %s permission enforcement after a memory tool is loaded',
 		async (policy) => {
 			mockProvider((_request, index) => {
-				if (index === 0) return response({ name: 'search_tools', input: { query: 'save_memory' } })
+				if (index === 0)
+					return response({
+						name: 'search_tools',
+						input: { query: 'save_memory' },
+					})
 				if (index === 1) return response({ name: 'save_memory', input: save })
 				return response()
 			})
@@ -365,7 +397,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 				if (policy === 'explicit allow') {
 					expect(JSON.stringify(requests[2].messages)).toContain('Memory saved:')
 					expect(memories.totalCount).toBe(1)
-					expect(memories.entries[0]).toMatchObject({ title: save.title, summary: save.summary })
+					expect(memories.entries[0]).toMatchObject({
+						title: save.title,
+						summary: save.summary,
+					})
 				} else {
 					expect(JSON.stringify(requests[2].messages)).toMatch(/refus|denied/i)
 					expect(JSON.stringify(requests[2].messages)).not.toContain('Memory saved:')

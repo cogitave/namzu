@@ -167,3 +167,63 @@ describe('grep paging', () => {
 		expect(() => GrepTool.inputSchema.parse({ pattern: 'a', offset: 1.5 })).toThrow()
 	})
 })
+
+describe('grep asymmetric context and matched substrings', () => {
+	it('overrides each side independently without changing symmetric context defaults', async () => {
+		const { context } = workspace({ 'a.txt': 'before2\nbefore1\nneedle\nafter1\nafter2\n' })
+		const result = await run(context, {
+			output_mode: 'content',
+			context_lines: 2,
+			before_context: 0,
+			after_context: 1,
+		})
+		expect(result.output).toContain('./a.txt:3:needle')
+		expect(result.output).toContain('./a.txt-4-after1')
+		expect(result.output).not.toContain('before1')
+		expect(result.output).not.toContain('after2')
+	})
+
+	it('prints every matched substring with its line, ignoring context', async () => {
+		const { context } = workspace({
+			'a.txt': 'surrounding\nprefix needle suffix needle tail\nafter\n',
+		})
+		const result = await run(context, {
+			output_mode: 'content',
+			only_matching: true,
+			context_lines: 9,
+		})
+		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toEqual([
+			'./a.txt:2:needle',
+			'./a.txt:2:needle',
+		])
+		expect(result.output).not.toContain('prefix')
+		expect(result.output).not.toContain('surrounding')
+	})
+
+	it('pages a dense match-only result and advances past empty regex matches', async () => {
+		const { context } = workspace({ 'a.txt': 'needle needle needle' })
+		const result = await run(context, {
+			output_mode: 'content',
+			only_matching: true,
+			head_limit: 1,
+			offset: 1,
+		})
+		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toEqual([
+			'./a.txt:1:needle',
+		])
+		expect(result.data).toMatchObject({ truncated: true })
+		const empty = await run(context, { output_mode: 'content', only_matching: true }, '(?:)')
+		expect(empty.output).toContain('No matches found')
+	})
+
+	it('enforces the page cap while expanding a large context group', async () => {
+		const { context } = workspace({ 'a.txt': `needle\n${'context\n'.repeat(1000)}` })
+		const result = await run(context, {
+			output_mode: 'content',
+			after_context: 1000,
+			head_limit: 2,
+		})
+		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toHaveLength(2)
+		expect(result.data).toMatchObject({ truncated: true })
+	})
+})

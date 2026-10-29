@@ -196,6 +196,34 @@ it('runs relative writes and nested project instructions in the matching worktre
 	}
 })
 
+it('removes the checkout and branch of a child that changed nothing, and says so', async () => {
+	const { selected, stateRoot } = sourceCheckouts()
+	const parent = await subagentParentFixture(selected)
+	const runtime = await createSubagentRuntime({
+		resolveParent: parent.resolveParent,
+		cwd: selected,
+		worktreeStateRoot: stateRoot,
+		paths: new SessionPaths({ home: stateRoot, slug: 'isolated-child-test' }),
+		model: 'mock-model',
+		buildProvider: () => new MockLLMProvider({ turns: [{ text: 'nothing to change' }] }),
+		buildTools: () => [],
+	})
+	try {
+		const result = await runtime.agentTool.execute(
+			{ description: 'look only', prompt: 'look around', workspace: 'worktree' },
+			toolContext(parent),
+		)
+		expect(result.success, result.error ?? result.output).toBe(true)
+		expect(result.output).toContain('The worktree had no changes and was removed.')
+		expect(result.data).not.toHaveProperty('workspace_path')
+		const managed = await openManagedWorktrees(selected, { stateRoot })
+		expect(await managed.list()).toEqual([])
+		expect(git(selected, 'branch', '--list', 'namzu/*')).toBe('')
+	} finally {
+		await runtime.close()
+	}
+})
+
 it('rejects an uncommitted nested directory and removes its unstarted worktree', async () => {
 	const { selected, stateRoot } = sourceCheckouts()
 	const selectedCwd = join(selected, 'untracked-directory')

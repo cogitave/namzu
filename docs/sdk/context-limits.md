@@ -114,12 +114,23 @@ turn:
   reference: a log line and one `compaction_failed` event with `cause:
   'breaker_open'`, which carries no `error`. A pass the provider forces by
   rejecting the prompt is never gated, so the recovery above still runs.
-- Three compactions in a row, each followed by the context reaching the
-  trigger again within three iterations, stop the turn. A relief of a context
+- Three compactions in a row, each followed by a full refill within three
+  iterations, stop the turn. A full refill means the estimated history size
+  has returned to at least its size before the previous compaction, and that
+  compaction actually reduced it. The before, after and next-check sizes use
+  the same history estimator, not a mixture of provider usage and estimates.
+  For this refill check, runtime-provenance reminders and recorded context
+  entries are excluded: compaction may shed them and the host may announce
+  them again on the next request. They still count toward the request budget
+  and compaction trigger. Operator messages and tool output count toward
+  refills even if their text looks like a host note.
+  A useful but insufficient reduction that leaves the context above the
+  trigger is not itself a refill; neither is growth smaller than the space
+  just shed. A relief of a context
   overflow counts as a compaction, including one that only cleared tool
   results, and the check runs before the first relief of each overflow (the
-  deeper rung of the same overflow is not counted again). A tool that fills the window on every call is stopped on the third
-  overflow, not after the cleared placeholders fill the window. The turn stops with stop reason
+  deeper rung of the same overflow is not counted again). A tool that fills the window on every call is stopped on its third
+  refill (the fourth overflow, including the initial one), not after the cleared placeholders fill the window. The turn stops with stop reason
   `error` and a `compaction_failed` event with `cause: 'refilling'` (sent once;
   `error` is the line to show, and it is the turn's last error). The line names
   the cause (a file being read or a tool output too large for the window) and

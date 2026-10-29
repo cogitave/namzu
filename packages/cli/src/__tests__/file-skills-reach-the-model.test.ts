@@ -84,6 +84,13 @@ function systemText(params: ChatCompletionParams): string {
 		.join('\n')
 }
 
+/** Every message of a request, the hidden reminders included. */
+function requestText(params: ChatCompletionParams): string {
+	return params.messages
+		.map((message) => (typeof message.content === 'string' ? message.content : ''))
+		.join('\n')
+}
+
 async function execJson(
 	prompt: string,
 	config: Record<string, unknown> = {},
@@ -92,7 +99,7 @@ async function execJson(
 	const provider = new MockLLMProvider({
 		nextTurn: (params, index) => {
 			if (index === 0) {
-				return systemText(params).includes('<name>release-notes</name>')
+				return requestText(params).includes('- release-notes: Write release notes')
 					? {
 							toolCalls: load.map((name) => ({
 								id: `load-${name}`,
@@ -135,7 +142,9 @@ describe('a file skill', () => {
 		expect(events.filter((event) => event.kind === 'error')).toEqual([])
 		const first = provider.requests[0]
 		expect(first, 'the turn never reached the provider').toBeDefined()
-		expect(systemText(first!)).toContain('<name>release-notes</name>')
+		// Listed in a hidden reminder, not in the cached system prompt.
+		expect(requestText(first!)).toContain('- release-notes: Write release notes')
+		expect(systemText(first!)).not.toContain('release-notes')
 		expect(first!.tools?.map((tool) => tool.function.name)).toContain('skill')
 
 		expect(events).toContainEqual(

@@ -4,6 +4,16 @@ import { PROTECTED_DIRECTORIES, PROTECTED_FILE_NAMES, isProtectedPath } from '..
 
 describe('isProtectedPath', () => {
 	it.each([
+		'/repo/.namzu/skills/review/SKILL.md',
+		'/repo/.namzu/agents/reviewer.md',
+		'/repo/.namzu/commands/ship.md',
+		'/repo/.NAMZU/Skills/x.md',
+		'/repo/.namzu/worktrees/job/src/a.ts',
+	])('lets authored project folders be written: %s', (path) => {
+		expect(isProtectedPath(path)).toBe(false)
+	})
+
+	it.each([
 		'/repo/.git/hooks/pre-commit',
 		'.git/config',
 		'/repo/.vscode/tasks.json',
@@ -13,7 +23,11 @@ describe('isProtectedPath', () => {
 		'/repo/.devcontainer/devcontainer.json',
 		'/repo/.yarn/releases/yarn.cjs',
 		'/repo/.mvn/wrapper/maven-wrapper.properties',
-		'/repo/.namzu/agents/reviewer.md',
+		'/repo/.namzu/MEMORY.md',
+		'/repo/.namzu/settings.json',
+		'/repo/.namzu/skills/.git/config',
+		'/repo/.namzu/skills/x/.namzu/agents/a.md',
+		'/repo/.namzu/agents/.NAMZU/y.md',
 		'/home/u/.config/git/config',
 	])('protects %s', (path) => {
 		expect(isProtectedPath(path)).toBe(true)

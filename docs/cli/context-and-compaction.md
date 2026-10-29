@@ -234,6 +234,37 @@ continuation restores its host-owned query. Automatic passages are historical co
 proof of current workspace state. The feature neither reads the current
 workspace to infer its past nor replays a state-changing action.
 
+# Execution environment facts
+
+The environment context names the host OS type and release reported by Node,
+not a guessed distribution version. The host execution shell comes from the
+same SDK resolver that launches commands, including `NAMZU_BASH_SHELL`
+overrides and the platform fallback; it is not the login `$SHELL`. For a
+sandbox, the context distinguishes the host from the guest launcher: bash
+when available in the guest, otherwise `/bin/sh`.
+
+Read-only Git probes compare the worktree's administration directory with its
+common repository directory. When they differ, the date/branch reminder also
+says this is a linked worktree with its own files and HEAD but shared
+repository history. That note stays out of the cached environment prefix and
+is not repeated while the recorded facts match. A failed probe makes no
+worktree claim. No Git settings or worktree state are changed.
+
+# Runtime model identity
+
+A hidden conversation reminder names the exact requested model ID and provider
+for the current turn, without replacing Namzu's identity or changing the
+cached system prefix. It is emitted again only when the selected route changes
+or the earlier reminder is no longer in the supplied history (for example,
+after compaction). Provider fallback notices remain the authority for a later
+route; the reminder describes the requested route, not an inferred model behind
+an alias. The available catalogue contract has no knowledge-cutoff field, so
+no cutoff date is asserted or derived from an ID, release date or family name.
+
+# Files that changed under the model
+
+When a file the model read whole (or wrote, or edited) is changed on disk by something else, the next request carries a hidden note: the file changed since it was read, the change is usually deliberate, treat the file as it is now and do not put the old text back, and say so instead of undoing it if it looks wrong. The note shows the changed lines with 8 lines of context and their line numbers, up to 8,192 characters of changed text for a file. Complete notes, including filenames, frames, truncation markers and separators, use at most 16,384 characters in one request. Notes that do not fit are deferred to a later request, even if their files do not change again. Files whose names mark them as secrets (`.env`, `*.pem`, `*.key`, SSH keys), files beyond the bounded comparison read and files with no earlier text to compare get a note without the text and the advice to read the file. A change is told once. A note is not a full read: neither its diff nor a text-free notice updates the read or write witness. An edit or write still requires a current read when the file moved, including when its content was withheld or truncated. Truncation markers count toward both text budgets. A file read only in part is not watched, and an edit or write over a file that moved without being noticed is still refused as before.
+
 # `/context`
 
 `/context` draws where the window goes. A grid of squares stands for the whole

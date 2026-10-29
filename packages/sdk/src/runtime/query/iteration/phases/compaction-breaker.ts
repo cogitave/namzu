@@ -7,10 +7,10 @@
  *   and the turn carries on, silently as far as the person is concerned (a log
  *   line and a `breaker_open` event, no sentence); a pass the provider forces
  *   by rejecting the prompt is not gated, so the reactive ladder still runs.
- * - Three compactions in a row, each followed by the context filling back up
- *   within three iterations: something in the loop (a huge file read, a tool
- *   that prints without limit) refills the window faster than any summary can
- *   empty it. The turn stops, because carrying on only buys the same wall.
+ * - Three compactions in a row, each followed by the history regaining all
+ *   space shed within three iterations: something in the loop (a huge file
+ *   read, a tool that prints without limit) refills the window faster than a
+ *   summary can empty it. The turn stops, because carrying on buys the same wall.
  *
  * Off unless `compactionConfig.circuitBreaker` is true: stopping compaction,
  * and above all stopping a turn, is not something a host had before.
@@ -19,11 +19,31 @@
  * share a count.
  */
 
+import { estimateMessageTokens } from '../../../../compaction/token-estimate.js'
+import { type Message, isTurnContextEntry } from '../../../../types/message/index.js'
+import { isReminderMessage } from '../../reminders.js'
 import type { IterationContext } from './context.js'
+
+/**
+ * Conversation growth for the refill guard. Compaction sheds host reminders
+ * and recorded context so the host can announce them again; their return is
+ * not evidence of a tool refilling the window. Budgeting still includes them.
+ * Use provenance, not text that an operator or tool could happen to quote.
+ */
+export function estimateRefillTokens(messages: readonly Message[]): number {
+	return messages.reduce(
+		(total, message) =>
+			total +
+			(isReminderMessage(message) || isTurnContextEntry(message)
+				? 0
+				: estimateMessageTokens(message)),
+		0,
+	)
+}
 
 /** Consecutive failed passes after which automatic compaction stops. */
 export const COMPACTION_FAILURE_LIMIT = 3
-/** A compaction followed by a trigger sooner than this many iterations is a refill. */
+/** A full refill sooner than this many iterations counts toward the limit. */
 export const COMPACTION_REFILL_ITERATIONS = 3
 /** Consecutive refills that stop the turn. */
 export const COMPACTION_REFILL_LIMIT = 3
@@ -41,6 +61,8 @@ export class CompactionBreaker {
 	private refills = 0
 	private pendingRefills = 0
 	private lastCompactedIteration: number | undefined
+	private lastTokensBefore = 0
+	private lastTokensAfter = 0
 	private failureNoticeSent = false
 	private stopReason: string | undefined
 
@@ -69,18 +91,25 @@ export class CompactionBreaker {
 	 * A summary or reducer pass is about to run at `iteration`. True when it
 	 * would be the third refill in a row, in which case it must not run.
 	 */
-	wouldTrip(iteration: number): boolean {
+	wouldTrip(iteration: number, tokens: number): boolean {
+		// Iteration distance alone confuses continued pressure with a refill:
+		// a small reduction may leave the prompt above its trigger. Compare the
+		// same history estimator on both sides, never provider usage against an
+		// estimate. Count only when new context has replaced ALL the space shed.
+		const refilled = this.lastTokensAfter < this.lastTokensBefore && tokens >= this.lastTokensBefore
 		const quick =
 			this.lastCompactedIteration !== undefined &&
 			iteration - this.lastCompactedIteration < COMPACTION_REFILL_ITERATIONS
-		this.pendingRefills = quick ? this.refills + 1 : 0
+		this.pendingRefills = quick && refilled ? this.refills + 1 : 0
 		return this.pendingRefills >= COMPACTION_REFILL_LIMIT
 	}
 
-	/** The pass that `wouldTrip` allowed completed at `iteration`. */
-	recordCompaction(iteration: number): void {
+	/** The allowed pass completed; both sizes must use the same history estimator. */
+	recordCompaction(iteration: number, tokensBefore: number, tokensAfter: number): void {
 		this.refills = this.pendingRefills
 		this.lastCompactedIteration = iteration
+		this.lastTokensBefore = tokensBefore
+		this.lastTokensAfter = tokensAfter
 		this.recordRelief()
 	}
 

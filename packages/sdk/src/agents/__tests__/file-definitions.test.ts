@@ -44,6 +44,77 @@ describe('parseAgentMarkdown', () => {
 		})
 	})
 
+	it('reads the optional fields beyond the roster', () => {
+		const raw = [
+			'---',
+			'name: builder',
+			'description: Builds.',
+			'tools: read, edit, bash',
+			'disallowedTools: bash',
+			'model: inherit',
+			'effort: High',
+			'maxTurns: 12',
+			'background: true',
+			'isolation: worktree',
+			'skills: release-notes, changelog',
+			'---',
+			'Build it.',
+		].join('\n')
+		const parsed = parseAgentMarkdown(raw, '/p/builder.md', 'project')
+		if ('reason' in parsed) throw new Error(parsed.reason)
+		expect(parsed).toMatchObject({
+			tools: ['read', 'edit', 'bash'],
+			disallowedTools: ['bash'],
+			effort: 'high',
+			maxTurns: 12,
+			background: true,
+			isolation: 'worktree',
+			skills: ['release-notes', 'changelog'],
+		})
+		expect(parsed.model).toBeUndefined()
+	})
+
+	it.each([
+		['a bad effort', 'effort: sometimes', '`effort:` must be one of'],
+		['a zero maxTurns', 'maxTurns: 0', '`maxTurns:` must be a positive whole number'],
+		['a fractional maxTurns', 'maxTurns: 2.5', '`maxTurns:` must be a positive whole number'],
+		['a bad background', 'background: maybe', '`background:` must be true or false'],
+		['another isolation', 'isolation: remote', '`isolation:` must be worktree'],
+		['an empty disallowedTools', 'disallowedTools: ,', '`disallowedTools:` must be a non-empty'],
+		['an empty skills', 'skills: ,', '`skills:` must be a non-empty'],
+	])('refuses a file with %s and says why', (_label, line, reason) => {
+		const parsed = parseAgentMarkdown(
+			`---\nname: a\ndescription: x\n${line}\n---\nbody`,
+			'/p/a.md',
+			'project',
+		)
+		expect('reason' in parsed && parsed.reason).toContain(reason)
+	})
+
+	it('keeps a permissionMode word, and refuses one the host does not list', () => {
+		const raw = (word: string) => `---\nname: a\ndescription: x\npermissionMode: ${word}\n---\nbody`
+		const modes = new Set(['prompt', 'plan'])
+		expect(parseAgentMarkdown(raw('plan'), '/p/a.md', 'u', undefined, modes)).toMatchObject({
+			permissionMode: 'plan',
+		})
+		expect(parseAgentMarkdown(raw('plan'), '/p/a.md', 'u')).toMatchObject({
+			permissionMode: 'plan',
+		})
+		expect(parseAgentMarkdown(raw('yolo'), '/p/a.md', 'u', undefined, modes)).toEqual({
+			path: '/p/a.md',
+			reason: '`permissionMode: yolo` is not one of prompt, plan',
+		})
+		expect(
+			parseAgentMarkdown(
+				'---\nname: a\ndescription: x\n---\nbody',
+				'/p/a.md',
+				'u',
+				undefined,
+				modes,
+			),
+		).not.toHaveProperty('permissionMode')
+	})
+
 	it.each([
 		['no frontmatter', 'Just a body.', 'no frontmatter'],
 		['no name', '---\ndescription: x\n---\nbody', 'no `name:`'],

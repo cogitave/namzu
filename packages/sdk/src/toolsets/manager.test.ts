@@ -504,7 +504,9 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 		const section = m.toPromptSection()
 		expect(section).toContain('<available_tools>\n- read\n</available_tools>')
 		expect(section).toContain('- hidden: Do the hidden thing.')
-		expect(section).toContain('Deferred tools are discoverable but not executable')
+		expect(section).toContain(
+			'For a needed deferred tool whose schema is absent, wait for runtime activation',
+		)
 	})
 
 	it('toPromptSection recommends search_tools once it is active and allowed', () => {
@@ -512,7 +514,38 @@ describe('ToolManager — toLLMTools / toPromptSection / toTierGuidance', () => 
 			toolset('a', [makeTool('search_tools')]),
 			deferred(toolset('b', [makeTool('hidden')])),
 		])
-		expect(m.toPromptSection()).toContain('Use search_tools to load these before use:')
+		expect(m.toPromptSection()).toContain(
+			"Only when a needed deferred tool's schema is absent from the current runtime tools parameter, use search_tools with its exact name to load it:",
+		)
+	})
+
+	it('a stale discovery snapshot defers to live schemas and compaction still resets them', async () => {
+		const messages: Message[] = []
+		const m = manager(
+			[
+				toolset('runtime', [makeTool('search_tools')]),
+				deferred(toolset('a', [makeTool('hidden')])),
+			],
+			{ messages: () => messages },
+		)
+		const catalogue = m.toPromptSection()
+		expect(catalogue).toContain('not live availability status')
+		expect(catalogue).toContain('call it directly without searching again')
+		expect(catalogue).toContain('<deferred_tools>')
+		expect(m.toLLMTools().map((schema) => schema.function.name)).not.toContain('hidden')
+		messages.push(createToolMessage('loaded', 'search-1', false, [m.revealReceipt('hidden')]))
+		expect(m.toLLMTools().map((schema) => schema.function.name)).toContain('hidden')
+		expect(await m.execute('hidden', {}, makeContext())).toMatchObject({
+			success: true,
+			output: 'hidden-ran',
+		})
+		// Keeping the old catalogue is not a receipt or an execution grant.
+		messages.push(buildCompactionMessage('summary body'), createUserMessage(catalogue))
+		expect(m.toLLMTools().map((schema) => schema.function.name)).not.toContain('hidden')
+		expect(await m.execute('hidden', {}, makeContext())).toMatchObject({
+			success: false,
+			error: 'Tool "hidden" is deferred and cannot be executed',
+		})
 	})
 
 	it('snapshots bounded MCP hints and filters the same candidates for a step', () => {

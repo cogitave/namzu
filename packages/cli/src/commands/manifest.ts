@@ -199,6 +199,16 @@ export const browserCommand = lazyCommand(
 	async () => (await import('./browser.js')).browserCommand,
 )
 
+export const githubCommand = lazyCommand(
+	{
+		name: 'github',
+		description:
+			'Run Namzu from GitHub Actions: install workflows that answer mentions and review pull requests',
+		passThrough: true,
+	},
+	async () => (await import('./github.js')).githubCommand,
+)
+
 /** `pal` is built per launch, from the command that resumes a conversation. */
 export function createLazyPalCommand(
 	resumeCommand?: readonly [string, ...string[]],

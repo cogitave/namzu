@@ -91,10 +91,12 @@ async function readOutside(input: {
 	readonly resumeHandler: (tools: ToolManager) => ResumeHandler
 	readonly outsideRootAccess?: 'refuse' | 'review'
 	readonly rules?: AuthorizationRule[]
+	readonly permissionMode?: 'plan'
 }) {
 	const { cwd, file } = await layout()
 	const tools = testToolset(ReadFileTool)
 	const registry = new ToolManager({ toolsets: [tools], messages: () => [] })
+	const resumeHandler = vi.fn(input.resumeHandler(registry))
 	const call: MockTurn = {
 		toolCalls: [{ id: 'r1', name: 'read', args: { path: file } }],
 		finishReason: 'tool_calls',
@@ -121,12 +123,20 @@ async function readOutside(input: {
 					},
 				}
 			: {}),
-		resumeHandler: input.resumeHandler(registry),
+		resumeHandler,
+		...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
 		sessionId,
 		sessionLog,
 		...ids,
 	} as QueryParams)
-	return { texts: toolTexts(result.messages), file, audit: await auditOf(sessionLog) }
+	return {
+		texts: toolTexts(result.messages),
+		file,
+		audit: await auditOf(sessionLog),
+		reviewCalls: resumeHandler.mock.calls.flatMap(([request]) =>
+			request.type === 'tool_review' ? request.toolCalls : [],
+		),
+	}
 }
 
 describe('a path outside the working directory, on a host turn', () => {
@@ -218,6 +228,118 @@ describe('a path outside the working directory, on a host turn', () => {
 		)
 	})
 
+	describe.each([
+		{ gate: 'default read-only allowance', rules: [] },
+		{ gate: 'allow-by-name', rules: [{ type: 'allow_by_name', toolNames: ['read'] }] },
+	] satisfies { gate: string; rules: AuthorizationRule[] }[])(
+		'plan mode with $gate',
+		({ rules }) => {
+			it('asks about the outside path and reads only after approval', async () => {
+				const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+				const { texts, file, audit, reviewCalls } = await readOutside({
+					outsideRootAccess: 'review',
+					permissionMode: 'plan',
+					rules,
+					resumeHandler: (registry) => createReviewHandler({ mode: 'plan', prompt, registry }),
+				})
+
+				expect(prompt).toHaveBeenCalledTimes(1)
+				expect(reviewCalls[0]?.authorization).toMatchObject({ decision: 'review' })
+				expect(reviewCalls[0]?.authorization?.explicitReview).toBeUndefined()
+				expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({
+					outsidePaths: [file],
+				})
+				expect(texts.join('\n')).toContain('OUTSIDE_CONTENT')
+				expect(texts.join('\n')).not.toContain(PLAN_MODE_REFUSAL)
+				expect(audit).toContainEqual(
+					expect.objectContaining({
+						action: 'outside_root_access',
+						resource: file,
+						outcome: 'approved',
+					}),
+				)
+			})
+
+			it('does not read when the person refuses', async () => {
+				const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject', feedback: 'no' }))
+				const { texts, file, audit } = await readOutside({
+					outsideRootAccess: 'review',
+					permissionMode: 'plan',
+					rules,
+					resumeHandler: (registry) => createReviewHandler({ mode: 'plan', prompt, registry }),
+				})
+
+				expect(prompt).toHaveBeenCalledTimes(1)
+				expect(texts.join('\n')).toContain('no')
+				expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+				expect(audit).toContainEqual(
+					expect.objectContaining({
+						action: 'outside_root_access',
+						resource: file,
+						outcome: 'refused',
+					}),
+				)
+				expect(audit.some((record) => record.outcome === 'approved')).toBe(false)
+			})
+
+			it('refuses without a person to ask', async () => {
+				const { texts } = await readOutside({
+					outsideRootAccess: 'review',
+					permissionMode: 'plan',
+					rules,
+					resumeHandler: (registry) => createReviewHandler({ mode: 'plan', registry }),
+				})
+
+				expect(texts.join('\n')).toContain(OUTSIDE_ROOTS_UNATTENDED_REFUSAL)
+				expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+			})
+		},
+	)
+
+	it.each(['prompt', 'plan'] as const)('preserves a genuine ask rule in %s mode', async (mode) => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { texts, reviewCalls } = await readOutside({
+			outsideRootAccess: 'review',
+			...(mode === 'plan' ? { permissionMode: 'plan' as const } : {}),
+			rules: [{ type: 'custom_pattern', target: 'name', pattern: '^read$', decision: 'review' }],
+			resumeHandler: (registry) => createReviewHandler({ mode, prompt, registry }),
+		})
+
+		expect(reviewCalls[0]?.authorization).toMatchObject({
+			decision: 'review',
+			explicitReview: true,
+		})
+		if (mode === 'plan') {
+			expect(prompt).not.toHaveBeenCalled()
+			expect(texts.join('\n')).toContain(PLAN_MODE_REFUSAL)
+			expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+		} else {
+			expect(prompt).toHaveBeenCalledTimes(1)
+			expect(texts.join('\n')).toContain('OUTSIDE_CONTENT')
+		}
+	})
+
+	it('keeps a deny rule closed in plan mode', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { texts, file, audit } = await readOutside({
+			outsideRootAccess: 'review',
+			permissionMode: 'plan',
+			rules: [{ type: 'deny_by_name', toolNames: ['read'] }],
+			resumeHandler: (registry) => createReviewHandler({ mode: 'plan', prompt, registry }),
+		})
+
+		expect(prompt).not.toHaveBeenCalled()
+		expect(texts.join('\n')).toContain('Blocked by the authorization gate')
+		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'outside_root_access',
+				resource: file,
+				outcome: 'refused',
+			}),
+		)
+	})
+
 	it('is refused, unasked, in strict mode, which no rule can open to it', async () => {
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
 		const { texts } = await readOutside({
@@ -230,7 +352,7 @@ describe('a path outside the working directory, on a host turn', () => {
 		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
 	})
 
-	it('is written, as a new file, once approved', async () => {
+	it.each(['prompt', 'plan'] as const)('outside-root write: %s', async (mode) => {
 		// The approved path becomes a root of its own for that call; for a file
 		// that does not exist yet, that root does not exist either, and the
 		// containment check has to canonicalize it rather than refuse it.
@@ -258,16 +380,30 @@ describe('a path outside the working directory, on a host turn', () => {
 			messages: [createUserMessage('write it')],
 			workingDirectory: cwd,
 			outsideRootAccess: 'review',
-			resumeHandler: createReviewHandler({ mode: 'prompt', prompt, registry }),
+			...(mode === 'plan' ? { permissionMode: 'plan' as const } : {}),
+			authorizationGate: {
+				enabled: true,
+				allowReadOnlyTools: true,
+				denyDangerousPatterns: true,
+				logDecisions: false,
+				rules: [{ type: 'allow_by_name', toolNames: ['write'] }],
+			},
+			resumeHandler: createReviewHandler({ mode, prompt, registry }),
 			sessionId,
 			sessionLog,
 			...ids,
 		} as QueryParams)
 
-		expect(prompt).toHaveBeenCalledTimes(1)
-		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({ outsidePaths: [target] })
-		expect(toolTexts(result.messages).join('\n')).not.toMatch(/escapes the working directory/)
-		expect(await readFile(target, 'utf8')).toBe('NEW_FILE')
+		if (mode === 'plan') {
+			expect(prompt).not.toHaveBeenCalled()
+			expect(toolTexts(result.messages).join('\n')).toContain(PLAN_MODE_REFUSAL)
+			await expect(readFile(target, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+		} else {
+			expect(prompt).toHaveBeenCalledTimes(1)
+			expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({ outsidePaths: [target] })
+			expect(toolTexts(result.messages).join('\n')).not.toMatch(/escapes the working directory/)
+			expect(await readFile(target, 'utf8')).toBe('NEW_FILE')
+		}
 	})
 
 	it('is refused as a change, unasked, in plan mode when the call writes', async () => {

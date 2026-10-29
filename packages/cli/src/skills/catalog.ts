@@ -37,6 +37,7 @@ import {
 	SkillRegistry,
 	type SkillRegistryRef,
 	isInvocableBy,
+	skillModelDescription,
 } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
@@ -72,7 +73,7 @@ export function manifestEntryChars(skill: Skill): number {
 		'<skill>\n<name></name>\n<description></description>\n<location>/SKILL.md</location>\n</skill>\n'
 			.length +
 		m.name.length +
-		m.description.trim().length +
+		skillModelDescription(m).length +
 		skill.dirPath.length
 	if (m.compatibility) chars += '<compatibility></compatibility>\n'.length + m.compatibility.length
 	if (m.license) chars += '<license></license>\n'.length + m.license.length

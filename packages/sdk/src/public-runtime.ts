@@ -485,6 +485,7 @@ export {
 	loadSkill,
 	resolveSkillChain,
 	SKILL_FRONTMATTER_KEYS,
+	SKILL_FRONTMATTER_TOLERATED_KEYS,
 	SkillCollisionError,
 	SkillRegistry,
 } from './skills/index.js'
@@ -1521,6 +1522,7 @@ export {
 	SKILL_INVOCATION_DEFAULT,
 	isInvocableBy,
 	skillInvocation,
+	skillModelDescription,
 } from './types/skills/index.js'
 
 // Reaching the web. Fetching ships guarded because its rules are about the

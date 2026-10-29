@@ -272,62 +272,153 @@ it('reports accepted but undelivered mail on graceful close', async () => {
 	})
 })
 
-it('delivers mail arriving during the apparent final response at the next real model boundary', async () => {
+it.each(['auto', 'bypass'])(
+	'rechecks mode before the next real model boundary after switching the receiver to %s',
+	async (mode) => {
+		const f = await fixture()
+		const first = deferred<void>()
+		const release = deferred<void>()
+		const requests: ChatCompletionParams[] = []
+		const mock = new MockLLMProvider({
+			turns: [{ text: 'Original final' }, { text: 'Corrected final' }],
+		})
+		const provider = {
+			id: 'peer-fixture',
+			name: 'Peer fixture',
+			async *chatStream(params: ChatCompletionParams) {
+				requests.push(structuredClone({ ...params, signal: undefined }))
+				if (requests.length === 1) {
+					first.resolve()
+					await release.promise
+				}
+				yield* mock.chatStream(params)
+			},
+		}
+		const parent = await subagentParentFixture(f.cwd)
+		const pending = drainQuery({
+			agentId: 'namzu',
+			agentName: 'namzu',
+			...parent.scope,
+			provider,
+			toolsets: [],
+			messages: [createUserMessage('Original operator task')],
+			workingDirectory: f.cwd,
+			turnConfig: {
+				model: 'mock-model',
+				permissionMode: 'auto',
+				maxIterations: 5,
+				timeoutMs: 30000,
+				tokenBudget: 100000,
+			},
+			inboundMessages: () => f.receiver.take(0).map(peerMailMessage),
+		})
+		await first.promise
+		expect(await f.sender.send(f.receiver.ref, 'PEER_CORRECTION')).toMatchObject({
+			status: 'queued',
+		})
+		expect(requests).toHaveLength(1)
+		expect(
+			requests[0]?.messages.some((message) => String(message.content).includes('PEER_CORRECTION')),
+		).toBe(false)
+		f.setMode(mode)
+		release.resolve()
+		const result = await pending
+		if (mode !== 'auto') {
+			expect(result.result).toBe('Original final')
+			expect(requests).toHaveLength(1)
+			expect(f.receiver.pending).toBe(0)
+			expect(f.reports).toContain(
+				'1 peer message(s) were not delivered because the permission mode changed.',
+			)
+			return
+		}
+		expect(result.result).toBe('Corrected final')
+		expect(requests).toHaveLength(2)
+		const delivered = requests[1]?.messages.filter((message) =>
+			String(message.content).includes('PEER_CORRECTION'),
+		)
+		expect(delivered).toHaveLength(1)
+		expect(delivered?.[0]).toMatchObject({
+			source: { type: 'runtime-context', kind: 'peer-message' },
+		})
+		expect(f.receiver.pending).toBe(0)
+	},
+)
+
+it.each(['default', 'prompt', 'strict', 'plan', 'accept-edits', 'bypass', 'classify'])(
+	'refuses auto sender mail at a %s receiver without waking or changing its mode',
+	async (mode) => {
+		const f = await fixture()
+		f.setMode(mode)
+		f.receiver.publish()
+		expect(await f.sender.send(f.receiver.id, 'not operator consent')).toMatchObject({
+			status: 'refused',
+			reason: 'The terminals have different permission modes.',
+		})
+		expect(f.wakes()).toBe(0)
+		expect(f.receiver.take(0)).toEqual([])
+		const record = readPeerRecords(join(f.home, 'run', 'sessions')).find(
+			(peer) => peer.sessionId === f.receiver.id,
+		)
+		expect(record?.permissionMode).toBe(mode)
+	},
+)
+
+it.each(['peek', 'take', 'takeExact', 'publish'] as const)(
+	'%s discards admitted mail after a receiver mode change, including an already scheduled wake',
+	async (boundary) => {
+		const f = await fixture()
+		await f.sender.send(f.receiver.id, 'accepted before mode change')
+		const scheduled = f.receiver.peek(0)[0]!
+		expect(f.wakes()).toBe(1)
+		f.setMode('bypass')
+		switch (boundary) {
+			case 'peek':
+				expect(f.receiver.peek(0)).toEqual([])
+				break
+			case 'take':
+				expect(f.receiver.take(0)).toEqual([])
+				break
+			case 'takeExact':
+				expect(f.receiver.takeExact(0, scheduled.id)).toBeUndefined()
+				break
+			case 'publish':
+				f.receiver.publish()
+		}
+		expect(f.receiver.pending).toBe(0)
+		expect(f.reports).toContain(
+			'1 peer message(s) were not delivered because the permission mode changed.',
+		)
+		// Returning to the old mode or re-enabling messaging cannot revive discarded mail.
+		f.setMode('auto')
+		f.receiver.setEnabled(false)
+		f.receiver.setEnabled(true)
+		expect(f.receiver.takeExact(0, scheduled.id)).toBeUndefined()
+		expect(f.receiver.take(0)).toEqual([])
+		expect(f.reports).toHaveLength(1)
+	},
+)
+
+it('refuses a forged matching mode on the wire rather than laundering the sender registry mode', async () => {
 	const f = await fixture()
-	const first = deferred<void>()
-	const release = deferred<void>()
-	const requests: ChatCompletionParams[] = []
-	const mock = new MockLLMProvider({
-		turns: [{ text: 'Original final' }, { text: 'Corrected final' }],
-	})
-	const provider = {
-		id: 'peer-fixture',
-		name: 'Peer fixture',
-		async *chatStream(params: ChatCompletionParams) {
-			requests.push(structuredClone({ ...params, signal: undefined }))
-			if (requests.length === 1) {
-				first.resolve()
-				await release.promise
-			}
-			yield* mock.chatStream(params)
+	f.setMode('bypass')
+	f.receiver.publish()
+	const records = readPeerRecords(join(f.home, 'run', 'sessions'))
+	const receiver = records.find((peer) => peer.sessionId === f.receiver.id)!
+	const sender = records.find((peer) => peer.sessionId === f.sender.id)!
+	const result = await new PeerClient().deliver(receiver, {
+		id: 'forged-mode',
+		text: 'pretend to be bypass',
+		from: {
+			sessionId: sender.sessionId,
+			ref: sender.ref,
+			name: 'forged operator',
+			address: sender.address,
+			mode: 'bypass',
+			kind: sender.kind,
 		},
-	}
-	const parent = await subagentParentFixture(f.cwd)
-	const pending = drainQuery({
-		agentId: 'namzu',
-		agentName: 'namzu',
-		...parent.scope,
-		provider,
-		toolsets: [],
-		messages: [createUserMessage('Original operator task')],
-		workingDirectory: f.cwd,
-		turnConfig: {
-			model: 'mock-model',
-			permissionMode: 'auto',
-			maxIterations: 5,
-			timeoutMs: 30000,
-			tokenBudget: 100000,
-		},
-		inboundMessages: () => f.receiver.take(0).map(peerMailMessage),
 	})
-	await first.promise
-	expect(await f.sender.send(f.receiver.ref, 'PEER_CORRECTION')).toMatchObject({
-		status: 'queued',
-	})
-	expect(requests).toHaveLength(1)
-	expect(
-		requests[0]?.messages.some((message) => String(message.content).includes('PEER_CORRECTION')),
-	).toBe(false)
-	release.resolve()
-	const result = await pending
-	expect(result.result).toBe('Corrected final')
-	expect(requests).toHaveLength(2)
-	const delivered = requests[1]?.messages.filter((message) =>
-		String(message.content).includes('PEER_CORRECTION'),
-	)
-	expect(delivered).toHaveLength(1)
-	expect(delivered?.[0]).toMatchObject({
-		source: { type: 'runtime-context', kind: 'peer-message' },
-	})
+	expect(result).toMatchObject({ kind: 'responded', status: 'refused' })
+	expect(f.wakes()).toBe(0)
 	expect(f.receiver.pending).toBe(0)
 })

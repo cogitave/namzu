@@ -11,6 +11,7 @@
  * thing that decides anything, which is what keeps this testable without a turn.
  */
 
+import { dirname, resolve } from 'node:path'
 import {
 	AuthorizationGate,
 	type AuthorizationPredicateCall,
@@ -24,6 +25,12 @@ import { isPermissionSettingKey } from './settings.js'
 
 import { cliLogger } from '../logging.js'
 import { type PermissionChecksConfig, verifyPermissionChecks } from './checks.js'
+import {
+	type PathRuleContext,
+	descendantPathBoundary,
+	isPathRuleTool,
+	pathRule,
+} from './path-rules.js'
 
 /** What the operator wants to happen when a rule matches. */
 export type PermissionEffect = 'allow' | 'ask' | 'deny'
@@ -45,6 +52,28 @@ export function isPermissionEffect(value: unknown): value is PermissionEffect {
 export type ToolPermission = PermissionEffect | Readonly<Record<string, PermissionEffect>>
 
 export type PermissionsConfig = Readonly<Record<string, ToolPermission>>
+
+// Provenance is loader-owned metadata, never a config key an untrusted file can
+// inject. Each layer keeps its own root even when the combined view is merged.
+const permissionRuleRoots = new WeakMap<PermissionsConfig, string>()
+const permissionRuleSources = new WeakMap<PermissionsConfig, string>()
+
+/** Loader-owned source identity, used to replace only the editable local layer. */
+export function permissionTableSource(table: PermissionsConfig): string | undefined {
+	return permissionRuleSources.get(table)
+}
+
+/** Bind relative patterns to their settings source without changing rule text. */
+export function bindPermissionTableToSource(
+	table: PermissionsConfig,
+	settingsPath: string,
+	editableLocal = false,
+): PermissionsConfig {
+	const bound = { ...table }
+	permissionRuleRoots.set(bound, dirname(resolve(settingsPath)))
+	if (editableLocal) permissionRuleSources.set(bound, resolve(settingsPath))
+	return bound
+}
 
 /** Exact tool rules written for the CLI's former MCP naming scheme. */
 export function legacyMcpPermissionNames(config: PermissionsConfig | undefined): readonly string[] {
@@ -273,8 +302,11 @@ export function bySpecificity(a: string, b: string): number {
 export function compilePermissions(
 	config: PermissionsConfig | undefined,
 	checks?: PermissionChecksConfig,
+	context?: PathRuleContext,
 ): CompiledPermissions {
 	const rules: AuthorizationRule[] = []
+	const descendantDenials: AuthorizationRule[] = []
+	const descendantReviews: AuthorizationRule[] = []
 	const sourceDenials: AuthorizationRule[] = []
 	const sourceReviews: AuthorizationRule[] = []
 	const sourceAllowances: AuthorizationRule[] = []
@@ -288,6 +320,8 @@ export function compilePermissions(
 	// here, so a tool that starts or stops taking a command line changes this
 	// compiler by changing itself.
 	const commandArguments = builtinCommandArguments()
+	const ruleRoot = permissionRuleRoots.get(config)
+	const pathContext = ruleRoot === undefined ? context : { ...context, ruleRoot }
 
 	for (const [tool, permission] of Object.entries(config)) {
 		// Mode settings share the table with the rules; they are not tools.
@@ -362,6 +396,21 @@ export function compilePermissions(
 				})
 				continue
 			}
+			// A file tool's pattern names a path. Resolved against its settings
+			// source (or the explicit context), it means the file it points at
+			// however the call spells it; the all-wildcard pattern still means
+			// "every call" and keeps the rule that says so.
+			if (isPathRuleTool(tool) && pattern.replaceAll('*', '') !== '') {
+				rules.push(pathRule(tool, pattern, effect, pathContext))
+				if (effect !== 'allow') {
+					const boundary = descendantPathBoundary(tool, pattern, effect, pathContext)
+					if (boundary !== undefined) {
+						if (effect === 'deny') descendantDenials.push(boundary)
+						else descendantReviews.push(boundary)
+					}
+				}
+				continue
+			}
 			if (effect === 'ask') {
 				rules.push({
 					type: 'custom_pattern',
@@ -391,13 +440,13 @@ export function compilePermissions(
 	// After compiling, never during: a check is a claim about the FINISHED
 	// table, and evaluating one against a half-built rule list would answer
 	// with whatever order the config happened to be written in.
-	// A source question must not turn a tool-specific refusal into an approvable
-	// call. Check the tool table in its own specificity order before asking by
-	// source; only a tool-table denial is lifted ahead of source review. A
-	// specific tool allowance can still outrank a broader tool-table denial,
-	// but the source review will ask about that call as the operator requested.
+	// A source or descendant question must not turn a tool-specific refusal
+	// into an approvable call. Check the tool table in its own specificity order
+	// before either review; only a tool-table denial is lifted ahead of review.
+	// A specific tool allowance can still outrank a broader tool-table denial,
+	// but the independent review will ask as the operator requested.
 	const toolDenialBeforeSourceReview: AuthorizationRule[] = []
-	if (sourceReviews.length > 0 && rules.length > 0) {
+	if ((sourceReviews.length > 0 || descendantReviews.length > 0) && rules.length > 0) {
 		const toolGate = new AuthorizationGate(
 			{
 				enabled: true,
@@ -417,8 +466,10 @@ export function compilePermissions(
 		})
 	}
 	const orderedRules = [
+		...descendantDenials,
 		...sourceDenials,
 		...toolDenialBeforeSourceReview,
+		...descendantReviews,
 		...sourceReviews,
 		...rules,
 		...sourceAllowances,
@@ -514,14 +565,15 @@ export function permissionLayersOf(config: {
 export function compilePermissionLayers(
 	layers: readonly (PermissionsConfig | undefined)[],
 	checks?: PermissionChecksConfig,
+	context?: PathRuleContext,
 ): CompiledPermissions {
 	const present = layers.filter((layer): layer is PermissionsConfig => layer !== undefined)
-	if (present.length <= 1) return compilePermissions(present[0], checks)
+	if (present.length <= 1) return compilePermissions(present[0], checks, context)
 
 	const diagnostics: CompileDiagnostic[] = []
 	const withRules: (readonly AuthorizationRule[])[] = []
 	for (const layer of present) {
-		const compiled = compilePermissions(layer)
+		const compiled = compilePermissions(layer, undefined, context)
 		diagnostics.push(...compiled.diagnostics)
 		if (compiled.rules.length > 0) withRules.push(compiled.rules)
 	}

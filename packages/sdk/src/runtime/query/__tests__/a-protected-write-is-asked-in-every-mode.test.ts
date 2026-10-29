@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { forgetCarriedDirectories, recordDirectory } from '../../../tools/builtins/bash-cwd.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { ToolManager } from '../../../toolsets/manager.js'
@@ -48,6 +49,7 @@ const dirs: string[] = []
 afterEach(async () => {
 	await removeTempDirs(dirs)
 	dirs.length = 0
+	forgetCarriedDirectories()
 })
 
 const ids = {
@@ -80,15 +82,26 @@ async function runCall(input: {
 	readonly denyDangerousPatterns?: boolean
 	readonly outsideRootAccess?: 'review'
 	readonly cwd?: string
+	readonly carriedDirectory?: string
+	readonly extraCalls?: readonly {
+		id: string
+		name: 'bash' | 'write'
+		args: Record<string, unknown>
+	}[]
 }) {
 	const cwd = input.cwd ?? (await project())
 	const tools = testToolset(input.tool === 'write' ? WriteFileTool : BashTool)
 	const registry = new ToolManager({ toolsets: [tools], messages: () => [] })
 	const call: MockTurn = {
-		toolCalls: [{ id: 'c1', name: input.tool, args: input.args }],
+		toolCalls: [{ id: 'c1', name: input.tool, args: input.args }, ...(input.extraCalls ?? [])],
 		finishReason: 'tool_calls',
 	}
 	const sessionId = generateSessionId()
+	if (input.carriedDirectory) {
+		const capture = join(cwd, 'cwd-capture')
+		await writeFile(capture, input.carriedDirectory)
+		await recordDirectory(sessionId, capture, { workingDirectory: cwd })
+	}
 	const sessionLog = new InMemorySessionLog({ sessionId })
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
@@ -435,4 +448,51 @@ describe('a shell line that names a path outside the roots', () => {
 
 		expect(prompt).not.toHaveBeenCalled()
 	})
+})
+
+describe('carried bash cwd authorization', () => {
+	it.skipIf(process.platform === 'win32')(
+		'refuses a relative protected write from the carried cwd even in bypass',
+		async () => {
+			const cwd = await project()
+			const carriedDirectory = join(cwd, '.git', 'hooks')
+			const result = await runCall({
+				tool: 'bash',
+				args: { command: 'echo planted > pre-commit' },
+				mode: 'bypass',
+				cwd,
+				carriedDirectory,
+			})
+			expect(result.text).toContain(PROTECTED_PATH_UNATTENDED_REFUSAL)
+			expect(existsSync(join(carriedDirectory, 'pre-commit'))).toBe(false)
+			expect(result.audit).toContainEqual(
+				expect.objectContaining({
+					action: 'protected_path_write',
+					resource: join(carriedDirectory, 'pre-commit'),
+					outcome: 'refused',
+				}),
+			)
+		},
+	)
+})
+
+describe('bash review directory is pinned for a prepared batch', () => {
+	it.skipIf(process.platform === 'win32')(
+		'refuses a later call when an earlier cd changed its reviewed directory',
+		async () => {
+			const cwd = await project()
+			const result = await runCall({
+				tool: 'bash',
+				// A mutation keeps this call on the serial chain: read-only `cd`
+				// may run beside the write and would not establish the order tested.
+				args: { command: 'echo changed > cwd-marker && cd .git/hooks' },
+				extraCalls: [{ id: 'c2', name: 'bash', args: { command: 'echo planted > pre-commit' } }],
+				mode: 'auto',
+				cwd,
+			})
+			expect(result.text).toContain('Shell working directory changed after this call was reviewed')
+			expect(existsSync(join(cwd, '.git', 'hooks', 'pre-commit'))).toBe(false)
+			expect(existsSync(join(cwd, 'pre-commit'))).toBe(false)
+		},
+	)
 })

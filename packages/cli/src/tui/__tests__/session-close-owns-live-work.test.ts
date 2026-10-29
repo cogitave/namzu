@@ -360,7 +360,9 @@ describe('AgentSession close owns its live work', () => {
 		// the same plugin registry: both resolve the plugin's skill.
 		expect(registryNames(resumeCall?.skillRegistry)).toEqual(registryNames(sendCall?.skillRegistry))
 		expect(registryNames(sendCall?.skillRegistry)).toContain('owner__settle')
-		expect(sendCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
+		// A send announces its skills in a reminder; a resumed turn has no
+		// reminder channel and keeps them in its system prompt.
+		expect(sendCall?.skills).toBeUndefined()
 		expect(resumeCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
 		const close = session.close()
 		expect(session.close()).toBe(close)

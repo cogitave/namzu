@@ -3,11 +3,11 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
-import { compileBrowserSites } from '../permissions/browser-sites.js'
 import type { TuiContext } from '../tui/types.js'
 
 const launchTui = vi.hoisted(() => vi.fn(async (_ctx: TuiContext) => {}))
@@ -37,7 +37,7 @@ describe('configuration provenance reaches the TUI launch', () => {
 			projectPath,
 			JSON.stringify({
 				profiles: { ci: { format: 'json', quiet: false } },
-				permissions: { bash: { '*': 'ask' } },
+				permissions: { bash: { '*': 'ask', 'rm *': 'deny' } },
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
@@ -52,10 +52,69 @@ describe('configuration provenance reaches the TUI launch', () => {
 
 		expect(launchTui).toHaveBeenCalledOnce()
 		const bootstrap = launchTui.mock.calls[0]![0]
-		// Nothing from the untrusted project; only the browser's default site
-		// rules, which come from no file.
-		expect(bootstrap.rules).toEqual(compileBrowserSites(undefined).rules)
+		const gateFor = (context: TuiContext) =>
+			new AuthorizationGate(
+				{
+					enabled: true,
+					rules: [...(context.rules ?? [])],
+					allowReadOnlyTools: false,
+					denyDangerousPatterns: false,
+					logDecisions: false,
+				},
+				NOOP_LOGGER,
+			)
+		const bootstrapGate = gateFor(bootstrap)
+		// Live rules are predicates now: test their decisions, not their representation.
+		// Neither the project's ask nor its deny has authority before trust.
+		for (const command of ['git status', 'rm safe.txt']) {
+			expect(
+				bootstrapGate.evaluate({ toolDef: undefined, toolName: 'bash', toolInput: { command } })
+					.matchedRule,
+			).toBeNull()
+		}
 		const trusted = resolveTrustedProjectContext(bootstrap, cwd)
+		const trustedGate = gateFor(trusted)
+		expect(
+			trustedGate.evaluate({
+				toolDef: undefined,
+				toolName: 'bash',
+				toolInput: { command: 'git status' },
+			}),
+		).toEqual(
+			expect.objectContaining({
+				decision: 'review',
+				matchedRule: expect.anything(),
+			}),
+		)
+		expect(
+			trustedGate.evaluate({
+				toolDef: undefined,
+				toolName: 'bash',
+				toolInput: { command: 'rm safe.txt' },
+			}).decision,
+		).toBe('deny')
+		// The file-independent browser defaults still apply on both sides of trust.
+		for (const gate of [bootstrapGate, trustedGate]) {
+			expect(
+				gate.evaluate({
+					toolDef: undefined,
+					toolName: 'browser',
+					toolInput: { action: 'navigate', url: 'about:blank' },
+				}).decision,
+			).toBe('allow')
+			expect(
+				gate.evaluate({
+					toolDef: undefined,
+					toolName: 'browser',
+					toolInput: { action: 'navigate', url: 'https://example.com' },
+				}),
+			).toEqual(
+				expect.objectContaining({
+					decision: 'review',
+					matchedRule: expect.anything(),
+				}),
+			)
+		}
 		expect(trusted).toEqual(
 			expect.objectContaining({
 				cwd,

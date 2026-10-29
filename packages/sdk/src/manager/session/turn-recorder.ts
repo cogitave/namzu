@@ -228,7 +228,8 @@ export class TurnRecorder {
 	#chain: Promise<void> = Promise.resolve()
 	#failure: unknown = undefined
 	#view: ViewEntry[] = []
-	readonly #ids = new Map<Message, MessageId>()
+	// Identity bookkeeping must not keep messages removed by compaction alive.
+	readonly #ids = new WeakMap<Message, MessageId>()
 	/** Every message's record id, kept after a compaction drops it from the fold. */
 	readonly #recorded = new WeakMap<Message, MessageId>()
 	readonly #transient = new WeakSet<Message>()

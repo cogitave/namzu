@@ -284,6 +284,8 @@ export interface IterationContext {
 	/** The delegating session, when this turn is a child's: `subagent_stop` names it. */
 	readonly parentSessionId?: import('../../../../types/ids/index.js').SessionId
 	readonly parentTurnId?: import('../../../../types/ids/index.js').TurnId
+	/** The agent this turn runs, named to `subagent_stop` hooks of a child. */
+	readonly agentType?: string
 
 	/**
 	 * Override for {@link PARK_RECORD_DELAY_MS}. Internal; tests set `0` to

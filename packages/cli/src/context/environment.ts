@@ -40,7 +40,11 @@
 
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { type as osType, release } from 'node:os'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { type CommandShell, hostCommandShell } from '@namzu/sdk'
+
 import type { PermissionMode } from '../permissions/mode.js'
 
 const run = promisify(execFile)
@@ -213,6 +217,12 @@ export interface EnvironmentFacts {
 	 */
 	readonly branch: string | null
 	readonly isRepository: boolean
+	/** Known only when both git administration directories could be read. */
+	readonly linkedWorktree?: boolean
+	/** Host OS name and release, not a guessed distribution or sandbox guest. */
+	readonly osVersion?: string
+	/** The resolver used by host command execution, never the login `$SHELL`. */
+	readonly executionShell?: CommandShell
 }
 
 /**
@@ -240,18 +250,29 @@ async function git(cwd: string, args: readonly string[]): Promise<string | null>
 	}
 }
 
+/** Injectable observations keep environment tests independent of the test host. */
+export interface EnvironmentProbe {
+	readonly git?: (cwd: string, args: readonly string[]) => Promise<string | null>
+	readonly osVersion?: () => string
+	readonly executionShell?: () => CommandShell
+}
+
 export async function readEnvironmentFacts(
 	cwd: string,
 	now: Date = new Date(),
+	probe: EnvironmentProbe = {},
 ): Promise<EnvironmentFacts> {
+	const readGit = probe.git ?? git
 	// `symbolic-ref` rather than `rev-parse --abbrev-ref HEAD`, because it
 	// answers on an unborn branch — a freshly initialised repository with no
 	// commit yet, where `rev-parse HEAD` fails and would be read as "not a
-	// repository". Both calls at once: they are independent and each is a
+	// repository". All probes run at once: they are independent and each is a
 	// process.
-	const [insideWorkTree, branch] = await Promise.all([
-		git(cwd, ['rev-parse', '--is-inside-work-tree']),
-		git(cwd, ['symbolic-ref', '--short', 'HEAD']),
+	const [insideWorkTree, branch, gitDir, commonDir] = await Promise.all([
+		readGit(cwd, ['rev-parse', '--is-inside-work-tree']),
+		readGit(cwd, ['symbolic-ref', '--short', 'HEAD']),
+		readGit(cwd, ['rev-parse', '--absolute-git-dir']),
+		readGit(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
 	])
 	const isRepository = insideWorkTree === 'true'
 	return {
@@ -261,13 +282,18 @@ export async function readEnvironmentFacts(
 		// nowhere reachable, and an agent about to commit should know.
 		branch: isRepository ? (branch ?? 'detached') : null,
 		isRepository,
+		...(isRepository && gitDir && commonDir
+			? { linkedWorktree: resolve(cwd, gitDir) !== resolve(cwd, commonDir) }
+			: {}),
+		osVersion: (probe.osVersion ?? (() => `${osType()} ${release()}`))(),
+		executionShell: (probe.executionShell ?? hostCommandShell)(),
 	}
 }
 
 /** How {@link composeEnvironmentPrompt} is read. */
 export interface EnvironmentPromptOptions {
 	/**
-	 * Leave out what changes while a session runs: the date, the branch and
+	 * Leave out what changes while a session runs: date, branch, worktree and
 	 * the permission mode's wording. The text then belongs in the cached
 	 * prefix, because nothing in it is re-keyed by a new day, a checkout or a
 	 * mode switch. Those facts ride in reminders instead (see
@@ -276,9 +302,9 @@ export interface EnvironmentPromptOptions {
 	readonly stable?: boolean
 }
 
-/** The date and branch sentences, the facts that change under a running session. */
+/** Date and repository facts that can change under a running session. */
 export function environmentFactLines(
-	facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>,
+	facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository' | 'linkedWorktree'>,
 ): string[] {
 	const lines = [`Today's date is ${facts.today}.`]
 	if (!facts.isRepository) {
@@ -289,6 +315,11 @@ export function environmentFactLines(
 		)
 	} else {
 		lines.push(`The working directory is a git repository on branch \`${facts.branch}\`.`)
+	}
+	if (facts.isRepository && facts.linkedWorktree) {
+		lines.push(
+			'This is a linked git worktree: it has its own working files and HEAD, but shares repository history with other worktrees.',
+		)
 	}
 	return lines
 }
@@ -307,6 +338,18 @@ export function composeEnvironmentPrompt(
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
 		)
+	}
+	if (facts.osVersion) lines.push(`Host OS version: ${facts.osVersion}.`)
+	if (facts.executionShell) {
+		const shell = facts.executionShell
+		lines.push(
+			`Host execution shell: ${shell.path ? `\`${shell.path}\`` : 'the platform command shell'} (${shell.dialect} dialect).`,
+		)
+		if (facts.boundary?.sandbox) {
+			lines.push(
+				'Inside the sandbox, commands use bash if the guest has it, otherwise /bin/sh; the host shell above applies only to host execution.',
+			)
+		}
 	}
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))

@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { z } from 'zod'
 import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
@@ -24,8 +25,15 @@ import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv, withheldEnvNoticeText } from '../env-scrub.js'
 import { createHostOutputDecoder } from '../host-output.js'
 import { looksBinary, windowText } from '../text-window.js'
+import {
+	bashWorkingDirectoryForExecution,
+	newCwdFile,
+	recordDirectory,
+	withCwdCapture,
+} from './bash-cwd.js'
 import { judgeExit } from './exit-semantics.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { leadingLongSleep, longSleepRefusal } from './sleep-guard.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
 // reads no consumer's env name. A consumer that wants one knob aliases
@@ -526,7 +534,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
 const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required, so every call carries one. Long file content goes through `write`, not a heredoc, so it cannot hit the output token limit mid-stream.'
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. The `command` parameter is required, so every call carries one. Long file content goes through `write`, not a heredoc, so it cannot hit the output token limit mid-stream.'
 
 const BashToolBase = defineTool({
 	name: 'bash',
@@ -579,12 +587,22 @@ const BashToolBase = defineTool({
 	},
 
 	async execute(input, context) {
+		const startDirectory = bashWorkingDirectoryForExecution(context)
 		if (isDangerousCommand(input.command)) {
 			return {
 				success: false,
 				output: '',
 				error: `Dangerous command blocked: "${input.command}"`,
 				facts: { kind: 'failure', reason: 'blocked', subject: 'bash' },
+			}
+		}
+
+		// Where a job registry exists to wait on, a long leading sleep only
+		// holds the turn; it is refused with the better ways to wait.
+		if (!input.run_in_background && context.backgroundJobs && !backgroundTasksDisabled()) {
+			const longSleep = leadingLongSleep(input.command)
+			if (longSleep !== null) {
+				return { success: false, output: '', error: longSleepRefusal(longSleep) }
 			}
 		}
 
@@ -648,7 +666,7 @@ const BashToolBase = defineTool({
 			try {
 				const job = context.backgroundJobs.start({
 					command: input.command,
-					workingDirectory: context.workingDirectory,
+					workingDirectory: startDirectory,
 				})
 				// `start` returns before the process exists, and a spawn that
 				// fails (no such shell, bad directory) reports a tick later.
@@ -799,38 +817,57 @@ const BashToolBase = defineTool({
 		let withdrawOffer: (() => void) | undefined
 		const offer = context.backgroundJobs?.registerForeground?.bind(context.backgroundJobs)
 
+		// The directory carries over between calls of a session on a POSIX host
+		// shell; the shell records where it ended, read back in `finally`.
+		const hostShell = hostCommandShell()
+		const carryDirectory =
+			context.sandbox === undefined &&
+			typeof context.sessionId === 'string' &&
+			hostShell.path !== undefined &&
+			hostShell.windows !== true
+		const cwdFile = carryDirectory ? newCwdFile() : undefined
+		let settled = false
+		const settle = async (): Promise<string | undefined> => {
+			if (cwdFile === undefined) return undefined
+			settled = true
+			return recordDirectory(context.sessionId, cwdFile, context)
+		}
+
 		try {
 			const { stdout, stderr, stdoutBytes, stderrBytes, backgroundedJobId, backgroundedBy } =
-				await execHostShell(input.command, {
-					cwd: context.workingDirectory,
-					timeout: input.timeout,
-					env: { ...inherited.env, ...context.env },
-					maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
-					signal: context.abortSignal,
-					onOutput,
-					...(canMoveOnTimeout ? { onTimeout: adoptRunning } : {}),
-					...(canHandOff
-						? {
-								adopt: adoptRunning,
-								adoptOnInterrupt: true,
-								...(offer
-									? {
-											onRunning: (control: {
-												background(reason: 'user' | 'message'): boolean
-											}) => {
-												offerTimer = setTimeout(() => {
-													withdrawOffer = offer({
-														command: input.command,
-														background: (reason) => control.background(reason),
-													})
-												}, FOREGROUND_HANDOFF_AFTER_MS)
-												offerTimer.unref?.()
-											},
-										}
-									: {}),
-							}
-						: {}),
-				})
+				await execHostShell(
+					cwdFile === undefined ? input.command : withCwdCapture(input.command, cwdFile),
+					{
+						cwd: startDirectory,
+						timeout: input.timeout,
+						env: { ...inherited.env, ...context.env },
+						maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
+						signal: context.abortSignal,
+						onOutput,
+						...(canMoveOnTimeout ? { onTimeout: adoptRunning } : {}),
+						...(canHandOff
+							? {
+									adopt: adoptRunning,
+									adoptOnInterrupt: true,
+									...(offer
+										? {
+												onRunning: (control: {
+													background(reason: 'user' | 'message'): boolean
+												}) => {
+													offerTimer = setTimeout(() => {
+														withdrawOffer = offer({
+															command: input.command,
+															background: (reason) => control.background(reason),
+														})
+													}, FOREGROUND_HANDOFF_AFTER_MS)
+													offerTimer.unref?.()
+												},
+											}
+										: {}),
+								}
+							: {}),
+					},
+				)
 			if (backgroundedJobId !== undefined) {
 				const timedOut = backgroundedBy === 'timeout'
 				return {
@@ -853,9 +890,10 @@ const BashToolBase = defineTool({
 					facts: { kind: 'command', command: input.command, background: true, continued: true },
 				}
 			}
+			const reset = await settle()
 			return {
 				success: true,
-				output: formatShellOutput(stdout, stderr) || '(no output)',
+				output: withResetNotice(formatShellOutput(stdout, stderr) || '(no output)', reset),
 				data: {
 					exitCode: 0,
 					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
@@ -903,6 +941,7 @@ const BashToolBase = defineTool({
 			const judged =
 				!timedOut && exitCode !== undefined ? judgeExit(input.command, exitCode) : undefined
 			const answered = judged !== undefined && !judged.isError
+			const reset = await settle()
 			const output = [
 				formatShellOutput(failure.stdout, failure.stderr),
 				clipped.length > 0
@@ -914,7 +953,7 @@ const BashToolBase = defineTool({
 
 			return {
 				success: answered,
-				output: output || '(no output)',
+				output: withResetNotice(output || '(no output)', reset),
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
 					...(judged?.note ? { exitNote: judged.note } : {}),
@@ -949,6 +988,7 @@ const BashToolBase = defineTool({
 				}),
 			}
 		} finally {
+			if (cwdFile !== undefined && !settled) await rm(cwdFile, { force: true })
 			if (offerTimer !== undefined) clearTimeout(offerTimer)
 			withdrawOffer?.()
 		}
@@ -1000,6 +1040,11 @@ function formatShellOutput(stdout: string | undefined, stderr: string | undefine
 	return [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
 		.filter(Boolean)
 		.join('\n\n')
+}
+
+/** The result text with the directory-reset line, when there is one, on its own last line. */
+function withResetNotice(output: string, notice: string | undefined): string {
+	return notice === undefined ? output : `${output}\n${notice}`
 }
 
 /**

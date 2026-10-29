@@ -7,7 +7,7 @@
  * validation decision whenever that list grows.
  */
 
-import type { ShellHookEntry, ShellHookEvent, ShellHooksConfig } from '@namzu/sdk'
+import type { ShellHookEvent, ShellHookHandler, ShellHooksConfig } from '@namzu/sdk'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
@@ -101,7 +101,7 @@ export type PluginScope = 'project' | 'user'
  * loader and the session option name the same types the kernel exports.
  */
 export type HookEvent = ShellHookEvent
-export type HookEntry = ShellHookEntry
+export type HookEntry = ShellHookHandler
 export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.limits`. */
@@ -266,6 +266,12 @@ export interface PluginConfig {
 	readonly allowedScopes?: readonly PluginScope[]
 	/** Per-hook deadline in milliseconds. Defaults to the SDK runtime default. */
 	readonly hookTimeoutMs?: number
+	/**
+	 * Plugin folders named with `--plugin-dir` for this launch. Never read
+	 * from a file, and loaded even when `enabled` is not set: naming the
+	 * folder on the command line is the consent.
+	 */
+	readonly launchDirs?: readonly string[]
 }
 
 export interface NamzuCliConfig {
@@ -728,6 +734,20 @@ export interface TelemetryConfig {
 	 * the same person.
 	 */
 	readonly sessionExport?: SessionExportConfig
+	/**
+	 * Send the kernel's spans and metrics to an OpenTelemetry collector.
+	 * Present turns it on; `NAMZU_ENABLE_TELEMETRY=1` does too, with the
+	 * standard `OTEL_EXPORTER_OTLP_*` variables, and these fields win over
+	 * them. Timings and counts only; no conversation content.
+	 */
+	readonly otlp?: OtlpExportConfig
+}
+
+export interface OtlpExportConfig {
+	/** Collector base address, e.g. `http://localhost:4318`. Absent uses the exporter's default. */
+	readonly endpoint?: string
+	/** Extra request headers, typically an authorisation token. */
+	readonly headers?: Readonly<Record<string, string>>
 }
 
 export interface SessionExportConfig {

@@ -1,6 +1,10 @@
 import type { FileReadTracker, ReadWindowEntry } from '../types/tool/index.js'
 import { fingerprintContent } from './builtins/content-fingerprint.js'
 
+/** A body larger than this is not kept; the file's change is still seen by fingerprint. */
+const MAX_BODY_CHARS = 512 * 1024
+const MAX_BODIES = 128
+
 /** Host-owned observation ledger. Share only across turns of the same conversation and filesystem. */
 export function createFileReadTracker(): FileReadTracker {
 	const paths = new Set<string>()
@@ -27,6 +31,21 @@ export function createFileReadTracker(): FileReadTracker {
 	// `editChain` or `readWitness` answers; it says only that what this ledger
 	// holds for the path is known to be behind the disk.
 	const drifted = new Set<string>()
+	// The body of each file whose last observation was the whole file, newest
+	// last, so a host can show what changed under it. Bounded: a file larger
+	// than the cap keeps no body (its change is still detectable by
+	// fingerprint), and the oldest bodies go first.
+	const bodies = new Map<string, string>()
+	function keepBody(key: string, content: string | undefined): void {
+		bodies.delete(key)
+		if (content === undefined || content.length > MAX_BODY_CHARS) return
+		bodies.set(key, content)
+		while (bodies.size > MAX_BODIES) {
+			const oldest = bodies.keys().next().value
+			if (oldest === undefined) break
+			bodies.delete(oldest)
+		}
+	}
 	// One observation, whatever witness the caller goes on to record against it.
 	// A shared function rather than `this.recordRead`, so a destructured method
 	// keeps working.
@@ -41,6 +60,9 @@ export function createFileReadTracker(): FileReadTracker {
 		}
 		if (next !== undefined) fingerprints.set(key, next)
 		else fingerprints.delete(key)
+		// A write supplies the whole body; any other observation without a
+		// witness may be a window of the file, which proves nothing about the rest.
+		keepBody(key, fullWriteCallId ? content : undefined)
 		if (next !== undefined && fullWriteCallId) {
 			writes.set(key, fullWriteCallId)
 			// A full body arrived whole in one call, so the chain is empty
@@ -76,12 +98,19 @@ export function createFileReadTracker(): FileReadTracker {
 		recordRead: observe,
 		recordFullRead(key, content, callId, renderedFingerprint) {
 			observe(key, content)
+			keepBody(key, content)
 			// A surviving write witness outranks this one: it names a body the
 			// model composed itself, and the chain machinery can replay onto it.
 			// This is the same observation either way — only the witness differs.
 			if (!writes.has(key)) reads.set(key, { callId, renderedFingerprint })
 		},
 		readWitness: (key) => reads.get(key),
+		fullBody: (key) => bodies.get(key),
+		fullBodyPaths: () => [...bodies.keys()],
+		recordFullBody(key, content) {
+			observe(key, content)
+			keepBody(key, content)
+		},
 		recordEdit(key, content, callId) {
 			// Both conditions are about the PRE-image, not this edit. A chain
 			// replays only if the content this edit ran against is itself
@@ -97,6 +126,7 @@ export function createFileReadTracker(): FileReadTracker {
 			// no chain can be rooted at a rendering to carry it forward.
 			reads.delete(key)
 			fingerprints.set(key, fingerprintContent(content))
+			keepBody(key, content)
 			if (!chained) {
 				writes.delete(key)
 				chains.delete(key)

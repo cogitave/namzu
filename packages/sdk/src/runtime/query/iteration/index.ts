@@ -79,7 +79,7 @@ import {
 } from './outstanding-work.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { compactionBreaker } from './phases/compaction-breaker.js'
+import { compactionBreaker, estimateRefillTokens } from './phases/compaction-breaker.js'
 import {
 	AUTOMATIC_COMPACTION_FAILED,
 	OVERFLOW_RELIEF_LIMIT,
@@ -319,7 +319,7 @@ export class IterationOrchestrator {
 		const feedback: string[] = []
 		const ask = async (
 			event: 'turn_end' | 'subagent_stop',
-			extra: { parentSessionId?: SessionId; parentTurnId?: TurnId },
+			extra: { parentSessionId?: SessionId; parentTurnId?: TurnId; agentType?: string },
 		): Promise<void> => {
 			const results = await manager.executeHooks(
 				event,
@@ -346,6 +346,7 @@ export class IterationOrchestrator {
 			await ask('subagent_stop', {
 				parentSessionId: this.ctx.parentSessionId,
 				...(this.ctx.parentTurnId !== undefined ? { parentTurnId: this.ctx.parentTurnId } : {}),
+				...(this.ctx.agentType !== undefined ? { agentType: this.ctx.agentType } : {}),
 			})
 			yield* this.ctx.drainPending()
 		}
@@ -2176,6 +2177,7 @@ export class IterationOrchestrator {
 						}
 						// A rung that sheds too little to change the verdict is not worth a
 						// provider call; climb to the next one at once.
+						const tokensBeforeRelief = estimateRefillTokens(recorder.messages)
 						let shed = false
 						while (!shed && overflowReliefs < OVERFLOW_RELIEF_LIMIT) {
 							overflowReliefs++
@@ -2185,7 +2187,13 @@ export class IterationOrchestrator {
 							// Clearing results is a compaction too: only summaries and reducers
 							// recorded themselves, so a clear-only relief was invisible to the
 							// breaker.
-							compactionBreaker(this.ctx)?.recordCompaction(iterationNum)
+							// Record the whole ladder once, including any insufficient first
+							// rung, against the same estimator the refill check uses.
+							compactionBreaker(this.ctx)?.recordCompaction(
+								iterationNum,
+								tokensBeforeRelief,
+								estimateRefillTokens(recorder.messages),
+							)
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
 								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,

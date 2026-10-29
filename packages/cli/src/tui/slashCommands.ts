@@ -1,4 +1,14 @@
+import { readPermissionLayers } from '../config/load.js'
 import { installationRows } from '../installation.js'
+import {
+	type DenialRow,
+	addLocalRule,
+	removeLocalRule,
+	renderRecentDenials,
+	renderRules,
+	ruleEntries,
+} from '../permissions/rule-screen.js'
+import { type PermissionEffect, isPermissionEffect } from '../permissions/rules.js'
 import { CLI_VERSION } from '../version.js'
 import { displayPath, homePath, plural } from './person-terms.js'
 import { statusCard } from './status-card.js'
@@ -84,6 +94,8 @@ export type SlashAction =
 	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
 	 */
 	| { kind: 'agents'; args: readonly string[] }
+	/** User-selected MCP prompts/resources, resolved asynchronously by the session host. */
+	| { kind: 'mcp-person'; args: readonly string[] }
 	| { kind: 'peers'; args: readonly string[] }
 	/** Open the list of this conversation's workflow runs. */
 	| { kind: 'workflows' }
@@ -111,7 +123,9 @@ export type SlashAction =
 	| { kind: 'unarchive' }
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
-	| { kind: 'permission-mode'; mode: PermissionMode }
+	| { kind: 'permission-mode'; mode: PermissionMode; thenPrompt?: string }
+	/** Answer a quick side question without writing it into the conversation. */
+	| { kind: 'side-question'; question: string }
 	/** Open the finite permission-mode chooser. */
 	| { kind: 'permission-mode-picker' }
 	/** Select model-specific reasoning effort for future main-query turns. */
@@ -304,6 +318,10 @@ export interface SlashContext {
 	readonly hooks?: () => HooksConfig | undefined
 	/** Directories besides the working directory the file tools may reach, absolute. */
 	readonly directories?: () => readonly string[]
+	/** Calls the auto mode refused in this session, newest first. */
+	readonly recentDenials?: () => readonly DenialRow[]
+	/** Refresh subsequent authorization decisions after a saved local rule edit. */
+	readonly reloadPermissionRules?: () => void
 	/** This session's background jobs, running and ended. */
 	readonly jobs: () => readonly {
 		readonly id: string
@@ -823,6 +841,43 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'recap',
 		description: 'Write a short recap of this conversation now.',
 		action: () => ({ kind: 'recap-now' }),
+	},
+	{
+		name: 'btw',
+		help: {
+			usage: ['/btw <question>'],
+			details: [
+				'Asks a quick side question while the main work goes on. The small model answers from the conversation so far and cannot read files or run commands; the question and the answer are shown once and are not added to the conversation.',
+			],
+		},
+		description: 'Ask a quick side question; the work carries on.',
+		action: (_ctx, args) =>
+			args.length === 0
+				? { kind: 'message', role: 'system', content: 'Usage: /btw <question>' }
+				: { kind: 'side-question', question: args.join(' ') },
+	},
+	{
+		name: 'plan',
+		help: {
+			usage: ['/plan', '/plan <description>'],
+			details: [
+				'Switches this conversation to plan mode, where Namzu reads and plans but changes nothing until you approve the plan. With a description, it is sent as your next message.',
+			],
+		},
+		description: 'Switch to plan mode, optionally with what to plan.',
+		action: (ctx, args) => {
+			const description = args.join(' ').trim()
+			if (ctx.permissions.currentMode().mode === 'plan') {
+				return description === ''
+					? { kind: 'message', role: 'system', content: 'Already in plan mode.' }
+					: { kind: 'prompt', text: description }
+			}
+			return {
+				kind: 'permission-mode',
+				mode: 'plan',
+				...(description === '' ? {} : { thenPrompt: description }),
+			}
+		},
 	},
 	{
 		name: 'settings',
@@ -1379,10 +1434,20 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
-		help: { usage: ['/mcp [tools|details]'] },
-		description: 'Show connected tool servers and connection problems.',
+		help: {
+			usage: [
+				'/mcp [tools|details]',
+				'/mcp prompts [server]',
+				'/mcp prompt <server> <name> [argument=value ...]',
+				'/mcp resources [server]',
+				'/mcp resource <server> <uri>',
+			],
+		},
+		description: 'Show tool servers, choose a prompt or attach a resource.',
 		action: (ctx, args) =>
-			reportCommand('mcp', args, (details) => renderMcp(ctx.mcp(), details), 'tools'),
+			['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? '')
+				? { kind: 'mcp-person', args }
+				: reportCommand('mcp', args, (details) => renderMcp(ctx.mcp(), details), 'tools'),
 	},
 	{
 		name: 'diff',
@@ -1482,8 +1547,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'permissions',
 		description: 'Choose which actions need your approval.',
 		help: {
-			usage: ['/permissions', '/permissions details', '/permissions <mode>'],
+			usage: [
+				'/permissions',
+				'/permissions details',
+				'/permissions <mode>',
+				'/permissions rules [allow|ask|deny]',
+				'/permissions add <allow|ask|deny> <rule>',
+				'/permissions remove <rule>',
+				'/permissions denied',
+				'/permissions dirs',
+			],
 			details: [
+				'Rules are listed with the file they come from. Add and remove change the local project file and update later calls in this conversation. Other permission layers and sandbox restrictions still apply. denied lists calls auto mode refused in this conversation; dirs lists the folders the file tools can reach.',
 				'Choose a preset in the menu, or use a typed mode:',
 				...PERMISSION_MODE_NAMES.map((name) => {
 					const mode = permissionModeFromName(name) as PermissionMode
@@ -1494,6 +1569,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'permission-mode-picker' }
+			const rulesReply = permissionRulesReply(ctx, args)
+			if (rulesReply !== undefined) return { kind: 'message', role: 'system', content: rulesReply }
 			const mode = args.length === 1 ? args[0]?.toLowerCase() : undefined
 			if (mode === 'details') {
 				return {
@@ -1700,7 +1777,7 @@ function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAct
 export function renderHooks(hooks: HooksConfig | undefined): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
 	if (events.length === 0) {
-		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of { command, matcher?, timeoutMs?, if?, once?, statusMessage? }.'
+		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.'
 	}
 	const lines: string[] = []
 	for (const [event, entries] of events) {
@@ -1711,7 +1788,15 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 				entry.timeoutMs !== undefined ? ` · ${Math.round(entry.timeoutMs / 1000)}s` : ''
 			const filter = entry.if ? ` · if ${entry.if}` : ''
 			const once = entry.once ? ' · once' : ''
-			lines.push(`  ${entry.command}${when}${filter}${once}${deadline}`)
+			const what =
+				entry.type === 'http'
+					? `POST ${entry.url}`
+					: entry.type === 'prompt'
+						? `ask: ${entry.prompt.replace(/\s+/g, ' ').slice(0, 60)}`
+						: entry.command
+			const background = entry.type === undefined && entry.async ? ' · in background' : ''
+			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
+			lines.push(`  ${what}${when}${filter}${once}${deadline}${background}${failure}`)
 		}
 	}
 	return lines.join('\n')
@@ -2132,6 +2217,60 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 	return lines.join('\n')
 }
 
+function applyRuleEdit(
+	ctx: SlashContext,
+	edit: { readonly ok: boolean; readonly message: string },
+): string {
+	if (!edit.ok) return edit.message
+	if (!ctx.reloadPermissionRules) return `${edit.message} It applies when a new session starts.`
+	try {
+		ctx.reloadPermissionRules()
+		return `${edit.message} Applied to later calls. Other permission layers and sandbox restrictions still apply.`
+	} catch (cause) {
+		return `${edit.message} Not applied to this session: ${cause instanceof Error ? cause.message : String(cause)}. The previous policy remains active.`
+	}
+}
+
+/** The answer to `/permissions rules|add|remove|denied|dirs`; undefined for anything else. */
+function permissionRulesReply(ctx: SlashContext, args: readonly string[]): string | undefined {
+	const word = args[0]?.toLowerCase()
+	if (word === 'rules') {
+		const only = args[1]?.toLowerCase()
+		if (args.length > 2 || (only !== undefined && !isPermissionEffect(only))) {
+			return 'Usage: /permissions rules [allow|ask|deny]'
+		}
+		try {
+			const entries = ruleEntries(readPermissionLayers({ cwd: ctx.cwd }))
+			return renderRules(entries, only as PermissionEffect | undefined)
+		} catch (cause) {
+			return `Could not read the permission rules: ${cause instanceof Error ? cause.message : String(cause)}`
+		}
+	}
+	if (word === 'add') {
+		const effect = args[1]?.toLowerCase()
+		const rule = args.slice(2).join(' ').trim()
+		if (!isPermissionEffect(effect) || rule === '') {
+			return 'Usage: /permissions add <allow|ask|deny> <rule>, for example /permissions add allow Bash(git status *)'
+		}
+		return applyRuleEdit(ctx, addLocalRule(ctx.cwd, effect, rule))
+	}
+	if (word === 'remove') {
+		const rule = args.slice(1).join(' ').trim()
+		if (rule === '') return 'Usage: /permissions remove <rule>'
+		return applyRuleEdit(ctx, removeLocalRule(ctx.cwd, rule))
+	}
+	if (word === 'denied') return renderRecentDenials(ctx.recentDenials?.())
+	if (word === 'dirs') {
+		const added = ctx.directories?.() ?? []
+		return [
+			'Folders the file tools can reach',
+			`  ${ctx.cwd}  (working folder)`,
+			...added.map((dir) => `  ${dir}`),
+		].join('\n')
+	}
+	return undefined
+}
+
 export function renderPermissions(
 	permissions: SlashContext['permissions'],
 	details = false,
@@ -2283,6 +2422,7 @@ export function renderAgents(ids: readonly string[]): string {
 
 function userCommandOrigin(command: UserCommand): string {
 	if (command.source === 'skill') return 'Skill'
+	if (command.source === 'plugin') return 'Plugin command'
 	return command.source === 'project' ? 'Project command' : 'User command (all projects)'
 }
 

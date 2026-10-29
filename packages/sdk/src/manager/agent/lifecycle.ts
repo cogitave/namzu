@@ -170,7 +170,7 @@ interface ChildSpawnRecord {
 	/** Removes the child's log from the process-local lookup. */
 	releaseLog?: () => void
 	workspaceRef?: WorkspaceRef
-	workspaceRetention?: 'retain'
+	workspaceRetention?: 'retain' | 'retain-changed'
 	/**
 	 * What this child was actually granted, after the ancestor union.
 	 *
@@ -1739,8 +1739,9 @@ export class AgentManager {
 				subSession = {
 					...subSession,
 					workspaceId: workspaceRef.id,
-					...(request?.mode === 'isolated' && request.retention === 'retain'
-						? { workspaceRetention: 'retain' as const }
+					...(request?.mode === 'isolated' &&
+					(request.retention === 'retain' || request.retention === 'retain-changed')
+						? { workspaceRetention: request.retention }
 						: {}),
 				}
 				await store.updateSubSession(subSession, context.tenantId)
@@ -1781,8 +1782,9 @@ export class AgentManager {
 			childDepth,
 			childOwnerVersion: childSession.ownerVersion,
 			workspaceRef,
-			...(options.workspace?.mode === 'isolated' && options.workspace.retention === 'retain'
-				? { workspaceRetention: 'retain' as const }
+			...(options.workspace?.mode === 'isolated' &&
+			(options.workspace.retention === 'retain' || options.workspace.retention === 'retain-changed')
+				? { workspaceRetention: options.workspace.retention }
 				: {}),
 		}
 	}
@@ -2394,6 +2396,23 @@ export class AgentManager {
 		if (!spawnRecord.workspaceRef) return
 		const backend = spawnRecord.workspaceRef.meta.backend
 		if (!this.deps.workspaceRegistry.has(backend)) return
+		if (spawnRecord.workspaceRetention === 'retain-changed') {
+			// Keep the checkout unless it provably holds nothing. A look that fails,
+			// or a backend that cannot say whether it moved, keeps it too.
+			const seen = await this.deps.workspaceRegistry
+				.get(backend)
+				.inspect(spawnRecord.workspaceRef)
+				.catch((inspectErr) => {
+					this.log.warn('Workspace inspect failed; keeping it', {
+						'namzu.manager.backend': backend,
+						'namzu.sub_session.id': spawnRecord.subSessionId,
+						'exception.message': toErrorMessage(inspectErr),
+					})
+					return undefined
+				})
+			if (!seen) return
+			if (seen.exists && (seen.isDirty || seen.hasNewCommits !== false)) return
+		}
 		await this.deps.workspaceRegistry
 			.get(backend)
 			.dispose(spawnRecord.workspaceRef)

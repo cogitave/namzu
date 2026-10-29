@@ -21,7 +21,7 @@ export const SearchToolsTool = defineTool({
 	name: 'search_tools',
 	description:
 		'Search and load available tools by name or capability. ' +
-		'Deferred tools listed in the system prompt must be loaded via this tool before use.',
+		'Use this only when a needed deferred tool schema is absent from the current runtime tools parameter. If its schema is already visible, call the tool directly without searching again.',
 	inputSchema,
 	category: 'analysis',
 	permissions: [],

@@ -830,6 +830,45 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('offers a sub-agent in the @ list with its description and inserts it quoted', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(
+			<Composer
+				history={[]}
+				mentionCandidates={['src/review.ts']}
+				mentionExtras={[
+					{ kind: 'agent', label: 'reviewer (agent)', description: 'Reviews a change' },
+					{ kind: 'resource', label: 'docs:docs://guide', description: 'The setup guide' },
+				]}
+				onSubmit={submit}
+			/>,
+			{ cols: 120, rows: 24 },
+		)
+		try {
+			screen.press('@rev')
+			await screen.waitForRender()
+			const viewport = screen.viewport().join('\n')
+			expect(viewport).toContain('@reviewer (agent)')
+			expect(viewport).toContain('Reviews a change')
+
+			screen.press('\x1b[B')
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).not.toHaveBeenCalled()
+			screen.press('now')
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).toHaveBeenCalledWith(
+				'@"reviewer (agent)" now',
+				undefined,
+				'submit',
+				expect.objectContaining({ source: 'composer' }),
+			)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('scrolls project files and inserts the selected @ token without sending it', async () => {
 		const submit = vi.fn()
 		const files = Array.from(

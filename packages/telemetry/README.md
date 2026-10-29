@@ -54,6 +54,18 @@ await registerTelemetry({
 })
 ```
 
+`exporterType` remains the fallback for both signals. Set
+`traceExporterType` and/or `metricExporterType` to `none`, `console` or `otlp`
+to choose independently; for example, `exporterType: 'otlp'` with
+`traceExporterType: 'none'` exports metrics only. Custom `spanProcessors` still
+run even when the trace exporter is `none`.
+
+The shipped OTLP exporters use HTTP/JSON. Optional `otlpProtocol`,
+`traceOtlpProtocol` and `metricOtlpProtocol` accept `http/json`; signal settings
+override the general one. Unsupported active OTLP protocols are rejected before
+either global provider is registered. Shutdown attempts both pipelines even if
+one fails.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

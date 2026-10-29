@@ -62,6 +62,28 @@ describe('the resume picker', () => {
 		}
 	})
 
+	it('tags a conversation with the pull request it made', () => {
+		const picker = render(
+			<ResumePicker
+				conversations={[
+					base({
+						pr: {
+							number: 42,
+							url: 'https://github.com/acme/widgets/pull/42',
+							repository: 'acme/widgets',
+						},
+					}),
+				]}
+				selected={0}
+			/>,
+		)
+		try {
+			expect(picker.lastFrame() ?? '').toContain('acme/widgets#42')
+		} finally {
+			picker.unmount()
+		}
+	})
+
 	it('swaps the search for the name being typed while renaming', () => {
 		const picker = render(<ResumePicker conversations={[base({})]} selected={0} renaming="Build" />)
 		try {

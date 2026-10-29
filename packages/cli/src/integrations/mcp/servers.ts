@@ -41,8 +41,10 @@ import {
 
 import {
 	MCPClient,
+	type MCPClientConfig,
 	type MCPFetchLike,
 	MCPHttpStatusError,
+	MCPToolDiscovery,
 	type MCPToolDrift,
 	type MCPToolsetOptions,
 	type MCPTransportUnion,
@@ -53,6 +55,14 @@ import {
 	mcpToolset,
 	requireApproval,
 } from '@namzu/sdk'
+
+import {
+	MCP_OUTPUT_CHARS,
+	MCP_TRUNCATION_NOTICE,
+	boundedMcpText,
+	boundedMcpToolset,
+} from './output.js'
+import { type McpPromptListing, promptsOf } from './prompts.js'
 
 import {
 	McpOAuthLoginRequiredError,
@@ -133,6 +143,8 @@ export interface McpServerSpec {
 	 * that server alone; the others keep the bound that protects the session.
 	 */
 	readonly connectTimeoutMs?: number
+	/** Per-request deadline after connection. Unset preserves the SDK's 30-second default. */
+	readonly requestTimeoutMs?: number
 	/**
 	 * How long THIS server's era probe — `connect()`'s `server/discover`
 	 * check for a modern peer, sent before the legacy handshake — waits for
@@ -240,6 +252,14 @@ export interface FailedMcpServer {
 	readonly reason: string
 }
 
+/** One resource a connected server publishes, as the composer offers it. */
+export interface McpResourceListing {
+	readonly server: string
+	readonly uri: string
+	readonly name: string
+	readonly description?: string
+}
+
 export interface McpConnection {
 	/** Current definitions from every connected server, read from its live toolsets. */
 	readonly tools: readonly ToolDefinition[]
@@ -257,6 +277,25 @@ export interface McpConnection {
 	}
 	/** Names of the servers still being reached. Read live. */
 	readonly pending: readonly string[]
+	/**
+	 * The resources the connected servers publish, after each server's own
+	 * allow and deny lists. A server that asks for approval before use is left
+	 * out: a mention would read it without that question. One server failing to
+	 * answer costs the others nothing.
+	 */
+	listPrompts(signal?: AbortSignal, server?: string): Promise<readonly McpPromptListing[]>
+	getPrompt(
+		server: string,
+		name: string,
+		args: Record<string, string>,
+		signal?: AbortSignal,
+	): Promise<string>
+	listResources(signal?: AbortSignal, server?: string): Promise<readonly McpResourceListing[]>
+	/**
+	 * The text of one resource that {@link listResources} would list, or null
+	 * when the server is not connected, does not list it, or it holds no text.
+	 */
+	readResource(server: string, uri: string, signal?: AbortSignal): Promise<string | null>
 	/** Settles once every server has either connected or failed. Never rejects. */
 	readonly ready: Promise<void>
 	/**
@@ -584,6 +623,16 @@ export function connectDeadlineFor(spec: McpServerSpec): number | string {
 	return ms
 }
 
+/** A configured per-request deadline, or a named refusal; unset preserves the SDK default. */
+export function requestTimeoutFor(spec: McpServerSpec): number | undefined | string {
+	const ms = spec.requestTimeoutMs
+	if (ms === undefined) return undefined
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || ms > MAX_CONNECT_TIMEOUT_MS) {
+		return `requestTimeoutMs must be a positive number of milliseconds at most ${MAX_CONNECT_TIMEOUT_MS}`
+	}
+	return ms
+}
+
 /**
  * The era probe deadline a spec asks for, or why it cannot have it.
  *
@@ -650,12 +699,24 @@ export interface McpStartOptions {
 	readonly localBatch?: number
 	/** At most this many remote servers connect at once. Default {@link REMOTE_CONNECT_BATCH}. */
 	readonly remoteBatch?: number
+	/**
+	 * Answers a server's request for input from the person. Given, every
+	 * server is built to declare it can be asked; left out, none is, and a
+	 * server never asks.
+	 */
+	readonly elicit?: NonNullable<MCPClientConfig['onElicitation']>
 }
 
 type LiveServer = {
 	readonly client: MCPClient
 	readonly name: string
 	readonly toolsets: readonly Toolset[]
+	/** Absent when the server asks for approval before use. */
+	readonly prompts?: ReturnType<typeof promptsOf>
+	readonly resources?: {
+		list(signal?: AbortSignal): Promise<readonly McpResourceListing[]>
+		read(uri: string, signal?: AbortSignal): Promise<string | null>
+	}
 	readonly discovery: {
 		readonly added: Set<string>
 		readonly removed: Set<string>
@@ -664,6 +725,64 @@ type LiveServer = {
 			'tools' | 'prompts' | 'resources',
 			readonly { name: string; reason: 'not_allowed' | 'denied' }[]
 		>
+	}
+}
+
+/**
+ * A connected server's resources for the mention picker and for reading a
+ * mentioned one. Both go through the server's own allow and deny lists, and a
+ * read only reaches a resource the server has listed, so a typed address the
+ * server never published is not fetched.
+ */
+function resourcesOf(
+	client: MCPClient,
+	name: string,
+	spec: McpServerSpec,
+): NonNullable<LiveServer['resources']> {
+	const discovery = new MCPToolDiscovery([client], {
+		policies: { [name]: { allow: spec.allow, deny: spec.deny } },
+	})
+	const list = async (signal?: AbortSignal): Promise<readonly McpResourceListing[]> => {
+		try {
+			if (client.getState().status !== 'connected') return []
+			const found = await discovery.discoverResourcesFrom(client, signal ? { signal } : undefined)
+			return found.map((resource) => ({
+				server: name,
+				uri: resource.uri,
+				name: resource.name,
+				...(resource.description ? { description: resource.description } : {}),
+			}))
+		} catch {
+			return []
+		}
+	}
+	return {
+		list,
+		read: async (uri, signal) => {
+			if (!(await list(signal)).some((resource) => resource.uri === uri)) return null
+			try {
+				const blocks = await client.readResource(uri, signal ? { signal } : undefined)
+				// A server answers `resources/read` with plain resource contents
+				// (`{ uri, text }`); a content block may carry the same under `resource`.
+				let text = ''
+				for (const block of blocks as readonly unknown[]) {
+					if (!block || typeof block !== 'object') continue
+					const item = block as { text?: unknown; resource?: { text?: unknown } }
+					const found = typeof item.text === 'string' ? item.text : item.resource?.text
+					if (typeof found !== 'string') continue
+					const remaining = MCP_OUTPUT_CHARS - text.length
+					if (remaining <= 100) {
+						text =
+							text.slice(0, MCP_OUTPUT_CHARS - MCP_TRUNCATION_NOTICE.length) + MCP_TRUNCATION_NOTICE
+						break
+					}
+					text += (text ? '\n' : '') + boundedMcpText(found, remaining - (text ? 1 : 0))
+				}
+				return text.length > 0 ? text : null
+			} catch {
+				return null
+			}
+		},
 	}
 }
 
@@ -761,6 +880,11 @@ export function startMcpServers(
 			startupFailed.push({ name, reason: deadline })
 			return
 		}
+		const requestTimeoutMs = requestTimeoutFor(spec)
+		if (typeof requestTimeoutMs === 'string') {
+			startupFailed.push({ name, reason: requestTimeoutMs })
+			return
+		}
 		const eraProbeTimeoutMs = eraProbeTimeoutFor(spec)
 		if (typeof eraProbeTimeoutMs === 'string') {
 			startupFailed.push({ name, reason: eraProbeTimeoutMs })
@@ -785,6 +909,8 @@ export function startMcpServers(
 				serverName: name,
 				transport: connectedTransport,
 				...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
+				...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
+				...(options.elicit ? { onElicitation: options.elicit } : {}),
 			})
 		} catch (error) {
 			startupFailed.push({ name, reason: reasonOf(error) })
@@ -879,9 +1005,10 @@ export function startMcpServers(
 					await closeClient().catch(() => {})
 					return
 				}
+				const bounded = discovered.map(boundedMcpToolset)
 				const ready = spec.requireApproval
-					? discovered.map((entry) => requireApproval(entry))
-					: [...discovered]
+					? bounded.map((entry) => requireApproval(entry))
+					: bounded
 				// The real entries' own changes (a server adding a tool later) reach the
 				// roster through the same slots.
 				for (const entry of ready) {
@@ -890,7 +1017,18 @@ export function startMcpServers(
 					})
 				}
 				mounted = ready
-				live[index] = { client, name, toolsets: ready, discovery }
+				live[index] = {
+					client,
+					name,
+					toolsets: ready,
+					discovery,
+					...(spec.requireApproval
+						? {}
+						: {
+								resources: resourcesOf(client, name, spec),
+								prompts: promptsOf(client, name, spec),
+							}),
+				}
 				for (const listener of [...changeListeners]) listener()
 			} catch (err) {
 				startupFailed.push({ name, reason: reasonOf(err) })
@@ -1008,6 +1146,33 @@ export function startMcpServers(
 			return [...pending]
 		},
 		ready,
+		listPrompts: async (signal, name) => {
+			if (closed) return []
+			const lists = await Promise.all(
+				live.map((server) =>
+					server && (!name || server.name === name) ? (server.prompts?.list(signal) ?? []) : [],
+				),
+			)
+			return lists.flat()
+		},
+		getPrompt: async (server, name, args, signal) => {
+			const found = closed ? undefined : live.find((entry) => entry?.name === server)
+			if (!found?.prompts) throw new Error('Server unavailable or requires tool approval.')
+			return found.prompts.get(name, args, signal)
+		},
+		listResources: async (signal, name) => {
+			if (closed) return []
+			const lists = await Promise.all(
+				live.map((server) =>
+					server?.resources && (!name || server.name === name) ? server.resources.list(signal) : [],
+				),
+			)
+			return lists.flat()
+		},
+		readResource: async (server, uri, signal) => {
+			const found = closed ? undefined : live.find((entry) => entry?.name === server)
+			return found?.resources ? found.resources.read(uri, signal) : null
+		},
 		onSettled: (listener) => {
 			settledListeners.add(listener)
 			return () => settledListeners.delete(listener)

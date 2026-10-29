@@ -83,6 +83,17 @@ export interface ExecFlags {
 	continueLast: boolean
 	/** --resume <id>: pick up this conversation and no other. */
 	resume: string | null
+	/**
+	 * `--fork-session`: with `--continue` or `--resume`, carry on in a copy so
+	 * the original conversation is left as it was.
+	 */
+	forkSession: boolean
+	/**
+	 * `--no-session-persistence`: keep no record of this run. The conversation
+	 * is removed when the run ends, and a conversation named by `--continue` or
+	 * `--resume` is worked on as a copy, so the original is never written to.
+	 */
+	noSessionPersistence: boolean
 	skills: string[]
 	/** `--max-iterations <n>`: main-loop iterations; 0 is unlimited. */
 	maxIterations: number | null
@@ -133,6 +144,9 @@ export interface ExecFlags {
 	 * `--json`: print the turn as one JSON event per line instead of the reply.
 	 */
 	json: boolean
+	/** Absent preserves the existing stdin history contract of --json. */
+	inputFormat: 'text' | 'stream-json' | null
+	outputFormat: 'text' | 'json' | 'stream-json' | null
 	/**
 	 * `--output-schema <file>`: a JSON Schema file the final answer is bound
 	 * to, through the provider's native structured output. The path as given;
@@ -169,6 +183,8 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		trust: false,
 		continueLast: false,
 		resume: null,
+		forkSession: false,
+		noSessionPersistence: false,
 		skills: [],
 		maxIterations: null,
 		tokenBudget: null,
@@ -181,6 +197,8 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		gates: [],
 		gateRetries: null,
 		json: false,
+		inputFormat: null,
+		outputFormat: null,
 		outputSchema: null,
 		mcpConfigs: [],
 		unknown: [],
@@ -200,6 +218,33 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 	const trimmed = (assign: (v: string | null) => void) => (v: string) => assign(v.trim() || null)
 	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
 		const a = rawArgs[idx.v]
+		if (
+			take(
+				a,
+				'input-format',
+				(v) => {
+					if (v !== 'text' && v !== 'stream-json')
+						throw new Error('--input-format takes text or stream-json')
+					out.inputFormat = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'output-format',
+				(v) => {
+					if (v !== 'text' && v !== 'json' && v !== 'stream-json')
+						throw new Error('--output-format takes text, json or stream-json')
+					out.outputFormat = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (a === '--print' || a === '-p') continue
 		if (
 			take(
 				a,
@@ -300,6 +345,14 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		if (take(a, 'fallback-model', (v) => out.fallbackModels.push(v), idx)) continue
 		if (a === '--continue' || a === '-c') {
 			out.continueLast = true
+			continue
+		}
+		if (a === '--fork-session') {
+			out.forkSession = true
+			continue
+		}
+		if (a === '--no-session-persistence') {
+			out.noSessionPersistence = true
 			continue
 		}
 		if (a === '--trust') {
@@ -431,6 +484,13 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			continue
 		}
 		out.rest.push(a)
+	}
+	if (out.json && out.outputFormat !== null && out.outputFormat !== 'stream-json') {
+		throw new Error('--json streams events; do not combine it with a different --output-format')
+	}
+	if (out.outputFormat === 'stream-json') out.json = true
+	if (out.inputFormat === 'stream-json' && !out.json) {
+		throw new Error('--input-format stream-json requires --json or --output-format stream-json')
 	}
 	return out
 }

@@ -31,7 +31,14 @@ function sandboxOver(body: string): Sandbox {
 		status: 'ready',
 		rootDir: '/sandbox',
 		environment: 'basic',
-		readFile: async () => Buffer.from(body, 'utf-8'),
+		readFile: async (_path: string, options?: { offset?: number; length?: number }) => {
+			const bytes = Buffer.from(body, 'utf-8')
+			const offset = options?.offset ?? 0
+			return bytes.subarray(
+				offset,
+				options?.length === undefined ? undefined : offset + options.length,
+			)
+		},
 	} as unknown as Sandbox
 }
 
@@ -173,7 +180,7 @@ describe('ReadFileTool', () => {
 		expect(result.data).toMatchObject({ binary: true })
 	})
 
-	it('directs actual image bytes to visual inspection instead of recording a text observation', async () => {
+	it('shows actual image bytes as a picture instead of recording a text observation', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
 		const bytes = Buffer.from(
 			encode({ width: 1, height: 1, channels: 3, data: new Uint8Array([90, 90, 90]) }),
@@ -184,10 +191,11 @@ describe('ReadFileTool', () => {
 			{ path: 'reference.txt' },
 			makeContext(dir, { fileReadTracker: tracker }),
 		)
-		expect(result.success).toBe(false)
-		expect(result.output).toContain('PNG raster image')
-		expect(result.output).toContain('view_image')
-		expect(result.data).toMatchObject({ binary: true })
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('image/png')
+		expect(result.content).toEqual(
+			expect.arrayContaining([expect.objectContaining({ type: 'image', mediaType: 'image/png' })]),
+		)
 		expect(tracker.hasRead(join(dir, 'reference.txt'))).toBe(false)
 	})
 

@@ -61,7 +61,7 @@ describe('GitWorktreeDriver', () => {
 		expect(ref.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 		expect(ref.meta.backend).toBe('git-worktree')
 		expect(ref.meta.branch).toBe('namzu/foo')
-		expect(calls).toHaveLength(1)
+		expect(calls).toHaveLength(2)
 		const call = calls[0]
 		if (!call) throw new Error('missing call')
 		expect(call.file).toBe('git')
@@ -249,7 +249,8 @@ describe('GitWorktreeDriver', () => {
 
 		await driver.branch(source, { label: 'next' })
 
-		expect(calls).toHaveLength(1)
+		// The add, then the read of the commit the new checkout starts on.
+		expect(calls).toHaveLength(2)
 		expect(calls[0]?.map(posix)).toEqual([
 			'-C',
 			'/repo',

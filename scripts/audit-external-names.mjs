@@ -221,16 +221,9 @@ const FORBIDDEN = [
 	'e2b',
 	'gvisor',
 	'fly machines',
-	// Measured when the scan reached `.github/` (issue #220): this phrase
-	// appears nowhere in the repository, and the workflows name their actions
-	// and runners as `actions/checkout@v5`, `ubuntu-latest` and the like, which
-	// this does not match. So no exemption is added for it — one would be a
-	// guard whose condition can never be false today.
-	//
-	// What would make it real: a workflow or doc naming the CI platform in
-	// prose, as the honest self-reference of a repository that runs on it. That
-	// is a path-or-context exemption, not a lexical one, and it should be
-	// written when there is a line to point at.
+	// The workflow installer now names the platform it targets in its header
+	// and operator help. Its exact-path wire exemption is recorded below;
+	// the name remains forbidden elsewhere, rather than removed lexically.
 	{ name: 'github actions', aliases: ['gh actions'] },
 ]
 
@@ -337,7 +330,16 @@ const WIRE_VALUE_FILES = [
 	'packages/sandbox/src/backends/',
 ]
 
-const isWireValueFile = (path) => WIRE_VALUE_FILES.some((prefix) => path.startsWith(prefix))
+// These entry points name the service they drive or select, not a borrowed
+// design. Match whole paths so a neighbouring command or fixture stays audited.
+const EXACT_WIRE_VALUE_FILES = new Set([
+	'packages/cli/src/commands/github.ts',
+	'packages/cli/src/tui/__tests__/ephemeral-paused-turn.test.ts',
+	'packages/cli/src/tui/__tests__/model-identity-reaches-provider.test.ts',
+])
+
+const isWireValueFile = (path) =>
+	EXACT_WIRE_VALUE_FILES.has(path) || WIRE_VALUE_FILES.some((prefix) => path.startsWith(prefix))
 
 /**
  * File kinds this scans, and what each is written in.
@@ -465,7 +467,15 @@ const DRIVEN_SERVICES = new Set([
 const RESEARCH_SOURCE_DOCS = new Map([
 	// Setup instructions must identify the credential owner and link its sign-in documentation.
 	['claude', new Set(['docs/cli/slash-commands.md', 'docs/cli/credentials.md'])],
-	['gemini', new Set(['docs/cli/google.md', 'docs/cli/index.md', 'docs/log.md', 'docs/sdk/native-provider-capabilities.md'])],
+	[
+		'gemini',
+		new Set([
+			'docs/cli/google.md',
+			'docs/cli/index.md',
+			'docs/log.md',
+			'docs/sdk/native-provider-capabilities.md',
+		]),
+	],
 	[
 		'pydantic',
 		new Set([
@@ -834,9 +844,8 @@ function namedImportEnd(lines, start) {
 
 /** Read comments in a named import without exempting prose in a block comment. */
 function importComments(line, state) {
-	const masked = line.replace(
-		/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g,
-		(literal) => ' '.repeat(literal.length),
+	const masked = line.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, (literal) =>
+		' '.repeat(literal.length),
 	)
 	const comments = []
 	let cursor = 0

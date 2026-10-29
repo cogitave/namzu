@@ -397,7 +397,12 @@ SDK hosts can pass a `createFileReadTracker()` instance as `query`'s
 `fileReadTracker` option across multiple turns. Without it, the executor creates
 a turn-local tracker. Keep instances isolated by conversation and filesystem;
 do not share observations between independent agents or unrelated sandbox roots.
-The tracker retains hashes and path membership, not file contents. It is not
+The tracker retains hashes and path membership, plus the body of up to 128 files
+whose latest observation was the whole file (a full read, a full write or an
+edit's result; none over 512 KiB, none after a windowed read), which a host can
+read through the optional `fullBody(key)` and `fullBodyPaths()` to show what
+changed under the model; `recordFullBody(key, content)` moves both the
+fingerprint and the kept body to a new whole-file observation. It is not
 an inventory of what the model currently sees. A missing fingerprint remains
 unknown; custom boolean-only trackers retain their earlier behavior.
 

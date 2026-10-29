@@ -20,6 +20,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { plainChildFailure } from './failure-words.js'
@@ -117,6 +118,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { AgentNames, agentNameProblem } from './agent-names.js'
 import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
@@ -181,8 +183,9 @@ function readOnlyRoster(opts: Pick<SubagentRuntimeOptions, 'buildTools'>): reado
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
- * file's `tools` allowlist when there is one, and to read-only tools when
- * the file says `readOnly: true`. Intersection, never union.
+ * file's `tools` allowlist when there is one, to read-only tools when
+ * the file says `readOnly: true`, and without the tools its `disallowedTools`
+ * names. Intersection, never union.
  */
 function fileAgentTools(
 	definition: AgentFileDefinition,
@@ -201,7 +204,12 @@ function fileAgentTools(
 					)
 			: opts.buildTools()
 		const names = definition.tools
-		return names ? source.map((ts) => filtered(ts, names)) : source
+		const allowed = names ? source.map((ts) => filtered(ts, names)) : source
+		// A denied tool is gone whatever else allows it.
+		const denied = definition.disallowedTools
+		return denied
+			? allowed.map((ts) => filtered(ts, (tool) => !denied.includes(tool.name)))
+			: allowed
 	}
 }
 
@@ -290,6 +298,8 @@ export interface SubagentRuntimeOptions {
 	 * off and keep the turn waiting for what it launched.
 	 */
 	readonly backgroundByDefault?: boolean
+	/** Keep delegated transcripts/checkpoints in memory, never in the default disk layout. */
+	readonly ephemeral?: boolean
 	/**
 	 * Tools every child gets beside its roster, whatever that roster was
 	 * narrowed to. Set by the runtime itself, never by a host: a file's
@@ -299,6 +309,8 @@ export interface SubagentRuntimeOptions {
 	readonly childExtraTools?: () => readonly Toolset[]
 	/** Resolve the actual invoking turn; reject calls whose parent no longer exists. */
 	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
+	/** Lazy because the host initializes plugins after its delegation runtime. */
+	readonly resolvePluginManager?: () => NamzuCliAgentConfig['pluginManager']
 	readonly cwd: string
 	/** CLI state root used for retained worktrees, including ephemeral turns. */
 	readonly worktreeStateRoot?: string
@@ -372,6 +384,18 @@ export interface SubagentRuntimeOptions {
 	 * run such batches without asking, as the parent would.
 	 */
 	readonly resolveReviewAllowedCalls?: (turnId: TurnId) => (() => boolean) | undefined
+	/**
+	 * The review channel for a child whose agent file names its own permission
+	 * mode: the invoking turn's channel narrowed to what the file asks, decided
+	 * per call under the turn's live mode. Absent, or answering undefined, the
+	 * child borrows the turn's channel unchanged.
+	 */
+	readonly resolveAgentReview?: (
+		turnId: TurnId,
+		declared: string,
+	) =>
+		| { readonly resumeHandler: ResumeHandler; readonly reviewAllowedCalls: () => boolean }
+		| undefined
 	/** Wake a delegation wait when this parent has undelivered operator input. */
 	readonly resolveWaitForInbound?: (
 		turnId: TurnId,
@@ -638,6 +662,9 @@ const refuseUnownedChildReview: ResumeHandler = async () => ({
 export async function createSubagentRuntime(
 	input: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
+	if (input.ephemeral && input.paths) {
+		throw new Error('Ephemeral delegation cannot use persistent session paths.')
+	}
 	const childMessageListeners = new Set<(message: SubagentMessage) => void>()
 	const backgroundCompletionListeners = new Set<(completion: SubagentCompletion) => void>()
 	const opts: SubagentRuntimeOptions = {
@@ -689,6 +716,9 @@ export async function createSubagentRuntime(
 				opts,
 				fileAgentTools(definition, opts),
 				definition.model ?? opts.model,
+				undefined,
+				undefined,
+				definition,
 			),
 		)
 	}
@@ -735,6 +765,8 @@ export async function createSubagentRuntime(
 			Pick<BaseAgentConfig, 'env' | 'toolResultGuardrails' | 'model' | 'effort'>
 		>
 		readonly workspace: 'shared' | 'worktree'
+		/** The permission mode word the agent's file named, kept so a continuation runs under it too. */
+		readonly declaredMode?: string
 		/** The id the model first knew this agent by; every later run keeps answering to it. */
 		readonly publicTaskId: string
 		gateway: TaskScheduler
@@ -749,6 +781,8 @@ export async function createSubagentRuntime(
 	// resumed agent gets a new task, and the id the model was handed first
 	// keeps naming the same agent.
 	const taskViews = new Map<string, string>()
+	// The names `Agent` calls have given, to the task each one addresses.
+	const agentNames = new AgentNames()
 	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
 	const publicTaskId = (taskId: TaskId | string): string => {
 		const viewId = taskViews.get(String(taskId))
@@ -756,6 +790,8 @@ export async function createSubagentRuntime(
 		return owned?.publicTaskId ?? String(taskId)
 	}
 	const dropConversation = (viewId: string): void => {
+		const dropped = conversations.get(viewId)
+		if (dropped) agentNames.forget(dropped.publicTaskId)
 		conversations.delete(viewId)
 		for (const [taskId, owner] of taskViews) if (owner === viewId) taskViews.delete(taskId)
 	}
@@ -930,6 +966,7 @@ export async function createSubagentRuntime(
 				const reviewAllowedCalls = opts.resolveReviewAllowedCalls?.(turnId)
 				const taskContext: AgentTaskContext = {
 					...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
+					...(opts.ephemeral ? { childStorage: { kind: 'memory' as const } } : {}),
 					parentSessionId: parent.sessionId,
 					parentTurnId: turnId,
 					parentAgentId: 'namzu',
@@ -966,7 +1003,13 @@ export async function createSubagentRuntime(
 				const gateway = new ParentTaskScheduler(
 					manager,
 					taskContext,
-					opts.onEvent,
+					// This CLI callback returns void; an incidental return (e.g. push's
+					// length) must not become an SDK async-observer promise.
+					opts.onEvent
+						? (event) => {
+								opts.onEvent?.(event)
+							}
+						: undefined,
 					gatewayCheck,
 					gatewayMessage,
 				)
@@ -1223,11 +1266,14 @@ export async function createSubagentRuntime(
 			? { kind: 'settled', owned, viewId, task: settled }
 			: { kind: 'ending', task: settled }
 	}
-	/** A task id as the model wrote it; anything that is not a task UUID names no task. */
-	const parseTaskId = (raw: unknown): TaskId | undefined => {
+	/** A task id as the model wrote it, or the name of an agent; anything else names no task. */
+	const parseTaskId = async (raw: unknown, turnId: TurnId): Promise<TaskId | undefined> => {
 		if (typeof raw !== 'string') return undefined
 		try {
-			return asTaskId(raw.trim())
+			// A name given to `Agent` addresses its agent like the id does; a name
+			// is never shaped like an id, so the two cannot meet.
+			const parentKey = sessionKey(await resolveParent(turnId))
+			return asTaskId(agentNames.resolve(raw, parentKey) ?? raw.trim())
 		} catch {
 			return undefined
 		}
@@ -1246,7 +1292,8 @@ export async function createSubagentRuntime(
 				const shown = publicTaskId(task.taskId)
 				if (seen.has(shown)) continue
 				seen.add(shown)
-				running.push(shown)
+				const called = agentNames.nameOf(shown)
+				running.push(called === undefined ? shown : `${shown} (${called})`)
 			}
 		}
 		collect(await gatewayForTurn(turnId))
@@ -1377,19 +1424,27 @@ export async function createSubagentRuntime(
 			phase_order,
 			phase_detail,
 			run_in_background,
-			workspace,
 			model: requestedModel,
 			provider: requestedProvider,
 			effort: requestedEffort,
 		} = input
 		if (!requestedModel && (requestedProvider || requestedEffort))
 			throw new Error('Supply model when selecting a child provider or effort.')
+		const agentName = typeof input.name === 'string' ? input.name.trim() : ''
+		if (agentName.length > 0) {
+			const problem = agentNameProblem(agentName)
+			if (problem) throw new Error(problem)
+		}
 		// Which built-in read-only type this launch names, if any.
 		const readOnlyType =
 			subagent_type !== undefined && READ_ONLY_PROMPTS.has(subagent_type)
 				? subagent_type
 				: undefined
 		const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+		// A file that says `isolation: worktree` gives its agent a checkout of
+		// its own unless the call chose a workspace itself.
+		const workspace =
+			input.workspace ?? (fileAgent?.isolation === 'worktree' ? 'worktree' : undefined)
 		// A project file that is itself named `fork` replaces the built-in, like
 		// any other built-in name; otherwise `fork` continues this conversation.
 		const forks = subagent_type === FORK_SUBAGENT && fileAgent === undefined
@@ -1469,7 +1524,8 @@ export async function createSubagentRuntime(
 		// therefore turn a missing/stale parent mapping into permission to mutate
 		// the real project. Always install a handler, and abort if ownership can no
 		// longer be proved.
-		const resumeHandler = opts.resolveResumeHandler?.(context.turnId) ?? refuseUnownedChildReview
+		const review = childReview(context.turnId, fileAgent?.permissionMode)
+		const resumeHandler = review.resumeHandler
 		const configOverrides = {
 			...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
 			...(selection ? { model: selection.model, effort: selection.effort } : {}),
@@ -1488,6 +1544,7 @@ export async function createSubagentRuntime(
 				? { toolResultGuardrails: context.toolResultGuardrails }
 				: {}),
 			resumeHandler,
+			...(review.reviewAllowedCalls ? { reviewAllowedCalls: review.reviewAllowedCalls } : {}),
 		}
 		let taskOwnsCleanup = false
 		let retained: OwnedConversation | undefined
@@ -1525,6 +1582,7 @@ export async function createSubagentRuntime(
 									}
 								: {}),
 						},
+						...(fileAgent?.permissionMode ? { declaredMode: fileAgent.permissionMode } : {}),
 						workspace: workspace ?? 'shared',
 						publicTaskId: String(task.taskId),
 						gateway,
@@ -1534,6 +1592,7 @@ export async function createSubagentRuntime(
 					}
 					conversations.set(tracker.viewId, retained)
 					taskViews.set(String(task.taskId), tracker.viewId)
+					if (agentName.length > 0) agentNames.register(agentName, String(task.taskId), parentKey)
 					const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
 					for (const [id, previous] of conversations) {
 						if (visible.has(id) || previous.busy || !isTerminalAgentTaskState(previous.task.state))
@@ -1580,7 +1639,7 @@ export async function createSubagentRuntime(
 							? {
 									mode: 'isolated',
 									backend: 'git-worktree',
-									retention: 'retain',
+									retention: 'retain-changed',
 									...(subdirectory ? { subdirectory } : {}),
 								}
 							: { mode: 'shared' },
@@ -1626,6 +1685,21 @@ export async function createSubagentRuntime(
 	}
 
 	/**
+	 * Who answers a child's review requests. The invoking turn, unless the
+	 * child's agent file names a mode, in which case the host narrows it.
+	 */
+	const childReview = (
+		turnId: TurnId,
+		declared: string | undefined,
+	): { resumeHandler: ResumeHandler; reviewAllowedCalls?: () => boolean } => {
+		const own =
+			declared !== undefined && declared !== 'inherit'
+				? opts.resolveAgentReview?.(turnId, declared)
+				: undefined
+		return own ?? { resumeHandler: opts.resolveResumeHandler?.(turnId) ?? refuseUnownedChildReview }
+	}
+
+	/**
 	 * Register a per-call specialist: a type's roster and prompt, a role on top,
 	 * and the model the call chose. Returns its registry id.
 	 */
@@ -1661,6 +1735,7 @@ export async function createSubagentRuntime(
 				input.model,
 				selection,
 				input.inheritedPrompt,
+				fileAgent,
 			),
 		)
 		return id
@@ -1678,7 +1753,7 @@ export async function createSubagentRuntime(
 			'Pick `subagent_type: "plan"` when you need a design before changing code — it reads the code the same way and returns a step plan with the files to change and the risks, and cannot edit anything.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Pick `subagent_type: "fork"` for a side task whose intermediate output you will not need again, such as an open-ended survey or a long search. A fork starts from this conversation, runs on your model with your instructions and the sub-agent tools, and returns one report like any other child, so its `prompt` is only the directive: what to do and where its scope ends. Do not re-explain the background, do not pass model, provider, effort or role, and never write or guess what a fork will find before its report arrives. A fork cannot start forks of its own.',
-			'Set `workspace: "worktree"` when the child needs its own Git checkout. It starts from this checkout\'s committed HEAD; uncommitted parent changes are absent. The checkout and its edits remain after the child ends, so report its path and branch to the operator.',
+			'Set `workspace: "worktree"` when the child needs its own Git checkout. It starts from this checkout\'s committed HEAD; uncommitted parent changes are absent. A checkout where the child changed nothing is removed when it ends; one with changes or commits stays, and its path and branch come back in the result, so report them to the operator.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
 			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` or `"plan"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
@@ -1702,6 +1777,12 @@ export async function createSubagentRuntime(
 					description:
 						'The whole brief, because the sub-agent starts with none of your context: the objective; what is out of bounds; which tools and sources to use; and the shape of the reply you want, such as a short summary with a file path for anything long. A fork already has this conversation, so for a fork write only the directive.',
 				},
+				name: {
+					type: 'string',
+					maxLength: 64,
+					description:
+						'Name for the agent. Makes it addressable by send_message, wait_for_task and cancel_agent in place of its task ID. Letters, digits, underscores and hyphens; not "main", "user" or "system". A later agent given the same name takes it over.',
+				},
 				run_in_background: {
 					type: 'boolean',
 					description:
@@ -1713,7 +1794,7 @@ export async function createSubagentRuntime(
 					type: 'string',
 					enum: ['shared', 'worktree'],
 					description:
-						'Use a separate Git worktree for this child; defaults to shared. The worktree is kept on completion or cancellation.',
+						'Use a separate Git worktree for this child; defaults to shared. It is removed when the child ends with no changes and kept otherwise.',
 				},
 				subagent_type: {
 					type: 'string',
@@ -1790,15 +1871,25 @@ export async function createSubagentRuntime(
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const call = input as AgentCallInput
-			const run_in_background = call.run_in_background ?? opts.backgroundByDefault === true
+			// The call decides; failing that the agent's file; failing that the host.
+			const run_in_background =
+				call.run_in_background ??
+				(call.subagent_type !== undefined
+					? fileAgents.get(call.subagent_type)?.background
+					: undefined) ??
+				opts.backgroundByDefault === true
 			const { description } = call
 			const { outcome, agentId } = await launchChild({ ...call, run_in_background }, context)
+			const named = typeof call.name === 'string' && call.name.trim().length > 0
+			const nameNote = named
+				? ` It can also be addressed as ${JSON.stringify(call.name?.trim())}.`
+				: ''
 			if (outcome.kind === 'yielded') {
 				const progress =
 					outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 				return {
 					success: true,
-					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)} ${run_in_background ? 'It runs in the background.' : 'Waiting was released because the operator sent a message.'} Its result will arrive as a task notification.`,
+					output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed.${workspaceNote(outcome.handle)}${nameNote} ${run_in_background ? 'It runs in the background.' : 'Waiting was released because the operator sent a message.'} Its result will arrive as a task notification.`,
 					data: {
 						task_id: outcome.handle.taskId,
 						state: outcome.handle.state,
@@ -2001,6 +2092,9 @@ export async function createSubagentRuntime(
 			const shown = tasks.slice(-40).map((task) => ({
 				description: labels.get(task.taskId) ?? task.agentId,
 				task_id: publicTaskId(task.taskId),
+				...(agentNames.nameOf(publicTaskId(task.taskId)) !== undefined
+					? { name: agentNames.nameOf(publicTaskId(task.taskId)) }
+					: {}),
 				agent: task.agentId,
 				state: task.state,
 				status: agentTaskOutcome(task),
@@ -2033,7 +2127,7 @@ export async function createSubagentRuntime(
 				task_id: {
 					type: 'string',
 					description:
-						'The task_id from the Agent launch receipt or task notification metadata. A workflow run id is not a task id.',
+						'The task_id from the Agent launch receipt or task notification metadata, or the name given to Agent. A workflow run id is not a task id.',
 				},
 			},
 			required: ['task_id'],
@@ -2057,7 +2151,7 @@ export async function createSubagentRuntime(
 					data: { run_id: asked.trim(), waited: false },
 				}
 			}
-			const taskId = parseTaskId(asked)
+			const taskId = await parseTaskId(asked, context.turnId)
 			if (!taskId)
 				return {
 					success: false,
@@ -2253,6 +2347,9 @@ export async function createSubagentRuntime(
 						? { toolResultGuardrails: context.toolResultGuardrails }
 						: {}),
 				},
+				...(fileAgents.get(kept.profile.agent ?? kept.agentId)?.permissionMode
+					? { declaredMode: fileAgents.get(kept.profile.agent ?? kept.agentId)?.permissionMode }
+					: {}),
 				workspace: 'shared',
 				publicTaskId: key,
 				gateway,
@@ -2271,13 +2368,13 @@ export async function createSubagentRuntime(
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
-			'Send a correction or additional context to a sub-agent of this conversation, running or finished, from any turn, addressed by its task id. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
+			'Send a correction or additional context to a sub-agent of this conversation, running or finished, from any turn, addressed by its task id or the name given to Agent. A running or queued agent receives it at its next tool round; acceptance is not delivery. A finished agent is resumed from its own transcript with the message. An agent the user stopped is not resumed.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'Task UUID returned by Agent.',
+					description: 'Task UUID returned by Agent, or the name given to Agent.',
 				},
 				message: {
 					type: 'string',
@@ -2306,7 +2403,7 @@ export async function createSubagentRuntime(
 					output: '',
 					error: 'Message must not be blank.',
 				}
-			const taskId = parseTaskId(task_id)
+			const taskId = await parseTaskId(task_id, context.turnId)
 			let found = taskId ? await resolveTask(taskId, context.turnId) : undefined
 			if (taskId && !found) {
 				// An agent saved by an earlier run of the program is read back from disk.
@@ -2398,7 +2495,8 @@ export async function createSubagentRuntime(
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'Exact task UUID returned by Agent or agent_task_list.',
+					description:
+						'Exact task UUID returned by Agent or agent_task_list, or the name given to Agent.',
 				},
 			},
 			required: ['task_id'],
@@ -2412,7 +2510,7 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const asked = (input as { task_id: string }).task_id
-			const taskId = parseTaskId(asked)
+			const taskId = await parseTaskId(asked, context.turnId)
 			const found = taskId ? await resolveTask(taskId, context.turnId) : undefined
 			if (!taskId || !found)
 				return {
@@ -2711,7 +2809,15 @@ export async function createSubagentRuntime(
 						configOverrides: {
 							...owned.config,
 							...resolveTurnGuards(opts, opts.resolveLimits?.(turnId)),
-							resumeHandler: opts.resolveResumeHandler?.(turnId) ?? refuseUnownedChildReview,
+							...(() => {
+								const review = childReview(turnId, owned.declaredMode)
+								return {
+									resumeHandler: review.resumeHandler,
+									...(review.reviewAllowedCalls
+										? { reviewAllowedCalls: review.reviewAllowedCalls }
+										: {}),
+								}
+							})(),
 						},
 						onEvent: tracker.onEvent,
 					})
@@ -2873,7 +2979,9 @@ export async function createSubagentRuntime(
 			const type = fields.subagent_type
 			if (typeof type !== 'string') return false
 			const fileAgent = fileAgents.get(type)
-			if (fileAgent) return fileAgent.readOnly && inherits(fileAgent.model)
+			if (fileAgent) {
+				return fileAgent.readOnly && fileAgent.isolation !== 'worktree' && inherits(fileAgent.model)
+			}
 			return READ_ONLY_PROMPTS.has(type)
 		},
 		activity,
@@ -3009,15 +3117,23 @@ function workspaceData(task: TaskHandle): {
 	workspace_branch?: string
 } {
 	const meta = task.workspace?.meta
-	return meta?.backend === 'git-worktree'
+	// A checkout the child left untouched is removed when it ends, so a path that
+	// is gone is not reported as something to look at.
+	return meta?.backend === 'git-worktree' && existsSync(meta.worktreePath)
 		? { workspace_path: meta.worktreePath, workspace_branch: meta.branch }
 		: {}
+}
+
+/** True when the child had a checkout of its own and none of it remains. */
+function workspaceRemoved(task: TaskHandle): boolean {
+	const meta = task.workspace?.meta
+	return meta?.backend === 'git-worktree' && !existsSync(meta.worktreePath)
 }
 
 function workspaceNote(task: TaskHandle): string {
 	const data = workspaceData(task)
 	return data.workspace_path
-		? ` Its worktree is ${data.workspace_path} on ${data.workspace_branch}; the checkout is kept after this task ends.`
+		? ` Its worktree is ${data.workspace_path} on ${data.workspace_branch}; the checkout is removed when this task ends unless it changed.`
 		: ''
 }
 
@@ -3061,7 +3177,9 @@ function completedAgentResult(
 	const workspaceLines =
 		workspace.workspace_path && workspace.workspace_branch
 			? `\nworkspace: ${workspace.workspace_path}\nbranch: ${workspace.workspace_branch}\nThe worktree is kept for review.`
-			: ''
+			: workspaceRemoved(completed)
+				? '\nThe worktree had no changes and was removed.'
+				: ''
 	// The child's words are not this agent's own work and may carry anything it
 	// read, so they sit in the same marked block as every other text that comes
 	// from outside. The task id, status and worktree stay outside it: they are
@@ -3103,6 +3221,12 @@ function completedAgentResult(
  * for the static `general-purpose` agent and for each dynamically-defined
  * specialist the model creates via the `Agent` tool's `role` argument.
  */
+/** The tighter of the session's turn limit (0 is unlimited) and an agent file's own. */
+export function cappedTurns(limit: number, fileCap: number | undefined): number {
+	if (fileCap === undefined) return limit
+	return limit > 0 ? Math.min(limit, fileCap) : fileCap
+}
+
 function buildDefinition(
 	id: string,
 	description: string,
@@ -3115,6 +3239,8 @@ function buildDefinition(
 	selection?: DelegatedModel,
 	/** A fork's system prompt: the caller's own, used as it is and extended by nothing. */
 	inheritedPrompt?: string,
+	/** The file this agent was defined in: its turn cap and effort. */
+	file?: Pick<AgentFileDefinition, 'effort' | 'maxTurns'>,
 ): AgentDefinition {
 	const agent = new NamzuCliAgent({
 		id,
@@ -3165,6 +3291,7 @@ function buildDefinition(
 			const extra = opts.childExtraTools?.() ?? []
 			const toolsets = extra.length > 0 ? [...roster, ...extra] : roster
 			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
+			const pluginManager = opts.resolvePluginManager?.()
 			// The one tool `configureWebSearch` ever asks to have removed: once
 			// native mode is confirmed usable, the tool-based path is redundant.
 			const resolvedToolsets = webSearch
@@ -3174,11 +3301,12 @@ function buildDefinition(
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
-				maxIterations: limits.maxIterations,
+				maxIterations: cappedTurns(limits.maxIterations, file?.maxTurns),
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
+				...(pluginManager ? { pluginManager } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...(selection?.effort ? { effort: selection.effort } : {}),
+				...(selection?.effort || file?.effort ? { effort: selection?.effort ?? file?.effort } : {}),
 				toolsets: resolvedToolsets,
 				systemPrompt: [
 					base,

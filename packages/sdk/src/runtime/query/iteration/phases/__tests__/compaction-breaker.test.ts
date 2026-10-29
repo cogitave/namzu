@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Message } from '../../../../../types/message/index.js'
+import { estimateMessagesTokens } from '../../../../../compaction/token-estimate.js'
+import {
+	type Message,
+	createRuntimeContextMessage,
+	createTurnContextEntry,
+} from '../../../../../types/message/index.js'
 import type { SessionEvent } from '../../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../../utils/log/create-logger.js'
-import { compactionBreaker } from '../compaction-breaker.js'
+import {
+	CompactionBreaker,
+	compactionBreaker,
+	estimateRefillTokens,
+} from '../compaction-breaker.js'
 import { runCompactionCheck } from '../compaction.js'
 import type { IterationContext } from '../context.js'
 
@@ -76,6 +85,31 @@ describe('compaction gives up after repeated failures', () => {
 })
 
 describe('compaction that keeps refilling stops the turn', () => {
+	it.each([0, 20])(
+		'does not mistake insufficient reductions for refills (tail=%i)',
+		async (tail) => {
+			const state = { ctx: undefined as unknown as IterationContext }
+			const made = context({
+				breaker: true,
+				reducer: () => state.ctx.recorder.messages.slice(1) as Message[],
+			})
+			state.ctx = made.ctx
+			for (let iteration = 1; iteration <= 6; iteration++) {
+				made.recorder.currentIteration = iteration
+				const before = estimateMessagesTokens(made.recorder.messages)
+				await runCompactionCheck(made.ctx)
+				const after = estimateMessagesTokens(made.recorder.messages)
+				expect(after).toBeLessThan(before)
+				// Every reduction still leaves pressure above the trigger (10 tokens).
+				expect(after).toBeGreaterThan(10)
+				if (tail > 0) made.recorder.messages.push(user('x'.repeat(tail)))
+			}
+			expect(made.calls()).toBe(6)
+			expect(compactionBreaker(made.ctx)?.stop).toBeUndefined()
+			expect(causes(made.events)).toEqual([])
+		},
+	)
+
 	it('trips on the third quick refill, once', async () => {
 		const state = { ctx: undefined as unknown as IterationContext }
 		const made = context({
@@ -86,6 +120,8 @@ describe('compaction that keeps refilling stops the turn', () => {
 		for (let iteration = 1; iteration <= 5; iteration++) {
 			made.recorder.currentIteration = iteration
 			await runCompactionCheck(made.ctx)
+			// Replace the space actually shed, not just another quick check.
+			made.recorder.messages.push(user('x'.repeat(500)))
 		}
 		expect(made.calls()).toBe(3)
 		expect(compactionBreaker(made.ctx)?.stop).toMatch(/filled up again/)
@@ -107,8 +143,70 @@ describe('compaction that keeps refilling stops the turn', () => {
 		for (const iteration of [1, 5, 9, 13, 17]) {
 			made.recorder.currentIteration = iteration
 			await runCompactionCheck(made.ctx)
+			made.recorder.messages.push(user('x'.repeat(500)))
 		}
 		expect(made.calls()).toBe(5)
 		expect(compactionBreaker(made.ctx)?.stop).toBeUndefined()
+	})
+})
+
+describe('refill accounting uses the space shed, not just elapsed iterations', () => {
+	it('ignores host provenance while counting identical operator and tool text', () => {
+		const reminder = createRuntimeContextMessage('A large file appeared. '.repeat(100), 'reminder')
+		const context = createTurnContextEntry('repository', 'Repository state. '.repeat(100))
+		const operator = user(reminder.content as string)
+		const tool: Message = {
+			role: 'tool',
+			content: context.content,
+			toolCallId: 'read-1',
+			timestamp: 1,
+		}
+		expect(estimateRefillTokens([reminder, context, operator, tool])).toBe(
+			estimateMessagesTokens([operator, tool]),
+		)
+		expect(estimateRefillTokens([operator, tool])).toBeGreaterThan(0)
+		// Request budgets must still include the host's context.
+		expect(estimateMessagesTokens([reminder, context, operator, tool])).toBeGreaterThan(
+			estimateRefillTokens([reminder, context, operator, tool]),
+		)
+	})
+
+	it('counts three full quick refills and leaves the failure guard independent', () => {
+		const breaker = new CompactionBreaker()
+		expect(breaker.wouldTrip(1, 1_000)).toBe(false)
+		breaker.recordCompaction(1, 1_000, 800)
+		for (const iteration of [2, 3]) {
+			expect(breaker.wouldTrip(iteration, 1_000)).toBe(false)
+			breaker.recordCompaction(iteration, 1_000, 800)
+		}
+		expect(breaker.wouldTrip(4, 999)).toBe(false)
+		expect(breaker.wouldTrip(4, 1_000)).toBe(true)
+		for (let i = 0; i < 3; i++) breaker.recordFailure()
+		expect(breaker.failuresOpen).toBe(true)
+	})
+
+	it('breaks the refill streak when a pass remains under its previous pre-edit size', () => {
+		const breaker = new CompactionBreaker()
+		for (const iteration of [1, 2, 3]) {
+			expect(breaker.wouldTrip(iteration, 1_000)).toBe(false)
+			breaker.recordCompaction(iteration, 1_000, 800)
+		}
+		expect(breaker.wouldTrip(4, 900)).toBe(false)
+		breaker.recordCompaction(4, 900, 700)
+		expect(breaker.wouldTrip(5, 900)).toBe(false)
+		breaker.recordCompaction(5, 900, 700)
+		expect(breaker.wouldTrip(6, 900)).toBe(false)
+		breaker.recordCompaction(6, 900, 700)
+		expect(breaker.wouldTrip(7, 900)).toBe(true)
+	})
+
+	it('does not call an unchanged or expanded prompt a refill', () => {
+		for (const after of [1_000, 1_100]) {
+			const breaker = new CompactionBreaker()
+			for (let iteration = 1; iteration <= 6; iteration++) {
+				expect(breaker.wouldTrip(iteration, 1_100)).toBe(false)
+				breaker.recordCompaction(iteration, 1_000, after)
+			}
+		}
 	})
 })

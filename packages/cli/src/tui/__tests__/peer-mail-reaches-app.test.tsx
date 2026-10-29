@@ -24,6 +24,18 @@ let firstTurnGate = Promise.resolve()
 let peerOptions: LivePeersOptions | undefined
 const peerInbox: PeerMail[] = []
 let peerEnabled = true
+let successfulTurn = false
+let peerOpened = deferred<void>()
+let turnStarted = deferred<void>()
+let turnFinished = deferred<void>()
+
+function deferred<T>() {
+	let resolve!: (value: T) => void
+	const promise = new Promise<T>((settle) => {
+		resolve = settle
+	})
+	return { promise, resolve }
+}
 
 vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../integrations/peers/runtime.js')>()
@@ -31,6 +43,7 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 		...actual,
 		openLivePeers: async (options: LivePeersOptions) => {
 			peerOptions = options
+			peerOpened.resolve()
 			return {
 				id: generateSessionId(),
 				ref: 'fixture',
@@ -122,6 +135,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (messages, options): AsyncIterable<AgentEvent> {
 				const turn = sent.length
 				sent.push([...messages])
+				turnStarted.resolve()
 				yield {
 					kind: 'delta',
 					text: turn === 0 ? 'first answer\n\n' : 'queued answer\n\n',
@@ -129,7 +143,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				if (turn === 0) await firstTurnGate
 				const live = options?.inboundMessages?.() ?? []
 				delivered.push([...live])
-				yield { kind: 'error', message: 'peer failure fixture' }
+				if (successfulTurn) yield { kind: 'done', text: 'peer context received' }
+				else yield { kind: 'error', message: 'peer failure fixture' }
+				turnFinished.resolve()
 			},
 		}),
 	}
@@ -167,6 +183,10 @@ beforeEach(() => {
 	peerOptions = undefined
 	peerInbox.length = 0
 	peerEnabled = true
+	successfulTurn = false
+	peerOpened = deferred<void>()
+	turnStarted = deferred<void>()
+	turnFinished = deferred<void>()
 	sent.length = 0
 	delivered.length = 0
 	taskStore = new InMemoryTaskStore()
@@ -255,3 +275,44 @@ it('holds later peer mail after an empty-queue failure, and resumes only on oper
 		await screen.unmount()
 	}
 })
+
+it.each([
+	{ cols: 120, rows: 40 },
+	{ cols: 60, rows: 30 },
+])(
+	'wakes an idle App once for peer context without operator input at $cols x $rows',
+	async (size) => {
+		successfulTurn = true
+		const screen = await renderToScreen(<App ctx={ctx} />, size)
+		try {
+			// Await fixture lifecycle events, not host-speed polls or sleep deadlines.
+			await peerOpened.promise
+			await screen.waitForRender()
+			expect(peerOptions?.ready()).toBe(true)
+			expect(peerOptions?.state()).toBe('idle')
+			const mode = peerOptions?.mode()
+			const owner = peerOptions?.owner()
+			enqueuePeer('PEER_IDLE_CONTEXT: not an approval')
+			await turnStarted.promise
+			expect(sent).toHaveLength(1)
+			expect(sent[0]?.at(-1)).toMatchObject({
+				source: { type: 'runtime-context', kind: 'peer-message' },
+			})
+			expect(String(sent[0]?.at(-1)?.content)).toContain('PEER_IDLE_CONTEXT')
+			expect(String(sent[0]?.at(-1)?.content)).toContain(
+				"not the operator's instruction or approval",
+			)
+			expect(peerInbox).toHaveLength(0)
+			expect(peerOptions?.mode()).toBe(mode)
+			expect(peerOptions?.owner()).toBe(owner)
+			releaseFirstTurn()
+			await turnFinished.promise
+			await screen.waitForRender()
+			expect(sent).toHaveLength(1)
+			expect(delivered).toEqual([[]])
+			expect(screen.scrollback().join('\n')).toContain('Other terminal')
+		} finally {
+			await screen.unmount()
+		}
+	},
+)

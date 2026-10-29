@@ -167,7 +167,14 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const outcome = own.get('--outcome') ?? null
 	if (outcome !== null && !['wait', 'complete', 'blocked'].includes(outcome))
 		throw new Error('--outcome must be wait, complete or blocked.')
-	if (run.session || run.resume || run.continueLast || run.waitForProviderMs !== null)
+	if (
+		run.session ||
+		run.resume ||
+		run.continueLast ||
+		run.forkSession ||
+		run.noSessionPersistence ||
+		run.waitForProviderMs !== null
+	)
 		throw new Error('Resident work cannot use conversation resume or provider-retry flags.')
 	if (run.json || run.outputSchema !== null || run.mcpConfigs.length > 0)
 		throw new Error(

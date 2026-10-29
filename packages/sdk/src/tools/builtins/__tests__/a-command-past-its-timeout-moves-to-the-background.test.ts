@@ -137,7 +137,7 @@ describe('a foreground command that outruns its timeout', () => {
 		const registry = new BackgroundJobRegistry()
 		const child = runningCommand()
 		const pending = BashTool.execute(
-			{ command: 'sleep 600 && echo done', timeout: 1000 },
+			{ command: 'sleep 20 && echo done', timeout: 1000 },
 			turn(registry),
 		)
 		vi.advanceTimersByTime(1000)

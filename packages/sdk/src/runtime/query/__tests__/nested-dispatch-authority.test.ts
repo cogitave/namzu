@@ -754,3 +754,42 @@ describe('nested dispatch authority', () => {
 		expect(shellExecutions).toBe(0)
 	})
 })
+
+describe('nested dispatch retains protected-path floors', () => {
+	it('refuses a protected child even when its parent was allowed and no command is launched', async () => {
+		let executed = false
+		let refusal = ''
+		const child = defineTool({
+			name: 'protected_child',
+			description: 'test protected child',
+			inputSchema: z.object({ path: z.string() }),
+			category: 'filesystem',
+			pathArgument: 'path',
+			permissions: ['file_write'],
+			readOnly: false,
+			destructive: false,
+			concurrencySafe: false,
+			execute: async () => {
+				executed = true
+				return { success: true, output: 'must not run' }
+			},
+		})
+		const parent = parentTool(
+			'dispatch_protected',
+			async (context) => {
+				const result = await context.dispatchTool?.('protected_child', {
+					path: '.git/hooks/pre-commit',
+				})
+				refusal = result?.error ?? ''
+				return { success: true, output: refusal }
+			},
+			0,
+		)
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [call('parent', 'dispatch_protected', {})] }, { text: 'done' }],
+		})
+		await drainQuery(params(provider, [parent, child]), () => {})
+		expect(executed).toBe(false)
+		expect(refusal).toContain('Call it directly so it can be reviewed')
+	})
+})

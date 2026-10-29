@@ -69,6 +69,32 @@ export interface SessionClassifierDeps {
 	readonly classifierOptions?: Partial<Parameters<typeof createAutoReviewClassifier>[0]>
 }
 
+/** A call the classifier turned down, kept for `/permissions`. */
+export interface RecentBlock {
+	readonly tool: string
+	/** What the call was about, short: the command, the path or the address. */
+	readonly summary: string
+	readonly reason: string
+}
+
+/** How many blocked calls are kept; the oldest drop first. */
+export const RECENT_BLOCKS_KEPT = 20
+
+function summaryOf(input: unknown): string {
+	if (input && typeof input === 'object') {
+		const record = input as Record<string, unknown>
+		for (const key of ['command', 'path', 'file_path', 'url']) {
+			const value = record[key]
+			if (typeof value === 'string' && value.trim() !== '') return value.trim().slice(0, 200)
+		}
+	}
+	try {
+		return (JSON.stringify(input) ?? '').slice(0, 200)
+	} catch {
+		return ''
+	}
+}
+
 /** The session and turn whose handler is running; the classifier has no other way to know. */
 interface ClassifierScope {
 	readonly sessionId: SessionId
@@ -125,7 +151,10 @@ const UNAVAILABLE: Extract<AutoReviewDecision, { verdict: 'block' }> = {
  * so a model switch mid-session is followed; the block counters belong to the
  * model in use, and start again when it changes.
  */
-export function createSessionClassifier(deps: SessionClassifierDeps): AutoReviewClassifier {
+export function createSessionClassifier(
+	deps: SessionClassifierDeps,
+): AutoReviewClassifier & { recentBlocks(): readonly RecentBlock[] } {
+	const blocks: RecentBlock[] = []
 	const rules = deps.settings
 		? {
 				...(deps.settings.allow ? { allow: deps.settings.allow } : {}),
@@ -179,10 +208,22 @@ export function createSessionClassifier(deps: SessionClassifierDeps): AutoReview
 			try {
 				const classifier = turn ? await classifierFor(turn.sessionId, request.signal) : undefined
 				if (!classifier) return UNAVAILABLE
-				return await classifier.review(request)
+				const decision = await classifier.review(request)
+				if (decision.verdict === 'block' && decision.cause === 'rule') {
+					blocks.unshift({
+						tool: request.call.name,
+						summary: summaryOf(request.call.input),
+						reason: decision.reason,
+					})
+					blocks.length = Math.min(blocks.length, RECENT_BLOCKS_KEPT)
+				}
+				return decision
 			} catch {
 				return UNAVAILABLE
 			}
+		},
+		recentBlocks() {
+			return [...blocks]
 		},
 		get denials() {
 			return current?.classifier.denials ?? { consecutive: 0, total: 0 }

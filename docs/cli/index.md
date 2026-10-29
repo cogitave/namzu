@@ -4,6 +4,7 @@
 * [namzu computer](computer.md) - Check, set up and stop the Windows Pal computer, in plain words and as JSON lines for Desktop.
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.
 
+* [Sending spans and metrics to a collector](telemetry-export.md) - opt in with NAMZU_ENABLE_TELEMETRY or telemetry.otlp and the CLI sends spans and metrics to an OpenTelemetry collector.
 * [Updates](updates.md) - Background updates in the terminal: which installs update themselves, the safety steps, the `updates` keys and environment variables, and `namzu upgrade`.
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.
 * [Code analysis in the terminal](code-analysis.md) - The `code_analysis` tool: cited, paged lookups of a string, its function, source and callers; where its index lives, what it costs, and the `codeAnalysis` key that turns it off.
@@ -29,6 +30,7 @@ The operator application.
 * [Command experience audit](command-experience-audit.md) - Verified command defects, comparison with Codex source, and proposed interaction improvements.
 * [Harness efficiency review](harness-efficiency-review.md) - Revision-pinned comparisons, existing strengths and measurable improvements to tool and delegation workflows.
 * [Project and session state](project-state.md) - How a working directory maps to projects/<slug>/ under NAMZU_HOME, one active turn per session, and what happens to state an earlier CLI wrote.
+* [GitHub workflows and pull request links](github.md) - namzu github install writes Actions workflows that answer @namzu mentions and review new pull requests; conversations that open a pull request are linked to it and --from-pr lists them.
 * [Managed Git worktrees](worktrees.md) - Create separate checkouts, fork a settled conversation into one, and reopen its project.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries.

@@ -110,8 +110,9 @@ import {
 import { EXEC_MONITOR_CAP_MS, monitorReportMessage, watchMonitors } from './exec-monitors.js'
 import { MAX_REPORT_TURNS, commandSpend, reportMessage, watchWorkflows } from './exec-workflows.js'
 import { parsePriorMessages } from './prior-messages.js'
-import { resolveRunFlags } from './run-flags.js'
+import { describeSpendStop, resolveRunFlags } from './run-flags.js'
 import { readStdin } from './stdin.js'
+import { streamUserInput } from './stream-input.js'
 import type { CommandHandlerArgs } from './types.js'
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -132,6 +133,37 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
  */
 export function writeJsonLine(o: unknown): void {
 	process.stdout.write(`${JSON.stringify(o)}\n`)
+}
+
+/**
+ * The stream's first event after any notices: the working folder, the model,
+ * the permission mode, the tool names, the tool servers and whether each is
+ * up, and the slash commands. Read from the session as it stands before the
+ * turn, so a tool that joins later is not listed.
+ */
+export function initEvent(
+	session: Pick<
+		Awaited<ReturnType<typeof import('../tui/agent.js').createAgentSession>>,
+		'toolNames' | 'mcpConnected' | 'mcpFailed' | 'providerSummary' | 'modelSummary'
+	>,
+	permissionMode: string,
+	cwd: string,
+	sessionId: SessionId | null,
+): Record<string, unknown> {
+	return {
+		kind: 'init',
+		...(sessionId ? { sessionId } : {}),
+		cwd,
+		provider: session.providerSummary,
+		model: session.modelSummary,
+		permissionMode,
+		tools: [...session.toolNames()],
+		mcpServers: [
+			...session.mcpConnected.map((s) => ({ name: s.name, status: 'connected' })),
+			...session.mcpFailed.map((s) => ({ name: s.name, status: 'failed' })),
+		],
+		slashCommands: hostCommandNames(),
+	}
 }
 
 /**
@@ -181,6 +213,14 @@ export async function execJson(
 	// turn, reported as an ordinary success, and the next turn had no history
 	// with nothing anywhere connecting the two. Refused instead, and named,
 	// because a host CAN fix this — `--session` is the flag it wanted.
+	if (flags.forkSession) {
+		return fail('exec --json does not take --fork-session; it belongs to the default mode.')
+	}
+	if (flags.noSessionPersistence && flags.session !== null) {
+		return fail(
+			'--no-session-persistence cannot be combined with --session; drop --session for a stateless turn.',
+		)
+	}
 	if (flags.continueLast || flags.resume !== null) {
 		return fail(
 			'exec --json does not take --continue or --resume; they belong to the default mode. Bind history with --session <id>, which keys a persisted conversation in this folder.',
@@ -195,8 +235,25 @@ export async function execJson(
 		)
 	}
 	const sessionKey = flags.session
-	const prompt = flags.rest.join(' ').trim()
-	if (!prompt) return fail('no prompt — pass it as an argument')
+	const streamed = flags.inputFormat === 'stream-json'
+	if (streamed && flags.rest.length > 0)
+		return fail('streamed input takes its prompts from stdin, not arguments')
+	if (streamed && process.stdin.isTTY) return fail('streamed input requires a pipe on stdin')
+	const inputs = streamed ? streamUserInput(process.stdin) : undefined
+	let prompt = flags.rest.join(' ').trim()
+	try {
+		if (inputs) prompt = (await inputs.next()).value ?? ''
+		else if (flags.inputFormat === 'text') {
+			const piped = await readStdin({ deadline: Boolean(prompt) })
+			prompt =
+				prompt && piped.trim()
+					? `${prompt}\n\n<stdin>\n${piped.trim()}\n</stdin>`
+					: prompt || piped.trim()
+		}
+	} catch (error) {
+		return fail(error instanceof Error ? error.message : String(error))
+	}
+	if (!prompt) return fail('no prompt — pass it as an argument or supply stdin with --input-format')
 	const resolved = resolveWorkingDirectory(flags.cwd)
 	if ('error' in resolved) return fail(resolved.error)
 	const requestedCwd = resolved.cwd
@@ -247,17 +304,19 @@ export async function execJson(
 	// Resolve the workspace's central Project for every turn. A session key
 	// additionally binds a durable conversation; without one, stdin history
 	// remains stateless and no Session record is created.
-	let cli: Awaited<ReturnType<typeof openSessions>>
+	let cli: Awaited<ReturnType<typeof openSessions>> | undefined
 	let conversationId: SessionId | null = null
 	let prior: Message[] = []
-	if (!sessionKey) {
+	if (!sessionKey && flags.inputFormat === null) {
 		const parsed = parsePriorMessages(await readStdin({ deadline: true }))
 		if (!parsed.ok) return fail(`invalid stdin history: ${parsed.error}`)
 		prior = [...parsed.messages]
 	}
 	try {
-		cli = await openSessions(cwd)
+		// Stateless runs use the agent's in-memory session log from the outset;
+		// opening an index first would initialize durable state unnecessarily.
 		if (sessionKey) {
+			cli = await openSessions(cwd)
 			conversationId = await resolveConversation(cli, sessionKey)
 			prior = await loadConversation(cli, conversationId)
 		}
@@ -361,17 +420,19 @@ export async function execJson(
 		cwd,
 		...(structuredOutput ? { structuredOutput } : {}),
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
-		scope: {
-			sessionId: conversationId ?? generateSessionId(),
-			topicId: cli.topicId,
-			projectId: cli.projectId,
-			tenantId: cli.tenantId,
-		},
-		stateRoot: cli.root,
+		...(cli && conversationId
+			? {
+					scope: {
+						sessionId: conversationId,
+						topicId: cli.topicId,
+						projectId: cli.projectId,
+						tenantId: cli.tenantId,
+					},
+					stateRoot: cli.root,
+					conversationSessions: cli,
+				}
+			: { sessionId: generateSessionId(), ephemeral: true }),
 		learningObservations: ctx.config.learningObservations !== false,
-		// A keyed conversation appends to its log; a stateless one runs in an
-		// in-memory log, so nothing is written for it.
-		...(conversationId ? { conversationSessions: cli } : { ephemeral: true }),
 		rules: permissions.rules,
 		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
 		// The operator's --gate commands, as a standing condition on the
@@ -463,6 +524,10 @@ export async function execJson(
 	}
 	reportMcpDiscoveries()
 
+	// What this run has to work with, once, before the turn: a host decides what
+	// to offer from it without waiting for the first tool call.
+	write(initEvent(session, modeResult.mode, cwd, conversationId))
+
 	// --skills <a,b,c>: load the named skills' bodies and inject them as the
 	// turn's extra system context (the same channel the TUI's /skill uses).
 	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
@@ -517,7 +582,7 @@ export async function execJson(
 		}
 		turnAbort.abort(new TurnCancelled('user'))
 		await session.close()
-		closeSessions(cli)
+		if (cli) closeSessions(cli)
 	})
 	let paused: Extract<AgentEvent, { kind: 'paused' }> | undefined
 	// The settled conversation, for the reporting turns after the first: a
@@ -570,35 +635,85 @@ export async function execJson(
 		}
 	}
 	try {
-		// Only the first turn carries words the person typed; report turns are Namzu's own.
-		await stream(messages, prompt)
-		for (
-			let rounds = 0;
-			(watch || monitorWatch) && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;
-			rounds += 1
-		) {
-			const workflowReport = watch
-				? await watch.report({
-						signal: turnAbort.signal,
-						...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
-					})
-				: undefined
-			const monitorReport = stopped
-				? undefined
-				: await monitorWatch?.report({ signal: turnAbort.signal })
-			if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
+		let inputMessages: readonly Message[] = messages
+		let typedInput = prompt
+		while (true) {
+			// Operator input and Namzu's workflow reports remain distinct.
+			await stream(
+				inputMessages,
+				typedInput,
+				closedTurnsUsd > 0 && spendLimitUsd > 0
+					? { costLimitUsd: spendLimitUsd - closedTurnsUsd }
+					: undefined,
+			)
+			for (
+				let rounds = 0;
+				(watch || monitorWatch) && !stopped && !paused && !busy && rounds < MAX_REPORT_TURNS;
+				rounds += 1
+			) {
+				const workflowReport = watch
+					? await watch.report({
+							signal: turnAbort.signal,
+							...(ctx.config.limits?.timeoutMs ? { timeoutMs: ctx.config.limits.timeoutMs } : {}),
+						})
+					: undefined
+				const monitorReport = stopped
+					? undefined
+					: await monitorWatch?.report({ signal: turnAbort.signal })
+				if (stopped || (workflowReport === undefined && monitorReport === undefined)) break
+				closedTurnsUsd += openTurnUsd
+				openTurnUsd = 0
+				if (spendLimitUsd > 0 && closedTurnsUsd >= spendLimitUsd) break
+				await stream(
+					[
+						...(history ?? inputMessages),
+						...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
+						...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
+					],
+					undefined,
+					spendLimitUsd > 0 ? { costLimitUsd: spendLimitUsd - closedTurnsUsd } : undefined,
+				)
+			}
+			if (!inputs || stopped || paused || busy) break
+			reportMcpDiscoveries()
+			write({
+				...(terminalEvent ?? { kind: 'done' }),
+				...(commandSpend(earlierBudgets, budget, session.workflows)
+					? { budget: commandSpend(earlierBudgets, budget, session.workflows) }
+					: {}),
+			})
+			const next = await inputs.next()
+			if (next.done) {
+				await session.close()
+				if (cli) closeSessions(cli)
+				watch?.dispose()
+				ended = true
+				return EXIT_OK
+			}
+			if (!history)
+				throw new Error(
+					'streamed input requires settled conversation history before the next prompt',
+				)
 			closedTurnsUsd += openTurnUsd
 			openTurnUsd = 0
-			if (spendLimitUsd > 0 && closedTurnsUsd >= spendLimitUsd) break
-			await stream(
-				[
-					...(history ?? messages),
-					...(workflowReport !== undefined ? [reportMessage(workflowReport)] : []),
-					...(monitorReport !== undefined ? [monitorReportMessage(monitorReport)] : []),
-				],
-				undefined,
-				spendLimitUsd > 0 ? { costLimitUsd: spendLimitUsd - closedTurnsUsd } : undefined,
-			)
+			if (spendLimitUsd > 0 && closedTurnsUsd >= spendLimitUsd)
+				throw new Error(describeSpendStop(spendLimitUsd))
+			terminalEvent = undefined
+			typedInput = next.value
+			const nextExpansion = expandHeadlessCommand(next.value, {
+				cwd,
+				builtins: hostCommandNames(),
+				...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
+			})
+			if (nextExpansion.kind === 'refused') throw new Error(nextExpansion.reason)
+			inputMessages = [
+				...history,
+				{
+					role: 'user',
+					content: nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value,
+					timestamp: Date.now(),
+				},
+			]
 		}
 		watch?.dispose()
 	} catch (err) {
@@ -612,7 +727,7 @@ export async function execJson(
 			state: `after the turn failed (${message})${inConversation}.`,
 		}
 		await session.close()
-		closeSessions(cli)
+		if (cli) closeSessions(cli)
 		if (stopped) return EXIT_OK
 		ended = true
 		return fail(message)
@@ -646,7 +761,7 @@ export async function execJson(
 	// A stdio tool server is a child process; a command that returns without
 	// closing leaves it running.
 	await session.close()
-	closeSessions(cli)
+	if (cli) closeSessions(cli)
 	// A signal during the close has written the last line already.
 	if (stopped) return EXIT_OK
 	ended = true

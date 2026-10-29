@@ -28,4 +28,23 @@ describe('/hooks', () => {
 			}),
 		).toBe(['pre_tool_use', '  guard.sh · if Bash(git push *) · once'].join('\n'))
 	})
+
+	it('names an http hook by its address, a prompt hook by its question, and what each does on failure', () => {
+		expect(
+			renderHooks({
+				pre_tool_use: [
+					{ type: 'http', url: 'https://hooks.example.test/x', onFailure: 'block' },
+					{ type: 'prompt', prompt: 'Is  this\nsafe?' },
+					{ command: 'log.sh', async: true },
+				],
+			}),
+		).toBe(
+			[
+				'pre_tool_use',
+				'  POST https://hooks.example.test/x · blocks when it fails',
+				'  ask: Is this safe?',
+				'  log.sh · in background',
+			].join('\n'),
+		)
+	})
 })

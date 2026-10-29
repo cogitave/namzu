@@ -624,6 +624,40 @@ describe('/cost', () => {
 	})
 })
 
+describe('/permissions rules', () => {
+	it('answers usage for a bad group and lists denials from the session', () => {
+		const bad = runSlash('/permissions rules nope', context())
+		expect(bad).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /permissions rules [allow|ask|deny]',
+		})
+		const denied = runSlash(
+			'/permissions denied',
+			context({
+				recentDenials: () => [{ tool: 'bash', summary: 'curl x', reason: 'Sends data out.' }],
+			}),
+		)
+		expect(denied).toMatchObject({ kind: 'message' })
+		expect((denied as { content: string }).content).toContain('bash: curl x')
+	})
+
+	it('asks for a complete add and remove', () => {
+		for (const line of [
+			'/permissions add allow',
+			'/permissions add maybe Bash',
+			'/permissions remove',
+		]) {
+			expect((runSlash(line, context()) as { content: string }).content).toMatch(/^Usage:/)
+		}
+	})
+
+	it('lists the working folder and the added folders', () => {
+		const out = runSlash('/permissions dirs', context({ directories: () => ['/extra'] }))
+		expect((out as { content: string }).content).toContain('/workspace/current  (working folder)')
+		expect((out as { content: string }).content).toContain('/extra')
+	})
+})
+
 describe('/permissions', () => {
 	it('opens the finite chooser when no mode is typed', () => {
 		expect(runSlash('/permissions', context())).toEqual({
@@ -1633,5 +1667,46 @@ describe('/theme and /config motion', () => {
 			setting: 'list',
 		})
 		expect(runSlash('/config motion maybe', context())).toMatchObject({ kind: 'message' })
+	})
+})
+
+describe('/plan and /btw', () => {
+	it('/plan switches to plan mode', () => {
+		expect(runSlash('/plan', context())).toEqual({ kind: 'permission-mode', mode: 'plan' })
+	})
+
+	it('/plan with a description switches mode and sends the description next', () => {
+		expect(runSlash('/plan add a retry to the uploader', context())).toEqual({
+			kind: 'permission-mode',
+			mode: 'plan',
+			thenPrompt: 'add a retry to the uploader',
+		})
+	})
+
+	it('/plan in plan mode says so, or sends the description as it is', () => {
+		const inPlan = context({
+			permissions: permissions({ currentMode: () => ({ mode: 'plan', source: 'session' }) }),
+		})
+		expect(runSlash('/plan', inPlan)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Already in plan mode.',
+		})
+		expect(runSlash('/plan split the module', inPlan)).toEqual({
+			kind: 'prompt',
+			text: 'split the module',
+		})
+	})
+
+	it('/btw takes the whole question and explains itself without one', () => {
+		expect(runSlash('/btw what port is it on?', context())).toEqual({
+			kind: 'side-question',
+			question: 'what port is it on?',
+		})
+		expect(runSlash('/btw', context())).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Usage: /btw <question>',
+		})
 	})
 })

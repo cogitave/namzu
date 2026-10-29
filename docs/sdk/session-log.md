@@ -335,6 +335,12 @@ The `compaction` record is what the fold reads. The live
 events are persisted beside it as history: `compaction_shed` keeps what a pass
 removed in the log for audit and undo.
 
+The recorder's message-identity indexes use weak keys, so identity bookkeeping
+alone does not keep message objects removed from the live context alive.
+`recordedIdOf(message)` still returns the historical record ID while a caller
+holds that object. This does not bound total turn memory: the session log,
+step results and activity tracking can independently retain historical payloads.
+
 ## Turn rules
 
 - **One active turn per session.** The active turn is the last `turn_started`

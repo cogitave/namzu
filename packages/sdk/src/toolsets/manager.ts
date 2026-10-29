@@ -547,7 +547,7 @@ export class ToolManager {
 
 		const parts: string[] = []
 		const contractNote = `<tool_runtime_contract>
-Executable tool names, descriptions, and JSON input schemas are attached through the runtime tools parameter. Treat that runtime schema as authoritative; this prompt section is a discoverability summary only.
+Executable tool names, descriptions, and JSON input schemas are attached through the runtime tools parameter. Treat that runtime schema as authoritative. This catalogue is a snapshot for discovery, not live availability status: a tool listed under deferred_tools may already be loaded through history. If its schema is visible in the current runtime tools parameter, call it directly without searching again.
 </tool_runtime_contract>`
 
 		if (active.length > 0) {
@@ -571,8 +571,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				this.has('search_tools') &&
 				this.availability('search_tools') === 'active' &&
 				(!names || names.includes('search_tools'))
-					? 'Use search_tools to load these before use:'
-					: 'Deferred tools are discoverable but not executable until the runtime activates them:'
+					? "Only when a needed deferred tool's schema is absent from the current runtime tools parameter, use search_tools with its exact name to load it:"
+					: 'For a needed deferred tool whose schema is absent, wait for runtime activation before calling it:'
 			parts.push(`<deferred_tools>\n${deferredIntro}\n${entries}\n</deferred_tools>`)
 		}
 

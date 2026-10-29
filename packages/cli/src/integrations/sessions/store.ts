@@ -20,7 +20,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { lstatSync, mkdirSync } from 'node:fs'
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -28,6 +28,7 @@ import {
 	DiskSessionGoalStore,
 	DiskSessionLog,
 	type Message,
+	ProjectDocumentSchema,
 	type ProjectId,
 	type Session,
 	type SessionGoalStore,
@@ -47,13 +48,20 @@ import {
 	ensureProject,
 	foldSessionMessages,
 	generateSessionId,
+	hashedSlugForCwd,
 	isEntityId,
 	openSessionIndex,
 	readSessionLog,
+	slugForCwd,
 } from '@namzu/sdk'
 import { palAtWorkspace } from '../../pals/store.js'
+import {
+	type PullRequestLink,
+	pullRequestOfRecords,
+	pullRequestRef,
+} from '../github/pull-request.js'
 import { resolveNamzuHome } from '../state/home.js'
-import { loadIdentity } from '../state/identity.js'
+import { loadIdentity, readIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { cliProjectRoot } from '../state/project.js'
 import { typedTextOf } from './display-title.js'
@@ -122,6 +130,8 @@ export interface RecentConversation {
 	readonly firstPrompt?: string
 	/** The folder's short name; set only on rows listed from another folder. */
 	readonly folder?: string
+	/** The pull request this conversation made or worked on, when its log links one. */
+	readonly pr?: PullRequestLink
 }
 
 export interface OpenSessionsOptions {
@@ -132,6 +142,8 @@ export interface OpenSessionsOptions {
 	readonly env?: NodeJS.ProcessEnv
 	/** Index backend; `auto` (the default) uses SQLite when `node:sqlite` loads. */
 	readonly indexBackend?: 'auto' | 'sqlite' | 'scan'
+	/** Inspect existing history without initializing identity, project or SQLite files. */
+	readonly readOnly?: boolean
 }
 
 /** Who created a conversation, as its `session_started.agent` records it. */
@@ -152,7 +164,7 @@ const LEASE_TTL_MS = 30_000
  */
 export async function openSessionScope(
 	cwd: string,
-	options: Pick<OpenSessionsOptions, 'stateRoot' | 'home' | 'env'> = {},
+	options: Pick<OpenSessionsOptions, 'stateRoot' | 'home' | 'env' | 'readOnly'> = {},
 ): Promise<CliSessionScope> {
 	const workingDirectory = await realpath(resolve(cwd))
 	const root = resolve(
@@ -162,18 +174,27 @@ export async function openSessionScope(
 				...(options.env !== undefined ? { env: options.env } : {}),
 			}),
 	)
-	mkdirSync(root, { recursive: true })
-	// The installation owns the tenant; the canonical checkout owns the Project.
-	const tenantId = loadIdentity(root).tenantId
-	const projectsDir = ensurePrivateStateDirectory(root, 'projects')
+	if (!options.readOnly) mkdirSync(root, { recursive: true })
+	// A transient copy reads only existing ownership. It must not initialize
+	// persistent metadata merely to discover that there is nothing to resume.
+	const identity = options.readOnly ? readIdentity(root) : loadIdentity(root)
+	if (!identity) {
+		throw Object.assign(new Error('No existing installation identity to resume.'), {
+			code: 'ENOENT',
+		})
+	}
+	const tenantId = identity.tenantId
+	const projectsDir = options.readOnly
+		? join(root, 'projects')
+		: ensurePrivateStateDirectory(root, 'projects')
 	// A Pal's private workspace is its project even if NAMZU_HOME was configured
 	// under some outer Git checkout. It must never inherit that checkout's logs.
 	const pal = palAtWorkspace(cwd, root)
 	const palDirectory = pal ? lstatSync(pal.workspace, { bigint: true }) : undefined
-	const project = await ensureProject({
-		home: root,
-		cwd: pal ? workingDirectory : cliProjectRoot(workingDirectory),
-	})
+	const projectCwd = pal ? workingDirectory : cliProjectRoot(workingDirectory)
+	const project = options.readOnly
+		? await readExistingProject(root, projectCwd)
+		: await ensureProject({ home: root, cwd: projectCwd })
 	if (pal && palDirectory) {
 		// Native Windows realpath may change casing without changing the project.
 		// Its document stays canonical, while Pal journal ownership uses the exact
@@ -202,7 +223,7 @@ export async function openSessionScope(
 		)
 			throw new Error('Pal workspace identity changed while opening its conversations.')
 	}
-	ensurePrivateStateDirectory(projectsDir, project.slug)
+	if (!options.readOnly) ensurePrivateStateDirectory(projectsDir, project.slug)
 	const paths = new SessionPaths({ home: root, slug: project.slug })
 	const partial = {
 		root,
@@ -219,6 +240,23 @@ export async function openSessionScope(
 	return { ...partial, store }
 }
 
+/** Read project ownership without ensureProject's mkdir/publish side effects. */
+async function readExistingProject(home: string, directory: string) {
+	const cwd = await realpath(directory)
+	for (const slug of [slugForCwd(cwd), hashedSlugForCwd(cwd)]) {
+		let raw: string
+		try {
+			raw = await readFile(join(home, 'projects', slug, 'project.json'), 'utf8')
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+			throw error
+		}
+		const project = ProjectDocumentSchema.parse(JSON.parse(raw))
+		if (project.cwd === cwd) return { ...project, slug }
+	}
+	throw Object.assign(new Error('No existing project history to resume.'), { code: 'ENOENT' })
+}
+
 /** Open the same owned scope with its synchronized installation index and goal store. */
 export async function openSessions(
 	cwd: string,
@@ -227,7 +265,11 @@ export async function openSessions(
 	const scope = await openSessionScope(cwd, options)
 	const index = await openSessionIndex({
 		home: scope.root,
-		...(options.indexBackend ? { backend: options.indexBackend } : {}),
+		...(options.readOnly
+			? { backend: 'scan' as const }
+			: options.indexBackend
+				? { backend: options.indexBackend }
+				: {}),
 	})
 	return {
 		...scope,
@@ -471,6 +513,22 @@ export async function startConversation(
 	}
 	await refreshIndex(s, id)
 	return id
+}
+
+/**
+ * Remove a conversation this process created: its log, its folder and its
+ * index row. For a run that was asked not to keep a record.
+ *
+ * Only ever called with an id the same process started, so it cannot reach a
+ * conversation someone else is using. Absent files are fine.
+ */
+export async function discardConversation(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+): Promise<void> {
+	await rm(conversationLogPath(s, sessionId), { force: true })
+	await rm(conversationDir(s, sessionId), { recursive: true, force: true })
+	await refreshIndex(s, sessionId)
 }
 
 /**
@@ -893,8 +951,10 @@ function recentRow(
 		(message): message is UserMessage => message.role === 'user' && message.source === undefined,
 	)
 	const first = typed[0]?.content.trim().slice(0, 600)
+	const pr = pullRequestOfRecords(facts.records)
 	return {
 		id,
+		...(pr ? { pr } : {}),
 		title: displayTitleOf(facts),
 		preview: typed.at(-1)?.content.replace(/\s+/g, ' ').trim().slice(0, 240),
 		...(first ? { firstPrompt: first } : {}),
@@ -1030,6 +1090,39 @@ export async function recordGeneratedTitle(
 				type: 'session_updated',
 				title: trimmed,
 				titleSource: 'derived',
+			})
+			written = true
+		}
+	} finally {
+		await log.release(lease)
+	}
+	if (written) await refreshIndex(s, sessionId)
+	return written
+}
+
+/**
+ * Link a conversation to the pull request it made or worked on.
+ *
+ * Recorded as `session_updated.externalRefs` so the log carries it. The check
+ * and the write happen under the writer lease; linking the request the log
+ * already links last writes nothing. Rejects while a turn holds the lease, and
+ * the caller tries again when the turn ends.
+ */
+export async function linkConversationToPullRequest(
+	s: CliSessions,
+	sessionId: SessionId,
+	link: PullRequestLink,
+): Promise<boolean> {
+	await requireConversationInScope(s, sessionId, 'link conversation to pull request')
+	const log = openConversationLog(s, sessionId)
+	const lease = await claimLease(log, 'link conversation to pull request')
+	let written = false
+	try {
+		const facts = await readConversationFacts(s, sessionId, 'tolerant')
+		if (facts && pullRequestOfRecords(facts.records)?.url !== link.url) {
+			await log.append(lease, {
+				type: 'session_updated',
+				externalRefs: { add: [pullRequestRef(link)] },
 			})
 			written = true
 		}

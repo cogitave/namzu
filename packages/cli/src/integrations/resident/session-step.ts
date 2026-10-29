@@ -147,9 +147,15 @@ function errorText(error: unknown): string {
 
 function validateFlags({ ctx, flags }: ResidentSessionStepOptions): void {
 	if (flags.unknown.length) throw new Error(unknownOptionMessage(flags.unknown))
-	if (flags.session || flags.resume || flags.continueLast)
+	if (
+		flags.session ||
+		flags.resume ||
+		flags.continueLast ||
+		flags.forkSession ||
+		flags.noSessionPersistence
+	)
 		throw new Error(
-			'Resident steps own isolated sessions; --session, --resume and --continue are unsupported.',
+			'Resident steps own isolated sessions; --session, --resume, --continue, --fork-session and --no-session-persistence are unsupported.',
 		)
 	if (flags.waitForProviderMs !== null || (ctx.config.limits?.waitForProviderMs ?? 0) > 0)
 		throw new Error(

@@ -203,7 +203,7 @@ describe('which rule asked', () => {
 			gate: gateConfig({ rules: [{ type: 'allow_by_name', toolNames: ['pay'] }] }),
 		})
 		await run(t, response('pay', { amountCents: 5 }))
-		expect(c.seen[0]?.authorization?.explicitReview).toBe(true)
+		expect(c.seen[0]?.authorization?.explicitReview).toBeUndefined()
 		expect(c.seen[0]?.authorization?.askRule).toBeUndefined()
 	})
 

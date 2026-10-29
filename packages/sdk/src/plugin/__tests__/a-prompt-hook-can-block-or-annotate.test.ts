@@ -28,6 +28,18 @@ describe('a shell hook on the prompt', () => {
 		})
 	})
 
+	it('turns what a starting child hook printed, or refused with, into context for the child', () => {
+		expect(shellHookVerdict('subagent_start', entry, ok('use staging\n'))).toEqual({
+			action: 'annotate',
+			text: 'use staging',
+		})
+		expect(shellHookVerdict('subagent_start', entry, blocked('no prod'))).toEqual({
+			action: 'annotate',
+			text: 'no prod',
+		})
+		expect(shellHookVerdict('subagent_start', entry, ok(''))).toEqual({ action: 'continue' })
+	})
+
 	it('prints to the operator, not the model, on every other event', () => {
 		expect(shellHookVerdict('turn_start', entry, ok('noise'))).toEqual({ action: 'continue' })
 		expect(shellHookVerdict('session_start', entry, blocked('no'))).toEqual({ action: 'continue' })
@@ -45,7 +57,11 @@ describe('a shell hook on the prompt', () => {
 			'notification',
 			'pre_compact',
 			'post_compact',
+			'subagent_start',
 			'subagent_stop',
+			'post_tool_batch',
+			'permission_denied',
+			'turn_failure',
 			'turn_start',
 			'turn_end',
 		])

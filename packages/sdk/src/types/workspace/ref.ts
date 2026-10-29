@@ -29,6 +29,8 @@ export interface GitWorktreeBackendMeta {
 	branch: string
 	/** Absolute path to the worktree directory. */
 	worktreePath: string
+	/** The commit the checkout started on; absent on refs made before it was recorded. */
+	baseCommit?: string
 }
 
 /**

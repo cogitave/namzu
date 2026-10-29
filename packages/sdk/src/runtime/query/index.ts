@@ -553,6 +553,8 @@ export interface QueryParams {
 	allowedTools?: string[]
 	agentId: string
 	agentName: string
+	/** Application-owned agent kind for lifecycle hooks; defaults to agentName. */
+	agentType?: string
 	workingDirectory?: string
 	/**
 	 * Directories besides the working directory the file tools may reach,
@@ -1071,6 +1073,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		approvalPolicy,
 		eventTranslator,
 		executeUserInterruptHooks,
+		executeTurnFailureHooks,
 		pendingHistoryRepairs,
 		initialMessages,
 		historyIds,
@@ -1877,6 +1880,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			pluginManager: params.pluginManager,
 			...(params.parentSessionId !== undefined ? { parentSessionId: params.parentSessionId } : {}),
 			...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
+			agentType: params.agentType ?? params.agentName,
 		})
 
 		const tracer = getTracer()
@@ -2040,6 +2044,33 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					'namzu.runtime.permission_mode': ctx.permissionMode.current,
 					'namzu.runtime.resume_from_checkpoint': params.resumeFromCheckpoint ?? null,
 				})
+
+				// A child session is starting: its hooks may add context for the
+				// child's turn, before the child's first prompt is seen.
+				if (params.pluginManager && params.parentSessionId !== undefined) {
+					const startResults = await params.pluginManager.executeHooks(
+						'subagent_start',
+						{
+							turnId: ctx.turnId,
+							sessionId: params.sessionId,
+							parentSessionId: params.parentSessionId,
+							...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
+							agentType: params.agentType ?? params.agentName,
+							signal: ctx.abortController.signal,
+						},
+						eventTranslator.emitEvent,
+					)
+					const startAnnotations = applyLifecycleHookResults('subagent_start', startResults)
+					if (startAnnotations.length > 0) {
+						promptContributions.replace({
+							id: 'hooks:subagent_start',
+							placement: 'context',
+							render: () =>
+								`Context from the operator's hooks:\n\n${startAnnotations.join('\n\n')}`,
+						})
+					}
+					yield* eventTranslator.drainPending()
+				}
 
 				// The operator's prompt, before the model sees it. A hook may
 				// refuse it — the turn ends here, before a prompt is built — or add
@@ -2798,6 +2829,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// A failed turn still spent its steps; report them.
 				ctx.recorder.setSteps(iterationOrchestrator.getSteps())
 				await executeUserInterruptHooks(err)
+				yield* eventTranslator.drainPending()
+				await executeTurnFailureHooks(err)
 				yield* eventTranslator.drainPending()
 				yield* resultAssembler.handleError(err, rootSpan)
 			} finally {

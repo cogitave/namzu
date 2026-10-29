@@ -19,9 +19,9 @@ export function applyLifecycleHookResults(
 			case 'continue':
 				continue
 			case 'annotate':
-				if (event !== 'user_prompt_submit') {
+				if (event !== 'user_prompt_submit' && event !== 'subagent_start') {
 					throw new Error(
-						`Plugin hook ${event} returned 'annotate', which only user_prompt_submit accepts`,
+						`Plugin hook ${event} returned 'annotate', which only user_prompt_submit and subagent_start accept`,
 					)
 				}
 				if (result.text.trim().length > 0) annotations.push(result.text.trim())

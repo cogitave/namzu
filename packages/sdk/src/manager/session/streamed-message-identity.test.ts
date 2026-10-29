@@ -46,3 +46,49 @@ it('records only trusted stream identities and ignores caller-authored message I
 		await recorder.release()
 	}
 })
+
+it('does not strongly index message objects and preserves their recorded IDs after compaction', async () => {
+	const session = memorySession()
+	const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }
+	log.child.mockReturnValue(log)
+	const recorder = new TurnRecorder({
+		...session,
+		turnId: generateTurnId(),
+		agentId: 'identity-retention-test',
+		agentName: 'Identity retention test',
+		turnConfig: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
+		providerId: 'mock',
+		log,
+	})
+	await recorder.open({ session: { cwd: '/tmp' } })
+	try {
+		await new EventTranslator(recorder).beginTurn({})
+		recorder.markRunning()
+		const historical = createAssistantMessage('Historical message')
+		const historicalId = generateMessageId()
+		const fresh = createAssistantMessage('New message')
+		// Observe only insertion, not compaction's short-lived lookup maps. This
+		// deterministically guards the strong retention root without GC timing.
+		const strongInsertions = vi.spyOn(Map.prototype, 'set')
+		let stronglyIndexed: boolean
+		try {
+			recorder.pushMessage(historical, { messageId: historicalId })
+			recorder.pushMessage(fresh)
+			stronglyIndexed = strongInsertions.mock.calls.some(
+				([key]) => key === historical || key === fresh,
+			)
+		} finally {
+			strongInsertions.mockRestore()
+		}
+		await recorder.flush()
+		const freshId = recorder.recordedIdOf(fresh)
+		expect(freshId).toBeDefined()
+		recorder.replaceMessages([createAssistantMessage('Compacted summary')])
+		await recorder.flush()
+		expect(recorder.recordedIdOf(historical)).toBe(historicalId)
+		expect(recorder.recordedIdOf(fresh)).toBe(freshId)
+		expect(stronglyIndexed).toBe(false)
+	} finally {
+		await recorder.release()
+	}
+})

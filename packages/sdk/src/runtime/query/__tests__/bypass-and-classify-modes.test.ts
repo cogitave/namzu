@@ -38,6 +38,7 @@ import {
 	ASK_RULE_UNATTENDED_REFUSAL,
 	CLASSIFIER_SAFE_TOOLS,
 	DANGEROUS_REMOVAL_UNATTENDED_REFUSAL,
+	PROTECTED_PATH_UNATTENDED_REFUSAL,
 	REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
@@ -131,6 +132,8 @@ const immune: Record<string, () => ToolCallSummary> = {
 	'a sandbox escape': () => bash('make', { escalation: { sandboxEscape: true } }),
 	'a check that did not finish': () =>
 		bash('ls', { escalation: { unfinishedCheck: 'the path check threw' } }),
+	'a protected write': () =>
+		bash('echo x >> ~/.bashrc', { escalation: { protectedPaths: ['/home/u/.bashrc'] } }),
 }
 
 const refusalFor: Record<string, string> = {
@@ -139,6 +142,7 @@ const refusalFor: Record<string, string> = {
 	"a tool's own requiresApproval": REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
 	'a sandbox escape': SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	'a check that did not finish': UNFINISHED_CHECK_UNATTENDED_REFUSAL,
+	'a protected write': PROTECTED_PATH_UNATTENDED_REFUSAL,
 }
 
 /** What a mode settles itself, that `prompt` would have asked about. */
@@ -146,8 +150,6 @@ const settled: Record<string, () => ToolCallSummary> = {
 	'a path outside the roots': () =>
 		bash('cat /etc/hosts', { escalation: { outsidePaths: ['/etc/hosts'] } }),
 	'a program nobody can name': () => bash('$CMD build', { escalation: { unknownProgram: '$CMD' } }),
-	'a protected write': () =>
-		bash('echo x >> ~/.bashrc', { escalation: { protectedPaths: ['/home/u/.bashrc'] } }),
 	'an ordinary shell command': () => bash('npm run build'),
 }
 
@@ -337,7 +339,6 @@ describe('classify routing', () => {
 			bash('mkdir a && git push'),
 			call('write', { path: 'a.ts', content: 'x' }, { isDestructive: true }),
 			call('web_fetch', { url: 'https://example.com' }),
-			call('edit', { path: '.git/config' }, { escalation: { protectedPaths: ['/x/.git/config'] } }),
 		]
 		for (const c of sent) await handler(review(c))
 		expect(seen.map((s) => s.call.id)).toEqual(sent.map((c) => c.id))

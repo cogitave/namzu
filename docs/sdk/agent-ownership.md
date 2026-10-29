@@ -22,7 +22,10 @@ or call `defineAgent({ type, run, ... })`. The `run` callback receives an
 instance-scoped `AbortSignal` as its fourth argument; observe it to stop work
 on `cancel()`. `defineAgent` creates a fresh shell for each delegated turn.
 `QueryAgent` is an optional adapter when the instance's `run` should execute
-one ordinary SDK query. A managed host supplies `{ kind: 'managed', sessionId,
+one ordinary SDK query. It forwards its application-owned `type` as
+`QueryParams.agentType` for child lifecycle hooks (`subagent_start` and
+`subagent_stop`); direct query callers may set this optional field too. When
+omitted, hooks retain the `agentName` fallback. A managed host supplies `{ kind: 'managed', sessionId,
 topicId, projectId, tenantId }` as `ManagedAgentInput.managedScope` for that invocation;
 `AgentManager` supplies the admitted child session's scope itself, regardless
 of caller input. `QueryAgent` requires this complete scope because its query
@@ -56,7 +59,14 @@ optional `subdirectory` starts the child inside that relative path in the
 worktree. Admission requires an existing directory whose physical path stays
 inside the worktree; `TaskHandle.workspace` still names the worktree root.
 `retention: 'retain'` keeps that workspace through completion, failure,
-cancellation and later archival, and exposes its ref on the task handle. The
+cancellation and later archival, and exposes its ref on the task handle.
+`retention: 'retain-changed'` keeps it only when the child changed something: at
+completion or failure the manager inspects the checkout and removes it (with its
+branch, when the branch never left the starting commit) if it has no uncommitted
+changes and no new commits. A backend that cannot say whether it moved, an
+inspection that fails, and a ref made before the starting commit was recorded
+(`GitWorktreeBackendMeta.baseCommit`) all keep it. Branch removal compares the expected starting commit under Git’s ref lock, so a branch that advances after inspection is retained. `WorkspaceInspection` gained
+an optional `hasNewCommits` for this. The
 default `retention: 'dispose'` keeps the SDK's existing cleanup policy. Omitting
 `workspace` also preserves existing `workspaceBackend` behavior for callers
 that already register a backend. A host can set

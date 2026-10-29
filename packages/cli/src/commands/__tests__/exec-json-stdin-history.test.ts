@@ -153,14 +153,10 @@ describe('exec --json stateless history admission', () => {
 
 		expect(result.code).toBe(0)
 		expect(constructed).toHaveLength(1)
-		expect((constructed[0] as unknown[])[2]).toMatchObject({
-			stateRoot: '/state',
-			scope: {
-				topicId: 'f29dac4e-8d04-41db-9b29-5ac5e34b28e3',
-				projectId: '18afaab4-f803-4cfe-87ad-ea9f1b7edbbf',
-				tenantId: '3daaeb04-b9ef-46a0-888d-ba45672be60c',
-			},
-		})
+		const options = (constructed[0] as unknown[])[2]
+		expect(options).toMatchObject({ ephemeral: true, sessionId: expect.any(String) })
+		expect(options).not.toHaveProperty('stateRoot')
+		expect(options).not.toHaveProperty('scope')
 		expect(sent).toHaveLength(1)
 		expect(sent[0]?.slice(0, -1)).toEqual(prior)
 		expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'next question' })

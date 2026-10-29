@@ -16,6 +16,7 @@ import { blendTowardStall, easeStall, stallTarget } from './stall-colour.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+import { useThinkingRow } from './thinking-label.js'
 import { formatCompactCount, formatElapsed } from './units.js'
 import type { WebActivity } from './web-activity.js'
 
@@ -160,6 +161,7 @@ export function LiveActivity({
 		progressRef.current = { key: progressKey, at: Date.now(), stall: 0, eased: Date.now() }
 	// Waiting on the person is not the model being slow: count again from their answer.
 	else if (waitingForYou || resumedFromWait) progressRef.current.at = Date.now()
+	const thinkingRow = useThinkingRow(thinking !== null && activeTools.length === 0, active)
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
 		interval: 120,
@@ -244,6 +246,11 @@ export function LiveActivity({
 					: ''
 			}`
 		: ''
+	// While reasoning: the patient label and the summary; afterwards, how long it took.
+	const thinkingText =
+		thinking !== null
+			? `${thinkingRow.live ?? 'thinking'}${thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}`
+			: (thinkingRow.settled ?? '')
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
 	const noticeRow = waitNotice ? (
@@ -307,10 +314,10 @@ export function LiveActivity({
 								) : null}
 							</Text>
 						</Box>
-					) : thinking !== null ? (
+					) : thinking !== null || thinkingRow.settled !== null ? (
 						<Box paddingLeft={2}>
 							<Text color={theme.text.muted} wrap="truncate-end">
-								thinking{thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}
+								{thinkingText}
 							</Text>
 						</Box>
 					) : null)}
@@ -404,10 +411,10 @@ export function LiveActivity({
 					<Text color={theme.text.muted}>└ +{hiddenTools} more tools</Text>
 				</Box>
 			) : null}
-			{thinking !== null && activeTools.length === 0 ? (
+			{(thinking !== null || thinkingRow.settled !== null) && activeTools.length === 0 ? (
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						└ thinking{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
+						└ {thinkingText}
 					</Text>
 				</Box>
 			) : null}

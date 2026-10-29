@@ -34,6 +34,8 @@ export interface PathEscalations {
 export interface PathEscalationContext {
 	/** The working directory first, then the added directories. */
 	readonly roots: readonly string[]
+	/** Actual shell start directory; roots remain the original authorization boundary. */
+	readonly cwd?: string
 	/** Whether to report paths outside the roots (`outsideRootAccess: 'review'`, no sandbox). */
 	readonly reviewOutside: boolean
 }
@@ -150,7 +152,7 @@ export async function shellEscalations(
 ): Promise<PathEscalations> {
 	const reading = readShellLine(line, dialect)
 	const access = shellPathAccess(reading)
-	const [cwd, ...added] = context.roots
+	const cwd = context.cwd ?? context.roots[0]
 	const outside = new Set<string>()
 	const protectedPaths = new Set<string>()
 	const home = homedir()
@@ -222,14 +224,18 @@ export async function shellEscalations(
 			}
 		}
 	}
-	const removal =
-		cwd === undefined
+	const removalAt = (directory: string | undefined) =>
+		directory === undefined
 			? undefined
 			: dangerousRemoval(reading, access.changesDirectory, {
-					cwd,
-					additionalDirectories: added,
+					cwd: directory,
+					additionalDirectories: context.roots,
 					home,
 				})
+	// Moving into an added directory must not make removal of the original
+	// working directory cease to be catastrophic. Keep both conservative floors.
+	const removal =
+		removalAt(cwd) ?? (cwd !== context.roots[0] ? removalAt(context.roots[0]) : undefined)
 	return {
 		outsidePaths: [...outside],
 		protectedPaths: [...protectedPaths],

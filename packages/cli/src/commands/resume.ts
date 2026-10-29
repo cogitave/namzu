@@ -35,6 +35,10 @@
 import type { Message } from '@namzu/sdk'
 
 import {
+	type PullRequestFilter,
+	parsePullRequestFilter,
+} from '../integrations/github/pull-request.js'
+import {
 	type CliSessions,
 	type RecentConversation,
 	listRecent,
@@ -140,7 +144,7 @@ export type TuiResumeOutcome =
 	| { readonly kind: 'fresh' }
 	| { readonly kind: 'open'; readonly sessionId: string }
 	/** Open the `/resume` picker once the screen is ready; `query` pre-filters it. */
-	| { readonly kind: 'picker'; readonly query?: string }
+	| { readonly kind: 'picker'; readonly query?: string; readonly pr?: PullRequestFilter }
 	| { readonly kind: 'error'; readonly message: string }
 
 const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -159,10 +163,27 @@ const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
  */
 export async function resolveTuiResume(
 	sessions: CliSessions | null,
-	request: { readonly continueLast: boolean; readonly resume: string | true | null },
+	request: {
+		readonly continueLast: boolean
+		readonly resume: string | true | null
+		/** `--from-pr [value]`: the picker, narrowed to conversations linked to a pull request. */
+		readonly fromPr?: string | true | null
+	},
 	cwd: string,
 ): Promise<TuiResumeOutcome> {
 	const { continueLast, resume } = request
+	if (request.fromPr !== undefined && request.fromPr !== null) {
+		if (continueLast || resume !== null) {
+			return {
+				kind: 'error',
+				message:
+					'--from-pr lists the conversations linked to a pull request, so it cannot be combined with --continue or --resume. Pass one.',
+			}
+		}
+		const pr = parsePullRequestFilter(request.fromPr)
+		if ('error' in pr) return { kind: 'error', message: pr.error }
+		return { kind: 'picker', pr }
+	}
 	if (!continueLast && resume === null) return { kind: 'fresh' }
 	if (continueLast && resume !== null) {
 		return {

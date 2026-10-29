@@ -6,6 +6,8 @@ import type {
 	MCPConnectionStatus,
 	MCPContentBlock,
 	MCPDiscoverResult,
+	MCPElicitationRequest,
+	MCPElicitationResult,
 	MCPEraCache,
 	MCPEventListener,
 	MCPInitializeResult,
@@ -58,6 +60,7 @@ import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mc
 import {
 	DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS,
 	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+	JSON_RPC_INVALID_PARAMS,
 	JSON_RPC_METHOD_NOT_FOUND,
 	MCP_DISCOVER_METHOD,
 	MCP_LEGACY_VERSIONS,
@@ -243,6 +246,8 @@ export class MCPClient {
 	private subscriptionFailures = 0
 	/** Best-effort protocol cancellations still belong to this connection generation. */
 	private cancellationControllers = new Set<AbortController>()
+	/** Elicitations waiting on the person, by the server's request id. */
+	private elicitationControllers = new Map<string | number, AbortController>()
 	private log: Logger
 	private readonly config: MCPClientConfig
 	private readonly requestTimeoutMs: number
@@ -383,7 +388,10 @@ export class MCPClient {
 		const offered = MCP_LEGACY_VERSIONS[0]
 		const result = (await this.request('initialize', {
 			protocolVersion: offered,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: {
+				...(this.config.capabilities ?? {}),
+				...(this.config.onElicitation ? { elicitation: {} } : {}),
+			},
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 		})) as MCPInitializeResult
 
@@ -1555,6 +1563,13 @@ export class MCPClient {
 			}
 		}
 
+		if (message.method === 'notifications/cancelled' && message.id === undefined) {
+			const requestId = message.params?.requestId
+			if (typeof requestId === 'string' || typeof requestId === 'number') {
+				this.elicitationControllers.get(requestId)?.abort(new Error('Withdrawn by the server'))
+			}
+		}
+
 		if (message.method && message.id === undefined) {
 			for (const handler of this.notificationHandlers) {
 				handler(message.method, message.params)
@@ -1568,6 +1583,15 @@ export class MCPClient {
 		// dropped on the floor, so a spec-current server sat waiting for a
 		// reply that would never come, which looks exactly like a hang.
 		// Answer honestly: we do not implement these yet.
+		if (
+			message.method === 'elicitation/create' &&
+			message.id !== undefined &&
+			this.config.onElicitation &&
+			this.era?.kind === 'legacy'
+		) {
+			void this.answerElicitation(message.id, message.params)
+			return
+		}
 		if (message.method && message.id !== undefined) {
 			this.log.warn('Declining unsupported server-initiated MCP request', {
 				'namzu.connector.server': this.config.serverName,
@@ -1588,6 +1612,68 @@ export class MCPClient {
 					})
 				})
 		}
+	}
+
+	/**
+	 * Answer one `elicitation/create`: form mode goes to the host's handler,
+	 * anything else is refused as invalid params so the server is never left
+	 * waiting. Only the action is logged, never the values the person typed.
+	 */
+	private async answerElicitation(
+		id: string | number,
+		params: Record<string, unknown> | undefined,
+	): Promise<void> {
+		const handler = this.config.onElicitation
+		const reply = (body: { result: unknown } | { error: { code: number; message: string } }) =>
+			this.transport.send({ jsonrpc: '2.0', id, ...body }).catch((err) => {
+				this.log.debug('Failed to send elicitation reply', {
+					'exception.message': toErrorMessage(err),
+				})
+			})
+		const schema = params?.requestedSchema
+		const isForm = params?.mode === undefined || params.mode === 'form'
+		if (
+			!handler ||
+			!isForm ||
+			typeof params?.message !== 'string' ||
+			typeof schema !== 'object' ||
+			schema === null
+		) {
+			await reply({
+				error: {
+					code: JSON_RPC_INVALID_PARAMS,
+					message: isForm ? 'Invalid elicitation request' : 'Only form elicitation is supported',
+				},
+			})
+			return
+		}
+		const controller = new AbortController()
+		this.elicitationControllers.set(id, controller)
+		this.cancellationControllers.add(controller)
+		let result: MCPElicitationResult
+		try {
+			result = await handler(
+				{
+					serverName: this.config.serverName,
+					message: params.message,
+					requestedSchema: schema as MCPElicitationRequest['requestedSchema'],
+				},
+				{ signal: controller.signal },
+			)
+		} catch (err) {
+			this.log.warn('Elicitation handler failed', { 'exception.message': toErrorMessage(err) })
+			result = { action: 'cancel' }
+		} finally {
+			this.elicitationControllers.delete(id)
+			this.cancellationControllers.delete(controller)
+		}
+		// The server withdrew the request: it is no longer listening.
+		if (controller.signal.aborted) return
+		this.log.info('Elicitation answered', {
+			'namzu.connector.server': this.config.serverName,
+			'namzu.connector.elicitation.action': result.action,
+		})
+		await reply({ result: result.action === 'accept' ? result : { action: result.action } })
 	}
 
 	private handleProgressNotification(params: Record<string, unknown> | undefined): void {

@@ -18,6 +18,15 @@ recall adds matching records. In the prompt the two never share a heading:
 curated sections are `## About the user`, `## Curated memory (all projects)` and
 `## Curated memory (this project)`; stored memory is `## Stored memories (index)`.
 
+The curated sections and the stored index reach the model as one hidden reminder,
+not as text added to every request: the whole memory the first time a
+conversation needs it, then only the part that changed (a part you removed is
+reported as no longer present). Every request therefore begins with the earlier
+ones, so the provider can cache the memory instead of billing it again at each
+step, and a note saved mid-session does not rewrite the cached system prompt. A
+compaction that drops the reminder makes the next request say the memory again,
+in full. A resident (long-lived) session keeps sending it with each request.
+
 ## Curated memory: read into every turn
 
 Three files, two scopes. Each is markdown the operator writes and edits by hand.

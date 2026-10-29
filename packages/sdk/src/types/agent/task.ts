@@ -28,8 +28,12 @@ export type ChildWorkspaceRequest =
 			readonly baseRef?: string
 			/** Relative directory within the checkout where this child starts. */
 			readonly subdirectory?: string
-			/** The existing SDK behavior is `dispose`; CLI delegates select `retain`. */
-			readonly retention?: 'dispose' | 'retain'
+			/**
+			 * The existing SDK behavior is `dispose`; `retain` always keeps the
+			 * checkout; `retain-changed` removes it when the child ended with no
+			 * uncommitted changes and no new commits, and keeps it otherwise.
+			 */
+			readonly retention?: 'dispose' | 'retain' | 'retain-changed'
 	  }
 
 export function isTerminalAgentTaskState(state: AgentTaskState): boolean {

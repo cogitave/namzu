@@ -14,6 +14,21 @@ adapter and `AgentManager`; the CLI chooses the child identity, prompt,
 provider, tools and policy for each launch. The SDK's deprecated
 `ReactiveAgent` name is not the CLI's agent taxonomy.
 
+Delegated turns receive the parent's plugin lifecycle manager, resolved when the
+child starts. Configured `subagent_start` shell hooks run once through the SDK's
+normal lifecycle, with the child's session and turn ids, the invoking parent
+session and turn ids, and `agent_type: namzu-cli`; the CLI does not emit a second
+start notification. A name assigned to an `Agent` belongs to that parent
+conversation: another conversation can use the same name without taking it over.
+
+An ephemeral parent (`--no-session-persistence`) keeps its own log and checkpoints
+in memory across sends and provider-pause resumes. Children inherit in-memory
+storage too, including continuations; they do not fall back to the default disk
+layout. Workflow journals and operator-message journals remain transient. An
+absent transient checkpoint log is reported explicitly, never reopened from disk.
+Closing the session discards its retained in-memory logs; restarting the process
+cannot resume them.
+
 When the parent mounts independent `web_search` (Exa), delegated agents receive
 the same search tool, including the read-only `explore` and `plan` agents. Each call owns its
 connection and cancellation. Search remains subject to the parent’s authorization
@@ -41,6 +56,24 @@ The `Agent` tool offers four built-in types beside any agent files:
 the parent's context on exploration. It cannot edit, write or run commands. An
 agent file named `plan` replaces the built-in of that name. Plan mode itself is
 unchanged; see [Plan mode](plan-mode.md).
+
+### The mode an agent file asks for
+
+An agent file may carry a `permissionMode:` line: `plan`, `accept-edits` or `inherit`
+(also accepted: `prompt`, `strict`, `bypass`, `auto`, which keep the parent's
+mode as described below). By default a delegated agent is decided under the
+mode of the turn that started it, as that mode is at each call. The line only
+narrows that:
+
+- a parent that asks before changes runs the agent in `plan` or `accept-edits`
+  when the file says so;
+- a parent in accept-edits, plan, auto, bypass or strict keeps its own mode in
+  the agent, whatever the file says, and follows the parent when the operator
+  switches;
+- a file cannot ask for `bypass` or `auto`: the agent keeps the parent's mode.
+
+A file with any other word on that line is skipped and listed with the other
+unreadable agent files. The mode also applies when the agent is continued, including after a process restart: the current agent definition supplies its mode and the current parent turn supplies its review channel.
 
 ### Forks
 
@@ -138,10 +171,13 @@ worktree. Uncommitted parent files are absent. The child's file tools and
 commands run from the matching directory inside the new checkout when the
 parent started below the Git root (for example, `packages/foo`). Its environment
 and project instructions are read from that directory. The reported worktree
-path and branch still name the checkout root. The checkout and any edits remain
-after success, failure or cancellation. Completed results give its path and branch; live task listings
-show them once the child is admitted. Use `namzu worktree list` to inspect it
-later. If that nested directory is absent from the committed checkout, the
+path and branch still name the checkout root. When the child ends with no
+uncommitted changes and no new commits, Namzu removes the checkout and its
+branch, and the result says the worktree had no changes and was removed. A
+checkout with changes or commits stays after success or failure, and the
+result gives its path and branch; live task listings show them once the child
+is admitted. A cancelled child's checkout stays. Use `namzu worktree list` to
+inspect what remains. If that nested directory is absent from the committed checkout, the
 child does not start. Namzu does not merge the child's edits into the parent
 checkout.
 
@@ -172,6 +208,29 @@ turn's summary line. The run is one rail row and one detail view. See
 through the `Agent` tool stay as described here; the two share the rail row and
 the detail view's shape, not their code path.
 
+## Agent files
+
+A Markdown file in `~/.namzu/agents/` or `<project>/.namzu/agents/` defines an
+agent type the `Agent` tool offers; the project's file shadows the user's of
+the same name. The frontmatter says what the agent is, the body is its system
+prompt. Only `name` and `description` are required. Every list is one
+comma-separated line.
+
+| Key | Meaning |
+|---|---|
+| `tools` | Allowlist, intersected with the parent's tools. |
+| `disallowedTools` | Tools removed from the roster, even when `tools` names them. |
+| `readOnly` | `true` keeps only tools that declare themselves read-only. |
+| `model` | The agent's model; `inherit` (or no line) keeps the session's. |
+| `effort` | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. A model that does not support it runs without. |
+| `maxTurns` | A positive whole number; the agent stops after that many turns, or at the session's own limit when that is lower. |
+| `background` | `true` starts the agent in the background when the call does not say; `run_in_background: false` on the call still waits. |
+| `isolation` | `worktree` gives the agent its own Git checkout, like `workspace: "worktree"` on the call, and the launch is reviewed. |
+| `skills` | Skills whose instructions are added to the agent's prompt. One that is missing or disabled is left out and logged. |
+
+A file with a value it cannot use is refused with its path and the reason
+rather than loaded with the line ignored; the other agents still load.
+
 ## Which launches are asked about
 
 In `prompt` mode (the default with a person at the terminal) an `Agent` call
@@ -193,7 +252,7 @@ run up is bounded by the tree budget the turn already carries.
 
 Every other launch is reviewed as before: a general-purpose agent, a fork, an agent
 file without `readOnly: true`, and a read-only agent sent to another provider
-or model or given an effort, or requesting `workspace: "worktree"`. A batch that mixes a read-only launch with any of
+or model or given an effort, or requesting `workspace: "worktree"` (an agent file with `isolation: worktree` included). A batch that mixes a read-only launch with any of
 those is reviewed as one batch.
 
 By mode:
@@ -223,7 +282,7 @@ Escape declines the current request; Ctrl+C rejects all pending requests and
 stops the turn. Closing the application rejects unresolved reviews.
 
 A child is reviewed under the parent turn's live permission mode, read at each
-request, and has no mode of its own: it runs in `bypass` only while its parent does, and an agent file names a model and tools, never a mode ([Permission modes](permission-modes.md#sub-agents)). Plan mode entered with Shift+Tab while a child runs refuses that
+request. An agent file may narrow the inherited mode as described above; it cannot grant `bypass` or `auto`, and a child runs in `bypass` only while its parent does ([Permission modes](permission-modes.md#sub-agents)). Plan mode entered with Shift+Tab while a child runs refuses that
 child's next change with the plan-mode feedback, including one a `permissions`
 rule allows and one of a kind the operator approved earlier in the child's
 turn: the parent turn's "review even what the rules allow" switch reaches every
@@ -255,6 +314,17 @@ UUID, a pointer to `agent_task_list` with `history: true`; a value that is not a
 UUID gets the same answer, and nothing is sent and no row is added. While a
 resume is being admitted the three tools answer about the new run, and an agent
 that is still unwinding after a stop answers that it is stopping.
+
+`Agent` takes an optional `name`: letters, digits, underscores and hyphens,
+starting with a letter or digit, at most 64 characters. The name then stands in
+for the task id in `send_message`, `wait_for_task` and `cancel_agent`
+(`task_id: "reviewer"`), the launch receipt repeats it, `agent_task_list` shows it
+as `name`, and the "Running agents" list of an unknown-task answer prints it in
+brackets. Names match without regard to case, width or spaces. `main`,
+`team-lead`, `user` and `system` are reserved, and so is anything shaped like a
+task or run id; such a launch is refused with the reason and starts nothing. A
+later agent given the same name takes it over. A name lives as long as the
+conversation keeps the agent.
 
 An agent keeps one task id for as long as the conversation knows it. A resumed
 run is a new task inside, but the notification, `agent_task_list`,

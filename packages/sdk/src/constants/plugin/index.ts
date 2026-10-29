@@ -32,6 +32,8 @@ export const MAX_MCP_SERVERS_PER_PLUGIN = 5
 export const MAX_SKILLS_PER_PLUGIN = 20
 export const MAX_CONNECTORS_PER_PLUGIN = 10
 export const MAX_PERSONAS_PER_PLUGIN = 5
+export const MAX_COMMAND_DIRS_PER_PLUGIN = 10
+export const MAX_AGENT_DIRS_PER_PLUGIN = 10
 
 /** Hook execution */
 export const HOOK_TIMEOUT_MS = 600_000

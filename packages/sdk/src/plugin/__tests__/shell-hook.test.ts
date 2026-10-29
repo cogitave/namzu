@@ -194,6 +194,19 @@ describe('runShellHook', () => {
 		})
 	})
 
+	it('tells subagent_start which agent starts, by the names scripts read', async () => {
+		const outcome = await runShellHook(
+			{ command: 'cat' },
+			{ ...base, event: 'subagent_start', parentSessionId: 'p', agentType: 'reviewer' },
+		)
+		expect(JSON.parse(outcome.stdout)).toMatchObject({
+			hook_event_name: 'SubagentStart',
+			parent_session_id: 'p',
+			agent_id: SESSION,
+			agent_type: 'reviewer',
+		})
+	})
+
 	it('captures the exit code and stderr', async () => {
 		const outcome = await runShellHook(
 			{ command: 'echo "not on my watch" >&2; exit 2' },

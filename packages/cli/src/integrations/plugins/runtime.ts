@@ -10,6 +10,7 @@ import {
 import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
 import { PluginSettingsStore } from './settings.js'
 
 export interface CliPluginRuntime {
@@ -36,6 +37,10 @@ export interface CliPluginInfo {
 	readonly skills: readonly string[]
 	readonly hookModules: readonly string[]
 	readonly mcpServers: readonly string[]
+	/** Slash commands from the plugin's command folders, as typed (`<plugin>__<file>`). */
+	readonly commands: readonly string[]
+	/** Agent files from the plugin's agent folders, as named to the model. */
+	readonly agents: readonly string[]
 }
 
 function message(error: unknown): string {
@@ -67,11 +72,12 @@ export async function createCliPluginRuntime(
 	 */
 	hooks?: HooksConfig,
 	/** What a hook's stdin says about the session; each is read at every hook run. */
-	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode'>,
+	hookHost?: Pick<ShellHookOptions, 'transcriptPath' | 'permissionMode' | 'judge'>,
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
+	const launchDirs = config?.launchDirs ?? []
 	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
-	if (!pluginsEnabled && hookCount === 0) return undefined
+	if (!pluginsEnabled && hookCount === 0 && launchDirs.length === 0) return undefined
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
@@ -107,6 +113,15 @@ export async function createCliPluginRuntime(
 				const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
 				if (enabled) await manager.enable(plugin.id)
 			}
+		}
+		// Folders named on the command line: each is its own authority, loaded
+		// without `plugins.enabled`, and a plugin already found above keeps its
+		// place.
+		for (const dir of launchDirs) {
+			const plugin = await manager.install(dir, 'user', { authorityRoot: dir })
+			installed.push(plugin)
+			const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+			if (enabled) await manager.enable(plugin.id)
 		}
 	} catch (error) {
 		const cleanupErrors: unknown[] = []
@@ -168,6 +183,20 @@ export async function createCliPluginRuntime(
 							.sort(),
 						hookModules: [...(plugin.manifest.hooks ?? [])],
 						mcpServers: (plugin.manifest.mcpServers ?? []).map((server) => server.name),
+						commands: resolvePluginFileDirs(
+							plugin.manifest.name,
+							plugin.rootDir,
+							plugin.manifest.commands,
+						).dirs.flatMap((source) =>
+							listMarkdownNames(source.dir).map((file) => `${prefix}${file}`),
+						),
+						agents: resolvePluginFileDirs(
+							plugin.manifest.name,
+							plugin.rootDir,
+							plugin.manifest.agents,
+						).dirs.flatMap((source) =>
+							listMarkdownNames(source.dir).map((file) => `${prefix}${file}`),
+						),
 					}
 				})
 				.sort((a, b) => a.name.localeCompare(b.name)),

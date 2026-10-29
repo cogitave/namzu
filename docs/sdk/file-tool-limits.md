@@ -21,6 +21,7 @@ runtime applies to the results of one assistant message. Each section names wher
 | Largest file returned when no window is named | 262,144 bytes (256 KiB) |
 | Largest result | 25,000 estimated tokens |
 | A window's text, in bytes | at most 25,000 x 128 |
+| Text input hard ceiling, including windowed and `allow_large` reads | 32 MiB |
 | Token estimate | characters / 4; characters / 2 for `.json`, `.jsonl`, `.jsonc` |
 
 A window is `readRange` or `limit`. A caller that names one has chosen its size, so the 256 KiB rule
@@ -36,6 +37,7 @@ does not apply; the token rule does.
 - `allow_large: true` lifts both caps for that one call to four times their size. The kernel does not track the room left in the context, so the factor is
   fixed. A read still over the lifted caps is refused and says so.
 - `NAMZU_FILE_READ_MAX_OUTPUT_TOKENS` in the turn environment replaces the 25,000.
+- The 32 MiB input ceiling is independent of the rendered window, `allow_large` and the token environment knob. Extract a smaller file with shell tooling when it is exceeded. Host reads require regular files and use bounded chunks plus one overflow byte, not an allocation based on `stat.size`; a file growing after the check cannot make the read grow without bound. Sandbox reads pass bounded `offset`/`length` requests and a signal; adapters must honor these ranges. A backend returning more than requested is refused.
 - A window that opens after the last line is a successful result that says so: `Warning: the file is
   shorter than the requested start (line 5001). It has 1502 lines.` It is not a partial view, and the
   session's read ledger does not take it for the file. An empty file answers `Warning: the file exists but
@@ -45,7 +47,23 @@ does not apply; the token rule does.
   follows the last line.
 - A file whose bytes are not text (a NUL, or a share of control or replacement characters) is not numbered.
   The result is a short note with the size that names `file` or `xxd` as the next step; it reports as a
-  failed read, like the Office and image notes.
+  failed read, like the Office note (a `.docx`, `.pptx` or `.xlsx` is pointed at a tool for its format).
+
+### Pictures, PDFs and notebooks
+
+`read` tells these apart by their bytes (a notebook, which is JSON, by its `.ipynb` name), never by the file name alone, so a text file named `.png` is still read as text. None of them is numbered, none is put on the read ledger, and the 256 KiB and token caps above do not apply; each has its own limit.
+
+| File | What comes back | Limit |
+| --- | --- | --- |
+| PNG, JPEG, WebP | The picture itself, checked and fitted exactly as `view_image` does (the result names the source and delivered size). | 16 MiB |
+| PDF | Its pages as JPEG pictures at 100 dpi, with a 4096-pixel initial render edge ceiling (a page too large for the image budget is rendered smaller). | 100 MiB input; 16 MiB per rendered page; 24 MiB encoded output |
+| `.ipynb` | Every cell as `<cell id="...">source</cell id="...">`, then what it printed. | 8 MiB input; 1 MiB UTF-8 text plus encoded images in the result |
+
+PDF page files are themselves read with bounded IO before base64 encoding. The output budget counts base64 expansion, not just decoded image bytes; a result over budget is refused with a request for fewer pages. Notebook output is budgeted across all cells (UTF-8 bytes, not character counts), and image base64 must be valid and canonical. A notebook over the aggregate budget is refused with guidance to extract selected cells using `jq`. These are hard safety ceilings and `allow_large` does not lift them. Poppler runs out of process with deadlines and a render-size ceiling; this is not an operating-system memory or disk quota for Poppler.
+
+- **PDF pages.** `pages` is one page (`"3"`) or one range (`"1-5"`), at most 20 pages per request; a list, a backwards range or a range of more than 20 pages is refused with a sentence saying so. Without `pages`, a PDF of up to 10 pages is rendered whole; a longer one is refused with its page count and `pages: "1-5"` as the example. A result that stops short says how many pages the file has and the range to ask for next. A range that starts past the end names the document's length. Rendering uses `pdftoppm` and the count `pdfinfo`, both from poppler; if `pdftoppm` is not installed the result says to install poppler-utils. When `pdfinfo` cannot give a count, the first 10 pages are rendered and the result says the count is unknown. A password-protected or damaged PDF is reported in one line. A model that cannot read images gets the usual note in place of each page ([text-only models](text-only-models-and-images.md)).
+- **Notebook cells.** A cell without an `id` is named `cell-<index>`. A non-code cell names its type (`<cell_type>markdown</cell_type>`), a code cell in a language other than Python names the language (`<language>R</language>`). Printed text, results and error names follow the cell; a picture a cell produced is returned as a picture. A cell whose output is over 10,000 characters (pictures count by their encoded size) keeps only a note with the `jq` command that reads it. `execution_count` and the notebook's other metadata are not shown.
+- `view_image` is unchanged. It remains the way to look at an image in a host that mounts it; `read` now gives the same picture.
 
 A repeat read of lines the model already has, in a file that has not changed, is answered with one sentence (`Unchanged since your earlier read of the same lines. That result is still current; use it instead of reading again.`) and `facts.unchanged: true`, the row reading `Read name · unchanged`. It applies only to the same window (`readRange`, or `offset` and `limit`), and only while three things hold: the whole file fingerprints the same as at that read, the host passed `ToolContext.receiptVisible` (`query()` always does, and there is no switch to turn the answer off under it; a host that calls the tool outside `query()` passes none and gets the lines), and that function says the earlier receipt is still, byte for byte, in the conversation. A receipt cleared, summarised away or annotated by a hook is no answer, so the lines are returned again. The read ledger is not touched by the answer, and a host that cannot say what is shown never gets one. A custom `FileReadTracker` takes part through the optional `recordReadWindow` and `readWindow`.
 
@@ -102,9 +120,19 @@ follow, rather than reading another file to prove it. A matching or context line
 printed as `[Omitted long matching line]` or `[Omitted long context line]`. `max_results` is deprecated and
 means `head_limit` when that is absent.
 
+`before_context` and `after_context` optionally override their respective side of `context_lines` (default 0). Leaving them absent preserves symmetric context. `only_matching: true` in content mode prints each non-empty matched substring as `path:line:substring` instead of the whole line, ignores context, and counts each occurrence. A multiline substring stays on one row with its newlines escaped as `\\n`. Other output modes ignore these formatting options. Paging still counts output rows, including group separators; a large context group is bounded while it is generated.
+
+`multiline` (default false) lets a pattern span lines: `.` also matches a newline, `^` and `$` match at line
+starts and ends, and `content` mode prints every line a match covers (a match counts once, on the line it
+starts). `count` mode then counts the distinct lines covered. `type` limits the search to one kind of file
+(`js`, `ts`, `py`, `rust`, `go`, `java`, `md`, `json`, `yaml` and others, with long aliases such as
+`typescript`); it narrows `include` and an unknown kind is refused with the list of known ones.
+
 This is the kernel's own walker, not ripgrep: files over 5 MB, binaries and symlinks are skipped, and at most
 20,000 entries are examined (the search reports itself incomplete past that). A sandbox reports no
-modification times, so its file list is in path order.
+modification times, so its file list is in path order. Host file-list results are sorted newest first before offset/limit are applied; ties use path order. File reads use the same bounded IO as `read` with a 5 MiB ceiling even if a file grows after discovery. A read that cannot complete within that ceiling marks the search incomplete rather than claiming an exhaustive no-match result.
+
+`glob` retains its independent 500-path cap and reports truncation. It preserves bounded traversal order, not modification-time order; it does not promise that a capped preview is the globally newest 500 files.
 
 ## The combined result budget
 

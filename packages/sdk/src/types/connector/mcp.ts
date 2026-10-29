@@ -410,6 +410,12 @@ export interface MCPPromptMessage {
 export interface MCPClientCapabilities {
 	roots?: { listChanged?: boolean }
 	sampling?: Record<string, never>
+	/**
+	 * Declared on a legacy-era `initialize` when the client was built with
+	 * {@link MCPClientConfig.onElicitation}; an empty object means form mode
+	 * only. The client sets it, a caller passing it by hand gets no handler.
+	 */
+	elicitation?: Record<string, never>
 	experimental?: Record<string, unknown>
 }
 
@@ -451,6 +457,34 @@ export interface MCPInitializeResult {
 	instructions?: string
 }
 
+/**
+ * A server's request for structured input from the person, form mode.
+ *
+ * `requestedSchema` is the server's flat object schema, kept as received:
+ * the host decides which property shapes it can show.
+ */
+export interface MCPElicitationRequest {
+	readonly serverName: string
+	readonly message: string
+	readonly requestedSchema: {
+		readonly type?: 'object'
+		readonly properties?: Readonly<Record<string, unknown>>
+		readonly required?: readonly string[]
+	}
+}
+
+/**
+ * What the person did: `accept` carries the form values, `decline` is an
+ * explicit no, `cancel` is a dismissal (closed without choosing).
+ */
+export type MCPElicitationResult =
+	| {
+			readonly action: 'accept'
+			readonly content: Readonly<Record<string, string | number | boolean | readonly string[]>>
+	  }
+	| { readonly action: 'decline' }
+	| { readonly action: 'cancel' }
+
 export type MCPConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
 export interface MCPClientConfig {
@@ -466,6 +500,20 @@ export interface MCPClientConfig {
 	transportFactory?: () => MCPTransport
 	capabilities?: MCPClientCapabilities
 	clientInfo?: { name: string; version: string }
+	/**
+	 * Answer a server's `elicitation/create` (form mode) by asking the person.
+	 *
+	 * Setting it makes the client declare the `elicitation` capability on a
+	 * legacy-era handshake. Left out, nothing is declared and a server's
+	 * elicitation request is refused as an unknown method, exactly as before.
+	 * `signal` fires when the server withdraws the request or the connection
+	 * ends; a handler that throws answers `cancel`. URL-mode requests are
+	 * never passed here: they are refused as invalid params.
+	 */
+	onElicitation?: (
+		request: MCPElicitationRequest,
+		context: { readonly signal: AbortSignal },
+	) => Promise<MCPElicitationResult>
 	/**
 	 * Deadline for a single JSON-RPC round trip. Defaults to
 	 * `DEFAULT_MCP_REQUEST_TIMEOUT_MS`.

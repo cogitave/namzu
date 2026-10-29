@@ -163,6 +163,8 @@ it('uses the exact live runtime and keeps its current and next-start state disti
 			skills: [],
 			hookModules: ['hook.mjs'],
 			mcpServers: ['secret-server'],
+			commands: [],
+			agents: [],
 		},
 	])
 	const view = await readPluginInventory({ cwd: '/not/read', runtime: { list }, canChange: true })
