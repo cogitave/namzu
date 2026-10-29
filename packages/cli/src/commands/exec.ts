@@ -22,6 +22,7 @@
  */
 
 import { relative, resolve } from 'node:path'
+import { withModelLaunchEnvironment } from '../config/model-environment.js'
 
 import {
 	BOOT_EVENT_NAMES,
@@ -177,6 +178,7 @@ async function execPrint(
 	const limitsFromFlags = {
 		...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 		...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		...(flags.maxOutputTokens !== null ? { maxResponseTokens: flags.maxOutputTokens } : {}),
 		...(flags.maxBudgetUsd !== null ? { costLimitUsd: flags.maxBudgetUsd } : {}),
 	}
 	if (flags.unknown.length > 0) {
@@ -920,6 +922,8 @@ export const execCommand: CommandDef = {
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Main-loop iteration limit (default 50; 0 unlimited)',
 		'  --token-budget <n>    Tree token limit (default unlimited; 0 removes a configured cap)',
+		'  --max-output-tokens <n> Per-call output allowance, including reasoning; overrides',
+		'                        NAMZU_MAX_OUTPUT_TOKENS and limits.maxResponseTokens',
 		'  --append-system-prompt <text|@file>',
 		'                        Add standing instructions for this run; @file reads them',
 		'                        from a file. They go after the cached part of the prompt.',
@@ -1015,7 +1019,7 @@ export const execCommand: CommandDef = {
 	handler: withTerminationHandling(async (args, termination) => {
 		let flags: ExecFlags
 		try {
-			flags = parseExecFlags(args.rawArgs)
+			flags = withModelLaunchEnvironment(parseExecFlags(args.rawArgs))
 		} catch (error) {
 			// A value the parser refuses (`--max-budget-usd lots`) is a wrong
 			// argument, not a fault in Namzu: said in a sentence, with the code a

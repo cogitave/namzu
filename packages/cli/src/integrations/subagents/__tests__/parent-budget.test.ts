@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	CompactionConfigSchema,
 	MockLLMProvider,
 	SessionPaths,
 	type Toolset,
@@ -20,6 +21,53 @@ afterEach(() => {
 })
 
 describe('CLI delegation uses the parent token limit', () => {
+	it.each([
+		{ requested: undefined, expected: 'profile-child' },
+		{ requested: 'override-child', expected: 'override-child' },
+		{ requested: 'parent-model', expected: 'parent-model' },
+	])('uses the operator child default while respecting an explicit model: %j', async (test) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-profile-'))
+		directories.push(cwd)
+		const parent = await subagentParentFixture(cwd)
+		const provider = new MockLLMProvider({ turns: [{ text: 'CHILD_OK' }] })
+		const runtime = await createSubagentRuntime({
+			cwd,
+			model: 'parent-model',
+			resolveParent: parent.resolveParent,
+			defaultModel: { provider: 'openai', model: 'profile-child' },
+			defaultEffort: 'max',
+			maxResponseTokens: 32768,
+			compactionConfig: CompactionConfigSchema.parse({ autoCompactWindowTokens: 786432 }),
+			resolveModel: async (request) => ({ provider: 'openai', model: request.model }),
+			buildProvider: () => provider,
+			buildTools: () => [],
+		})
+		try {
+			const result = await runtime.agentTool.execute(
+				{
+					description: 'profile probe',
+					prompt: 'return a greeting',
+					...(test.requested ? { model: test.requested } : {}),
+				},
+				{
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
+					workingDirectory: cwd,
+					abortSignal: new AbortController().signal,
+					env: {},
+					log() {},
+				},
+			)
+			expect(result.success).toBe(true)
+			expect(provider.requests[0]).toMatchObject({
+				model: test.expected,
+				maxTokens: 32768,
+				effort: 'max',
+			})
+		} finally {
+			await runtime.close()
+		}
+	})
 	it.each([
 		{ launch: undefined, inherited: undefined, expected: undefined },
 		{ launch: 16_384, inherited: undefined, expected: 16_384 },

@@ -33,6 +33,17 @@ characters-per-token estimate for a string.
 
 ## The summary trigger
 
+`compactionConfig.autoCompactWindowTokens` optionally sets a smaller window for
+automatic summaries, capped to the actual model window. The output reserve and
+buffer are taken from that smaller window; an explicit `triggerThreshold`
+fraction is applied to it too. The actual model context size and provider
+capabilities remain unchanged. For a 1,048,576-token model with a 786,432-token
+automatic-summary window and at least 20,000 output tokens, the derived summary
+trigger is 753,432 tokens. Salience eviction may still begin earlier at its
+soft target. Omitting the setting preserves the existing trigger.
+
+`resolveTriggerThreshold` accepts the optional window as its fourth argument.
+
 `compactionConfig.triggerThreshold` is optional. Set, it is the fraction of the
 context window at which older history is summarised, exactly as written.
 Absent, `resolveTriggerThreshold(undefined, windowTokens, maxOutputTokens?)`

@@ -18,7 +18,8 @@ worth. Namzu runs them on a small model.
 
 In this order:
 
-1. **`smallModel`** in your user or managed config: `provider/model`
+1. **`smallModel`** in your user or managed config, or the process-local
+   **`NAMZU_SMALL_MODEL`** export: `provider/model`
    (for example `anthropic/claude-haiku-4-5`), or a bare model id, which means
    that model at the provider the conversation runs on. A model id that itself
    contains a slash (`meta-llama/llama-3-8b`) is read as a bare id unless its
@@ -35,9 +36,10 @@ In this order:
 3. **The conversation's own model**, when no model can be priced or the listing
    does not answer.
 
-`smallModel` is accepted only from the user and managed config layers, never from
-a project's `namzu.config.json` and never from the environment: it chooses where
-conversation text is sent, and a repository must not redirect that.
+`smallModel` is accepted from the user and managed config layers and the explicit
+`NAMZU_SMALL_MODEL` export, never from a project's `namzu.config.json`. The export
+overrides user config; managed config remains final. See
+[process-local model profiles](model-profiles.md) for the complete launch profile.
 
 ```yaml
 # ~/.namzu/config.yaml

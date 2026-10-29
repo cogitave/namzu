@@ -8,6 +8,15 @@ import { resolveTriggerThreshold } from '../context-window.js'
  * names a threshold gets exactly that.
  */
 describe('resolveTriggerThreshold', () => {
+	it('budgets automatic summaries against an explicit window without replacing the real model window', () => {
+		expect(
+			Math.round(1_048_576 * resolveTriggerThreshold(undefined, 1_048_576, 131_072, 786_432)),
+		).toBe(753_432)
+		expect(resolveTriggerThreshold(undefined, 200_000, undefined, 786_432)).toBe(
+			resolveTriggerThreshold(undefined, 200_000),
+		)
+		expect(resolveTriggerThreshold(0.7, 1_000_000, undefined, 500_000)).toBe(0.35)
+	})
 	it('fires at 167,000 tokens on a 200,000 window', () => {
 		const fraction = resolveTriggerThreshold(undefined, 200_000)
 		expect(Math.floor(200_000 * fraction)).toBe(167_000)

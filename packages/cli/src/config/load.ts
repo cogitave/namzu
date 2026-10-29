@@ -72,6 +72,7 @@ import {
 	MIN_LEARNING_TOKENS,
 	mergeLearningGenerator,
 } from './learning-generator.js'
+import { positiveTokenCount } from './model-environment.js'
 import type {
 	BrowserConfig,
 	CodeAnalysisConfig,
@@ -989,6 +990,7 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			strategy?: unknown
+			autoCompactWindowTokens?: unknown
 			recallEvidence?: unknown
 			resolveEvidenceQueries?: unknown
 			retainedToolPreviewChars?: unknown
@@ -1003,6 +1005,7 @@ const CONFIG_READERS: ConfigReaders = {
 		for (const key of Object.keys(v)) {
 			if (
 				key !== 'strategy' &&
+				key !== 'autoCompactWindowTokens' &&
 				key !== 'contextWindowTokens' &&
 				key !== 'consolidate' &&
 				key !== 'recallEvidence' &&
@@ -1071,6 +1074,17 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['strategy'], 'must be `structured` or `salience`')
 		}
 		if (
+			raw.autoCompactWindowTokens !== undefined &&
+			(typeof raw.autoCompactWindowTokens !== 'number' ||
+				!Number.isSafeInteger(raw.autoCompactWindowTokens) ||
+				raw.autoCompactWindowTokens <= 0)
+		)
+			return invalidConfigValue(
+				context,
+				['autoCompactWindowTokens'],
+				'must be a positive safe integer',
+			)
+		if (
 			raw.contextWindowTokens !== undefined &&
 			(typeof raw.contextWindowTokens !== 'number' ||
 				!Number.isInteger(raw.contextWindowTokens) ||
@@ -1080,6 +1094,9 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return {
 			...(raw.strategy !== undefined ? { strategy: raw.strategy } : {}),
+			...(raw.autoCompactWindowTokens !== undefined
+				? { autoCompactWindowTokens: raw.autoCompactWindowTokens }
+				: {}),
 			...(raw.contextWindowTokens !== undefined
 				? { contextWindowTokens: raw.contextWindowTokens }
 				: {}),
@@ -2075,7 +2092,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// and its provenance are the reviewable source of this authority.
 	plugins: undefined,
 	sandbox: undefined,
-	limits: undefined,
+	// Only the per-call output allowance; no variable changes the turn's spend guards.
+	limits: 'NAMZU_MAX_OUTPUT_TOKENS',
 	// The cost of a run is decided in the file, not by a variable in a shell profile.
 	workflow: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
@@ -2095,7 +2113,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// where a project's runs are reviewed.
 	toolResultScreens: undefined,
 	// A strategy is a property of a project's runs, declared where they are reviewed.
-	compaction: undefined,
+	compaction: 'NAMZU_AUTO_COMPACT_WINDOW',
 	memory: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
@@ -2113,8 +2131,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Chooses which provider and model receive the conversation; a file declares it.
 	model: undefined,
 	routing: undefined,
-	// Chooses which model receives conversation text for side jobs; a file declares it.
-	smallModel: undefined,
+	// Explicit process-local choice of the model used for side jobs.
+	smallModel: 'NAMZU_SMALL_MODEL',
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,
@@ -2147,6 +2165,35 @@ function readEnv(env: NodeJS.ProcessEnv): {
 } {
 	const config: MutableConfig = {}
 	const variables: EnvVariablesUsed = {}
+	for (const key of ['limits', 'compaction'] as const) {
+		const variable = ENV_VARIABLE_NAMES[key]
+		if (!variable || env[variable] === undefined) continue
+		let value: number
+		try {
+			value = positiveTokenCount(env[variable] as string, variable)
+		} catch {
+			throw new ConfigValueError(
+				{ kind: 'environment', variable },
+				key,
+				'must be a positive safe whole number of tokens',
+			)
+		}
+		if (key === 'limits') config.limits = { maxResponseTokens: value }
+		else config.compaction = { autoCompactWindowTokens: value }
+		variables[key] = variable
+	}
+	const smallVariable = ENV_VARIABLE_NAMES.smallModel
+	if (smallVariable && env[smallVariable] !== undefined) {
+		const value = env[smallVariable]?.trim()
+		if (!value)
+			throw new ConfigValueError(
+				{ kind: 'environment', variable: smallVariable },
+				'smallModel',
+				'must name a model',
+			)
+		config.smallModel = value
+		variables.smallModel = smallVariable
+	}
 
 	const formatVar = ENV_VARIABLE_NAMES.format
 	if (formatVar) {
@@ -2320,6 +2367,14 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 	const permissionTables: PermissionsConfig[] = []
 	for (const layer of layers) {
 		for (const key of Object.keys(layer.config) as (keyof NamzuCliConfig)[]) {
+			// A new scalar env control overrides only its matching member. Preserve
+			// file-defined turn guards and compaction strategy. File-layer replacement
+			// semantics and the managed layer's final precedence stay unchanged.
+			if (layer.sourceFor(key).kind === 'env' && (key === 'limits' || key === 'compaction')) {
+				;(out as Record<string, unknown>)[key] = { ...out[key], ...layer.config[key] }
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'permissions' && layer.config.permissions) {
 				// Joined, not replaced: a project's table must not erase a user's
 				// deny, nor a managed table the rules below it. See

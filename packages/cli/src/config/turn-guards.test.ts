@@ -7,6 +7,39 @@ import { loadConfig } from './load.js'
 import { resolveTurnGuards } from './turn-guards.js'
 
 const roots: string[] = []
+
+it('overlays the output and compact-window exports without erasing sibling file settings', () => {
+	const options = fixture({ tokenBudget: 12000, maxIterations: 7, maxResponseTokens: 8192 })
+	writeFileSync(
+		join(options.cwd, 'namzu.config.json'),
+		JSON.stringify({
+			limits: { tokenBudget: 12000, maxIterations: 7, maxResponseTokens: 8192 },
+			compaction: { strategy: 'structured', contextWindowTokens: 1_048_576 },
+		}),
+	)
+	const config = loadConfig({
+		...options,
+		env: { NAMZU_MAX_OUTPUT_TOKENS: '32768', NAMZU_AUTO_COMPACT_WINDOW: '786432' },
+	})
+	expect(config.limits).toMatchObject({
+		tokenBudget: 12000,
+		maxIterations: 7,
+		maxResponseTokens: 32768,
+	})
+	expect(config.compaction).toEqual({
+		strategy: 'structured',
+		contextWindowTokens: 1_048_576,
+		autoCompactWindowTokens: 786432,
+	})
+})
+
+it.each(['0', '-1', '1.5', 'no', '9007199254740992'])(
+	'refuses invalid exported output/compact sizes: %j',
+	(value) => {
+		for (const name of ['NAMZU_MAX_OUTPUT_TOKENS', 'NAMZU_AUTO_COMPACT_WINDOW'])
+			expect(() => loadConfig({ ...fixture({}), env: { [name]: value } })).toThrow(name)
+	},
+)
 afterEach(() => {
 	for (const root of roots.splice(0)) removeTempDir(root)
 })

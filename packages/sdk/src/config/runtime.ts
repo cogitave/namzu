@@ -51,6 +51,8 @@ export const CompactionConfigSchema = z.object({
 	 * to a flat `0.7`; pass that to keep the earlier behaviour.
 	 */
 	triggerThreshold: z.number().min(0).max(1).optional(),
+	/** Optional automatic-summary window; capped to the actual model window. */
+	autoCompactWindowTokens: z.number().int().positive().safe().optional(),
 	/**
 	 * Fraction the pass must get the context BELOW to be worth keeping.
 	 *

@@ -728,7 +728,12 @@ async function runCompactionCheckInner(
 	// well before the summary trigger; every other strategy waits for it.
 	const salience = config.strategy === 'salience'
 	const maxOutputTokens = ctx.providerCapabilities?.maxOutputTokens
-	const trigger = resolveTriggerThreshold(config.triggerThreshold, budget, maxOutputTokens)
+	const trigger = resolveTriggerThreshold(
+		config.triggerThreshold,
+		budget,
+		maxOutputTokens,
+		config.autoCompactWindowTokens,
+	)
 	const startAt = salience ? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, trigger) : trigger
 	if (!options?.force && usage < startAt) return
 

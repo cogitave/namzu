@@ -68,7 +68,10 @@ is governed by [compaction](context-and-compaction.md).
 `limits.maxResponseTokens` sets the output allowance for each model call in
 interactive and headless sessions. It takes a positive safe integer; omitting
 it preserves the existing 8,192-token default. Set it in `namzu.config.json`
-or the user YAML config; there is no corresponding CLI flag. For example:
+or the user YAML config, export `NAMZU_MAX_OUTPUT_TOKENS`, or pass
+`--max-output-tokens <n>` for one launch. The flag wins over the environment;
+the environment wins over file settings unless a managed file overrides it.
+For headless work, put the flag after `exec` in either output mode. For example:
 
 ```json
 {

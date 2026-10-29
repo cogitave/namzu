@@ -147,6 +147,8 @@ export interface WorkflowCliConfig {
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
+	/** Automatic-summary window, bounded by the real model context without redefining it. */
+	readonly autoCompactWindowTokens?: number
 	/** Bounded historical evidence recall in recorded conversations. Default true; false disables it. */
 	readonly recallEvidence?: boolean
 	/** Resolve follow-up search references with a metered model call when recall is enabled. Default true. */
