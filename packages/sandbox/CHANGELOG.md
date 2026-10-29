@@ -1,5 +1,34 @@
 # @namzu/sandbox
 
+## 33.0.0
+
+### Patch Changes
+
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+- Updated dependencies [eae3908]
+  - @namzu/sdk@58.0.0
+
 ## 32.0.0
 
 ### Patch Changes
