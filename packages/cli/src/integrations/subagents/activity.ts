@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import {
 	type SessionEvent,
 	type TaskHandle,
@@ -1197,9 +1198,16 @@ function terminalLabel(status: SubagentActivityStatus): string {
 }
 
 function bounded(value: string, max: number): string {
-	if (value.length <= max) return value
+	if (value.length <= max) return copyRetainedText(value)
 	const suffix = '… [clipped]'
-	return `${value.slice(0, Math.max(0, max - suffix.length))}${suffix}`
+	return copyRetainedText(`${value.slice(0, Math.max(0, max - suffix.length))}${suffix}`)
+}
+
+/** Keep only the preview's storage, including when an incoming short value is itself a slice. */
+function copyRetainedText(value: string): string {
+	// V8 may keep a large event payload behind a short slice or concatenation.
+	// UTF-16 preserves every JS code unit, including unpaired surrogates.
+	return Buffer.from(value, 'utf16le').toString('utf16le')
 }
 
 function normalizedLabel(value: string | undefined, fallback: string, max: number): string {
@@ -1227,9 +1235,9 @@ function normalizedPhaseOrder(value: number | undefined): number | undefined {
 
 function appendBounded(current: string, delta: string): string {
 	const joined = current + delta
-	if (joined.length <= MAX_ROW_CODE_UNITS) return joined
+	if (joined.length <= MAX_ROW_CODE_UNITS) return copyRetainedText(joined)
 	const prefix = '… [earlier text clipped]\n'
-	return prefix + joined.slice(-(MAX_ROW_CODE_UNITS - prefix.length))
+	return copyRetainedText(prefix + joined.slice(-(MAX_ROW_CODE_UNITS - prefix.length)))
 }
 
 function errorMessage(error: unknown): string {

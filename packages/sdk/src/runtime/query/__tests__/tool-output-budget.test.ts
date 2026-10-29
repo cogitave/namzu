@@ -176,6 +176,17 @@ describe('applyToolOutputBudget', () => {
 		expect(out.spillPath).toBeUndefined()
 	})
 
+	it('preserves lone surrogates and pairs inside a bounded head and tail preview', () => {
+		const output = `HEAD\ud800x🦉${'x'.repeat(100_000)}😀x\udfffTAIL`
+		const out = applyToolOutputBudget({ ...base, output, maxChars: 1_000 })
+		expect(out.output).toMatch(/^HEAD\ud800x🦉/)
+		expect(out.output).toMatch(/😀x\udfffTAIL$/)
+		expect(out.output).not.toContain('\ufffd')
+		expect(out.output.length).toBeLessThanOrEqual(1_000)
+		expect(out.originalLength).toBe(output.length)
+		expect(out.truncated).toBe(true)
+	})
+
 	it('spills an over-budget result and hands the model a path, not a wall of text', () => {
 		const huge = 'x'.repeat(200_000)
 		const out = applyToolOutputBudget({

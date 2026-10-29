@@ -390,8 +390,8 @@ describe('the three decline causes get three sentences', () => {
 		const text = failure('shed_nothing')
 
 		expect(text).toContain('conversation could not be reduced below the context limit')
-		// No bug to hunt: it points at what fills the context.
-		expect(text).toContain('large file or tool output')
+		expect(text).toContain('configured model context window')
+		expect(text).not.toContain('large file or tool output')
 		expect(text).not.toMatch(/reducer|bug/i)
 	})
 
@@ -417,10 +417,12 @@ describe('the three decline causes get three sentences', () => {
 		expect(mapped).toBeNull()
 	})
 
-	it('the refill breaker names the cause and never tells the person to start over', () => {
+	it('the refill breaker explains limited headroom without diagnosing a large file', () => {
 		const text = failure('refilling')
 
-		expect(text).toMatch(/too large/)
+		expect(text).toContain('even for small outputs')
+		expect(text).toContain('configured model context window')
+		expect(text).not.toMatch(/probably too large/)
 		expect(text).not.toMatch(/\/clear|\/new|start fresh|new (?:session|conversation)/i)
 	})
 

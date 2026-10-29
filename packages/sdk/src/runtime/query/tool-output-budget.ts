@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { digest, spillManifest } from '../../store/evidence/format.js'
+import { copyString } from '../../utils/copy-string.js'
 
 /**
  * Model-visible size cap for a single tool result.
@@ -304,8 +305,9 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	if (preview !== undefined && retained?.integrity) {
 		const condensed = [preview, recovery].filter(Boolean).join('\n\n')
 		if (effectiveTextBudget === undefined || condensed.length <= effectiveTextBudget) {
+			const visible = withNotice(condensed)
 			return {
-				output: withNotice(condensed),
+				output: effectiveTextBudget === undefined ? visible : copyString(visible),
 				originalLength,
 				truncated: true,
 				spillPath,
@@ -318,8 +320,10 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	}
 
 	return {
-		output: withNotice(
-			boundedPreview(output, effectiveTextBudget ?? textBudget, opts.toolName, recovery),
+		output: copyString(
+			withNotice(
+				boundedPreview(output, effectiveTextBudget ?? textBudget, opts.toolName, recovery),
+			),
 		),
 		originalLength,
 		truncated: true,
@@ -471,7 +475,7 @@ function previewForMessageBudget(
 			spilledAt,
 		].join('\n')
 		return {
-			output,
+			output: copyString(output),
 			originalLength: item.output.length,
 			spillPath: (spilledAt.split('\n')[0] as string).slice(SPILL_MARKER.length + 1),
 		}

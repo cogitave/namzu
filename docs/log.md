@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-30
+
+- **Update** [Context limits](sdk/context-limits.md) and [Delegated work](cli/delegated-work.md): bounded output previews and agent transcript rows own short UTF-16 strings rather than retaining large source backings. Rapid-refill diagnostics describe limited headroom and suggest checking the configured model window without inferring a large file. The existing compaction safety limits and memory lock policy are unchanged. `.changeset/bounded-preview-storage.md` (`@namzu/sdk` patch, `@namzu/cli` patch).
+
 ## 2026-10-29
 
 - **Update** [Process-local model profiles](cli/model-profiles.md), [Launch flags](cli/launch-flags.md) and [Context limits](sdk/context-limits.md#the-summary-trigger): add export-based main/side/delegated model choices, effort, per-call output and automatic-summary windows; explicit flags win and real provider context remains separate from the compact window. Extend `.changeset/compatible-empty-output-recovery.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
