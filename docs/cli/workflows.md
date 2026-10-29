@@ -275,6 +275,21 @@ prompt preview and hash, every outcome, phases, `log()` lines and the result).
 Run ids are `w` and eight base-36 characters. Each agent also keeps its normal
 child transcript under `<session>/subagents/`.
 
+The model can inspect a running workflow's children with
+`agent_task_list`; a selected `task_id` with `include_output: true` returns
+bounded partial activity without waiting. Workflow children retain the same
+conversation ownership for lookup, messaging, waiting and cancellation as
+ordinary children. A request-only workflow snapshot also reports active runs
+and their running/queued counts, including requests not yet assigned a child
+task. It is refreshed for the next model request and is not a completion
+notification. See [delegated-work inspection](delegated-work.md).
+
+This journal is an audit trail, not an execution checkpoint: prompt and result
+previews are truncated, and full schemas/results and a stable logical call
+identity are not retained. Stopping a workflow ends its interpreter. Running
+the script again starts new work and can repeat already completed steps;
+continuing one child would not restart the workflow's orchestration.
+
 ## Configuration
 
 ```json

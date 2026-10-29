@@ -575,11 +575,36 @@ duplicating worker output or adding another persistent task store.
 
 
 `agent_task_list` reads the current parent session's actual scheduler invocations,
-including pending, running and terminal tasks. It returns the most recent 40
+including pending, running and terminal tasks, and agents owned by a running
+workflow's separate turn. It returns the most recent 40
 with an explicit omitted count. `task_list` remains the planning checklist; an
 empty checklist says nothing about running agents. `wait_for_task` retrieves
 results by task ID. A budget or other non-normal stop is `incomplete`, even
 when the scheduler lifecycle is `completed`; it is not a successful review.
+
+The listing includes reported cumulative `tokens`, `toolCalls` and the last
+tool's identifier (`lastTool`), together with workflow/phase identity when
+available. These are observed activity, not evidence that work has completed.
+An operating-system process list cannot establish completion: child agents can
+share the Namzu process.
+
+Select one task by its public ID or agent name to inspect it without waiting:
+
+```json
+{ "task_id": "reviewer", "include_output": true }
+```
+
+`include_output` requires `task_id` and cannot be combined with the saved
+`history`/`session_id` view. A selection returns one entry under `tasks`; an
+unknown or foreign-conversation task is refused. `outputState` is `partial` or
+`settled`, and `outputAvailable` says whether activity was observed. A partial
+excerpt is not a final answer; `wait_for_task` remains the settled-result path.
+
+The excerpt contains at most the last 12 activity rows within an 8,000-character
+framed-output bound. `outputRows`, `omittedOutputRows` and `outputTruncated`
+describe that selection. It uses the existing bounded activity monitor, not
+raw child journals or full tool-result bodies. Child text is marked as
+untrusted delegated output. No observed text does not mean no work is running.
 
 Ctrl+T opens a dedicated agent browser using the terminal's available height.
 The main composer is hidden there, with its draft preserved. Ctrl+T returns to

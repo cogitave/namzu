@@ -417,6 +417,7 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
+import { createWorkflowContextStep } from '../integrations/workflows/context.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowRefusal } from '../integrations/workflows/offering.js'
@@ -3523,6 +3524,7 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
+	const workflowOwners = new Map<string, SessionId>()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
@@ -4162,6 +4164,7 @@ export async function createAgentSession(
 				const runTurnId = generateTurnId()
 				const origin = delegatedWorkflowAuth.get(originTurnId)
 				const ownerScope = delegationScopes.get(originTurnId) ?? { ...scope }
+				workflowOwners.set(runId, ownerScope.sessionId)
 				const control = createLiveModeControl({
 					initial: origin?.mode() ?? 'prompt',
 					...(origin ? { read: origin.mode } : {}),
@@ -4188,12 +4191,12 @@ export async function createAgentSession(
 				delegatedModeControls.set(runTurnId, control)
 				const model = delegationModels.get(originTurnId)
 				if (model) delegationModels.set(runTurnId, model)
-				void runId
 				let released: Promise<void> | undefined
 				return {
 					turnId: runTurnId,
 					release: () => {
 						released ??= (async () => {
+							workflowOwners.delete(runId)
 							liveModeControls.delete(control)
 							delegationScopes.delete(runTurnId)
 							delegationLimits.delete(runTurnId)
@@ -5186,6 +5189,11 @@ export async function createAgentSession(
 						: undefined,
 					prepareStep: [
 						createTaskContextStep(turnTaskStore, entry.tenantId),
+						createWorkflowContextStep((sessionId) =>
+							(workflowHost?.registry.running() ?? []).filter(
+								(run) => workflowOwners.get(run.runId) === sessionId,
+							),
+						),
 						...savedAgentsSteps(entry.sessionId),
 						...(options.memory?.recall === false
 							? []
@@ -6591,6 +6599,11 @@ export async function createAgentSession(
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
+									createWorkflowContextStep((sessionId) =>
+										(workflowHost?.registry.running() ?? []).filter(
+											(run) => workflowOwners.get(run.runId) === sessionId,
+										),
+									),
 									createRepositorySnapshotStep(turnSnapshot),
 									...savedAgentsSteps(turnScope.sessionId),
 									// A host-supplied resident step may select the request model.

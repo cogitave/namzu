@@ -21,7 +21,12 @@ anything ([The model's version](session-loops.md#the-models-version)).
 
 What the operator sees: their line, then a row `! ls -la · exit 0` with the output under it. While the command runs the row shows `…`; a non-zero exit or a kill shows `✗`.
 
-What the model sees: on its next turn, a system block naming every `!` command run since its last turn, with the output and the exit. A `!` line that left no trace for the model would be a command the operator then has to describe in prose.
+What the model sees: on its next turn, a user-role host observation naming every
+`!` command run since its last turn, with bounded output and the exit. The output
+is an observation, not a new instruction or a shell command the model may repeat.
+The prefix has the same operator authority in auto mode: it is not sent through
+the model's permission classifier. A model-authored `!` line does not enter this
+operator execution path.
 
 On POSIX hosts the interpreter remains `/bin/sh`; on Windows it uses the native platform command shell (normally CMD). Shell syntax follows that interpreter. The shared host runner decodes split UTF-8 output, refuses a signal already aborted before launch, and retains process-start errors in the transcript.
 

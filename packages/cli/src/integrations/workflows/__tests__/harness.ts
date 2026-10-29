@@ -46,6 +46,8 @@ export interface Gate {
 export async function workflowHarness(
 	options: {
 		readonly held?: boolean
+		/** Public text emitted before the held provider is released. */
+		readonly partialText?: string
 		readonly refusal?: string
 		readonly tokenBudget?: number
 		readonly limits?: { maxConcurrency?: number; maxAgents?: number }
@@ -98,6 +100,7 @@ export async function workflowHarness(
 				id: 'workflow-child',
 				name: 'Workflow child',
 				async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+					if (options.partialText) yield { id: 'partial', delta: { content: options.partialText } }
 					if (!open) {
 						await new Promise<void>((resolve, reject) => {
 							const wake = (): void => resolve()
@@ -123,6 +126,7 @@ export async function workflowHarness(
 	const ended: WorkflowRunEnd[] = []
 	const endWaiters: Array<() => void> = []
 	const released: TurnId[] = []
+	const runTurns: TurnId[] = []
 	const host = createWorkflowHost({
 		subagents: runtime,
 		runsDirectory: () => runs,
@@ -132,6 +136,7 @@ export async function workflowHarness(
 		limitsFor: () => ({ maxConcurrency: 8, ...options.limits }),
 		openRunTurn: (_origin, _runId) => {
 			const turnId = generateTurnId()
+			runTurns.push(turnId)
 			known.add(turnId)
 			return {
 				turnId,
@@ -162,7 +167,13 @@ export async function workflowHarness(
 		assigned,
 		ended,
 		released,
+		runTurns,
 		context,
+		scope: parent.scope,
+		/** Another conversation is never entitled to this run's children. */
+		async foreignContext(): Promise<ToolContext> {
+			return { ...context, turnId: await parent.addForeignTurn() }
+		},
 		start: (input: { script: string; args?: unknown }) => host.tool.execute(input, context),
 		/** Resolves when `ready()` holds, re-checked on every run update and every change at the model gate. */
 		async until(ready: () => boolean): Promise<void> {

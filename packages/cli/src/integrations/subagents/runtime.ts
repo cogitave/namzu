@@ -122,6 +122,7 @@ import { AgentNames, agentNameProblem } from './agent-names.js'
 import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
+import { taskActivityOutput } from './task-observation.js'
 import { DelegatedWorktreeDriver } from './worktree-driver.js'
 
 /**
@@ -749,6 +750,7 @@ export async function createSubagentRuntime(
 		/** The turn's token ledger: what its children, and their labels, spend from. */
 		readonly budget: SessionTokenBudget
 		readonly parentSessionId: string
+		readonly parentKey: string
 		/** Set when the turn ended with background agents still running; they outlive it. */
 		retired: boolean
 		close(): void
@@ -803,6 +805,10 @@ export async function createSubagentRuntime(
 		for (const [taskId, owner] of taskViews) if (owner === viewId) taskViews.delete(taskId)
 	}
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
+	// Status reads must not await another turn's admission. Before a gateway
+	// has been returned it cannot own any launched task. Weak keys follow the
+	// existing parent promises without retaining released turns.
+	const readyParents = new WeakMap<Promise<ParentRuntime>, ParentRuntime>()
 	const sessions = new Map<string, SharedSession>()
 	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
@@ -1029,6 +1035,7 @@ export async function createSubagentRuntime(
 					completionInbox,
 					budget,
 					parentSessionId: String(parent.sessionId),
+					parentKey: sessionKey(parent),
 					retired: false,
 					close() {
 						if (released) return
@@ -1055,6 +1062,7 @@ export async function createSubagentRuntime(
 			const runtime = await pending
 			if (closed || parents.get(turnId) !== pending)
 				throw new Error(`Parent turn ${turnId} was released`)
+			readyParents.set(pending, runtime)
 			return runtime.gateway
 		} catch (error) {
 			if (parents.get(turnId) === pending) parents.delete(turnId)
@@ -1215,31 +1223,34 @@ export async function createSubagentRuntime(
 		for (const listener of [...backgroundCompletionListeners]) listener(completion)
 	}
 	/** The gateways of other turns of the caller's conversation that outlive their turn. */
-	const retiredGateways = async (turnId: TurnId): Promise<TaskScheduler[]> => {
-		const sessionId = String((await resolveParent(turnId)).sessionId)
+	// Workflow-owned turns remain active until their entire run ends. They
+	// belong to this conversation just as retired background turns do.
+	const conversationGateways = async (turnId: TurnId): Promise<TaskScheduler[]> => {
+		const parentKey = sessionKey(await resolveParent(turnId))
 		const found: TaskScheduler[] = []
 		for (const [otherId, pending] of parents) {
 			if (otherId === turnId) continue
-			const runtime = await pending.catch(() => undefined)
-			if (runtime?.retired && runtime.parentSessionId === sessionId) found.push(runtime.gateway)
+			const runtime = readyParents.get(pending)
+			if (runtime?.parentKey === parentKey && parents.get(otherId) === pending)
+				found.push(runtime.gateway)
 		}
 		return found
 	}
 	/**
-	 * The gateway that owns a task: this turn's, or that of an earlier turn of the
-	 * same conversation whose background agent is still running. A later turn
-	 * answers a notification about work an earlier one launched, so a task id
-	 * must resolve across them, and never across conversations.
+	 * The gateway that owns a task: this turn's, or another ready turn of the
+	 * same conversation, including an active workflow-owned turn. A task ID
+	 * resolves across those turns, and never across conversations.
 	 */
 	const gatewayHolding = async (taskId: TaskId, turnId: TurnId): Promise<TaskScheduler> => {
 		const own = await gatewayForTurn(turnId)
 		if (own.getTask(taskId)) return own
-		for (const gateway of await retiredGateways(turnId)) if (gateway.getTask(taskId)) return gateway
+		for (const gateway of await conversationGateways(turnId))
+			if (gateway.getTask(taskId)) return gateway
 		return own
 	}
 	/**
 	 * A task of this conversation, from any turn: one still held by a gateway
-	 * (this turn's, or a retired turn's with agents running), or one that ended
+	 * (this turn's, or another turn of the same conversation), or one that ended
 	 * after its turn was released, found through the agent the conversation
 	 * retains. A task of another conversation resolves to nothing, exactly as
 	 * an id nobody launched does.
@@ -2010,10 +2021,19 @@ export async function createSubagentRuntime(
 	const agentTaskListTool = defineTool({
 		name: 'agent_task_list',
 		description:
-			'List the agent invocations of this conversation, from this turn and earlier ones, and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
+			'List agent invocations of this conversation, including running workflow agents, with current status and activity, without waiting or starting work. Use this for agent progress questions; operating-system process lists cannot establish agent completion. task_list contains planning items, not invocations. Select task_id (ID or name), optionally include_output: true for bounded partial activity; partial output is not a completed result. Use wait_for_task for the settled result. Set history: true to inspect saved agents, optionally session_id for one saved result; saved agents are not live.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
+				task_id: {
+					type: 'string',
+					description: 'One live or settled task ID, or its agent name, in this conversation.',
+				},
+				include_output: {
+					type: 'boolean',
+					description:
+						'With task_id only: read a bounded excerpt of observed activity without waiting.',
+				},
 				history: {
 					type: 'boolean',
 					description:
@@ -2032,7 +2052,23 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(input, context) {
-			const request = input as { history?: boolean; session_id?: string }
+			const request = input as {
+				history?: boolean
+				session_id?: string
+				task_id?: string
+				include_output?: boolean
+			}
+			if (
+				(request.include_output && !request.task_id) ||
+				((request.history || request.session_id) &&
+					(request.task_id !== undefined || request.include_output))
+			)
+				return {
+					success: false,
+					output: '',
+					error:
+						'include_output requires one task_id. Inspect saved agents separately with history and session_id.',
+				}
 			if (request.history || request.session_id) {
 				if (!opts.savedAgents)
 					return {
@@ -2071,10 +2107,10 @@ export async function createSubagentRuntime(
 			}
 			const gateway = await gatewayForTurn(context.turnId)
 			const tasks = [...gateway.listTasks()]
-			// Background agents an earlier turn left running are still this
-			// conversation's work, and the model may be asked about them now.
-			for (const retired of await retiredGateways(context.turnId))
-				tasks.push(...retired.listTasks())
+			// Active workflow turns and retired background turns both own this
+			// conversation's work, and the operator may ask about them now.
+			for (const other of await conversationGateways(context.turnId))
+				tasks.push(...other.listTasks())
 			// Agents of earlier turns that have ended are still this conversation's
 			// work. They come first, so the newest launches survive the cap.
 			const parentKey = sessionKey(await resolveParent(context.turnId))
@@ -2095,30 +2131,63 @@ export async function createSubagentRuntime(
 			const current = tasks.filter(latestRun)
 			tasks.splice(0, tasks.length, ...current)
 			const snapshot = activity.getSnapshot()
-			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
-			const shown = tasks.slice(-40).map((task) => ({
-				description: labels.get(task.taskId) ?? task.agentId,
-				task_id: publicTaskId(task.taskId),
-				...(agentNames.nameOf(publicTaskId(task.taskId)) !== undefined
-					? { name: agentNames.nameOf(publicTaskId(task.taskId)) }
-					: {}),
-				agent: task.agentId,
-				state: task.state,
-				status: agentTaskOutcome(task),
-				...workspaceData(task),
-				...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
-			}))
+			const observations = new Map(snapshot.map((entry) => [entry.taskId, entry]))
+			let selected = tasks.slice(-40)
+			if (request.task_id !== undefined) {
+				const id = await parseTaskId(request.task_id, context.turnId)
+				const found = id ? await resolveTask(id, context.turnId) : undefined
+				if (!found)
+					return {
+						success: false,
+						output: '',
+						error: await unknownTaskMessage(request.task_id, context.turnId),
+					}
+				selected = [found.task]
+			}
+			const shown = selected.map((task) => {
+				const observed = observations.get(String(task.taskId))
+				const progress = observed ? activity.progressOf(observed.viewId) : undefined
+				// Only the tool identifier belongs in cheap metadata. Its argument
+				// summary is untrusted text, available inside the selected excerpt.
+				const lastTool = progress?.lastTool?.split(/[\s(]/, 1)[0]
+				return {
+					description: observed?.description ?? task.agentId,
+					task_id: publicTaskId(task.taskId),
+					...(agentNames.nameOf(publicTaskId(task.taskId)) !== undefined
+						? { name: agentNames.nameOf(publicTaskId(task.taskId)) }
+						: {}),
+					agent: task.agentId,
+					state: task.state,
+					status: agentTaskOutcome(task),
+					...workspaceData(task),
+					...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
+					...(progress?.tokens !== undefined ? { tokens: progress.tokens } : {}),
+					...(progress?.toolCalls !== undefined ? { toolCalls: progress.toolCalls } : {}),
+					...(lastTool && /^[a-zA-Z][\w.-]{0,63}$/.test(lastTool) ? { lastTool } : {}),
+					...(observed
+						? {
+								workflow: observed.workflow,
+								workflow_id: observed.workflowId,
+								phase: observed.phase,
+							}
+						: {}),
+					...(request.include_output
+						? taskActivityOutput(observed, isTerminalAgentTaskState(task.state))
+						: {}),
+				}
+			})
+			const total = request.task_id !== undefined ? selected.length : tasks.length
 			return {
 				success: true,
 				output: JSON.stringify({
 					tasks: shown,
-					total: tasks.length,
-					omitted: tasks.length - shown.length,
+					total,
+					omitted: total - shown.length,
 				}),
 				data: {
 					tasks: shown,
-					total: tasks.length,
-					omitted: tasks.length - shown.length,
+					total,
+					omitted: total - shown.length,
 				},
 			}
 		},

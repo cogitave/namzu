@@ -33,6 +33,7 @@
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).
 
 - **Update** [Context limits](sdk/context-limits.md) and [Delegated work](cli/delegated-work.md): bounded output previews and agent transcript rows own short UTF-16 strings rather than retaining large source backings. Rapid-refill diagnostics describe limited headroom and suggest checking the configured model window without inferring a large file. The existing compaction safety limits and memory lock policy are unchanged. `.changeset/bounded-preview-storage.md` (`@namzu/sdk` patch, `@namzu/cli` patch).
+- **Update** [Delegated work](cli/delegated-work.md) and [Workflows](cli/workflows.md): expose active workflow children to conversation-scoped task inspection and controls; add selected bounded partial output and refreshed active-workflow context. Clarify that workflow audit journals do not support checkpoint continuation. Correct the [shell prefix](cli/composer-prefixes.md) observation role. `.changeset/workflow-task-visibility.md` (`@namzu/cli` minor).
 
 ## 2026-10-29
 
