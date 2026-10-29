@@ -14,4 +14,4 @@ import './warning-filter.js'
 const { main } = await import('./bin-main.js')
 
 // Preserve source loaders and alternate installations when the public command differs.
-main(fileURLToPath(import.meta.url))
+await main(fileURLToPath(import.meta.url))

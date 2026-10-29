@@ -35,6 +35,7 @@ import { releaseHeldSessionLeases } from '@namzu/sdk'
 import {
 	TERMINATION_SIGNALS,
 	type TerminationSignal,
+	markSessionLeaseUse,
 	setTerminating,
 	terminationInProgress,
 } from './termination-state.js'
@@ -98,6 +99,7 @@ export function signalExitCode(signal: TerminationSignal): number {
 export function handleTerminationSignals(
 	options: HandleTerminationOptions = {},
 ): TerminationHandling {
+	markSessionLeaseUse()
 	const proc: TerminationProcess = options.process ?? (process as unknown as TerminationProcess)
 	const cleanups: Array<(signal: TerminationSignal) => Promise<void> | void> = []
 	let disposed = false

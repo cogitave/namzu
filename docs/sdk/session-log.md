@@ -414,6 +414,11 @@ queued prompt cannot start a new one.
 The CLI calls it on SIGTERM, SIGHUP and SIGINT in the TUI and in `namzu exec`,
 in either mode (see
 [Exit codes of `namzu exec`](../cli/exec-exit-codes.md#an-invocation-stopped-by-a-signal)).
+The standalone binary also calls it immediately before a normal or reported-error
+process exit after a turn-capable command. This includes `/exit` and keyboard
+exit from the TUI when its bounded session cleanup returned before a query
+finished unwinding. Embedded `runCli` calls do not mark the host process as
+exiting. Utility-only invocations do not load the kernel solely for this cleanup.
 
 A process killed with SIGKILL, or one that crashes outright, runs no code, and
 its lease is freed only by expiry. A liveness check — "the holder's pid is

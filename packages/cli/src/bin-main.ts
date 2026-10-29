@@ -5,30 +5,41 @@
 import { runCli } from './cli.js'
 import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import { resumeInvocation } from './resume-invocation.js'
-import { terminationInProgress } from './termination-state.js'
+import { sessionLeasesMayBeHeld, terminationInProgress } from './termination-state.js'
+
+/** Give the conversation back even when bounded TUI cleanup left a query unwinding. */
+async function exitProcess(code: number): Promise<void> {
+	if (terminationInProgress() !== null) return
+	if (sessionLeasesMayBeHeld()) {
+		const { releaseHeldSessionLeases } = await import('@namzu/sdk')
+		await releaseHeldSessionLeases()
+	}
+	// A signal may have arrived during the release; its handler owns that exit.
+	if (terminationInProgress() !== null) return
+	process.exit(code)
+}
 
 /** Run the command line as `entrypoint`, the file that was started (`bin.js`, or `bin.ts` from source). */
-export function main(entrypoint: string): void {
+export function main(entrypoint: string): Promise<void> {
 	// `--start-check` is how an update asks a new copy whether it can start a session. It loads
 	// what a session needs and nothing else, before the command shell is built.
 	if (process.argv[2] === '--start-check') {
-		void import('./integrations/auto-update/start-check.js')
+		return import('./integrations/auto-update/start-check.js')
 			.then((check) => check.runStartCheck())
 			.then(
 				(code) => process.exit(code),
 				() => process.exit(1),
 			)
-		return
 	}
-	runCli({
+	return runCli({
 		argv: process.argv,
 		resumeCommand: resumeInvocation(entrypoint),
 	}).then(
-		(code) => {
+		async (code) => {
 			// A command stopped by a signal can return while its handler is still
 			// giving the conversation back; the handler ends the process.
 			if (terminationInProgress() !== null) return
-			process.exit(code)
+			await exitProcess(code)
 		},
 		async (err) => {
 			if (terminationInProgress() !== null) return
@@ -44,7 +55,7 @@ export function main(entrypoint: string): void {
 				report = `Namzu stopped because of an unexpected problem, and could not save details: ${why}\n`
 			}
 			process.stderr.write(report)
-			process.exit(EXIT_INTERNAL_ERROR)
+			await exitProcess(EXIT_INTERNAL_ERROR)
 		},
 	)
 }
