@@ -11,6 +11,17 @@ export const TERMINATION_SIGNALS = ['SIGTERM', 'SIGHUP', 'SIGINT'] as const
 export type TerminationSignal = (typeof TERMINATION_SIGNALS)[number]
 
 let terminating: TerminationSignal | null = null
+let sessionLeaseUse = false
+
+/** A turn-capable command has loaded the kernel; the binary must release its leases before exit. */
+export function markSessionLeaseUse(): void {
+	sessionLeaseUse = true
+}
+
+/** Keep utility-only exits from importing the kernel just to release an empty registry. */
+export function sessionLeasesMayBeHeld(): boolean {
+	return sessionLeaseUse
+}
 
 /**
  * The signal this process is stopping for, or `null`. The binary's own exit

@@ -125,7 +125,11 @@ describe('compaction that keeps refilling stops the turn', () => {
 		}
 		expect(made.calls()).toBe(3)
 		expect(compactionBreaker(made.ctx)?.stop).toMatch(/filled up again/)
-		// Names the cause and a step that keeps the conversation; never "start over".
+		// Even the small messages above refill a small reclaimed span. The
+		// warning must not diagnose a huge file from refill frequency alone.
+		expect(compactionBreaker(made.ctx)?.stop).toContain('even for small outputs')
+		expect(compactionBreaker(made.ctx)?.stop).toContain('configured model context window')
+		expect(compactionBreaker(made.ctx)?.stop).not.toMatch(/probably too large/)
 		expect(compactionBreaker(made.ctx)?.stop).toMatch(/smaller parts/)
 		expect(compactionBreaker(made.ctx)?.stop).not.toMatch(
 			/\/clear|\/new|start fresh|new (?:session|conversation)/i,

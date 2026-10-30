@@ -125,7 +125,7 @@ export function describeCompactionFailure(
 				debug,
 			)
 		case 'shed_nothing':
-			return 'Compaction failed · conversation could not be reduced below the context limit. Your conversation is unchanged; a large file or tool output is probably filling it, so try reading it in smaller parts.'
+			return 'Compaction failed · conversation could not be reduced below the context limit. Your conversation is unchanged. Check the configured model context window; limit tool output or read files in smaller parts.'
 		case 'split_tool_pair':
 			return withDebugDetail(
 				'Compaction failed · the summary could not be used. Your conversation is unchanged.',
@@ -137,7 +137,7 @@ export function describeCompactionFailure(
 			return 'Automatic compaction is paused for this reply after repeated attempts that freed nothing.'
 		case 'refilling':
 			return withDebugDetail(
-				'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large. Try reading it in smaller parts.',
+				'The context filled up again right after being compacted, three times in a row. Compaction may have left too little room, even for small outputs. Check the configured model context window; limit tool output or read files in smaller parts.',
 				event.error ?? '',
 				debug,
 			)

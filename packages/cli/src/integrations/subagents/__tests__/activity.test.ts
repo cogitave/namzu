@@ -647,6 +647,71 @@ describe('the CLI sub-agent activity monitor', () => {
 		).toBe(true)
 	})
 
+	it('keeps exact UTF-16 text in short and clipped tool previews', () => {
+		const monitor = new SubagentActivityMonitor()
+		const short = '\udc00漢😀\ud800'
+		const tracker = monitor.begin({ agentId: 'worker', description: short, prompt: short })
+		const completeTool = (toolUseId: string, result: string) => {
+			tracker.onEvent({
+				type: 'tool_executing',
+				sessionId,
+				turnId,
+				iteration: 1,
+				toolUseId,
+				toolName: 'read',
+				input: {},
+				isDestructive: false,
+			} as SessionEvent)
+			tracker.onEvent({
+				type: 'tool_completed',
+				sessionId,
+				turnId,
+				iteration: 1,
+				toolUseId,
+				toolName: 'read',
+				isError: false,
+				result,
+			} as SessionEvent)
+		}
+		completeTool('short', short)
+		const suffix = '… [clipped]'
+		// The cap falls between the surrogate pair. Retaining a preview must
+		// preserve that code unit rather than silently replacing it with U+FFFD.
+		const head = `${'あ'.repeat(2_048 - suffix.length - 1)}\ud800`
+		completeTool('long', `${head}\udc00${'終'.repeat(3_000)}`)
+		const snapshot = monitor.getSnapshot()[0]
+		expect(snapshot?.description).toBe(short)
+		expect(snapshot?.prompt).toBe(short)
+		expect(snapshot?.transcript[0]).toMatchObject({ kind: 'tool', detail: short })
+		expect(snapshot?.transcript[1]).toMatchObject({ kind: 'tool', detail: head + suffix })
+		const clipped = snapshot?.transcript[1]
+		expect(clipped?.kind === 'tool' && clipped.detail?.length).toBe(2_048)
+	})
+
+	it('keeps UTF-16 streaming text while retaining only the capped recent tail', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'stream', prompt: 'x' })
+		const append = (text: string) =>
+			tracker.onEvent({
+				type: 'text_delta',
+				sessionId,
+				turnId,
+				iteration: 1,
+				messageId: 'unicode-stream' as never,
+				text,
+			} as SessionEvent)
+		const short = '\udc00漢😀\ud800'
+		append(short)
+		append('末\udc00')
+		expect(monitor.getSnapshot()[0]?.transcript[0]?.text).toBe(`${short}末\udc00`)
+		const end = '\udc00尾\ud800'
+		append('界'.repeat(3_000) + end)
+		const prefix = '… [earlier text clipped]\n'
+		const text = monitor.getSnapshot()[0]?.transcript[0]?.text
+		expect(text).toBe(prefix + '界'.repeat(2_048 - prefix.length - end.length) + end)
+		expect(text?.length).toBe(2_048)
+	})
+
 	it('coalesces high-frequency progress into one notification window', () => {
 		vi.useFakeTimers()
 		const monitor = new SubagentActivityMonitor()

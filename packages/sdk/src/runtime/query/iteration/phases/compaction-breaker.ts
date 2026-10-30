@@ -8,9 +8,9 @@
  *   line and a `breaker_open` event, no sentence); a pass the provider forces
  *   by rejecting the prompt is not gated, so the reactive ladder still runs.
  * - Three compactions in a row, each followed by the history regaining all
- *   space shed within three iterations: something in the loop (a huge file
- *   read, a tool that prints without limit) refills the window faster than a
- *   summary can empty it. The turn stops, because carrying on buys the same wall.
+ *   space shed within three iterations: conversation growth refills the space
+ *   freed. Even small outputs can do this when a summary leaves little room.
+ *   The turn stops, because carrying on buys the same wall.
  *
  * Off unless `compactionConfig.circuitBreaker` is true: stopping compaction,
  * and above all stopping a turn, is not something a host had before.
@@ -49,12 +49,12 @@ export const COMPACTION_REFILL_ITERATIONS = 3
 export const COMPACTION_REFILL_LIMIT = 3
 
 /**
- * One short line, shown once, when the turn stops on refills. It names the
- * cause and a step that keeps the conversation: starting over is never
- * offered here.
+ * Shown once when the turn stops on refills. Explain context pressure without
+ * inferring the size of any individual output; suggest steps that preserve
+ * the conversation.
  */
 export const COMPACTION_REFILL_MESSAGE =
-	'The context filled up again right after being compacted, three times in a row. A file being read or a tool output is probably too large for the context window. Try reading it in smaller parts.'
+	'The context filled up again right after being compacted, three times in a row. Compaction may have left too little room, even for small outputs. Check the configured model context window; limit tool output or read files in smaller parts.'
 
 export class CompactionBreaker {
 	private failures = 0

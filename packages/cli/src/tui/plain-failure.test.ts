@@ -1,3 +1,4 @@
+import { NamzuError } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -8,6 +9,30 @@ import {
 } from './plain-failure.js'
 
 describe('a failure the app hit itself', () => {
+	it('shows the memory lock path and recovery condition without requiring debug mode', () => {
+		const error = new NamzuError({
+			code: 'storage_error',
+			message: 'Memory operation lock acquisition timed out.',
+			details: { lockPath: '/fixture/memory/operation.lock', timeoutMs: 10_000 },
+		})
+		const text = explainFailure(error, 'Stored memory index not loaded.', false)
+		expect(text).toContain('Stored memory is locked at /fixture/memory/operation.lock.')
+		expect(text).toContain('Close Namzu sessions using this memory store')
+		expect(text).toContain('inspect the lock owner')
+		expect(text).not.toContain('--debug')
+	})
+
+	it('does not diagnose other storage failures as an occupied memory lock', () => {
+		for (const details of [undefined, {}, { lockPath: '/fixture', timeoutMs: '10000' }]) {
+			const error = new NamzuError({
+				code: 'storage_error',
+				message: 'Unexpected storage failure.',
+				...(details ? { details } : {}),
+			})
+			expect(explainFailure(error, 'Stored memory index not loaded.', false)).toContain('--debug')
+		}
+	})
+
 	it('maps known causes to a sentence', () => {
 		const eacces = Object.assign(new Error("EACCES: permission denied, open '/x/y'"), {
 			code: 'EACCES',

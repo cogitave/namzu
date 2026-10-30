@@ -143,13 +143,22 @@ turn:
   deeper rung of the same overflow is not counted again). A tool that fills the window on every call is stopped on its third
   refill (the fourth overflow, including the initial one), not after the cleared placeholders fill the window. The turn stops with stop reason
   `error` and a `compaction_failed` event with `cause: 'refilling'` (sent once;
-  `error` is the line to show, and it is the turn's last error). The line names
-  the cause (a file being read or a tool output too large for the window) and
-  suggests reading it in smaller parts; it never suggests starting over.
+  `error` is the line to show, and it is the turn's last error). Small outputs
+  can also refill the window when compaction frees little space. The line
+  suggests checking the configured model window and limiting tool output or
+  reading files in smaller parts; it does not diagnose a large file from the
+  refill count alone and never suggests starting over. A family-name lookup
+  for a custom gateway model is a fallback, not verified provider capacity.
 
 Here the counts are per turn, not kept across the session.
 
 ## Output limits
+
+Bounded model-output previews and tool presentation windows own their short
+strings. Retaining a preview therefore does not keep a much larger source
+string alive through a shared slice. This preserves UTF-16 text and existing
+character/byte limits; it does not bound an entire turn's heap or change the
+full outputs available through retained-output recovery.
 
 `query({ maxOutputContinuations })` caps how many times in a row the loop
 nudges the model to carry on after a reply was cut at its output limit; the

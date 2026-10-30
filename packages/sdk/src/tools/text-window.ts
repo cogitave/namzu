@@ -1,4 +1,5 @@
 import type { ToolTextWindow } from '../types/tool/presentation.js'
+import { copyString } from '../utils/copy-string.js'
 
 /** Lines kept from the start and from the end of a long text. */
 export const WINDOW_HEAD_LINES = 80
@@ -36,7 +37,7 @@ export function windowText(
 	const lines = body.length === 0 ? [] : body.split('\n')
 	const totalLines = lines.length
 	if (totalLines <= WINDOW_HEAD_LINES + WINDOW_TAIL_LINES && body.length <= WINDOW_HALF_CHARS * 2) {
-		return { head: body, totalLines, totalBytes }
+		return { head: copyString(body), totalLines, totalBytes }
 	}
 	const headLines = lines.slice(0, WINDOW_HEAD_LINES)
 	const tailLines =
@@ -47,8 +48,8 @@ export function windowText(
 	const tail = clipTail(tailLines.join('\n'), WINDOW_HALF_CHARS)
 	const omittedLines = totalLines - headLines.length - tailLines.length
 	return {
-		head,
-		...(tail ? { tail } : {}),
+		head: copyString(head),
+		...(tail ? { tail: copyString(tail) } : {}),
 		...(omittedLines > 0 ? { omittedLines } : {}),
 		totalLines,
 		totalBytes,

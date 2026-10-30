@@ -29,7 +29,10 @@ export function explainFailure(
 	const code = codeOf(err)
 	const name = err instanceof Error ? err.name : ''
 	let cause: string | undefined
-	if (code === 'EACCES' || code === 'EPERM') {
+	const lockPath = memoryLockPath(err)
+	if (lockPath !== undefined) {
+		cause = `Stored memory is locked at ${homePath(lockPath)}. Close Namzu sessions using this memory store and inspect the lock owner before recovering the lock.`
+	} else if (code === 'EACCES' || code === 'EPERM') {
 		cause = 'Namzu does not have permission to write its files.'
 	} else if (code === 'ENOSPC') {
 		cause = 'The disk is full.'
@@ -50,6 +53,27 @@ export function explainFailure(
 	if (debug && err instanceof Error && err.message)
 		return `${couldNot} Details: ${err.message}${/[.!?]$/.test(err.message) ? '' : '.'}`
 	return `${couldNot} Run with --debug for details.`
+}
+
+/** These structured fields belong to the memory operation lock, not every storage failure. */
+function memoryLockPath(err: unknown): string | undefined {
+	if (codeOf(err) !== 'storage_error' || !err || typeof err !== 'object' || !('details' in err))
+		return undefined
+	const details = err.details
+	if (
+		!details ||
+		typeof details !== 'object' ||
+		!('lockPath' in details) ||
+		!('timeoutMs' in details)
+	)
+		return undefined
+	return typeof details.lockPath === 'string' &&
+		details.lockPath.length > 0 &&
+		typeof details.timeoutMs === 'number' &&
+		Number.isSafeInteger(details.timeoutMs) &&
+		details.timeoutMs > 0
+		? details.lockPath
+		: undefined
 }
 
 /** The sentence for a working directory Namzu cannot start in; the folder is written with `~`. */

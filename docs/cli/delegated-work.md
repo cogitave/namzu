@@ -732,6 +732,12 @@ and per-run `children/` directories, are not read and do not appear.
 The child's log is the full durable record, not the receipt's 16,000-character
 preview, and the agent cockpit opens it.
 
+A live monitor transcript keeps at most 120 rows per agent and 2,048 UTF-16 code
+units per row field. Its retained previews own their short strings, so a
+clipped row does not retain the backing storage of an entire large tool result.
+These display bounds do not replace the saved child transcript or bound all
+memory used by a running agent.
+
 A child leaves the live monitor for two ordinary reasons: the monitor retains 80
 agents and evicts the oldest beyond that, and a restarted CLI has no live monitor
 at all. In both cases the cockpit lists the child from its log instead. Children
