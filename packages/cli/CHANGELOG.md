@@ -1,5 +1,20 @@
 # @namzu/cli
 
+## 44.1.1
+
+### Patch Changes
+
+- 60ca139: Prevent bounded tool previews and delegated-agent activity rows from retaining the backing storage of much larger source strings. Visible text, output limits and retained full-output recovery are unchanged; copied previews preserve all UTF-16 code units.
+
+  Explain that repeated compaction refills can result from little reclaimed space even with small outputs. Suggest checking the model context window instead of diagnosing an oversized file from the refill count alone. The compaction safety limits remain unchanged.
+
+- 60ca139: Release this process's session writer leases before a normal or reported-error binary exit. Closing the TUI while query cleanup is unfinished no longer leaves an otherwise idle conversation refusing immediate resume until its five-minute lease expires. Signal shutdown and embedded command calls retain their existing ownership behavior.
+
+  Show an occupied stored-memory lock's path and recovery instructions without requiring debug mode. Memory locks remain separate from session leases and are not removed automatically.
+
+- Updated dependencies [60ca139]
+  - @namzu/sdk@58.1.1
+
 ## 44.1.0
 
 ### Minor Changes
