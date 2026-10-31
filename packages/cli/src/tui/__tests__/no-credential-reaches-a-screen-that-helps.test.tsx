@@ -271,8 +271,10 @@ describe('launching with a saved provider and no credential', () => {
 			await until(screen, 'Choose a way to use Zen')
 			screen.press('\r')
 			await until(screen, 'Choose a model')
+			// The heading draws before the provider has answered ("Asking Zen what it
+			// has…"); wait for the list itself, not just the box around it.
+			await until(screen, 'Muse Spark Free')
 			expect(text(screen)).toContain('Space Bunny Free')
-			expect(text(screen)).toContain('Muse Spark Free')
 			screen.press('\r')
 			await until(screen, 'Type a message')
 			expect(world.built?.providers[0]).toEqual({
@@ -324,6 +326,8 @@ describe('launching with a saved provider and no credential', () => {
 			screen.press('\r')
 			await until(screen, 'Choose a model')
 			expect(screen.viewport().join('\n')).toContain('this conversation and future launches')
+			// The list loads after the heading; ↓ before it arrives moves nothing.
+			await until(screen, 'Flash')
 			screen.press('\x1b[B')
 			screen.press('\r')
 			await vi.waitFor(async () => {
