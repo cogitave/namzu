@@ -53,7 +53,7 @@ describe.each(backends)('$name', (backend) => {
 			createdAt: '2026-09-21T09:00:01.000Z',
 		})
 		expect(valid?.parentId).toBeUndefined()
-		expect(valid?.headSeq).toBe(24)
+		expect(valid?.headSeq).toBe(25)
 		expect(valid?.headSha256).toMatch(/^[a-f0-9]{64}$/)
 
 		const child = await index.getSession(sid('child'))

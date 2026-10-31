@@ -1,5 +1,13 @@
 # Documentation update log
 
+## 2026-10-31
+- **Update** [Accounts in the terminal](cli/accounts.md): an account whose provider gave no return time is listed as "may be limited" with no time made up, keeps its place in the list, is skipped by the automatic switch, and clears after an hour or on a reply that works. Cancelling a Codex sign-in is also safe when the cancel lands while the tool is starting.
+- **Creation** [Accounts in the terminal](cli/accounts.md): `/auth` (list, `add`, `<name>`) binds one conversation to an account from its next reply, `--account` starts on one, `ProviderChoice.account` pins one, and a spent allowance stops the reply with one "continue with another account" action (API-key accounts may switch by themselves when allowed). Also in [Slash commands](cli/slash-commands.md) and [Launch flags](cli/launch-flags.md). `.changeset/auth-accounts.md` (`@namzu/cli` minor).
+- **Update** [Accounts](sdk/accounts.md): the CLI's per-account Codex reader refreshes a private `auth.json` in place under the account lock. `.changeset/codex-home-account-reader.md` (`@namzu/cli` patch).
+- **Update** [Accounts](sdk/accounts.md): `codex-home` accounts belong to the codex provider only, API-key accounts may carry a `baseUrl` and `defaultModel`, and a throttle or rejected request that names a spent allowance classifies as `usage_limit`. `.changeset/account-registry.md` is now `@namzu/sdk` major (a spent allowance is no longer retried; two unions gain a member).
+- **Update** [Accounts](sdk/accounts.md): stale store locks are reclaimed and mutations wait for a live holder, overlapping Codex directories are rejected, and spent-allowance responses classify to `usage_limit`. `.changeset/account-registry.md` updated.
+- **Creation** [Accounts](sdk/accounts.md): the account registry, `accounts.json`, the per-account refresh lock, the `account_bound` record (also in [Session log](sdk/session-log.md)) and the `usage_limit` error code. Peer-record readers now keep a record carrying fields they do not know. `.changeset/account-registry.md` (`@namzu/sdk` minor), `.changeset/peer-record-reader-tolerance.md` (`@namzu/sdk` patch).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).

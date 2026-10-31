@@ -25,6 +25,7 @@ import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
+	type AccountBoundReason,
 	DiskSessionGoalStore,
 	DiskSessionLog,
 	type Message,
@@ -43,6 +44,7 @@ import {
 	type TenantId,
 	type TopicId,
 	type UserMessage,
+	accountBoundPayload,
 	asSessionId,
 	asTopicId,
 	ensureProject,
@@ -55,6 +57,7 @@ import {
 	slugForCwd,
 } from '@namzu/sdk'
 import { palAtWorkspace } from '../../pals/store.js'
+import { isDefaultAccountId } from '../accounts/binding.js'
 import {
 	type PullRequestLink,
 	pullRequestOfRecords,
@@ -296,6 +299,37 @@ function topicIdFor(projectId: ProjectId): TopicId {
 }
 
 // ─── the log ──────────────────────────────────────────────────────────────
+
+/**
+ * Record which account a conversation now runs under. Written between turns,
+ * under the writer lease, and only for an account other than the provider's
+ * usual sign-in: a conversation that never leaves it writes nothing. Writes
+ * nothing when the log already ends in this binding, so a rebuilt session or a
+ * resume does not repeat it. Returns whether a record was written.
+ */
+export async function recordAccountBound(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+	binding: {
+		readonly accountId: string
+		readonly provider: string
+		readonly reason: AccountBoundReason
+	},
+): Promise<boolean> {
+	const facts = await readConversationFacts(s, sessionId, 'tolerant')
+	let last: string | undefined
+	for (const record of facts?.records ?? []) {
+		if (record.type === 'account_bound' && record.provider === binding.provider) {
+			last = record.accountId
+		}
+	}
+	if (last === binding.accountId) return false
+	// Nothing to undo: a conversation that never left the usual sign-in writes nothing.
+	if (last === undefined && isDefaultAccountId(binding.accountId)) return false
+	const payload = accountBoundPayload(binding.accountId, binding.provider, binding.reason)
+	await appendOutsideTurn(s, sessionId, [payload], 'record account')
+	return true
+}
 
 /** The file a root conversation's log lives in. */
 export function conversationLogPath(s: Pick<CliSessions, 'paths'>, sessionId: SessionId): string {

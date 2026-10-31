@@ -800,6 +800,21 @@ export type {
 	ResolvePeerRuntimeDirOptions,
 } from './peers/dir.js'
 export type { PeerRecord } from './peers/record.js'
+export type { AccountBoundRecord } from './types/session/records.js'
+export type {
+	Account,
+	AccountBoundReason,
+	AccountCredentialReaders,
+	AccountId,
+	AccountLockOptions,
+	AccountLockSyncOptions,
+	AccountRegistry,
+	AccountRegistryOptions,
+	AccountSource,
+	BoundAccount,
+	NewAccount,
+	ResolvedAccountCredential,
+} from './account/index.js'
 export type {
 	ListLivePeersOptions,
 	PeerLivenessOptions,

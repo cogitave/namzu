@@ -289,3 +289,46 @@ describe('a provider with no bundled driver', () => {
 		)
 	})
 })
+
+describe('an account on a chain member', () => {
+	it('is kept on a round trip, and a file without one reads as before', () => {
+		const home = tmpHome()
+		writePreferences(
+			{ version: 3, providers: [{ id: 'openai', model: 'm', account: 'openai:work' }] },
+			home,
+		)
+		const read = readPreferences(home)
+		expect(read.status === 'ok' && read.prefs.providers[0]).toEqual({
+			id: 'openai',
+			model: 'm',
+			account: 'openai:work',
+		})
+		writePreferences({ version: 3, providers: [{ id: 'openai' }] }, home)
+		const plain = readPreferences(home)
+		expect(plain.status === 'ok' && plain.prefs.providers[0]).toEqual({ id: 'openai' })
+	})
+
+	it('lets one provider appear twice when the accounts differ, and refuses an empty account', () => {
+		const home = tmpHome()
+		expect(() =>
+			writePreferences(
+				{
+					version: 3,
+					providers: [
+						{ id: 'openai', account: 'openai:a' },
+						{ id: 'openai', account: 'openai:b' },
+					],
+				},
+				home,
+			),
+		).not.toThrow()
+		expect(() =>
+			writePreferences({ version: 3, providers: [{ id: 'openai' }, { id: 'openai' }] }, home),
+		).toThrow(/repeats/)
+		writeFileSync(
+			join(home, '.namzu', 'preferences.json'),
+			JSON.stringify({ version: 3, providers: [{ id: 'openai', account: '' }] }),
+		)
+		expect(() => readPreferences(home)).toThrow(/unexpected shape/)
+	})
+})

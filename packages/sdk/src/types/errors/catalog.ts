@@ -165,6 +165,12 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		hint: 'Check that the API key is set, is not expired, and belongs to the account the model is billed to. Retrying will not help until it changes.',
 	},
 	{
+		id: 'provider.usage_limit',
+		when: (facts) => facts.code === 'usage_limit',
+		message: 'The account has used up its allowance until the limit resets.',
+		hint: 'Waiting inside this turn cannot help. Continue on another account or provider, or resume after the reset time the provider reported.',
+	},
+	{
 		id: 'provider.rate_limit',
 		when: (facts) => facts.code === 'rate_limit' || facts.status === 429,
 		message: 'The provider is rate limiting this turn.',

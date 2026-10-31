@@ -20,7 +20,7 @@ import {
 import { basename, dirname, join } from 'node:path'
 import { parsePeerAddress } from './address.js'
 import { pingPeer } from './client.js'
-import { type PeerRecord, PeerRecordSchema } from './record.js'
+import { type PeerRecord, PeerRecordReaderSchema, PeerRecordSchema } from './record.js'
 
 const RECORD_FILE_MODE = 0o600
 
@@ -75,7 +75,7 @@ function parseRecordText(text: string): PeerRecord | undefined {
 	} catch {
 		return undefined
 	}
-	const result = PeerRecordSchema.safeParse(parsed)
+	const result = PeerRecordReaderSchema.safeParse(parsed)
 	return result.success ? result.data : undefined
 }
 
