@@ -9,7 +9,10 @@ import {
 	type PullRequestFilter,
 	matchesPullRequestFilter,
 } from '../integrations/github/pull-request.js'
+import { displayConversationTitle } from '../integrations/sessions/display-title.js'
 import type { RecentConversation } from '../integrations/sessions/store.js'
+
+import { plural } from './person-terms.js'
 
 /** Which conversations the picker lists. */
 export type ResumeScope = 'folder' | 'all'
@@ -103,4 +106,34 @@ export function editLine(text: string, key: LineKey): string | null {
 /** What the picker's header says about the list it shows. */
 export function resumeScopeLabel(scope: ResumeScope): string {
 	return scope === 'all' ? 'All folders' : 'This folder'
+}
+
+/**
+ * What tells apart rows that read the same: two conversations opened with the
+ * same words share a title, so each of them carries how it ended (its last
+ * prompt) or, when that matches too, how long it is. Rows with a title of their
+ * own get nothing.
+ */
+export function distinguishingTails(
+	conversations: readonly RecentConversation[],
+): ReadonlyMap<string, string> {
+	const titleOf = (conversation: RecentConversation) =>
+		displayConversationTitle(conversation.title).trim().toLowerCase()
+	const groups = new Map<string, RecentConversation[]>()
+	for (const conversation of conversations) {
+		const group = groups.get(titleOf(conversation))
+		if (group) group.push(conversation)
+		else groups.set(titleOf(conversation), [conversation])
+	}
+	const tails = new Map<string, string>()
+	for (const group of groups.values()) {
+		if (group.length < 2) continue
+		const lasts = group.map((conversation) => conversation.preview?.trim() ?? '')
+		for (const [index, conversation] of group.entries()) {
+			const last = lasts[index] as string
+			const unique = last !== '' && lasts.filter((other) => other === last).length === 1
+			tails.set(conversation.id, unique ? `last: ${last}` : plural(conversation.count, 'message'))
+		}
+	}
+	return tails
 }

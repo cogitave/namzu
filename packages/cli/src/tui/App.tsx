@@ -353,7 +353,7 @@ import {
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
-import { buildContextRow } from './context-usage.js'
+import { buildContextRow, effectiveContextWindow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { isSessionPlanPath } from './display-path.js'
@@ -638,6 +638,9 @@ import {
 	listReviewCommits,
 	reviewMergeBase,
 } from './workspace-review.js'
+
+/** The footer notice that says what auto mode does; leaving the mode takes it away. */
+const AUTO_MODE_NOTICE_KEY = 'auto-mode'
 
 /** How long `/exit` waits for the session to close before leaving anyway. */
 const SESSION_CLOSE_ON_EXIT_MS = 5_000
@@ -2652,6 +2655,8 @@ function AppBody({
 			mode: () => permissionModeRef.current,
 		})
 	}
+	/** Calls whose question the person closed with Ctrl+C, so their rows read as stopped, not declined. */
+	const stoppedAtPromptRef = useRef(new Set<string>())
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
 	/** Open while any question waits on the person; the background learning cycle reads it. */
@@ -2668,6 +2673,8 @@ function AppBody({
 				setPermissionReason(null)
 				permissionShownRef.current = pending
 				if (pending) {
+					// Nothing is being read while the person is asked: settle the counted line.
+					readSearchGroup.close()
 					// Every question gets its own settle window, so a key aimed at the
 					// last one cannot answer the next.
 					permissionOpenedAtRef.current = Date.now()
@@ -4199,13 +4206,17 @@ function AppBody({
 				// Shift+Tab is a reflex and its reply is the footer, but this mode
 				// hands decisions to a second model, which is worth saying once.
 				autoModeNoticeShownRef.current = true
-				pushMessage(
-					'system',
-					'Auto mode: a second model checks each call you would be asked about.',
-				)
+				// A passing notice in the footer, not a transcript row: it describes the
+				// mode now on, and a row would still be claiming that after the mode left.
+				addNotice({
+					key: AUTO_MODE_NOTICE_KEY,
+					text: 'Auto mode: a second model checks each call you would be asked about.',
+					priority: 'immediate',
+				})
 			}
+			if (mode !== 'classify') removeNotice(AUTO_MODE_NOTICE_KEY)
 		},
-		[pushMessage, rulesChanged, session],
+		[addNotice, pushMessage, removeNotice, rulesChanged, session],
 	)
 
 	const applyPermissionMode = useCallback(
@@ -9021,6 +9032,7 @@ function AppBody({
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
 						cwd: ctxRef.current.cwd,
+						stoppedByPerson: stoppedAtPromptRef.current.delete(event.toolUseId),
 					})
 					if (built.kind === 'task-block') {
 						writeTaskBlock(st, null, tasksRef.current)
@@ -9056,11 +9068,14 @@ function AppBody({
 							? {
 									context: {
 										tokens: event.contextTokens,
-										windowTokens: event.contextWindowTokens,
 										measured: event.contextMeasuredBy === 'provider',
-										windowAssumed:
-											event.windowSource !== 'provider' && event.windowSource !== 'config',
-										...(event.windowSource ? { windowSource: event.windowSource } : {}),
+										...effectiveContextWindow(
+											{
+												windowTokens: event.contextWindowTokens,
+												...(event.windowSource ? { windowSource: event.windowSource } : {}),
+											},
+											ctxRef.current.compaction?.autoCompactWindowTokens,
+										),
 									},
 								}
 							: {}),
@@ -13695,6 +13710,8 @@ function AppBody({
 					// At a question of the person's own turn, Ctrl+C ends like a plain No:
 					// the kernel settles every call and the turn closes with one row.
 					if (permission && endsTurnOnNo(permission)) {
+						// Not an answer to the question: the rows for these calls say so.
+						for (const call of permission.toolCalls) stoppedAtPromptRef.current.add(call.id)
 						resolvePermission(plainNo(true))
 						return
 					}

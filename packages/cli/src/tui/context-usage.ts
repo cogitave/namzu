@@ -33,6 +33,35 @@ import {
 import { displayPath } from './display-path.js'
 import { type SlashContext, contextCleanupLines, renderContext } from './slashCommands.js'
 
+/**
+ * The window compaction measures against. A configured auto-compact window
+ * lowers the model's window (it can never raise it), so what the meter and
+ * `/context` call the window is the smaller of the two, and it came from the
+ * configuration.
+ */
+export function effectiveContextWindow(
+	reported: {
+		readonly windowTokens: number
+		readonly windowSource?: ContextSources['context']['windowSource']
+	},
+	autoCompactWindowTokens: number | undefined,
+): {
+	readonly windowTokens: number
+	readonly windowSource?: ContextSources['context']['windowSource']
+	readonly windowAssumed: boolean
+} {
+	const lowered =
+		autoCompactWindowTokens !== undefined &&
+		autoCompactWindowTokens > 0 &&
+		autoCompactWindowTokens < reported.windowTokens
+	const source = lowered ? 'config' : reported.windowSource
+	return {
+		windowTokens: lowered ? (autoCompactWindowTokens as number) : reported.windowTokens,
+		...(source ? { windowSource: source } : {}),
+		windowAssumed: source !== 'provider' && source !== 'config',
+	}
+}
+
 export interface ContextSources {
 	/** The latest report from the kernel; the view needs its window. */
 	readonly context: {

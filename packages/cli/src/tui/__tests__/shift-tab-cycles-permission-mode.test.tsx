@@ -283,6 +283,16 @@ describe('Shift+Tab and the two modes that stop asking', () => {
 		)
 	})
 
+	it('stops saying what auto does once the mode has been left', async () => {
+		autoModeUsable = true
+		const harness = await mountReady()
+		await press(harness, 3)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('a second model checks'))
+		await press(harness, 1)
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('auto mode on'))
+		expect(harness.lastFrame() ?? '').not.toContain('a second model checks')
+	})
+
 	it('never reaches bypass or auto when the settings switched auto off and nothing opened bypass', async () => {
 		autoModeUsable = true
 		const harness = await mountReady({

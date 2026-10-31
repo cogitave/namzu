@@ -11,7 +11,12 @@ import { displayConversationTitle } from '../integrations/sessions/display-title
 import type { RecentConversation } from '../integrations/sessions/store.js'
 import { boxedHintWidth, fitHints } from './key-hints.js'
 import { plural } from './person-terms.js'
-import { type ResumeScope, openingLines, resumeScopeLabel } from './resume-picker-state.js'
+import {
+	type ResumeScope,
+	distinguishingTails,
+	openingLines,
+	resumeScopeLabel,
+} from './resume-picker-state.js'
 import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
@@ -41,6 +46,7 @@ export function ResumePicker({
 	const { stdout } = useStdout()
 	const showPreview = (stdout.rows ?? 24) >= 20
 	const { start, items: visible } = selectionWindow(conversations, selected)
+	const tails = distinguishingTails(conversations)
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
@@ -103,6 +109,7 @@ export function ResumePicker({
 									{c.named
 										? `"${displayConversationTitle(c.title)}"`
 										: displayConversationTitle(c.title)}
+									{tails.has(c.id) && <Text color={theme.text.muted}> · {tails.get(c.id)}</Text>}
 								</Text>
 							</Box>
 							{c.pr !== undefined && (
