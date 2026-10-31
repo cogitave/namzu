@@ -69,7 +69,12 @@ describe('placing panes', () => {
 		const zoomed = placeTab({ root, focus: b, zoomed: true }, AREA)
 		expect(zoomed.panes).toHaveLength(1)
 		expect(zoomed.panes[0]).toMatchObject({ entry: b, outer: AREA })
-		expect(zoomed.panes[0]?.inner).toEqual({ x: 27, y: 2, width: 132, height: 42 })
+		expect(zoomed.panes[0]?.inner).toEqual({
+			x: 27,
+			y: 2,
+			width: 132,
+			height: 42,
+		})
 		expect(zoomed.bordered).toBe(true)
 		expect(placeTab({ root: leaf(b), focus: b, zoomed: true }, AREA).bordered).toBe(false)
 	})
@@ -120,18 +125,24 @@ describe('changing the tree', () => {
 		expect(leaves(root)).toEqual([c, b, a])
 	})
 
-	it('resizes the nearest split of the right direction, from either side', () => {
+	it('moves the border toward the key, whichever side the pane is on', () => {
 		const { a, b, c, root } = threePanes()
 		const split = root as Extract<Node, { kind: 'split' }>
+		const inner = split.b as Extract<Node, { kind: 'split' }>
+		// Right raises the ratio for the pane on the first side: its own right border.
 		expect(resizeAt(root, a, 'side', true)).toBe(true)
 		expect(split.ratio).toBeCloseTo(0.55)
-		// b is on the second side, so growing it moves the border the other way.
+		// b has no border on its right, so the border on its left moves right as well.
 		expect(resizeAt(root, b, 'side', true)).toBe(true)
-		expect(split.ratio).toBeCloseTo(0.5)
-		// Height belongs to the inner split, which only b and c are in.
-		const inner = split.b as Extract<Node, { kind: 'split' }>
-		expect(resizeAt(root, c, 'stack', true)).toBe(true)
+		expect(split.ratio).toBeCloseTo(0.6)
+		// Left lowers it, from the second side where that border is b's own.
+		expect(resizeAt(root, b, 'side', false)).toBe(true)
+		expect(split.ratio).toBeCloseTo(0.55)
+		// Height belongs to the inner split, which only b and c are in: up lowers it.
+		expect(resizeAt(root, c, 'stack', false)).toBe(true)
 		expect(inner.ratio).toBeCloseTo(0.45)
+		expect(resizeAt(root, b, 'stack', true)).toBe(true)
+		expect(inner.ratio).toBeCloseTo(0.5)
 		expect(resizeAt(root, a, 'stack', true)).toBe(false)
 		// It stops at the limits.
 		for (let i = 0; i < 20; i++) resizeAt(root, a, 'side', true)

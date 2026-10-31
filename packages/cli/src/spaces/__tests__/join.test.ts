@@ -59,7 +59,11 @@ function sessionsOf(space: SavedSpace | undefined): SavedSession[] {
 
 /** A space whose sessions each sit alone in a tab. */
 function tabsOf(name: string, cwd: string, sessions: SavedSession[]): SavedSpace {
-	return { name, cwd, tabs: sessions.map((session) => ({ tree: { session } })) }
+	return {
+		name,
+		cwd,
+		tabs: sessions.map((session) => ({ tree: { session } })),
+	}
 }
 
 const nav = (t: ReturnType<typeof setup>, keys: string) => {
@@ -98,12 +102,14 @@ describe('accounts in the sidebar', () => {
 })
 
 describe('starting a session on an account', () => {
-	it('starts at once when there are no extra accounts', () => {
+	it('starts at once when there are no extra accounts', async () => {
 		const { t, requests } = rig({ accounts: () => [] })
 		t.host.start()
 		nav(t, 'c')
 		expect(t.spawned).toHaveLength(2)
 		expect(requests[1]?.account).toBeUndefined()
+		// The new tab asks for a name; an empty one keeps the number.
+		expect(await text(t)).toContain('Tab name:')
 	})
 
 	it('asks which account, defaults to the one the space used last, and remembers the pick', async () => {
@@ -116,14 +122,17 @@ describe('starting a session on an account', () => {
 		expect(asking).toContain('Usual sign-in')
 		t.type('j')
 		t.type('\r')
+		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-a')
 		// Next time the picker opens on that account: enter alone repeats it.
 		nav(t, 'c')
+		t.type('\r')
 		t.type('\r')
 		expect(requests[2]?.account).toBe('openai:free-a')
 		// Moving down and choosing the second one.
 		nav(t, 'c')
 		t.type('j')
+		t.type('\r')
 		t.type('\r')
 		expect(requests[3]?.account).toBe('openai:free-b')
 	})
@@ -143,6 +152,7 @@ describe('starting a session on an account', () => {
 		peers.publish('slot-1', 'idle', { account: 'free-b' })
 		nav(t, 'c')
 		t.type('\r')
+		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-b')
 	})
 
@@ -152,6 +162,7 @@ describe('starting a session on an account', () => {
 		t.host.start()
 		nav(t, 'c')
 		t.type('j')
+		t.type('\r')
 		t.type('\r')
 		peers.publish('slot-2', 'idle', { account: 'free-b' })
 		expect(sessionsOf(t.host.snapshot().spaces[0])[1]?.pickedAccount).toBe('openai:free-b')
@@ -165,8 +176,12 @@ describe('remembering the layout', () => {
 		const store = new MemoryStore()
 		const { t, peers } = rig({ store, accounts: () => ACCOUNTS })
 		t.host.start()
-		peers.publish('slot-1', 'idle', { account: 'free-a', conversationId: 'conv-1' })
+		peers.publish('slot-1', 'idle', {
+			account: 'free-a',
+			conversationId: 'conv-1',
+		})
 		nav(t, 'c')
+		t.type('\r')
 		t.type('\r')
 		await t.frame()
 		expect(store.saved).toHaveLength(1)
@@ -188,6 +203,7 @@ describe('remembering the layout', () => {
 		t.host.start()
 		peers.publish('slot-1', 'idle', { conversationId: 'conv-1' })
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'x')
 		await t.frame()
 		expect(sessionsOf(store.last?.spaces[0])).toHaveLength(1)
@@ -225,7 +241,11 @@ describe('restoring the layout', () => {
 				{ label: 'notes' },
 			]),
 			tabsOf('site', '/work/site', [
-				{ label: 'session 1', conversationId: 'conv-b', pickedAccount: 'openai:free-b' },
+				{
+					label: 'session 1',
+					conversationId: 'conv-b',
+					pickedAccount: 'openai:free-b',
+				},
 			]),
 		],
 		focus: { space: 1 },
@@ -404,7 +424,11 @@ describe('reading the saved layout', () => {
 			],
 		})
 		const tabs = parsed?.spaces[0]?.tabs
-		expect(tabs?.[0]).toMatchObject({ tree: { ratio: 0.9 }, focus: 1, zoomed: true })
+		expect(tabs?.[0]).toMatchObject({
+			tree: { ratio: 0.9 },
+			focus: 1,
+			zoomed: true,
+		})
 		expect(tabs?.[1]).toEqual({ tree: pane('z') })
 		expect(parsed?.spaces[0]?.activeTab).toBeUndefined()
 	})
@@ -413,7 +437,11 @@ describe('reading the saved layout', () => {
 		const parsed = parseLayout({
 			version: 1,
 			spaces: [
-				{ name: 'a', cwd: '/a', sessions: [{ label: 'x', conversationId: 'c' }, { nope: 1 }] },
+				{
+					name: 'a',
+					cwd: '/a',
+					sessions: [{ label: 'x', conversationId: 'c' }, { nope: 1 }],
+				},
 				{ name: 'b', cwd: '/b', sessions: [] },
 				{
 					name: 'c',
@@ -435,7 +463,10 @@ describe('reading the saved layout', () => {
 			{ session: { label: 'q', account: 'free-a' } },
 			{ session: { label: 'r' } },
 		])
-		expect(parsed?.spaces[1]).toMatchObject({ lastAccount: 'openai:free-a', activeTab: 1 })
+		expect(parsed?.spaces[1]).toMatchObject({
+			lastAccount: 'openai:free-a',
+			activeTab: 1,
+		})
 		expect(parsed?.focus).toEqual({ space: 1 })
 		expect(parseLayout({ version: 1, spaces: [] })).toBeUndefined()
 	})

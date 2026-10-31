@@ -8,6 +8,8 @@ export interface Palette {
 	readonly panelBg: number
 	/** The tab bar's resting tabs. */
 	readonly surface: number
+	/** Text on a resting tab: dim, except where the 16 colours leave no contrast. */
+	readonly tabRest: number
 	/** The border of a pane without focus, and dim text. */
 	readonly dim: number
 	readonly dimmer: number
@@ -23,7 +25,7 @@ export interface Palette {
 
 type Rgb = readonly [number, number, number]
 
-const TRUE: Record<keyof Palette, Rgb> = {
+const TRUE: Record<Exclude<keyof Palette, 'tabRest'>, Rgb> = {
 	accent: [137, 180, 250],
 	panelBg: [24, 24, 37],
 	surface: [49, 50, 68],
@@ -83,9 +85,15 @@ export function advertisesTruecolor(env: NodeJS.ProcessEnv): boolean {
 /** The default palette in true colour, or its nearest 16 colours where that is not shown. */
 export function paletteFor(truecolor: boolean): Palette {
 	const out = {} as Record<keyof Palette, number>
-	for (const key of Object.keys(TRUE) as (keyof Palette)[]) {
+	for (const key of Object.keys(TRUE) as (keyof typeof TRUE)[]) {
 		const c = TRUE[key]
 		out[key] = truecolor ? rgb(c[0], c[1], c[2]) : nearestAnsi(c)
+	}
+	out.tabRest = out.dim
+	// Both would land on black; a raised tab keeps its look as bright black, with white text.
+	if (!truecolor && out.surface === out.panelBg) {
+		out.surface = 8
+		out.tabRest = 7
 	}
 	return out
 }

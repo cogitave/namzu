@@ -165,7 +165,10 @@ type Confirm = 'quit' | 'close-space'
 /** The account choice offered when a session is started. */
 interface Picker {
 	readonly space: Space
-	readonly choices: readonly { readonly id: string | undefined; readonly text: string }[]
+	readonly choices: readonly {
+		readonly id: string | undefined
+		readonly text: string
+	}[]
 	index: number
 }
 
@@ -681,7 +684,9 @@ export class SpacesHost {
 		} else if (c === 'q') {
 			if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
 			else this.confirm = 'quit'
-		} else if (c === '?') this.notice = 'v - split  h j k l focus  x close  z zoom  c tab  w spaces'
+		} else if (c === '?')
+			this.notice =
+				'v split right  - split down  h j k l focus  x close  z zoom  c tab  r resize  w spaces'
 	}
 
 	private resizeKey(key: NavKey): void {
@@ -689,13 +694,13 @@ export class SpacesHost {
 		const tab = this.roster.shownTab
 		if (!entry || !tab) return
 		let axis: SplitDir | undefined
-		let grow = false
+		let forward = false
 		const c = key.kind === 'char' ? key.char : ''
-		if (c === 'h' || key.kind === 'left') [axis, grow] = ['side', false]
-		else if (c === 'l' || key.kind === 'right') [axis, grow] = ['side', true]
-		else if (c === 'j' || key.kind === 'down') [axis, grow] = ['stack', true]
-		else if (c === 'k' || key.kind === 'up') [axis, grow] = ['stack', false]
-		if (axis && resizeAt(tab.root, entry, axis, grow)) {
+		if (c === 'h' || key.kind === 'left') [axis, forward] = ['side', false]
+		else if (c === 'l' || key.kind === 'right') [axis, forward] = ['side', true]
+		else if (c === 'j' || key.kind === 'down') [axis, forward] = ['stack', true]
+		else if (c === 'k' || key.kind === 'up') [axis, forward] = ['stack', false]
+		if (axis && resizeAt(tab.root, entry, axis, forward)) {
 			this.fit()
 			this.persist()
 		}
@@ -840,6 +845,9 @@ export class SpacesHost {
 		const created = this.newTabIn(space)
 		if (account !== undefined) created.pickedAccount = account
 		this.open(created)
+		// A new tab asks for its name; leaving it empty keeps the number.
+		this.askName('rename-tab', '')
+		this.router.capture(true)
 	}
 
 	/** Moves among the spaces, showing each one's tab without starting what it holds. */
@@ -1130,7 +1138,11 @@ export class SpacesHost {
 	}
 
 	/** What the bottom bar says in a mode: a chip, then keys and what they do. */
-	private modeBar(mode: InputMode): { chip: string; chipBg: number; hints: [string, string][] } {
+	private modeBar(mode: InputMode): {
+		chip: string
+		chipBg: number
+		hints: [string, string][]
+	} {
 		const prefix = this.options.prefix.name
 		if (mode === 'resize')
 			return {
@@ -1158,8 +1170,8 @@ export class SpacesHost {
 			hints: [
 				['esc', 'cancel'],
 				[prefix, 'send prefix'],
-				['v', 'split'],
-				['-', 'split'],
+				['v', 'split right'],
+				['-', 'split down'],
 				['x', 'close'],
 				['z', 'zoom'],
 				['c', 'tab'],
@@ -1177,7 +1189,11 @@ export class SpacesHost {
 		const put = (text: string, style: { fg: number; bg: number; attrs?: number }): void => {
 			x += frame.writeText({ ...area, x: area.x + x, width: area.width - x }, 0, text, style)
 		}
-		put(` ${bar.chip} `, { fg: palette.panelBg, bg: bar.chipBg, attrs: ATTR_BOLD })
+		put(` ${bar.chip} `, {
+			fg: palette.panelBg,
+			bg: bar.chipBg,
+			attrs: ATTR_BOLD,
+		})
 		put(' ', { fg: palette.dim, bg: palette.panelBg })
 		for (const [key, what] of bar.hints) {
 			put(key, { fg: palette.accent, bg: palette.panelBg, attrs: ATTR_BOLD })
@@ -1327,8 +1343,14 @@ export class SpacesHost {
 	private drawPicker(frame: Frame, main: Rect, picker: Picker): void {
 		const rows = Math.max(0, main.height - 3)
 		const top = Math.max(0, Math.min(picker.index - rows + 1, picker.choices.length - rows))
-		frame.fillRect({ ...main, y: main.y, height: Math.min(main.height, rows + 3) })
-		frame.writeText(main, 1, `  Start a session in ${picker.space.name} on:`, { attrs: ATTR_BOLD })
+		frame.fillRect({
+			...main,
+			y: main.y,
+			height: Math.min(main.height, rows + 3),
+		})
+		frame.writeText(main, 1, `  Start a session in ${picker.space.name} on:`, {
+			attrs: ATTR_BOLD,
+		})
 		picker.choices.slice(top, top + rows).forEach((choice, i) => {
 			const chosen = top + i === picker.index
 			frame.writeText(main, 3 + i, `  ${chosen ? '>' : ' '} ${choice.text}`, {
@@ -1344,7 +1366,12 @@ export class SpacesHost {
 		const selected = this.roster.selected
 		const saveNode = (node: Node): SavedNode => {
 			if (node.kind === 'split')
-				return { split: node.dir, ratio: node.ratio, a: saveNode(node.a), b: saveNode(node.b) }
+				return {
+					split: node.dir,
+					ratio: node.ratio,
+					a: saveNode(node.a),
+					b: saveNode(node.b),
+				}
 			const entry = node.entry
 			const conversationId = entry.conversationId ?? entry.resume
 			return {

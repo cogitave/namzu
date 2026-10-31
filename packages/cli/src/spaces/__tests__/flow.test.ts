@@ -28,6 +28,7 @@ describe('spaces and sessions', () => {
 		t.host.start()
 		expect((t.spawned[0] as FakePty).options.env).toEqual({ A: '1' })
 		nav(t, 'c')
+		t.type('\r')
 		expect(t.spawned).toHaveLength(2)
 		expect((t.spawned[1] as FakePty).options.cwd).toBe('/work/namzu')
 		// New sessions take the keyboard.
@@ -98,11 +99,13 @@ describe('spaces and sessions', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'x')
 		expect((t.spawned[1] as FakePty).kills).toEqual(['SIGHUP'])
 		expect(t.host.roster.entries).toHaveLength(1)
 		expect(t.host.roster.selected?.label).toBe('session 1')
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'D')
 		expect(await lines(t)).toContain('Close space "namzu" and')
 		t.type('n')
@@ -121,7 +124,9 @@ describe('spaces and sessions', () => {
 	})
 
 	it('starts a listed session only when its tab is first opened', async () => {
-		const { t } = rig({ listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }] })
+		const { t } = rig({
+			listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }],
+		})
 		t.host.start()
 		expect(t.spawned).toHaveLength(1)
 		nav(t, 'w')
@@ -138,7 +143,9 @@ describe('spaces and sessions', () => {
 	})
 
 	it('moves between spaces in navigate mode and between tabs with n, p and the number keys', () => {
-		const { t } = rig({ listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }] })
+		const { t } = rig({
+			listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }],
+		})
 		t.host.start()
 		nav(t, 'w')
 		t.type('j')
@@ -175,6 +182,7 @@ describe('status feed', () => {
 		const { t, peers } = rig({ listed: [] })
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		peers.publish('slot-1', 'idle')
 		peers.publish('slot-2', 'idle')
 		// The second session is shown; the first asks for approval in the background.
@@ -191,6 +199,7 @@ describe('status feed', () => {
 		const { t, peers } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'idle')
 		expect(t.host.roster.entries[0]?.unseen).toBe(false)
@@ -218,7 +227,9 @@ describe('status feed', () => {
 		const { t, peers } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'c')
+		t.type('\r')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'busy')
 		peers.publish('slot-3', 'idle')
@@ -234,6 +245,7 @@ describe('status feed', () => {
 		const { t, peers } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'idle')
 		// The record still says busy; the terminal itself says it is done.
@@ -269,6 +281,7 @@ describe('status feed', () => {
 		const { t, peers } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		peers.publish('slot-1', 'idle', { account: 'work' })
 		peers.publish('slot-2', 'idle')
 		const text = (await lines(t)).split('\n')
@@ -297,7 +310,9 @@ describe('mouse', () => {
 	const wheel = (up: boolean, x: number, y: number) => `\x1b[<${up ? 64 : 65};${x + 1};${y + 1}M`
 
 	it('clicks a space and a session', async () => {
-		const { t } = rig({ listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }] })
+		const { t } = rig({
+			listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }],
+		})
 		t.host.start()
 		let screen = await lines(t)
 		let row = screen.split('\n').findIndex((l) => l.includes('2 site'))

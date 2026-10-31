@@ -71,13 +71,21 @@ export function drawTabBar(frame: Frame, area: Rect, space: Space, palette: Pale
 	const bar = layoutTabBar(space, area)
 	for (const chip of bar.chips) {
 		const style: CellStyle = chip.active
-			? { fg: palette.panelBg, bg: palette.accent, ...(chip.tab.name ? { attrs: ATTR_BOLD } : {}) }
-			: { fg: palette.dim, bg: palette.surface }
+			? {
+					fg: palette.panelBg,
+					bg: palette.accent,
+					...(chip.tab.name ? { attrs: ATTR_BOLD } : {}),
+				}
+			: { fg: palette.tabRest, bg: palette.surface }
 		frame.fillRect(chip.rect, style)
 		const pad = Math.max(0, chip.rect.width - stringWidth(chip.label))
 		frame.writeText(chip.rect, 0, `${' '.repeat(Math.floor(pad / 2))}${chip.label}`, style)
 	}
-	if (bar.plus) frame.writeText(bar.plus, 0, ' + ', { fg: palette.dimmer, bg: palette.panelBg })
+	if (bar.plus)
+		frame.writeText(bar.plus, 0, ' + ', {
+			fg: palette.dimmer,
+			bg: palette.panelBg,
+		})
 }
 
 /** What a click at a cell of the bar lands on. */

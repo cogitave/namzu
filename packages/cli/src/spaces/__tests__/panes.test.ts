@@ -121,6 +121,7 @@ describe('splitting', () => {
 		nav(t, 'c')
 		t.type('j')
 		t.type('\r')
+		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-a')
 		nav(t, 'v')
 		expect(t.spawned).toHaveLength(3)
@@ -212,19 +213,19 @@ describe('zoom', () => {
 })
 
 describe('resize mode', () => {
-	it('moves the border with h and l until escape, growing the focused pane with l', async () => {
+	it('moves the border toward h and l until escape', async () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'v')
-		// The focused pane is on the right: growing it moves the border left.
+		// The focused pane is on the right: l moves the border to the right, so it shrinks.
 		nav(t, 'r')
 		expect((await rows(t)).at(-1) ?? '').toContain('RESIZE')
 		t.type('l')
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 39, rows: 27 })
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 31, rows: 27 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 39, rows: 27 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 31, rows: 27 })
 		t.type('h')
 		t.type('h')
-		expect(pty(t, 1).resizes.at(-1)?.cols).toBe(31)
+		expect(pty(t, 1).resizes.at(-1)?.cols).toBe(39)
 		t.type('\x1b')
 		t.type('l')
 		// Back with the session: the key is typed into it.
@@ -237,10 +238,10 @@ describe('resize mode', () => {
 		t.host.start()
 		nav(t, '-')
 		nav(t, 'r')
-		// The focused pane is the lower one: j grows it, so the upper one shrinks.
+		// The focused pane is the lower one: j moves the border down, so the upper one grows.
 		t.type('j')
-		expect(pty(t, 0).resizes.at(-1)?.rows).toBeLessThan(12)
-		expect(pty(t, 1).resizes.at(-1)?.rows).toBeGreaterThan(12)
+		expect(pty(t, 0).resizes.at(-1)?.rows).toBeGreaterThan(12)
+		expect(pty(t, 1).resizes.at(-1)?.rows).toBeLessThan(12)
 	})
 })
 
@@ -260,6 +261,7 @@ describe('closing panes', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		expect(t.host.roster.spaces[0]?.tabs).toHaveLength(2)
 		nav(t, 'x')
 		expect(t.host.roster.spaces[0]?.tabs).toHaveLength(1)
@@ -274,6 +276,7 @@ describe('tabs', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		let screen = await rows(t)
 		expect(screen[0]?.slice(26, 46)).toMatch(/^\s+1\s+\s+2\s+\+/)
 		expect((await t.cellAt(35, 0))?.bg).toBe(ACCENT)
@@ -290,7 +293,9 @@ describe('tabs', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'c')
+		t.type('\r')
 		expect(t.host.roster.selected?.label).toBe('session 3')
 		nav(t, 'n')
 		expect(t.host.roster.selected?.label).toBe('session 1')
@@ -307,6 +312,7 @@ describe('tabs', () => {
 		t.host.start()
 		nav(t, 'v')
 		nav(t, 'c')
+		t.type('\r')
 		expect(pty(t, 2).options).toMatchObject({ cols: 74, rows: 29 })
 		nav(t, 'p')
 		expect(t.host.roster.selected?.label).toBe('session 2')
@@ -320,6 +326,7 @@ describe('tabs', () => {
 		nav(t, 'X')
 		expect(t.host.roster.entries).toHaveLength(1)
 		nav(t, 'c')
+		t.type('\r')
 		nav(t, 'p')
 		nav(t, 'X')
 		expect(t.host.roster.entries).toHaveLength(1)
@@ -332,6 +339,7 @@ describe('tabs', () => {
 		t.host.start()
 		nav(t, 'v')
 		nav(t, 'c')
+		t.type('\r')
 		const [first, , third] = t.host.roster.entries
 		if (!first || !third) throw new Error('missing')
 		// The first pane is in another tab now; one finishing there is unseen.
@@ -363,6 +371,7 @@ describe('the mouse', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'c')
+		t.type('\r')
 		t.type(click(30, 0))
 		expect(t.host.roster.selected?.label).toBe('session 1')
 		t.type(click(36, 0))
@@ -450,6 +459,7 @@ describe('remembering tabs and trees', () => {
 		nav(a.t, 'T')
 		a.t.type('build\r')
 		nav(a.t, 'c')
+		a.t.type('\r')
 		nav(a.t, 'p')
 		const saved = a.t.host.snapshot()
 		expect(saved.version).toBe(2)
@@ -462,13 +472,19 @@ describe('remembering tabs and trees', () => {
 				split: 'side',
 				ratio: 0.5,
 				a: { session: { label: 'session 1' } },
-				b: { split: 'stack', ratio: 0.55, a: { session: { label: 'session 2' } } },
+				b: {
+					split: 'stack',
+					ratio: 0.45,
+					a: { session: { label: 'session 2' } },
+				},
 			},
 		})
 		expect(saved.spaces[0]?.tabs).toHaveLength(2)
 		expect(saved.focus).toEqual({ space: 0 })
 
-		const b = rig({ restored: JSON.parse(JSON.stringify(saved)) as SavedLayout })
+		const b = rig({
+			restored: JSON.parse(JSON.stringify(saved)) as SavedLayout,
+		})
 		b.t.host.start()
 		// Only the tab that had focus starts, all three of its panes.
 		expect(b.t.spawned).toHaveLength(3)
@@ -482,6 +498,9 @@ describe('remembering tabs and trees', () => {
 		)
 		// Unzoomed, the panes sit where they were.
 		nav(b.t, 'z')
-		expect(pty(b.t, 2).resizes.at(-1) ?? pty(b.t, 2).options).toMatchObject({ cols: 35, rows: 11 })
+		expect(pty(b.t, 2).resizes.at(-1) ?? pty(b.t, 2).options).toMatchObject({
+			cols: 35,
+			rows: 14,
+		})
 	})
 })

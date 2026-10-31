@@ -103,27 +103,32 @@ export function swapLeaves(node: Node, first: Entry, second: Entry): void {
 }
 
 /**
- * Moves the border that bounds `entry` on the `axis` side (`side` for width,
- * `stack` for height) by one step, growing or shrinking the pane. The nearest
- * enclosing split of that kind is the one that moves.
+ * Moves a border by one step in the key's direction: `forward` (right or down)
+ * raises the split's ratio, backward lowers it, whichever side the pane is on.
+ * The split is the nearest one of that `axis` with the pane on the matching edge
+ * (the border to its right or below for `forward`); with none there, the nearest
+ * one on the opposite edge.
  */
 export function resizeAt(
 	node: Node,
 	entry: Entry,
 	axis: SplitDir,
-	grow: boolean,
+	forward: boolean,
 	step = RESIZE_STEP,
 ): boolean {
-	if (node.kind === 'leaf') return false
-	const inA = contains(node.a, entry)
-	const child = inA ? node.a : node.b
-	if (!inA && !contains(node.b, entry)) return false
-	if (resizeAt(child, entry, axis, grow, step)) return true
-	if (node.dir !== axis) return false
-	const delta = (grow ? step : -step) * (inA ? 1 : -1)
-	const next = clampRatio(node.ratio + delta)
-	if (next === node.ratio) return false
-	node.ratio = next
+	// Enclosing splits of the axis, nearest first, with the side the pane is on.
+	const chain: { split: Split; inA: boolean }[] = []
+	for (let at: Node = node; at.kind === 'split'; ) {
+		const inA = contains(at.a, entry)
+		if (!inA && !contains(at.b, entry)) return false
+		if (at.dir === axis) chain.unshift({ split: at, inA })
+		at = inA ? at.a : at.b
+	}
+	const found = chain.find((c) => c.inA === forward) ?? chain.find((c) => c.inA !== forward)
+	if (!found) return false
+	const next = clampRatio(found.split.ratio + (forward ? step : -step))
+	if (next === found.split.ratio) return false
+	found.split.ratio = next
 	return true
 }
 
@@ -175,7 +180,11 @@ export function place(root: Node, area: Rect): Placement {
 	const dividers: Divider[] = []
 	const walk = (node: Node, rect: Rect): void => {
 		if (node.kind === 'leaf') {
-			panes.push({ entry: node.entry, outer: rect, inner: bordered ? shrink(rect) : rect })
+			panes.push({
+				entry: node.entry,
+				outer: rect,
+				inner: bordered ? shrink(rect) : rect,
+			})
 			return
 		}
 		if (node.dir === 'side') {

@@ -60,7 +60,7 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `tab`, `shift+tab` | Focus the next or previous pane. |
 | `x` | Close the pane. |
 | `z` | Zoom the pane, or bring the layout back. |
-| `r` | Resize mode: `h`/`l` (or the arrows) change the width of the focused pane, `j`/`k` its height, `esc` or `enter` ends it. Each key moves the border by 5 percent of its split. |
+| `r` | Resize mode: `h`/`l` (or the arrows) move the nearest vertical border left or right, `j`/`k` the nearest horizontal one down or up, whichever side of the border the focused pane is on; with no such border on the pane's own edge in that direction, the one on its opposite edge moves. `esc` or `enter` ends it. Each key moves the border by 5 percent of its split. |
 | `c`, `T`, `X` | New tab, rename the tab (an empty name goes back to its number), close the tab. The last tab of a space cannot be closed. |
 | `n`, `p`, `1` to `9` | Next or previous tab, or tab by number. |
 | `N`, `W`, `D` | New space from a folder you type, rename the space, close the space with all its panes (it asks first). Closing the last session quits. |
@@ -70,7 +70,7 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `q` | Quit. It asks first while a session is running. |
 | `?` | A one-line reminder of the pane keys. |
 
-A new tab (`c`) first asks which account to start on when you have added accounts (see below); a split does not ask.
+A new tab (`c`) first asks which account to start on when you have added accounts (see below), then asks for the tab's name; an empty name keeps its number. A split does not ask.
 
 Pasted text is never read as the prefix.
 
@@ -104,7 +104,7 @@ Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a bord
 
 ## Colours
 
-The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead. The sidebar's dots still use the 16 colours.
+The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead, with resting tabs drawn on bright black so they stay apart from the bar. The sidebar's dots still use the 16 colours.
 
 ## Changing the navigate key
 

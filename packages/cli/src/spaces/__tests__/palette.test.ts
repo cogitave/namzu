@@ -24,6 +24,14 @@ describe('the palette', () => {
 		expect([7, 8]).toContain(palette.dim)
 	})
 
+	it('keeps a resting tab apart from the bar in 16 colours, and its text readable', () => {
+		const palette = paletteFor(false)
+		expect(palette.surface).not.toBe(palette.panelBg)
+		expect(palette.tabRest).not.toBe(palette.surface)
+		const full = paletteFor(true)
+		expect(full.tabRest).toBe(full.dim)
+	})
+
 	it('reads COLORTERM', () => {
 		expect(advertisesTruecolor({ COLORTERM: 'truecolor' })).toBe(true)
 		expect(advertisesTruecolor({ COLORTERM: '24BIT' })).toBe(true)
