@@ -639,10 +639,10 @@ import {
 	reviewMergeBase,
 } from './workspace-review.js'
 
-/** How long `/exit` waits for the session to close before leaving anyway. */
 /** The footer notice that says what auto mode does; leaving the mode takes it away. */
 const AUTO_MODE_NOTICE_KEY = 'auto-mode'
 
+/** How long `/exit` waits for the session to close before leaving anyway. */
 const SESSION_CLOSE_ON_EXIT_MS = 5_000
 
 export interface AppProps {
