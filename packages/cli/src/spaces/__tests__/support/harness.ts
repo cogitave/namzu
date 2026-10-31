@@ -1,7 +1,15 @@
+import { afterEach } from 'vitest'
 import { fakeBinding } from '../../../terminal/__tests__/support/fake-pty.js'
 import { HeadlessScreen } from '../../../terminal/screen.js'
 import { SpacesHost } from '../../host.js'
 import { DEFAULT_PREFIX } from '../../prefix.js'
+
+const opened: { close: () => void }[] = []
+
+// Every host adds a listener to the process's exit; closing them keeps those from piling up.
+afterEach(() => {
+	for (const item of opened.splice(0)) item.close()
+})
 
 export function setup(
 	size = { columns: 100, rows: 30 },
@@ -45,6 +53,12 @@ export function setup(
 			}
 		},
 		...extra,
+	})
+	opened.push({
+		close: () => {
+			host.quit()
+			for (const pty of spawned) (pty as unknown as { end(code?: number): void }).end(0)
+		},
 	})
 	/** Fires every pending frame timer and waits for the paint. */
 	const frame = async () => {
