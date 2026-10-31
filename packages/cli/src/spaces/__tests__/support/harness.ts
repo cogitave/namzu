@@ -47,6 +47,9 @@ export function setup(
 		}),
 		folder: { cwd: '/work/namzu', name: 'namzu' },
 		prefix: DEFAULT_PREFIX,
+		truecolor: true,
+		// No test reads a real repository; the ones about branches pass their own lookup.
+		git: () => Promise.resolve(undefined),
 		isDirectory: (path) => path.startsWith('/work/'),
 		homeDirectory: '/home/me',
 		kill: (pty, signal) => pty.kill(signal),

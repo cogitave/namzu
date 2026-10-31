@@ -6,6 +6,7 @@ import { ATTR_BOLD, ATTR_INVERSE } from '../terminal/host/cell.js'
 import { Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
 import type { HostPtyModule } from '../terminal/pty.js'
+import { GitCache, type GitLookup, gitLookup } from './git.js'
 import {
 	type InputMode,
 	InputRouter,
@@ -13,21 +14,29 @@ import {
 	type MouseEvent,
 	type NavKey,
 } from './input.js'
-import { computeLayout } from './layout.js'
+import {
+	DEFAULT_SIDEBAR,
+	SIDEBAR_DEFAULT,
+	type SidebarSetting,
+	clampSidebarWidth,
+	computeLayout,
+} from './layout.js'
 import { type Palette, advertisesTruecolor, paletteFor } from './palette.js'
 import { type PeerSource, recordForSlot } from './peers.js'
 import type { Prefix } from './prefix.js'
 import { type Entry, Roster, type Space, type Tab } from './roster.js'
 import { ChildSession, type SessionSpec } from './session.js'
 import {
+	type AgentOrder,
 	type SidebarScroll,
-	arrange,
 	clampScroll,
 	drawRule,
 	drawSidebar,
 	endedMessage,
+	geometry,
 	hitTest,
 	regionAt,
+	ruleRow,
 } from './sidebar.js'
 import type { SavedLayout, SavedNode, SavedTab, SpacesStore } from './store.js'
 import { drawTabBar, layoutTabBar, tabBarTarget } from './tabbar.js'
@@ -129,6 +138,10 @@ export interface SpacesHostOptions {
 	/** Whether to draw in true colour; by default what the terminal advertises through COLORTERM. */
 	readonly truecolor?: boolean
 	readonly schedule?: Schedule
+	/** Reads a folder's branch for the sidebar; asked after the first frame, never while one is drawn. */
+	readonly git?: GitLookup
+	/** The clock, for the double-click that resets the sidebar's width. */
+	readonly now?: () => number
 	/** How a session's whole process tree is ended; the default signals its process group. */
 	readonly kill?: ConstructorParameters<typeof ChildSession>[4]
 	/** Where the sessions' states come from; without it every started session shows as starting. */
@@ -148,6 +161,12 @@ const RECONCILE_MS = 2500
 const SAVE_MS = 250
 /** How long a session gets to save itself after a hang-up before it is ended outright. */
 const QUIT_GRACE_MS = 3000
+/** How often each space's branch is read again. */
+const GIT_MS = 5000
+/** A space shown again within this long of its last look is not looked at again. */
+const GIT_STALE_MS = 1500
+/** Two presses on the sidebar's edge within this long reset its width. */
+const DOUBLE_CLICK_MS = 400
 /** Rows one wheel notch moves. */
 const WHEEL_ROWS = 3
 
@@ -162,6 +181,11 @@ type Prompt = {
 	error?: string
 }
 type Confirm = 'quit' | 'close-space'
+/** The popup behind the sidebar's "menu". */
+const MENU_ITEMS = ['keybinds', 'quit'] as const
+interface Menu {
+	index: number
+}
 /** The account choice offered when a session is started. */
 interface Picker {
 	readonly space: Space
@@ -171,6 +195,9 @@ interface Picker {
 	}[]
 	index: number
 }
+
+const KEYBINDS =
+	'v split right  - split down  h j k l focus  x close  z zoom  c tab  r resize  w spaces  b sidebar'
 
 /** A square box in one colour. */
 function drawBox(frame: Frame, rect: Rect, fg: number): void {
@@ -206,8 +233,16 @@ function defaultIsDirectory(path: string): boolean {
  */
 export class SpacesHost {
 	readonly roster = new Roster()
-	private sidebarVisible = true
-	private sidebarScroll: SidebarScroll = { spaces: 0, sessions: 0 }
+	private sidebar: SidebarSetting = DEFAULT_SIDEBAR
+	private split = 0.5
+	private order: AgentOrder = 'grouped'
+	private menu: Menu | undefined
+	private sidebarScroll: SidebarScroll = { spaces: 0, agents: 0 }
+	private sidebarDrag: 'width' | 'split' | undefined
+	private lastEdgePress: number | undefined
+	private readonly git: GitCache
+	private gitStarted = false
+	private cancelGit: (() => void) | undefined
 	private confirm: Confirm | undefined
 	private prompt: Prompt | undefined
 	private picker: Picker | undefined
@@ -268,6 +303,20 @@ export class SpacesHost {
 		this.router = new InputRouter(options.prefix)
 		this.schedule = options.schedule ?? realSchedule
 		this.palette = paletteFor(options.truecolor ?? advertisesTruecolor(process.env))
+		this.git = new GitCache(
+			options.git ?? gitLookup,
+			() => this.requestRender(),
+			options.now ?? Date.now,
+		)
+		const saved = options.restored?.sidebar
+		if (saved) {
+			this.sidebar = {
+				collapsed: saved.collapsed === true,
+				width: clampSidebarWidth(saved.width ?? SIDEBAR_DEFAULT),
+			}
+			if (saved.split !== undefined) this.split = saved.split
+			if (saved.order) this.order = saved.order
+		}
 	}
 
 	start(): void {
@@ -377,7 +426,22 @@ export class SpacesHost {
 	}
 
 	private layout() {
-		return computeLayout(this.options.output.columns, this.options.output.rows, this.sidebarVisible)
+		return computeLayout(this.options.output.columns, this.options.output.rows, this.sidebar)
+	}
+
+	/** The sidebar's view of the host: what it needs to draw and to find what a click lands on. */
+	private sidebarModel(rail: boolean) {
+		return {
+			roster: this.roster,
+			mode: this.router.current === 'navigate' ? ('navigate' as const) : ('terminal' as const),
+			foot: this.footLines(),
+			scroll: this.sidebarScroll,
+			palette: this.palette,
+			git: (cwd: string) => this.git.get(cwd),
+			order: this.order,
+			split: this.split,
+			rail,
+		}
 	}
 
 	/** Where the shown tab's panes are. */
@@ -467,6 +531,7 @@ export class SpacesHost {
 	/** Shows a session without starting it. */
 	private show(entry: Entry): void {
 		this.roster.select(entry)
+		if (this.gitStarted) this.git.refresh(this.roster.spaceOf(entry).cwd, GIT_STALE_MS)
 		this.fit()
 		this.revealSelected()
 		this.persist()
@@ -627,7 +692,8 @@ export class SpacesHost {
 	/** A key the host reads: an answer, a name being typed, a mode's key, or the key after the prefix. */
 	private key(from: KeyContext, key: NavKey): void {
 		this.notice = undefined
-		if (this.picker) this.pickerKey(key)
+		if (this.menu) this.menuKey(key)
+		else if (this.picker) this.pickerKey(key)
 		else if (this.prompt) this.promptKey(key)
 		else if (this.confirm) {
 			const confirmed = this.confirm
@@ -636,9 +702,7 @@ export class SpacesHost {
 		} else if (from === 'prefix') this.command(key)
 		else if (from === 'resize') this.resizeKey(key)
 		else if (from === 'navigate') this.navigateKey(key)
-		this.router.capture(
-			this.prompt !== undefined || this.picker !== undefined || this.confirm !== undefined,
-		)
+		this.router.capture(this.captured())
 		this.requestRender()
 	}
 
@@ -676,17 +740,64 @@ export class SpacesHost {
 		else if (c === 'T') this.askName('rename-tab', this.roster.shownTab?.name ?? '')
 		else if (c === 'P') this.askName('rename-session', entry.label)
 		else if (c === 'W') this.askName('rename-space', this.roster.spaceOf(entry).name)
-		else if (c === 'N') this.askFolder()
+		else if (c === 'N') this.newSpaceHere()
+		else if (c === 'O') this.askFolder()
 		else if (c === 'D') this.confirm = 'close-space'
-		else if (c === 'b') {
-			this.sidebarVisible = !this.sidebarVisible
-			this.relayout()
-		} else if (c === 'q') {
+		else if (c === 'b') this.toggleSidebar()
+		else if (c === 'q') {
 			if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
 			else this.confirm = 'quit'
-		} else if (c === '?')
-			this.notice =
-				'v split right  - split down  h j k l focus  x close  z zoom  c tab  r resize  w spaces'
+		} else if (c === '?') this.notice = KEYBINDS
+	}
+
+	private toggleSidebar(): void {
+		this.sidebar = { ...this.sidebar, collapsed: !this.sidebar.collapsed }
+		this.relayout()
+		this.persist()
+	}
+
+	/** A space in the focused pane's folder, started on the same account. */
+	private newSpaceHere(): void {
+		const entry = this.roster.selected
+		const cwd = entry ? this.roster.spaceOf(entry).cwd : this.options.folder.cwd
+		const space = this.roster.addSpace(cwd, basename(cwd) || cwd)
+		const created = this.newTabIn(space)
+		if (entry?.pickedAccount) created.pickedAccount = entry.pickedAccount
+		this.open(created)
+	}
+
+	private captured(): boolean {
+		return (
+			this.prompt !== undefined ||
+			this.picker !== undefined ||
+			this.confirm !== undefined ||
+			this.menu !== undefined
+		)
+	}
+
+	private openMenu(): void {
+		this.menu = { index: 0 }
+		this.router.capture(true)
+	}
+
+	private chooseMenu(index: number): void {
+		this.menu = undefined
+		if (MENU_ITEMS[index] === 'keybinds') this.notice = KEYBINDS
+		else if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
+		else this.confirm = 'quit'
+		this.router.capture(this.captured())
+	}
+
+	private menuKey(key: NavKey): void {
+		const menu = this.menu
+		if (!menu) return
+		const last = MENU_ITEMS.length - 1
+		if (key.kind === 'escape') this.menu = undefined
+		else if (key.kind === 'up' || (key.kind === 'char' && key.char === 'k'))
+			menu.index = Math.max(0, menu.index - 1)
+		else if (key.kind === 'down' || (key.kind === 'char' && key.char === 'j'))
+			menu.index = Math.min(last, menu.index + 1)
+		else if (key.kind === 'enter') this.chooseMenu(menu.index)
 	}
 
 	private resizeKey(key: NavKey): void {
@@ -996,21 +1107,26 @@ export class SpacesHost {
 	// --- mouse -----------------------------------------------------------------
 
 	private mouse(event: MouseEvent): void {
+		if (this.menu) {
+			this.menuPress(event)
+			return
+		}
 		if (this.prompt || this.confirm || this.picker) return
 		const layout = this.layout()
 		const inSidebar = layout.sidebar !== undefined && event.x < layout.sidebar.width
 		if (event.kind === 'wheel-up' || event.kind === 'wheel-down') {
 			const direction = event.kind === 'wheel-up' ? -1 : 1
 			if (inSidebar && layout.sidebar) {
-				const arrangement = arrange(this.roster, layout.sidebar.height, this.footLines().length)
-				const region = regionAt(arrangement, event.y)
+				const model = this.sidebarModel(layout.rail)
+				const region = regionAt(model, layout.sidebar.height, event.y)
 				if (region)
 					this.sidebarScroll = clampScroll(
 						{
 							...this.sidebarScroll,
 							[region]: this.sidebarScroll[region] + direction * WHEEL_ROWS,
 						},
-						arrangement,
+						model,
+						layout.sidebar.height,
 					)
 			} else {
 				// The pane under the pointer scrolls, whether or not it has focus.
@@ -1025,17 +1141,23 @@ export class SpacesHost {
 			return
 		}
 		if (event.kind === 'drag') {
-			this.dragBorder(event)
+			if (this.sidebarDrag) this.dragSidebar(event)
+			else this.dragBorder(event)
 			return
 		}
 		if (event.kind === 'release') {
-			if (this.drag) this.persist()
+			if (this.drag || this.sidebarDrag) this.persist()
 			this.drag = undefined
+			this.sidebarDrag = undefined
 			return
 		}
 		if (event.kind !== 'press') return
 		if (inSidebar && layout.sidebar) {
-			this.sidebarPress(layout.sidebar, event)
+			this.sidebarPress(layout.sidebar, layout.rail, event)
+			return
+		}
+		if (layout.rule && event.x === layout.rule.x) {
+			this.edgePress(layout.rail)
 			return
 		}
 		if (this.router.current !== 'terminal') this.router.focus()
@@ -1043,17 +1165,84 @@ export class SpacesHost {
 		this.requestRender()
 	}
 
-	private sidebarPress(sidebar: Rect, event: MouseEvent): void {
-		const target = hitTest(
-			arrange(this.roster, sidebar.height, this.footLines().length),
-			this.sidebarScroll,
-			event.y,
-		)
-		if (target?.kind === 'session') this.open(target.entry)
+	/** A press on the line between the sidebar and the session: a second one soon after resets the width. */
+	private edgePress(rail: boolean): void {
+		if (rail) return
+		const at = (this.options.now ?? Date.now)()
+		if (this.lastEdgePress !== undefined && at - this.lastEdgePress <= DOUBLE_CLICK_MS) {
+			this.lastEdgePress = undefined
+			this.sidebar = { ...this.sidebar, width: SIDEBAR_DEFAULT }
+			this.relayout()
+			this.persist()
+			return
+		}
+		this.lastEdgePress = at
+		this.sidebarDrag = 'width'
+	}
+
+	/** Moves the sidebar's edge, or the rule between its sections, to follow the pointer. */
+	private dragSidebar(event: MouseEvent): void {
+		if (this.sidebarDrag === 'width') {
+			const width = clampSidebarWidth(event.x + 1)
+			if (width === this.sidebar.width) return
+			this.sidebar = { ...this.sidebar, width }
+			this.relayout()
+			return
+		}
+		const height = this.options.output.rows
+		const split = Math.max(0.1, Math.min(0.9, event.y / height))
+		this.split = ruleRow(height, split) / height
+		this.requestRender()
+	}
+
+	private sidebarPress(sidebar: Rect, rail: boolean, event: MouseEvent): void {
+		const target = hitTest(this.sidebarModel(rail), sidebar.width, sidebar.height, event.x, event.y)
+		if (target?.kind === 'agent') this.open(target.entry)
 		else if (target?.kind === 'space') {
 			this.gotoSpace(this.roster.spaces.indexOf(target.space))
 			const shown = this.roster.selected
 			if (shown) this.open(shown)
+		} else if (target?.kind === 'new') this.newSpaceHere()
+		else if (target?.kind === 'menu') this.openMenu()
+		else if (target?.kind === 'collapse') this.toggleSidebar()
+		else if (target?.kind === 'split') this.sidebarDrag = 'split'
+		else if (target?.kind === 'order') {
+			this.order = this.order === 'grouped' ? 'priority' : 'grouped'
+			this.sidebarScroll = { ...this.sidebarScroll, agents: 0 }
+			this.persist()
+		}
+		this.requestRender()
+	}
+
+	/** The popup's rows, where it is drawn: above the "new / menu" row, at the sidebar's left. */
+	private menuRect(): Rect | undefined {
+		const layout = this.layout()
+		if (!layout.sidebar || layout.rail) return undefined
+		const geo = geometry(layout.sidebar.height, this.footLines().length, this.split, false)
+		const height = MENU_ITEMS.length + 2
+		return {
+			x: 1,
+			y: Math.max(0, (geo.footerY ?? 0) - height),
+			width: Math.min(layout.sidebar.width - 2, 16),
+			height,
+		}
+	}
+
+	/** While the popup is open a press picks a row, or anywhere else closes it. */
+	private menuPress(event: MouseEvent): void {
+		if (event.kind !== 'press') return
+		const rect = this.menuRect()
+		const row = event.y - (rect?.y ?? 0) - 1
+		const inside =
+			rect !== undefined &&
+			event.x >= rect.x &&
+			event.x < rect.x + rect.width &&
+			row >= 0 &&
+			row < MENU_ITEMS.length
+		if (inside) this.chooseMenu(row)
+		else {
+			this.menu = undefined
+			this.router.capture(this.captured())
 		}
 		this.requestRender()
 	}
@@ -1101,11 +1290,13 @@ export class SpacesHost {
 	}
 
 	private revealSelected(): void {
-		const height = this.layout().sidebar?.height
+		const layout = this.layout()
+		const height = layout.sidebar?.height
 		if (height === undefined) return
 		this.sidebarScroll = clampScroll(
 			this.sidebarScroll,
-			arrange(this.roster, height, this.footLines().length),
+			this.sidebarModel(layout.rail),
+			height,
 			true,
 		)
 	}
@@ -1162,6 +1353,7 @@ export class SpacesHost {
 					['esc', 'back'],
 					['↑/↓', 'space'],
 					['tab', 'pane'],
+					['?', 'keybinds'],
 				],
 			}
 		return {
@@ -1170,13 +1362,8 @@ export class SpacesHost {
 			hints: [
 				['esc', 'cancel'],
 				[prefix, 'send prefix'],
-				['v', 'split right'],
-				['-', 'split down'],
-				['x', 'close'],
-				['z', 'zoom'],
-				['c', 'tab'],
-				['r', 'resize'],
-				['w', 'spaces'],
+				['w', 'space nav'],
+				['?', 'keybinds'],
 			],
 		}
 	}
@@ -1247,24 +1434,21 @@ export class SpacesHost {
 		const layout = this.layout()
 		const foot = this.footLines()
 		if (layout.sidebar) {
-			this.sidebarScroll = clampScroll(
-				this.sidebarScroll,
-				arrange(this.roster, layout.sidebar.height, foot.length),
-			)
+			const model = this.sidebarModel(layout.rail)
+			this.sidebarScroll = clampScroll(this.sidebarScroll, model, layout.sidebar.height)
 			drawSidebar(frame, layout.sidebar, {
-				roster: this.roster,
-				mode: this.router.current === 'navigate' ? 'navigate' : 'terminal',
-				foot,
+				...model,
 				scroll: this.sidebarScroll,
 			})
 		}
-		if (layout.rule) drawRule(frame, layout.rule)
+		if (layout.rule) drawRule(frame, layout.rule, this.palette)
 		if (entry) drawTabBar(frame, layout.tabBar, this.roster.spaceOf(entry), this.palette)
 		// The focused pane is drawn last, so the cursor is the one it sets.
 		const ordered = [...panes].sort((a, b) => Number(a.entry === entry) - Number(b.entry === entry))
 		for (const pane of ordered)
 			this.drawPane(frame, pane, pane.entry === entry, placement?.bordered ?? false)
 		if (this.picker) this.drawPicker(frame, layout.panes, this.picker)
+		if (this.menu) this.drawMenu(frame, this.menu)
 		const area = {
 			...layout.main,
 			y: layout.main.y + layout.main.height - 1,
@@ -1281,11 +1465,11 @@ export class SpacesHost {
 			})
 		}
 		// With the sidebar hidden its foot would vanish, so a question takes the bottom row.
-		else if (!layout.sidebar && (this.prompt || this.confirm || this.picker)) {
+		else if ((!layout.sidebar || layout.rail) && (this.prompt || this.confirm || this.picker)) {
 			frame.fillRect(area, { attrs: ATTR_INVERSE })
 			frame.writeText(area, 0, ` ${foot.join('   ')}`, { attrs: ATTR_INVERSE })
 		}
-		if (mode !== 'terminal' || this.prompt || this.confirm || this.picker)
+		if (mode !== 'terminal' || this.prompt || this.confirm || this.picker || this.menu)
 			frame.setCursor({ x: frame.cursor.x, y: frame.cursor.y, visible: false })
 		let out = ''
 		const wantPaste = entry?.child?.screen.bracketedPaste() ?? false
@@ -1295,6 +1479,46 @@ export class SpacesHost {
 		}
 		out += this.writer.render(frame)
 		if (out !== '') output.write(out)
+		// Branches are read only once the first frame is out, and never again inside a paint.
+		if (!this.gitStarted) {
+			this.gitStarted = true
+			this.armGit(true)
+		}
+	}
+
+	/** Reads every space's branch now and then again on a timer. */
+	private armGit(now = false): void {
+		if (this.closed) return
+		if (now) this.git.refreshAll(this.roster.spaces.map((s) => s.cwd))
+		this.cancelGit = this.schedule(() => {
+			this.git.refreshAll(this.roster.spaces.map((s) => s.cwd))
+			this.armGit()
+		}, GIT_MS)
+	}
+
+	/** The popup behind "menu": a box of rows, the chosen one tinted. */
+	private drawMenu(frame: Frame, menu: Menu): void {
+		const rect = this.menuRect()
+		if (!rect) return
+		frame.fillRect(rect, { bg: this.palette.panelBg })
+		drawBox(frame, rect, this.palette.dim)
+		MENU_ITEMS.forEach((item, i) => {
+			const row = {
+				...rect,
+				x: rect.x + 1,
+				y: rect.y + 1 + i,
+				width: rect.width - 2,
+				height: 1,
+			}
+			const chosen = i === menu.index
+			frame.fillRect(row, {
+				bg: chosen ? this.palette.cursorRow : this.palette.panelBg,
+			})
+			frame.writeText(row, 0, ` ${item}`, {
+				fg: chosen ? this.palette.text : this.palette.subtext,
+				bg: chosen ? this.palette.cursorRow : this.palette.panelBg,
+			})
+		})
 	}
 
 	/** One pane: its border (the focused one in the accent colour), then its session or what stands in for it. */
@@ -1403,7 +1627,18 @@ export class SpacesHost {
 			}
 		})
 		const space = selected ? this.roster.spaces.indexOf(this.roster.spaceOf(selected)) : -1
-		return { version: 2, spaces, ...(space >= 0 ? { focus: { space } } : {}) }
+		const sidebar = {
+			...(this.sidebar.collapsed ? { collapsed: true as const } : {}),
+			...(this.sidebar.width !== SIDEBAR_DEFAULT ? { width: this.sidebar.width } : {}),
+			...(this.split !== 0.5 ? { split: this.split } : {}),
+			...(this.order !== 'grouped' ? { order: this.order } : {}),
+		}
+		return {
+			version: 2,
+			spaces,
+			...(space >= 0 ? { focus: { space } } : {}),
+			...(Object.keys(sidebar).length > 0 ? { sidebar } : {}),
+		}
 	}
 
 	/** Writes the layout soon; a burst of changes becomes one write. */
@@ -1451,6 +1686,7 @@ export class SpacesHost {
 		this.cancelKill?.()
 		this.cancelPoll?.()
 		this.cancelReconcile?.()
+		this.cancelGit?.()
 		this.stopWatching?.()
 		this.pending?.()
 		const { input, output } = this.options

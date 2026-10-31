@@ -262,8 +262,8 @@ describe('restoring the layout', () => {
 			first: false,
 		})
 		const shown = await text(t)
-		expect(shown).toContain('1 namzu')
-		expect(shown).toContain('2 site')
+		expect(shown).toMatch(/^ [●○·] namzu/mu)
+		expect(shown).toMatch(/^ [●○·] site/mu)
 		// The other space opens lazily and resumes its own conversation, on its account.
 		nav(t, 'w')
 		t.type('k')

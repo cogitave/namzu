@@ -22,7 +22,7 @@ describe('SpacesHost', () => {
 		await t.frame()
 		const lines = await t.screen()
 		expect(lines[0]).toContain('spaces')
-		expect(lines.join('\n')).toContain('1 namzu')
+		expect(lines.join('\n')).toMatch(/^ [●○·] namzu/mu)
 		// The tab bar is the first row of the main area; the session starts under it.
 		expect(lines[0]).toContain('1')
 		expect(lines[1]).toContain('hello from the child')
@@ -71,19 +71,21 @@ describe('SpacesHost', () => {
 		expect((await t.screen()).at(-1) as string).toContain('RESIZE')
 	})
 
-	it('resizes the child to the main area when the terminal changes, and when the sidebar is hidden', async () => {
+	it('resizes the child to the main area when the terminal changes, and when the sidebar collapses to its rail', async () => {
 		const t = setup()
 		t.host.start()
 		const pty = t.spawned[0] as FakePty
 		t.output.columns = 80
 		t.output.rows = 20
 		for (const l of t.resizeListeners) l()
-		expect(pty.resizes.at(-1)).toEqual({ cols: 59, rows: 19 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 54, rows: 19 })
 		t.type('\x02')
 		t.type('b')
-		expect(pty.resizes.at(-1)).toEqual({ cols: 80, rows: 19 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 76, rows: 19 })
 		await t.frame()
-		expect((await t.screen()).join('\n')).not.toContain('spaces')
+		const rail = (await t.screen()).join('\n')
+		expect(rail).not.toContain('spaces')
+		expect(rail).toContain('»')
 		t.type('\x02')
 		t.type('q')
 		await t.frame()

@@ -1,6 +1,7 @@
 import type { PeerRecord } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
+import { paletteFor } from '../palette.js'
 import { dotStyle } from '../sidebar.js'
 import { FakePeers } from './support/fake-peers.js'
 import { setup } from './support/harness.js'
@@ -40,7 +41,7 @@ describe('spaces and sessions', () => {
 	it('opens a new space from a typed folder and rejects one that is missing', async () => {
 		const { t } = rig()
 		t.host.start()
-		nav(t, 'N')
+		nav(t, 'O')
 		t.type('/gone')
 		t.type('\r')
 		expect(await lines(t)).toContain('No such folder.')
@@ -51,20 +52,24 @@ describe('spaces and sessions', () => {
 		expect(t.spawned).toHaveLength(2)
 		expect((t.spawned[1] as FakePty).options.cwd).toBe('/work/namzu/site')
 		const text = await lines(t)
-		expect(text).toContain('1 namzu')
-		expect(text).toContain('2 site')
-		expect(text).toContain('sessions in site')
+		expect(text).toMatch(/^ [●○·] namzu/mu)
+		expect(text).toMatch(/^ [●○·] site/mu)
+		expect(t.host.roster.selected && t.host.roster.spaceOf(t.host.roster.selected).name).toBe(
+			'site',
+		)
 		// A folder that is already a space only shows it.
-		nav(t, 'N')
+		nav(t, 'O')
 		t.type('/work/namzu\r')
 		expect(t.spawned).toHaveLength(2)
-		expect(await lines(t)).toContain('sessions in namzu')
+		expect(t.host.roster.selected && t.host.roster.spaceOf(t.host.roster.selected).name).toBe(
+			'namzu',
+		)
 	})
 
 	it('cancels a prompt with escape and keeps the typed keys out of the session', () => {
 		const { t } = rig()
 		t.host.start()
-		nav(t, 'N')
+		nav(t, 'O')
 		t.type('abc')
 		t.type('\x1b')
 		expect((t.spawned[0] as FakePty).writes).toEqual([])
@@ -86,7 +91,7 @@ describe('spaces and sessions', () => {
 		t.type('build\r')
 		const text = await lines(t)
 		expect(text).toContain('fix test')
-		expect(text).toContain('1 core')
+		expect(text).toMatch(/^ [●○·] core/mu)
 		expect(text.split('\n')[0]).toContain('build')
 		// An empty name puts the number back.
 		nav(t, 'T')
@@ -167,15 +172,13 @@ describe('status feed', () => {
 	it('shows a working session and its space as working, from the live record alone', async () => {
 		const { t, peers } = rig()
 		t.host.start()
-		expect(await lines(t)).toContain('starting')
 		peers.publish('slot-1', 'busy')
-		const text = await lines(t)
-		expect(text).toContain('working')
 		const space = t.host.roster.spaces[0]
 		expect(t.host.roster.spaceDot(space as never)).toBe('working')
-		const cell = await t.cellAt(24, 1)
+		const row = (await lines(t)).split('\n').findIndex((l) => /^ [●○·] namzu/u.test(l))
+		const cell = await t.cellAt(1, row)
 		expect(cell?.ch).toBe('●')
-		expect(cell?.fg).toBe(dotStyle('working').fg)
+		expect(cell?.fg).toBe(dotStyle('working', paletteFor(true)).fg)
 	})
 
 	it('turns a space red when a background session needs approval', async () => {
@@ -190,9 +193,9 @@ describe('status feed', () => {
 		const text = await lines(t)
 		expect(text).toContain('needs approval')
 		expect(t.host.roster.spaceDot(t.host.roster.spaces[0] as never)).toBe('blocked')
-		const row = (await t.screen()).findIndex((l) => l.includes('1 namzu'))
-		const cell = await t.cellAt(24, row)
-		expect(cell?.fg).toBe(dotStyle('blocked').fg)
+		const row = (await t.screen()).findIndex((l) => /^ [●○·] namzu/u.test(l))
+		const cell = await t.cellAt(1, row)
+		expect(cell?.fg).toBe(dotStyle('blocked', paletteFor(true)).fg)
 	})
 
 	it('marks a session that finished while another was shown, and clears it when it is viewed', async () => {
@@ -309,18 +312,19 @@ describe('mouse', () => {
 	const click = (x: number, y: number) => `\x1b[<0;${x + 1};${y + 1}M`
 	const wheel = (up: boolean, x: number, y: number) => `\x1b[<${up ? 64 : 65};${x + 1};${y + 1}M`
 
-	it('clicks a space and a session', async () => {
+	it('clicks a space and an agent', async () => {
 		const { t } = rig({
 			listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }],
 		})
 		t.host.start()
 		let screen = await lines(t)
-		let row = screen.split('\n').findIndex((l) => l.includes('2 site'))
+		let row = screen.split('\n').findIndex((l) => /^ [●○·] site/u.test(l))
 		t.type(click(5, row))
 		expect(t.host.roster.selected?.spaceId).toBe('space-2')
 		expect(t.spawned).toHaveLength(2)
+		// An agent's second line names its tab and pane; clicking it shows that pane.
 		screen = await lines(t)
-		row = screen.split('\n').findIndex((l) => l.includes('session 2'))
+		row = screen.split('\n').findIndex((l) => l.startsWith('   tab 2 · session 2'))
 		t.type(click(5, row))
 		expect(t.host.roster.selected?.label).toBe('session 2')
 		expect(t.spawned).toHaveLength(3)
@@ -368,14 +372,12 @@ describe('mouse', () => {
 		t.host.start()
 		let screen = await lines(t)
 		// The shown space and its sessions stay in view while the spaces list is longer than the room.
-		expect(screen).toContain('1 namzu')
+		expect(screen).toMatch(/^ [●○·] namzu/mu)
 		expect(screen).toContain('session 1')
-		expect(screen).not.toContain('13 s11')
-		t.type(wheel(false, 5, 3))
-		t.type(wheel(false, 5, 3))
-		t.type(wheel(false, 5, 3))
+		expect(screen).not.toMatch(/ s11/u)
+		for (let i = 0; i < 4; i++) t.type(wheel(false, 5, 3))
 		screen = await lines(t)
-		expect(screen).toContain('13 s11')
+		expect(screen).toMatch(/^ [●○·] s11/mu)
 		expect(screen).toContain('session 1')
 		expect((t.spawned[0] as FakePty).writes).toEqual([])
 	})

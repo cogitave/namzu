@@ -44,12 +44,24 @@ export interface SavedSpace {
 	readonly activeTab?: number
 }
 
+/** The sidebar choices kept with the layout. */
+export interface SavedSidebar {
+	readonly collapsed?: boolean
+	/** The full sidebar's width, rule included. */
+	readonly width?: number
+	/** The share of its height the spaces section takes. */
+	readonly split?: number
+	/** How the agents section is ordered. */
+	readonly order?: 'grouped' | 'priority'
+}
+
 /** The layout `namzu spaces` restores: spaces with their tabs and pane trees, and where focus was. */
 export interface SavedLayout {
 	readonly version: 2
 	readonly spaces: readonly SavedSpace[]
 	/** The space that was shown. */
 	readonly focus?: { readonly space: number }
+	readonly sidebar?: SavedSidebar
 }
 
 /** The largest tree read back, so a damaged file cannot ask for an absurd layout. */
@@ -159,6 +171,26 @@ function migrateV1(body: Record<string, unknown>): SavedLayout | undefined {
 	}
 }
 
+function readSidebar(raw: unknown): SavedSidebar | undefined {
+	if (typeof raw !== 'object' || raw === null) return undefined
+	const body = raw as Record<string, unknown>
+	const width =
+		typeof body.width === 'number' && Number.isFinite(body.width)
+			? Math.max(18, Math.min(36, Math.round(body.width)))
+			: undefined
+	const split =
+		typeof body.split === 'number' && Number.isFinite(body.split)
+			? Math.max(0.1, Math.min(0.9, body.split))
+			: undefined
+	const saved: SavedSidebar = {
+		...(body.collapsed === true ? { collapsed: true } : {}),
+		...(width !== undefined ? { width } : {}),
+		...(split !== undefined ? { split } : {}),
+		...(body.order === 'grouped' || body.order === 'priority' ? { order: body.order } : {}),
+	}
+	return Object.keys(saved).length > 0 ? saved : undefined
+}
+
 /**
  * A layout read from disk, keeping what is well formed and dropping the rest.
  * Version 1 files (a flat list of sessions per space) are migrated.
@@ -207,10 +239,12 @@ export function parseLayout(raw: unknown): SavedLayout | undefined {
 			? (body.focus as Record<string, unknown>)
 			: undefined
 	const fs = index(focus?.space)
+	const sidebar = readSidebar(body.sidebar)
 	return {
 		version: 2,
 		spaces,
 		...(fs !== undefined && spaces[fs] !== undefined ? { focus: { space: fs } } : {}),
+		...(sidebar ? { sidebar } : {}),
 	}
 }
 

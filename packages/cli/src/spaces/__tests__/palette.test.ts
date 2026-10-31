@@ -8,11 +8,18 @@ describe('the palette', () => {
 		expect(palette.accent).toBe(rgb(137, 180, 250))
 		expect(palette.dim).toBe(rgb(108, 112, 134))
 		expect(palette.panelBg).toBe(rgb(24, 24, 37))
+		expect(palette.activeRow).toBe(rgb(30, 30, 46))
+		expect(palette.cursorRow).toBe(rgb(49, 50, 68))
 	})
 
 	it('falls back to the nearest of the 16 colours elsewhere', () => {
 		const palette = paletteFor(false)
-		for (const value of Object.values(palette)) {
+		for (const [name, value] of Object.entries(palette)) {
+			// The faint tint is left out in 16 colours, which is the terminal's own background.
+			if (name === 'activeRow') {
+				expect(value).toBe(-1)
+				continue
+			}
 			expect(value).toBeGreaterThanOrEqual(0)
 			expect(value).toBeLessThan(16)
 			expect(value & RGB_FLAG).toBe(0)

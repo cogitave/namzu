@@ -13,7 +13,7 @@ generated:
 # namzu spaces (preview)
 
 `namzu spaces` opens one terminal with a sidebar on the left and the selected space on the right.
-The sidebar lists your **spaces** on top, which are project folders, each with one dot for the most urgent thing in it. Below them it lists every **session** of the selected space, each with its own dot.
+The sidebar has two sections split by a rule. On top are your **spaces**, which are project folders: a row is the most urgent state dot and the folder's name in bold, and under it the git branch with `↑` commits ahead and `↓` behind its upstream (a note such as "needs approval" takes the branch's place while something waits for you). The shown space has a faint background tint; in space navigation the cursor row has a stronger one. The last row of the section holds **new** (a space in the focused pane's folder, started at once) and **menu**. Below the rule is **agents**: every session of every space, two lines each (the dot and its space's name, then its tab, pane name and account, for example `tab 2 · session 3 · work`). Click an agent to focus that pane, switching space and tab. The header's right-hand word, `grouped` or `priority`, is a toggle: grouped follows the spaces, priority puts blocked first, then finished, working and idle, newest change first. The branch is read in the background (never before the first frame), again every few seconds and when a space is shown, and a folder outside git shows no branch.
 A space has one or more **tabs**, shown as a bar across the top of the workspace area with a "+" to add one, and each tab is a tiling of **panes**. Every pane is a whole Namzu running in its own terminal, so a pane that stops does not take the others down. There are no plain shell panes.
 This is a preview, and the plain `namzu` command is unchanged.
 
@@ -26,7 +26,7 @@ Every session starts in its space's folder and inherits the environment the comm
 | Dot | Meaning |
 | --- | --- |
 | red | A session needs your approval before it can go on. |
-| blue | A session finished a turn while you were looking at another one, and you have not looked since. |
+| teal | A session finished a turn while you were looking at another one, and you have not looked since. |
 | yellow | A session is working. |
 | green (hollow) | A session is idle. |
 | grey | A session is starting, has not been opened yet, or has ended. |
@@ -63,12 +63,15 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `r` | Resize mode: `h`/`l` (or the arrows) move the nearest vertical border left or right, `j`/`k` the nearest horizontal one down or up, whichever side of the border the focused pane is on; with no such border on the pane's own edge in that direction, the one on its opposite edge moves. `esc` or `enter` ends it. Each key moves the border by 5 percent of its split. |
 | `c`, `T`, `X` | New tab, rename the tab (an empty name goes back to its number), close the tab. The last tab of a space cannot be closed. |
 | `n`, `p`, `1` to `9` | Next or previous tab, or tab by number. |
-| `N`, `W`, `D` | New space from a folder you type, rename the space, close the space with all its panes (it asks first). Closing the last session quits. |
+| `N`, `W`, `D` | New space in the focused pane's folder (no prompt), rename the space, close the space with all its panes (it asks first). Closing the last session quits. |
+| `O` | Open another folder as a space: it asks for the folder's path. |
 | `P` | Rename the pane (its row in the sidebar). |
 | `w` | Space navigation: `up`/`down` (or `j`/`k`) show the previous or next space, `tab` moves between its panes, `enter` opens it (starting what has not started), `esc` leaves. |
-| `b` | Hide or show the sidebar. |
+| `b` | Collapse the sidebar to a thin rail of index-and-dot rows, or expand it. |
 | `q` | Quit. It asks first while a session is running. |
 | `?` | A one-line reminder of the pane keys. |
+
+While the prefix, space navigation or resize mode is active, a bar on the bottom row shows a coloured chip (`PREFIX`, `NAVIGATE`, `RESIZE`) followed by the keys that work, keys in bold light blue. Nothing is drawn there otherwise, and the sidebar carries no key list.
 
 A new tab (`c`) first asks which account to start on when you have added accounts (see below), then asks for the tab's name; an empty name keeps its number. A split does not ask.
 
@@ -86,7 +89,7 @@ A session started on an account runs on that account's provider and model, so a 
 
 ## Remembering your layout
 
-Your spaces, their tabs and pane trees (split directions, ratios, zoom, tab names, which pane has focus, and each pane's name, conversation and account) and which space was shown are kept in `spaces.json` under the Namzu home, readable only by you. The file's `version` is 2; a version 1 file from an earlier preview is read as one tab per session, in the same order, with the session that had focus as the shown tab, and is rewritten as version 2. Start `namzu spaces` again and they come back:
+Your spaces, their tabs and pane trees (split directions, ratios, zoom, tab names, which pane has focus, and each pane's name, conversation and account), which space was shown, and the sidebar's choices (collapsed, width, section split, agents order; an optional `sidebar` object, written only when something differs from the default) are kept in `spaces.json` under the Namzu home, readable only by you. The file's `version` is 2; a version 1 file from an earlier preview is read as one tab per session, in the same order, with the session that had focus as the shown tab, and is rewritten as version 2. Start `namzu spaces` again and they come back:
 
 - Every saved session is listed, and none is started until its tab is shown. The tab you were on opens at once, all its panes together.
 - A session that had a conversation opens it again with the account it was on. One that never got a reply starts fresh.
@@ -100,11 +103,11 @@ Your spaces, their tabs and pane trees (split directions, ratios, zoom, tab name
 
 ## Mouse
 
-Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a border between two panes to resize them. Click a space or a session in the sidebar to open it. Scroll over the sidebar to move its lists, and over a pane to read its history (the pane under the pointer scrolls, whether or not it has focus); a line at the bottom of that pane says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
+Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a border between two panes to resize them. Click a space or an agent in the sidebar to open it, "new" to add a space, "menu" for its popup (keybinds, quit), the grouped/priority word to switch the order, and `«` (`»` on the rail) at its foot to collapse or expand it. Drag the line between the sidebar and the panes to resize it (18 to 36 columns, 26 by default; a double click puts it back), and drag the rule between its two sections to change their shares. Scroll over the sidebar to move its lists, and over a pane to read its history (the pane under the pointer scrolls, whether or not it has focus); a line at the bottom of that pane says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
 
 ## Colours
 
-The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead, with resting tabs drawn on bright black so they stay apart from the bar. The sidebar's dots still use the 16 colours.
+The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead, with resting tabs drawn on bright black so they stay apart from the bar. The sidebar uses the same palette: dots are yellow (working), red (blocked), teal (finished, not seen), green hollow (idle) and grey (none); the shown space's name is bold in the main text colour, the others subdued, the shown space's branch is mauve and the rest dim grey, ahead counts green and behind counts red, and the tints are (30, 30, 46) and (49, 50, 68). In 16 colours the faint tint is dropped (the bold name marks the shown space) and the cursor row is bright black. A terminal too narrow for 40 session columns beside the sidebar shows the rail instead, and below that no sidebar.
 
 ## Changing the navigate key
 
@@ -117,7 +120,7 @@ The value is `ctrl+` and a letter, or `ctrl+space`. `ctrl+c`, `ctrl+d` and `ctrl
 
 ## When a session stops
 
-Its pane keeps the last screen with a line at the bottom saying so, and its sidebar row turns grey and says "ended" or "stopped", The conversation is saved. The other sessions keep running, `ctrl+b` then `x` closes the pane, and `ctrl+b` then `q` leaves.
+Its pane keeps the last screen with a line at the bottom saying so, and its dot turns grey and its pane says "ended" or "stopped". The conversation is saved. The other sessions keep running, `ctrl+b` then `x` closes the pane, and `ctrl+b` then `q` leaves.
 
 ## When there is no terminal component
 

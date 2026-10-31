@@ -1,309 +1,436 @@
-import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE } from '../terminal/host/cell.js'
+import stringWidth from 'string-width'
+import { ATTR_BOLD, ATTR_DIM } from '../terminal/host/cell.js'
 import type { CellStyle, Frame, Rect } from '../terminal/host/frame.js'
+import type { GitStatus } from './git.js'
+import type { Palette } from './palette.js'
 import type { Entry, Roster, Space } from './roster.js'
-import { type Dot, activityNote, limitedNote, spaceNote } from './status.js'
+import { type Dot, limitedNote, spaceNote } from './status.js'
+import { leaves } from './tiling.js'
 
-const GREY = 8
-const GREEN = 2
-const CYAN = 6
-const RED = 1
-const YELLOW = 3
-const BLUE = 4
+/** How the agents list is ordered: by space, or the ones that want a look first. */
+export type AgentOrder = 'grouped' | 'priority'
+
+export interface SidebarScroll {
+	/** The first space shown. */
+	spaces: number
+	/** The first agent shown. */
+	agents: number
+}
 
 export interface SidebarModel {
 	readonly roster: Roster
 	readonly mode: 'terminal' | 'navigate'
-	/** Lines for the foot of the sidebar: the hints, a question, or a name being typed. */
+	/** Lines for the foot of the sidebar: a question, or a name being typed. */
 	readonly foot: readonly string[]
 	readonly scroll: SidebarScroll
+	readonly palette: Palette
+	readonly git: (cwd: string) => GitStatus | undefined
+	readonly order: AgentOrder
+	/** The share of the height the spaces section takes. */
+	readonly split: number
+	/** Draw the thin rail of dots instead of the lists. */
+	readonly rail: boolean
 }
 
 export type SidebarTarget =
 	| { readonly kind: 'space'; readonly space: Space }
-	| { readonly kind: 'session'; readonly entry: Entry }
+	| { readonly kind: 'agent'; readonly entry: Entry }
+	| { readonly kind: 'new' }
+	| { readonly kind: 'menu' }
+	| { readonly kind: 'order' }
+	| { readonly kind: 'collapse' }
+	| { readonly kind: 'split' }
 
-interface Row {
-	readonly kind: 'space' | 'session' | 'note' | 'heading'
-	readonly text: string
-	readonly target?: SidebarTarget
-	readonly selected?: boolean
-	readonly dot?: Dot
-	readonly account?: string
-	/** A note that asks for a look, drawn in colour. */
-	readonly warn?: boolean
+const GLYPHS: Record<Dot, string> = {
+	blocked: '●',
+	done: '●',
+	working: '●',
+	idle: '○',
+	none: '·',
 }
 
-const DOTS: Record<Dot, { glyph: string; fg: number }> = {
-	blocked: { glyph: '●', fg: RED },
-	done: { glyph: '●', fg: BLUE },
-	working: { glyph: '●', fg: YELLOW },
-	idle: { glyph: '○', fg: GREEN },
-	none: { glyph: '·', fg: GREY },
+function dotColor(dot: Dot, palette: Palette): number {
+	switch (dot) {
+		case 'blocked':
+			return palette.red
+		case 'done':
+			return palette.teal
+		case 'working':
+			return palette.yellow
+		case 'idle':
+			return palette.green
+		case 'none':
+			return palette.dim
+	}
 }
 
 /** The glyph and colour of a dot, for the tests that check what a row says. */
-export function dotStyle(dot: Dot): { glyph: string; fg: number } {
-	return DOTS[dot]
+export function dotStyle(dot: Dot, palette: Palette): { glyph: string; fg: number } {
+	return { glyph: GLYPHS[dot], fg: dotColor(dot, palette) }
 }
 
-/** First row of the list: row 0 is the title. */
-export const LIST_TOP = 1
+/** Columns the "new" target covers, counted from the left edge. */
+const NEW_WIDTH = 5
+/** Columns the "menu" target covers, counted from the right edge. */
+const MENU_WIDTH = 6
+/** Columns the collapse toggle covers at the foot. */
+const TOGGLE_WIDTH = 3
+const MIN_SECTION = 3
 
-/** Rows the list can show above a foot of `footLines`. */
-export function listHeight(height: number, footLines: number): number {
-	return Math.max(0, height - LIST_TOP - footLines - 1)
+/** Where each part of the sidebar sits, in rows from its top. */
+export interface Geometry {
+	readonly rail: boolean
+	readonly height: number
+	/** The rule between the two sections. */
+	readonly ruleY: number
+	/** The "spaces" header; none on the rail. */
+	readonly headerY: number | undefined
+	readonly spaceTop: number
+	/** Rows a space takes: 2 in the full sidebar, 1 on the rail. */
+	readonly spaceStep: 1 | 2
+	/** How many spaces fit. */
+	readonly spaceCap: number
+	/** The "new" and "menu" row; none on the rail. */
+	readonly footerY: number | undefined
+	readonly agentHeaderY: number | undefined
+	readonly agentTop: number
+	readonly agentCap: number
+	/** The row with the collapse toggle. */
+	readonly toggleY: number
 }
 
-function noteRow(text: string, target: SidebarTarget, warn = false): Row {
-	return { kind: 'note', text, target, ...(warn ? { warn: true } : {}) }
+/** The rule's row for a split: each section keeps at least three rows where the height allows. */
+export function ruleRow(height: number, split: number): number {
+	if (height < MIN_SECTION * 2 + 2) return Math.floor(height / 2)
+	const wanted = Math.round(height * (Number.isFinite(split) ? split : 0.5))
+	return Math.max(MIN_SECTION, Math.min(height - MIN_SECTION - 1, wanted))
 }
 
-function spaceRows(roster: Roster): Row[] {
-	const current = roster.selected ? roster.spaceOf(roster.selected) : undefined
-	return roster.spaces.flatMap((space, index): Row[] => {
-		const dot = roster.spaceDot(space)
-		const target: SidebarTarget = { kind: 'space', space }
-		const note = spaceNote(dot)
-		return [
-			{
-				kind: 'space',
-				text: `${index + 1} ${space.name}`,
-				target,
-				selected: space === current,
-				dot,
-			},
-			...(note ? [noteRow(note, target)] : []),
-		]
-	})
-}
-
-function sessionRows(roster: Roster): Row[] {
-	const selected = roster.selected
-	if (!selected) return []
-	return roster.entriesOf(roster.spaceOf(selected)).flatMap((entry): Row[] => {
-		const target: SidebarTarget = { kind: 'session', entry }
-		const base = activityNote(entry.activity(), entry.unseen, entry.child?.ending)
-		const note = entry.folderMissing
-			? 'folder not found'
-			: entry.openElsewhere
-				? 'open in another terminal'
-				: entry.limited && entry.activity() !== 'exited'
-					? limitedNote(entry.limitedUntil, Date.now())
-					: base
-		return [
-			{
-				kind: 'session',
-				text: entry.label,
-				target,
-				selected: entry === selected,
-				dot: entry.dot(),
-				...(entry.account ? { account: entry.account } : {}),
-			},
-			...(note
-				? [noteRow(note, target, entry.folderMissing || (entry.limited && !entry.openElsewhere))]
-				: []),
-		]
-	})
-}
-
-/** The sidebar's two lists and how many lines each gets. */
-export interface Arrangement {
-	readonly spaces: readonly Row[]
-	readonly sessions: readonly Row[]
-	/** Lines the spaces list shows. */
-	readonly spacesHeight: number
-	/** Lines the sessions list shows, under its heading. */
-	readonly sessionsHeight: number
-	readonly heading: string | undefined
-}
-
-export interface SidebarScroll {
-	spaces: number
-	sessions: number
-}
-
-/**
- * Spaces on top, the selected space's sessions below. When both do not fit,
- * the sessions get what the spaces do not need, but never less than half.
- */
-export function arrange(roster: Roster, height: number, footLines: number): Arrangement {
-	const spaces = spaceRows(roster)
-	const sessions = sessionRows(roster)
-	const selected = roster.selected
-	const heading = selected ? `sessions in ${roster.spaceOf(selected).name}` : undefined
-	const headingHeight = heading ? 1 : 0
-	const room = Math.max(0, listHeight(height, footLines) - headingHeight)
-	if (spaces.length + sessions.length <= room)
+export function geometry(
+	height: number,
+	footLines: number,
+	split: number,
+	rail: boolean,
+): Geometry {
+	const ruleY = ruleRow(height, split)
+	const toggleY = Math.max(0, height - 1)
+	if (rail)
 		return {
-			spaces,
-			sessions,
-			spacesHeight: spaces.length,
-			sessionsHeight: sessions.length,
-			heading,
+			rail,
+			height,
+			ruleY,
+			headerY: undefined,
+			spaceTop: 0,
+			spaceStep: 1,
+			spaceCap: Math.max(0, ruleY),
+			footerY: undefined,
+			agentHeaderY: undefined,
+			agentTop: ruleY + 1,
+			agentCap: Math.max(0, toggleY - (ruleY + 1)),
+			toggleY,
 		}
-	const sessionsHeight = Math.max(
-		0,
-		Math.min(sessions.length, Math.max(Math.floor(room / 2), room - spaces.length)),
-	)
+	const footerY = ruleY - 1
+	const agentTop = ruleY + 3
+	const agentBottom = Math.max(agentTop, height - 1 - footLines)
 	return {
-		spaces,
-		sessions,
-		spacesHeight: room - sessionsHeight,
-		sessionsHeight,
-		heading,
+		rail,
+		height,
+		ruleY,
+		headerY: 0,
+		spaceTop: 2,
+		spaceStep: 2,
+		spaceCap: Math.max(0, Math.floor((footerY - 2) / 2)),
+		footerY,
+		agentHeaderY: ruleY + 1,
+		agentTop,
+		agentCap: Math.max(0, Math.floor((agentBottom - agentTop) / 2)),
+		toggleY,
 	}
 }
 
-function within(scroll: number, total: number, height: number, reveal: number): number {
-	let next = Math.max(0, Math.min(scroll, Math.max(0, total - height)))
-	if (reveal >= 0) {
+const RANK: Record<Dot, number> = {
+	blocked: 0,
+	done: 1,
+	working: 2,
+	idle: 3,
+	none: 4,
+}
+
+/** Every session of every space, in the order the agents list shows them. */
+export function agentList(roster: Roster, order: AgentOrder): Entry[] {
+	const grouped = roster.spaces.flatMap((space) => space.tabs.flatMap((tab) => leaves(tab.root)))
+	if (order === 'grouped') return grouped
+	return grouped
+		.map((entry, index) => ({ entry, index }))
+		.sort(
+			(a, b) =>
+				RANK[a.entry.dot()] - RANK[b.entry.dot()] ||
+				b.entry.changedAt - a.entry.changedAt ||
+				a.index - b.index,
+		)
+		.map((item) => item.entry)
+}
+
+function within(scroll: number, total: number, cap: number, reveal: number): number {
+	const most = Math.max(0, total - cap)
+	let next = Math.max(0, Math.min(scroll, most))
+	if (reveal >= 0 && cap > 0) {
 		if (reveal < next) next = reveal
-		else if (reveal >= next + height) next = reveal - height + 1
+		else if (reveal >= next + cap) next = reveal - cap + 1
 	}
-	return Math.max(0, Math.min(next, Math.max(0, total - height)))
+	return Math.max(0, Math.min(next, most))
 }
 
 /** Keeps both scrolls in range and, if asked, brings the shown space and session into view. */
 export function clampScroll(
 	scroll: SidebarScroll,
-	arrangement: Arrangement,
+	model: Pick<SidebarModel, 'roster' | 'order' | 'foot' | 'split' | 'rail'>,
+	height: number,
 	reveal = false,
 ): SidebarScroll {
-	const selectedSpace = reveal
-		? arrangement.spaces.findIndex((r) => r.kind === 'space' && r.selected)
-		: -1
-	const selectedSession = reveal
-		? arrangement.sessions.findIndex((r) => r.kind === 'session' && r.selected)
-		: -1
+	const geo = geometry(height, model.foot.length, model.split, model.rail)
+	const selected = model.roster.selected
+	const space = selected ? model.roster.spaceOf(selected) : undefined
+	const agents = agentList(model.roster, model.order)
 	return {
 		spaces: within(
 			scroll.spaces,
-			arrangement.spaces.length,
-			arrangement.spacesHeight,
-			selectedSpace,
+			model.roster.spaces.length,
+			geo.spaceCap,
+			reveal && space ? model.roster.spaces.indexOf(space) : -1,
 		),
-		sessions: within(
-			scroll.sessions,
-			arrangement.sessions.length,
-			arrangement.sessionsHeight,
-			selectedSession,
+		agents: within(
+			scroll.agents,
+			agents.length,
+			geo.agentCap,
+			reveal && selected ? agents.indexOf(selected) : -1,
 		),
 	}
 }
 
-/** Which list sidebar row `y` is in. */
-export function regionAt(arrangement: Arrangement, y: number): 'spaces' | 'sessions' | undefined {
-	const line = y - LIST_TOP
-	if (line < 0) return undefined
-	if (line < arrangement.spacesHeight) return 'spaces'
-	if (arrangement.heading === undefined || line === arrangement.spacesHeight) return undefined
-	return line - arrangement.spacesHeight - 1 < arrangement.sessionsHeight ? 'sessions' : undefined
+/** Which scrollable list sidebar row `y` is in. */
+export function regionAt(
+	model: Pick<SidebarModel, 'foot' | 'split' | 'rail'>,
+	height: number,
+	y: number,
+): 'spaces' | 'agents' | undefined {
+	const geo = geometry(height, model.foot.length, model.split, model.rail)
+	if (y < geo.ruleY) return 'spaces'
+	if (y > geo.ruleY) return 'agents'
+	return undefined
 }
 
-/** What a click at sidebar row `y` lands on. */
+/** The label of the order toggle: the order the list is in now. */
+export function orderLabel(order: AgentOrder): string {
+	return order
+}
+
+/** What a click at a cell of the sidebar lands on. */
 export function hitTest(
-	arrangement: Arrangement,
-	scroll: SidebarScroll,
+	model: Pick<SidebarModel, 'roster' | 'scroll' | 'order' | 'foot' | 'split' | 'rail'>,
+	width: number,
+	height: number,
+	x: number,
 	y: number,
 ): SidebarTarget | undefined {
-	const region = regionAt(arrangement, y)
-	if (region === 'spaces') return arrangement.spaces[y - LIST_TOP + scroll.spaces]?.target
-	if (region === 'sessions')
-		return arrangement.sessions[y - LIST_TOP - arrangement.spacesHeight - 1 + scroll.sessions]
-			?.target
+	const geo = geometry(height, model.foot.length, model.split, model.rail)
+	if (y === geo.toggleY && x >= width - TOGGLE_WIDTH) return { kind: 'collapse' }
+	if (y === geo.ruleY) return { kind: 'split' }
+	if (geo.footerY !== undefined && y === geo.footerY) {
+		if (x < NEW_WIDTH) return { kind: 'new' }
+		if (x >= width - MENU_WIDTH) return { kind: 'menu' }
+		return undefined
+	}
+	if (geo.agentHeaderY !== undefined && y === geo.agentHeaderY) {
+		return x >= width - orderLabel(model.order).length - 1 ? { kind: 'order' } : undefined
+	}
+	const spaceLine = y - geo.spaceTop
+	if (spaceLine >= 0 && spaceLine < geo.spaceCap * geo.spaceStep && y < geo.ruleY) {
+		const space = model.roster.spaces[model.scroll.spaces + Math.floor(spaceLine / geo.spaceStep)]
+		return space ? { kind: 'space', space } : undefined
+	}
+	const agentLine = y - geo.agentTop
+	if (agentLine >= 0 && agentLine < geo.agentCap * geo.spaceStep) {
+		const entry = agentList(model.roster, model.order)[
+			model.scroll.agents + Math.floor(agentLine / geo.spaceStep)
+		]
+		return entry ? { kind: 'agent', entry } : undefined
+	}
 	return undefined
 }
 
 function clip(text: string, max: number): string {
 	if (max <= 0) return ''
-	return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`
+	if (stringWidth(text) <= max) return text
+	let out = ''
+	let used = 0
+	for (const ch of text) {
+		const w = stringWidth(ch)
+		if (used + w > max - 1) break
+		out += ch
+		used += w
+	}
+	return `${out}…`
 }
 
-function drawRow(frame: Frame, rect: Rect, y: number, row: Row, navigating: boolean): void {
-	if (row.kind === 'note') {
-		frame.writeText(
-			{ ...rect, x: rect.x + 4, width: rect.width - 4 },
-			y,
-			clip(row.text, rect.width - 5),
-			row.warn ? { fg: YELLOW } : { fg: GREY, attrs: ATTR_DIM },
-		)
-		return
+/**
+ * The second line of an agent: its tab (when the space has several), its name and
+ * its account. When they do not fit, the tab shrinks to its number, then the name
+ * gives way; the account is the part worth keeping.
+ */
+export function agentDetail(
+	roster: Roster,
+	entry: Entry,
+	width = Number.POSITIVE_INFINITY,
+): string {
+	const space = roster.spaceOf(entry)
+	const tab = roster.tabOf(entry)
+	const index = tab ? space.tabs.indexOf(tab) + 1 : 0
+	const many = space.tabs.length > 1 && tab !== undefined
+	const join = (parts: string[]): string => parts.join(' · ')
+	const account = entry.account ? [entry.account] : []
+	const full = join([...(many ? [tab.name ?? `tab ${index}`] : []), entry.label, ...account])
+	if (stringWidth(full) <= width) return full
+	const short = join([...(many ? [String(index)] : []), entry.label, ...account])
+	if (stringWidth(short) <= width) return short
+	const tail = account.length > 0 ? ` · ${entry.account}` : ''
+	const head = join([...(many ? [String(index)] : []), entry.label])
+	return `${clip(head, Math.max(1, width - stringWidth(tail)))}${tail}`
+}
+
+/** What replaces an agent's detail when something about it needs a look. */
+function agentWarning(entry: Entry): string | undefined {
+	if (entry.folderMissing) return 'folder not found'
+	if (entry.openElsewhere) return 'open in another terminal'
+	if (entry.limited && entry.activity() !== 'exited')
+		return limitedNote(entry.limitedUntil, Date.now())
+	return undefined
+}
+
+/** Whether any space wants a look: the "menu" target carries a dot then. */
+function attention(roster: Roster): Dot | undefined {
+	let found: Dot | undefined
+	for (const space of roster.spaces) {
+		const dot = roster.spaceDot(space)
+		if (dot === 'blocked') return dot
+		if (dot === 'done') found = dot
 	}
-	const entry = row.target?.kind === 'session' ? row.target.entry : undefined
-	const gone = entry?.child?.status === 'exited'
-	const highlight = navigating && row.selected && row.kind === 'session'
-	const style: CellStyle = gone
-		? { fg: GREY, attrs: ATTR_DIM }
-		: highlight
-			? { attrs: ATTR_INVERSE }
-			: row.kind === 'space' && row.selected
-				? { attrs: ATTR_BOLD }
-				: {}
-	if (highlight) frame.fillRect({ ...rect, y: rect.y + y, height: 1 }, style)
-	frame.writeText(rect, y, row.selected ? '▌' : ' ', {
-		fg: CYAN,
-		...(style.attrs ? { attrs: style.attrs } : {}),
-	})
-	const accountWidth = row.account ? row.account.length + 1 : 0
-	const room = rect.width - 4 - accountWidth
-	frame.writeText(
-		{ ...rect, x: rect.x + 1, width: rect.width - 1 },
-		y,
-		` ${clip(row.text, room)}`,
-		style,
-	)
-	if (row.account)
-		frame.writeText(
-			{
-				...rect,
-				x: rect.x + rect.width - 3 - row.account.length,
-				width: row.account.length + 1,
-			},
-			y,
-			row.account,
-			{ ...style, fg: GREY, attrs: ATTR_DIM },
-		)
-	const dot = DOTS[row.dot ?? 'none']
-	frame.writeText({ ...rect, x: rect.x + rect.width - 2, width: 2 }, y, ` ${dot.glyph}`, {
-		...style,
-		fg: dot.fg,
-	})
+	return found
 }
 
 export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void {
-	frame.fillRect(rect)
-	frame.writeText(rect, 0, ' spaces', { attrs: ATTR_BOLD })
-	const arrangement = arrange(model.roster, rect.height, model.foot.length)
+	const { palette, roster } = model
+	const geo = geometry(rect.height, model.foot.length, model.split, model.rail)
 	const navigating = model.mode === 'navigate'
-	for (let line = 0; line < arrangement.spacesHeight; line++) {
-		const row = arrangement.spaces[line + model.scroll.spaces]
-		if (row) drawRow(frame, rect, LIST_TOP + line, row, navigating)
+	frame.fillRect(rect)
+	const at = (x: number, y: number, text: string, style: CellStyle = {}): void => {
+		if (x >= rect.width) return
+		frame.writeText({ ...rect, x: rect.x + x, width: rect.width - x }, y, text, style)
 	}
-	const headingY = LIST_TOP + arrangement.spacesHeight
-	if (arrangement.heading !== undefined) {
-		frame.writeText(rect, headingY, ` ${clip(arrangement.heading, rect.width - 2)}`, {
-			fg: GREY,
-			attrs: ATTR_DIM,
-		})
-		for (let line = 0; line < arrangement.sessionsHeight; line++) {
-			const row = arrangement.sessions[line + model.scroll.sessions]
-			if (row) drawRow(frame, rect, headingY + 1 + line, row, navigating)
+	const tint = (y: number, height: number, bg: number): void => {
+		if (bg >= 0) frame.fillRect({ ...rect, y: rect.y + y, height }, { bg })
+	}
+	const shown = roster.selected ? roster.spaceOf(roster.selected) : undefined
+	const agents = agentList(roster, model.order)
+
+	if (geo.headerY !== undefined) at(1, geo.headerY, 'spaces', { fg: palette.dim, attrs: ATTR_BOLD })
+	const spaces = roster.spaces.slice(model.scroll.spaces, model.scroll.spaces + geo.spaceCap)
+	spaces.forEach((space, i) => {
+		const y = geo.spaceTop + i * geo.spaceStep
+		const index = model.scroll.spaces + i
+		const focused = space === shown
+		const dot = roster.spaceDot(space)
+		const bg = focused ? (navigating ? palette.cursorRow : palette.activeRow) : -1
+		tint(y, geo.spaceStep, bg)
+		if (geo.rail) {
+			at(0, y, String(index + 1), { fg: palette.dim, bg })
+			at(2, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+			return
 		}
+		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+		at(3, y, clip(space.name, rect.width - 3), {
+			fg: focused ? palette.text : palette.subtext,
+			bg,
+			...(focused ? { attrs: ATTR_BOLD } : {}),
+		})
+		const note = spaceNote(dot)
+		if (note) {
+			at(3, y + 1, clip(note, rect.width - 3), {
+				fg: dot === 'blocked' ? palette.red : palette.teal,
+				bg,
+			})
+			return
+		}
+		const git = model.git(space.cwd)
+		if (!git) return
+		const counts: { text: string; fg: number }[] = []
+		if (git.ahead > 0) counts.push({ text: `↑${git.ahead}`, fg: palette.green })
+		if (git.behind > 0) counts.push({ text: `↓${git.behind}`, fg: palette.red })
+		const tail = counts.reduce((sum, c) => sum + 1 + c.text.length, 0)
+		const branch = clip(git.branch, rect.width - 3 - tail)
+		at(3, y + 1, branch, { fg: focused ? palette.mauve : palette.dim, bg })
+		let x = 3 + stringWidth(branch)
+		for (const c of counts) {
+			at(x + 1, y + 1, c.text, { fg: c.fg, bg })
+			x += 1 + c.text.length
+		}
+	})
+
+	if (geo.footerY !== undefined) {
+		at(1, geo.footerY, 'new', { fg: palette.dim })
+		const menuX = rect.width - 4
+		at(menuX, geo.footerY, 'menu', { fg: palette.dim })
+		const flag = attention(roster)
+		if (flag) at(menuX - 2, geo.footerY, GLYPHS[flag], { fg: dotColor(flag, palette) })
 	}
-	const top = rect.height - model.foot.length
-	model.foot.forEach((line, i) =>
-		frame.writeText(rect, top + i, ` ${clip(line, rect.width - 1)}`, {
-			fg: GREY,
-			attrs: ATTR_DIM,
-		}),
-	)
+
+	at(0, geo.ruleY, '─'.repeat(rect.width), {
+		fg: palette.dim,
+		attrs: ATTR_DIM,
+	})
+	if (geo.agentHeaderY !== undefined) {
+		at(1, geo.agentHeaderY, 'agents', { fg: palette.dim, attrs: ATTR_BOLD })
+		const label = orderLabel(model.order)
+		at(rect.width - label.length, geo.agentHeaderY, label, { fg: palette.dim })
+	}
+	const visible = agents.slice(model.scroll.agents, model.scroll.agents + geo.agentCap)
+	visible.forEach((entry, i) => {
+		const y = geo.agentTop + i * geo.spaceStep
+		const index = model.scroll.agents + i
+		const focused = entry === roster.selected
+		const dot = entry.dot()
+		const bg = focused ? palette.activeRow : -1
+		tint(y, geo.spaceStep, bg)
+		if (geo.rail) {
+			at(0, y, String(index + 1), { fg: palette.dim, bg })
+			at(2, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+			return
+		}
+		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+		const gone = entry.child?.status === 'exited'
+		at(3, y, clip(roster.spaceOf(entry).name, rect.width - 3), {
+			fg: gone ? palette.dim : focused ? palette.text : palette.subtext,
+			bg,
+			attrs: ATTR_BOLD,
+		})
+		const warning = agentWarning(entry)
+		at(3, y + 1, clip(warning ?? agentDetail(roster, entry, rect.width - 3), rect.width - 3), {
+			fg: warning ? palette.yellow : palette.dim,
+			bg,
+		})
+	})
+
+	const top = rect.height - 1 - model.foot.length
+	if (!geo.rail)
+		model.foot.forEach((line, i) => at(1, top + i, clip(line, rect.width - 1), { fg: palette.dim }))
+	if (geo.rail) at(1, geo.toggleY, '»', { fg: palette.dim })
+	else at(rect.width - 1, geo.toggleY, '«', { fg: palette.dim })
 }
 
-export function drawRule(frame: Frame, rect: Rect): void {
+export function drawRule(frame: Frame, rect: Rect, palette: Palette): void {
 	for (let y = 0; y < rect.height; y++)
 		frame.writeText({ ...rect, height: rect.height }, y, '│', {
-			fg: GREY,
-			attrs: ATTR_DIM,
+			fg: palette.dim,
 		})
 }
 

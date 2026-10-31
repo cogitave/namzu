@@ -1,4 +1,4 @@
-import { rgb } from '../terminal/host/cell.js'
+import { DEFAULT_COLOR, rgb } from '../terminal/host/cell.js'
 
 /** The colours the host draws its own chrome in. */
 export interface Palette {
@@ -21,11 +21,15 @@ export interface Palette {
 	readonly yellow: number
 	readonly red: number
 	readonly teal: number
+	/** The faint tint behind the shown space and the pane in focus. */
+	readonly activeRow: number
+	/** The stronger tint behind the row the navigate cursor is on. */
+	readonly cursorRow: number
 }
 
 type Rgb = readonly [number, number, number]
 
-const TRUE: Record<Exclude<keyof Palette, 'tabRest'>, Rgb> = {
+const TRUE: Record<Exclude<keyof Palette, 'tabRest' | 'activeRow' | 'cursorRow'>, Rgb> = {
 	accent: [137, 180, 250],
 	panelBg: [24, 24, 37],
 	surface: [49, 50, 68],
@@ -89,6 +93,10 @@ export function paletteFor(truecolor: boolean): Palette {
 		const c = TRUE[key]
 		out[key] = truecolor ? rgb(c[0], c[1], c[2]) : nearestAnsi(c)
 	}
+	// Both tints are near black. In 16 colours the faint one is left out (the bold name
+	// carries the selection) and the strong one becomes bright black.
+	out.activeRow = truecolor ? rgb(30, 30, 46) : DEFAULT_COLOR
+	out.cursorRow = truecolor ? rgb(49, 50, 68) : 8
 	out.tabRest = out.dim
 	// Both would land on black; a raised tab keeps its look as bright black, with white text.
 	if (!truecolor && out.surface === out.panelBg) {

@@ -61,6 +61,8 @@ export class Entry {
 	folderMissing = false
 	/** The check for that is running. */
 	checking = false
+	/** When its activity last changed, as a count that only grows; the priority order puts the newest first. */
+	changedAt = 0
 	private seen: SessionActivity = 'not-started'
 
 	constructor(
@@ -94,6 +96,7 @@ export class Roster {
 	readonly entries: Entry[] = []
 	private current: Entry | undefined
 	private counter = 0
+	private ticks = 0
 
 	/** The session with focus: the focused pane of the shown tab of the shown space. */
 	get selected(): Entry | undefined {
@@ -199,6 +202,7 @@ export class Roster {
 	update(entry: Entry): void {
 		const before = entry.observe()
 		const now = entry.activity()
+		if (before !== now) entry.changedAt = ++this.ticks
 		if ((before === 'working' || before === 'needs-approval') && now === 'idle') {
 			if (!this.isVisible(entry)) entry.unseen = true
 		}

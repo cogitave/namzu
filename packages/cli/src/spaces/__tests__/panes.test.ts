@@ -420,18 +420,18 @@ describe('the mouse', () => {
 	})
 })
 
-describe('hiding the sidebar and resizing the terminal', () => {
+describe('collapsing the sidebar and resizing the terminal', () => {
 	it('refits every pane of the tab', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'v')
 		nav(t, 'b')
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 48, rows: 27 })
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 48, rows: 27 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 46, rows: 27 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 46, rows: 27 })
 		t.output.columns = 60
 		t.output.rows = 20
 		for (const l of t.resizeListeners) l()
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 28, rows: 17 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 26, rows: 17 })
 	})
 })
 
