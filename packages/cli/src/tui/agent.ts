@@ -6510,6 +6510,28 @@ export async function createAgentSession(
 									cliLogger().warn('account binding was not recorded', exceptionAttributes(error))
 								}
 							}
+						} else if (
+							!boundAccount &&
+							!options.ephemeral &&
+							options.conversationSessions &&
+							options.accountReason !== undefined
+						) {
+							// A switch back to the provider's usual sign-in: written too, so a
+							// resume does not return to the account the conversation left. The
+							// store writes nothing when there was no earlier binding.
+							const usual = `${primary.id}:default`
+							if (recordedAccountFor.get(turnScope.sessionId) !== usual) {
+								try {
+									await recordAccountBound(options.conversationSessions, turnScope.sessionId, {
+										accountId: usual,
+										provider: primary.id,
+										reason: options.accountReason,
+									})
+									recordedAccountFor.set(turnScope.sessionId, usual)
+								} catch (error) {
+									cliLogger().warn('account binding was not recorded', exceptionAttributes(error))
+								}
+							}
 						}
 						try {
 							for await (const event of runTurn({

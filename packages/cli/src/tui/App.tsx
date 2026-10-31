@@ -5724,7 +5724,11 @@ function AppBody({
 			const s = await createAgentSession(sessionPrefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
-				...(nextAccount ? { accountReason: nextAccount.reason } : {}),
+				...(nextAccount
+					? { accountReason: nextAccount.reason }
+					: accountReasonRef.current
+						? { accountReason: accountReasonRef.current }
+						: {}),
 				...(activeCtx.reloadPermissionRules
 					? { reloadPermissionRules: activeCtx.reloadPermissionRules }
 					: {}),

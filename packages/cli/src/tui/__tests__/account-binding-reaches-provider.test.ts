@@ -164,3 +164,52 @@ it('records the binding in the conversation once, however often the session is r
 		closeSessions(sessions)
 	}
 })
+
+it('records a switch back to the usual sign-in, so a resume does not return to the account left', async () => {
+	const { cwd, home } = workspace()
+	const accounts = openCliAccounts({ home })
+	accounts.registry.add({
+		provider: 'openai',
+		label: 'work',
+		kind: 'api-key',
+		apiKey: 'work-key',
+	})
+	const { resolveBoundAccount } = await import('@namzu/sdk')
+	const {
+		openSessions,
+		closeSessions,
+		startConversation,
+		recordAccountBound,
+		readConversationFacts,
+	} = await import('../../integrations/sessions/store.js')
+	const sessions = await openSessions(cwd)
+	try {
+		const sessionId = await startConversation(sessions)
+		// Never left the usual sign-in: nothing is written.
+		expect(
+			await recordAccountBound(sessions, sessionId, {
+				accountId: 'openai:default',
+				provider: 'openai',
+				reason: 'user_switch',
+			}),
+		).toBe(false)
+		await recordAccountBound(sessions, sessionId, {
+			accountId: 'openai:work',
+			provider: 'openai',
+			reason: 'user_switch',
+		})
+		expect(
+			await recordAccountBound(sessions, sessionId, {
+				accountId: 'openai:default',
+				provider: 'openai',
+				reason: 'user_switch',
+			}),
+		).toBe(true)
+		const facts = await readConversationFacts(sessions, sessionId, 'strict')
+		expect(resolveBoundAccount(facts?.records ?? [], 'openai', accounts.registry).accountId).toBe(
+			'openai:default',
+		)
+	} finally {
+		closeSessions(sessions)
+	}
+})
