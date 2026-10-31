@@ -27,7 +27,7 @@ describe('spaces and sessions', () => {
 		const { t } = rig()
 		t.host.start()
 		expect((t.spawned[0] as FakePty).options.env).toEqual({ A: '1' })
-		nav(t, 'n')
+		nav(t, 'c')
 		expect(t.spawned).toHaveLength(2)
 		expect((t.spawned[1] as FakePty).options.cwd).toBe('/work/namzu')
 		// New sessions take the keyboard.
@@ -66,55 +66,66 @@ describe('spaces and sessions', () => {
 		nav(t, 'N')
 		t.type('abc')
 		t.type('\x1b')
-		t.type('x')
 		expect((t.spawned[0] as FakePty).writes).toEqual([])
+		// The keyboard is the session's again.
+		t.type('x')
+		expect((t.spawned[0] as FakePty).writes).toEqual(['x'])
 	})
 
-	it('renames a session and a space', async () => {
+	it('renames a pane, a tab and a space', async () => {
 		const { t } = rig()
 		t.host.start()
-		nav(t, 'r')
+		nav(t, 'P')
 		t.type('\x7f'.repeat('session 1'.length))
 		t.type('fix test\r')
-		// Finishing a prompt leaves the host in navigate mode.
-		t.type('R')
+		nav(t, 'W')
 		t.type('\x7f'.repeat('namzu'.length))
 		t.type('core\r')
+		nav(t, 'T')
+		t.type('build\r')
 		const text = await lines(t)
 		expect(text).toContain('fix test')
 		expect(text).toContain('1 core')
+		expect(text.split('\n')[0]).toContain('build')
+		// An empty name puts the number back.
+		nav(t, 'T')
+		t.type('\x7f'.repeat('build'.length))
+		t.type('\r')
+		expect((await lines(t)).split('\n')[0]).not.toContain('build')
 	})
 
-	it('closes a session after asking, and a space with all its sessions', async () => {
+	it('closes a pane without asking, and a space with all its panes after asking', async () => {
 		const { t } = rig()
 		t.host.start()
-		nav(t, 'n')
-		nav(t, 'd')
-		expect(await lines(t)).toContain('Close "session 2"?')
-		t.type('n')
-		expect(t.host.roster.entries).toHaveLength(2)
-		t.type('d')
-		t.type('y')
+		nav(t, 'c')
+		nav(t, 'x')
 		expect((t.spawned[1] as FakePty).kills).toEqual(['SIGHUP'])
 		expect(t.host.roster.entries).toHaveLength(1)
 		expect(t.host.roster.selected?.label).toBe('session 1')
+		nav(t, 'c')
+		nav(t, 'D')
+		expect(await lines(t)).toContain('Close space "namzu" and')
+		t.type('n')
+		expect(t.host.roster.entries).toHaveLength(2)
 	})
 
-	it('quits instead of closing the last session', async () => {
+	it('asks before the last pane of a space closes the space, and quits when it was the last space', async () => {
 		const { t } = rig()
 		t.host.start()
-		nav(t, 'd')
+		nav(t, 'x')
+		expect(await lines(t)).toContain('Close space "namzu"')
 		t.type('y')
 		expect((t.spawned[0] as FakePty).kills).toEqual(['SIGHUP'])
 		;(t.spawned[0] as FakePty).end(0, 1)
 		await expect(t.host.done).resolves.toBe(0)
 	})
 
-	it('starts a listed session only when it is first opened', async () => {
+	it('starts a listed session only when its tab is first opened', async () => {
 		const { t } = rig({ listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }] })
 		t.host.start()
 		expect(t.spawned).toHaveLength(1)
-		nav(t, '2')
+		nav(t, 'w')
+		t.type('j')
 		const text = await lines(t)
 		expect(text).toContain('not started')
 		expect(text).toContain('has not started yet')
@@ -122,20 +133,26 @@ describe('spaces and sessions', () => {
 		t.type('\r')
 		expect(t.spawned).toHaveLength(2)
 		expect((t.spawned[1] as FakePty).options.cwd).toBe('/work/site')
-		// The second listed session is still waiting.
+		// The second listed session is in its own tab and is still waiting.
 		expect(t.host.roster.entries[2]?.child).toBeUndefined()
 	})
 
-	it('moves between sessions and spaces from the keyboard', () => {
+	it('moves between spaces in navigate mode and between tabs with n, p and the number keys', () => {
 		const { t } = rig({ listed: [{ cwd: '/work/site', name: 'site', sessions: 2 }] })
 		t.host.start()
-		nav(t, 'J')
-		expect(t.host.roster.selected?.spaceId).toBe('space-2')
+		nav(t, 'w')
 		t.type('j')
-		expect(t.host.roster.selected?.label).toBe('session 2')
+		expect(t.host.roster.selected?.spaceId).toBe('space-2')
 		t.type('k')
-		t.type('K')
 		expect(t.host.roster.selected?.spaceId).toBe('space-1')
+		t.type('j')
+		t.type('\r')
+		nav(t, 'n')
+		expect(t.host.roster.selected?.label).toBe('session 2')
+		nav(t, 'p')
+		expect(t.host.roster.selected?.label).toBe('session 1')
+		nav(t, '2')
+		expect(t.host.roster.selected?.label).toBe('session 2')
 	})
 })
 
@@ -157,7 +174,7 @@ describe('status feed', () => {
 	it('turns a space red when a background session needs approval', async () => {
 		const { t, peers } = rig({ listed: [] })
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		peers.publish('slot-1', 'idle')
 		peers.publish('slot-2', 'idle')
 		// The second session is shown; the first asks for approval in the background.
@@ -173,7 +190,7 @@ describe('status feed', () => {
 	it('marks a session that finished while another was shown, and clears it when it is viewed', async () => {
 		const { t, peers } = rig()
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'idle')
 		expect(t.host.roster.entries[0]?.unseen).toBe(false)
@@ -184,7 +201,7 @@ describe('status feed', () => {
 		expect(text).toContain('finished')
 		expect(t.host.roster.spaceDot(t.host.roster.spaces[0] as never)).toBe('done')
 		// Looking at it clears the mark.
-		nav(t, 'k')
+		nav(t, 'p')
 		expect(first?.unseen).toBe(false)
 		expect(t.host.roster.spaceDot(t.host.roster.spaces[0] as never)).toBe('idle')
 	})
@@ -200,8 +217,8 @@ describe('status feed', () => {
 	it('ranks blocked over finished over working over idle in a space', () => {
 		const { t, peers } = rig()
 		t.host.start()
-		nav(t, 'n')
-		nav(t, 'n')
+		nav(t, 'c')
+		nav(t, 'c')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'busy')
 		peers.publish('slot-3', 'idle')
@@ -216,7 +233,7 @@ describe('status feed', () => {
 	it('catches a change that was never written by asking the terminal', async () => {
 		const { t, peers } = rig()
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		peers.publish('slot-1', 'busy')
 		peers.publish('slot-2', 'idle')
 		// The record still says busy; the terminal itself says it is done.
@@ -251,7 +268,7 @@ describe('status feed', () => {
 	it('shows the account only when it is not the default', async () => {
 		const { t, peers } = rig()
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		peers.publish('slot-1', 'idle', { account: 'work' })
 		peers.publish('slot-2', 'idle')
 		const text = (await lines(t)).split('\n')

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { SpacesHost } from '../spaces/host.js'
 import type { ConversationQuery, HostAccount, SessionRequest } from '../spaces/host.js'
+import { advertisesTruecolor } from '../spaces/palette.js'
 import { createPeerSource } from '../spaces/peers.js'
 import type { PeerSource } from '../spaces/peers.js'
 import { DEFAULT_PREFIX, parsePrefix } from '../spaces/prefix.js'
@@ -14,33 +15,39 @@ export const SPACES_HELP = `Usage: namzu spaces [options]
 
 (preview) Run Namzu sessions side by side. The sidebar lists your spaces (project
 folders) on top, each with one dot for the most urgent thing in it, and the sessions
-of the selected space below. Each session is a full Namzu in its own terminal, so one
-that stops does not affect the others. The options after "spaces" go to the first
-session, so "namzu spaces --model <name>" starts it on that model.
+of the selected space below. Beside it the space shows a tab bar and, under it, the
+tab's panes: each pane is a full Namzu in its own terminal, so one that stops does not
+affect the others. The options after "spaces" go to the first session, so
+"namzu spaces --model <name>" starts it on that model.
 
 Dots: red needs approval, blue finished and not seen yet, yellow working, green idle.
 
-Keys:
-  ctrl+b            navigate (change the key with tui.spacesPrefix in your config)
-  ctrl+b ctrl+b     send a literal ctrl+b to the session
-  j / k, arrows     move between the sessions of a space
-  J / K, 1-9        move between spaces
-  n                 new session in this space (pick an account when you have more than one)
-  N                 new space from a folder
-  r / R             rename the session / the space
-  d / D             close the session / the space
-  enter, l          back to the session
+Keys (press ctrl+b first; change it with tui.spacesPrefix in your config):
+  ctrl+b            send a literal ctrl+b to the session (press it twice)
+  v / -             split the pane side by side / top over bottom
+  h j k l           focus the pane left, below, above, right
+  H J K L           swap the pane with its neighbour in that direction
+  tab / shift+tab   next / previous pane
+  x                 close the pane (the last pane closes the tab)
+  z                 zoom the pane, or bring the layout back
+  r                 resize mode: h/l width, j/k height, esc done
+  c / T / X         new tab / rename tab / close tab
+  n / p, 1-9        next / previous tab, tab by number
+  N / W / D         new space from a folder / rename space / close space
+  P                 rename the pane
+  w                 space navigation: up/down to move, enter to open, esc to leave
   b                 hide or show the sidebar
   q                 quit
-  esc               leave navigate mode
 
-Your spaces and sessions are remembered. Start "namzu spaces" again and they come back
-listed; each session starts, and resumes its conversation, when you first open it. A
-conversation that is open in another terminal is not opened a second time. Closing a
-session removes it from the list but keeps the conversation: "namzu resume" reaches it.
+Your spaces, tabs and panes are remembered. Start "namzu spaces" again and they come
+back listed; each session starts, and resumes its conversation, when you first open its
+tab. A conversation that is open in another terminal is not opened a second time.
+Closing a pane removes it from the layout but keeps the conversation: "namzu resume"
+reaches it.
 
-The mouse works too: click a space or a session, scroll the sidebar, or scroll a
-session's history.
+The mouse works too: click a pane to focus it, a tab to open it, "+" to add a tab, a
+space or a session in the sidebar; drag a border between panes to resize them; scroll
+the sidebar, or the history of the pane under the pointer.
 `
 
 export interface SpacesDeps {
@@ -206,6 +213,7 @@ export async function runSpaces(
 		inUseElsewhere: deps.inUseElsewhere ?? ((query) => conversationInUse(query, peers, deps.env)),
 		folder: { cwd: deps.cwd, name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session' },
 		prefix,
+		truecolor: advertisesTruecolor(deps.env),
 		...(peers ? { peers } : {}),
 	})
 	const stop = (): void => host.quit()

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
 import type { HostAccount, SessionRequest } from '../host.js'
-import { type SavedLayout, type SpacesStore, parseLayout } from '../store.js'
+import {
+	type SavedLayout,
+	type SavedNode,
+	type SavedSession,
+	type SavedSpace,
+	type SpacesStore,
+	parseLayout,
+} from '../store.js'
 import { FakePeers } from './support/fake-peers.js'
 import { setup } from './support/harness.js'
 
@@ -43,6 +50,18 @@ function rig(extra: Parameters<typeof setup>[1] = {}) {
 	return { t, peers, requests }
 }
 
+/** The sessions of a space as saved, tab by tab, left to right. */
+function sessionsOf(space: SavedSpace | undefined): SavedSession[] {
+	const walk = (node: SavedNode): SavedSession[] =>
+		'session' in node ? [node.session] : [...walk(node.a), ...walk(node.b)]
+	return (space?.tabs ?? []).flatMap((tab) => walk(tab.tree))
+}
+
+/** A space whose sessions each sit alone in a tab. */
+function tabsOf(name: string, cwd: string, sessions: SavedSession[]): SavedSpace {
+	return { name, cwd, tabs: sessions.map((session) => ({ tree: { session } })) }
+}
+
 const nav = (t: ReturnType<typeof setup>, keys: string) => {
 	t.type('\x02')
 	t.type(keys)
@@ -82,7 +101,7 @@ describe('starting a session on an account', () => {
 	it('starts at once when there are no extra accounts', () => {
 		const { t, requests } = rig({ accounts: () => [] })
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		expect(t.spawned).toHaveLength(2)
 		expect(requests[1]?.account).toBeUndefined()
 	})
@@ -90,7 +109,7 @@ describe('starting a session on an account', () => {
 	it('asks which account, defaults to the one the space used last, and remembers the pick', async () => {
 		const { t, requests } = rig({ accounts: () => ACCOUNTS })
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		expect(t.spawned).toHaveLength(1)
 		const asking = await text(t)
 		expect(asking).toContain('Start a session in namzu on:')
@@ -99,11 +118,11 @@ describe('starting a session on an account', () => {
 		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-a')
 		// Next time the picker opens on that account: enter alone repeats it.
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('\r')
 		expect(requests[2]?.account).toBe('openai:free-a')
 		// Moving down and choosing the second one.
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('j')
 		t.type('\r')
 		expect(requests[3]?.account).toBe('openai:free-b')
@@ -112,7 +131,7 @@ describe('starting a session on an account', () => {
 	it('leaves the picker with escape and starts nothing', async () => {
 		const { t } = rig({ accounts: () => ACCOUNTS })
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('\x1b')
 		expect(t.spawned).toHaveLength(1)
 		expect(await text(t)).not.toContain('Start a session in')
@@ -122,7 +141,7 @@ describe('starting a session on an account', () => {
 		const { t, peers, requests } = rig({ accounts: () => ACCOUNTS })
 		t.host.start()
 		peers.publish('slot-1', 'idle', { account: 'free-b' })
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-b')
 	})
@@ -131,13 +150,13 @@ describe('starting a session on an account', () => {
 		const store = new MemoryStore()
 		const { t, peers } = rig({ accounts: () => ACCOUNTS, store })
 		t.host.start()
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('j')
 		t.type('\r')
 		peers.publish('slot-2', 'idle', { account: 'free-b' })
-		expect(t.host.snapshot().spaces[0]?.sessions[1]?.pickedAccount).toBe('openai:free-b')
+		expect(sessionsOf(t.host.snapshot().spaces[0])[1]?.pickedAccount).toBe('openai:free-b')
 		peers.publish('slot-2', 'idle')
-		expect(t.host.snapshot().spaces[0]?.sessions[1]?.pickedAccount).toBeUndefined()
+		expect(sessionsOf(t.host.snapshot().spaces[0])[1]?.pickedAccount).toBeUndefined()
 	})
 })
 
@@ -147,18 +166,20 @@ describe('remembering the layout', () => {
 		const { t, peers } = rig({ store, accounts: () => ACCOUNTS })
 		t.host.start()
 		peers.publish('slot-1', 'idle', { account: 'free-a', conversationId: 'conv-1' })
-		nav(t, 'n')
+		nav(t, 'c')
 		t.type('\r')
 		await t.frame()
 		expect(store.saved).toHaveLength(1)
 		const layout = store.last as SavedLayout
 		expect(layout.spaces).toHaveLength(1)
-		expect(layout.spaces[0]?.sessions[0]).toMatchObject({
+		expect(sessionsOf(layout.spaces[0])[0]).toMatchObject({
 			conversationId: 'conv-1',
 			account: 'free-a',
 		})
-		expect(layout.spaces[0]?.sessions).toHaveLength(2)
-		expect(layout.focus).toEqual({ space: 0, session: 1 })
+		expect(sessionsOf(layout.spaces[0])).toHaveLength(2)
+		expect(layout.spaces[0]?.tabs).toHaveLength(2)
+		expect(layout.spaces[0]?.activeTab).toBe(1)
+		expect(layout.focus).toEqual({ space: 0 })
 	})
 
 	it('removes a closed session from the list but not its conversation from disk', async () => {
@@ -166,12 +187,11 @@ describe('remembering the layout', () => {
 		const { t, peers } = rig({ store })
 		t.host.start()
 		peers.publish('slot-1', 'idle', { conversationId: 'conv-1' })
-		nav(t, 'n')
-		nav(t, 'd')
-		t.type('y')
+		nav(t, 'c')
+		nav(t, 'x')
 		await t.frame()
-		expect(store.last?.spaces[0]?.sessions).toHaveLength(1)
-		expect(store.last?.spaces[0]?.sessions[0]?.conversationId).toBe('conv-1')
+		expect(sessionsOf(store.last?.spaces[0])).toHaveLength(1)
+		expect(sessionsOf(store.last?.spaces[0])[0]?.conversationId).toBe('conv-1')
 	})
 
 	it('writes the layout when the host closes', async () => {
@@ -188,35 +208,27 @@ describe('remembering the layout', () => {
 		const store = new MemoryStore()
 		const { t } = rig({ store })
 		t.host.start()
-		nav(t, 'd')
+		nav(t, 'x')
 		t.type('y')
 		;(t.spawned[0] as FakePty).end(0)
 		await t.host.done
-		expect(store.last).toEqual({ version: 1, spaces: [] })
+		expect(store.last).toEqual({ version: 2, spaces: [] })
 	})
 })
 
 describe('restoring the layout', () => {
 	const layout: SavedLayout = {
-		version: 1,
+		version: 2,
 		spaces: [
-			{
-				name: 'namzu',
-				cwd: '/work/namzu',
-				sessions: [
-					{ label: 'session 1', conversationId: 'conv-a', account: 'free-a' },
-					{ label: 'notes' },
-				],
-			},
-			{
-				name: 'site',
-				cwd: '/work/site',
-				sessions: [
-					{ label: 'session 1', conversationId: 'conv-b', pickedAccount: 'openai:free-b' },
-				],
-			},
+			tabsOf('namzu', '/work/namzu', [
+				{ label: 'session 1', conversationId: 'conv-a', account: 'free-a' },
+				{ label: 'notes' },
+			]),
+			tabsOf('site', '/work/site', [
+				{ label: 'session 1', conversationId: 'conv-b', pickedAccount: 'openai:free-b' },
+			]),
 		],
-		focus: { space: 1, session: 0 },
+		focus: { space: 1 },
 	}
 
 	it('lists every saved session, starts only the focused one, and resumes its conversation', async () => {
@@ -233,8 +245,8 @@ describe('restoring the layout', () => {
 		expect(shown).toContain('1 namzu')
 		expect(shown).toContain('2 site')
 		// The other space opens lazily and resumes its own conversation, on its account.
-		t.type('\x02')
-		t.type('1')
+		nav(t, 'w')
+		t.type('k')
 		t.type('\r')
 		expect(requests[1]).toMatchObject({
 			cwd: '/work/namzu',
@@ -247,8 +259,8 @@ describe('restoring the layout', () => {
 	it('shows the saved account label before the session is started', async () => {
 		const { t } = rig({ restored: layout })
 		t.host.start()
-		t.type('\x02')
-		t.type('1')
+		nav(t, 'w')
+		t.type('k')
 		expect(await text(t)).toContain('free-a')
 		expect(t.spawned).toHaveLength(1)
 	})
@@ -272,12 +284,12 @@ describe('restoring the layout', () => {
 		let present = false
 		const { t, requests } = rig({
 			restored: {
-				version: 1,
+				version: 2,
 				spaces: [
-					{ name: 'namzu', cwd: '/work/namzu', sessions: [{ label: 'a' }] },
-					{ name: 'lost', cwd: '/work/lost', sessions: [{ label: 'b', conversationId: 'conv-x' }] },
+					tabsOf('namzu', '/work/namzu', [{ label: 'a' }]),
+					tabsOf('lost', '/work/lost', [{ label: 'b', conversationId: 'conv-x' }]),
 				],
-				focus: { space: 1, session: 0 },
+				focus: { space: 1 },
 			},
 			isDirectory: (path) => path === '/work/namzu' || (path === '/work/lost' && present),
 		})
@@ -337,19 +349,104 @@ describe('restoring the layout', () => {
 describe('reading the saved layout', () => {
 	it('keeps what is well formed and drops the rest', () => {
 		const parsed = parseLayout({
+			version: 2,
+			spaces: [
+				{
+					name: 'a',
+					cwd: '/a',
+					tabs: [
+						{
+							tree: {
+								split: 'side',
+								ratio: 3,
+								a: { session: { label: 'x', conversationId: 'c' } },
+								b: { session: { nope: 1 } },
+							},
+							focus: 9,
+						},
+						{ tree: { nope: 1 } },
+					],
+				},
+				{ name: 'b', cwd: '/b', tabs: [] },
+				'junk',
+			],
+			focus: { space: 9 },
+		})
+		expect(parsed?.spaces).toHaveLength(1)
+		// A half that cannot be read leaves the other to fill the room.
+		expect(parsed?.spaces[0]?.tabs).toEqual([
+			{ tree: { session: { label: 'x', conversationId: 'c' } } },
+		])
+		expect(parsed?.focus).toBeUndefined()
+		expect(parseLayout({ version: 2, spaces: [] })).toBeUndefined()
+		expect(parseLayout(null)).toBeUndefined()
+		expect(parseLayout({ version: 3, spaces: [] })).toBeUndefined()
+	})
+
+	it('clamps a ratio, and drops a focus or zoom that does not fit the tab', () => {
+		const pane = (label: string) => ({ session: { label } })
+		const parsed = parseLayout({
+			version: 2,
+			spaces: [
+				{
+					name: 'a',
+					cwd: '/a',
+					tabs: [
+						{
+							tree: { split: 'stack', ratio: 5, a: pane('x'), b: pane('y') },
+							focus: 1,
+							zoomed: true,
+						},
+						{ tree: pane('z'), focus: 1, zoomed: true },
+					],
+					activeTab: 7,
+				},
+			],
+		})
+		const tabs = parsed?.spaces[0]?.tabs
+		expect(tabs?.[0]).toMatchObject({ tree: { ratio: 0.9 }, focus: 1, zoomed: true })
+		expect(tabs?.[1]).toEqual({ tree: pane('z') })
+		expect(parsed?.spaces[0]?.activeTab).toBeUndefined()
+	})
+
+	it('migrates the old flat shape: each session becomes a tab of its own, in order, with focus kept', () => {
+		const parsed = parseLayout({
 			version: 1,
 			spaces: [
 				{ name: 'a', cwd: '/a', sessions: [{ label: 'x', conversationId: 'c' }, { nope: 1 }] },
 				{ name: 'b', cwd: '/b', sessions: [] },
+				{
+					name: 'c',
+					cwd: '/c',
+					lastAccount: 'openai:free-a',
+					sessions: [{ label: 'p' }, { label: 'q', account: 'free-a' }, { label: 'r' }],
+				},
 				'junk',
 			],
-			focus: { space: 0, session: 9 },
+			focus: { space: 2, session: 1 },
 		})
-		expect(parsed?.spaces).toHaveLength(1)
-		expect(parsed?.spaces[0]?.sessions).toHaveLength(1)
-		expect(parsed?.focus).toBeUndefined()
-		expect(parseLayout({ version: 2, spaces: [] })).toBeUndefined()
-		expect(parseLayout(null)).toBeUndefined()
+		expect(parsed?.version).toBe(2)
+		expect(parsed?.spaces.map((s) => s.name)).toEqual(['a', 'c'])
+		expect(parsed?.spaces[0]?.tabs).toEqual([
+			{ tree: { session: { label: 'x', conversationId: 'c' } } },
+		])
+		expect(parsed?.spaces[1]?.tabs.map((t) => t.tree)).toEqual([
+			{ session: { label: 'p' } },
+			{ session: { label: 'q', account: 'free-a' } },
+			{ session: { label: 'r' } },
+		])
+		expect(parsed?.spaces[1]).toMatchObject({ lastAccount: 'openai:free-a', activeTab: 1 })
+		expect(parsed?.focus).toEqual({ space: 1 })
 		expect(parseLayout({ version: 1, spaces: [] })).toBeUndefined()
+	})
+
+	it('migrates an old file with no usable focus to the first tab and no focus', () => {
+		const parsed = parseLayout({
+			version: 1,
+			spaces: [{ name: 'a', cwd: '/a', sessions: [{ label: 'x' }] }],
+			focus: { space: 0, session: 5 },
+		})
+		expect(parsed?.focus).toBeUndefined()
+		expect(parsed?.spaces[0]?.activeTab).toBeUndefined()
 	})
 })

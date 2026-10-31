@@ -127,13 +127,42 @@ describe('the layout file', () => {
 			const store = fileStore(path)
 			expect(store.load()).toBeUndefined()
 			store.save({
-				version: 1,
-				spaces: [{ name: 'a', cwd: '/a', sessions: [{ label: 'x', conversationId: 'c' }] }],
-				focus: { space: 0, session: 0 },
+				version: 2,
+				spaces: [
+					{
+						name: 'a',
+						cwd: '/a',
+						tabs: [{ tree: { session: { label: 'x', conversationId: 'c' } } }],
+					},
+				],
+				focus: { space: 0 },
 			})
 			expect(statSync(path).mode & 0o777).toBe(0o600)
-			expect(JSON.parse(readFileSync(path, 'utf8')).spaces[0].sessions[0].conversationId).toBe('c')
-			expect(store.load()?.focus).toEqual({ space: 0, session: 0 })
+			expect(
+				JSON.parse(readFileSync(path, 'utf8')).spaces[0].tabs[0].tree.session.conversationId,
+			).toBe('c')
+			expect(store.load()?.focus).toEqual({ space: 0 })
+		} finally {
+			removeTempDir(dir)
+		}
+	})
+
+	it('reads a file written by the first version as one tab per session', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-spaces-old-'))
+		try {
+			const path = join(dir, 'spaces.json')
+			writeFileSync(
+				path,
+				JSON.stringify({
+					version: 1,
+					spaces: [{ name: 'a', cwd: '/a', sessions: [{ label: 'x' }, { label: 'y' }] }],
+					focus: { space: 0, session: 1 },
+				}),
+			)
+			const loaded = fileStore(path).load()
+			expect(loaded?.version).toBe(2)
+			expect(loaded?.spaces[0]?.tabs).toHaveLength(2)
+			expect(loaded?.spaces[0]?.activeTab).toBe(1)
 		} finally {
 			removeTempDir(dir)
 		}
@@ -143,13 +172,16 @@ describe('the layout file', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-spaces-newer-'))
 		try {
 			const path = join(dir, 'spaces.json')
-			const original = `${JSON.stringify({ version: 2, spaces: [{ anything: true }] })}\n`
+			const original = `${JSON.stringify({ version: 3, spaces: [{ anything: true }] })}\n`
 			writeFileSync(path, original)
 			const said: string[] = []
 			const store = fileStore(path, (message) => said.push(message))
 			expect(store.load()).toBeUndefined()
 			expect(store.load()).toBeUndefined()
-			store.save({ version: 1, spaces: [{ name: 'a', cwd: '/a', sessions: [{ label: 'x' }] }] })
+			store.save({
+				version: 2,
+				spaces: [{ name: 'a', cwd: '/a', tabs: [{ tree: { session: { label: 'x' } } }] }],
+			})
 			expect(readFileSync(path, 'utf8')).toBe(original)
 			expect(said).toHaveLength(1)
 			expect(said[0]).toContain('newer version')

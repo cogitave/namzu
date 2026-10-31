@@ -12,14 +12,16 @@ describe('SpacesHost', () => {
 		const pty = t.spawned[0] as FakePty
 		expect(pty.file).toBe('node')
 		expect(pty.options.env).toEqual({ A: '1' })
-		expect(pty.options).toMatchObject({ cols: 74, rows: 30, cwd: '/work/namzu' })
+		expect(pty.options).toMatchObject({ cols: 74, rows: 29, cwd: '/work/namzu' })
 		expect(t.state.raw).toBe(true)
 		pty.print('hello from the child')
 		await t.frame()
 		const lines = await t.screen()
 		expect(lines[0]).toContain('spaces')
 		expect(lines.join('\n')).toContain('1 namzu')
-		expect(lines[0]).toContain('hello from the child')
+		// The tab bar is the first row of the main area; the session starts under it.
+		expect(lines[0]).toContain('1')
+		expect(lines[1]).toContain('hello from the child')
 	})
 
 	it('sends keys to the child and keeps the prefix for itself', () => {
@@ -40,15 +42,29 @@ describe('SpacesHost', () => {
 		expect(pty.writes).toEqual(['\x02'])
 	})
 
-	it('shows the navigate hints while navigating', async () => {
+	it('shows the mode bar while a mode is active and only then', async () => {
 		const t = setup()
 		t.host.start()
+		await t.frame()
+		expect((await t.screen()).join('\n')).not.toContain('PREFIX')
 		t.type('\x02')
 		await t.frame()
-		expect((await t.screen()).join('\n')).toContain('j/k session')
+		const bar = (await t.screen()).at(-1) as string
+		expect(bar).toContain('PREFIX')
+		expect(bar).toContain('esc cancel')
+		expect(bar).toContain('ctrl+b send prefix')
 		t.type('\x1b')
 		await t.frame()
-		expect((await t.screen()).join('\n')).toContain('ctrl+b to navigate')
+		expect((await t.screen()).join('\n')).not.toContain('PREFIX')
+		t.type('\x02')
+		t.type('w')
+		await t.frame()
+		expect((await t.screen()).at(-1) as string).toContain('NAVIGATE')
+		t.type('\x1b')
+		t.type('\x02')
+		t.type('r')
+		await t.frame()
+		expect((await t.screen()).at(-1) as string).toContain('RESIZE')
 	})
 
 	it('resizes the child to the main area when the terminal changes, and when the sidebar is hidden', async () => {
@@ -58,12 +74,13 @@ describe('SpacesHost', () => {
 		t.output.columns = 80
 		t.output.rows = 20
 		for (const l of t.resizeListeners) l()
-		expect(pty.resizes.at(-1)).toEqual({ cols: 59, rows: 20 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 59, rows: 19 })
 		t.type('\x02')
 		t.type('b')
-		expect(pty.resizes.at(-1)).toEqual({ cols: 80, rows: 20 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 80, rows: 19 })
 		await t.frame()
 		expect((await t.screen()).join('\n')).not.toContain('spaces')
+		t.type('\x02')
 		t.type('q')
 		await t.frame()
 		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
@@ -155,6 +172,7 @@ describe('SpacesHost', () => {
 		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
 		t.type('n')
 		expect(pty.kills).toEqual([])
+		t.type('\x02')
 		t.type('q')
 		t.type('y')
 		expect(pty.kills).toEqual(['SIGHUP'])

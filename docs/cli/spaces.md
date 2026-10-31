@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: namzu spaces (preview)
-description: A sidebar of spaces and sessions beside a live Namzu session in one terminal, its keys, starting a session on an account, how the layout is remembered and restored, the prefix setting, what happens when a session stops, and what the preview does not do yet.
+description: A sidebar of spaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, the prefix setting, what happens when a session stops, and what the preview does not do yet.
 resource: packages/cli/src/commands/spaces.ts
 tags: [cli, spaces, terminal, preview]
 status: draft
@@ -12,13 +12,13 @@ generated:
 
 # namzu spaces (preview)
 
-`namzu spaces` opens one terminal with a sidebar on the left and the selected session on the right.
-The sidebar lists your **spaces** on top, which are project folders, each with one dot for the most urgent thing in it. Below them it lists the **sessions** of the selected space, each with its own dot.
-Each session is a whole Namzu running in its own terminal, so a session that stops does not take the others down.
+`namzu spaces` opens one terminal with a sidebar on the left and the selected space on the right.
+The sidebar lists your **spaces** on top, which are project folders, each with one dot for the most urgent thing in it. Below them it lists every **session** of the selected space, each with its own dot.
+A space has one or more **tabs**, shown as a bar across the top of the workspace area with a "+" to add one, and each tab is a tiling of **panes**. Every pane is a whole Namzu running in its own terminal, so a pane that stops does not take the others down. There are no plain shell panes.
 This is a preview, and the plain `namzu` command is unchanged.
 
 Options after `spaces` go to the first session, so `namzu spaces --model <name>` starts it on that model.
-Sessions you add later start with the default options, or on the account you pick (see below).
+Sessions you add later (a new tab, a split) start with the default options; a new tab can start on an account you pick (see below), and a split starts on the account of the pane you split.
 Every session starts in its space's folder and inherits the environment the command started with.
 
 ## The dots
@@ -32,31 +32,47 @@ Every session starts in its space's folder and inherits the environment the comm
 | grey | A session is starting, has not been opened yet, or has ended. |
 
 A space shows the most urgent of its sessions' dots, in the order above. Under a row, plain words say the same ("needs approval", "finished", "working"), and a session on a non-default account shows that account's label on its row.
-Looking at a session, by selecting it, clears its blue mark.
+Showing a tab, or focusing a pane in it, clears the blue mark of the panes on screen: a pane finished in a split beside the focused one counts as seen, one in another tab does not.
 
 The dots come from what each session reports about itself, not from reading its screen: every session publishes a live record and answers a ping, and the host reads the records as they change and asks each session directly every few seconds, so a change that was never written is still caught. A turn that begins and ends between two reads can still be missed when the file watcher is unavailable; the host then re-reads once a second.
 
+## Panes and tabs
+
+With more than one pane in a tab every pane has its own square border: the focused pane's is light blue and the rest are dim grey, and neighbours' borders touch. A lone pane has no border. Each session's terminal is sized to the inside of its pane, so it redraws when you split, close, resize or zoom, and when the terminal or the sidebar changes size.
+
+A split halves the focused pane and the new pane, a new session in the space's folder, takes focus. A border can be moved between 10 and 90 percent of its split, and no pane gets less than 12 columns or 5 rows (border included); a split that would go below that is refused with a note at the bottom. **Zoom** gives the focused pane the whole area, keeps its border and puts a `Z` after the tab's number; moving focus while zoomed moves the zoom with it, and splitting brings the layout back.
+
+Closing a pane lets its neighbour take the room and focus, without asking. The last pane of a tab closes the tab. The last pane of a space's only tab asks to close the space; a space always keeps one tab.
+
+While the prefix, resize or navigate mode is active a bar at the bottom of the workspace area names the mode (`PREFIX`, `RESIZE`, `NAVIGATE`) and the keys it takes. It is drawn over the last row and never changes the panes' size.
+
 ## Keys
 
-Everything you type goes to the session except the navigate key, `ctrl+b` by default.
+Everything you type goes to the focused pane except the prefix, `ctrl+b` by default. The prefix starts a command: press it, then one key, and the keyboard returns to the pane.
 
-| Key | What it does |
+| Key after `ctrl+b` | What it does |
 | --- | --- |
-| `ctrl+b` | Enter navigate mode. |
-| `ctrl+b` `ctrl+b` | Send one `ctrl+b` to the session. The composer uses it to move the cursor left. |
-| `j`, `k`, arrows | Move between the sessions of the selected space. |
-| `J`, `K` | Move between spaces. |
-| `1` to `9` | Pick a space by number. |
-| `n` | New session in the selected space. With accounts added through `/auth`, it first asks which account (see below). |
-| `N` | New space from a folder you type. A folder that is already a space is only shown. |
-| `r`, `R` | Rename the session, or the space. |
-| `d`, `D` | Close the session, or the space with all its sessions. It asks first. Closing the last session quits. |
-| `enter`, `l` | Back to the session. A session that has not been opened yet starts now. |
+| `ctrl+b` | Send one `ctrl+b` to the pane. The composer uses it to move the cursor left. |
+| `esc` | Cancel. |
+| `v`, `-` | Split side by side, or top over bottom. |
+| `h` `j` `k` `l` | Focus the pane to the left, below, above or right. |
+| `H` `J` `K` `L` | Swap the pane with its neighbour in that direction. |
+| `tab`, `shift+tab` | Focus the next or previous pane. |
+| `x` | Close the pane. |
+| `z` | Zoom the pane, or bring the layout back. |
+| `r` | Resize mode: `h`/`l` (or the arrows) change the width of the focused pane, `j`/`k` its height, `esc` or `enter` ends it. Each key moves the border by 5 percent of its split. |
+| `c`, `T`, `X` | New tab, rename the tab (an empty name goes back to its number), close the tab. The last tab of a space cannot be closed. |
+| `n`, `p`, `1` to `9` | Next or previous tab, or tab by number. |
+| `N`, `W`, `D` | New space from a folder you type, rename the space, close the space with all its panes (it asks first). Closing the last session quits. |
+| `P` | Rename the pane (its row in the sidebar). |
+| `w` | Space navigation: `up`/`down` (or `j`/`k`) show the previous or next space, `tab` moves between its panes, `enter` opens it (starting what has not started), `esc` leaves. |
 | `b` | Hide or show the sidebar. |
 | `q` | Quit. It asks first while a session is running. |
-| `esc` | Leave navigate mode. |
+| `?` | A one-line reminder of the pane keys. |
 
-Pasted text is never read as the navigate key.
+A new tab (`c`) first asks which account to start on when you have added accounts (see below); a split does not ask.
+
+Pasted text is never read as the prefix.
 
 ## Accounts
 
@@ -70,12 +86,12 @@ A session started on an account runs on that account's provider and model, so a 
 
 ## Remembering your layout
 
-Your spaces, their sessions (names, order, conversation, account) and which session was shown are kept in `spaces.json` under the Namzu home, readable only by you. Start `namzu spaces` again and they come back:
+Your spaces, their tabs and pane trees (split directions, ratios, zoom, tab names, which pane has focus, and each pane's name, conversation and account) and which space was shown are kept in `spaces.json` under the Namzu home, readable only by you. The file's `version` is 2; a version 1 file from an earlier preview is read as one tab per session, in the same order, with the session that had focus as the shown tab, and is rewritten as version 2. Start `namzu spaces` again and they come back:
 
-- Every saved session is listed, and none is started until you open it. The one you were on opens at once.
+- Every saved session is listed, and none is started until its tab is shown. The tab you were on opens at once, all its panes together.
 - A session that had a conversation opens it again with the account it was on. One that never got a reply starts fresh.
 - Run it in a folder that is not a space yet, or give it options (`namzu spaces --model <name>`), and a new first session starts there instead, beside the restored ones.
-- Closing a session removes it from the list. Its conversation stays, and `namzu resume` finds it.
+- Closing a pane removes it from the layout. Its conversation stays, and `namzu resume` finds it.
 - A conversation that is already open in another terminal is not opened a second time. The session says "open in another terminal" and starts when you press `enter` after closing it there. A plain `namzu` that is idle between turns does not announce its conversation, so only a terminal in the middle of a turn, or one started by a spaces host, is noticed.
 
 ## No pseudo-terminal
@@ -84,7 +100,11 @@ Your spaces, their sessions (names, order, conversation, account) and which sess
 
 ## Mouse
 
-Click a space or a session to open it, scroll over the sidebar to move its lists, and scroll over a session to read its history; a line at the bottom says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
+Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a border between two panes to resize them. Click a space or a session in the sidebar to open it. Scroll over the sidebar to move its lists, and over a pane to read its history (the pane under the pointer scrolls, whether or not it has focus); a line at the bottom of that pane says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
+
+## Colours
+
+The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead. The sidebar's dots still use the 16 colours.
 
 ## Changing the navigate key
 
@@ -97,7 +117,7 @@ The value is `ctrl+` and a letter, or `ctrl+space`. `ctrl+c`, `ctrl+d` and `ctrl
 
 ## When a session stops
 
-Its sidebar row turns grey and says "ended" or "stopped", and a line at the bottom of the session area says so in plain words. The conversation is saved. The other sessions keep running, and `ctrl+b` then `q` leaves.
+Its pane keeps the last screen with a line at the bottom saying so, and its sidebar row turns grey and says "ended" or "stopped", The conversation is saved. The other sessions keep running, `ctrl+b` then `x` closes the pane, and `ctrl+b` then `q` leaves.
 
 ## When there is no terminal component
 
@@ -105,4 +125,4 @@ Spaces needs a pseudo-terminal binding; `namzu doctor` checks it. The CLI ships 
 
 ## What it does not do yet
 
-Quitting ends every session; they come back when you start again but are not kept running in the background. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.
+Quitting ends every session; they come back when you start again but are not kept running in the background (there is no detach and reattach). There is no copy mode, goto overlay or worktree grouping. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.
