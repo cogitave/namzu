@@ -90,7 +90,7 @@ the way the single Codex sign-in does, spends the refresh grant with the same
 request, and publishes only the token fields (plus `last_refresh`) back to the
 file, mode `0600`, under `withAccountRefreshLock`. If the file's tokens changed
 while the request was in flight, the file wins and nothing is overwritten. A missing
-sign-in, a refused grant, or a refreshed token that names a different ChatGPT
+sign-in, a refused grant, or a refreshed token that names a different
 account is a `CredentialWithdrawnError`.
 
 ## Session binding
@@ -120,6 +120,6 @@ limits stay `rate_limit`. A driver reports a throttle or a rejected request as a
 balance is too low", "exceeded your current quota", "usage limit reached"), says
 the allowance is spent, the classifier files it as `usage_limit` and not retryable.
 `providerVendorError` lifts those identifiers out of a vendor error's `type` as
-well as its `code`, because the plan-limit identifier of the ChatGPT-backed Codex
+well as its `code`, because the plan-limit identifier of the Codex
 wire arrives in `error.type`. That body shape is mapped from the documented
 identifier; it has not been observed from a live account.

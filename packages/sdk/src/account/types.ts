@@ -30,9 +30,9 @@ export interface Account {
 	readonly label: string
 	readonly source: AccountSource
 	readonly createdAt: string
-	/** A short human tag such as the tail of a ChatGPT account id. Never a token. */
+	/** A short human tag such as the tail of the provider's account id. Never a token. */
 	readonly display?: string
-	/** API-key accounts only: the endpoint this key belongs to. An OpenAI-compatible endpoint is its own account. */
+	/** API-key accounts only: the endpoint this key belongs to. A different endpoint is a different account. */
 	readonly baseUrl?: string
 	/** API-key accounts only: the model a session on this account starts with. */
 	readonly defaultModel?: string
