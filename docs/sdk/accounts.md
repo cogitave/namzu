@@ -29,7 +29,7 @@ added, renamed to or removed.
 | Source | Holds | Created by |
 |---|---|---|
 | `existing-default` | the provider's existing sign-in | synthesised |
-| `codex-home` | a private directory under `<NAMZU_HOME>/accounts/` whose `auth.json` a `codex login` wrote with `CODEX_HOME` pointing at it | `add({ kind: 'codex-home' })` |
+| `codex-home` (codex provider only) | a private directory under `<NAMZU_HOME>/accounts/` whose `auth.json` a `codex login` wrote with `CODEX_HOME` pointing at it | `add({ kind: 'codex-home' })` |
 | `api-key` | a labelled API key in the store's secret map | `add({ kind: 'api-key', apiKey })` |
 
 A Codex directory has one owner, Namzu, so its tokens may be refreshed in place.

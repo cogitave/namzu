@@ -145,6 +145,38 @@ describe('AccountRegistry', () => {
 		).toThrow(AccountRegistryError)
 	})
 
+	it('keeps the codex-home source to the codex provider, on add and on a hand-edited store', async () => {
+		const dir = home()
+		const codexHome = vi.fn()
+		const registry = createAccountRegistry({ home: dir, readers: { codexHome } })
+		expect(() =>
+			registry.add({ provider: 'openai', label: 'x', kind: 'codex-home' } as never),
+		).toThrow(AccountRegistryError)
+		expect(existsSync(join(dir, 'accounts', 'codex', 'x'))).toBe(false)
+		const forged = join(dir, 'accounts', 'codex', 'forged')
+		mkdirSync(forged, { recursive: true })
+		writeFileSync(
+			join(dir, 'accounts.json'),
+			JSON.stringify({
+				version: 1,
+				keys: {},
+				accounts: [
+					{
+						id: 'openai:forged',
+						provider: 'openai',
+						label: 'forged',
+						source: { kind: 'codex-home', dir: forged },
+						createdAt: new Date(0).toISOString(),
+					},
+				],
+			}),
+		)
+		await expect(registry.resolve('openai:forged', signal)).rejects.toBeInstanceOf(
+			CredentialWithdrawnError,
+		)
+		expect(codexHome).not.toHaveBeenCalled()
+	})
+
 	it('orders next(): default first, then creation order, skipping the excluded', () => {
 		const registry = createAccountRegistry({ home: home() })
 		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: '1' })

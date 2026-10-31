@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { AccountLockError } from './types.js'
 
 /**
@@ -8,7 +8,7 @@ import { AccountLockError } from './types.js'
  * directory, so a stuck account never blocks another.
  */
 export function codexRefreshLockPath(dir: string): string {
-	return `${dir}/auth.json.namzu.lock`
+	return join(dir, 'auth.json.namzu.lock')
 }
 
 export interface AccountLockOptions {

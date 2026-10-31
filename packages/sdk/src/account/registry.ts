@@ -32,6 +32,7 @@ import {
 export const ACCOUNTS_FILE_NAME = 'accounts.json'
 export const ACCOUNTS_FILE_VERSION = 1
 const LABEL = /^[a-z0-9-]{1,32}$/
+const CODEX_PROVIDER = 'codex'
 const PROVIDER = /^[a-z0-9][a-z0-9._-]{0,63}$/
 
 // Unknown keys are kept so a store written by a newer build survives a rewrite by this one.
@@ -254,6 +255,11 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 					file.keys[keyRef] = input.apiKey
 					source = { kind: 'api-key', keyRef }
 				} else {
+					if ((input as { provider: string }).provider !== CODEX_PROVIDER) {
+						throw new AccountRegistryError(
+							'A Codex home account belongs to the codex provider only.',
+						)
+					}
 					const dir = resolve(input.dir ?? join(accountsRoot, 'codex', input.label))
 					if (!insideAccountsRoot(dir)) {
 						throw new AccountRegistryError(
@@ -344,6 +350,12 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 				return options.readers.existingDefault(account.provider, signal)
 			}
 			if (source.kind === 'codex-home') {
+				if (account.provider !== CODEX_PROVIDER) {
+					throw new CredentialWithdrawnError(
+						id,
+						'A Codex home is only valid for the codex provider.',
+					)
+				}
 				if (!options.readers?.codexHome) {
 					throw new CredentialWithdrawnError(id, 'No reader is configured for Codex accounts.')
 				}
