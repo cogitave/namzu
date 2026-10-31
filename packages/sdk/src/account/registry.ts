@@ -6,12 +6,13 @@ import {
 	mkdirSync,
 	openSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	unlinkSync,
 	writeSync,
 } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { resolveNamzuHome } from '../session/home.js'
 import { withAccountLockSync } from './lock.js'
@@ -64,6 +65,12 @@ export interface AccountRegistryOptions {
 	readonly defaultProviders?: readonly string[]
 	readonly readers?: AccountCredentialReaders
 	readonly now?: () => Date
+	/** Blocks between attempts to take the store lock. Defaults to a short real sleep. */
+	readonly lockWait?: (attempt: number) => void
+}
+
+function sleepBlocking(): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
 }
 
 export function accountId(provider: string, label: string): AccountId {
@@ -142,17 +149,25 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 
 	function mutate<T>(change: (file: StoreFile) => T): T {
 		mkdirSync(home, { recursive: true, mode: 0o700 })
-		return withAccountLockSync(lockPath, () => {
-			const file = read()
-			const result = change(file)
-			writeAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
-			try {
-				chmodSync(path, 0o600)
-			} catch {
-				// Windows has no POSIX mode; the temporary was already created 0600 where it applies.
-			}
-			return result
-		})
+		return withAccountLockSync(
+			lockPath,
+			() => {
+				const file = read()
+				const result = change(file)
+				writeAtomic(path, `${JSON.stringify(file, null, 2)}\n`)
+				try {
+					chmodSync(path, 0o600)
+				} catch {
+					// Windows has no POSIX mode; the temporary was already created 0600 where it applies.
+				}
+				return result
+			},
+			{ attempts: 80, wait: options.lockWait ?? sleepBlocking },
+		)
+	}
+
+	function ownDir(source: { kind: string; [key: string]: unknown }): string {
+		return String(source.dir)
 	}
 
 	function toAccount(stored: StoreFile['accounts'][number]): Account {
@@ -170,9 +185,31 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 		}
 	}
 
+	function realOrSelf(target: string): string {
+		// Resolve symlinks through the deepest existing ancestor, so a symlinked
+		// parent cannot lead outside the accounts folder.
+		let existing = resolve(target)
+		const rest: string[] = []
+		for (;;) {
+			try {
+				return join(realpathSync(existing), ...rest.reverse())
+			} catch {
+				const parent = dirname(existing)
+				if (parent === existing) return resolve(target)
+				rest.push(basename(existing))
+				existing = parent
+			}
+		}
+	}
+
 	function insideAccountsRoot(dir: string): boolean {
-		const rel = relative(accountsRoot, resolve(dir))
+		const rel = relative(realOrSelf(accountsRoot), realOrSelf(dir))
 		return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+	}
+
+	function nests(outer: string, inner: string): boolean {
+		const rel = relative(realOrSelf(outer), realOrSelf(inner))
+		return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 	}
 
 	const registry: AccountRegistry = {
@@ -223,8 +260,16 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 							'A Codex account directory must live under the Namzu accounts folder.',
 						)
 					}
-					if (file.accounts.some((a) => a.source.kind === 'codex-home' && a.source.dir === dir)) {
-						throw new AccountRegistryError('Another account already uses that Codex directory.')
+					if (
+						file.accounts.some(
+							(a) =>
+								a.source.kind === 'codex-home' &&
+								(nests(a.source.dir, dir) || nests(dir, a.source.dir)),
+						)
+					) {
+						throw new AccountRegistryError(
+							'Another account already uses that Codex directory, or one inside or around it.',
+						)
 					}
 					mkdirSync(dir, { recursive: true, mode: 0o700 })
 					source = { kind: 'codex-home', dir }
@@ -272,9 +317,15 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 				file.accounts.splice(index, 1)
 				if (current.source.kind === 'api-key') {
 					delete file.keys[current.source.keyRef]
-				} else if (insideAccountsRoot(current.source.dir)) {
-					// Only a directory this registry could have created is ever deleted.
-					rmSync(current.source.dir, { recursive: true, force: true })
+				} else if (
+					insideAccountsRoot(ownDir(current.source)) &&
+					!file.accounts.some(
+						(a) => a.source.kind === 'codex-home' && nests(ownDir(current.source), a.source.dir),
+					)
+				) {
+					// Only a directory this registry could have created, and that holds no
+					// other account's directory, is ever deleted.
+					rmSync(ownDir(current.source), { recursive: true, force: true })
 				}
 			})
 		},

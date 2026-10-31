@@ -57,8 +57,11 @@ store that is not valid JSON or not version 1 is refused, never replaced.
 
 - `list(provider?)`, `get(id)`: defaults first, then stored accounts in creation order.
 - `add`, `rename`, `remove`: a mutation holds `accounts.json.lock` and is refused
-  while another owner holds it. A lock left by a dead process is not reclaimed
-  automatically; remove it once no Namzu process uses the store. Renaming changes
+  while another live owner holds it, after a short wait (`lockWait` replaces the
+  wait). A lock whose recording process has exited is reclaimed on its own.
+  A Codex directory may not equal, contain or sit inside another account's
+  directory, symlinks are resolved before that check, and `remove` never deletes a
+  directory that still holds another account's. Renaming changes
   the id, so a session bound to the old id falls back to `default`.
 - `resolve(id, signal)`: returns a `ResolvedAccountCredential`, or throws
   `CredentialWithdrawnError` when the account or its credential is gone. Reading
@@ -73,8 +76,8 @@ A reader that refreshes a Codex account takes `withAccountRefreshLock(dir, ...)`
 around the whole read, refresh and write, and writes back only the token fields,
 checking that the file still holds what it read. The lock file is
 `<dir>/auth.json.namzu.lock`, one per account, so a stuck account never blocks
-another. A held lock is refused unless the caller passes `attempts` and a `wait`
-hook.
+another. A lock whose recording process has exited is reclaimed; a lock held by a live
+process is refused unless the caller passes `attempts` and a `wait` hook.
 
 ## Session binding
 
@@ -95,5 +98,6 @@ by older builds.
 `ProviderErrorCode` gains `usage_limit`: the account's allowance is spent until a
 reset, as opposed to a burst limit (`rate_limit`). It is not retried inside the
 turn. A fallback chain still advances past it, and the error catalogue explains
-it as `provider.usage_limit`. Drivers map a provider's own signal onto it; none
-does yet.
+it as `provider.usage_limit`. The classifier maps the structural codes
+`insufficient_quota`, `usage_limit_reached` and `usage_limit_exceeded` onto it, so a
+spent allowance stops instead of being retried; burst limits stay `rate_limit`.

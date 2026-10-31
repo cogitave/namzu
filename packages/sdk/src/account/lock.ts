@@ -21,19 +21,83 @@ export interface AccountLockOptions {
 function acquire(lockPath: string): string | undefined {
 	const token = `${process.pid}:${Date.now()}:${randomBytes(12).toString('hex')}`
 	mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 })
+	for (let pass = 0; pass < 2; pass++) {
+		let fd: number
+		try {
+			fd = openSync(lockPath, 'wx', 0o600)
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+			if (pass === 0 && reclaimIfStale(lockPath)) continue
+			return undefined
+		}
+		try {
+			writeSync(fd, token)
+		} finally {
+			closeSync(fd)
+		}
+		return token
+	}
+	return undefined
+}
+
+function pidOf(token: string): number | undefined {
+	const pid = Number.parseInt(token.split(':', 1)[0] ?? '', 10)
+	return Number.isInteger(pid) && pid > 0 ? pid : undefined
+}
+
+function processIsDead(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return false
+	} catch (error) {
+		// EPERM means the process exists but belongs to someone else: alive.
+		return (error as NodeJS.ErrnoException).code === 'ESRCH'
+	}
+}
+
+/**
+ * Remove a lock whose recorded owner process no longer exists. Reclaimers are
+ * serialised by a guard file, and the lock is re-read under the guard, so a
+ * lock that was replaced by a live owner in the meantime is never removed.
+ */
+function reclaimIfStale(lockPath: string): boolean {
+	let observed: string
+	try {
+		observed = readFileSync(lockPath, 'utf8')
+	} catch {
+		return true // already gone; the caller may simply try again
+	}
+	const pid = pidOf(observed)
+	if (pid === undefined || !processIsDead(pid)) return false
+	const guard = `${lockPath}.reclaim`
 	let fd: number
 	try {
-		fd = openSync(lockPath, 'wx', 0o600)
+		fd = openSync(guard, 'wx', 0o600)
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'EEXIST') return undefined
-		throw error
+		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+		try {
+			const holder = pidOf(readFileSync(guard, 'utf8'))
+			if (holder !== undefined && processIsDead(holder)) rmSync(guard, { force: true })
+		} catch {
+			// The guard vanished or is unreadable; the next attempt decides.
+		}
+		return false
 	}
 	try {
-		writeSync(fd, token)
-	} finally {
+		writeSync(fd, `${process.pid}`)
 		closeSync(fd)
+		let again: string | undefined
+		try {
+			again = readFileSync(lockPath, 'utf8')
+		} catch {
+			return true
+		}
+		if (again !== observed) return false
+		rmSync(lockPath, { force: true })
+		return true
+	} finally {
+		rmSync(guard, { force: true })
 	}
-	return token
 }
 
 function release(lockPath: string, token: string): void {
@@ -48,15 +112,15 @@ function release(lockPath: string, token: string): void {
 function refusal(lockPath: string): AccountLockError {
 	return new AccountLockError(
 		lockPath,
-		`another owner holds the account lock ${lockPath}. A lock left by a dead process is not reclaimed automatically; after proving no Namzu process is using this account, remove the file and retry.`,
+		`another owner holds the account lock ${lockPath}. The lock is reclaimed on its own when the process that recorded it has exited; if that process is still running, wait for it to finish.`,
 	)
 }
 
 /**
  * Run `operation` while holding the lock file at `lockPath`. The lock is held
- * across local read/write work, never across a user prompt. A present lock is a
- * refusal, not something to steal: a path-based staleness check cannot prove it
- * is unlinking the inode it inspected.
+ * across local read/write work, never across a user prompt. A lock whose
+ * recorded process has exited is reclaimed; a lock held by a live process is a
+ * refusal (or a wait, when attempts and a wait function are given).
  */
 export async function withAccountLock<T>(
 	lockPath: string,
@@ -78,9 +142,26 @@ export async function withAccountLock<T>(
 	}
 }
 
-/** Synchronous form for short store mutations. A held lock is refused at once. */
-export function withAccountLockSync<T>(lockPath: string, operation: () => T): T {
-	const token = acquire(lockPath)
+export interface AccountLockSyncOptions {
+	/** How many times to try before refusing. Default 1. */
+	readonly attempts?: number
+	/** Blocks between attempts; injected so a test never depends on the clock. */
+	readonly wait?: (attempt: number) => void
+}
+
+/** Synchronous form for short store mutations. */
+export function withAccountLockSync<T>(
+	lockPath: string,
+	operation: () => T,
+	options: AccountLockSyncOptions = {},
+): T {
+	const attempts = Math.max(1, options.attempts ?? 1)
+	let token: string | undefined
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		token = acquire(lockPath)
+		if (token !== undefined) break
+		if (attempt + 1 < attempts && options.wait) options.wait(attempt)
+	}
 	if (token === undefined) throw refusal(lockPath)
 	try {
 		return operation()

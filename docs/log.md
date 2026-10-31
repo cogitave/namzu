@@ -1,7 +1,7 @@
 # Documentation update log
 
 ## 2026-10-31
-
+- **Update** [Accounts](sdk/accounts.md): stale store locks are reclaimed and mutations wait for a live holder, overlapping Codex directories are rejected, and spent-allowance responses classify to `usage_limit`. `.changeset/account-registry.md` updated.
 - **Creation** [Accounts](sdk/accounts.md): the account registry, `accounts.json`, the per-account refresh lock, the `account_bound` record (also in [Session log](sdk/session-log.md)) and the `usage_limit` error code. Peer-record readers now keep a record carrying fields they do not know. `.changeset/account-registry.md` (`@namzu/sdk` minor), `.changeset/peer-record-reader-tolerance.md` (`@namzu/sdk` patch).
 
 ## 2026-10-30

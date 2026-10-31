@@ -1,11 +1,20 @@
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { formatSessionLogLine, parseSessionLogLine } from '../session/log-hash.js'
 import { explainError } from '../types/errors/catalog.js'
-import { ProviderError } from '../types/provider/errors.js'
+import { ProviderError, classifyProviderError } from '../types/provider/errors.js'
 import type { SessionRecord } from '../types/session/records.js'
 import { accountBoundPayload, resolveBoundAccount } from './binding.js'
 import { codexRefreshLockPath, withAccountLock, withAccountRefreshLock } from './lock.js'
@@ -173,11 +182,92 @@ describe('AccountRegistry', () => {
 	it('refuses a mutation while another owner holds the store lock', () => {
 		const dir = home()
 		writeFileSync(join(dir, 'accounts.json.lock'), 'someone-else')
-		const registry = createAccountRegistry({ home: dir })
+		const waits: number[] = []
+		const registry = createAccountRegistry({ home: dir, lockWait: (n) => void waits.push(n) })
 		expect(() =>
 			registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' }),
 		).toThrow(AccountLockError)
+		expect(waits.length).toBeGreaterThan(0)
 		expect(existsSync(join(dir, 'accounts.json.lock'))).toBe(true)
+	})
+
+	it('reclaims a store lock left by a process that no longer exists', () => {
+		const dir = home()
+		writeFileSync(join(dir, 'accounts.json.lock'), `${2 ** 22 + 12345}:0:dead`)
+		const registry = createAccountRegistry({ home: dir })
+		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' })
+		expect(registry.get('openai:a')).toBeDefined()
+		expect(existsSync(join(dir, 'accounts.json.lock'))).toBe(false)
+	})
+
+	it('does not reclaim a store lock held by a live process', () => {
+		const dir = home()
+		writeFileSync(join(dir, 'accounts.json.lock'), `${process.pid}:0:live`)
+		const registry = createAccountRegistry({ home: dir, lockWait: () => {} })
+		expect(() =>
+			registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' }),
+		).toThrow(AccountLockError)
+		expect(readFileSync(join(dir, 'accounts.json.lock'), 'utf8')).toBe(`${process.pid}:0:live`)
+	})
+
+	it('waits for a live holder and succeeds once the lock is released', () => {
+		const dir = home()
+		const lock = join(dir, 'accounts.json.lock')
+		writeFileSync(lock, `${process.pid}:0:live`)
+		const registry = createAccountRegistry({ home: dir, lockWait: () => rmSync(lock) })
+		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: 'k' })
+		expect(registry.get('openai:a')).toBeDefined()
+	})
+
+	it('rejects a Codex directory that overlaps another account and never deletes a nested one', () => {
+		const dir = home()
+		const registry = createAccountRegistry({ home: dir })
+		registry.add({
+			provider: 'codex',
+			label: 'a',
+			kind: 'codex-home',
+			dir: join(dir, 'accounts', 'codex'),
+		})
+		expect(() =>
+			registry.add({
+				provider: 'codex',
+				label: 'b',
+				kind: 'codex-home',
+				dir: join(dir, 'accounts', 'codex', 'work'),
+			}),
+		).toThrow(AccountRegistryError)
+		// A store written by a newer build may already hold nested directories.
+		const file = JSON.parse(readFileSync(join(dir, 'accounts.json'), 'utf8'))
+		const nested = join(dir, 'accounts', 'codex', 'work')
+		mkdirSync(nested, { recursive: true })
+		writeFileSync(join(nested, 'auth.json'), '{}')
+		file.accounts.push({
+			id: 'codex:b',
+			provider: 'codex',
+			label: 'b',
+			source: { kind: 'codex-home', dir: nested },
+			createdAt: '2026-01-01T00:00:00.000Z',
+		})
+		writeFileSync(join(dir, 'accounts.json'), JSON.stringify(file))
+		registry.remove('codex:a')
+		expect(existsSync(join(nested, 'auth.json'))).toBe(true)
+	})
+
+	it('treats a symlinked parent that leaves the accounts folder as outside it', () => {
+		const dir = home()
+		const outside = mkdtempSync(join(tmpdir(), 'namzu-outside-'))
+		mkdirSync(join(dir, 'accounts'), { recursive: true })
+		symlinkSync(outside, join(dir, 'accounts', 'link'))
+		const registry = createAccountRegistry({ home: dir })
+		expect(() =>
+			registry.add({
+				provider: 'codex',
+				label: 'a',
+				kind: 'codex-home',
+				dir: join(dir, 'accounts', 'link', 'x'),
+			}),
+		).toThrow(AccountRegistryError)
+		removeTempDir(outside)
 	})
 })
 
@@ -307,6 +397,21 @@ describe('account_bound record', () => {
 })
 
 describe('usage_limit error code', () => {
+	it('is what a spent-allowance response classifies to', () => {
+		const spent = Object.assign(new Error('You exceeded your current quota'), {
+			status: 429,
+			code: 'insufficient_quota',
+		})
+		const classified = classifyProviderError(spent)
+		expect(classified.code).toBe('usage_limit')
+		expect(classified.retryable).toBe(false)
+		const burst = Object.assign(new Error('slow down'), {
+			status: 429,
+			code: 'rate_limit_exceeded',
+		})
+		expect(classifyProviderError(burst).code).toBe('rate_limit')
+	})
+
 	it('is not retried inside the turn and has its own explanation', () => {
 		const error = new ProviderError({ code: 'usage_limit', message: 'limit', status: 429 })
 		expect(error.retryable).toBe(false)

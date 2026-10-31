@@ -140,6 +140,40 @@ describe('provider calls use the shared token account', () => {
 		expect(budget.summary()).toMatchObject({ poisoned: false, inFlightRequests: 0 })
 	})
 
+	it('releases a request rejected for a spent allowance without minting spend', async () => {
+		const budget = SessionTokenBudget.create(1_000, rootScope())
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				yield* []
+				throw new ProviderError({ code: 'usage_limit', message: 'allowance spent', status: 429 })
+			}),
+			budget,
+		)
+		await expect(collectChatCompletion(wrapped.chatStream(params))).rejects.toThrow(
+			'allowance spent',
+		)
+		expect(budget.remaining).toBe(1_000)
+		expect(budget.summary()).toMatchObject({ poisoned: false, unresolvedRequests: 0 })
+	})
+
+	it('advances a fallback that follows a spent allowance instead of refusing it as unresolved', async () => {
+		const budget = SessionTokenBudget.create(1_000, rootScope())
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				yield {
+					id: 'f',
+					delta: {},
+					fallback: { code: 'usage_limit', message: 'allowance spent' },
+				} as unknown as StreamChunk
+				yield { id: 'b', delta: { content: 'ok' }, usage: usage(10), finishReason: 'stop' }
+			}),
+			budget,
+		)
+		const result = await collectChatCompletion(wrapped.chatStream(params))
+		expect(result).toBeDefined()
+		expect(budget.summary().poisoned).toBe(false)
+	})
+
 	it('admits a new request after a 502 when the conversation has no limit, keeping the unknown spend', async () => {
 		const budget = SessionTokenBudget.create(0, rootScope())
 		let calls = 0
