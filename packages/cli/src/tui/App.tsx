@@ -13161,6 +13161,9 @@ function AppBody({
 				wakePeers((version) => version + 1)
 			},
 			report: (text) => pushMessage('system', text),
+			...(process.env.NAMZU_SPACE_SLOT ? { hostSlot: process.env.NAMZU_SPACE_SLOT } : {}),
+			conversation: () =>
+				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
 		})
 			.then((peers) => {
 				peersStartingRef.current = false

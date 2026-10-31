@@ -56,7 +56,13 @@ then rename) and mode 0600: `PeerRecordSchema` — `v`, `sessionId`, `ref`
 `pid`, `startedAt`, `kind` (`tui` | `exec` | `resident` | `scheduled`),
 `title?`, `cwd`, `permissionMode`, `state` (`busy` | `idle` |
 `awaiting-permission`), `acceptsMessages`, `address`, `token`, `protocol`
-(`namzu-peer/1`), `cliVersion`.
+(`namzu-peer/1`), `cliVersion`, and four optional fields a spaces host uses:
+`hostSlot` (the slot the host launched the terminal under), `conversationId`
+(the conversation it is on, once it has one), `account` (the label of a
+non-default account the conversation is bound to) and `limited` (true while
+that account is out of allowance). A record without them is still valid. A
+reader ignores a field it does not know, so a terminal from a newer build stays
+visible to an older one; writing a record stays strict.
 
 `writePeerRecord`, `readPeerRecord`, `readPeerRecords` and `removePeerRecord`
 read and write these files; a record that fails to parse (mid-write,
