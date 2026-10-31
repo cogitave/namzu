@@ -807,6 +807,7 @@ export type {
 	AccountCredentialReaders,
 	AccountId,
 	AccountLockOptions,
+	AccountLockSyncOptions,
 	AccountRegistry,
 	AccountRegistryOptions,
 	AccountSource,

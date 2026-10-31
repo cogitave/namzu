@@ -12,7 +12,7 @@ export {
 	withAccountLockSync,
 	withAccountRefreshLock,
 } from './lock.js'
-export type { AccountLockOptions } from './lock.js'
+export type { AccountLockOptions, AccountLockSyncOptions } from './lock.js'
 export { accountBoundPayload, resolveBoundAccount } from './binding.js'
 export type { AccountBoundReason, BoundAccount } from './binding.js'
 export {
