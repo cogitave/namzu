@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-10-31
+- **Creation** [Accounts in the terminal](cli/accounts.md): `/auth` (list, `add`, `<name>`) binds one conversation to an account from its next reply, `--account` starts on one, `ProviderChoice.account` pins one, and a spent allowance stops the reply with one "continue with another account" action (API-key accounts may switch by themselves when allowed). Also in [Slash commands](cli/slash-commands.md) and [Launch flags](cli/launch-flags.md). `.changeset/auth-accounts.md` (`@namzu/cli` minor).
 - **Update** [Accounts](sdk/accounts.md): the CLI's per-account Codex reader refreshes a private `auth.json` in place under the account lock. `.changeset/codex-home-account-reader.md` (`@namzu/cli` patch).
 - **Update** [Accounts](sdk/accounts.md): `codex-home` accounts belong to the codex provider only, API-key accounts may carry a `baseUrl` and `defaultModel`, and a throttle or rejected request that names a spent allowance classifies as `usage_limit`. `.changeset/account-registry.md` is now `@namzu/sdk` major (a spent allowance is no longer retried; two unions gain a member).
 - **Update** [Accounts](sdk/accounts.md): stale store locks are reclaimed and mutations wait for a live holder, overlapping Codex directories are rejected, and spent-allowance responses classify to `usage_limit`. `.changeset/account-registry.md` updated.
