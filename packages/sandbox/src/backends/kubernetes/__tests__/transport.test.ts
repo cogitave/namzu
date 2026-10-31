@@ -462,13 +462,27 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 	/** A dial that gives up at once: no budget to spend on a dead address. */
 	const SPENT_BUDGET = { connectTimeoutMs: 200, connectRetryBudgetMs: 0 } as const
 
-	/** A port nothing is listening on — the pod that was taken away. */
-	async function closedPort(): Promise<number> {
-		const probe = createServer()
+	const portReservations: Server[] = []
+
+	afterEach(async () => {
+		for (const reservation of portReservations.splice(0)) {
+			await new Promise<void>((resolve) => reservation.close(() => resolve()))
+		}
+	})
+
+	/**
+	 * Reserve a TCP port on one loopback address and dial the same port on
+	 * another. The reservation stays open through the test, so a parallel
+	 * test's HTTP server cannot acquire the supposedly closed port between
+	 * discovery and dial (and answer with an HTTP frame instead of a refused
+	 * connection). A wildcard listener cannot claim the reserved port either.
+	 */
+	async function closedAddress(): Promise<{ host: string; port: number }> {
+		const probe = createServer((socket) => socket.destroy())
 		await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
 		const { port } = probe.address() as AddressInfo
-		await new Promise<void>((resolve) => probe.close(() => resolve()))
-		return port
+		portReservations.push(probe)
+		return { host: '127.0.0.2', port }
 	}
 
 	/**
@@ -503,7 +517,7 @@ describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
 				token: REPLACEMENT_UID,
 			}),
 		)
-		const dead = stale ?? { host: '127.0.0.1', port: await closedPort() }
+		const dead = stale ?? (await closedAddress())
 		const transport = new KubernetesAgentTransport(
 			{ kind: 'tcp', host: dead.host, port: dead.port, token: POD_UID },
 			{ ...options, refreshHandle },
