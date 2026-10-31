@@ -32,7 +32,7 @@ export type InputAction =
 
 /** A pointer event in screen cells, counted from 0. */
 export interface MouseEvent {
-	readonly kind: 'press' | 'release' | 'drag' | 'wheel-up' | 'wheel-down' | 'other'
+	readonly kind: 'press' | 'release' | 'drag' | 'context' | 'wheel-up' | 'wheel-down' | 'other'
 	readonly x: number
 	readonly y: number
 }
@@ -44,6 +44,8 @@ const MOUSE = new RegExp(`^${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, 'u')
 const MOUSE_PARTIAL = new RegExp(`${ESC}(\\[(<[0-9;]*)?)?$`, 'u')
 const PASTE_BEGIN = '\x1b[200~'
 const PASTE_END = '\x1b[201~'
+/** Control-C: clears the name being typed. */
+export const CLEAR = '\x03'
 
 /** Keys after the prefix that start a mode instead of running a command. */
 const MODE_KEYS: Readonly<Record<string, InputMode>> = {
@@ -149,7 +151,12 @@ export class InputRouter {
 			const key = readKey(chunk.slice(i))
 			i += key.length
 			if (this.capturing) {
-				if (key.nav.kind === 'char' && (key.nav.char === '' || key.nav.char < ' ')) continue
+				// Control-C is the one control byte a name being typed reads: it clears the field.
+				if (
+					key.nav.kind === 'char' &&
+					(key.nav.char === '' || (key.nav.char < ' ' && key.nav.char !== CLEAR))
+				)
+					continue
 				actions.push({ type: 'nav', key: key.nav, from: 'text' })
 				continue
 			}
@@ -201,6 +208,8 @@ function readMouse(chunk: string, at: number): { length: number; event: MouseEve
 	let kind: MouseEvent['kind'] = 'other'
 	if (code & 64) kind = (code & 3) === 0 ? 'wheel-up' : (code & 3) === 1 ? 'wheel-down' : 'other'
 	else if ((code & 3) === 0) kind = code & 32 ? 'drag' : released ? 'release' : 'press'
+	// The right button's press asks for a context menu; its motion and release mean nothing.
+	else if ((code & 3) === 2 && !(code & 32) && !released) kind = 'context'
 	return { length: match[0].length, event: { kind, x, y } }
 }
 

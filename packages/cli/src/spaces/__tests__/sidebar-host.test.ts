@@ -187,7 +187,7 @@ describe('the sidebar in the host', () => {
 		let lines = await text(t)
 		expect(lines.join('\n')).toContain('keybinds')
 		expect(lines.join('\n')).toContain('quit')
-		t.type('j')
+		for (let i = 0; i < 4; i++) t.type('j')
 		t.type('\r')
 		lines = await text(t)
 		expect(lines.join('\n')).toContain('Quit all sessions?')

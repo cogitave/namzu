@@ -109,7 +109,7 @@ describe('starting a session on an account', () => {
 		expect(t.spawned).toHaveLength(2)
 		expect(requests[1]?.account).toBeUndefined()
 		// The new tab asks for a name; an empty one keeps the number.
-		expect(await text(t)).toContain('Tab name:')
+		expect(await text(t)).toContain('new tab')
 	})
 
 	it('asks which account, defaults to the one the space used last, and remembers the pick', async () => {
@@ -118,7 +118,7 @@ describe('starting a session on an account', () => {
 		nav(t, 'c')
 		expect(t.spawned).toHaveLength(1)
 		const asking = await text(t)
-		expect(asking).toContain('Start a session in namzu on:')
+		expect(asking).toContain('Start a session in namzu on')
 		expect(asking).toContain('Usual sign-in')
 		t.type('j')
 		t.type('\r')

@@ -504,3 +504,22 @@ describe('remembering tabs and trees', () => {
 		})
 	})
 })
+
+describe('moving a space', () => {
+	it('puts a space at a place in the list and keeps the others in order', () => {
+		const { t } = rig({
+			listed: [
+				{ cwd: '/work/a', name: 'a', sessions: 1 },
+				{ cwd: '/work/b', name: 'b', sessions: 1 },
+			],
+		})
+		t.host.start()
+		const [first, second, third] = t.host.roster.spaces
+		expect(t.host.roster.moveSpace(third as never, 0)).toBe(true)
+		expect(t.host.roster.spaces.map((s) => s.name)).toEqual(['b', 'namzu', 'a'])
+		expect(t.host.roster.moveSpace(third as never, 0)).toBe(false)
+		expect(t.host.roster.moveSpace(first as never, 99)).toBe(true)
+		expect(t.host.roster.spaces.at(-1)).toBe(first)
+		expect(second).toBeDefined()
+	})
+})

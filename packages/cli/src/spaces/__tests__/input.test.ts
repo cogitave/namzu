@@ -169,4 +169,25 @@ describe('InputRouter', () => {
 		r.capture(false)
 		expect(r.feed('x')).toEqual([{ type: 'write', data: 'x' }])
 	})
+
+	it('reads the right button as a context request and ignores its motion and release', () => {
+		const r = router()
+		expect(r.feed('\x1b[<2;5;6M')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'context', x: 4, y: 5 } },
+		])
+		expect(r.feed('\x1b[<2;5;6m')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'other', x: 4, y: 5 } },
+		])
+		expect(r.feed('\x1b[<34;5;6M')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'other', x: 4, y: 5 } },
+		])
+	})
+
+	it('lets control-c through while capturing, as the key that clears a field', () => {
+		const r = router()
+		r.capture(true)
+		expect(r.feed('\x03\x01')).toEqual([
+			{ type: 'nav', key: { kind: 'char', char: '\x03' }, from: 'text' },
+		])
+	})
 })

@@ -2,25 +2,45 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
-import { ATTR_BOLD, ATTR_INVERSE } from '../terminal/host/cell.js'
+import { ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE } from '../terminal/host/cell.js'
 import { Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
 import type { HostPtyModule } from '../terminal/pty.js'
 import { GitCache, type GitLookup, gitLookup } from './git.js'
+import { type GotoRow, currentRow, filterGoto, gotoRows } from './goto.js'
 import {
+	CLEAR,
 	type InputMode,
 	InputRouter,
 	type KeyContext,
 	type MouseEvent,
 	type NavKey,
 } from './input.js'
+import { type ActionId, bindingFor, helpRows } from './keymap.js'
 import {
 	DEFAULT_SIDEBAR,
+	type Layout,
 	SIDEBAR_DEFAULT,
 	type SidebarSetting,
 	clampSidebarWidth,
 	computeLayout,
 } from './layout.js'
+import {
+	type Hit,
+	type ListSpec,
+	type ModalSpec,
+	type Screen,
+	type Surface,
+	dimFrame,
+	drawBox,
+	drawList,
+	drawModal,
+	drawPopup,
+	hitSurface,
+	layoutList,
+	layoutModal,
+	layoutPopup,
+} from './overlay.js'
 import { type Palette, advertisesTruecolor, paletteFor } from './palette.js'
 import { type PeerSource, recordForSlot } from './peers.js'
 import type { Prefix } from './prefix.js'
@@ -30,6 +50,7 @@ import {
 	type AgentOrder,
 	type SidebarScroll,
 	clampScroll,
+	dotStyle,
 	drawRule,
 	drawSidebar,
 	endedMessage,
@@ -176,13 +197,15 @@ const MAX_PAINT_FAILURES = 3
 const LEAVE_SCREEN = '\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h\x1b[?1049l'
 
 type Prompt = {
-	kind: 'folder' | 'rename-session' | 'rename-space' | 'rename-tab'
+	kind: 'folder' | 'new-space' | 'rename-session' | 'rename-space' | 'rename-tab'
 	value: string
+	/** A tab that was just made: it asks for a name instead of changing one. */
+	fresh?: boolean
 	error?: string
 }
 type Confirm = 'quit' | 'close-space'
 /** The popup behind the sidebar's "menu". */
-const MENU_ITEMS = ['keybinds', 'quit'] as const
+const MENU_ITEMS = ['accounts', 'add account', 'sidebar', 'keybinds', 'quit'] as const
 interface Menu {
 	index: number
 }
@@ -195,23 +218,35 @@ interface Picker {
 	}[]
 	index: number
 }
-
-const KEYBINDS =
-	'v split right  - split down  h j k l focus  x close  z zoom  c tab  r resize  w spaces  b sidebar'
-
-/** A square box in one colour. */
-function drawBox(frame: Frame, rect: Rect, fg: number): void {
-	if (rect.width < 2 || rect.height < 2) return
-	const style = { fg }
-	const right = rect.x + rect.width - 1
-	const bottom = rect.y + rect.height - 1
-	const across = '─'.repeat(rect.width - 2)
-	frame.writeText({ ...rect, height: 1 }, 0, `┌${across}┐`, style)
-	frame.writeText({ ...rect, y: bottom, height: 1 }, 0, `└${across}┘`, style)
-	for (let y = rect.y + 1; y < bottom; y++) {
-		frame.writeText({ x: rect.x, y, width: 1, height: 1 }, 0, '│', style)
-		frame.writeText({ x: right, y, width: 1, height: 1 }, 0, '│', style)
-	}
+/** The keybinds overlay: the key map, scrolled. */
+interface Help {
+	scroll: number
+}
+/** The go-to overlay: a typed filter over the tree of spaces, tabs and panes. */
+interface Goto {
+	query: string
+	index: number
+	scroll: number
+}
+/** The accounts overlay: what the menu's "accounts" shows. */
+interface Accounts {
+	scroll: number
+}
+/** What a right-click was on. */
+type ContextTarget =
+	| { readonly kind: 'space'; readonly space: Space }
+	| { readonly kind: 'tab'; readonly tab: Tab }
+	| { readonly kind: 'pane'; readonly entry: Entry }
+type ContextItem = 'Rename' | 'New tab' | 'Split right' | 'Split down' | 'Zoom' | 'Close'
+const CONTEXT_ITEMS: Record<ContextTarget['kind'], readonly ContextItem[]> = {
+	space: ['Rename', 'New tab', 'Close'],
+	tab: ['Rename', 'Close'],
+	pane: ['Rename', 'Split right', 'Split down', 'Zoom', 'Close'],
+}
+interface Context {
+	readonly target: ContextTarget
+	readonly at: { readonly x: number; readonly y: number }
+	index: number
 }
 
 function defaultIsDirectory(path: string): boolean {
@@ -246,6 +281,12 @@ export class SpacesHost {
 	private confirm: Confirm | undefined
 	private prompt: Prompt | undefined
 	private picker: Picker | undefined
+	private help: Help | undefined
+	private goto: Goto | undefined
+	private accountList: Accounts | undefined
+	private context: Context | undefined
+	/** A space being dragged in the sidebar, and the place it would land. */
+	private reorder: { space: Space; to: number } | undefined
 	private cancelSave: (() => void) | undefined
 	private forgetAll = false
 	private notice: string | undefined
@@ -434,7 +475,7 @@ export class SpacesHost {
 		return {
 			roster: this.roster,
 			mode: this.router.current === 'navigate' ? ('navigate' as const) : ('terminal' as const),
-			foot: this.footLines(),
+			foot: [],
 			scroll: this.sidebarScroll,
 			palette: this.palette,
 			git: (cwd: string) => this.git.get(cwd),
@@ -667,8 +708,7 @@ export class SpacesHost {
 		for (const action of this.router.feed(chunk)) {
 			if (action.type === 'write') this.writeToSelected(action.data)
 			else if (action.type === 'mode') {
-				if (action.mode === 'terminal' && !this.confirm && !this.prompt && !this.picker)
-					this.startShown()
+				if (action.mode === 'terminal' && !this.captured()) this.startShown()
 				this.requestRender()
 			} else if (action.type === 'mouse') this.mouse(action.mouse)
 			else this.key(action.from, action.key)
@@ -692,62 +732,143 @@ export class SpacesHost {
 	/** A key the host reads: an answer, a name being typed, a mode's key, or the key after the prefix. */
 	private key(from: KeyContext, key: NavKey): void {
 		this.notice = undefined
-		if (this.menu) this.menuKey(key)
+		if (this.context) this.contextKey(key)
+		else if (this.menu) this.menuKey(key)
+		else if (this.help) this.helpKey(key)
+		else if (this.accountList) this.accountsKey(key)
+		else if (this.goto) this.gotoKey(key)
 		else if (this.picker) this.pickerKey(key)
 		else if (this.prompt) this.promptKey(key)
-		else if (this.confirm) {
-			const confirmed = this.confirm
-			this.confirm = undefined
-			if (key.kind === 'char' && key.char === 'y') this.perform(confirmed)
-		} else if (from === 'prefix') this.command(key)
+		else if (this.confirm) this.confirmKey(key)
+		else if (from === 'prefix') this.command(key)
 		else if (from === 'resize') this.resizeKey(key)
 		else if (from === 'navigate') this.navigateKey(key)
 		this.router.capture(this.captured())
 		this.requestRender()
 	}
 
-	/** The key after the prefix. */
+	/** The key after the prefix: whatever the key map binds it to. */
 	private command(key: NavKey): void {
+		const binding = bindingFor(key)
+		if (binding) this.run(binding.action, key)
+	}
+
+	private run(action: ActionId, key?: NavKey): void {
 		const entry = this.roster.selected
 		if (!entry) return
-		if (key.kind === 'tab') {
-			this.cyclePane(1)
-			return
+		switch (action) {
+			case 'help':
+				this.help = { scroll: 0 }
+				return
+			case 'menu':
+				this.openMenu()
+				return
+			case 'goto': {
+				const rows = gotoRows(this.roster)
+				this.goto = { query: '', index: currentRow(rows, entry), scroll: 0 }
+				return
+			}
+			case 'quit':
+				this.askQuit()
+				return
+			case 'new-space':
+				this.prompt = { kind: 'new-space', value: this.roster.spaceOf(entry).cwd }
+				return
+			case 'open-folder':
+				this.askFolder()
+				return
+			case 'rename-space':
+				this.askName('rename-space', this.roster.spaceOf(entry).name)
+				return
+			case 'close-space':
+				this.confirm = 'close-space'
+				return
+			// The router starts these two modes itself; there is nothing more to do.
+			case 'space-mode':
+			case 'resize-mode':
+				return
+			case 'sidebar':
+				this.toggleSidebar()
+				return
+			case 'new-tab':
+				this.newTab()
+				return
+			case 'rename-tab':
+				this.askName('rename-tab', this.shownTabLabel())
+				return
+			case 'close-tab':
+				this.closeTab()
+				return
+			case 'prev-tab':
+				this.stepTab(-1)
+				return
+			case 'next-tab':
+				this.stepTab(1)
+				return
+			case 'tab-number':
+				if (key?.kind === 'char') this.gotoTab(Number(key.char) - 1)
+				return
+			case 'split-side':
+				this.splitFocused('side')
+				return
+			case 'split-stack':
+				this.splitFocused('stack')
+				return
+			case 'focus-left':
+				this.moveFocus('left')
+				return
+			case 'focus-down':
+				this.moveFocus('down')
+				return
+			case 'focus-up':
+				this.moveFocus('up')
+				return
+			case 'focus-right':
+				this.moveFocus('right')
+				return
+			case 'swap-left':
+				this.swapFocused('left')
+				return
+			case 'swap-down':
+				this.swapFocused('down')
+				return
+			case 'swap-up':
+				this.swapFocused('up')
+				return
+			case 'swap-right':
+				this.swapFocused('right')
+				return
+			case 'next-pane':
+				this.cyclePane(1)
+				return
+			case 'prev-pane':
+				this.cyclePane(-1)
+				return
+			case 'close-pane':
+				this.closePane()
+				return
+			case 'zoom':
+				this.toggleZoom()
+				return
+			case 'rename-pane':
+				this.askName('rename-session', entry.label)
+				return
+			default: {
+				// Adding an action without a case here is a type error.
+				const unhandled: never = action
+				void unhandled
+			}
 		}
-		if (key.kind === 'backtab') {
-			this.cyclePane(-1)
-			return
-		}
-		if (key.kind !== 'char') return
-		const c = key.char
-		if (c === 'v') this.splitFocused('side')
-		else if (c === '-') this.splitFocused('stack')
-		else if (c === 'h') this.moveFocus('left')
-		else if (c === 'j') this.moveFocus('down')
-		else if (c === 'k') this.moveFocus('up')
-		else if (c === 'l') this.moveFocus('right')
-		else if (c === 'H') this.swapFocused('left')
-		else if (c === 'J') this.swapFocused('down')
-		else if (c === 'K') this.swapFocused('up')
-		else if (c === 'L') this.swapFocused('right')
-		else if (c === 'x') this.closePane()
-		else if (c === 'z') this.toggleZoom()
-		else if (c === 'c') this.newTab()
-		else if (c === 'X') this.closeTab()
-		else if (c === 'p') this.stepTab(-1)
-		else if (c === 'n') this.stepTab(1)
-		else if (/^[1-9]$/u.test(c)) this.gotoTab(Number(c) - 1)
-		else if (c === 'T') this.askName('rename-tab', this.roster.shownTab?.name ?? '')
-		else if (c === 'P') this.askName('rename-session', entry.label)
-		else if (c === 'W') this.askName('rename-space', this.roster.spaceOf(entry).name)
-		else if (c === 'N') this.newSpaceHere()
-		else if (c === 'O') this.askFolder()
-		else if (c === 'D') this.confirm = 'close-space'
-		else if (c === 'b') this.toggleSidebar()
-		else if (c === 'q') {
-			if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
-			else this.confirm = 'quit'
-		} else if (c === '?') this.notice = KEYBINDS
+	}
+
+	/** The name the shown tab was given; a tab without one has none to edit. */
+	private shownTabLabel(): string {
+		return this.roster.shownTab?.name ?? ''
+	}
+
+	private askQuit(): void {
+		if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
+		else this.confirm = 'quit'
 	}
 
 	private toggleSidebar(): void {
@@ -760,6 +881,12 @@ export class SpacesHost {
 	private newSpaceHere(): void {
 		const entry = this.roster.selected
 		const cwd = entry ? this.roster.spaceOf(entry).cwd : this.options.folder.cwd
+		this.newSpaceIn(cwd)
+	}
+
+	/** A new space in a folder, its first session on the account the focused pane runs on. */
+	private newSpaceIn(cwd: string): void {
+		const entry = this.roster.selected
 		const space = this.roster.addSpace(cwd, basename(cwd) || cwd)
 		const created = this.newTabIn(space)
 		if (entry?.pickedAccount) created.pickedAccount = entry.pickedAccount
@@ -771,8 +898,25 @@ export class SpacesHost {
 			this.prompt !== undefined ||
 			this.picker !== undefined ||
 			this.confirm !== undefined ||
-			this.menu !== undefined
+			this.menu !== undefined ||
+			this.help !== undefined ||
+			this.goto !== undefined ||
+			this.accountList !== undefined ||
+			this.context !== undefined
 		)
+	}
+
+	/** Closes whatever overlay is open without doing what it asked. */
+	private dismiss(): void {
+		this.prompt = undefined
+		this.picker = undefined
+		this.confirm = undefined
+		this.menu = undefined
+		this.help = undefined
+		this.goto = undefined
+		this.accountList = undefined
+		this.context = undefined
+		this.router.capture(false)
 	}
 
 	private openMenu(): void {
@@ -782,10 +926,21 @@ export class SpacesHost {
 
 	private chooseMenu(index: number): void {
 		this.menu = undefined
-		if (MENU_ITEMS[index] === 'keybinds') this.notice = KEYBINDS
-		else if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
-		else this.confirm = 'quit'
+		const item = MENU_ITEMS[index]
+		if (item === 'keybinds') this.help = { scroll: 0 }
+		else if (item === 'accounts') this.accountList = { scroll: 0 }
+		else if (item === 'add account') this.addAccount()
+		else if (item === 'sidebar') this.toggleSidebar()
+		else this.askQuit()
 		this.router.capture(this.captured())
+	}
+
+	/** A session in a new tab on the usual sign-in, where the `/auth` command adds the account. */
+	private addAccount(): void {
+		const entry = this.roster.selected
+		if (!entry) return
+		this.startIn(this.roster.spaceOf(entry), undefined, false)
+		this.notice = 'Type /auth in this session to add an account.'
 	}
 
 	private menuKey(key: NavKey): void {
@@ -798,6 +953,120 @@ export class SpacesHost {
 		else if (key.kind === 'down' || (key.kind === 'char' && key.char === 'j'))
 			menu.index = Math.min(last, menu.index + 1)
 		else if (key.kind === 'enter') this.chooseMenu(menu.index)
+	}
+
+	private helpKey(key: NavKey): void {
+		const help = this.help
+		if (!help) return
+		const page = this.helpLayout()?.capacity ?? 10
+		if (key.kind === 'up' || (key.kind === 'char' && key.char === 'k'))
+			help.scroll = Math.max(0, help.scroll - 1)
+		else if (key.kind === 'down' || (key.kind === 'char' && key.char === 'j')) help.scroll += 1
+		else if (key.kind === 'tab') help.scroll += page
+		else if (key.kind === 'backtab') help.scroll = Math.max(0, help.scroll - page)
+		else if (
+			key.kind === 'escape' ||
+			key.kind === 'enter' ||
+			(key.kind === 'char' && (key.char === '?' || key.char === 'q'))
+		)
+			this.help = undefined
+		const layout = this.helpLayout()
+		if (this.help && layout) this.help.scroll = layout.top
+	}
+
+	private accountsKey(key: NavKey): void {
+		const list = this.accountList
+		if (!list) return
+		if (key.kind === 'up' || (key.kind === 'char' && key.char === 'k'))
+			list.scroll = Math.max(0, list.scroll - 1)
+		else if (key.kind === 'down' || (key.kind === 'char' && key.char === 'j')) list.scroll += 1
+		else if (key.kind === 'enter' || key.kind === 'escape') this.accountList = undefined
+		const layout = this.accountsLayout()
+		if (this.accountList && layout) this.accountList.scroll = layout.top
+	}
+
+	private gotoKey(key: NavKey): void {
+		const goto = this.goto
+		if (!goto) return
+		const rows = this.gotoVisible()
+		const last = rows.length - 1
+		if (key.kind === 'escape') this.goto = undefined
+		else if (key.kind === 'up' || key.kind === 'backtab') goto.index = Math.max(0, goto.index - 1)
+		else if (key.kind === 'down' || key.kind === 'tab') goto.index = Math.min(last, goto.index + 1)
+		else if (key.kind === 'enter') this.chooseGoto(rows[goto.index])
+		else if (key.kind === 'backspace') {
+			goto.query = goto.query.slice(0, -1)
+			goto.index = 0
+		} else if (key.kind === 'char') {
+			if (key.char === CLEAR) goto.query = ''
+			else goto.query += key.char
+			goto.index = 0
+		}
+		const layout = this.gotoLayout()
+		if (this.goto && layout) this.goto.scroll = layout.top
+	}
+
+	/** Focuses what a row of the go-to tree names. */
+	private chooseGoto(row: GotoRow | undefined): void {
+		this.goto = undefined
+		this.router.capture(false)
+		if (!row) return
+		const { target } = row
+		if (target.kind === 'pane') this.open(target.entry)
+		else if (target.kind === 'tab') this.open(target.tab.focus)
+		else {
+			const entry = target.space.activeTab?.focus ?? this.roster.entriesOf(target.space)[0]
+			if (entry) this.open(entry)
+		}
+	}
+
+	private confirmKey(key: NavKey): void {
+		const confirmed = this.confirm
+		if (!confirmed) return
+		this.confirm = undefined
+		if (key.kind === 'enter' || (key.kind === 'char' && key.char === 'y')) this.perform(confirmed)
+	}
+
+	private contextKey(key: NavKey): void {
+		const context = this.context
+		if (!context) return
+		const items = CONTEXT_ITEMS[context.target.kind]
+		if (key.kind === 'escape') this.context = undefined
+		else if (key.kind === 'up' || (key.kind === 'char' && key.char === 'k'))
+			context.index = Math.max(0, context.index - 1)
+		else if (key.kind === 'down' || (key.kind === 'char' && key.char === 'j'))
+			context.index = Math.min(items.length - 1, context.index + 1)
+		else if (key.kind === 'enter') this.chooseContext(context.index)
+	}
+
+	/** Shows what a right-click was on, then does the chosen item to it. */
+	private chooseContext(index: number): void {
+		const context = this.context
+		this.context = undefined
+		if (!context) return
+		const item = CONTEXT_ITEMS[context.target.kind][index]
+		const { target } = context
+		const entry =
+			target.kind === 'pane'
+				? target.entry
+				: target.kind === 'tab'
+					? target.tab.focus
+					: (target.space.activeTab?.focus ?? this.roster.entriesOf(target.space)[0])
+		if (!entry || !item) return
+		this.show(entry)
+		const shown = this.roster.spaceOf(entry)
+		if (item === 'Rename') {
+			if (target.kind === 'space') this.askName('rename-space', shown.name)
+			else if (target.kind === 'tab') this.askName('rename-tab', this.shownTabLabel())
+			else this.askName('rename-session', entry.label)
+		} else if (item === 'New tab') this.newTab()
+		else if (item === 'Split right') this.splitFocused('side')
+		else if (item === 'Split down') this.splitFocused('stack')
+		else if (item === 'Zoom') this.toggleZoom()
+		else if (target.kind === 'space') this.confirm = 'close-space'
+		else if (target.kind === 'tab') this.closeTabOrSpace()
+		else this.closePane()
+		this.router.capture(this.captured())
 	}
 
 	private resizeKey(key: NavKey): void {
@@ -913,6 +1182,13 @@ export class SpacesHost {
 		this.confirm = 'close-space'
 	}
 
+	/** Closes a tab; a space's only tab closes the space, after asking. */
+	private closeTabOrSpace(): void {
+		const entry = this.roster.selected
+		if (entry && this.roster.spaceOf(entry).tabs.length > 1) this.closeTab()
+		else this.confirm = 'close-space'
+	}
+
 	private closeTab(): void {
 		const entry = this.roster.selected
 		const tab = this.roster.shownTab
@@ -950,15 +1226,17 @@ export class SpacesHost {
 		this.picker = { space, choices, index: Math.max(0, remembered) }
 	}
 
-	private startIn(space: Space, account: string | undefined): void {
+	private startIn(space: Space, account: string | undefined, ask = true): void {
 		if (account === undefined) delete space.lastAccount
 		else space.lastAccount = account
 		const created = this.newTabIn(space)
 		if (account !== undefined) created.pickedAccount = account
 		this.open(created)
 		// A new tab asks for its name; leaving it empty keeps the number.
-		this.askName('rename-tab', '')
-		this.router.capture(true)
+		if (ask) {
+			this.prompt = { kind: 'rename-tab', value: '', fresh: true }
+			this.router.capture(true)
+		}
 	}
 
 	/** Moves among the spaces, showing each one's tab without starting what it holds. */
@@ -1013,13 +1291,14 @@ export class SpacesHost {
 			return
 		}
 		if (key.kind === 'char') {
-			prompt.value += key.char
+			if (key.char === CLEAR) prompt.value = ''
+			else prompt.value += key.char
 			delete prompt.error
 			return
 		}
 		if (key.kind !== 'enter') return
 		const value = prompt.value.trim()
-		if (prompt.kind === 'folder') {
+		if (prompt.kind === 'folder' || prompt.kind === 'new-space') {
 			if (value === '') {
 				this.endPrompt()
 				return
@@ -1030,7 +1309,8 @@ export class SpacesHost {
 				return
 			}
 			this.endPrompt()
-			this.openFolder(path)
+			if (prompt.kind === 'new-space') this.newSpaceIn(path)
+			else this.openFolder(path)
 			return
 		}
 		const entry = this.roster.selected
@@ -1107,11 +1387,11 @@ export class SpacesHost {
 	// --- mouse -----------------------------------------------------------------
 
 	private mouse(event: MouseEvent): void {
-		if (this.menu) {
-			this.menuPress(event)
+		if (event.kind === 'release') this.endDrags()
+		if (this.captured()) {
+			this.overlayMouse(event)
 			return
 		}
-		if (this.prompt || this.confirm || this.picker) return
 		const layout = this.layout()
 		const inSidebar = layout.sidebar !== undefined && event.x < layout.sidebar.width
 		if (event.kind === 'wheel-up' || event.kind === 'wheel-down') {
@@ -1141,14 +1421,14 @@ export class SpacesHost {
 			return
 		}
 		if (event.kind === 'drag') {
-			if (this.sidebarDrag) this.dragSidebar(event)
+			if (this.reorder) this.dragSpace(layout, event)
+			else if (this.sidebarDrag) this.dragSidebar(event)
 			else this.dragBorder(event)
 			return
 		}
-		if (event.kind === 'release') {
-			if (this.drag || this.sidebarDrag) this.persist()
-			this.drag = undefined
-			this.sidebarDrag = undefined
+		if (event.kind === 'release') return
+		if (event.kind === 'context') {
+			this.openContext(layout, event)
 			return
 		}
 		if (event.kind !== 'press') return
@@ -1199,6 +1479,7 @@ export class SpacesHost {
 		const target = hitTest(this.sidebarModel(rail), sidebar.width, sidebar.height, event.x, event.y)
 		if (target?.kind === 'agent') this.open(target.entry)
 		else if (target?.kind === 'space') {
+			this.reorder = { space: target.space, to: this.roster.spaces.indexOf(target.space) }
 			this.gotoSpace(this.roster.spaces.indexOf(target.space))
 			const shown = this.roster.selected
 			if (shown) this.open(shown)
@@ -1214,37 +1495,151 @@ export class SpacesHost {
 		this.requestRender()
 	}
 
-	/** The popup's rows, where it is drawn: above the "new / menu" row, at the sidebar's left. */
-	private menuRect(): Rect | undefined {
-		const layout = this.layout()
-		if (!layout.sidebar || layout.rail) return undefined
-		const geo = geometry(layout.sidebar.height, this.footLines().length, this.split, false)
-		const height = MENU_ITEMS.length + 2
-		return {
-			x: 1,
-			y: Math.max(0, (geo.footerY ?? 0) - height),
-			width: Math.min(layout.sidebar.width - 2, 16),
-			height,
+	/** A pointer button went up: a drag of a border, the sidebar or a space ends, and a moved space lands. */
+	private endDrags(): void {
+		const moved = this.reorder
+		if (moved && this.roster.moveSpace(moved.space, moved.to)) {
+			this.revealSelected()
+			this.persist()
 		}
+		if (this.drag || this.sidebarDrag) this.persist()
+		this.reorder = undefined
+		this.drag = undefined
+		this.sidebarDrag = undefined
+		this.requestRender()
 	}
 
-	/** While the popup is open a press picks a row, or anywhere else closes it. */
-	private menuPress(event: MouseEvent): void {
-		if (event.kind !== 'press') return
-		const rect = this.menuRect()
-		const row = event.y - (rect?.y ?? 0) - 1
-		const inside =
-			rect !== undefined &&
-			event.x >= rect.x &&
-			event.x < rect.x + rect.width &&
-			row >= 0 &&
-			row < MENU_ITEMS.length
-		if (inside) this.chooseMenu(row)
-		else {
-			this.menu = undefined
-			this.router.capture(this.captured())
-		}
+	/** While a space is dragged: the place it would land is the space row under the pointer. */
+	private dragSpace(layout: Layout, event: MouseEvent): void {
+		const drag = this.reorder
+		if (!drag || !layout.sidebar) return
+		const target = hitTest(
+			this.sidebarModel(layout.rail),
+			layout.sidebar.width,
+			layout.sidebar.height,
+			Math.min(event.x, layout.sidebar.width - 1),
+			event.y,
+		)
+		if (target?.kind === 'space') drag.to = this.roster.spaces.indexOf(target.space)
 		this.requestRender()
+	}
+
+	/** A right-click: a menu for the space, tab or pane under the pointer. */
+	private openContext(layout: Layout, event: MouseEvent): void {
+		let target: ContextTarget | undefined
+		if (layout.sidebar && event.x < layout.sidebar.width) {
+			const hit = hitTest(
+				this.sidebarModel(layout.rail),
+				layout.sidebar.width,
+				layout.sidebar.height,
+				event.x,
+				event.y,
+			)
+			if (hit?.kind === 'space') target = { kind: 'space', space: hit.space }
+			else if (hit?.kind === 'agent') target = { kind: 'pane', entry: hit.entry }
+		} else if (event.y === layout.tabBar.y) {
+			const entry = this.roster.selected
+			const hit = entry
+				? tabBarTarget(layoutTabBar(this.roster.spaceOf(entry), layout.tabBar), event.x, event.y)
+				: undefined
+			if (hit?.kind === 'tab') target = { kind: 'tab', tab: hit.tab }
+		} else {
+			const placement = this.placement()
+			const pane = placement ? paneAt(placement.panes, event.x, event.y) : undefined
+			if (pane) target = { kind: 'pane', entry: pane.entry }
+		}
+		if (!target) return
+		this.context = { target, at: { x: event.x, y: event.y }, index: 0 }
+		this.router.capture(true)
+		this.requestRender()
+	}
+
+	private screen(): Screen {
+		return { cols: this.options.output.columns, rows: this.options.output.rows }
+	}
+
+	/** Where the open overlay is, for finding what a press lands on. */
+	private overlaySurface(): Surface | undefined {
+		const screen = this.screen()
+		if (this.context)
+			return layoutPopup(screen, this.context.at, CONTEXT_ITEMS[this.context.target.kind])
+		if (this.menu) return this.menuSurface()
+		const modal = this.modalSpec()
+		if (modal) return layoutModal(screen, modal)
+		return this.listLayout()
+	}
+
+	private listSpec(): ListSpec | undefined {
+		if (this.picker) return this.pickerSpec(this.picker)
+		if (this.help) return this.helpSpec(this.help)
+		if (this.goto) return this.gotoSpec(this.goto)
+		if (this.accountList) return this.accountsSpec(this.accountList)
+		return undefined
+	}
+
+	private listLayout() {
+		const spec = this.listSpec()
+		return spec ? layoutList(this.screen(), spec) : undefined
+	}
+
+	private helpLayout() {
+		return this.help ? layoutList(this.screen(), this.helpSpec(this.help)) : undefined
+	}
+
+	private accountsLayout() {
+		return this.accountList
+			? layoutList(this.screen(), this.accountsSpec(this.accountList))
+			: undefined
+	}
+
+	private gotoLayout() {
+		return this.goto ? layoutList(this.screen(), this.gotoSpec(this.goto)) : undefined
+	}
+
+	private gotoVisible(): GotoRow[] {
+		return this.goto ? filterGoto(gotoRows(this.roster), this.goto.query) : []
+	}
+
+	/** While an overlay is open a press picks inside it, and anywhere else closes it. */
+	private overlayMouse(event: MouseEvent): void {
+		if (event.kind === 'wheel-up' || event.kind === 'wheel-down') {
+			const step = event.kind === 'wheel-up' ? -1 : 1
+			if (this.help) this.help.scroll = Math.max(0, this.help.scroll + step * WHEEL_ROWS)
+			else if (this.accountList)
+				this.accountList.scroll = Math.max(0, this.accountList.scroll + step * WHEEL_ROWS)
+			else if (this.goto) {
+				const last = Math.max(0, this.gotoVisible().length - 1)
+				this.goto.index = Math.max(0, Math.min(last, this.goto.index + step))
+			}
+			this.requestRender()
+			return
+		}
+		if (event.kind !== 'press' && event.kind !== 'context') return
+		const surface = this.overlaySurface()
+		const hit: Hit = surface ? hitSurface(surface, event.x, event.y) : { kind: 'outside' }
+		if (hit.kind === 'outside') this.dismiss()
+		else if (event.kind === 'press') this.pressOverlay(hit)
+		this.router.capture(this.captured())
+		this.requestRender()
+	}
+
+	private pressOverlay(hit: Hit): void {
+		if (this.context && hit.kind === 'row') this.chooseContext(hit.index)
+		else if (this.menu && hit.kind === 'row') this.chooseMenu(hit.index)
+		else if (this.goto && hit.kind === 'row') {
+			this.goto.index = hit.index
+			this.chooseGoto(this.gotoVisible()[hit.index])
+		} else if (this.picker && hit.kind === 'row') {
+			this.picker.index = hit.index
+			this.pickerKey({ kind: 'enter' })
+		} else if (this.prompt && hit.kind === 'button') {
+			if (hit.action === 'confirm') this.promptKey({ kind: 'enter' })
+			else if (hit.action === 'clear') this.promptKey({ kind: 'char', char: CLEAR })
+			else this.dismiss()
+		} else if (this.confirm && hit.kind === 'button') {
+			if (hit.action === 'confirm') this.confirmKey({ kind: 'enter' })
+			else this.dismiss()
+		}
 	}
 
 	/** A press in the workspace area: a tab, the "+", a border to drag, or a pane to focus. */
@@ -1303,29 +1698,138 @@ export class SpacesHost {
 
 	// --- drawing ---------------------------------------------------------------
 
-	private footLines(): string[] {
+	/** The question or name field a modal shows, if one is open. */
+	private modalSpec(): ModalSpec | undefined {
 		const entry = this.roster.selected
-		if (this.prompt) {
-			const label =
-				this.prompt.kind === 'folder'
-					? 'Folder'
-					: this.prompt.kind === 'rename-session'
-						? 'Pane name'
-						: this.prompt.kind === 'rename-tab'
-							? 'Tab name'
-							: 'Space name'
-			return [`${label}: ${this.prompt.value}▏`, this.prompt.error ?? 'enter ok   esc cancel']
+		const prompt = this.prompt
+		if (prompt) {
+			const titles: Record<Prompt['kind'], string> = {
+				folder: 'open folder',
+				'new-space': 'new space',
+				'rename-session': 'rename pane',
+				'rename-space': 'rename space',
+				'rename-tab': prompt.fresh ? 'new tab' : 'rename tab',
+			}
+			const create = prompt.kind === 'folder' || prompt.kind === 'new-space' || prompt.fresh
+			return {
+				title: titles[prompt.kind],
+				input: { value: prompt.value },
+				...(prompt.error ? { error: prompt.error } : {}),
+				buttons: [
+					{ label: create ? '↲ open' : '↲ save', action: 'confirm', primary: true },
+					{ label: '^c clear', action: 'clear' },
+					{ label: 'esc cancel', action: 'cancel' },
+				],
+			}
 		}
-		if (this.picker) return ['Start on which account?', 'j/k pick  enter  esc']
-		if (this.confirm === 'quit') return ['Quit all sessions?', 'y yes   n stay']
+		if (this.confirm === 'quit')
+			return {
+				title: 'Quit all sessions?',
+				danger: true,
+				lines: ['Every session is hung up. The layout is kept for next time.'],
+				buttons: [
+					{ label: '↲ quit', action: 'confirm', primary: true },
+					{ label: 'esc cancel', action: 'cancel' },
+				],
+			}
 		if (this.confirm && entry) {
 			const space = this.roster.spaceOf(entry)
-			return [
-				`Close space "${space.name}" and its ${this.roster.entriesOf(space).length} sessions?`,
-				'y yes   n stay',
-			]
+			const count = this.roster.entriesOf(space).length
+			return {
+				title: 'Close space?',
+				danger: true,
+				lines: [`${space.name} — ${count} ${count === 1 ? 'pane' : 'panes'}`],
+				buttons: [
+					{ label: '↲ confirm', action: 'confirm', primary: true },
+					{ label: 'esc cancel', action: 'cancel' },
+				],
+			}
 		}
-		return []
+		return undefined
+	}
+
+	private pickerSpec(picker: Picker): ListSpec {
+		return {
+			title: `Start a session in ${picker.space.name} on`,
+			rows: picker.choices.map((c) => ({ text: c.text })),
+			index: picker.index,
+			scroll: 0,
+			footer: 'j/k pick   ↲ start   esc cancel',
+			width: 52,
+		}
+	}
+
+	private helpSpec(help: Help): ListSpec {
+		return {
+			title: 'keybinds',
+			rows: helpRows(this.options.prefix.name).map((r) =>
+				r.heading !== undefined
+					? { text: r.heading, heading: true }
+					: { text: r.label ?? '', ...(r.keys !== undefined ? { keys: r.keys } : {}) },
+			),
+			index: -1,
+			scroll: help.scroll,
+			footer: '↑/↓ scroll   esc close',
+			width: 58,
+		}
+	}
+
+	private gotoSpec(goto: Goto): ListSpec {
+		const rows = this.gotoVisible()
+		return {
+			title: 'go to',
+			input: { value: goto.query },
+			rows:
+				rows.length === 0
+					? [{ text: 'nothing matches', muted: true }]
+					: rows.map((r) => {
+							const dot = dotStyle(r.dot, this.palette)
+							return { text: r.text, indent: r.depth * 2, dot, heading: false }
+						}),
+			index: rows.length === 0 ? -1 : Math.min(goto.index, rows.length - 1),
+			scroll: goto.scroll,
+			footer: 'type to filter   ↑/↓ move   ↲ go   esc close',
+			width: 64,
+		}
+	}
+
+	private accountsSpec(list: Accounts): ListSpec {
+		let accounts: readonly HostAccount[] = []
+		try {
+			accounts = (this.options.accounts?.() ?? []).filter((a) => a.label !== 'default')
+		} catch {
+			accounts = []
+		}
+		const rows: ListSpec['rows'] = [
+			{ text: 'Usual sign-in', muted: true },
+			...accounts.map((a) => ({ text: `${a.label}  ${a.provider}` })),
+			{ text: accounts.length === 0 ? 'No other accounts yet.' : '', muted: true },
+			{ text: 'Add one with /auth in any session.', muted: true },
+		]
+		return {
+			title: 'accounts',
+			rows,
+			index: -1,
+			scroll: list.scroll,
+			footer: '↑/↓ scroll   esc close',
+			width: 52,
+		}
+	}
+
+	/** The menu popup: above the "new / menu" row at the sidebar's left, or at the top of the main area when there is no sidebar. */
+	private menuSurface(): Surface {
+		const layout = this.layout()
+		const items: readonly string[] = MENU_ITEMS
+		const height = items.length + 2
+		if (!layout.sidebar || layout.rail)
+			return layoutPopup(this.screen(), { x: layout.main.x + 1, y: layout.main.y + 1 }, items)
+		const geo = geometry(layout.sidebar.height, 0, this.split, false)
+		return layoutPopup(
+			this.screen(),
+			{ x: 1, y: Math.max(0, (geo.footerY ?? 0) - height) },
+			items,
+			Math.min(layout.sidebar.width - 2, 18),
+		)
 	}
 
 	/** What the bottom bar says in a mode: a chip, then keys and what they do. */
@@ -1432,7 +1936,6 @@ export class SpacesHost {
 		const { output } = this.options
 		const frame = new Frame(output.columns, output.rows)
 		const layout = this.layout()
-		const foot = this.footLines()
 		if (layout.sidebar) {
 			const model = this.sidebarModel(layout.rail)
 			this.sidebarScroll = clampScroll(this.sidebarScroll, model, layout.sidebar.height)
@@ -1447,29 +1950,24 @@ export class SpacesHost {
 		const ordered = [...panes].sort((a, b) => Number(a.entry === entry) - Number(b.entry === entry))
 		for (const pane of ordered)
 			this.drawPane(frame, pane, pane.entry === entry, placement?.bordered ?? false)
-		if (this.picker) this.drawPicker(frame, layout.panes, this.picker)
-		if (this.menu) this.drawMenu(frame, this.menu)
+		if (this.reorder) this.drawDrop(frame, layout)
 		const area = {
 			...layout.main,
 			y: layout.main.y + layout.main.height - 1,
 			height: 1,
 		}
 		const mode = this.router.current
-		if (mode !== 'terminal' && !this.prompt && !this.confirm && !this.picker)
-			this.drawModeBar(frame, area, mode)
-		else if (this.notice && !this.prompt && !this.confirm && !this.picker) {
+		const asking = this.captured()
+		if (mode !== 'terminal' && !asking) this.drawModeBar(frame, area, mode)
+		else if (this.notice && !asking) {
 			frame.fillRect(area, { bg: this.palette.panelBg })
 			frame.writeText(area, 0, ` ${this.notice}`, {
 				fg: this.palette.yellow,
 				bg: this.palette.panelBg,
 			})
 		}
-		// With the sidebar hidden its foot would vanish, so a question takes the bottom row.
-		else if ((!layout.sidebar || layout.rail) && (this.prompt || this.confirm || this.picker)) {
-			frame.fillRect(area, { attrs: ATTR_INVERSE })
-			frame.writeText(area, 0, ` ${foot.join('   ')}`, { attrs: ATTR_INVERSE })
-		}
-		if (mode !== 'terminal' || this.prompt || this.confirm || this.picker || this.menu)
+		this.drawOverlay(frame)
+		if (mode !== 'terminal' || asking)
 			frame.setCursor({ x: frame.cursor.x, y: frame.cursor.y, visible: false })
 		let out = ''
 		const wantPaste = entry?.child?.screen.bracketedPaste() ?? false
@@ -1496,29 +1994,54 @@ export class SpacesHost {
 		}, GIT_MS)
 	}
 
-	/** The popup behind "menu": a box of rows, the chosen one tinted. */
-	private drawMenu(frame: Frame, menu: Menu): void {
-		const rect = this.menuRect()
-		if (!rect) return
-		frame.fillRect(rect, { bg: this.palette.panelBg })
-		drawBox(frame, rect, this.palette.dim)
-		MENU_ITEMS.forEach((item, i) => {
-			const row = {
-				...rect,
-				x: rect.x + 1,
-				y: rect.y + 1 + i,
-				width: rect.width - 2,
-				height: 1,
-			}
-			const chosen = i === menu.index
-			frame.fillRect(row, {
-				bg: chosen ? this.palette.cursorRow : this.palette.panelBg,
+	/** Draws the open overlay on top; a modal first dims everything under it. */
+	private drawOverlay(frame: Frame): void {
+		const { palette } = this
+		const screen = this.screen()
+		if (this.context) {
+			const items = CONTEXT_ITEMS[this.context.target.kind]
+			drawPopup(
+				frame,
+				layoutPopup(screen, this.context.at, items),
+				items,
+				this.context.index,
+				palette,
+			)
+			return
+		}
+		if (this.menu) {
+			drawPopup(frame, this.menuSurface(), MENU_ITEMS, this.menu.index, palette)
+			return
+		}
+		const modal = this.modalSpec()
+		const list = this.listSpec()
+		if (!modal && !list) return
+		dimFrame(frame)
+		if (modal) drawModal(frame, layoutModal(screen, modal), modal, palette)
+		else if (list) drawList(frame, layoutList(screen, list), list, palette)
+	}
+
+	/** The line a dragged space would land at: under the row above the place it would take. */
+	private drawDrop(frame: Frame, layout: Layout): void {
+		const drag = this.reorder
+		const sidebar = layout.sidebar
+		if (!drag || !sidebar) return
+		const from = this.roster.spaces.indexOf(drag.space)
+		if (drag.to === from) return
+		const geo = geometry(sidebar.height, 0, this.split, layout.rail)
+		const shown = drag.to - this.sidebarScroll.spaces
+		if (shown < 0 || shown >= geo.spaceCap) return
+		const top = geo.spaceTop + shown * geo.spaceStep
+		const y = (drag.to < from ? top : top + geo.spaceStep) - 1
+		for (let x = 0; x < sidebar.width; x++) {
+			const cell = frame.cellAt(x, y)
+			if (!cell) continue
+			frame.set(x, y, {
+				...cell,
+				fg: cell.ch === ' ' ? this.palette.accent : cell.fg,
+				attrs: cell.attrs | ATTR_UNDERLINE,
 			})
-			frame.writeText(row, 0, ` ${item}`, {
-				fg: chosen ? this.palette.text : this.palette.subtext,
-				bg: chosen ? this.palette.cursorRow : this.palette.panelBg,
-			})
-		})
+		}
 	}
 
 	/** One pane: its border (the focused one in the accent colour), then its session or what stands in for it. */
@@ -1562,25 +2085,6 @@ export class SpacesHost {
 			say(1, ` "${entry.label}" in ${space.name} has not started yet.`)
 			say(2, ' Press enter or click it to open it.')
 		}
-	}
-
-	private drawPicker(frame: Frame, main: Rect, picker: Picker): void {
-		const rows = Math.max(0, main.height - 3)
-		const top = Math.max(0, Math.min(picker.index - rows + 1, picker.choices.length - rows))
-		frame.fillRect({
-			...main,
-			y: main.y,
-			height: Math.min(main.height, rows + 3),
-		})
-		frame.writeText(main, 1, `  Start a session in ${picker.space.name} on:`, {
-			attrs: ATTR_BOLD,
-		})
-		picker.choices.slice(top, top + rows).forEach((choice, i) => {
-			const chosen = top + i === picker.index
-			frame.writeText(main, 3 + i, `  ${chosen ? '>' : ' '} ${choice.text}`, {
-				...(chosen ? { attrs: ATTR_INVERSE } : {}),
-			})
-		})
 	}
 
 	// --- remembering the layout ------------------------------------------------

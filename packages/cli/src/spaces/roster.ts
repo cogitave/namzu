@@ -133,6 +133,16 @@ export class Roster {
 		return space
 	}
 
+	/** Moves a space to a place in the list; the others keep their order. False when nothing moved. */
+	moveSpace(space: Space, to: number): boolean {
+		const from = this.spaces.indexOf(space)
+		const target = Math.max(0, Math.min(this.spaces.length - 1, to))
+		if (from < 0 || from === target) return false
+		this.spaces.splice(from, 1)
+		this.spaces.splice(target, 0, space)
+		return true
+	}
+
 	/** A session that is not in any tab yet; give it a place with `addTab` or `splitBeside`. */
 	addSession(space: Space, slot: string, label?: string): Entry {
 		const own = this.entriesOf(space)

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: namzu spaces (preview)
-description: A sidebar of spaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, the prefix setting, what happens when a session stops, and what the preview does not do yet.
+description: A sidebar of spaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, overlays (modals, context menu, go to, keybinds, menu), the prefix setting, what happens when a session stops, and what the preview does not do yet.
 resource: packages/cli/src/commands/spaces.ts
 tags: [cli, spaces, terminal, preview]
 status: draft
@@ -63,15 +63,19 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `r` | Resize mode: `h`/`l` (or the arrows) move the nearest vertical border left or right, `j`/`k` the nearest horizontal one down or up, whichever side of the border the focused pane is on; with no such border on the pane's own edge in that direction, the one on its opposite edge moves. `esc` or `enter` ends it. Each key moves the border by 5 percent of its split. |
 | `c`, `T`, `X` | New tab, rename the tab (an empty name goes back to its number), close the tab. The last tab of a space cannot be closed. |
 | `n`, `p`, `1` to `9` | Next or previous tab, or tab by number. |
-| `N`, `W`, `D` | New space in the focused pane's folder (no prompt), rename the space, close the space with all its panes (it asks first). Closing the last session quits. |
-| `O` | Open another folder as a space: it asks for the folder's path. |
+| `N`, `W`, `D` | New space (a modal asks for the folder, filled in with the focused pane's), rename the space (a modal with the name filled in), close the space with all its panes (a modal asks first). Closing the last session quits. |
+| `O` | Open another folder as a space: a modal asks for the folder's path, and an existing space for that folder is shown instead of a second one. |
 | `P` | Rename the pane (its row in the sidebar). |
 | `w` | Space navigation: `up`/`down` (or `j`/`k`) show the previous or next space, `tab` moves between its panes, `enter` opens it (starting what has not started), `esc` leaves. |
 | `b` | Collapse the sidebar to a thin rail of index-and-dot rows, or expand it. |
+| `g` | Go to: an overlay with a filterable tree of every space, tab and pane. |
+| `s` | The menu overlay (the same as the sidebar's "menu"). |
 | `q` | Quit. It asks first while a session is running. |
-| `?` | A one-line reminder of the pane keys. |
+| `?` | The keybinds overlay. |
 
 While the prefix, space navigation or resize mode is active, a bar on the bottom row shows a coloured chip (`PREFIX`, `NAVIGATE`, `RESIZE`) followed by the keys that work, keys in bold light blue. Nothing is drawn there otherwise, and the sidebar carries no key list.
+
+The keybinds overlay is printed from the same list the host runs, so it always matches the keys above. Both it and the table are the whole map: no other key does anything after the prefix.
 
 A new tab (`c`) first asks which account to start on when you have added accounts (see below), then asks for the tab's name; an empty name keeps its number. A split does not ask.
 
@@ -83,9 +87,9 @@ Each session row shows the label of the account its conversation runs on, when t
 
 When a session's account has used up its allowance, the row gets a yellow note under it, "limited until 3:40 pm" when the provider said when it returns and "may be limited" when it did not. Open the session and press `enter` to **continue with another account**, as in a plain session ([Accounts in the terminal](accounts.md)); the note goes when the session is on an account that works.
 
-With at least one account added, `n` asks which account the new session starts on. The list is the usual sign-in first, then your accounts; it opens on the account this space last used, so `n` then `enter` repeats it. `j`/`k` choose, `enter` starts, `esc` cancels. With no accounts added, `n` starts at once.
+With at least one account added, `c` asks which account the new tab's session starts on, in a centred modal. The list is the usual sign-in first, then your accounts; it opens on the account this space last used, so `c` then `enter` repeats it. `j`/`k` or a click choose, `enter` starts, `esc` or a click outside cancels. With no accounts added, `c` starts at once.
 
-A session started on an account runs on that account's provider and model, so a provider or model you set for the host through `NAMZU_PROVIDER` or `NAMZU_MODEL` does not apply to it. A session on a Codex account also gets that account's own `CODEX_HOME`, so the tools it runs sign in as that account. Accounts are added and removed inside a session with `/auth`, never in the host.
+A session started on an account runs on that account's provider and model, so a provider or model you set for the host through `NAMZU_PROVIDER` or `NAMZU_MODEL` does not apply to it. A session on a Codex account also gets that account's own `CODEX_HOME`, so the tools it runs sign in as that account. Accounts are added and removed inside a session with `/auth`, never in the host; the menu's "accounts" lists them and "add account" opens a session in a new tab where you type `/auth`.
 
 ## Remembering your layout
 
@@ -101,9 +105,20 @@ Your spaces, their tabs and pane trees (split directions, ratios, zoom, tab name
 
 `namzu doctor` has a row, "terminal.pty", that says whether a pseudo-terminal can be opened on this machine. When it cannot, it says why and how to get one, and `namzu spaces` starts a single plain session with the same pointer.
 
+## Overlays
+
+Questions and names appear in a modal centred on the screen: a box with a border, the rest of the screen dimmed, and buttons. Naming something (new space, open folder, rename space, rename tab, rename pane, the name a new tab asks for) shows a text field with the current name filled in and the buttons `↲ save` (or `↲ open`), `^c clear` and `esc cancel`; `enter`, `ctrl+c` and `esc` do the same, and a click on a button does too. Closing a space or quitting asks in a red-bordered modal with `↲ confirm` and `esc cancel`; `enter` or `y` confirms and any other key keeps things as they were. Closing a pane never asks. Starting a session on an account, go to, keybinds and accounts use the same kind of modal with a list.
+
+Every overlay closes with `esc` and with a click outside it, and while one is open a click goes to it or closes it, never to what is behind. The context menu and the menu popup are small boxes that do not dim the screen.
+
+- **Go to** (`g`): a tree of every space with its tabs and each tab's panes, with state dots. Typing filters it (any part of a name, ignoring case; a matching space or tab keeps everything under it), `up`/`down` or `tab`/`shift+tab` move, `ctrl+c` clears the filter, and `enter` or a click focuses the row, starting what has not started.
+- **Keybinds** (`?`): the key map, scrolled with `up`/`down` or `j`/`k` when the screen is short.
+- **Menu** (sidebar "menu", or `s`): accounts (the accounts you have added), add account, sidebar (collapse or expand), keybinds and quit. It does not reimplement settings, which stay where they were.
+- **Context menu** (right-click): on a space, Rename, New tab and Close; on a tab, Rename and Close (the only tab of a space asks to close the space); on a pane or an agent row, Rename, Split right, Split down, Zoom and Close. The right-clicked item is shown first, then the choice applies to it.
+
 ## Mouse
 
-Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a border between two panes to resize them. Click a space or an agent in the sidebar to open it, "new" to add a space, "menu" for its popup (keybinds, quit), the grouped/priority word to switch the order, and `«` (`»` on the rail) at its foot to collapse or expand it. Drag the line between the sidebar and the panes to resize it (18 to 36 columns, 26 by default; a double click puts it back), and drag the rule between its two sections to change their shares. Scroll over the sidebar to move its lists, and over a pane to read its history (the pane under the pointer scrolls, whether or not it has focus); a line at the bottom of that pane says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
+Click a pane to focus it, a tab to open it, or the "+" to add a tab. Drag a border between two panes to resize them. Click a space or an agent in the sidebar to open it, and drag a space up or down to reorder the list (a line shows where it would land, and the order is remembered); right-click a space, tab or pane for its context menu; click "new" to add a space in the focused pane's folder at once, "menu" for its popup, the grouped/priority word to switch the order, and `«` (`»` on the rail) at its foot to collapse or expand it. Drag the line between the sidebar and the panes to resize it (18 to 36 columns, 26 by default; a double click puts it back), and drag the rule between its two sections to change their shares. Scroll over the sidebar to move its lists, and over a pane to read its history (the pane under the pointer scrolls, whether or not it has focus); a line at the bottom of that pane says you are scrolled back, and typing or scrolling down returns you to the live screen. The host takes the mouse, so selecting text with the pointer needs the terminal's own override, usually holding `shift`.
 
 ## Colours
 
@@ -128,4 +143,4 @@ Spaces needs a pseudo-terminal binding; `namzu doctor` checks it. The CLI ships 
 
 ## What it does not do yet
 
-Quitting ends every session; they come back when you start again but are not kept running in the background (there is no detach and reattach). There is no copy mode, goto overlay or worktree grouping. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.
+Quitting ends every session; they come back when you start again but are not kept running in the background (there is no detach and reattach). There is no copy mode or worktree grouping. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.
