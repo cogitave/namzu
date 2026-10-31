@@ -640,6 +640,9 @@ import {
 } from './workspace-review.js'
 
 /** How long `/exit` waits for the session to close before leaving anyway. */
+/** The footer notice that says what auto mode does; leaving the mode takes it away. */
+const AUTO_MODE_NOTICE_KEY = 'auto-mode'
+
 const SESSION_CLOSE_ON_EXIT_MS = 5_000
 
 export interface AppProps {
@@ -4199,15 +4202,19 @@ function AppBody({
 				// Shift+Tab is a reflex and its reply is the footer, but this mode
 				// hands decisions to a second model, which is worth saying once.
 				autoModeNoticeShownRef.current = true
-				pushMessage(
-					'system',
-					'Auto mode: a second model checks each call you would be asked about.',
-				)
+				// A passing notice in the footer, not a transcript row: it describes the
+				// mode now on, and a row would still be claiming that after the mode left.
+				addNotice({
+					key: AUTO_MODE_NOTICE_KEY,
+					text: 'Auto mode: a second model checks each call you would be asked about.',
+					priority: 'immediate',
+				})
 			}
 		},
-		[pushMessage, rulesChanged, session],
+		[addNotice, pushMessage, removeNotice, rulesChanged, session],
 	)
 
+			if (mode !== 'classify') removeNotice(AUTO_MODE_NOTICE_KEY)
 	const applyPermissionMode = useCallback(
 		(mode: PermissionMode, announce = true): void => {
 			if (!session?.hasProvider) {
