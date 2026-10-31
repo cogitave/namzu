@@ -2655,6 +2655,8 @@ function AppBody({
 			mode: () => permissionModeRef.current,
 		})
 	}
+	/** Calls whose question the person closed with Ctrl+C, so their rows read as stopped, not declined. */
+	const stoppedAtPromptRef = useRef(new Set<string>())
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
 	/** Open while any question waits on the person; the background learning cycle reads it. */
@@ -2671,6 +2673,8 @@ function AppBody({
 				setPermissionReason(null)
 				permissionShownRef.current = pending
 				if (pending) {
+					// Nothing is being read while the person is asked: settle the counted line.
+					readSearchGroup.close()
 					// Every question gets its own settle window, so a key aimed at the
 					// last one cannot answer the next.
 					permissionOpenedAtRef.current = Date.now()
@@ -4210,11 +4214,11 @@ function AppBody({
 					priority: 'immediate',
 				})
 			}
+			if (mode !== 'classify') removeNotice(AUTO_MODE_NOTICE_KEY)
 		},
 		[addNotice, pushMessage, removeNotice, rulesChanged, session],
 	)
 
-			if (mode !== 'classify') removeNotice(AUTO_MODE_NOTICE_KEY)
 	const applyPermissionMode = useCallback(
 		(mode: PermissionMode, announce = true): void => {
 			if (!session?.hasProvider) {
@@ -9028,6 +9032,7 @@ function AppBody({
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
 						cwd: ctxRef.current.cwd,
+						stoppedByPerson: stoppedAtPromptRef.current.delete(event.toolUseId),
 					})
 					if (built.kind === 'task-block') {
 						writeTaskBlock(st, null, tasksRef.current)
@@ -13705,6 +13710,8 @@ function AppBody({
 					// At a question of the person's own turn, Ctrl+C ends like a plain No:
 					// the kernel settles every call and the turn closes with one row.
 					if (permission && endsTurnOnNo(permission)) {
+						// Not an answer to the question: the rows for these calls say so.
+						for (const call of permission.toolCalls) stoppedAtPromptRef.current.add(call.id)
 						resolvePermission(plainNo(true))
 						return
 					}
