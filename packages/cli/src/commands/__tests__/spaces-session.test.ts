@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PeerRecord } from '@namzu/sdk'
@@ -134,6 +134,25 @@ describe('the layout file', () => {
 			expect(statSync(path).mode & 0o777).toBe(0o600)
 			expect(JSON.parse(readFileSync(path, 'utf8')).spaces[0].sessions[0].conversationId).toBe('c')
 			expect(store.load()?.focus).toEqual({ space: 0, session: 0 })
+		} finally {
+			removeTempDir(dir)
+		}
+	})
+
+	it('leaves a file from a newer version untouched and says so once', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-spaces-newer-'))
+		try {
+			const path = join(dir, 'spaces.json')
+			const original = `${JSON.stringify({ version: 2, spaces: [{ anything: true }] })}\n`
+			writeFileSync(path, original)
+			const said: string[] = []
+			const store = fileStore(path, (message) => said.push(message))
+			expect(store.load()).toBeUndefined()
+			expect(store.load()).toBeUndefined()
+			store.save({ version: 1, spaces: [{ name: 'a', cwd: '/a', sessions: [{ label: 'x' }] }] })
+			expect(readFileSync(path, 'utf8')).toBe(original)
+			expect(said).toHaveLength(1)
+			expect(said[0]).toContain('newer version')
 		} finally {
 			removeTempDir(dir)
 		}

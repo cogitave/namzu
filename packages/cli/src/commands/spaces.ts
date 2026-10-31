@@ -189,7 +189,7 @@ export async function runSpaces(
 	const prefix =
 		(prefixSetting !== undefined ? parsePrefix(prefixSetting) : undefined) ?? DEFAULT_PREFIX
 	const peers = createPeerSource(deps.env)
-	const store = deps.store ?? fileStore(spacesFilePath(deps.env))
+	const store = deps.store ?? fileStore(spacesFilePath(deps.env), (message) => deps.stderr.write(`${message}\n`))
 	const restored = store.load()
 	const accounts = deps.accounts ?? storedAccounts
 	const host = new SpacesHost({

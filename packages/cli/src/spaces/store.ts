@@ -95,16 +95,34 @@ export function parseLayout(raw: unknown): SavedLayout | undefined {
 }
 
 /** The layout file under the Namzu home: private to the user, replaced whole so a crash never leaves half of it. */
-export function fileStore(path: string): SpacesStore {
+export function fileStore(path: string, say?: (message: string) => void): SpacesStore {
+	// A file written by a newer Namzu is never overwritten by this one.
+	let foreign = false
 	return {
 		load() {
 			try {
-				return parseLayout(JSON.parse(readFileSync(path, 'utf8')))
+				const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+				if (
+					typeof raw === 'object' &&
+					raw !== null &&
+					typeof (raw as { version?: unknown }).version === 'number' &&
+					(raw as { version: number }).version !== 1
+				) {
+					if (!foreign) {
+						foreign = true
+						say?.(
+							`The saved spaces layout at ${path} was written by a newer version of Namzu. It is left as it is, and this run starts with an empty layout that will not be saved.`,
+						)
+					}
+					return undefined
+				}
+				return parseLayout(raw)
 			} catch {
 				return undefined
 			}
 		},
 		save(layout) {
+			if (foreign) return
 			const temp = `${path}.${randomBytes(4).toString('hex')}.tmp`
 			try {
 				mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
