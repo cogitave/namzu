@@ -32,7 +32,7 @@ describe('namzu spaces', () => {
 		const d = deps()
 		expect(await runSpaces(['--model', 'x'], undefined, d.value)).toBe(7)
 		expect(d.errors.join('')).toBe(
-			'Spaces needs a terminal component that is not available here (the terminal component failed to load). Starting a single session instead.\n',
+			'Spaces needs a terminal component that is not available here (the terminal component failed to load). Starting a single session instead. Run "namzu doctor" to see how to get it.\n',
 		)
 		expect(d.runPlain).toHaveBeenCalledWith(process.execPath, ['/dist/bin.js', '--model', 'x'])
 	})

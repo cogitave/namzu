@@ -13,6 +13,7 @@ import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
 import { schedulerCheck } from './scheduler.js'
 import { describeInstalledPackage, telemetryInstalledCheck } from './telemetry.js'
+import { pseudoTerminalCheck } from './terminal.js'
 import { updatesCheck } from './updates.js'
 import { vaultRegisteredCheck } from './vault.js'
 
@@ -68,6 +69,7 @@ export {
 	sandboxPlatformCheck,
 	schedulerCheck,
 	telemetryInstalledCheck,
+	pseudoTerminalCheck,
 	updatesCheck,
 	vaultRegisteredCheck,
 }
@@ -94,6 +96,8 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	// After the packages it rests on: the index parses in a child process of its own.
 	codeAnalysisCheck,
 	telemetryInstalledCheck,
+	// Optional like the packages above: a machine without one still runs everything but spaces.
+	pseudoTerminalCheck,
 	schedulerCheck,
 	updatesCheck,
 	// Last, deliberately: it reports what the pipeline did to the records
