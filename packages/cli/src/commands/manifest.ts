@@ -26,6 +26,15 @@ export const computerCommand = lazyCommand(
 	async () => (await import('./computer.js')).computerCommand,
 )
 
+export const spacesCommand = lazyCommand(
+	{
+		name: 'spaces',
+		description: 'Run Namzu sessions side by side in one terminal (preview)',
+		passThrough: true,
+	},
+	async () => (await import('./spaces.js')).spacesCommand,
+)
+
 export const archiveCommand = lazyCommand(
 	{
 		name: 'archive',

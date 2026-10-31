@@ -79,3 +79,4 @@ The operator application.
 * [Desktop application](desktop.md) - Native operator workspace using the existing CLI runtime and conversation logs, with terminal tabs and an engine's own command line beside the conversations.
 * [Desktop voice input](desktop-listening.md) - Talking to Namzu Desktop in Turkish: the on-device recognition engine, microphone capture and consent, endpointing and stop words, read-aloud and barge-in, and what stays on the computer.
 * [CLI ACP live input](acp.md) - Owned live operator messages, bounded receipt reconciliation and safe delegation wait release.
+* [namzu spaces (preview)](spaces.md) - A sidebar of sessions beside a live Namzu session in one terminal: keys, the navigate-key setting, a session that stops, and the plain fallback.

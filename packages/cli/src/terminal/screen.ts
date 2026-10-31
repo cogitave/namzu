@@ -67,6 +67,16 @@ export class HeadlessScreen {
 		return out.length > maxLength ? '' : out
 	}
 
+	/** Whether the program asked for bracketed paste, so the real terminal can be told to send it. */
+	bracketedPaste(): boolean {
+		return this.term.modes.bracketedPasteMode
+	}
+
+	/** Replies the emulator makes to the program's terminal queries (cursor position, attributes). */
+	onResponse(listener: (data: string) => void): { dispose(): void } {
+		return this.term.onData(listener)
+	}
+
 	/** The visible rows as plain text, trailing blanks trimmed. */
 	lines(): string[] {
 		const buffer = this.term.buffer.active

@@ -38,6 +38,7 @@ import {
 	serveCommand,
 	skillsCommand,
 	skillsJSONCommand,
+	spacesCommand,
 	stateCommand,
 	upgradeCommand,
 } from './commands/manifest.js'
@@ -549,6 +550,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		historyCommand,
 		skillsCommand,
 		skillsJSONCommand,
+		spacesCommand,
 		providersJSONCommand,
 		upgradeCommand,
 		serveCommand,

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-31
+
+- **Creation** [namzu spaces (preview)](cli/spaces.md): a new `namzu spaces` command that hosts a Namzu session in a pseudo-terminal beside a sidebar, with a `tui.spacesPrefix` key setting and a plain single-session fallback. The CLI now prefers the prebuilt `@lydell/node-pty` binding and falls back to `node-pty`. `.changeset/spaces-host-preview.md` (`@namzu/cli` minor).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).
