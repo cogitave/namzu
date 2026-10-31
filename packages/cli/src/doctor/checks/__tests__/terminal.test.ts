@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { builtInDoctorChecks } from '../index.js'
-import { describePseudoTerminal, pseudoTerminalCheck } from '../terminal.js'
+import { FakePty } from '../../../terminal/__tests__/support/fake-pty.js'
+import { describePseudoTerminal, pseudoTerminalCheck, tryOneSession } from '../terminal.js'
 
 const binding = {} as never
 
@@ -39,5 +40,29 @@ describe('the pseudo-terminal row', () => {
 
 	it('is one of the built-in checks', () => {
 		expect(builtInDoctorChecks).toContain(pseudoTerminalCheck)
+	})
+})
+
+describe('the pseudo-terminal probe', () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	it('gives up on a program that never ends, and ends it', async () => {
+		vi.useFakeTimers()
+		const pty = new FakePty(1, 'node', [], {} as never)
+		const attempt = tryOneSession({ spawn: () => pty } as never, 5000)
+		const outcome = expect(attempt).rejects.toThrow('did not finish in time')
+		await vi.advanceTimersByTimeAsync(5000)
+		await outcome
+		expect(pty.kills).toHaveLength(1)
+	})
+
+	it('ends the program after a normal exit too', async () => {
+		const pty = new FakePty(1, 'node', [], {} as never)
+		const attempt = tryOneSession({ spawn: () => pty } as never)
+		pty.end(0)
+		await attempt
+		expect(pty.kills).toHaveLength(1)
 	})
 })

@@ -1,21 +1,41 @@
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
-import { type HostPtyModule, loadHostPty } from '../../terminal/pty.js'
+import { type HostPty, type HostPtyModule, loadHostPty } from '../../terminal/pty.js'
+
+/** How long the test program gets before the check gives up on it. */
+const PROBE_MS = 10_000
 
 /** Starts a program that ends at once, and resolves with how it ended. */
-async function tryOneSession(binding: HostPtyModule): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const pty = binding.spawn(process.execPath, ['-e', ''], {
-			name: 'xterm-256color',
-			cols: 20,
-			rows: 5,
-			cwd: process.cwd(),
-			env: { ...(process.env as Record<string, string>) },
+export async function tryOneSession(binding: HostPtyModule, timeoutMs = PROBE_MS): Promise<void> {
+	let pty: HostPty | undefined
+	let timer: ReturnType<typeof setTimeout> | undefined
+	let exitWatch: { dispose(): void } | undefined
+	try {
+		await new Promise<void>((resolve, reject) => {
+			pty = binding.spawn(process.execPath, ['-e', ''], {
+				name: 'xterm-256color',
+				cols: 20,
+				rows: 5,
+				cwd: process.cwd(),
+				env: { ...(process.env as Record<string, string>) },
+			})
+			exitWatch = pty.onExit(({ exitCode }) =>
+				exitCode === 0 ? resolve() : reject(new Error(`the test program stopped with ${exitCode}`)),
+			)
+			timer = setTimeout(
+				() => reject(new Error('the test program did not finish in time')),
+				timeoutMs,
+			)
 		})
-		pty.onExit(({ exitCode }) =>
-			exitCode === 0 ? resolve() : reject(new Error(`the test program stopped with ${exitCode}`)),
-		)
-	})
+	} finally {
+		if (timer) clearTimeout(timer)
+		try {
+			exitWatch?.dispose()
+			pty?.kill()
+		} catch {
+			// Already gone.
+		}
+	}
 }
 
 /**
