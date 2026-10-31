@@ -35,9 +35,15 @@ Keys (press ctrl+b first; change it with tui.spacesPrefix in your config):
   n / p, 1-9        next / previous tab, tab by number
   N / W / D         new space from a folder / rename space / close space
   P                 rename the pane
-  w                 space navigation: up/down to move, enter to open, esc to leave
+  w                 sidebar: up/down to pick a session, right to open it full screen,
+                    enter to type in it, esc to leave
   b                 hide or show the sidebar
   q                 quit
+
+In a session, press the left arrow on an empty message box to come back to the
+sidebar (from full screen it returns to this screen; from a pane it moves the keys to
+the sidebar). The same arrow in a plain "namzu" opens this screen with the
+conversation as one of the panes.
 
 Your spaces, tabs and panes are remembered. Start "namzu spaces" again and they come
 back listed; each session starts, and resumes its conversation, when you first open its
@@ -133,6 +139,8 @@ export function sessionSpec(
 		cwd: request.cwd,
 		env: buildPtyEnv(deps.env, {
 			NAMZU_SPACE_SLOT: request.slot,
+			// A session reads this to know its terminal belongs to this host: its own ← then asks the host to leave it.
+			NAMZU_SPACE_HOST_PID: String(process.pid),
 			...(home ? { CODEX_HOME: home } : {}),
 			// A session started on an account runs on that account's provider and model. A
 			// provider or model chosen for the host through the environment would contradict it.

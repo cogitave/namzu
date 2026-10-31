@@ -81,6 +81,11 @@ export class InputRouter {
 		this.mode = 'terminal'
 	}
 
+	/** Puts the keyboard on the sidebar: arrows move through the sessions. */
+	enterNavigate(): void {
+		this.mode = 'navigate'
+	}
+
 	/**
 	 * While on, every key goes to the host as text or a key (a name being typed, an
 	 * answer to a question): escape and enter come through as keys, and the

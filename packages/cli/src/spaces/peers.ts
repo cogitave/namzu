@@ -31,6 +31,15 @@ export function recordForSlot(
 	return mine.find((r) => r.pid === pid) ?? [...mine].sort((a, b) => a.startedAt - b.startedAt)[0]
 }
 
+/** The record of the process the host itself runs in, for a session that is not a child: the one with its own id. */
+export function recordForPid(
+	records: readonly PeerRecord[],
+	pid: number | undefined,
+): PeerRecord | undefined {
+	if (pid === undefined) return undefined
+	return records.find((r) => r.pid === pid)
+}
+
 export function createPeerSource(env: NodeJS.ProcessEnv): PeerSource | undefined {
 	let runtime: ReturnType<typeof resolvePeerRuntime>
 	try {

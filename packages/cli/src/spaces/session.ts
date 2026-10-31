@@ -1,5 +1,6 @@
 import { type HostPty, type HostPtyModule, killProcessTree } from '../terminal/pty.js'
 import { HeadlessScreen } from '../terminal/screen.js'
+import { SignalFilter, type SignalName } from './signal.js'
 
 /** What to run in a session's pseudo-terminal. */
 export interface SessionSpec {
@@ -19,16 +20,50 @@ export type SessionEnding = 'finished' | 'stopped' | 'could-not-start'
 const SCROLLBACK = 2000
 
 /**
+ * What the host needs of a pane's session, whatever runs behind it: a program in
+ * a pseudo-terminal of its own (`ChildSession`) or the conversation this very
+ * process is running (`LocalSession`).
+ */
+export interface PaneSession {
+	readonly status: SessionStatus
+	readonly ending: SessionEnding | undefined
+	readonly screen: HeadlessScreen
+	readonly pid: number | undefined
+	/** True for the session the host runs inside of: it is not started or hung up like a child. */
+	readonly local?: boolean
+	write(data: string): void
+	resize(cols: number, rows: number): void
+	stop(signal?: 'SIGHUP' | 'SIGTERM' | 'SIGKILL'): void
+	dispose(): void
+}
+
+/**
+ * The session the host runs inside of. Its terminal is the process's own, so
+ * the host shows it through a mirror while the spaces screen is up and gives the
+ * terminal back to it for full screen.
+ */
+export interface LocalPaneSession extends PaneSession {
+	readonly local: true
+	/** Starts showing the session in a mirror of this size; its output goes to `screen`. */
+	attach(cols: number, rows: number): void
+	/** Gives the real terminal back to the session, full size, and has it repaint. */
+	detach(): void
+	/** Calls `listener` when the session's screen or status changes. */
+	observe(listener: () => void): void
+}
+
+/**
  * One child program in a pseudo-terminal, with a headless screen that follows
  * what it prints. Everything that touches the pseudo-terminal after the program
  * is gone is a no-op: writing or resizing a closed descriptor throws, and a host
  * that dies on a child's exit would take every other session down with it.
  */
-export class ChildSession {
+export class ChildSession implements PaneSession {
 	status: SessionStatus = 'starting'
 	ending: SessionEnding | undefined
 	readonly screen: HeadlessScreen
 	private pty: HostPty | undefined
+	private readonly signals = new SignalFilter()
 	private cols: number
 	private rows: number
 
@@ -41,6 +76,7 @@ export class ChildSession {
 			pty: HostPty,
 			signal: 'SIGHUP' | 'SIGTERM' | 'SIGKILL',
 		) => void = killProcessTree,
+		private readonly onSignal?: (signal: SignalName) => void,
 	) {
 		this.cols = size.cols
 		this.rows = size.rows
@@ -65,8 +101,10 @@ export class ChildSession {
 			pty.onData((data) => {
 				try {
 					if (this.status === 'starting') this.status = 'running'
-					this.screen.write(data)
+					const { text, signals } = this.signals.feed(data)
+					if (text !== '') this.screen.write(text)
 					this.onChange()
+					for (const signal of signals) this.onSignal?.(signal)
 				} catch {
 					/* A bad byte stream must not take the host down. */
 				}

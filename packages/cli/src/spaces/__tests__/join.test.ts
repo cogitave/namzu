@@ -266,6 +266,8 @@ describe('restoring the layout', () => {
 		expect(shown).toMatch(/^ [●○·] site/mu)
 		// The other space opens lazily and resumes its own conversation, on its account.
 		nav(t, 'w')
+		// The sidebar walks the sessions in its own order: up from the site is the last session of the other space, then its first.
+		t.type('k')
 		t.type('k')
 		t.type('\r')
 		expect(requests[1]).toMatchObject({
@@ -280,6 +282,7 @@ describe('restoring the layout', () => {
 		const { t } = rig({ restored: layout })
 		t.host.start()
 		nav(t, 'w')
+		t.type('k')
 		t.type('k')
 		expect(await text(t)).toContain('free-a')
 		expect(t.spawned).toHaveLength(1)

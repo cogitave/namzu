@@ -686,6 +686,19 @@ export interface AppProps {
 	 */
 	readonly terminationExit?: { current: (() => void) | null }
 	/**
+	 * Where the launcher finds how to have the screen cleared and the whole
+	 * transcript printed again. The spaces screen needs it on every switch of
+	 * the terminal between a mirror and the real screen, including when the
+	 * width does not change and the App's own resize reset would not run.
+	 */
+	readonly repaint?: { current: (() => void) | null }
+	/**
+	 * Opens the spaces screen: `←` on an empty composer. Absent where there is
+	 * no spaces screen to open (Windows, no terminal), which keeps `←` opening the
+	 * agents cockpit. Resolves false when it could not be opened, and the cockpit opens instead.
+	 */
+	readonly onOpenSpaces?: () => Promise<boolean>
+	/**
 	 * The launcher turns this on: an empty first prompt suggests an example
 	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
 	 * for the plain placeholder keep waiting for it.
@@ -1488,6 +1501,8 @@ function AppBody({
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
+	repaint,
+	onOpenSpaces,
 	examplePrompts = false,
 	queuedHintCount,
 	tipHistory,
@@ -3270,6 +3285,15 @@ function AppBody({
 		},
 		[stdout.isTTY, writeStdout],
 	)
+	// The spaces screen switches the terminal between a mirror and the real screen; whichever
+	// way, the screen is rebuilt from the messages, whether or not the width changed.
+	useEffect(() => {
+		if (!repaint) return
+		repaint.current = () => resetTranscript({ preserveTranscriptScreen: true })
+		return () => {
+			repaint.current = null
+		}
+	}, [repaint, resetTranscript])
 
 	// The scroll view grows the live frame to nearly the screen height, and
 	// closing it shrinks the frame back. Either way Ink repaints the frame in
@@ -16070,6 +16094,14 @@ function AppBody({
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={focusAgentRail}
 								onOpenAgents={() => void openAgentCockpit()}
+								onOpenSpaces={
+									onOpenSpaces
+										? () =>
+												void onOpenSpaces().then((opened) => {
+													if (!opened) void openAgentCockpit()
+												})
+										: undefined
+								}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								queuedHintCount={queuedHintCount}

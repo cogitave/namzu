@@ -42,13 +42,19 @@ import {
 	layoutPopup,
 } from './overlay.js'
 import { type Palette, advertisesTruecolor, paletteFor } from './palette.js'
-import { type PeerSource, recordForSlot } from './peers.js'
+import { type PeerSource, recordForPid, recordForSlot } from './peers.js'
 import type { Prefix } from './prefix.js'
 import { type Entry, Roster, type Space, type Tab } from './roster.js'
-import { ChildSession, type SessionSpec } from './session.js'
+import {
+	ChildSession,
+	type LocalPaneSession,
+	type PaneSession,
+	type SessionSpec,
+} from './session.js'
 import {
 	type AgentOrder,
 	type SidebarScroll,
+	agentList,
 	clampScroll,
 	dotStyle,
 	drawRule,
@@ -59,6 +65,7 @@ import {
 	regionAt,
 	ruleRow,
 } from './sidebar.js'
+import type { SignalName } from './signal.js'
 import type { SavedLayout, SavedNode, SavedTab, SpacesStore } from './store.js'
 import { drawTabBar, layoutTabBar, tabBarTarget } from './tabbar.js'
 import {
@@ -135,6 +142,16 @@ export interface ConversationQuery {
 	readonly conversationId: string
 }
 
+/**
+ * The conversation this process is already running, when the host lives inside
+ * it. It becomes a pane like the others, never started or hung up by the host.
+ */
+export interface LocalPane {
+	readonly session: LocalPaneSession
+	/** The id of the conversation it is in, once it has one; a pane that carries it is this session. */
+	readonly conversationId: () => string | undefined
+}
+
 export interface SpacesHostOptions {
 	readonly input: HostInput
 	readonly output: HostOutput
@@ -167,6 +184,8 @@ export interface SpacesHostOptions {
 	readonly kill?: ConstructorParameters<typeof ChildSession>[4]
 	/** Where the sessions' states come from; without it every started session shows as starting. */
 	readonly peers?: PeerSource
+	/** The session the host runs inside of; the host then starts hidden, until `openSpaces`. */
+	readonly local?: LocalPane
 	readonly newSlot?: () => string
 	readonly isDirectory?: (path: string) => boolean
 	readonly homeDirectory?: string
@@ -194,6 +213,8 @@ const WHEEL_ROWS = 3
 const ENTER_SCREEN = '\x1b[?1049h\x1b[2J\x1b[?1000h\x1b[?1002h\x1b[?1006h'
 /** Drawing errors in a row before the host closes instead of retrying. */
 const MAX_PAINT_FAILURES = 3
+/** Leaves the alternate screen for a session that has the real terminal: pointer modes off, main screen back. */
+const LEAVE_TO_NATIVE = '\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l'
 const LEAVE_SCREEN = '\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h\x1b[?1049l'
 
 type Prompt = {
@@ -294,6 +315,11 @@ export class SpacesHost {
 	private pending: (() => void) | undefined
 	private rendering: Promise<void> = Promise.resolve()
 	private closed = false
+	/** True while the real terminal belongs to the local session and nothing of the host is drawn. */
+	private hidden = false
+	/** `split` is the spaces screen; `full` draws the selected child alone on the whole terminal. */
+	private view: 'split' | 'full' = 'split'
+	private localEntry: Entry | undefined
 	private quitting = false
 	private paintFailures = 0
 	private cancelKill: (() => void) | undefined
@@ -301,7 +327,7 @@ export class SpacesHost {
 	private cancelReconcile: (() => void) | undefined
 	private stopWatching: (() => void) | undefined
 	private reconciling = false
-	private readonly leaving: ChildSession[] = []
+	private readonly leaving: PaneSession[] = []
 	private readonly palette: Palette
 	/** A border being dragged: the split it moves and where on the border it was grabbed. */
 	private drag: { split: Divider['split']; offset: number } | undefined
@@ -327,11 +353,12 @@ export class SpacesHost {
 		this.closed = true
 		try {
 			this.options.input.setRawMode?.(false)
-			this.options.output.write(LEAVE_SCREEN)
+			if (!this.hidden) this.options.output.write(LEAVE_SCREEN)
 		} catch {
 			// The terminal may already be gone.
 		}
 		for (const session of this.everyChild()) {
+			if (session.local) continue
 			try {
 				session.stop('SIGHUP')
 			} catch {
@@ -349,6 +376,7 @@ export class SpacesHost {
 			() => this.requestRender(),
 			options.now ?? Date.now,
 		)
+		this.hidden = options.local !== undefined
 		const saved = options.restored?.sidebar
 		if (saved) {
 			this.sidebar = {
@@ -361,19 +389,124 @@ export class SpacesHost {
 	}
 
 	start(): void {
-		const { input, output } = this.options
-		output.write(ENTER_SCREEN)
+		const { input, output, local } = this.options
+		// Inside a conversation the terminal is already raw and belongs to it; nothing is drawn until `openSpaces`.
+		if (!local) output.write(ENTER_SCREEN)
 		input.setEncoding?.('utf8')
 		input.setRawMode?.(true)
 		input.resume?.()
 		input.on('data', this.onData)
 		output.on('resize', this.onResize)
 		process.once('exit', this.onProcessExit)
-		this.open(this.options.restored ? this.restore(this.options.restored) : this.fresh())
+		if (local) this.seedLocal(local)
+		else this.open(this.options.restored ? this.restore(this.options.restored) : this.fresh())
 		this.armPoll()
 		this.armReconcile()
 		this.stopWatching = this.options.peers?.watch?.(() => this.readStatus())
 		this.requestRender()
+	}
+
+	/**
+	 * Brings back the saved spaces and makes the running conversation one of the
+	 * panes: the one that carries its conversation id, or else a new tab in the
+	 * space of its folder. Nothing else is started here.
+	 */
+	private seedLocal(local: LocalPane): void {
+		const layout = this.options.restored
+		if (layout) this.restoreSpaces(layout)
+		const id = local.conversationId()
+		const carried = id
+			? this.roster.entries.find((e) => (e.conversationId ?? e.resume) === id)
+			: undefined
+		let entry = carried
+		if (!entry) {
+			const { cwd, name } = this.options.folder
+			const space = this.roster.spaces.find((s) => s.cwd === cwd) ?? this.roster.addSpace(cwd, name)
+			entry = this.newTabIn(space)
+		}
+		entry.child = local.session
+		entry.resume = undefined
+		entry.first = false
+		entry.verifyFolder = false
+		entry.folderMissing = false
+		entry.openElsewhere = false
+		entry.checking = false
+		if (id) entry.conversationId = id
+		const adopted = entry
+		local.session.observe(() => this.childChanged(adopted))
+		this.localEntry = entry
+		this.roster.select(entry)
+		this.roster.update(entry)
+		this.persist()
+	}
+
+	/** True while the spaces screen is on the terminal. */
+	get visible(): boolean {
+		return !this.hidden && !this.closed
+	}
+
+	/** Puts the spaces screen up, with the running conversation selected and the keyboard on the sidebar. */
+	openSpaces(): void {
+		const entry = this.localEntry
+		if (this.closed || !entry) return
+		if (this.hidden) {
+			this.hidden = false
+			this.options.output.write(ENTER_SCREEN)
+			this.pasteOn = false
+			this.writer.invalidate()
+		}
+		this.view = 'split'
+		this.dismiss()
+		this.roster.select(entry)
+		this.fit()
+		const size = this.paneSize(entry)
+		this.options.local?.session.attach(size.cols, size.rows)
+		this.startShown()
+		this.router.enterNavigate()
+		this.persist()
+		this.requestRender()
+	}
+
+	/** Hands the terminal to the running conversation: leaves the alternate screen and lets it repaint. */
+	private openNative(): void {
+		const local = this.options.local
+		const entry = this.localEntry
+		if (this.hidden || !local || !entry) return
+		this.roster.select(entry)
+		this.hidden = true
+		this.view = 'split'
+		this.dismiss()
+		this.router.focus()
+		this.pending?.()
+		this.pending = undefined
+		this.options.output.write(LEAVE_TO_NATIVE)
+		this.pasteOn = false
+		local.session.detach()
+	}
+
+	/** Moves the keyboard from a pane to the sidebar of the spaces screen. */
+	focusSidebar(): void {
+		if (this.closed || this.hidden || this.view === 'full') return
+		this.router.enterNavigate()
+		this.requestRender()
+	}
+
+	/** What a hosted session asked of the host through its terminal. */
+	private childSignal(entry: Entry, signal: SignalName): void {
+		if (this.closed || this.hidden || signal !== 'zoom-out') return
+		if (this.view === 'full') {
+			if (this.roster.selected !== entry) return
+			this.view = 'split'
+			this.fit()
+			this.router.enterNavigate()
+			this.writer.invalidate()
+			this.requestRender()
+			return
+		}
+		if (this.roster.selected === entry && this.router.current === 'terminal') {
+			this.router.enterNavigate()
+			this.requestRender()
+		}
 	}
 
 	// --- sessions --------------------------------------------------------------
@@ -396,15 +529,7 @@ export class SpacesHost {
 	 * or its folder is new, which start a fresh session of their own.
 	 */
 	private restore(layout: SavedLayout): Entry {
-		const isDirectory = this.options.isDirectory ?? defaultIsDirectory
-		for (const saved of layout.spaces) {
-			const space = this.roster.addSpace(saved.cwd, saved.name)
-			const found = isDirectory(saved.cwd)
-			if (saved.lastAccount) space.lastAccount = saved.lastAccount
-			for (const savedTab of saved.tabs) this.restoreTab(space, savedTab, found)
-			const active = saved.activeTab !== undefined ? space.tabs[saved.activeTab] : undefined
-			space.activeTab = active ?? space.tabs[0]
-		}
+		this.restoreSpaces(layout)
 		const folder = this.roster.spaces.find((s) => s.cwd === this.options.folder.cwd)
 		if (this.options.freshFirst || !folder) {
 			const space =
@@ -418,6 +543,18 @@ export class SpacesHost {
 				? this.roster.spaces[layout.focus.space]?.activeTab?.focus
 				: undefined
 		return focused ?? folder.activeTab?.focus ?? this.newTabIn(folder)
+	}
+
+	private restoreSpaces(layout: SavedLayout): void {
+		const isDirectory = this.options.isDirectory ?? defaultIsDirectory
+		for (const saved of layout.spaces) {
+			const space = this.roster.addSpace(saved.cwd, saved.name)
+			const found = isDirectory(saved.cwd)
+			if (saved.lastAccount) space.lastAccount = saved.lastAccount
+			for (const savedTab of saved.tabs) this.restoreTab(space, savedTab, found)
+			const active = saved.activeTab !== undefined ? space.tabs[saved.activeTab] : undefined
+			space.activeTab = active ?? space.tabs[0]
+		}
 	}
 
 	private restoreTab(space: Space, saved: SavedTab, found: boolean): void {
@@ -466,8 +603,20 @@ export class SpacesHost {
 		return entry
 	}
 
-	private layout() {
-		return computeLayout(this.options.output.columns, this.options.output.rows, this.sidebar)
+	private layout(): Layout {
+		const { columns, rows } = this.options.output
+		if (this.view === 'full') {
+			const whole: Rect = { x: 0, y: 0, width: columns, height: rows }
+			return {
+				sidebar: undefined,
+				rail: false,
+				rule: undefined,
+				main: whole,
+				tabBar: { ...whole, height: 1 },
+				panes: whole,
+			}
+		}
+		return computeLayout(columns, rows, this.sidebar)
 	}
 
 	/** The sidebar's view of the host: what it needs to draw and to find what a click lands on. */
@@ -488,6 +637,15 @@ export class SpacesHost {
 	/** Where the shown tab's panes are. */
 	private placement(): Placement | undefined {
 		const tab = this.roster.shownTab
+		const selected = this.roster.selected
+		if (this.view === 'full' && selected) {
+			const whole = this.layout().panes
+			return {
+				panes: [{ entry: selected, outer: whole, inner: whole }],
+				dividers: [],
+				bordered: false,
+			}
+		}
 		return tab ? placeTab(tab, this.layout().panes) : undefined
 	}
 
@@ -554,6 +712,7 @@ export class SpacesHost {
 			this.paneSize(entry),
 			() => this.childChanged(entry),
 			this.options.kill,
+			(signal) => this.childSignal(entry, signal),
 		)
 		entry.child = child
 		child.start(this.options.binding)
@@ -571,6 +730,8 @@ export class SpacesHost {
 
 	/** Shows a session without starting it. */
 	private show(entry: Entry): void {
+		// The running conversation is not drawn full screen by the host: it gets the terminal itself.
+		if (this.view === 'full' && entry.child?.local) this.view = 'split'
 		this.roster.select(entry)
 		if (this.gitStarted) this.git.refresh(this.roster.spaceOf(entry).cwd, GIT_STALE_MS)
 		this.fit()
@@ -591,7 +752,7 @@ export class SpacesHost {
 		else this.requestRender()
 	}
 
-	private everyChild(): ChildSession[] {
+	private everyChild(): PaneSession[] {
 		const own = this.roster.entries.flatMap((e) => (e.child ? [e.child] : []))
 		return [...own, ...this.leaving]
 	}
@@ -599,6 +760,7 @@ export class SpacesHost {
 	private relayout(): void {
 		if (this.closed) return
 		this.fit()
+		if (this.hidden) return
 		this.writer.invalidate()
 		this.requestRender()
 	}
@@ -633,7 +795,9 @@ export class SpacesHost {
 		let changed = false
 		for (const entry of this.roster.entries) {
 			if (!entry.child || entry.child.status === 'exited') continue
-			const record = recordForSlot(records, entry.slot, entry.child.pid)
+			const record = entry.child.local
+				? recordForPid(records, entry.child.pid)
+				: recordForSlot(records, entry.slot, entry.child.pid)
 			if (!record) continue
 			if (entry.reported !== record.state) changed = true
 			entry.reported = record.state
@@ -682,7 +846,9 @@ export class SpacesHost {
 			}
 			const asks = this.roster.entries.flatMap((entry) => {
 				if (!entry.child || entry.child.status === 'exited') return []
-				const record = recordForSlot(records, entry.slot, entry.child.pid)
+				const record = entry.child.local
+					? recordForPid(records, entry.child.pid)
+					: recordForSlot(records, entry.slot, entry.child.pid)
 				return record ? [{ entry, record }] : []
 			})
 			await Promise.all(
@@ -704,7 +870,7 @@ export class SpacesHost {
 
 	/** Called with what the keyboard sent. */
 	handleInput(chunk: string): void {
-		if (this.closed) return
+		if (this.closed || this.hidden) return
 		for (const action of this.router.feed(chunk)) {
 			if (action.type === 'write') this.writeToSelected(action.data)
 			else if (action.type === 'mode') {
@@ -1088,10 +1254,43 @@ export class SpacesHost {
 
 	private navigateKey(key: NavKey): void {
 		const c = key.kind === 'char' ? key.char : ''
-		if (key.kind === 'up' || c === 'k') this.stepSpace(-1)
-		else if (key.kind === 'down' || c === 'j') this.stepSpace(1)
+		if (key.kind === 'up' || c === 'k') this.stepSession(-1)
+		else if (key.kind === 'down' || c === 'j') this.stepSession(1)
+		else if (key.kind === 'right' || c === 'l') this.openFull()
 		else if (key.kind === 'tab') this.cyclePane(1)
 		else if (key.kind === 'backtab') this.cyclePane(-1)
+		// Control-C is how a conversation is left; with the sidebar focused it asks to quit them all.
+		else if (c === CLEAR) this.askQuit()
+	}
+
+	/** Moves the selection through the sessions in the order the sidebar lists them; the space and its tab follow. */
+	private stepSession(delta: number): void {
+		const entry = this.roster.selected
+		if (!entry) return
+		const list = agentList(this.roster, this.order)
+		const at = list.indexOf(entry)
+		const next = list[Math.max(0, Math.min(list.length - 1, at + delta))]
+		if (!next || next === entry) return
+		this.show(next)
+		// On the spaces screen reached from a conversation the right side is live, so the tab shown is started.
+		if (this.options.local) this.startShown()
+		this.requestRender()
+	}
+
+	/** Opens the selected session full screen: the running conversation natively, a child on the whole terminal. */
+	private openFull(): void {
+		const entry = this.roster.selected
+		if (!entry) return
+		if (entry.child?.local) {
+			this.openNative()
+			return
+		}
+		this.ensureStarted(entry)
+		if (!entry.child) return
+		this.view = 'full'
+		this.router.focus()
+		this.fit()
+		this.writer.invalidate()
 	}
 
 	// --- panes and tabs --------------------------------------------------------
@@ -1367,6 +1566,10 @@ export class SpacesHost {
 
 	/** Ends the sessions and takes their panes away; closing the last one leaves nothing to bring back and quits. */
 	private closeEntries(doomed: readonly Entry[]): void {
+		if (doomed.length < this.roster.entries.length && doomed.some((entry) => entry.child?.local)) {
+			this.notice = 'This is the session you started from. End it with /exit.'
+			return
+		}
 		if (doomed.length === this.roster.entries.length) {
 			this.forgetAll = true
 			this.quit()
@@ -1393,6 +1596,16 @@ export class SpacesHost {
 			return
 		}
 		const layout = this.layout()
+		if (this.view === 'full') {
+			const entry = this.roster.selected
+			if (entry && (event.kind === 'wheel-up' || event.kind === 'wheel-down')) {
+				const size = entry.child?.screen.scrollbackSize() ?? 0
+				const direction = event.kind === 'wheel-up' ? -1 : 1
+				entry.scrollBack = Math.max(0, Math.min(size, entry.scrollBack - direction * WHEEL_ROWS))
+				this.requestRender()
+			}
+			return
+		}
 		const inSidebar = layout.sidebar !== undefined && event.x < layout.sidebar.width
 		if (event.kind === 'wheel-up' || event.kind === 'wheel-down') {
 			const direction = event.kind === 'wheel-up' ? -1 : 1
@@ -1866,10 +2079,10 @@ export class SpacesHost {
 				chip: 'NAVIGATE',
 				chipBg: this.palette.accent,
 				hints: [
-					['esc', 'back'],
-					['↑/↓', 'space'],
+					['↑/↓', 'session'],
+					['→', 'open'],
+					['enter', 'type'],
 					['tab', 'pane'],
-					['?', 'keybinds'],
 				],
 			}
 		return {
@@ -1905,7 +2118,7 @@ export class SpacesHost {
 	}
 
 	private requestRender(): void {
-		if (this.closed || this.pending) return
+		if (this.closed || this.hidden || this.pending) return
 		const cancel = this.schedule(() => {
 			this.pending = undefined
 			void this.render()
@@ -1938,13 +2151,13 @@ export class SpacesHost {
 	}
 
 	private async paint(): Promise<void> {
-		if (this.closed) return
+		if (this.closed || this.hidden) return
 		const entry = this.roster.selected
 		const placement = this.placement()
 		const panes = placement?.panes ?? []
 		// Every pane on screen settles before it is copied, so none shows a half-written screen.
 		await Promise.all(panes.map((p) => p.entry.child?.screen.settled()))
-		if (this.closed) return
+		if (this.closed || this.hidden) return
 		const { output } = this.options
 		const frame = new Frame(output.columns, output.rows)
 		const layout = this.layout()
@@ -1957,7 +2170,8 @@ export class SpacesHost {
 			})
 		}
 		if (layout.rule) drawRule(frame, layout.rule, this.palette)
-		if (entry) drawTabBar(frame, layout.tabBar, this.roster.spaceOf(entry), this.palette)
+		if (entry && this.view === 'split')
+			drawTabBar(frame, layout.tabBar, this.roster.spaceOf(entry), this.palette)
 		// The focused pane is drawn last, so the cursor is the one it sets.
 		const ordered = [...panes].sort((a, b) => Number(a.entry === entry) - Number(b.entry === entry))
 		for (const pane of ordered)
@@ -2211,7 +2425,7 @@ export class SpacesHost {
 		process.off('exit', this.onProcessExit)
 		input.setRawMode?.(false)
 		input.pause?.()
-		output.write(LEAVE_SCREEN)
+		if (!this.hidden) output.write(LEAVE_SCREEN)
 		for (const child of this.everyChild()) child.dispose()
 		this.finish(0)
 	}

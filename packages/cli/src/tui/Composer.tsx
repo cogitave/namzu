@@ -61,10 +61,12 @@ import {
 	shiftOverrides,
 } from './triggers/provenance.js'
 import type { TriggerId, TriggerRegistry } from './triggers/registry.js'
+import { ARM_MS, LeftGesture } from './zoom/gesture.js'
 
 /** The footer notice that offers the second Esc. */
 const ESC_CLEAR_KEY = 'escape-again-to-clear'
 const STASH_KEY = 'draft-stash'
+const SPACES_HINT_KEY = 'spaces-arm'
 const STASH_NOTICE_MS = 3000
 const STASH_RESTORED_NOTICE_MS = 5000
 /** The second Esc clears inside this window. */
@@ -162,6 +164,12 @@ export interface ComposerProps {
 	 * attached keeps `←` as cursor movement, so editing is never taken over.
 	 */
 	readonly onOpenAgents?: () => void
+	/**
+	 * `←` on an empty composer opens the spaces screen instead of the agents
+	 * (see `zoom/gesture.ts` for when a press fires, only arms, or is ignored).
+	 * Absent where there is none, and `onOpenAgents` keeps the key.
+	 */
+	readonly onOpenSpaces?: () => void
 	/** Page up at the composer: open the scrollable transcript. */
 	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
@@ -634,6 +642,7 @@ export function Composer({
 	onDraftPresenceChange,
 	onOpenAgentPanel,
 	onOpenAgents,
+	onOpenSpaces,
 	onScrollTranscript,
 	onRecallQueued,
 	queuedEdit,
@@ -648,6 +657,7 @@ export function Composer({
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
+	const leftGestureRef = useRef(new LeftGesture())
 	const valueRef = useRef('')
 	const [cursor, setCursorState] = useState(0)
 	const cursorRef = useRef(0)
@@ -822,6 +832,9 @@ export function Composer({
 			origin: EditOrigin = 'recalled',
 			spans?: readonly Span[],
 		) => {
+			if (valueRef.current.length > 0 && nextValue.length === 0)
+				leftGestureRef.current.noteEmptied()
+			else if (nextValue.length > 0) leftGestureRef.current.noteFilled()
 			valueRef.current = nextValue
 			cursorRef.current = nextCursor
 			spansRef.current = spans ?? replaceAll(nextValue.length, origin)
@@ -1475,7 +1488,30 @@ export function Composer({
 				setCursorState(next)
 				return
 			}
-			if (
+			if (key.leftArrow && onOpenSpaces) {
+				const verdict = leftGestureRef.current.press({
+					empty: valueRef.current.length === 0,
+					attachments: attachmentsRef.current.length > 0,
+					shift: key.shift,
+					ctrl: key.ctrl,
+					meta: key.meta,
+				})
+				if (verdict === 'fire') {
+					onFooterNoticeRemove?.(SPACES_HINT_KEY)
+					onOpenSpaces()
+					return
+				}
+				if (verdict === 'arm') {
+					onFooterNotice?.({
+						key: SPACES_HINT_KEY,
+						text: 'Press ← again to open spaces',
+						priority: 'immediate',
+						timeoutMs: ARM_MS,
+					})
+					return
+				}
+				if (verdict === 'swallow') return
+			} else if (
 				key.leftArrow &&
 				!key.shift &&
 				onOpenAgents &&

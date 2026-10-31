@@ -116,23 +116,30 @@ describe('direct mode', () => {
 		expect(seen).toBe(1)
 	})
 
-	it('reads input unchanged, and takes the trigger key out of what Ink reads', () => {
+	it('reads input unchanged', () => {
 		const real = new FakeStdin()
 		const proxy = createTerminalProxy(asStdout(new FakeStdout()), asStdin(real))
 		real.press('abc')
 		expect(proxy.stdin.read()).toBe('abc')
 		expect(proxy.stdin.read()).toBeNull()
+	})
 
-		let triggered = 0
-		proxy.setTrigger('\u001d', () => {
-			triggered += 1
+	it('hands Ink an injected key before the real stream and tells it to read', async () => {
+		const real = new FakeStdin()
+		const proxy = createTerminalProxy(asStdout(new FakeStdout()), asStdin(real))
+		let readable = 0
+		real.on('readable', () => {
+			readable += 1
 		})
-		real.press('a\u001db')
-		expect(proxy.stdin.read()).toBe('ab')
-		real.press('\u001d')
-		// A chunk that was only the trigger is read past, to the null that re-arms 'readable'.
+		proxy.inject('k')
+		proxy.inject('l')
+		await Promise.resolve()
+		expect(readable).toBe(1)
+		real.press('z')
+		expect(proxy.stdin.read()).toBe('k')
+		expect(proxy.stdin.read()).toBe('l')
+		expect(proxy.stdin.read()).toBe('z')
 		expect(proxy.stdin.read()).toBeNull()
-		expect(triggered).toBe(2)
 	})
 
 	it('remembers whether the last cursor sequence hid the cursor', () => {
@@ -193,11 +200,14 @@ describe('zoomed mode', () => {
 		proxy.stdout.on('resize', () => {
 			inkSaw += 1
 		})
-		proxy.onRealResize(() => {
+		const stop = proxy.onRealResize(() => {
 			zoomSaw += 1
 		})
 		proxy.enterZoomed({ columns: 10, rows: 5, write: () => undefined }, () => null)
 		inkSaw = 0
+		real.emit('resize')
+		expect([inkSaw, zoomSaw]).toEqual([0, 1])
+		stop()
 		real.emit('resize')
 		expect([inkSaw, zoomSaw]).toEqual([0, 1])
 	})

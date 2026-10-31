@@ -1,5 +1,5 @@
 import type { PeerSessionState } from '@namzu/sdk'
-import type { ChildSession } from './session.js'
+import type { PaneSession } from './session.js'
 import { type Dot, type SessionActivity, aggregateDot, deriveActivity, dotFor } from './status.js'
 import {
 	type Node,
@@ -34,7 +34,7 @@ export interface Space {
 
 /** One pane's session. The terminal behind it starts only when the pane is first opened. */
 export class Entry {
-	child: ChildSession | undefined
+	child: PaneSession | undefined
 	/** What the session's own terminal last reported through the peer feed. */
 	reported: PeerSessionState | undefined
 	/** A turn finished while nobody was looking at this session. */

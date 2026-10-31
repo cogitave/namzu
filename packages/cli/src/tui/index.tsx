@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
+import { hostedByHost, spacesSignal } from '../spaces/signal.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { App } from './App.js'
 import { openConsoleInput } from './console-input.js'
@@ -80,32 +81,56 @@ export async function launchTui(
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
-	// Ink is mounted on a pair of pass-through streams so the screen can be zoomed out on demand
-	// (see `zoom/`). Until a zoom they are the real terminal; they exist only for a person at a
-	// terminal on a POSIX system, and the zoom code itself is imported on the first zoom.
+	// A session the spaces host started has no spaces screen of its own: its `←` asks the host
+	// to leave it (see `spaces/signal.ts`). Any other session at a terminal on a POSIX system has
+	// Ink mounted on a pair of pass-through streams, so the spaces screen can be put up on demand
+	// (see `zoom/`); until then they are the real terminal. The code behind it loads on the first `←`.
+	const hosted = hostedByHost(process.env, process.ppid)
 	const proxy: TerminalProxy | null =
+		!hosted &&
 		consoleInput === undefined &&
 		process.platform !== 'win32' &&
 		process.stdout.isTTY === true &&
 		inputStream.isTTY === true
 			? createTerminalProxy(process.stdout, inputStream as NodeJS.ReadStream)
 			: null
-	const zoom: { current: Promise<import('./zoom/zoom.js').ZoomController> | null } = {
+	const terminationExit: { current: (() => void) | null } = { current: null }
+	const repaint: { current: (() => void) | null } = { current: null }
+	const spaces: {
+		current: Promise<import('./zoom/entry.js').SpacesEntry> | null
+	} = {
 		current: null,
 	}
-	const zoomController = (): Promise<import('./zoom/zoom.js').ZoomController> => {
-		zoom.current ??= import('./zoom/zoom.js').then((m) =>
-			m.createZoomController(proxy as TerminalProxy, process.stdout),
+	const spacesEntry = (): Promise<import('./zoom/entry.js').SpacesEntry> => {
+		spaces.current ??= import('./zoom/entry.js').then((m) =>
+			m.createSpacesEntry({
+				proxy: proxy as TerminalProxy,
+				realOut: process.stdout,
+				env: process.env,
+				cwd: process.cwd(),
+				entry: process.argv[1] as string,
+				prefixSetting: ctx.tui?.spacesPrefix,
+				requestExit: () =>
+					terminationExit.current ? terminationExit.current() : instance.unmount(),
+				repaint: () => repaint.current?.(),
+			}),
 		)
-		return zoom.current
+		return spaces.current
 	}
-	// Temporary spike trigger: ctrl+] toggles between the conversation and the spaces screen.
-	if (proxy !== null && process.env.NAMZU_ZOOM_DEBUG === '1') {
-		proxy.setTrigger('\x1d', () => {
-			void zoomController().then((c) => (c.zoomed ? c.zoomIn() : c.zoomOut()))
-		})
-	}
-	const terminationExit: { current: (() => void) | null } = { current: null }
+	const onOpenSpaces: (() => Promise<boolean>) | undefined = hosted
+		? () => {
+				process.stdout.write(spacesSignal('zoom-out'))
+				return Promise.resolve(true)
+			}
+		: proxy !== null
+			? async () => {
+					try {
+						return await (await spacesEntry()).open()
+					} catch {
+						return false
+					}
+				}
+			: undefined
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
 		React.createElement(App, {
@@ -114,6 +139,8 @@ export async function launchTui(
 				exitSummary = summary
 			},
 			terminationExit,
+			repaint,
+			...(onOpenSpaces ? { onOpenSpaces } : {}),
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
 			tipHistory,
@@ -146,8 +173,8 @@ export async function launchTui(
 	try {
 		await instance.waitUntilExit()
 	} finally {
-		// Leaving while zoomed out hands the terminal back from the alternate screen first.
-		if (zoom.current !== null) (await zoom.current).zoomIn()
+		// Leaving with the spaces screen up hangs up the other sessions and hands the terminal back first.
+		if (spaces.current !== null) await (await spaces.current).shutdown()
 		termination.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()
