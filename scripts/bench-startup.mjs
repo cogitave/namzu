@@ -6,8 +6,9 @@
 // It measures, against a local fake model server (no real or paid model call is made):
 //   version / help      spawn to exit of `namzu --version` / `namzu --help`
 //   tui first byte      spawn to the first byte on the pseudo-terminal
-//   tui first frame     spawn to the composer box ("MESSAGE")
-//   tui ready           spawn to a usable composer ("Type a message"), in a trusted folder
+//   tui first frame     spawn to the composer box (its rule line), still loading
+//   tui ready           spawn to a usable composer (its "❯" prompt glyph, never the placeholder
+//                       text, which changes), in a trusted folder
 //   exec request        `namzu exec hello`, spawn to the request arriving at the fake server,
 //                       with stdin a terminal, an open pipe nobody writes to, and /dev/null
 //   modules             ES modules loaded at `--version` and at the TUI's first frame
@@ -296,11 +297,11 @@ async function tuiRun({ loadLog }) {
 		const now = performance.now() - t0
 		buf += d
 		if (seen.firstByte === undefined) seen.firstByte = now
-		if (seen.firstFrame === undefined && buf.includes('❯')) {
+		if (seen.firstFrame === undefined && buf.includes('──────')) {
 			seen.firstFrame = now
 			if (loadLog) modulesAt.firstFrame = countLines(loadLog)
 		}
-		if (seen.ready === undefined && buf.includes('Type a message')) seen.ready = now
+		if (seen.ready === undefined && buf.includes('❯')) seen.ready = now
 	})
 	try {
 		await until(() => seen.ready !== undefined, 'composer ready')
