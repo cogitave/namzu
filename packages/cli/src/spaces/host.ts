@@ -442,13 +442,12 @@ export class SpacesHost {
 	/** A session that moved to another account makes that account the one its space offers first. */
 	private rememberAccount(entry: Entry, label: string | undefined): void {
 		const space = this.roster.spaceOf(entry)
-		if (label === undefined) {
-			delete space.lastAccount
-			return
-		}
 		const matches = (this.options.accounts?.() ?? []).filter((a) => a.label === label)
-		const found = matches.length === 1 ? matches[0] : undefined
-		if (found) space.lastAccount = found.id
+		const found = label !== undefined && matches.length === 1 ? matches[0] : undefined
+		// What a not-yet-conversing session would start on follows what it now runs on.
+		entry.pickedAccount = found?.id
+		if (label === undefined) delete space.lastAccount
+		else if (found) space.lastAccount = found.id
 	}
 
 	/** Asks each terminal its state directly, so a change that was never written is still seen. */
@@ -810,7 +809,7 @@ export class SpacesHost {
 						: 'Space name'
 			return [`${label}: ${this.prompt.value}▏`, this.prompt.error ?? 'enter ok   esc cancel']
 		}
-		if (this.picker) return ['Start on which account?', 'j/k choose   enter start   esc cancel']
+		if (this.picker) return ['Start on which account?', 'j/k pick  enter  esc']
 		if (this.confirm === 'quit') return ['Quit all sessions?', 'y yes   n stay']
 		if (this.confirm && entry) {
 			const space = this.roster.spaceOf(entry)

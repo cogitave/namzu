@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+`namzu spaces` now shows which account each session runs on and marks one whose allowance is spent ("limited until 3:40 pm", or "may be limited" when the provider gave no time). `ctrl+b` then `n` asks which account a new session starts on once you have added accounts with `/auth`, opening on the one that space used last; a session on a Codex account runs with that account's own `CODEX_HOME`. Your spaces and sessions are now remembered in `spaces.json` under the Namzu home and come back the next time you run `namzu spaces`: each session is listed, starts when you first open it, and reopens its conversation on its account; closing a session removes it from the list but not the conversation; a conversation already open in another terminal is refused plainly instead of getting a second writer. `namzu doctor` has a new `terminal.pty` row that says whether a pseudo-terminal can be opened and how to get one, and the no-terminal fallback message points to it. Nothing changes for plain `namzu`.

@@ -45,6 +45,20 @@ describe('what a hosted session runs', () => {
 		expect(spec.env.CODEX_HOME).toBe('/leaked')
 	})
 
+	it('drops a provider or model chosen through the environment when an account is named', () => {
+		const env = { ...deps.env, NAMZU_PROVIDER: 'openai', NAMZU_MODEL: 'm' }
+		const withAccount = sessionSpec(
+			request({ account: 'codex:work' }),
+			{ ...deps, env },
+			accounts,
+			[],
+		)
+		expect(withAccount.env.NAMZU_PROVIDER).toBeUndefined()
+		expect(withAccount.env.NAMZU_MODEL).toBeUndefined()
+		const without = sessionSpec(request(), { ...deps, env }, accounts, [])
+		expect(without.env.NAMZU_PROVIDER).toBe('openai')
+	})
+
 	it('points a session on a Codex account at that account home, and a plain one away from any other', () => {
 		const spec = sessionSpec(request({ account: 'codex:work' }), deps, accounts, [])
 		expect(spec.env.CODEX_HOME).toBe('/home/me/.namzu/accounts/codex/work')
@@ -60,8 +74,18 @@ describe('what a hosted session runs', () => {
 			accounts,
 			[],
 		)
-		expect(spec.args).toEqual(['/dist/bin.js', 'resume', 'conv-1'])
+		expect(spec.args).toEqual(['/dist/bin.js', '--resume', 'conv-1'])
 		expect(spec.env.CODEX_HOME).toBe('/home/me/.namzu/accounts/codex/work')
+	})
+
+	it('reopens a conversation on the account the session last ran on', () => {
+		const spec = sessionSpec(
+			request({ resume: 'conv-1', account: 'openai:free-a', accountLabel: 'free-a' }),
+			deps,
+			accounts,
+			[],
+		)
+		expect(spec.args).toEqual(['/dist/bin.js', '--resume', 'conv-1', '--account', 'openai:free-a'])
 	})
 })
 

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: namzu spaces (preview)
-description: A sidebar of sessions beside a live Namzu session in one terminal, its keys, the prefix setting, what happens when a session stops, and what the preview does not do yet.
+description: A sidebar of spaces and sessions beside a live Namzu session in one terminal, its keys, starting a session on an account, how the layout is remembered and restored, the prefix setting, what happens when a session stops, and what the preview does not do yet.
 resource: packages/cli/src/commands/spaces.ts
 tags: [cli, spaces, terminal, preview]
 status: draft
@@ -18,7 +18,7 @@ Each session is a whole Namzu running in its own terminal, so a session that sto
 This is a preview, and the plain `namzu` command is unchanged.
 
 Options after `spaces` go to the first session, so `namzu spaces --model <name>` starts it on that model.
-Sessions you add later start with the default options.
+Sessions you add later start with the default options, or on the account you pick (see below).
 Every session starts in its space's folder and inherits the environment the command started with.
 
 ## The dots
@@ -47,7 +47,7 @@ Everything you type goes to the session except the navigate key, `ctrl+b` by def
 | `j`, `k`, arrows | Move between the sessions of the selected space. |
 | `J`, `K` | Move between spaces. |
 | `1` to `9` | Pick a space by number. |
-| `n` | New session in the selected space. |
+| `n` | New session in the selected space. With accounts added through `/auth`, it first asks which account (see below). |
 | `N` | New space from a folder you type. A folder that is already a space is only shown. |
 | `r`, `R` | Rename the session, or the space. |
 | `d`, `D` | Close the session, or the space with all its sessions. It asks first. Closing the last session quits. |
@@ -57,6 +57,30 @@ Everything you type goes to the session except the navigate key, `ctrl+b` by def
 | `esc` | Leave navigate mode. |
 
 Pasted text is never read as the navigate key.
+
+## Accounts
+
+Each session row shows the label of the account its conversation runs on, when that is not the provider's usual sign-in. The label follows `/auth` inside the session: switch account there and the row changes within a moment.
+
+When a session's account has used up its allowance, the row gets a yellow note under it, "limited until 3:40 pm" when the provider said when it returns and "may be limited" when it did not. Open the session and press `enter` to **continue with another account**, as in a plain session ([Accounts in the terminal](accounts.md)); the note goes when the session is on an account that works.
+
+With at least one account added, `n` asks which account the new session starts on. The list is the usual sign-in first, then your accounts; it opens on the account this space last used, so `n` then `enter` repeats it. `j`/`k` choose, `enter` starts, `esc` cancels. With no accounts added, `n` starts at once.
+
+A session started on an account runs on that account's provider and model, so a provider or model you set for the host through `NAMZU_PROVIDER` or `NAMZU_MODEL` does not apply to it. A session on a Codex account also gets that account's own `CODEX_HOME`, so the tools it runs sign in as that account. Accounts are added and removed inside a session with `/auth`, never in the host.
+
+## Remembering your layout
+
+Your spaces, their sessions (names, order, conversation, account) and which session was shown are kept in `spaces.json` under the Namzu home, readable only by you. Start `namzu spaces` again and they come back:
+
+- Every saved session is listed, and none is started until you open it. The one you were on opens at once.
+- A session that had a conversation opens it again with the account it was on. One that never got a reply starts fresh.
+- Run it in a folder that is not a space yet, or give it options (`namzu spaces --model <name>`), and a new first session starts there instead, beside the restored ones.
+- Closing a session removes it from the list. Its conversation stays, and `namzu resume` finds it.
+- A conversation that is already open in another terminal is not opened a second time. The session says "open in another terminal" and starts when you press `enter` after closing it there. A plain `namzu` that is idle between turns does not announce its conversation, so only a terminal in the middle of a turn, or one started by a spaces host, is noticed.
+
+## No pseudo-terminal
+
+`namzu doctor` has a row, "terminal.pty", that says whether a pseudo-terminal can be opened on this machine. When it cannot, it says why and how to get one, and `namzu spaces` starts a single plain session with the same pointer.
 
 ## Mouse
 
@@ -77,8 +101,8 @@ Its sidebar row turns grey and says "ended" or "stopped", and a line at the bott
 
 ## When there is no terminal component
 
-Spaces needs a pseudo-terminal binding. The CLI ships the prebuilt `@lydell/node-pty` first and falls back to `node-pty`, so a Linux machine without a compiler normally has one. If neither loads, `namzu spaces` prints one line saying why and runs a single plain session instead. It needs an interactive terminal and exits with an error otherwise.
+Spaces needs a pseudo-terminal binding; `namzu doctor` checks it. The CLI ships the prebuilt `@lydell/node-pty` first and falls back to `node-pty`, so a Linux machine without a compiler normally has one. If neither loads, `namzu spaces` prints one line saying why, points to `namzu doctor`, and runs a single plain session instead. It needs an interactive terminal and exits with an error otherwise.
 
 ## What it does not do yet
 
-The spaces and sessions are not saved: quitting ends them, and the next `namzu spaces` starts with one session in the current folder. A session is not started until it is opened, but nothing lists unopened sessions until saving exists. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.
+Quitting ends every session; they come back when you start again but are not kept running in the background. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them.

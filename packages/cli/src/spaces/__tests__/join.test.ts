@@ -126,6 +126,19 @@ describe('starting a session on an account', () => {
 		t.type('\r')
 		expect(requests[1]?.account).toBe('openai:free-b')
 	})
+
+	it('keeps the account a session was moved to, not the one it started on', () => {
+		const store = new MemoryStore()
+		const { t, peers } = rig({ accounts: () => ACCOUNTS, store })
+		t.host.start()
+		nav(t, 'n')
+		t.type('j')
+		t.type('\r')
+		peers.publish('slot-2', 'idle', { account: 'free-b' })
+		expect(t.host.snapshot().spaces[0]?.sessions[1]?.pickedAccount).toBe('openai:free-b')
+		peers.publish('slot-2', 'idle')
+		expect(t.host.snapshot().spaces[0]?.sessions[1]?.pickedAccount).toBeUndefined()
+	})
 })
 
 describe('remembering the layout', () => {

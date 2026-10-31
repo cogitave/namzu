@@ -98,8 +98,9 @@ export function storedAccounts(): readonly HostAccount[] {
 }
 
 /**
- * What to run for one session. A restored session reopens its conversation, which
- * remembers its own account; a new one names the account it was started on. A
+ * What to run for one session. A restored session reopens its conversation on the
+ * account it last ran on (the conversation's own record can be a switch behind); a
+ * new one names the account it was started on. A
  * session on a Codex account gets that account's home in its environment, so the
  * tools it runs sign in as that account too.
  */
@@ -115,7 +116,7 @@ export function sessionSpec(
 		: []
 	const home = (byId ?? (byLabel.length === 1 ? byLabel[0] : undefined))?.codexHome
 	const argv = request.resume
-		? [deps.entry, 'resume', request.resume]
+		? [deps.entry, '--resume', request.resume, ...(byId ? ['--account', byId.id] : [])]
 		: request.first
 			? [...args]
 			: [deps.entry, ...(byId ? ['--account', byId.id] : [])]
@@ -126,6 +127,9 @@ export function sessionSpec(
 		env: buildPtyEnv(deps.env, {
 			NAMZU_SPACE_SLOT: request.slot,
 			...(home ? { CODEX_HOME: home } : {}),
+			// A session started on an account runs on that account's provider and model. A
+			// provider or model chosen for the host through the environment would contradict it.
+			...(byId ? { NAMZU_PROVIDER: null, NAMZU_MODEL: null } : {}),
 		}),
 	}
 }
