@@ -260,6 +260,15 @@ describe('symlink safety', () => {
 	})
 })
 
+describe('the host fields of a record', () => {
+	it('round-trips the account, the limit and when it ends', () => {
+		const dir = makeSessionsDir()
+		const record = makeRecord({ account: 'free-a', limited: true, limitedUntil: 1_900_000_000_000 })
+		writePeerRecord(dir, record)
+		expect(readPeerRecord(dir, record.sessionId)).toEqual(record)
+	})
+})
+
 describe('reader tolerance', () => {
 	it('keeps a record carrying a field this build does not know', () => {
 		const dir = makeSessionsDir()

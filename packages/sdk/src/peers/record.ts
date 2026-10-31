@@ -51,6 +51,8 @@ export const PeerRecordSchema = z
 		account: z.string().min(1).optional(),
 		/** True while the bound account is out of allowance and the terminal is waiting for a choice. */
 		limited: z.boolean().optional(),
+		/** When the allowance is expected back (epoch ms); absent when the provider did not say. */
+		limitedUntil: z.number().int().positive().optional(),
 	})
 	.strict()
 
