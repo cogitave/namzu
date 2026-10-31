@@ -25,6 +25,7 @@ import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
 import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
+import { type TerminalProxy, createTerminalProxy } from './zoom/proxy.js'
 
 export async function launchTui(
 	ctx: TuiContext,
@@ -79,6 +80,31 @@ export async function launchTui(
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
+	// Ink is mounted on a pair of pass-through streams so the screen can be zoomed out on demand
+	// (see `zoom/`). Until a zoom they are the real terminal; they exist only for a person at a
+	// terminal on a POSIX system, and the zoom code itself is imported on the first zoom.
+	const proxy: TerminalProxy | null =
+		consoleInput === undefined &&
+		process.platform !== 'win32' &&
+		process.stdout.isTTY === true &&
+		inputStream.isTTY === true
+			? createTerminalProxy(process.stdout, inputStream as NodeJS.ReadStream)
+			: null
+	const zoom: { current: Promise<import('./zoom/zoom.js').ZoomController> | null } = {
+		current: null,
+	}
+	const zoomController = (): Promise<import('./zoom/zoom.js').ZoomController> => {
+		zoom.current ??= import('./zoom/zoom.js').then((m) =>
+			m.createZoomController(proxy as TerminalProxy, process.stdout),
+		)
+		return zoom.current
+	}
+	// Temporary spike trigger: ctrl+] toggles between the conversation and the spaces screen.
+	if (proxy !== null && process.env.NAMZU_ZOOM_DEBUG === '1') {
+		proxy.setTrigger('\x1d', () => {
+			void zoomController().then((c) => (c.zoomed ? c.zoomIn() : c.zoomOut()))
+		})
+	}
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
@@ -93,9 +119,9 @@ export async function launchTui(
 			tipHistory,
 		}),
 		{
-			stdout: process.stdout,
+			stdout: proxy?.stdout ?? process.stdout,
 			stderr: process.stderr,
-			stdin: inputStream,
+			stdin: proxy?.stdin ?? inputStream,
 			exitOnCtrlC: false,
 			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
 			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
@@ -120,6 +146,8 @@ export async function launchTui(
 	try {
 		await instance.waitUntilExit()
 	} finally {
+		// Leaving while zoomed out hands the terminal back from the alternate screen first.
+		if (zoom.current !== null) (await zoom.current).zoomIn()
 		termination.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()
