@@ -15,6 +15,12 @@
 export type ProviderErrorCode =
 	/** 429. Back off; honour `retryAfterMs` when the server sent one. */
 	| 'rate_limit'
+	/**
+	 * The account's usage allowance is spent until a later reset, as opposed to
+	 * a momentary burst limit. Waiting inside this turn cannot help, so it is
+	 * not retried; a host may offer another account instead.
+	 */
+	| 'usage_limit'
 	/** 529 / 503 — the model is up but saturated. Back off. */
 	| 'overloaded'
 	/** Any other 5xx. Back off. */

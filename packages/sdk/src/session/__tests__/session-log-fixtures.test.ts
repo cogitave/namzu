@@ -108,6 +108,7 @@ describe('session-log fixtures', () => {
 			'child_session_ended',
 			'audit',
 			'budget_bound',
+			'account_bound',
 			'log_repaired',
 		]) {
 			expect(seen, type).toContain(type)

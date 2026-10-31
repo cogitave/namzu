@@ -111,7 +111,7 @@ describe.each([
 			expect(await index.staleness(log)).toBe('truncated')
 			await index.refresh(log)
 			// The last record is torn now, so the intact prefix ends one record earlier.
-			expect((await index.getSession(log.sessionId))?.headSeq).toBe(23)
+			expect((await index.getSession(log.sessionId))?.headSeq).toBe(24)
 		} finally {
 			index.close()
 		}

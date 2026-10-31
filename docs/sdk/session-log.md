@@ -257,6 +257,7 @@ bytes and hashes and are not reclassified from their text. See
 | `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
 | `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
+| `account_bound` | `accountId`, `provider`, `reason` (`start`, `user_switch`, `limit_switch`); see [accounts](accounts.md#session-binding) |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
 
 ### Parks of a per-call review

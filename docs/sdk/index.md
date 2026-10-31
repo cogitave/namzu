@@ -94,6 +94,8 @@ The kernel.
 * [Crossing the tool boundary](escalations.md) - A file tool's path outside the turn's roots, or a command outside its sandbox, as a reviewed question: `outsideRootAccess`, `sandboxEscape`, `confirmedEscalations` and the audit records.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
+* [Accounts](accounts.md) - More than one credential per provider: the account registry, its additive accounts.json store, the account_bound session record and the usage_limit error code.
+
 * [Session log](session-log.md) - The one append-only, hash-chained JSONL file per session: record schema, turn rules, the fold, and the layout under NAMZU_HOME.
 
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.

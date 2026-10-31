@@ -242,6 +242,12 @@ export function buildSessionLogFixtures(): Record<string, string> {
 				outcome: 'success',
 			})
 			.complete('valid-1', 'Two files: a.txt and b.txt.')
+			.append({
+				type: 'account_bound',
+				accountId: 'codex:work',
+				provider: 'codex',
+				reason: 'user_switch',
+			})
 			.prompt('valid-2', 'Thanks.')
 			.answer('valid-2', 'You are welcome.')
 			.complete('valid-2', 'You are welcome.')
