@@ -102,12 +102,22 @@ an index rebuild. Prior turns are the session's context, and the settled turn
 is appended to the session log, where `namzu history --session <key>` reads it
 back.
 
+A key that is itself the id of one of this folder's conversations opens that
+conversation, so `--session <id>` carries on the very session `namzu exec
+--resume <id>` would, with its history. An id that belongs to a conversation in
+another folder is refused with a message naming `--resume` and `--cwd`, rather
+than keying a new, empty conversation under the same text. Any other string,
+including a UUID with no conversation behind it, is a host key and starts one.
+
 Without `--session`, prior history may be supplied on stdin as one JSON
 `Message[]`, and no conversation journal is persisted: the call uses an
 in-memory session log without opening a durable conversation store. Explicit
 `--no-session-persistence` selects the same mode; combining it with `--session`
 is refused rather than silently ignoring the keyed history. This does not
 disable other project state or explicitly configured telemetry exports.
+A run without `--session` is not kept, so no event of it (`init`, `usage`,
+`done`) carries a `sessionId`: there is nothing `--resume` or `--continue`
+could open. Pass `--session` when the run has to be resumable.
 Invalid or provider-incomplete tool history is refused before a turn starts.
 A tool call's `metadata.inputError` (see
 [Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) is

@@ -36,7 +36,13 @@ vi.mock('../../tui/agent.js', () => ({
 			modelSummary: 'stub',
 			send: async function* (messages: readonly Message[]) {
 				sent.push([...messages])
-				yield { kind: 'done', stopReason: 'end_turn' }
+				yield {
+					kind: 'usage',
+					sessionId: 'kernel-run-id',
+					totalTokens: 1,
+					cost: { totalCost: 0 },
+				} as never
+				yield { kind: 'done', sessionId: 'kernel-run-id', stopReason: 'end_turn' } as never
 			},
 		})
 	}),
@@ -160,6 +166,15 @@ describe('exec --json stateless history admission', () => {
 		expect(sent).toHaveLength(1)
 		expect(sent[0]?.slice(0, -1)).toEqual(prior)
 		expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'next question' })
+	})
+
+	it('names no session id for a run that is not kept, since nothing can resume it', async () => {
+		const result = await run(JSON.stringify([{ role: 'user', content: 'earlier' }]))
+
+		expect(result.code).toBe(0)
+		expect(result.events.length).toBeGreaterThan(0)
+		for (const event of result.events) expect(event).not.toHaveProperty('sessionId')
+		expect(result.events.at(-1)).toMatchObject({ kind: 'done' })
 	})
 
 	it.each([

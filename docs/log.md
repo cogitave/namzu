@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-31
+
+- **Update** [Headless stream](cli/exec-json.md): `exec --json` without `--session` no longer reports a `sessionId` (the run is not kept, so no id could be resumed); `--session <id>` with the id of a conversation in this folder opens that conversation, and an id from another folder is refused naming `--resume`. `.changeset/exec-json-truthful-session-id.md` (`@namzu/cli` major).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).

@@ -178,6 +178,17 @@ export async function execJson(
 ): Promise<number> {
 	let ctx = bootstrapCtx
 	const write = writeJsonLine
+	// A run that keeps no record has no id anyone could resume. The kernel
+	// still numbers it internally, so its events are stripped of that number
+	// rather than handing a host an address that leads nowhere.
+	const writeRun = (event: unknown): void => {
+		if (conversationId !== null || typeof event !== 'object' || event === null) {
+			write(event)
+			return
+		}
+		const { sessionId: _unkept, ...rest } = event as Record<string, unknown>
+		write(rest)
+	}
 	/**
 	 * Report and stop.
 	 *
@@ -630,9 +641,9 @@ export async function execJson(
 			if (event.kind === 'paused') paused = event
 			if (event.kind === 'error' && event.turnInProgress) {
 				busy = event.turnInProgress
-				write({ ...event, code: 'turn_in_progress' })
+				writeRun({ ...event, code: 'turn_in_progress' })
 			} else if (event.kind === 'done') terminalEvent = event
-			else write(event)
+			else writeRun(event)
 		}
 	}
 	try {
@@ -677,7 +688,7 @@ export async function execJson(
 			}
 			if (!inputs || stopped || paused || busy) break
 			reportMcpDiscoveries()
-			write({
+			writeRun({
 				...(terminalEvent ?? { kind: 'done' }),
 				...(commandSpend(earlierBudgets, budget, session.workflows)
 					? { budget: commandSpend(earlierBudgets, budget, session.workflows) }
@@ -766,6 +777,6 @@ export async function execJson(
 	// A signal during the close has written the last line already.
 	if (stopped) return EXIT_OK
 	ended = true
-	write(settled.last)
+	writeRun(settled.last)
 	return busy ? EXIT_TURN_IN_PROGRESS : 0
 }
