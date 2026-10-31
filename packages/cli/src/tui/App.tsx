@@ -16186,8 +16186,9 @@ function AppBody({
 						monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
-						agentCount={footerKeysLive ? runningAgentCount : 0}
-						workflowCount={footerKeysLive ? runningWorkflowCount : 0}
+						// With a spaces screen to open, `←` no longer opens the agents; `↓` still does.
+						agentCount={footerKeysLive && !onOpenSpaces ? runningAgentCount : 0}
+						workflowCount={footerKeysLive && !onOpenSpaces ? runningWorkflowCount : 0}
 						canManage={
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}

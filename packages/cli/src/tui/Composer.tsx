@@ -941,6 +941,8 @@ export function Composer({
 		historyDraftRef.current = null
 		setHistorySearch(null)
 		setBuffer('', 0, 'typed')
+		// Sending or clearing a draft is not editing it away: `←` right after is not an accident to guard against.
+		leftGestureRef.current.noteFilled()
 		setHistoryIndex(-1)
 		setSelectedIndex(0)
 		clearPastes()

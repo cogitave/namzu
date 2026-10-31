@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: namzu spaces (preview)
-description: A sidebar of spaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, overlays (modals, context menu, go to, keybinds, menu), the prefix setting, what happens when a session stops, and what the preview does not do yet.
+description: A sidebar of spaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal, opened with the left arrow from a plain `namzu` or by `namzu spaces`; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, overlays (modals, context menu, go to, keybinds, menu), the prefix setting, what happens when a session stops, and what the preview does not do yet.
 resource: packages/cli/src/commands/spaces.ts
 tags: [cli, spaces, terminal, preview]
 status: draft
@@ -15,11 +15,29 @@ generated:
 `namzu spaces` opens one terminal with a sidebar on the left and the selected space on the right.
 The sidebar has two sections split by a rule. On top are your **spaces**, which are project folders: a row is the most urgent state dot and the folder's name in bold, and under it the git branch with `↑` commits ahead and `↓` behind its upstream (a note such as "needs approval" takes the branch's place while something waits for you). The shown space has a faint background tint; in space navigation the cursor row has a stronger one. The last row of the section holds **new** (a space in the focused pane's folder, started at once) and **menu**. Below the rule is **agents**: every session of every space, two lines each (the dot and its space's name, then its tab, pane name and account, for example `tab 2 · session 3 · work`). Click an agent to focus that pane, switching space and tab. The header's right-hand word, `grouped` or `priority`, is a toggle: grouped follows the spaces, priority puts blocked first, then finished, working and idle, newest change first. The branch is read in the background (never before the first frame), again every few seconds and when a space is shown, and a folder outside git shows no branch.
 A space has one or more **tabs**, shown as a bar across the top of the workspace area with a "+" to add one, and each tab is a tiling of **panes**. Every pane is a whole Namzu running in its own terminal, so a pane that stops does not take the others down. There are no plain shell panes.
-This is a preview, and the plain `namzu` command is unchanged.
+This is a preview. A plain `namzu` opens exactly as before, one conversation full screen with nothing else visible; the screen below is one key away (see the next section).
 
 Options after `spaces` go to the first session, so `namzu spaces --model <name>` starts it on that model.
 Sessions you add later (a new tab, a split) start with the default options; a new tab can start on an account you pick (see below), and a split starts on the account of the pane you split.
 Every session starts in its space's folder and inherits the environment the command started with.
+
+## Opening it from a conversation
+
+In a plain `namzu`, press `←` on an empty message box to open this screen. The sidebar is on the left; on the right is the current tab of the selected space, live, with the conversation you were in as one of its panes (it becomes a tab of its folder's space, or the pane that already carries its conversation id in `spaces.json`; it is never started a second time). Nothing else is started until you move to it.
+
+- `↑` and `↓` move through the sessions in the order the agents list shows them, and the space, tab and panes on the right follow. A session you land on starts the moment you land on it.
+- `→` opens the selected session full screen. For the conversation you came from that is the plain screen again, with the whole conversation printed in your terminal's own scrollback exactly once. For any other session the host draws it alone on the whole terminal, sidebar hidden.
+- `enter` types into the selected pane while the split stays; `←` on that pane's empty message box brings the keys back to the sidebar (`ctrl+b` then `w` does too), and `←` on the empty message box of a session shown full screen goes back to this screen.
+- `ctrl+c` with the sidebar focused asks to quit every session. `/exit` in the conversation you came from, or its double `ctrl+c`, ends the process and hangs up the others; spaces and conversation ids are saved as for any quit.
+- `ctrl+b` is the prefix everywhere on this screen.
+
+`←` only counts on an empty message box with nothing attached and no `shift`, `ctrl` or `alt` held. If you have just emptied the box by editing (within 2 seconds), the first `←` only shows "Press ← again to open spaces" and a second one within 3 seconds opens it. Presses closer than 150 ms are key repeat and are ignored, and so are presses within a second after one that opened or armed. Sending a message does not count as editing it away.
+
+Where this screen cannot be opened (Windows, or a terminal that is not interactive, or no pseudo-terminal component), `←` on an empty message box opens the agents cockpit as it always did. Where it can, the cockpit is reached with `↓` (the agents rail, and the cockpit when there is no row) or `/agents`, and the footer no longer offers `← N agents`.
+
+`namzu spaces` opens the same screen directly, with every session a separate process.
+
+A session started by the host is itself a `namzu`, but it does not open a spaces screen of its own: its `←` (under the same rules) writes a private terminal message the host reads and removes from the session's output, and the host goes back one level (from full screen to this screen, from a pane to the sidebar).
 
 ## The dots
 
@@ -66,7 +84,7 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `N`, `W`, `D` | New space (a modal asks for the folder, filled in with the focused pane's), rename the space (a modal with the name filled in), close the space with all its panes (a modal asks first). Closing the last session quits. |
 | `O` | Open another folder as a space: a modal asks for the folder's path, and an existing space for that folder is shown instead of a second one. |
 | `P` | Rename the pane (its row in the sidebar). |
-| `w` | Space navigation: `up`/`down` (or `j`/`k`) show the previous or next space, `tab` moves between its panes, `enter` opens it (starting what has not started), `esc` leaves. |
+| `w` | Sidebar navigation: `up`/`down` (or `j`/`k`) move through the sessions in the sidebar's order and the space and tab shown follow (a session is started only on the screen opened from a conversation), `right` (or `l`) opens the session full screen, `tab` moves between the panes of the tab, `enter` types into the selected pane, `esc` leaves, `ctrl+c` asks to quit. |
 | `b` | Collapse the sidebar to a thin rail of index-and-dot rows, or expand it. |
 | `g` | Go to: an overlay with a filterable tree of every space, tab and pane. |
 | `s` | The menu overlay (the same as the sidebar's "menu"). |
@@ -143,4 +161,4 @@ Spaces needs a pseudo-terminal binding; `namzu doctor` checks it. The CLI ships 
 
 ## What it does not do yet
 
-Quitting ends every session; they come back when you start again but are not kept running in the background (there is no detach and reattach). There is no copy mode or worktree grouping. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them, right-clicks included: a right-click always opens the host's context menu. The keys for reloading the config, opening a notification target and editing the scrollback have no counterpart, and `s` opens the menu overlay rather than settings.
+Quitting ends every session; they come back when you start again but are not kept running in the background (there is no detach and reattach). A child session shown full screen is drawn by the host on the alternate screen, so its output is not in your terminal's scrollback (only the conversation you started from is). The end of the conversation you started from is not printed when you quit from the sidebar, and closing its pane is refused while other panes remain. There is no copy mode or worktree grouping. A session moved to a Codex account with `/auth` keeps the `CODEX_HOME` it started with until it is opened again. There is no keyboard enhancement protocol inside a session (shifted Enter and similar keys arrive as the plain key). The terminal title and hyperlinks a session sets are not forwarded, and a session that asks for mouse reports does not receive them, right-clicks included: a right-click always opens the host's context menu. The keys for reloading the config, opening a notification target and editing the scrollback have no counterpart, and `s` opens the menu overlay rather than settings.

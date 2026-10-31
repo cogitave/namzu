@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-01
+
+- **Update** [namzu spaces (preview)](cli/spaces.md#opening-it-from-a-conversation) and [Terminal design](cli/terminal-design.md#the-composer-footer): `←` on an empty composer opens the spaces screen from a plain `namzu` (the conversation becomes one of its panes; `↑`/`↓` move through the sessions, `→` opens one full screen, `enter` types into it), with a gesture that arms after a just-emptied draft and ignores key repeat. The agents cockpit moves to `↓` and `/agents` where the spaces screen is available (it keeps `←` on Windows and without a terminal), and the footer drops `← N agents` there. A hosted session's `←` goes back one level through a private terminal message. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
+
 ## 2026-10-31
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): dropping a dragged space below the last one puts it last, a modal on a very narrow terminal drops `^c clear` so its buttons stay inside the box, and the page names the deviations (no detach, right-click always taken by the host, no config reload or scrollback keys).

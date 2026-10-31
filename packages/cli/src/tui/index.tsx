@@ -169,6 +169,9 @@ export async function launchTui(
 		if (terminationExit.current) terminationExit.current()
 		else instance.unmount()
 		await instance.waitUntilExit()
+		// The process ends when this step does, so hanging up the other sessions and handing the
+		// terminal back from the spaces screen has to finish inside it.
+		if (spaces.current !== null) await (await spaces.current).shutdown()
 	})
 	try {
 		await instance.waitUntilExit()
