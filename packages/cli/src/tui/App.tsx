@@ -10905,7 +10905,7 @@ function AppBody({
 			try {
 				list = accounts.registry.list()
 			} catch (error) {
-				pushMessage('system', explainFailure(error, 'Could not read your accounts.'))
+				pushSystem('error', explainFailure(error, 'Could not read your accounts.'))
 				return
 			}
 			const activity = accounts.activity.read()
@@ -10937,7 +10937,7 @@ function AppBody({
 				...(limit ? { limit: { resubmit: limit.resubmit } } : {}),
 			})
 		},
-		[openAccounts, currentAccountId, detected, pushMessage, setChoicePicker, setSelectedChoice],
+		[openAccounts, currentAccountId, detected, pushSystem, setChoicePicker, setSelectedChoice],
 	)
 	const takenLabels = useCallback(
 		(provider: string): string[] => {
@@ -11304,7 +11304,7 @@ function AppBody({
 			try {
 				found = findAccountByName(openAccounts().registry, name)
 			} catch (error) {
-				pushMessage('system', explainFailure(error, 'Could not read your accounts.'))
+				pushSystem('error', explainFailure(error, 'Could not read your accounts.'))
 				return
 			}
 			if ('error' in found) {
