@@ -57,6 +57,7 @@ import {
 	slugForCwd,
 } from '@namzu/sdk'
 import { palAtWorkspace } from '../../pals/store.js'
+import { isDefaultAccountId } from '../accounts/binding.js'
 import {
 	type PullRequestLink,
 	pullRequestOfRecords,
@@ -323,6 +324,8 @@ export async function recordAccountBound(
 		}
 	}
 	if (last === binding.accountId) return false
+	// Nothing to undo: a conversation that never left the usual sign-in writes nothing.
+	if (last === undefined && isDefaultAccountId(binding.accountId)) return false
 	const payload = accountBoundPayload(binding.accountId, binding.provider, binding.reason)
 	await appendOutsideTurn(s, sessionId, [payload], 'record account')
 	return true
