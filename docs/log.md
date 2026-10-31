@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-31
+
+- **Update** [Tool result screening](sdk/tool-result-screening.md): a `halt` verdict now ends the turn instead of reaching the model as a failed tool result. `.changeset/halt-verdict-is-terminal.md` (`@namzu/sdk` patch).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).
