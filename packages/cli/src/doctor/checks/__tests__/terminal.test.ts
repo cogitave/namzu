@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { builtInDoctorChecks } from '../index.js'
 import { FakePty } from '../../../terminal/__tests__/support/fake-pty.js'
+import { builtInDoctorChecks } from '../index.js'
 import { describePseudoTerminal, pseudoTerminalCheck, tryOneSession } from '../terminal.js'
 
 const binding = {} as never
