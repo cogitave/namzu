@@ -29,6 +29,7 @@ const MIN_COLS = 50
 const MIN_ROWS = 8
 const MIRROR_SCROLLBACK = 1000
 const KEY_RIGHT = ['\u001b[C', '\u001bOC']
+const KEY_INTERRUPT = '\u0003'
 const KEY_TOGGLE = '\u001d'
 const KEY_ENTER = '\r'
 const KEY_ESC = '\u001b'
@@ -91,7 +92,7 @@ export function createZoomController(
 		if (focus === 'sidebar') frame.setCursor({ x: 0, y: 0, visible: false })
 		const hint =
 			focus === 'sidebar'
-				? ' enter type in the pane  ·  → back to the session'
+				? ' enter type in the pane  ·  → back to the session  ·  ctrl+c quit'
 				: ' typing in the pane  ·  esc sidebar'
 		frame.writeText(layout.status, 0, hint, { fg: DIM })
 		const bytes = writer.render(frame)
@@ -112,7 +113,10 @@ export function createZoomController(
 			return null
 		}
 		if (focus === 'sidebar') {
-			if (KEY_RIGHT.some((k) => chunk === k)) controller.zoomIn()
+			// Ctrl+C must still quit: Ink owns that, so hand it over and let the exit handler restore the screen.
+			if (chunk.includes(KEY_INTERRUPT)) return chunk
+			// A key may arrive glued to another in one chunk; the arrow counts wherever it sits.
+			if (KEY_RIGHT.some((k) => chunk.includes(k))) controller.zoomIn()
 			else if (chunk === KEY_ENTER) {
 				focus = 'pane'
 				scheduleDraw()

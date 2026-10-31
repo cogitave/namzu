@@ -119,6 +119,19 @@ describe('zooming', () => {
 		expect(zoom.zoomed).toBe(false)
 	})
 
+	it('hands Ctrl+C to Ink from the sidebar and takes an arrow glued to another key', () => {
+		const a = setup()
+		a.zoom.zoomOut()
+		a.input.press('\u0003')
+		expect(a.proxy.stdin.read()).toBe('\u0003')
+		expect(a.zoom.zoomed).toBe(true)
+		const b = setup()
+		b.zoom.zoomOut()
+		b.input.press('\u001b\u001b[C')
+		expect(b.proxy.stdin.read()).toBeNull()
+		expect(b.zoom.zoomed).toBe(false)
+	})
+
 	it('follows a real resize while zoomed: the pane changes size and Ink hears of it', () => {
 		const { real, proxy, zoom } = setup()
 		zoom.zoomOut()
