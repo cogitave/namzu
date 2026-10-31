@@ -34,6 +34,10 @@ export class Entry {
 	resume: string | undefined
 	/** Whether its conversation is already open in another terminal: it is not started. */
 	openElsewhere = false
+	/** Restored from a previous run: its folder is looked at again each time it is opened. */
+	verifyFolder = false
+	/** Its folder was not found when it was last opened, so it is not started. */
+	folderMissing = false
 	/** The check for that is running. */
 	checking = false
 	private seen: SessionActivity = 'not-started'

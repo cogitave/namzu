@@ -251,8 +251,10 @@ export class SpacesHost {
 	 */
 	private restore(layout: SavedLayout): Entry {
 		const entries: Entry[][] = []
+		const isDirectory = this.options.isDirectory ?? defaultIsDirectory
 		for (const saved of layout.spaces) {
 			const space = this.roster.addSpace(saved.cwd, saved.name)
+			const found = isDirectory(saved.cwd)
 			if (saved.lastAccount) space.lastAccount = saved.lastAccount
 			entries.push(
 				saved.sessions.map((item) => {
@@ -261,6 +263,8 @@ export class SpacesHost {
 						entry.conversationId = item.conversationId
 						entry.resume = item.conversationId
 					}
+					entry.verifyFolder = true
+					entry.folderMissing = !found
 					if (item.account) entry.account = item.account
 					if (item.pickedAccount) entry.pickedAccount = item.pickedAccount
 					return entry
@@ -298,6 +302,14 @@ export class SpacesHost {
 	/** Starts the entry's terminal if it has none yet. */
 	private ensureStarted(entry: Entry): void {
 		if (entry.child || this.closed || entry.checking) return
+		if (entry.verifyFolder) {
+			const found = (this.options.isDirectory ?? defaultIsDirectory)(this.roster.spaceOf(entry).cwd)
+			if (entry.folderMissing === found) {
+				entry.folderMissing = !found
+				this.requestRender()
+			}
+			if (!found) return
+		}
 		const guard = this.options.inUseElsewhere
 		if (entry.resume && guard) {
 			// A conversation open in another terminal is never given a second writer.
@@ -917,7 +929,15 @@ export class SpacesHost {
 			}
 		} else if (entry) {
 			const space = this.roster.spaceOf(entry)
-			if (entry.openElsewhere) {
+			if (entry.folderMissing) {
+				frame.writeText(layout.main, 1, `  The folder for "${entry.label}" was not found.`)
+				frame.writeText(layout.main, 2, `  ${space.cwd}`)
+				frame.writeText(
+					layout.main,
+					3,
+					'  Put it back or remove this space, then press enter to try again.',
+				)
+			} else if (entry.openElsewhere) {
 				frame.writeText(layout.main, 1, `  "${entry.label}" is open in another terminal.`)
 				frame.writeText(layout.main, 2, '  Close it there, then press enter to open it here.')
 			} else if (entry.checking) {

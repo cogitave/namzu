@@ -268,6 +268,33 @@ describe('restoring the layout', () => {
 		expect(c.requests[0]).toMatchObject({ cwd: '/work/namzu', first: true })
 	})
 
+	it('flags a saved space whose folder is gone instead of starting it, and starts it once the folder is back', async () => {
+		let present = false
+		const { t, requests } = rig({
+			restored: {
+				version: 1,
+				spaces: [
+					{ name: 'namzu', cwd: '/work/namzu', sessions: [{ label: 'a' }] },
+					{ name: 'lost', cwd: '/work/lost', sessions: [{ label: 'b', conversationId: 'conv-x' }] },
+				],
+				focus: { space: 1, session: 0 },
+			},
+			isDirectory: (path) => path === '/work/namzu' || (path === '/work/lost' && present),
+		})
+		t.host.start()
+		expect(t.spawned).toHaveLength(0)
+		expect(requests).toHaveLength(0)
+		const shown = await text(t)
+		expect(shown).toContain('folder not found')
+		expect(shown).toContain('The folder for "b" was not found.')
+		present = true
+		t.type('\x02')
+		t.type('\r')
+		expect(requests[0]).toMatchObject({ cwd: '/work/lost', resume: 'conv-x' })
+		expect(t.spawned).toHaveLength(1)
+		expect(await text(t)).not.toContain('folder not found')
+	})
+
 	it('refuses a second writer: a conversation open elsewhere is not started', async () => {
 		let busy = true
 		const asked: string[] = []

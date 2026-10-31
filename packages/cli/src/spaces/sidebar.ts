@@ -83,11 +83,13 @@ function sessionRows(roster: Roster): Row[] {
 	return roster.entriesOf(roster.spaceOf(selected)).flatMap((entry): Row[] => {
 		const target: SidebarTarget = { kind: 'session', entry }
 		const base = activityNote(entry.activity(), entry.unseen, entry.child?.ending)
-		const note = entry.openElsewhere
-			? 'open in another terminal'
-			: entry.limited && entry.activity() !== 'exited'
-				? limitedNote(entry.limitedUntil, Date.now())
-				: base
+		const note = entry.folderMissing
+			? 'folder not found'
+			: entry.openElsewhere
+				? 'open in another terminal'
+				: entry.limited && entry.activity() !== 'exited'
+					? limitedNote(entry.limitedUntil, Date.now())
+					: base
 		return [
 			{
 				kind: 'session',
@@ -97,7 +99,9 @@ function sessionRows(roster: Roster): Row[] {
 				dot: entry.dot(),
 				...(entry.account ? { account: entry.account } : {}),
 			},
-			...(note ? [noteRow(note, target, entry.limited && !entry.openElsewhere)] : []),
+			...(note
+				? [noteRow(note, target, entry.folderMissing || (entry.limited && !entry.openElsewhere))]
+				: []),
 		]
 	})
 }
