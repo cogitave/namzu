@@ -115,9 +115,14 @@ in-memory session log without opening a durable conversation store. Explicit
 `--no-session-persistence` selects the same mode; combining it with `--session`
 is refused rather than silently ignoring the keyed history. This does not
 disable other project state or explicitly configured telemetry exports.
-A run without `--session` is not kept, so no event of it (`init`, `usage`,
-`done`) carries a `sessionId`: there is nothing `--resume` or `--continue`
-could open. Pass `--session` when the run has to be resumable.
+A run without `--session` is not kept, so the `sessionId` on its events
+(`usage`, `done`) is an id nothing can open with `--resume` or `--continue`.
+Every event of such a run that carries a `sessionId` also carries
+`resumable: false`; a run bound to a conversation by `--session` omits the
+field, and its `sessionId` can be resumed. `sessionId` on a stateless run is
+deprecated and will be removed in a future major release. A host should read
+`resumable` before storing an id, and pass `--session` when the run has to be
+resumable.
 Invalid or provider-incomplete tool history is refused before a turn starts.
 A tool call's `metadata.inputError` (see
 [Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) is

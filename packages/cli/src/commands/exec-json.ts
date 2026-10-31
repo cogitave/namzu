@@ -178,16 +178,17 @@ export async function execJson(
 ): Promise<number> {
 	let ctx = bootstrapCtx
 	const write = writeJsonLine
-	// A run that keeps no record has no id anyone could resume. The kernel
-	// still numbers it internally, so its events are stripped of that number
-	// rather than handing a host an address that leads nowhere.
+	// A run that keeps no record has an id nothing can resume. Its events keep
+	// the kernel's `sessionId` (deprecated on such a run, to be removed in a
+	// later major) and gain `resumable: false` beside it. A kept run omits the
+	// field, so absence means the id can be opened.
 	const writeRun = (event: unknown): void => {
 		if (conversationId !== null || typeof event !== 'object' || event === null) {
 			write(event)
 			return
 		}
-		const { sessionId: _unkept, ...rest } = event as Record<string, unknown>
-		write(rest)
+		const record = event as Record<string, unknown>
+		write('sessionId' in record ? { ...record, resumable: false } : record)
 	}
 	/**
 	 * Report and stop.

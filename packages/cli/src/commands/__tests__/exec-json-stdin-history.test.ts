@@ -168,13 +168,16 @@ describe('exec --json stateless history admission', () => {
 		expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'next question' })
 	})
 
-	it('names no session id for a run that is not kept, since nothing can resume it', async () => {
+	it('marks the session id of a run that is not kept as not resumable', async () => {
 		const result = await run(JSON.stringify([{ role: 'user', content: 'earlier' }]))
 
 		expect(result.code).toBe(0)
-		expect(result.events.length).toBeGreaterThan(0)
-		for (const event of result.events) expect(event).not.toHaveProperty('sessionId')
-		expect(result.events.at(-1)).toMatchObject({ kind: 'done' })
+		const withId = result.events.filter(
+			(event) => typeof event === 'object' && event !== null && 'sessionId' in event,
+		)
+		expect(withId.length).toBeGreaterThan(0)
+		for (const event of withId) expect(event).toMatchObject({ resumable: false })
+		expect(result.events.at(-1)).toMatchObject({ kind: 'done', resumable: false })
 	})
 
 	it.each([

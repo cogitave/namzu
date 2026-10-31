@@ -2,7 +2,7 @@
 
 ## 2026-10-31
 
-- **Update** [Headless stream](cli/exec-json.md): `exec --json` without `--session` no longer reports a `sessionId` (the run is not kept, so no id could be resumed); `--session <id>` with the id of a conversation in this folder opens that conversation, and an id from another folder is refused naming `--resume`. `.changeset/exec-json-truthful-session-id.md` (`@namzu/cli` major).
+- **Update** [Headless stream](cli/exec-json.md): events of an `exec --json` run without `--session` that carry a `sessionId` now also carry `resumable: false` (the run is not kept, so the id cannot be resumed); that `sessionId` is deprecated and will be removed in a future major. `--session <id>` with the id of a conversation in this folder opens that conversation, and an id from another folder is refused naming `--resume`. `.changeset/exec-json-truthful-session-id.md` (`@namzu/cli` minor).
 
 ## 2026-10-30
 
