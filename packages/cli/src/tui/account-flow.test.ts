@@ -23,7 +23,7 @@ const account = (provider: string, label: string, extra: Partial<Account> = {}):
 	createdAt: '',
 	...extra,
 })
-const empty = { lastUsed: {}, limitedUntil: {}, autoSwitch: {} }
+const empty = { lastUsed: {}, limitedUntil: {}, mayBeLimited: {}, autoSwitch: {} }
 
 describe('the account picker', () => {
 	const base = {

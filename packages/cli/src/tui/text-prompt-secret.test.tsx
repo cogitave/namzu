@@ -5,7 +5,11 @@ import { ChoicePicker } from './ChoicePicker.js'
 import { TextPrompt } from './TextPrompt.js'
 import { ACCOUNT_PICKER_HINTS, buildAccountPicker } from './account-flow.js'
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
+// Let Ink's pending input and render work run: a few turns of the event loop,
+// not a wait for a duration.
+const tick = async () => {
+	for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve))
+}
 
 describe('a secret answer', () => {
 	it('is drawn as dots, never as the typed text, and is handed over whole', async () => {
@@ -79,6 +83,7 @@ describe('the account list on screen', () => {
 			activity: {
 				lastUsed: {},
 				limitedUntil: { 'openai:free-a': Date.now() + 3_600_000 },
+				mayBeLimited: {},
 				autoSwitch: {},
 			},
 			currentId: 'codex:default',

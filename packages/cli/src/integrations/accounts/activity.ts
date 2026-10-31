@@ -23,6 +23,8 @@ export interface AccountActivity {
 	readonly lastUsed: Readonly<Record<string, number>>
 	/** Epoch milliseconds a spent allowance is expected back, by account id. */
 	readonly limitedUntil: Readonly<Record<string, number>>
+	/** Epoch milliseconds an account hit its allowance with no return time given, by account id. */
+	readonly mayBeLimited: Readonly<Record<string, number>>
 	/** API-key accounts the person let Namzu switch away from when their allowance runs out. */
 	readonly autoSwitch: Readonly<Record<string, true>>
 }
@@ -31,6 +33,8 @@ export interface AccountActivityStore {
 	read(): AccountActivity
 	markUsed(id: string, at: number): void
 	markLimited(id: string, until: number): void
+	/** The allowance ran out and the provider did not say when it returns. */
+	markMayBeLimited(id: string, at: number): void
 	clearLimited(id: string): void
 	setAutoSwitch(id: string, on: boolean): void
 	/** Forget an account that was removed or renamed. */
@@ -77,15 +81,17 @@ export function createAccountActivityStore(
 			return {
 				lastUsed: numbers(parsed.lastUsed),
 				limitedUntil: numbers(parsed.limitedUntil),
+				mayBeLimited: numbers(parsed.mayBeLimited),
 				autoSwitch: flags(parsed.autoSwitch),
 			}
 		} catch {
-			return { lastUsed: {}, limitedUntil: {}, autoSwitch: {} }
+			return { lastUsed: {}, limitedUntil: {}, mayBeLimited: {}, autoSwitch: {} }
 		}
 	}
 	type Draft = {
 		lastUsed: Record<string, number>
 		limitedUntil: Record<string, number>
+		mayBeLimited: Record<string, number>
 		autoSwitch: Record<string, true>
 	}
 	const change = (edit: (draft: Draft) => void): void => {
@@ -98,6 +104,7 @@ export function createAccountActivityStore(
 					const draft: Draft = {
 						lastUsed: { ...current.lastUsed },
 						limitedUntil: { ...current.limitedUntil },
+						mayBeLimited: { ...current.mayBeLimited },
 						autoSwitch: { ...current.autoSwitch },
 					}
 					edit(draft)
@@ -123,14 +130,21 @@ export function createAccountActivityStore(
 		markUsed: (id, at) =>
 			change((draft) => {
 				draft.lastUsed[id] = at
+				delete draft.mayBeLimited[id]
 			}),
 		markLimited: (id, until) =>
 			change((draft) => {
 				draft.limitedUntil[id] = until
+				delete draft.mayBeLimited[id]
+			}),
+		markMayBeLimited: (id, at) =>
+			change((draft) => {
+				draft.mayBeLimited[id] = at
 			}),
 		clearLimited: (id) =>
 			change((draft) => {
 				delete draft.limitedUntil[id]
+				delete draft.mayBeLimited[id]
 			}),
 		setAutoSwitch: (id, on) =>
 			change((draft) => {
@@ -141,6 +155,7 @@ export function createAccountActivityStore(
 			change((draft) => {
 				delete draft.lastUsed[id]
 				delete draft.limitedUntil[id]
+				delete draft.mayBeLimited[id]
 				delete draft.autoSwitch[id]
 			}),
 	}

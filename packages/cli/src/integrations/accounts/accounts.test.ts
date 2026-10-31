@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { createAccountRegistry } from '@namzu/sdk'
 import type { Account } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../providers/preferences.js'
@@ -17,7 +17,13 @@ import {
 	isDefaultAccountId,
 } from './binding.js'
 import { loginAddressIn, runCodexLogin } from './codex-login.js'
-import { accountRows, accountState, describeState, formatResetTime } from './rows.js'
+import {
+	MAY_BE_LIMITED_WINDOW_MS,
+	accountRows,
+	accountState,
+	describeState,
+	formatResetTime,
+} from './rows.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -49,6 +55,7 @@ describe('activity store', () => {
 		expect(store.read()).toEqual({
 			lastUsed: {},
 			limitedUntil: {},
+			mayBeLimited: {},
 			autoSwitch: {},
 		})
 		store.markUsed('openai:a', 5)
@@ -57,6 +64,7 @@ describe('activity store', () => {
 		expect(createAccountActivityStore({ home: dir }).read()).toEqual({
 			lastUsed: { 'openai:a': 5 },
 			limitedUntil: { 'openai:a': 99 },
+			mayBeLimited: {},
 			autoSwitch: { 'openai:a': true },
 		})
 		store.clearLimited('openai:a')
@@ -65,6 +73,7 @@ describe('activity store', () => {
 		expect(store.read()).toEqual({
 			lastUsed: {},
 			limitedUntil: {},
+			mayBeLimited: {},
 			autoSwitch: {},
 		})
 	})
@@ -80,6 +89,7 @@ describe('activity store', () => {
 		expect(store.read()).toEqual({
 			lastUsed: {},
 			limitedUntil: {},
+			mayBeLimited: {},
 			autoSwitch: {},
 		})
 	})
@@ -89,6 +99,7 @@ describe('account rows', () => {
 	const activity = {
 		lastUsed: { 'openai:b': 30, 'openai:a': 10 },
 		limitedUntil: {},
+		mayBeLimited: {},
 		autoSwitch: {},
 	}
 
@@ -116,6 +127,30 @@ describe('account rows', () => {
 		expect(accountState(account, activity, NOW, () => false)).toEqual({
 			kind: 'needs-sign-in',
 		})
+	})
+
+	it('says "may be limited" with no time when none was given, keeps order, and clears on use', () => {
+		const dir = home()
+		const store = createAccountActivityStore({ home: dir, wait: noWait })
+		store.markMayBeLimited('openai:a', NOW)
+		const account = stored('a')
+		const noted = store.read()
+		expect(accountState(account, noted, NOW + 1000)).toEqual({ kind: 'may-be-limited' })
+		expect(describeState({ kind: 'may-be-limited' }, NOW)).toBe('may be limited')
+		// It is not kept forever.
+		expect(accountState(account, noted, NOW + MAY_BE_LIMITED_WINDOW_MS + 1)).toEqual({
+			kind: 'ready',
+		})
+		// Ordering is by last use only; the note does not move the row.
+		const rows = accountRows({
+			accounts: [stored('a'), stored('b')],
+			activity: noted,
+			currentId: undefined,
+			now: NOW + 1000,
+		})
+		expect(rows.map((row) => row.account.label)).toEqual(['a', 'b'])
+		store.markUsed('openai:a', NOW + 2000)
+		expect(store.read().mayBeLimited).toEqual({})
 	})
 
 	it('words each state and shows another day with its weekday', () => {
@@ -291,6 +326,64 @@ describe('Codex sign-in', () => {
 		})
 		expect(result).toEqual({ kind: 'cancelled' })
 		expect(existsSync(dir)).toBe(false)
+	})
+
+	it('starts nothing and creates no folder when already cancelled', async () => {
+		const dir = join(home(), 'accounts', 'codex', 'work')
+		const controller = new AbortController()
+		controller.abort()
+		let started = false
+		const result = await runCodexLogin({
+			dir,
+			signal: controller.signal,
+			spawn: (() => {
+				started = true
+				return fakeChild(() => undefined)()
+			}) as never,
+		})
+		expect(result).toEqual({ kind: 'cancelled' })
+		expect(started).toBe(false)
+		expect(existsSync(dir)).toBe(false)
+	})
+
+	it('stops the tool when cancelled while it is starting', async () => {
+		const dir = join(home(), 'accounts', 'codex', 'work')
+		const controller = new AbortController()
+		let stopped = false
+		const result = await runCodexLogin({
+			dir,
+			signal: controller.signal,
+			spawn: (() => {
+				// The cancel lands before the listener could have been attached.
+				controller.abort()
+				const child = fakeChild(() => undefined)() as unknown as {
+					kill: (signal?: string) => boolean
+				}
+				const kill = child.kill.bind(child)
+				child.kill = (signal) => {
+					stopped = true
+					return kill(signal)
+				}
+				return child
+			}) as never,
+		})
+		expect(result).toEqual({ kind: 'cancelled' })
+		expect(stopped).toBe(true)
+		expect(existsSync(dir)).toBe(false)
+	})
+
+	it('stops listening for a cancel once the tool has exited', async () => {
+		const dir = join(home(), 'accounts', 'codex', 'work')
+		const signal = new AbortController().signal
+		const added = vi.spyOn(signal, 'addEventListener')
+		const removed = vi.spyOn(signal, 'removeEventListener')
+		await runCodexLogin({
+			dir,
+			signal,
+			spawn: fakeChild((child) => child.emit('exit', 1)) as never,
+		})
+		expect(added).toHaveBeenCalledTimes(1)
+		expect(removed).toHaveBeenCalledWith('abort', added.mock.calls[0]?.[1])
 	})
 
 	it('removes the folder and says so plainly when the tool is missing or signs in nothing', async () => {

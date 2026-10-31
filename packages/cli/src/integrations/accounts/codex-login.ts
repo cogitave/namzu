@@ -78,11 +78,22 @@ export async function runCodexLogin(options: CodexLoginOptions): Promise<CodexLo
 	const outcome = await new Promise<
 		{ kind: 'exit'; code: number | null } | { kind: 'error'; error: NodeJS.ErrnoException }
 	>((resolveOutcome) => {
-		child.once('error', (error) => resolveOutcome({ kind: 'error', error }))
-		child.once('exit', (code) => resolveOutcome({ kind: 'exit', code }))
-		options.signal.addEventListener('abort', () => child.kill('SIGTERM'), {
-			once: true,
-		})
+		const stop = (): void => {
+			child.kill('SIGTERM')
+		}
+		const finish = (
+			result:
+				| { kind: 'exit'; code: number | null }
+				| { kind: 'error'; error: NodeJS.ErrnoException },
+		): void => {
+			options.signal.removeEventListener('abort', stop)
+			resolveOutcome(result)
+		}
+		child.once('error', (error) => finish({ kind: 'error', error }))
+		child.once('exit', (code) => finish({ kind: 'exit', code }))
+		options.signal.addEventListener('abort', stop, { once: true })
+		// Cancelled between the check above and now: the event already fired.
+		if (options.signal.aborted) stop()
 	})
 	if (options.signal.aborted) {
 		cleanup()

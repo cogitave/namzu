@@ -10,6 +10,7 @@ import type { AccountActivity } from './activity.js'
 export type AccountState =
 	| { readonly kind: 'ready' }
 	| { readonly kind: 'limited'; readonly until: number }
+	| { readonly kind: 'may-be-limited' }
 	| { readonly kind: 'needs-sign-in' }
 
 export interface AccountRow {
@@ -46,6 +47,9 @@ export function accountProductName(provider: string): string {
 	return PRODUCT[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
+/** How long "may be limited" is shown when the provider gave no return time; a reply that works clears it sooner. */
+export const MAY_BE_LIMITED_WINDOW_MS = 60 * 60 * 1000
+
 export function accountState(
 	account: Account,
 	activity: AccountActivity,
@@ -55,6 +59,10 @@ export function accountState(
 	if (!signedIn(account)) return { kind: 'needs-sign-in' }
 	const until = activity.limitedUntil[account.id]
 	if (until !== undefined && until > now) return { kind: 'limited', until }
+	const noted = activity.mayBeLimited[account.id]
+	if (noted !== undefined && now - noted < MAY_BE_LIMITED_WINDOW_MS) {
+		return { kind: 'may-be-limited' }
+	}
 	return { kind: 'ready' }
 }
 
@@ -103,6 +111,8 @@ export function describeState(state: AccountState, now: number, locale?: string)
 			return 'ready'
 		case 'limited':
 			return `limited until ${formatResetTime(state.until, now, locale)}`
+		case 'may-be-limited':
+			return 'may be limited'
 		case 'needs-sign-in':
 			return 'needs sign-in'
 	}

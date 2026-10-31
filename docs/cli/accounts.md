@@ -74,7 +74,10 @@ reply stops with a plain sentence and one quiet line under the composer:
 `enter continue with another account · esc dismiss`. Enter opens the list, with
 the other accounts first, and the same message runs again on the one you pick.
 The account is shown as limited in every conversation's list until the time the
-provider gave, or for an hour when it gave none. If there is no other account the
+provider gave. When the provider gave no time, the list says the account "may be
+limited" instead, with no time made up; it keeps its usual place in the list, is
+not chosen by the automatic switch, and goes back to ready after an hour or as
+soon as a reply on it works. If there is no other account the
 sentence points at `/auth` and `/model`.
 
 Subscription accounts never switch by themselves. An API-key account can be set

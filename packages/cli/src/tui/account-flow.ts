@@ -336,9 +336,6 @@ export function describeSpentAllowance(
 
 export const CONTINUE_WITH_ANOTHER_ACCOUNT = 'enter continue with another account · esc dismiss'
 
-/** How long an account is shown as limited when the provider did not say when it comes back. */
-export const DEFAULT_LIMIT_HOLD_MS = 60 * 60 * 1000
-
 /** A plain sentence for something that went wrong while managing accounts. */
 export function accountProblem(error: unknown, fallback: string): string {
 	return error instanceof AccountRegistryError ? error.message : fallback

@@ -97,7 +97,7 @@ import {
 } from '../integrations/accounts/binding.js'
 import { loginAddressIn, runCodexLogin } from '../integrations/accounts/codex-login.js'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
-import { accountProductName } from '../integrations/accounts/rows.js'
+import { accountProductName, accountState } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
@@ -318,7 +318,6 @@ import {
 	type AccountWizard,
 	type AddKind,
 	CONTINUE_WITH_ANOTHER_ACCOUNT,
-	DEFAULT_LIMIT_HOLD_MS,
 	accountProblem,
 	addKindPicker,
 	advanceWizard,
@@ -10875,10 +10874,13 @@ function AppBody({
 		): void => {
 			if (accountSwitchBlocked()) {
 				pendingAccountSwitchRef.current = { account, reason, resubmit }
-				pushMessage(
-					'system',
-					`Will use ${accountProductName(account.provider)} · ${account.label} from the next reply.`,
-				)
+				// A switch the app made says so itself ("Continuing on ..."); only a chosen one needs this.
+				if (reason === 'user_switch') {
+					pushMessage(
+						'system',
+						`Will use ${accountProductName(account.provider)} · ${account.label} from the next reply.`,
+					)
+				}
 				return
 			}
 			void performAccountSwitch(account, reason, resubmit)
@@ -11246,7 +11248,9 @@ function AppBody({
 			if (!currentId) return
 			const accounts = openAccounts()
 			const now = Date.now()
-			accounts.activity.markLimited(currentId, now + (retryAfterMs(event) ?? DEFAULT_LIMIT_HOLD_MS))
+			const returnsIn = retryAfterMs(event)
+			if (returnsIn === undefined) accounts.activity.markMayBeLimited(currentId, now)
+			else accounts.activity.markLimited(currentId, now + returnsIn)
 			let list: Account[] = []
 			try {
 				list = accounts.registry.list()
@@ -11264,7 +11268,8 @@ function AppBody({
 					account.id !== currentId &&
 					!(account.label === 'default' && !usual.has(account.provider)) &&
 					storedAccountSignedIn(account) &&
-					(activity.limitedUntil[account.id] ?? 0) <= now,
+					(activity.limitedUntil[account.id] ?? 0) <= now &&
+					accountState(account, activity, now).kind !== 'may-be-limited',
 			)
 			if (others.length === 0) return
 			const current = list.find((account) => account.id === currentId)

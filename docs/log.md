@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-10-31
+- **Update** [Accounts in the terminal](cli/accounts.md): an account whose provider gave no return time is listed as "may be limited" with no time made up, keeps its place in the list, is skipped by the automatic switch, and clears after an hour or on a reply that works. Cancelling a Codex sign-in is also safe when the cancel lands while the tool is starting.
 - **Creation** [Accounts in the terminal](cli/accounts.md): `/auth` (list, `add`, `<name>`) binds one conversation to an account from its next reply, `--account` starts on one, `ProviderChoice.account` pins one, and a spent allowance stops the reply with one "continue with another account" action (API-key accounts may switch by themselves when allowed). Also in [Slash commands](cli/slash-commands.md) and [Launch flags](cli/launch-flags.md). `.changeset/auth-accounts.md` (`@namzu/cli` minor).
 - **Update** [Accounts](sdk/accounts.md): the CLI's per-account Codex reader refreshes a private `auth.json` in place under the account lock. `.changeset/codex-home-account-reader.md` (`@namzu/cli` patch).
 - **Update** [Accounts](sdk/accounts.md): `codex-home` accounts belong to the codex provider only, API-key accounts may carry a `baseUrl` and `defaultModel`, and a throttle or rejected request that names a spent allowance classifies as `usage_limit`. `.changeset/account-registry.md` is now `@namzu/sdk` major (a spent allowance is no longer retried; two unions gain a member).
