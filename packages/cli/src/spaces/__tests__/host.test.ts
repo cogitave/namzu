@@ -1,76 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { type FakePty, fakeBinding } from '../../terminal/__tests__/support/fake-pty.js'
-import { HeadlessScreen } from '../../terminal/screen.js'
+import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
 import { SpacesHost } from '../host.js'
 import { DEFAULT_PREFIX } from '../prefix.js'
-
-function setup(size = { columns: 100, rows: 30 }) {
-	const { binding, spawned } = fakeBinding()
-	const written: string[] = []
-	const resizeListeners = new Set<() => void>()
-	const dataListeners = new Set<(chunk: string | Buffer) => void>()
-	const timers: { run: () => void; ms: number; live: boolean }[] = []
-	const state = { raw: false }
-	const output = {
-		columns: size.columns,
-		rows: size.rows,
-		write: (data: string) => void written.push(data),
-		on: (_e: 'resize', l: () => void) => void resizeListeners.add(l),
-		off: (_e: 'resize', l: () => void) => void resizeListeners.delete(l),
-	}
-	const input = {
-		on: (_e: 'data', l: (c: string | Buffer) => void) => void dataListeners.add(l),
-		off: (_e: 'data', l: (c: string | Buffer) => void) => void dataListeners.delete(l),
-		setRawMode: (raw: boolean) => {
-			state.raw = raw
-		},
-	}
-	const host = new SpacesHost({
-		input,
-		output,
-		binding,
-		spec: { file: 'node', args: ['bin.js'], cwd: '/work/namzu', env: { A: '1' } },
-		label: 'namzu',
-		prefix: DEFAULT_PREFIX,
-		kill: (pty, signal) => pty.kill(signal),
-		schedule: (run, ms) => {
-			const timer = { run, ms, live: true }
-			timers.push(timer)
-			return () => {
-				timer.live = false
-			}
-		},
-	})
-	/** Fires every pending frame timer and waits for the paint. */
-	const frame = async () => {
-		for (const t of timers.splice(0)) if (t.live && t.ms < 1000) t.run()
-		await host.render()
-	}
-	/** What the real terminal shows after everything written to it so far. */
-	const screen = async () => {
-		const shown = new HeadlessScreen(output.columns, output.rows, 0)
-		shown.write(written.join(''))
-		await shown.settled()
-		return shown.lines()
-	}
-	const type = (chunk: string) => {
-		for (const l of dataListeners) l(chunk)
-	}
-	return {
-		host,
-		spawned,
-		written,
-		output,
-		input,
-		state,
-		timers,
-		frame,
-		screen,
-		type,
-		resizeListeners,
-		dataListeners,
-	}
-}
+import { setup } from './support/harness.js'
 
 describe('SpacesHost', () => {
 	it('starts one child with the host environment, sized to the main area, and shows the sidebar', async () => {
@@ -113,7 +45,7 @@ describe('SpacesHost', () => {
 		t.host.start()
 		t.type('\x02')
 		await t.frame()
-		expect((await t.screen()).join('\n')).toContain('j/k move')
+		expect((await t.screen()).join('\n')).toContain('j/k session')
 		t.type('\x1b')
 		await t.frame()
 		expect((await t.screen()).join('\n')).toContain('ctrl+b to navigate')
@@ -134,7 +66,7 @@ describe('SpacesHost', () => {
 		expect((await t.screen()).join('\n')).not.toContain('spaces')
 		t.type('q')
 		await t.frame()
-		expect((await t.screen()).join('\n')).toContain('Quit and end session?')
+		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
 	})
 
 	it('answers the child terminal queries through its own emulator', async () => {
@@ -203,8 +135,8 @@ describe('SpacesHost', () => {
 					throw new Error('spawn failed')
 				},
 			},
-			spec: { file: 'node', args: [], cwd: '/x', env: {} },
-			label: 'x',
+			spec: () => ({ file: 'node', args: [], cwd: '/x', env: {} }),
+			folder: { cwd: '/x', name: 'x' },
 			prefix: DEFAULT_PREFIX,
 			schedule: () => () => undefined,
 		})
@@ -220,7 +152,7 @@ describe('SpacesHost', () => {
 		t.type('\x02')
 		t.type('q')
 		await t.frame()
-		expect((await t.screen()).join('\n')).toContain('Quit and end session?')
+		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
 		t.type('n')
 		expect(pty.kills).toEqual([])
 		t.type('q')

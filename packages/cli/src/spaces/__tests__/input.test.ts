@@ -91,4 +91,47 @@ describe('InputRouter', () => {
 		expect(r.feed('\x02')).toEqual([{ type: 'write', data: '\x02' }])
 		expect(r.feed('\x00')).toEqual([{ type: 'mode', mode: 'navigate' }])
 	})
+
+	it('reads pointer reports in both modes and keeps them out of the session', () => {
+		const r = router()
+		expect(r.feed('a\x1b[<0;12;3Mb')).toEqual([
+			{ type: 'write', data: 'a' },
+			{ type: 'mouse', mouse: { kind: 'press', x: 11, y: 2 } },
+			{ type: 'write', data: 'b' },
+		])
+		expect(r.feed('\x1b[<0;12;3m')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'release', x: 11, y: 2 } },
+		])
+		expect(r.feed('\x1b[<64;1;1M\x1b[<65;1;1M')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'wheel-up', x: 0, y: 0 } },
+			{ type: 'mouse', mouse: { kind: 'wheel-down', x: 0, y: 0 } },
+		])
+		r.feed('\x02')
+		expect(r.feed('\x1b[<0;2;2M')).toEqual([
+			{ type: 'mouse', mouse: { kind: 'press', x: 1, y: 1 } },
+		])
+		expect(r.current).toBe('navigate')
+	})
+
+	it('waits for the rest of a pointer report that arrived in two pieces', () => {
+		const r = router()
+		expect(r.feed('x\x1b[<0;1')).toEqual([{ type: 'write', data: 'x' }])
+		expect(r.feed('2;3M')).toEqual([{ type: 'mouse', mouse: { kind: 'press', x: 11, y: 2 } }])
+	})
+
+	it('hands typed text to the host while capturing, without leaving navigate mode', () => {
+		const r = router()
+		r.feed('\x02')
+		r.capture(true)
+		expect(r.feed('a\x7f\r\x1b')).toEqual([
+			{ type: 'nav', key: { kind: 'char', char: 'a' } },
+			{ type: 'nav', key: { kind: 'backspace' } },
+			{ type: 'nav', key: { kind: 'enter' } },
+			{ type: 'nav', key: { kind: 'escape' } },
+		])
+		expect(r.current).toBe('navigate')
+		r.capture(false)
+		r.focus()
+		expect(r.current).toBe('terminal')
+	})
 })

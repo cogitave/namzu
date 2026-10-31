@@ -1,24 +1,36 @@
 import { spawn } from 'node:child_process'
 import { SpacesHost } from '../spaces/host.js'
+import { createPeerSource } from '../spaces/peers.js'
 import { DEFAULT_PREFIX, parsePrefix } from '../spaces/prefix.js'
 import { type HostPtyModule, buildPtyEnv, loadHostPty } from '../terminal/pty.js'
 import type { CommandDef } from './types.js'
 
 export const SPACES_HELP = `Usage: namzu spaces [options]
 
-(preview) Run Namzu sessions side by side: a sidebar of sessions, and the selected
-session beside it. Each session is a full Namzu in its own terminal, so one that
-stops does not affect the others. The options after "spaces" are passed to the
+(preview) Run Namzu sessions side by side. The sidebar lists your spaces (project
+folders) on top, each with one dot for the most urgent thing in it, and the sessions
+of the selected space below. Each session is a full Namzu in its own terminal, so one
+that stops does not affect the others. The options after "spaces" go to the first
 session, so "namzu spaces --model <name>" starts it on that model.
+
+Dots: red needs approval, blue finished and not seen yet, yellow working, green idle.
 
 Keys:
   ctrl+b            navigate (change the key with tui.spacesPrefix in your config)
   ctrl+b ctrl+b     send a literal ctrl+b to the session
-  j / k, arrows     move between sessions
+  j / k, arrows     move between the sessions of a space
+  J / K, 1-9        move between spaces
+  n                 new session in this space
+  N                 new space from a folder
+  r / R             rename the session / the space
+  d / D             close the session / the space
   enter, l          back to the session
   b                 hide or show the sidebar
   q                 quit
   esc               leave navigate mode
+
+The mouse works too: click a space or a session, scroll the sidebar, or scroll a
+session's history.
 `
 
 export interface SpacesDeps {
@@ -73,18 +85,20 @@ export async function runSpaces(
 	}
 	const prefix =
 		(prefixSetting !== undefined ? parsePrefix(prefixSetting) : undefined) ?? DEFAULT_PREFIX
+	const peers = createPeerSource(deps.env)
 	const host = new SpacesHost({
 		input: deps.stdin,
 		output: deps.stdout,
 		binding,
-		spec: {
+		spec: ({ cwd, slot, first }) => ({
 			file: process.execPath,
-			args,
-			cwd: deps.cwd,
-			env: buildPtyEnv(deps.env, {}),
-		},
-		label: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session',
+			args: first ? args : [deps.entry],
+			cwd,
+			env: buildPtyEnv(deps.env, { NAMZU_SPACE_SLOT: slot }),
+		}),
+		folder: { cwd: deps.cwd, name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session' },
 		prefix,
+		...(peers ? { peers } : {}),
 	})
 	const stop = (): void => host.quit()
 	process.on('SIGTERM', stop)

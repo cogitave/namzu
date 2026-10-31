@@ -86,6 +86,11 @@ export class HeadlessScreen {
 		return rows
 	}
 
+	/** Rows of history above the visible screen. */
+	scrollbackSize(): number {
+		return this.term.buffer.active.baseY
+	}
+
 	/** The visible screen as cells for the host's renderer, `back` rows into the scrollback. */
 	cells(back = 0): CellSource {
 		return xtermSource(this.term, this.cursorVisible, back)

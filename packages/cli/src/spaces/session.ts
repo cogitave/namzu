@@ -47,6 +47,11 @@ export class ChildSession {
 		this.screen = new HeadlessScreen(size.cols, size.rows, SCROLLBACK)
 	}
 
+	/** The process id of the program, once it has started. */
+	get pid(): number | undefined {
+		return this.pty?.pid
+	}
+
 	start(binding: HostPtyModule): void {
 		try {
 			const pty = binding.spawn(this.spec.file, [...this.spec.args], {

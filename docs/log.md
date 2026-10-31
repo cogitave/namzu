@@ -2,6 +2,8 @@
 
 ## 2026-10-31
 
+- **Update** [namzu spaces (preview)](cli/spaces.md): the sidebar lists spaces (project folders) with one status dot each and the selected space's sessions below; new, rename and close for both; mouse and per-session scrollback; a session starts when first opened. Status comes from each session's live record plus a ping, with finished-not-seen derived in the host. [Peer messaging](sdk/peer-messaging.md#the-live-session-registry): the record gains optional `hostSlot`, `conversationId`, `account` and `limited`, and readers ignore fields they do not know. `.changeset/spaces-sessions.md` (`@namzu/cli` minor), `.changeset/peer-record-host-fields.md` (`@namzu/sdk` minor).
+
 - **Creation** [namzu spaces (preview)](cli/spaces.md): a new `namzu spaces` command that hosts a Namzu session in a pseudo-terminal beside a sidebar, with a `tui.spacesPrefix` key setting and a plain single-session fallback. The CLI now prefers the prebuilt `@lydell/node-pty` binding and falls back to `node-pty`. `.changeset/spaces-host-preview.md` (`@namzu/cli` minor).
 
 ## 2026-10-30
