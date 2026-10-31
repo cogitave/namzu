@@ -969,7 +969,7 @@ the current or latest turn, not an accumulated conversation total.
 their controls and configuration-source diagnostics. It excludes credentials
 and does not edit arbitrary configuration keys. Model selection starts with
 the current provider. A visible `p change provider` action above the model list
-names other detected providers that Namzu can construct from available
+names, after "others:", the other detected providers that Namzu can construct from available
 credentials. The list states whether selection affects future launches or only
 a session using a temporary credential. The old session remains usable if
 replacement construction or preference persistence fails.

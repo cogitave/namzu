@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-10-31
+
+- **Update** [Terminal design](cli/terminal-design.md): the model picker names the other providers after `p change provider`; the context meter uses the window compaction measures against; a permission question settles the reads above it and Ctrl+C there is recorded as a stop, not a No; the auto-mode note is a footer notice; the resume picker tells same-titled conversations apart. `.changeset/terminal-state-labels.md` (`@namzu/cli` patch).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).
