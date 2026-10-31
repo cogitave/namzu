@@ -6,7 +6,10 @@ describe('parsePrefix', () => {
 	it('reads ctrl+letter and ctrl+space, in any case', () => {
 		expect(parsePrefix('ctrl+b')).toEqual({ name: 'ctrl+b', byte: '\x02' })
 		expect(parsePrefix('Ctrl+A')).toEqual({ name: 'ctrl+a', byte: '\x01' })
-		expect(parsePrefix('ctrl + space')).toEqual({ name: 'ctrl+space', byte: '\x00' })
+		expect(parsePrefix('ctrl + space')).toEqual({
+			name: 'ctrl+space',
+			byte: '\x00',
+		})
 	})
 
 	it('refuses keys the session needs or that are other keys', () => {
@@ -59,7 +62,11 @@ describe('InputRouter', () => {
 			key: { kind: 'backtab' },
 			from: 'prefix',
 		})
-		expect(r.feed('\x02\t')[2]).toEqual({ type: 'nav', key: { kind: 'tab' }, from: 'prefix' })
+		expect(r.feed('\x02\t')[2]).toEqual({
+			type: 'nav',
+			key: { kind: 'tab' },
+			from: 'prefix',
+		})
 	})
 
 	it('sends a literal prefix when it is pressed twice in a row', () => {

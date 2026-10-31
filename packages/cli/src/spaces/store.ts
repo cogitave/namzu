@@ -152,7 +152,11 @@ function migrateV1(body: Record<string, unknown>): SavedLayout | undefined {
 		})
 	})
 	if (spaces.length === 0) return undefined
-	return { version: 2, spaces, ...(focused !== undefined ? { focus: { space: focused } } : {}) }
+	return {
+		version: 2,
+		spaces,
+		...(focused !== undefined ? { focus: { space: focused } } : {}),
+	}
 }
 
 /**
@@ -243,7 +247,9 @@ export function fileStore(path: string, say?: (message: string) => void): Spaces
 			const temp = `${path}.${randomBytes(4).toString('hex')}.tmp`
 			try {
 				mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-				writeFileSync(temp, `${JSON.stringify(layout, null, '\t')}\n`, { mode: 0o600 })
+				writeFileSync(temp, `${JSON.stringify(layout, null, '\t')}\n`, {
+					mode: 0o600,
+				})
 				chmodSync(temp, 0o600)
 				renameSync(temp, path)
 			} catch {

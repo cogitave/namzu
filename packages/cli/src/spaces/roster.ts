@@ -141,7 +141,12 @@ export class Roster {
 
 	/** A tab holding one pane, after the space's others. */
 	addTab(space: Space, entry: Entry, name?: string): Tab {
-		const tab: Tab = { root: leaf(entry), focus: entry, zoomed: false, ...(name ? { name } : {}) }
+		const tab: Tab = {
+			root: leaf(entry),
+			focus: entry,
+			zoomed: false,
+			...(name ? { name } : {}),
+		}
 		space.tabs.push(tab)
 		space.activeTab ??= tab
 		return tab

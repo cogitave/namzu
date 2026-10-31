@@ -46,7 +46,10 @@ const PASTE_BEGIN = '\x1b[200~'
 const PASTE_END = '\x1b[201~'
 
 /** Keys after the prefix that start a mode instead of running a command. */
-const MODE_KEYS: Readonly<Record<string, InputMode>> = { r: 'resize', w: 'navigate' }
+const MODE_KEYS: Readonly<Record<string, InputMode>> = {
+	r: 'resize',
+	w: 'navigate',
+}
 
 /**
  * Splits what the keyboard sent into the host's own keys and bytes for the child.
@@ -170,7 +173,11 @@ export class InputRouter {
 				enter('terminal')
 				continue
 			}
-			actions.push({ type: 'nav', key: key.nav, from: this.mode as 'resize' | 'navigate' })
+			actions.push({
+				type: 'nav',
+				key: key.nav,
+				from: this.mode as 'resize' | 'navigate',
+			})
 		}
 		flush()
 		return actions
@@ -218,7 +225,11 @@ function readKey(text: string): ReadKey {
 		// Some other escape sequence: swallow it so its tail is not read as typed keys.
 		const sequence = CSI.exec(text)
 		if (sequence)
-			return { length: sequence[0].length, text: sequence[0], nav: { kind: 'char', char: '' } }
+			return {
+				length: sequence[0].length,
+				text: sequence[0],
+				nav: { kind: 'char', char: '' },
+			}
 		return { length: 1, text: first, nav: { kind: 'escape' } }
 	}
 	if (first === '\x7f' || first === '\b')
@@ -227,5 +238,9 @@ function readKey(text: string): ReadKey {
 	if (first === '\t') return { length: 1, text: first, nav: { kind: 'tab' } }
 	const code = first.codePointAt(0) as number
 	const length = code > 0xffff ? 2 : 1
-	return { length, text: text.slice(0, length), nav: { kind: 'char', char: text.slice(0, length) } }
+	return {
+		length,
+		text: text.slice(0, length),
+		nav: { kind: 'char', char: text.slice(0, length) },
+	}
 }

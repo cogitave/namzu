@@ -12,7 +12,11 @@ describe('SpacesHost', () => {
 		const pty = t.spawned[0] as FakePty
 		expect(pty.file).toBe('node')
 		expect(pty.options.env).toEqual({ A: '1' })
-		expect(pty.options).toMatchObject({ cols: 74, rows: 29, cwd: '/work/namzu' })
+		expect(pty.options).toMatchObject({
+			cols: 74,
+			rows: 29,
+			cwd: '/work/namzu',
+		})
 		expect(t.state.raw).toBe(true)
 		pty.print('hello from the child')
 		await t.frame()

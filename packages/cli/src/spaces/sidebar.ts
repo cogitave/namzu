@@ -145,7 +145,13 @@ export function arrange(roster: Roster, height: number, footLines: number): Arra
 		0,
 		Math.min(sessions.length, Math.max(Math.floor(room / 2), room - spaces.length)),
 	)
-	return { spaces, sessions, spacesHeight: room - sessionsHeight, sessionsHeight, heading }
+	return {
+		spaces,
+		sessions,
+		spacesHeight: room - sessionsHeight,
+		sessionsHeight,
+		heading,
+	}
 }
 
 function within(scroll: number, total: number, height: number, reveal: number): number {
@@ -248,7 +254,11 @@ function drawRow(frame: Frame, rect: Rect, y: number, row: Row, navigating: bool
 	)
 	if (row.account)
 		frame.writeText(
-			{ ...rect, x: rect.x + rect.width - 3 - row.account.length, width: row.account.length + 1 },
+			{
+				...rect,
+				x: rect.x + rect.width - 3 - row.account.length,
+				width: row.account.length + 1,
+			},
 			y,
 			row.account,
 			{ ...style, fg: GREY, attrs: ATTR_DIM },
@@ -282,13 +292,19 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 	}
 	const top = rect.height - model.foot.length
 	model.foot.forEach((line, i) =>
-		frame.writeText(rect, top + i, ` ${clip(line, rect.width - 1)}`, { fg: GREY, attrs: ATTR_DIM }),
+		frame.writeText(rect, top + i, ` ${clip(line, rect.width - 1)}`, {
+			fg: GREY,
+			attrs: ATTR_DIM,
+		}),
 	)
 }
 
 export function drawRule(frame: Frame, rect: Rect): void {
 	for (let y = 0; y < rect.height; y++)
-		frame.writeText({ ...rect, height: rect.height }, y, '│', { fg: GREY, attrs: ATTR_DIM })
+		frame.writeText({ ...rect, height: rect.height }, y, '│', {
+			fg: GREY,
+			attrs: ATTR_DIM,
+		})
 }
 
 /** What the session area says over a session that is gone. */

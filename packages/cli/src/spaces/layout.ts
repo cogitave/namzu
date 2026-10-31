@@ -29,7 +29,11 @@ export function computeLayout(cols: number, rows: number, sidebarVisible: boolea
 		? { x: width + 1, y: 0, width: cols - width - 1, height: rows }
 		: { x: 0, y: 0, width: cols, height: rows }
 	const tabBar: Rect = { ...main, height: Math.min(1, main.height) }
-	const panes: Rect = { ...main, y: main.y + 1, height: Math.max(1, main.height - 1) }
+	const panes: Rect = {
+		...main,
+		y: main.y + 1,
+		height: Math.max(1, main.height - 1),
+	}
 	if (!shown) return { sidebar: undefined, rule: undefined, main, tabBar, panes }
 	return {
 		sidebar: { x: 0, y: 0, width, height: rows },

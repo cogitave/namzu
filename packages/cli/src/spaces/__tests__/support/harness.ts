@@ -39,7 +39,12 @@ export function setup(
 		input,
 		output,
 		binding,
-		spec: ({ cwd }) => ({ file: 'node', args: ['bin.js'], cwd, env: { A: '1' } }),
+		spec: ({ cwd }) => ({
+			file: 'node',
+			args: ['bin.js'],
+			cwd,
+			env: { A: '1' },
+		}),
 		folder: { cwd: '/work/namzu', name: 'namzu' },
 		prefix: DEFAULT_PREFIX,
 		isDirectory: (path) => path.startsWith('/work/'),

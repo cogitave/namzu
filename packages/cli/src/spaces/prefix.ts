@@ -25,7 +25,10 @@ export function parsePrefix(value: string): Prefix | undefined {
 	if (!match) return undefined
 	const letter = match[1] as string
 	if (RESERVED.has(letter)) return undefined
-	return { name: `ctrl+${letter}`, byte: String.fromCharCode(letter.charCodeAt(0) - 96) }
+	return {
+		name: `ctrl+${letter}`,
+		byte: String.fromCharCode(letter.charCodeAt(0) - 96),
+	}
 }
 
 /** The words shown for a prefix, for example `ctrl+b`. */
