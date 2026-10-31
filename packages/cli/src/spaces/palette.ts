@@ -1,4 +1,4 @@
-import { DEFAULT_COLOR, rgb } from '../terminal/host/cell.js'
+import { rgb } from '../terminal/host/cell.js'
 
 /** The colours the host draws its own chrome in. */
 export interface Palette {
@@ -93,9 +93,10 @@ export function paletteFor(truecolor: boolean): Palette {
 		const c = TRUE[key]
 		out[key] = truecolor ? rgb(c[0], c[1], c[2]) : nearestAnsi(c)
 	}
-	// Both tints are near black. In 16 colours the faint one is left out (the bold name
-	// carries the selection) and the strong one becomes bright black.
-	out.activeRow = truecolor ? rgb(30, 30, 46) : DEFAULT_COLOR
+	// Both tints are near black. In 16 colours both become bright black, so the shown
+	// space and the focused agent still stand out (the sidebar lifts text that would
+	// otherwise match the tint).
+	out.activeRow = truecolor ? rgb(30, 30, 46) : 8
 	out.cursorRow = truecolor ? rgb(49, 50, 68) : 8
 	out.tabRest = out.dim
 	// Both would land on black; a raised tab keeps its look as bright black, with white text.

@@ -403,6 +403,20 @@ describe('reading the saved layout', () => {
 		expect(parseLayout({ version: 3, spaces: [] })).toBeUndefined()
 	})
 
+	it('reads sidebar choices defensively', () => {
+		const space = { name: 'a', cwd: '/a', tabs: [{ tree: { session: { label: 's' } } }] }
+		const read = (sidebar: unknown) =>
+			parseLayout({ version: 2, spaces: [space], sidebar })?.sidebar
+		expect(read({ width: 'wide', split: Number.NaN, order: 'sideways' })).toBeUndefined()
+		expect(read({ width: 2, split: 5, order: 'grouped' })).toEqual({
+			width: 18,
+			split: 0.9,
+			order: 'grouped',
+		})
+		expect(read('nope')).toBeUndefined()
+		expect(read({ collapsed: 'yes' })).toBeUndefined()
+	})
+
 	it('clamps a ratio, and drops a focus or zoom that does not fit the tab', () => {
 		const pane = (label: string) => ({ session: { label } })
 		const parsed = parseLayout({

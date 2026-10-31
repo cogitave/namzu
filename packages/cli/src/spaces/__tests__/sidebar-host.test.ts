@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
 import type { GitStatus } from '../git.js'
 import { GitCache } from '../git.js'
+import { agentList, geometry } from '../sidebar.js'
 import { type SavedLayout, type SpacesStore, parseLayout } from '../store.js'
 import { setup } from './support/harness.js'
 
@@ -237,5 +238,39 @@ describe('the sidebar in the host', () => {
 		const bar = await t.cellAt(30, 29)
 		expect(bar?.bg).toBeDefined()
 		expect(lines.slice(0, 29).join('\n')).not.toContain('ctrl+b to navigate')
+	})
+
+	it('a click on an agent of another space and tab shows that space, tab and pane', async () => {
+		const t = setup({ columns: 100, rows: 30 })
+		t.host.start()
+		await t.frame()
+		const row = (await t.screen()).findIndex((l) => /^ new\s+menu/u.test(l))
+		t.type(press(1, row))
+		const { roster } = t.host
+		const second = roster.spaces[1]
+		expect(second).toBeDefined()
+		if (!second) return
+		const extra = roster.addSession(second, 'late')
+		roster.addTab(second, extra)
+		const first = roster.spaces[0]?.tabs[0]?.focus
+		if (first) roster.select(first)
+		await t.frame()
+		const geo = geometry(30, 0, 0.5, false)
+		const list = agentList(roster, 'grouped')
+		const at = list.indexOf(extra)
+		expect(at).toBeGreaterThan(0)
+		t.type(press(5, geo.agentTop + at * geo.spaceStep))
+		expect(roster.selected).toBe(extra)
+		expect(roster.spaceOf(extra)).toBe(second)
+		expect(second.activeTab).toBe(roster.tabOf(extra))
+	})
+
+	it('draws the 16-colour sidebar with a tint on the shown space', async () => {
+		const t = setup({ columns: 100, rows: 30 }, { truecolor: false })
+		t.host.start()
+		await t.frame()
+		const cell = await t.cellAt(5, 2)
+		expect(cell?.bg).toBeDefined()
+		expect((await t.screen())[2]).toContain('namzu')
 	})
 })

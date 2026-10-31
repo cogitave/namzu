@@ -12,6 +12,7 @@ import {
 	geometry,
 	hitTest,
 	ruleRow,
+	scrollThumb,
 } from '../sidebar.js'
 
 const palette = paletteFor(true)
@@ -188,5 +189,46 @@ describe('the layout', () => {
 		expect(computeLayout(42, 20).sidebar).toBeUndefined()
 		const rail = computeLayout(160, 45, { collapsed: true, width: 26 })
 		expect(rail.rule?.x).toBe(RAIL_WIDTH - 1)
+	})
+
+	it('survives heights of 0 to 4 rows, full and on the rail', () => {
+		const { roster } = build()
+		for (const rail of [false, true])
+			for (let height = 0; height <= 4; height++) {
+				const geo = geometry(height, 0, 0.5, rail)
+				expect(geo.spaceCap).toBeGreaterThanOrEqual(0)
+				expect(geo.agentCap).toBeGreaterThanOrEqual(0)
+				expect(() => draw(model(roster, { rail }), rail ? 4 : 25, height)).not.toThrow()
+				expect(() => hitTest(model(roster, { rail }), 25, height, 3, 0)).not.toThrow()
+			}
+	})
+
+	it('draws a scrollbar thumb only when a list overflows', () => {
+		expect(scrollThumb(3, 3, 0, 6)).toBeUndefined()
+		expect(scrollThumb(10, 5, 0, 10)).toEqual({ start: 0, length: 5 })
+		expect(scrollThumb(10, 5, 5, 10)).toEqual({ start: 5, length: 5 })
+		const roster = new Roster()
+		for (let i = 0; i < 12; i++) {
+			const space = roster.addSpace(`/w/s${i}`, `s${i}`)
+			roster.addTab(space, roster.addSession(space, `x${i}`))
+		}
+		const { text } = draw(model(roster), 25, 20)
+		expect(text(2).endsWith('┃')).toBe(true)
+	})
+
+	it('keeps the rail index to two digits and bolds the shown row', () => {
+		const roster = new Roster()
+		for (let i = 0; i < 101; i++) {
+			const space = roster.addSpace(`/w/s${i}`, `s${i}`)
+			roster.addTab(space, roster.addSession(space, `x${i}`))
+		}
+		const { frame, text } = draw(
+			model(roster, { rail: true, scroll: { spaces: 99, agents: 0 } }),
+			4,
+			20,
+		)
+		expect(text(0).slice(0, 2)).toBe('00')
+		expect(text(0).startsWith('00')).toBe(true)
+		expect(frame.cellAt(2, 0)).toBeDefined()
 	})
 })

@@ -318,6 +318,30 @@ function attention(roster: Roster): Dot | undefined {
 	return found
 }
 
+/** A foreground that stays readable on a tint: where the two coincide (16 colours), the plain text colour. */
+function readable(fg: number, bg: number, palette: Palette): number {
+	return bg >= 0 && fg === bg ? palette.text : fg
+}
+
+/** The thumb of a list's scrollbar: where it starts and how long it is, in rows; none if the list fits. */
+export function scrollThumb(
+	total: number,
+	cap: number,
+	scroll: number,
+	rows: number,
+): { start: number; length: number } | undefined {
+	if (cap <= 0 || total <= cap || rows <= 0) return undefined
+	const length = Math.max(1, Math.min(rows, Math.round((rows * cap) / total)))
+	const most = total - cap
+	const start = Math.round(((rows - length) * Math.max(0, Math.min(scroll, most))) / most)
+	return { start, length }
+}
+
+/** The row label on the rail: the number, or its last two digits past 99. */
+function railIndex(index: number): string {
+	return String((index + 1) % 100).padStart(index + 1 > 99 ? 2 : 0, '0')
+}
+
 export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void {
 	const { palette, roster } = model
 	const geo = geometry(rect.height, model.foot.length, model.split, model.rail)
@@ -325,11 +349,32 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 	frame.fillRect(rect)
 	const at = (x: number, y: number, text: string, style: CellStyle = {}): void => {
 		if (x >= rect.width) return
-		frame.writeText({ ...rect, x: rect.x + x, width: rect.width - x }, y, text, style)
+		const fg =
+			style.fg !== undefined && style.bg !== undefined
+				? readable(style.fg, style.bg, palette)
+				: style.fg
+		frame.writeText({ ...rect, x: rect.x + x, width: rect.width - x }, y, text, {
+			...style,
+			...(fg !== undefined ? { fg } : {}),
+		})
 	}
 	const tint = (y: number, height: number, bg: number): void => {
 		if (bg >= 0) frame.fillRect({ ...rect, y: rect.y + y, height }, { bg })
 	}
+	const bar = (
+		x: number,
+		top: number,
+		rows: number,
+		total: number,
+		cap: number,
+		scroll: number,
+	) => {
+		const thumb = scrollThumb(total, cap, scroll, rows)
+		if (!thumb) return
+		for (let i = 0; i < thumb.length; i++) at(x, top + thumb.start + i, '┃', { fg: palette.dim })
+	}
+	const spaceRoom = rect.width - 3 - (roster.spaces.length > geo.spaceCap ? 1 : 0)
+	const agentRoom = rect.width - 3 - (agentList(roster, model.order).length > geo.agentCap ? 1 : 0)
 	const shown = roster.selected ? roster.spaceOf(roster.selected) : undefined
 	const agents = agentList(roster, model.order)
 
@@ -343,19 +388,23 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		const bg = focused ? (navigating ? palette.cursorRow : palette.activeRow) : -1
 		tint(y, geo.spaceStep, bg)
 		if (geo.rail) {
-			at(0, y, String(index + 1), { fg: palette.dim, bg })
-			at(2, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+			at(0, y, railIndex(index), { fg: palette.dim, bg })
+			at(2, y, GLYPHS[dot], {
+				fg: dotColor(dot, palette),
+				bg,
+				...(focused ? { attrs: ATTR_BOLD } : {}),
+			})
 			return
 		}
 		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
-		at(3, y, clip(space.name, rect.width - 3), {
+		at(3, y, clip(space.name, spaceRoom), {
 			fg: focused ? palette.text : palette.subtext,
 			bg,
 			...(focused ? { attrs: ATTR_BOLD } : {}),
 		})
 		const note = spaceNote(dot)
 		if (note) {
-			at(3, y + 1, clip(note, rect.width - 3), {
+			at(3, y + 1, clip(note, spaceRoom), {
 				fg: dot === 'blocked' ? palette.red : palette.teal,
 				bg,
 			})
@@ -367,7 +416,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		if (git.ahead > 0) counts.push({ text: `↑${git.ahead}`, fg: palette.green })
 		if (git.behind > 0) counts.push({ text: `↓${git.behind}`, fg: palette.red })
 		const tail = counts.reduce((sum, c) => sum + 1 + c.text.length, 0)
-		const branch = clip(git.branch, rect.width - 3 - tail)
+		const branch = clip(git.branch, spaceRoom - tail)
 		at(3, y + 1, branch, { fg: focused ? palette.mauve : palette.dim, bg })
 		let x = 3 + stringWidth(branch)
 		for (const c of counts) {
@@ -376,6 +425,15 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		}
 	})
 
+	if (!geo.rail)
+		bar(
+			rect.width - 1,
+			geo.spaceTop,
+			geo.spaceCap * geo.spaceStep,
+			roster.spaces.length,
+			geo.spaceCap,
+			model.scroll.spaces,
+		)
 	if (geo.footerY !== undefined) {
 		at(1, geo.footerY, 'new', { fg: palette.dim })
 		const menuX = rect.width - 4
@@ -402,24 +460,37 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		const bg = focused ? palette.activeRow : -1
 		tint(y, geo.spaceStep, bg)
 		if (geo.rail) {
-			at(0, y, String(index + 1), { fg: palette.dim, bg })
-			at(2, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+			at(0, y, railIndex(index), { fg: palette.dim, bg })
+			at(2, y, GLYPHS[dot], {
+				fg: dotColor(dot, palette),
+				bg,
+				...(focused ? { attrs: ATTR_BOLD } : {}),
+			})
 			return
 		}
 		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
 		const gone = entry.child?.status === 'exited'
-		at(3, y, clip(roster.spaceOf(entry).name, rect.width - 3), {
+		at(3, y, clip(roster.spaceOf(entry).name, agentRoom), {
 			fg: gone ? palette.dim : focused ? palette.text : palette.subtext,
 			bg,
 			attrs: ATTR_BOLD,
 		})
 		const warning = agentWarning(entry)
-		at(3, y + 1, clip(warning ?? agentDetail(roster, entry, rect.width - 3), rect.width - 3), {
+		at(3, y + 1, clip(warning ?? agentDetail(roster, entry, agentRoom), agentRoom), {
 			fg: warning ? palette.yellow : palette.dim,
 			bg,
 		})
 	})
 
+	if (!geo.rail)
+		bar(
+			rect.width - 1,
+			geo.agentTop,
+			geo.agentCap * geo.spaceStep,
+			agents.length,
+			geo.agentCap,
+			model.scroll.agents,
+		)
 	const top = rect.height - 1 - model.foot.length
 	if (!geo.rail)
 		model.foot.forEach((line, i) => at(1, top + i, clip(line, rect.width - 1), { fg: palette.dim }))

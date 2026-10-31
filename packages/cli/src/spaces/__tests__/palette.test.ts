@@ -14,12 +14,7 @@ describe('the palette', () => {
 
 	it('falls back to the nearest of the 16 colours elsewhere', () => {
 		const palette = paletteFor(false)
-		for (const [name, value] of Object.entries(palette)) {
-			// The faint tint is left out in 16 colours, which is the terminal's own background.
-			if (name === 'activeRow') {
-				expect(value).toBe(-1)
-				continue
-			}
+		for (const value of Object.values(palette)) {
 			expect(value).toBeGreaterThanOrEqual(0)
 			expect(value).toBeLessThan(16)
 			expect(value & RGB_FLAG).toBe(0)
