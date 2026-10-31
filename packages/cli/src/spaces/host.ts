@@ -193,6 +193,10 @@ export class SpacesHost {
 	/** If the process ends without a clean close, still hand the terminal back and stop the sessions. */
 	private readonly onProcessExit = (): void => {
 		if (this.closed) return
+		// The write waiting for its delay would be lost with the process, so it happens now.
+		this.cancelSave?.()
+		this.cancelSave = undefined
+		this.writeLayout()
 		this.closed = true
 		try {
 			this.options.input.setRawMode?.(false)

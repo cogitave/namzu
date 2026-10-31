@@ -295,6 +295,16 @@ describe('restoring the layout', () => {
 		expect(await text(t)).not.toContain('folder not found')
 	})
 
+	it('writes the pending layout at once when the process exits', () => {
+		const store = new MemoryStore()
+		const { t } = rig({ store })
+		t.host.start()
+		expect(store.saved).toHaveLength(0)
+		;(t.host as unknown as { onProcessExit: () => void }).onProcessExit()
+		expect(store.saved).toHaveLength(1)
+		expect(store.last?.spaces[0]?.cwd).toBe('/work/namzu')
+	})
+
 	it('refuses a second writer: a conversation open elsewhere is not started', async () => {
 		let busy = true
 		const asked: string[] = []
