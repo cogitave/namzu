@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { SkillInfo } from '../../skills/store.js'
 import { ContextGridRow } from '../ContextGridRow.js'
-import { type ContextSources, collectContextView } from '../context-usage.js'
+import {
+	type ContextSources,
+	collectContextView,
+	effectiveContextWindow,
+} from '../context-usage.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const sources = (over: Partial<ContextSources> = {}): ContextSources => ({
@@ -27,6 +31,26 @@ const skill = (name: string, description: string, over: Partial<SkillInfo> = {})
 	source: 'user',
 	tier: 'user',
 	...over,
+})
+
+describe('the window compaction measures against', () => {
+	it('is the configured auto-compact window when it is below the model window', () => {
+		expect(
+			effectiveContextWindow({ windowTokens: 200_000, windowSource: 'model-table' }, 50_000),
+		).toEqual({ windowTokens: 50_000, windowSource: 'config', windowAssumed: false })
+	})
+
+	it('cannot be raised past the model window by the setting', () => {
+		expect(
+			effectiveContextWindow({ windowTokens: 128_000, windowSource: 'default' }, 786_432),
+		).toEqual({ windowTokens: 128_000, windowSource: 'default', windowAssumed: true })
+	})
+
+	it('is the reported window when nothing is configured', () => {
+		expect(
+			effectiveContextWindow({ windowTokens: 200_000, windowSource: 'provider' }, undefined),
+		).toEqual({ windowTokens: 200_000, windowSource: 'provider', windowAssumed: false })
+	})
 })
 
 describe('collecting the view', () => {

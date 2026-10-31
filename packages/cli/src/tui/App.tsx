@@ -353,7 +353,7 @@ import {
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
-import { buildContextRow } from './context-usage.js'
+import { buildContextRow, effectiveContextWindow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { isSessionPlanPath } from './display-path.js'
@@ -9056,11 +9056,14 @@ function AppBody({
 							? {
 									context: {
 										tokens: event.contextTokens,
-										windowTokens: event.contextWindowTokens,
 										measured: event.contextMeasuredBy === 'provider',
-										windowAssumed:
-											event.windowSource !== 'provider' && event.windowSource !== 'config',
-										...(event.windowSource ? { windowSource: event.windowSource } : {}),
+										...effectiveContextWindow(
+											{
+												windowTokens: event.contextWindowTokens,
+												...(event.windowSource ? { windowSource: event.windowSource } : {}),
+											},
+											ctxRef.current.compaction?.autoCompactWindowTokens,
+										),
 									},
 								}
 							: {}),
