@@ -96,6 +96,7 @@ import {
 	isDefaultAccountId,
 } from '../integrations/accounts/binding.js'
 import { loginAddressIn, runCodexLogin } from '../integrations/accounts/codex-login.js'
+import { hostAccountFacts } from '../integrations/accounts/host-facts.js'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { accountProductName, accountState } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
@@ -2209,6 +2210,7 @@ function AppBody({
 	const setHandoffPark = useCallback((value: HandoffPark | null) => {
 		handoffParkRef.current = value
 		setHandoffParkState(value)
+		peersRef.current?.publish()
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
@@ -5860,6 +5862,7 @@ function AppBody({
 			setAutoActive(autoOn)
 			savedPrefsRef.current = prefs
 			sessionAccountRef.current = nextAccount
+			peersRef.current?.publish()
 			resumeAccountRef.current = null
 			palDefinitionRef.current = definition
 			palRouteSessionRef.current = definition ? scope.sessionId : null
@@ -11251,6 +11254,7 @@ function AppBody({
 			const returnsIn = retryAfterMs(event)
 			if (returnsIn === undefined) accounts.activity.markMayBeLimited(currentId, now)
 			else accounts.activity.markLimited(currentId, now + returnsIn)
+			peersRef.current?.publish()
 			let list: Account[] = []
 			try {
 				list = accounts.registry.list()
@@ -13914,6 +13918,22 @@ function AppBody({
 		peersStartingRef.current = true
 		let disposed = false
 		let opened: LivePeers | null = null
+		// What the account chip and the limit marker of a spaces host show. Read at
+		// each publish, so a switch or a spent allowance reaches the sidebar at once.
+		const hostFacts = () => {
+			let activity: ReturnType<ReturnType<typeof openCliAccounts>['activity']['read']> | undefined
+			try {
+				activity = openCliAccounts({ defaultProviders: [] }).activity.read()
+			} catch {
+				activity = undefined
+			}
+			return hostAccountFacts({
+				accountId: sessionAccountRef.current?.id,
+				stopped: handoffParkRef.current?.spentAllowance !== undefined,
+				activity,
+				now: Date.now(),
+			})
+		}
 		const onClose = () => {
 			disposed = true
 			if (peersRef.current === opened) peersRef.current = null
@@ -13949,6 +13969,9 @@ function AppBody({
 				? {
 						conversation: () =>
 							conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+						account: () => hostFacts().account,
+						limited: () => hostFacts().limited,
+						limitedUntil: () => hostFacts().limitedUntil,
 					}
 				: {}),
 		})

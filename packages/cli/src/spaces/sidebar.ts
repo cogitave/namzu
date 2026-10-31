@@ -1,7 +1,7 @@
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE } from '../terminal/host/cell.js'
 import type { CellStyle, Frame, Rect } from '../terminal/host/frame.js'
 import type { Entry, Roster, Space } from './roster.js'
-import { type Dot, activityNote, spaceNote } from './status.js'
+import { type Dot, activityNote, limitedNote, spaceNote } from './status.js'
 
 const GREY = 8
 const GREEN = 2
@@ -29,6 +29,8 @@ interface Row {
 	readonly selected?: boolean
 	readonly dot?: Dot
 	readonly account?: string
+	/** A note that asks for a look, drawn in colour. */
+	readonly warn?: boolean
 }
 
 const DOTS: Record<Dot, { glyph: string; fg: number }> = {
@@ -52,8 +54,8 @@ export function listHeight(height: number, footLines: number): number {
 	return Math.max(0, height - LIST_TOP - footLines - 1)
 }
 
-function noteRow(text: string, target: SidebarTarget): Row {
-	return { kind: 'note', text, target }
+function noteRow(text: string, target: SidebarTarget, warn = false): Row {
+	return { kind: 'note', text, target, ...(warn ? { warn: true } : {}) }
 }
 
 function spaceRows(roster: Roster): Row[] {
@@ -80,7 +82,12 @@ function sessionRows(roster: Roster): Row[] {
 	if (!selected) return []
 	return roster.entriesOf(roster.spaceOf(selected)).flatMap((entry): Row[] => {
 		const target: SidebarTarget = { kind: 'session', entry }
-		const note = activityNote(entry.activity(), entry.unseen, entry.child?.ending)
+		const base = activityNote(entry.activity(), entry.unseen, entry.child?.ending)
+		const note = entry.openElsewhere
+			? 'open in another terminal'
+			: entry.limited && entry.activity() !== 'exited'
+				? limitedNote(entry.limitedUntil, Date.now())
+				: base
 		return [
 			{
 				kind: 'session',
@@ -90,7 +97,7 @@ function sessionRows(roster: Roster): Row[] {
 				dot: entry.dot(),
 				...(entry.account ? { account: entry.account } : {}),
 			},
-			...(note ? [noteRow(note, target)] : []),
+			...(note ? [noteRow(note, target, entry.limited && !entry.openElsewhere)] : []),
 		]
 	})
 }
@@ -208,10 +215,7 @@ function drawRow(frame: Frame, rect: Rect, y: number, row: Row, navigating: bool
 			{ ...rect, x: rect.x + 4, width: rect.width - 4 },
 			y,
 			clip(row.text, rect.width - 5),
-			{
-				fg: GREY,
-				attrs: ATTR_DIM,
-			},
+			row.warn ? { fg: YELLOW } : { fg: GREY, attrs: ATTR_DIM },
 		)
 		return
 	}

@@ -1,4 +1,5 @@
 import type { PeerSessionState } from '@namzu/sdk'
+import { formatResetTime } from '../integrations/accounts/rows.js'
 
 /** What a session is doing, as the host knows it. */
 export type SessionActivity =
@@ -70,4 +71,10 @@ export function spaceNote(dot: Dot): string | undefined {
 	if (dot === 'blocked') return 'needs approval'
 	if (dot === 'done') return 'finished, not seen'
 	return undefined
+}
+
+/** The note under a session whose account is out of allowance. */
+export function limitedNote(until: number | undefined, now: number): string {
+	if (until === undefined) return 'may be limited'
+	return `limited until ${formatResetTime(until, now)}`
 }

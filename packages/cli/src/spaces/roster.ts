@@ -7,6 +7,8 @@ export interface Space {
 	readonly id: string
 	name: string
 	readonly cwd: string
+	/** The account id the last session started here ran on; the picker offers it first. */
+	lastAccount?: string
 }
 
 /** One session row. The terminal behind it starts only when the row is first opened. */
@@ -18,9 +20,22 @@ export class Entry {
 	unseen = false
 	/** Rows scrolled back into the session's history; 0 follows the live screen. */
 	scrollBack = 0
+	/** The label of the non-usual account the session is on, as its terminal last reported. */
 	account: string | undefined
 	conversationId: string | undefined
 	limited = false
+	/** When the spent allowance is expected back (epoch ms), if the terminal knows. */
+	limitedUntil: number | undefined
+	/** The account id picked when the session was started; what a first launch binds. */
+	pickedAccount: string | undefined
+	/** The session the command itself started, which alone receives the command's options. */
+	first = false
+	/** The conversation to open when the session first starts, for one restored from a previous run. */
+	resume: string | undefined
+	/** Whether its conversation is already open in another terminal: it is not started. */
+	openElsewhere = false
+	/** The check for that is running. */
+	checking = false
 	private seen: SessionActivity = 'not-started'
 
 	constructor(
@@ -75,10 +90,16 @@ export class Roster {
 
 	addSession(space: Space, slot: string, label?: string): Entry {
 		const own = this.entriesOf(space)
-		const entry = new Entry(slot, space.id, label ?? `session ${own.length + 1}`)
+		const entry = new Entry(slot, space.id, label ?? this.freeLabel(own))
 		this.entries.push(entry)
 		this.current ??= entry
 		return entry
+	}
+
+	/** `session N` for the smallest N not already used, so a name never repeats after a close. */
+	private freeLabel(own: readonly Entry[]): string {
+		const used = new Set(own.map((e) => e.label))
+		for (let n = own.length + 1; ; n++) if (!used.has(`session ${n}`)) return `session ${n}`
 	}
 
 	/** Shows an entry; looking at a session clears its "finished" mark. */

@@ -66,6 +66,8 @@ export interface LivePeersOptions {
 	readonly account?: () => string | undefined
 	/** True while the bound account is out of allowance. */
 	readonly limited?: () => boolean
+	/** When the spent allowance is expected back (epoch ms), if known. */
+	readonly limitedUntil?: () => number | undefined
 }
 
 /** The directory live-session records and sockets are kept in, hardened for the current user. */
@@ -124,6 +126,9 @@ export async function openLivePeers(options: LivePeersOptions) {
 		...(options.conversation?.() ? { conversationId: options.conversation() as string } : {}),
 		...(options.account?.() ? { account: options.account() as string } : {}),
 		...(options.limited?.() ? { limited: true } : {}),
+		...(options.limited?.() && options.limitedUntil?.()
+			? { limitedUntil: options.limitedUntil() as number }
+			: {}),
 	})
 	const from = (): PeerFrom => {
 		const current = record()
