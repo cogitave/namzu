@@ -13162,8 +13162,14 @@ function AppBody({
 			},
 			report: (text) => pushMessage('system', text),
 			...(process.env.NAMZU_SPACE_SLOT ? { hostSlot: process.env.NAMZU_SPACE_SLOT } : {}),
-			conversation: () =>
-				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+			// Only a session inside a spaces host writes the new record fields, so a plain
+			// session stays readable by builds that predate them.
+			...(process.env.NAMZU_SPACE_SLOT
+				? {
+						conversation: () =>
+							conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+					}
+				: {}),
 		})
 			.then((peers) => {
 				peersStartingRef.current = false

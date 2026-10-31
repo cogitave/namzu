@@ -90,6 +90,8 @@ const QUIT_GRACE_MS = 3000
 const WHEEL_ROWS = 3
 
 const ENTER_SCREEN = '\x1b[?1049h\x1b[2J\x1b[?1000h\x1b[?1006h'
+/** Drawing errors in a row before the host closes instead of retrying. */
+const MAX_PAINT_FAILURES = 3
 const LEAVE_SCREEN = '\x1b[?1006l\x1b[?1000l\x1b[?2004l\x1b[?25h\x1b[?1049l'
 
 type Prompt = { kind: 'folder' | 'rename-session' | 'rename-space'; value: string; error?: string }
@@ -124,6 +126,7 @@ export class SpacesHost {
 	private rendering: Promise<void> = Promise.resolve()
 	private closed = false
 	private quitting = false
+	private paintFailures = 0
 	private firstSession = true
 	private cancelKill: (() => void) | undefined
 	private cancelPoll: (() => void) | undefined
@@ -145,6 +148,24 @@ export class SpacesHost {
 	private readonly onData = (chunk: string | Buffer): void =>
 		this.handleInput(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
 	private readonly onResize = (): void => this.relayout()
+	/** If the process ends without a clean close, still hand the terminal back and stop the sessions. */
+	private readonly onProcessExit = (): void => {
+		if (this.closed) return
+		this.closed = true
+		try {
+			this.options.input.setRawMode?.(false)
+			this.options.output.write(LEAVE_SCREEN)
+		} catch {
+			// The terminal may already be gone.
+		}
+		for (const session of this.everyChild()) {
+			try {
+				session.stop('SIGHUP')
+			} catch {
+				// Already ended.
+			}
+		}
+	}
 
 	constructor(private readonly options: SpacesHostOptions) {
 		this.router = new InputRouter(options.prefix)
@@ -159,6 +180,7 @@ export class SpacesHost {
 		input.resume?.()
 		input.on('data', this.onData)
 		output.on('resize', this.onResize)
+		process.once('exit', this.onProcessExit)
 		const space = this.roster.addSpace(this.options.folder.cwd, this.options.folder.name)
 		const entry = this.addEntry(space)
 		for (const listed of this.options.listed ?? []) {
@@ -631,8 +653,26 @@ export class SpacesHost {
 
 	/** Paints the current state now, after the emulator has taken all output received so far. */
 	render(): Promise<void> {
-		this.rendering = this.rendering.then(() => this.paint())
+		this.rendering = this.rendering
+			.then(() => this.paint())
+			.then(
+				() => {
+					this.paintFailures = 0
+				},
+				() => this.paintFailed(),
+			)
 		return this.rendering
+	}
+
+	/** A drawing error never ends the chain; repeated ones close the host so the terminal is restored. */
+	private paintFailed(): void {
+		this.paintFailures++
+		if (this.paintFailures >= MAX_PAINT_FAILURES) {
+			this.quit()
+			return
+		}
+		this.notice = 'Could not redraw the screen.'
+		this.requestRender()
 	}
 
 	private async paint(): Promise<void> {
@@ -736,6 +776,7 @@ export class SpacesHost {
 		const { input, output } = this.options
 		input.off('data', this.onData)
 		output.off('resize', this.onResize)
+		process.off('exit', this.onProcessExit)
 		input.setRawMode?.(false)
 		input.pause?.()
 		output.write(LEAVE_SCREEN)

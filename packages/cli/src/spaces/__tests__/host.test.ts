@@ -185,4 +185,35 @@ describe('SpacesHost', () => {
 		await expect(t.host.done).resolves.toBe(0)
 		expect(pty.kills).toEqual(['SIGHUP', 'SIGKILL'])
 	})
+	it('survives a drawing error, keeps drawing afterwards, and closes if it keeps failing', async () => {
+		const t = setup()
+		t.host.start()
+		const write = t.output.write
+		;(t.spawned[0] as FakePty).print('first\r\n')
+		t.output.write = () => {
+			throw new Error('closed pipe')
+		}
+		await expect(t.host.render()).resolves.toBeUndefined()
+		t.output.write = write
+		await t.frame()
+		expect((await t.screen()).join('\n')).toContain('Could not redraw')
+		t.output.write = () => {
+			throw new Error('closed pipe')
+		}
+		for (let i = 0; i < 3; i++) {
+			;(t.spawned[0] as FakePty).print(`line ${i}\r\n`)
+			await t.host.render()
+		}
+		t.output.write = write
+		expect((t.spawned[0] as FakePty).kills).toEqual(['SIGHUP'])
+	})
+
+	it('hands the terminal back when the process exits without a clean close', () => {
+		const t = setup()
+		t.host.start()
+		process.emit('exit', 0)
+		expect(t.state.raw).toBe(false)
+		expect(t.written.join('')).toContain('\x1b[?1049l')
+		expect((t.spawned[0] as FakePty).kills).toEqual(['SIGHUP'])
+	})
 })
