@@ -2,6 +2,8 @@ import serializePackage from '@xterm/addon-serialize'
 import type { SerializeAddon as SerializeAddonType } from '@xterm/addon-serialize'
 import headlessPackage from '@xterm/headless'
 import type { Terminal as TerminalType } from '@xterm/headless'
+import type { CellSource } from './host/frame.js'
+import { trackCursorVisibility, xtermSource } from './host/xterm-source.js'
 
 // Both packages are CommonJS bundles: Node's ES loader exposes only their default
 // export, whatever a bundler or a test runner would let a named import do.
@@ -25,6 +27,7 @@ const { SerializeAddon } = serializePackage as unknown as {
 export class HeadlessScreen {
 	private readonly term: TerminalType
 	private readonly serializer: SerializeAddonType
+	private readonly cursorVisible: () => boolean
 	private parsed = 0
 	private fed = 0
 
@@ -32,6 +35,7 @@ export class HeadlessScreen {
 		this.serializer = new SerializeAddon()
 		this.term = new Terminal({ cols, rows, scrollback, allowProposedApi: true })
 		this.term.loadAddon(this.serializer)
+		this.cursorVisible = trackCursorVisibility(this.term)
 	}
 
 	write(data: string): void {
@@ -70,6 +74,11 @@ export class HeadlessScreen {
 		for (let row = 0; row < this.term.rows; row++)
 			rows.push(buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? '')
 		return rows
+	}
+
+	/** The visible screen as cells for the host's renderer, `back` rows into the scrollback. */
+	cells(back = 0): CellSource {
+		return xtermSource(this.term, this.cursorVisible, back)
 	}
 
 	dispose(): void {
