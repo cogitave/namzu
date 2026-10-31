@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
 import type { HostAccount } from '../host.js'
 import { BINDINGS, keyName } from '../keymap.js'
+import { layoutModal } from '../overlay.js'
 import { setup } from './support/harness.js'
 
 const press = (x: number, y: number) => `\x1b[<0;${x + 1};${y + 1}M`
@@ -231,6 +232,16 @@ describe('reordering spaces by dragging', () => {
 		expect(t.host.snapshot().spaces.map((s) => s.name)).toEqual(['docs', 'namzu', 'site'])
 	})
 
+	it('moves a space to the end when it is dropped on the blank area under the last one', async () => {
+		const t = start({ listed })
+		await t.frame()
+		t.type(press(4, 2))
+		t.type(drag(4, 4))
+		t.type(drag(4, 10))
+		t.type(release(4, 10))
+		expect(t.host.roster.spaces.map((s) => s.name)).toEqual(['site', 'docs', 'namzu'])
+	})
+
 	it('leaves the order alone for a plain click', async () => {
 		const t = start({ listed })
 		t.type(press(4, 4))
@@ -377,5 +388,26 @@ describe('the menu overlay', () => {
 		expect(await shows(t, 'add account')).toBe(true)
 		t.type(press(60, 20))
 		expect(await shows(t, 'add account')).toBe(false)
+	})
+})
+
+describe('modals on a very small terminal', () => {
+	it('keeps every drawn button inside the box and drops the optional one first', () => {
+		const spec = {
+			title: 'new space',
+			input: { value: '' },
+			buttons: [
+				{ label: '↲ open', action: 'confirm' as const, primary: true },
+				{ label: '^c clear', action: 'clear' as const },
+				{ label: 'esc cancel', action: 'cancel' as const },
+			],
+		}
+		const layout = layoutModal({ cols: 30, rows: 8 }, spec)
+		expect(layout.buttons.map((b) => b.action)).toEqual(['confirm', 'cancel'])
+		for (const b of layout.buttons) {
+			expect(b.rect.x).toBeGreaterThanOrEqual(layout.rect.x)
+			expect(b.rect.x + b.rect.width).toBeLessThanOrEqual(layout.rect.x + layout.rect.width)
+		}
+		expect(layoutModal({ cols: 100, rows: 30 }, spec).buttons).toHaveLength(3)
 	})
 })

@@ -1521,6 +1521,18 @@ export class SpacesHost {
 			event.y,
 		)
 		if (target?.kind === 'space') drag.to = this.roster.spaces.indexOf(target.space)
+		else if (!target) {
+			// Blank sidebar area under the last space row: the space goes to the end.
+			const geo = geometry(
+				layout.sidebar.height,
+				this.sidebarModel(layout.rail).foot.length,
+				this.split,
+				layout.rail,
+			)
+			const shown = this.roster.spaces.length - this.sidebarScroll.spaces
+			if (event.y >= geo.spaceTop + shown * geo.spaceStep && event.y < (geo.footerY ?? geo.ruleY))
+				drag.to = this.roster.spaces.length - 1
+		}
 		this.requestRender()
 	}
 

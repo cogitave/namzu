@@ -104,7 +104,23 @@ function buttonWidth(button: ModalButton): number {
 	return stringWidth(button.label) + 2
 }
 
-export function layoutModal(screen: Screen, spec: ModalSpec): ModalLayout {
+/** The buttons that fit in `room` columns: the optional ones (neither primary nor cancel) go first, then the label of the rest is kept whole. */
+export function fittingButtons(buttons: readonly ModalButton[], room: number): ModalButton[] {
+	const total = (list: readonly ModalButton[]) =>
+		list.reduce((sum, b) => sum + buttonWidth(b), 0) + BUTTON_GAP * Math.max(0, list.length - 1)
+	const kept = [...buttons]
+	for (let i = kept.length - 1; i >= 0 && total(kept) > room; i--) {
+		const b = kept[i]
+		if (b && !b.primary && b.action !== 'cancel') kept.splice(i, 1)
+	}
+	return kept
+}
+
+export function layoutModal(screen: Screen, fullSpec: ModalSpec): ModalLayout {
+	const spec: ModalSpec = {
+		...fullSpec,
+		buttons: fittingButtons(fullSpec.buttons, screen.cols - 4),
+	}
 	const buttonsWidth =
 		spec.buttons.reduce((sum, b) => sum + buttonWidth(b), 0) +
 		BUTTON_GAP * Math.max(0, spec.buttons.length - 1)
@@ -172,8 +188,8 @@ export function drawModal(
 				bg: palette.panelBg,
 			})
 	}
-	spec.buttons.forEach((b, i) => {
-		const at = layout.buttons[i]?.rect
+	spec.buttons.forEach((b) => {
+		const at = layout.buttons.find((l) => l.action === b.action)?.rect
 		if (!at) return
 		const fill = b.primary ? tone : palette.surface
 		frame.fillRect(at, { bg: fill })
