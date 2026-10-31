@@ -165,6 +165,11 @@ export class InputRouter {
 				actions.push({ type: 'nav', key: key.nav, from: 'text' })
 				continue
 			}
+			if (key.text === this.prefix.byte && this.mode === 'navigate') {
+				// On the sidebar the prefix is still the prefix: the next key is a command.
+				enter('prefix')
+				continue
+			}
 			if (key.text === this.prefix.byte) {
 				const literal = this.mode === 'prefix'
 				enter('terminal')

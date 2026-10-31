@@ -29,7 +29,8 @@ In a plain `namzu`, press `←` on an empty message box to open this screen. The
 - `→` opens the selected session full screen. For the conversation you came from that is the plain screen again, with the whole conversation printed in your terminal's own scrollback exactly once. For any other session the host draws it alone on the whole terminal, sidebar hidden.
 - `enter` types into the selected pane while the split stays; `←` on that pane's empty message box brings the keys back to the sidebar (`ctrl+b` then `w` does too), and `←` on the empty message box of a session shown full screen goes back to this screen.
 - `ctrl+c` with the sidebar focused asks to quit every session. `/exit` in the conversation you came from, or its double `ctrl+c`, ends the process and hangs up the others; spaces and conversation ids are saved as for any quit.
-- `ctrl+b` is the prefix everywhere on this screen.
+- `ctrl+b` is the prefix everywhere on this screen, the sidebar included: press it, then one key (`q` asks to quit, `b` hides the sidebar).
+- Ending the conversation you started from (`/exit`, or `ctrl+c` twice) while another session is mid-turn brings this screen up with the quit question; answering no keeps everything running. A session shown full screen that ends puts you back on this screen.
 
 `←` only counts on an empty message box with nothing attached and no `shift`, `ctrl` or `alt` held. If you have just emptied the box by editing (within 2 seconds), the first `←` only shows "Press ← again to open spaces" and a second one within 3 seconds opens it. Presses closer than 150 ms are key repeat and are ignored, and so are presses within a second after one that opened or armed. Sending a message does not count as editing it away.
 

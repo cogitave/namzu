@@ -131,6 +131,16 @@ export async function launchTui(
 					}
 				}
 			: undefined
+	const onConfirmExit: (() => Promise<boolean>) | undefined =
+		!hosted && proxy !== null
+			? async () => {
+					try {
+						return spaces.current === null ? true : await (await spaces.current).confirmExit()
+					} catch {
+						return true
+					}
+				}
+			: undefined
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
 		React.createElement(App, {
@@ -141,6 +151,7 @@ export async function launchTui(
 			terminationExit,
 			repaint,
 			...(onOpenSpaces ? { onOpenSpaces } : {}),
+			...(onConfirmExit ? { onConfirmExit } : {}),
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
 			tipHistory,

@@ -28,6 +28,8 @@ export interface SpacesEntryDeps {
 export interface SpacesEntry {
 	/** Shows the spaces screen, or moves the keyboard to its sidebar when it is already up. False when it cannot be shown here. */
 	open(): Promise<boolean>
+	/** The conversation wants to end: false when it was asked to stay because other sessions are mid-turn. */
+	confirmExit(): Promise<boolean>
 	/** The conversation ended: hangs up the other sessions and gives the terminal back. */
 	shutdown(): Promise<void>
 }
@@ -136,6 +138,13 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 			if (parts.host.visible) parts.host.focusSidebar()
 			else parts.host.openSpaces()
 			return true
+		},
+		async confirmExit() {
+			// The spaces screen was never opened, so there are no other sessions.
+			if (built === null) return true
+			const parts = await built
+			if (parts === null) return true
+			return parts.host.askLocalExit()
 		},
 		async shutdown() {
 			if (built === null) return

@@ -365,6 +365,86 @@ describe('the host inside a conversation', () => {
 		expect(t.host.roster.entries).toHaveLength(3)
 	})
 
+	it('lets the conversation end at once when no other session is mid-turn', async () => {
+		const { t } = rig({
+			conversationId: 'conv-a',
+			restored: saved({ label: 'session 1', conversationId: 'conv-a' }),
+		})
+		t.host.start()
+		await expect(t.host.askLocalExit()).resolves.toBe(true)
+		t.host.openSpaces()
+		t.type(DOWN)
+		await expect(t.host.askLocalExit()).resolves.toBe(true)
+	})
+
+	it('asks on the spaces screen before the conversation ends while another session is mid-turn', async () => {
+		let records: PeerRecord[] = []
+		const { t } = rig({
+			conversationId: 'conv-a',
+			restored: saved({ label: 'session 1', conversationId: 'conv-a' }),
+			records: () => records,
+		})
+		t.host.start()
+		t.host.openSpaces()
+		t.type(DOWN)
+		const started = t.host.roster.selected
+		records = [record({ pid: 9, state: 'busy', hostSlot: started?.slot })]
+		t.host.readStatus()
+		expect(started?.activity()).toBe('working')
+		// Native full screen on the conversation, then it asks to end.
+		t.type(UP)
+		t.type(RIGHT)
+		expect(t.host.visible).toBe(false)
+		const answer = t.host.askLocalExit()
+		expect(t.host.visible).toBe(true)
+		await t.frame()
+		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
+		t.type('\x1b')
+		await expect(answer).resolves.toBe(false)
+		expect((t.spawned[0] as FakePty).kills).toEqual([])
+		// Asking again and confirming lets it go; the children are hung up by the end that follows.
+		const again = t.host.askLocalExit()
+		await t.frame()
+		t.type('\r')
+		await expect(again).resolves.toBe(true)
+		expect((t.spawned[0] as FakePty).kills).toEqual([])
+	})
+
+	it('goes back to the split view when the session shown full screen ends', async () => {
+		const { t } = rig({
+			conversationId: 'conv-a',
+			restored: saved({ label: 'session 1', conversationId: 'conv-a' }),
+		})
+		t.host.start()
+		t.host.openSpaces()
+		t.type(DOWN)
+		const pty = t.spawned[0] as FakePty
+		t.type(RIGHT)
+		await t.frame()
+		expect((await t.screen())[0]).not.toContain('NAVIGATE')
+		pty.end(0)
+		await t.frame()
+		const shown = (await t.screen()).join('\n')
+		expect(shown).toContain('NAVIGATE')
+		// The keys are the sidebar's again, not the dead session's.
+		t.type(UP)
+		expect(t.host.roster.selected?.child?.local).toBe(true)
+	})
+
+	it('runs the prefix command from the sidebar the way it does from a pane', async () => {
+		const { t, local } = rig({
+			conversationId: 'conv-a',
+			restored: saved({ label: 'session 1', conversationId: 'conv-a' }),
+		})
+		t.host.start()
+		t.host.openSpaces()
+		t.type('\x02')
+		t.type('q')
+		await t.frame()
+		expect((await t.screen()).join('\n')).toContain('Quit all sessions?')
+		expect(local.writes).toEqual([])
+	})
+
 	it('saves the conversation’s id with the layout', () => {
 		const { t } = rig({
 			conversationId: 'conv-b',

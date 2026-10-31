@@ -321,6 +321,8 @@ export class SpacesHost {
 	private view: 'split' | 'full' = 'split'
 	private localEntry: Entry | undefined
 	private quitting = false
+	/** Answers the running conversation's wish to end while other sessions are mid-turn. */
+	private exitGate: ((leave: boolean) => void) | undefined
 	private paintFailures = 0
 	private cancelKill: (() => void) | undefined
 	private cancelPoll: (() => void) | undefined
@@ -748,6 +750,18 @@ export class SpacesHost {
 				this.leaving.splice(i, 1)
 			}
 		}
+		// A session shown full screen that ends leaves nothing to type into: back to the split view.
+		if (
+			this.view === 'full' &&
+			!this.hidden &&
+			this.roster.selected === entry &&
+			entry.child?.status === 'exited'
+		) {
+			this.view = 'split'
+			this.fit()
+			this.router.enterNavigate()
+			this.writer.invalidate()
+		}
 		if (this.quitting && this.everyChild().every((c) => c.status === 'exited')) this.close()
 		else this.requestRender()
 	}
@@ -1032,6 +1046,29 @@ export class SpacesHost {
 		return this.roster.shownTab?.name ?? ''
 	}
 
+	/**
+	 * The running conversation is about to end (`/exit`, ctrl+c twice). With no other session
+	 * mid-turn it may go at once; otherwise the spaces screen comes up with the quit question
+	 * and the answer decides.
+	 */
+	askLocalExit(): Promise<boolean> {
+		const busy = this.roster.entries.some((e) => {
+			if (!e.child || e.child.local || e.child.status === 'exited') return false
+			const activity = e.activity()
+			return activity === 'working' || activity === 'needs-approval'
+		})
+		if (this.closed || this.quitting || !this.localEntry || !busy) return Promise.resolve(true)
+		this.exitGate?.(false)
+		return new Promise<boolean>((resolve) => {
+			if (this.hidden) this.openSpaces()
+			else this.dismiss()
+			this.exitGate = resolve
+			this.confirm = 'quit'
+			this.router.capture(true)
+			this.requestRender()
+		})
+	}
+
 	private askQuit(): void {
 		if (this.everyChild().every((s) => s.status === 'exited')) this.quit()
 		else this.confirm = 'quit'
@@ -1074,6 +1111,7 @@ export class SpacesHost {
 
 	/** Closes whatever overlay is open without doing what it asked. */
 	private dismiss(): void {
+		this.settleExit(false)
 		this.prompt = undefined
 		this.picker = undefined
 		this.confirm = undefined
@@ -1190,7 +1228,20 @@ export class SpacesHost {
 		const confirmed = this.confirm
 		if (!confirmed) return
 		this.confirm = undefined
-		if (key.kind === 'enter' || (key.kind === 'char' && key.char === 'y')) this.perform(confirmed)
+		const yes = key.kind === 'enter' || (key.kind === 'char' && key.char === 'y')
+		// A conversation ending asked: the answer goes back to it, and its end hangs the others up.
+		if (this.exitGate) {
+			this.settleExit(yes)
+			this.router.capture(this.captured())
+			return
+		}
+		if (yes) this.perform(confirmed)
+	}
+
+	private settleExit(leave: boolean): void {
+		const gate = this.exitGate
+		this.exitGate = undefined
+		gate?.(leave)
 	}
 
 	private contextKey(key: NavKey): void {
@@ -2413,6 +2464,7 @@ export class SpacesHost {
 		this.cancelSave = undefined
 		this.writeLayout()
 		this.closed = true
+		this.settleExit(true)
 		this.cancelKill?.()
 		this.cancelPoll?.()
 		this.cancelReconcile?.()

@@ -699,6 +699,12 @@ export interface AppProps {
 	 */
 	readonly onOpenSpaces?: () => Promise<boolean>
 	/**
+	 * Asked before a typed exit (`/exit`, ctrl+c or ctrl+d twice) ends the conversation; false keeps
+	 * it, because the spaces screen asked whether to hang up sessions that are mid-turn.
+	 * A termination signal does not ask.
+	 */
+	readonly onConfirmExit?: () => Promise<boolean>
+	/**
 	 * The launcher turns this on: an empty first prompt suggests an example
 	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
 	 * for the plain placeholder keep waiting for it.
@@ -1503,6 +1509,7 @@ function AppBody({
 	terminationExit,
 	repaint,
 	onOpenSpaces,
+	onConfirmExit,
 	examplePrompts = false,
 	queuedHintCount,
 	tipHistory,
@@ -3106,7 +3113,7 @@ function AppBody({
 		])
 		void bounded.catch(() => undefined).finally(() => exit())
 	}, [cancelPendingModelSwitch, exit, session])
-	const exitWithSummary = useCallback(() => {
+	const exitNow = useCallback(() => {
 		onExitSummary?.({
 			...(palDefinitionRef.current ? { palId: palDefinitionRef.current.id } : {}),
 			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
@@ -3115,6 +3122,21 @@ function AppBody({
 		})
 		closeAndExit()
 	}, [closeAndExit, onExitSummary])
+	const exitAsking = useRef(false)
+	const exitWithSummary = useCallback(() => {
+		if (!onConfirmExit) {
+			exitNow()
+			return
+		}
+		if (exitAsking.current) return
+		exitAsking.current = true
+		void onConfirmExit()
+			.catch(() => true)
+			.then((leave) => {
+				exitAsking.current = false
+				if (leave) exitNow()
+			})
+	}, [exitNow, onConfirmExit])
 	/**
 	 * The first Ctrl+C (with nothing to interrupt) or Ctrl+D (on an empty
 	 * composer) arms exit and says so in the footer for 800 ms; the same key
@@ -7440,12 +7462,12 @@ function AppBody({
 		if (!terminationExit) return
 		terminationExit.current = () => {
 			interruptTurn()
-			exitWithSummary()
+			exitNow()
 		}
 		return () => {
 			terminationExit.current = null
 		}
-	}, [terminationExit, interruptTurn, exitWithSummary])
+	}, [terminationExit, interruptTurn, exitNow])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.

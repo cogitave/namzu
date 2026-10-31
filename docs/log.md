@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [namzu spaces (preview)](cli/spaces.md): `ctrl+b` is the prefix on the focused sidebar too; `/exit` or `ctrl+c` twice in the conversation you started from asks the quit question first when another session is mid-turn; a session shown full screen that ends returns to the spaces screen. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
 - **Update** [namzu spaces (preview)](cli/spaces.md#opening-it-from-a-conversation) and [Terminal design](cli/terminal-design.md#the-composer-footer): `←` on an empty composer opens the spaces screen from a plain `namzu` (the conversation becomes one of its panes; `↑`/`↓` move through the sessions, `→` opens one full screen, `enter` types into it), with a gesture that arms after a just-emptied draft and ignores key repeat. The agents cockpit moves to `↓` and `/agents` where the spaces screen is available (it keeps `←` on Windows and without a terminal), and the footer drops `← N agents` there. A hosted session's `←` goes back one level through a private terminal message. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
 
 ## 2026-10-31

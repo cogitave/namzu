@@ -105,6 +105,22 @@ describe('InputRouter', () => {
 		])
 	})
 
+	it('reads the prefix as a prefix while the sidebar is focused, and does not send a literal one', () => {
+		const r = router()
+		r.enterNavigate()
+		expect(r.feed('\x02q')).toEqual([
+			{ type: 'mode', mode: 'prefix' },
+			{ type: 'mode', mode: 'terminal' },
+			{ type: 'nav', key: { kind: 'char', char: 'q' }, from: 'prefix' },
+		])
+		r.enterNavigate()
+		expect(r.feed('\x02\x02')).toEqual([
+			{ type: 'mode', mode: 'prefix' },
+			{ type: 'mode', mode: 'terminal' },
+			{ type: 'write', data: '\x02' },
+		])
+	})
+
 	it('swallows unknown escape sequences whole in a mode', () => {
 		const r = router()
 		r.feed('\x02r')
