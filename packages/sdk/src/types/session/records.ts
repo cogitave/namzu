@@ -576,6 +576,19 @@ export const BudgetBoundRecordSchema = inTurn('budget_bound', {
 	accountId: text.min(1),
 })
 
+/**
+ * The account a session's provider calls run under. Written when a session is
+ * bound to an account other than the provider's `default`, and again on each
+ * switch; never inside an open turn's work, only between turns. Replay reads
+ * the last one. A build that predates this record refuses a log holding it, so
+ * a session that never leaves the default account never writes one.
+ */
+export const AccountBoundRecordSchema = recordSchema('account_bound', {
+	accountId: text.min(1),
+	provider: text.min(1),
+	reason: z.enum(['start', 'user_switch', 'limit_switch']),
+})
+
 export const LogRepairedRecordSchema = recordSchema('log_repaired', {
 	truncatedBytes: positive,
 	lastGoodSeq: positive,
@@ -612,6 +625,7 @@ const RECORD_ONLY_SCHEMAS = {
 	child_session_ended: ChildSessionEndedRecordSchema,
 	audit: AuditRecordSchema,
 	budget_bound: BudgetBoundRecordSchema,
+	account_bound: AccountBoundRecordSchema,
 	log_repaired: LogRepairedRecordSchema,
 } as const
 
@@ -982,6 +996,7 @@ export type CompactionRecord = z.infer<typeof CompactionRecordSchema>
 export type ChildSessionEndedRecord = z.infer<typeof ChildSessionEndedRecordSchema>
 export type AuditRecord = z.infer<typeof AuditRecordSchema>
 export type BudgetBoundRecord = z.infer<typeof BudgetBoundRecordSchema>
+export type AccountBoundRecord = z.infer<typeof AccountBoundRecordSchema>
 export type LogRepairedRecord = z.infer<typeof LogRepairedRecordSchema>
 
 export type SessionRecordOnly =
@@ -998,6 +1013,7 @@ export type SessionRecordOnly =
 	| ChildSessionEndedRecord
 	| AuditRecord
 	| BudgetBoundRecord
+	| AccountBoundRecord
 	| LogRepairedRecord
 
 /** One line of a session log. */

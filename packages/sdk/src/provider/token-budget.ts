@@ -29,9 +29,14 @@ function rejectedBeforeGeneration(error: unknown): boolean {
 			[400, 401, 403, 404, 413, 422, 429].includes(classified.status))
 	return (
 		explicitRejection &&
-		['auth', 'rate_limit', 'context_length_exceeded', 'invalid_request', 'not_found'].includes(
-			classified.code,
-		)
+		[
+			'auth',
+			'rate_limit',
+			'usage_limit',
+			'context_length_exceeded',
+			'invalid_request',
+			'not_found',
+		].includes(classified.code)
 	)
 }
 
@@ -96,6 +101,7 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 					![
 						'auth',
 						'rate_limit',
+						'usage_limit',
 						'context_length_exceeded',
 						'invalid_request',
 						'not_found',

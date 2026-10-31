@@ -1869,6 +1869,23 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+export {
+	ACCOUNTS_FILE_NAME,
+	ACCOUNTS_FILE_VERSION,
+	AccountLockError,
+	AccountRegistryError,
+	CredentialWithdrawnError,
+	DEFAULT_ACCOUNT_LABEL,
+	accountBoundPayload,
+	accountId,
+	codexRefreshLockPath,
+	createAccountRegistry,
+	parseAccountId,
+	resolveBoundAccount,
+	withAccountLock,
+	withAccountLockSync,
+	withAccountRefreshLock,
+} from './account/index.js'
 export { DiskPalStore, PalConflictError } from './pals/store.js'
 export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
 export { buildPalSystemPrompt, palConversationGreeting } from './pals/prompt.js'

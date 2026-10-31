@@ -59,6 +59,14 @@ export const PREFERENCES_FILE_VERSION = 3 as const
 export interface ProviderChoice {
 	readonly id: ProviderId
 	readonly model?: string
+	/**
+	 * The account this member runs under, as `<provider>:<label>`. Absent means
+	 * the provider's existing sign-in, so a file written before accounts existed
+	 * reads exactly as it did. A session that switches account with `/auth` keeps
+	 * the choice for itself and never writes it here; this field is how a person
+	 * (or `--account`) pins one.
+	 */
+	readonly account?: string
 }
 
 export interface Preferences {
@@ -286,7 +294,7 @@ function describeInvalidChain(members: readonly ProviderChoice[]): string | null
 		// breaks on upgrade. Two entries for one provider with different models
 		// stay legitimate: falling back from a large model to a small one on the
 		// same provider is a real chain.
-		const key = JSON.stringify([member.id, member.model ?? null])
+		const key = JSON.stringify([member.id, member.model ?? null, member.account ?? null])
 		if (seen.has(key)) {
 			const shown = member.model ? `${member.id} (${member.model})` : member.id
 			return `${position} repeats "${shown}", which is already earlier in the chain — a provider cannot be its own fallback`
@@ -312,6 +320,9 @@ function isProviderChoice(value: unknown): value is ProviderChoice {
 	const v = value as Record<string, unknown>
 	if (typeof v.id !== 'string' || v.id.length === 0) return false
 	if (v.model !== undefined && typeof v.model !== 'string') return false
+	if (v.account !== undefined && (typeof v.account !== 'string' || v.account.length === 0)) {
+		return false
+	}
 	return true
 }
 

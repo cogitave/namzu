@@ -1,5 +1,7 @@
-import type { ReasoningEffort } from '@namzu/sdk'
+import { type ReasoningEffort, parseAccountId } from '@namzu/sdk'
 import { applyProviderFlags } from '../commands/exec-flags.js'
+import { bindAccount } from '../integrations/accounts/binding.js'
+import type { CliAccounts } from '../integrations/accounts/open.js'
 import { applyFallbackFlag } from '../integrations/providers/fallback-flag.js'
 import type { Preferences } from '../integrations/providers/index.js'
 import type { PermissionMode } from '../permissions/mode.js'
@@ -13,6 +15,8 @@ import type { PermissionMode } from '../permissions/mode.js'
  */
 export interface TuiLaunchSettings {
 	readonly provider?: string
+	/** `--account`: the account (`<provider>:<label>`) this launch runs under. */
+	readonly account?: string
 	readonly model?: string
 	readonly effort?: ReasoningEffort
 	readonly permissionMode?: PermissionMode
@@ -28,7 +32,9 @@ export interface TuiLaunchSettings {
 
 /** Whether any flag changes which providers or models the session starts on. */
 export function choosesModel(settings: TuiLaunchSettings | undefined): boolean {
-	return Boolean(settings?.provider || settings?.model || settings?.fallbackModels?.length)
+	return Boolean(
+		settings?.provider || settings?.account || settings?.model || settings?.fallbackModels?.length,
+	)
 }
 
 /**
@@ -43,12 +49,19 @@ export function choosesModel(settings: TuiLaunchSettings | undefined): boolean {
 export function launchPreferences(
 	saved: Preferences | null,
 	settings: TuiLaunchSettings,
+	accounts?: Pick<CliAccounts, 'registry'>,
 ): Preferences | null {
 	const base: Preferences = saved ?? { version: 3, providers: [], subagents: { active: [] } }
+	// An account names its provider, so it stands in for `--provider`.
+	const accountId = settings.account
+	const provider = accountId ? parseAccountId(accountId)?.provider : settings.provider
 	const applied = applyProviderFlags(base, {
-		provider: settings.provider ?? null,
+		provider: provider ?? settings.provider ?? null,
 		model: settings.model ?? null,
 	})
 	const chained = applyFallbackFlag(applied, settings.fallbackModels ?? [])
-	return chained.providers.length > 0 ? chained : null
+	if (chained.providers.length === 0) return null
+	if (!accountId) return chained
+	const account = accounts?.registry.get(accountId)
+	return account ? bindAccount(chained, account, { model: settings.model }) : null
 }
