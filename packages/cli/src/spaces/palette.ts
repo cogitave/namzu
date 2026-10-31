@@ -99,6 +99,8 @@ export function paletteFor(truecolor: boolean): Palette {
 	out.activeRow = truecolor ? rgb(30, 30, 46) : 8
 	out.cursorRow = truecolor ? rgb(49, 50, 68) : 8
 	out.tabRest = out.dim
+	// The pastel red is nearest to light grey, which would make a warning look like plain text.
+	if (!truecolor) out.red = 9
 	// Both would land on black; a raised tab keeps its look as bright black, with white text.
 	if (!truecolor && out.surface === out.panelBg) {
 		out.surface = 8

@@ -22,6 +22,8 @@ describe('the palette', () => {
 		expect(nearestAnsi([0, 0, 0])).toBe(0)
 		expect(nearestAnsi([255, 255, 255])).toBe(15)
 		expect(nearestAnsi([250, 10, 10])).toBe(9)
+		// A warning stays red.
+		expect(palette.red).toBe(9)
 		// Dim grey is not read as black or white.
 		expect([7, 8]).toContain(palette.dim)
 	})
