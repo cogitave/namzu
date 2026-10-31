@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-10-31
+- **Update** [Accounts](sdk/accounts.md): the CLI's per-account Codex reader refreshes a private `auth.json` in place under the account lock. `.changeset/codex-home-account-reader.md` (`@namzu/cli` patch).
 - **Update** [Accounts](sdk/accounts.md): `codex-home` accounts belong to the codex provider only, API-key accounts may carry a `baseUrl` and `defaultModel`, and a throttle or rejected request that names a spent allowance classifies as `usage_limit`. `.changeset/account-registry.md` is now `@namzu/sdk` major (a spent allowance is no longer retried; two unions gain a member).
 - **Update** [Accounts](sdk/accounts.md): stale store locks are reclaimed and mutations wait for a live holder, overlapping Codex directories are rejected, and spent-allowance responses classify to `usage_limit`. `.changeset/account-registry.md` updated.
 - **Creation** [Accounts](sdk/accounts.md): the account registry, `accounts.json`, the per-account refresh lock, the `account_bound` record (also in [Session log](sdk/session-log.md)) and the `usage_limit` error code. Peer-record readers now keep a record carrying fields they do not know. `.changeset/account-registry.md` (`@namzu/sdk` minor), `.changeset/peer-record-reader-tolerance.md` (`@namzu/sdk` patch).

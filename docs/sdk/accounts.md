@@ -85,6 +85,14 @@ checking that the file still holds what it read. The lock file is
 another. A lock whose recording process has exited is reclaimed; a lock held by a live
 process is refused unless the caller passes `attempts` and a `wait` hook.
 
+The CLI supplies the Codex reader (`createCodexHomeReader`). It reads `auth.json`
+the way the single Codex sign-in does, spends the refresh grant with the same
+request, and publishes only the token fields (plus `last_refresh`) back to the
+file, mode `0600`, under `withAccountRefreshLock`. If the file's tokens changed
+while the request was in flight, the file wins and nothing is overwritten. A missing
+sign-in, a refused grant, or a refreshed token that names a different ChatGPT
+account is a `CredentialWithdrawnError`.
+
 ## Session binding
 
 `account_bound` is a [session-log](session-log.md) record:
