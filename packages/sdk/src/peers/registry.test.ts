@@ -244,3 +244,23 @@ describe('symlink safety', () => {
 		expect(readPeerRecords(dir)).toHaveLength(1)
 	})
 })
+
+describe('reader tolerance', () => {
+	it('keeps a record carrying a field this build does not know', () => {
+		const dir = makeSessionsDir()
+		const record = makeRecord()
+		writeFileSync(
+			join(dir, `${record.sessionId}.json`),
+			JSON.stringify({ ...record, hostSlot: 3, account: 'codex:work' }),
+		)
+		expect(readPeerRecord(dir, record.sessionId)).toEqual(record)
+		expect(readPeerRecords(dir)).toEqual([record])
+	})
+
+	it('still refuses a record that is missing a required field', () => {
+		const dir = makeSessionsDir()
+		const { token: _token, ...rest } = makeRecord()
+		writeFileSync(join(dir, 'sess-1.json'), JSON.stringify(rest))
+		expect(readPeerRecords(dir)).toEqual([])
+	})
+})

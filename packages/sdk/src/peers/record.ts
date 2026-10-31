@@ -46,6 +46,14 @@ export const PeerRecordSchema = z
 	})
 	.strict()
 
+/**
+ * The reader's view of a record: the same fields, but a key this build does
+ * not know is dropped instead of failing the whole record. A record written by
+ * a newer build (extra optional fields) stays visible to an older reader.
+ * Writers keep using the strict `PeerRecordSchema`.
+ */
+export const PeerRecordReaderSchema = PeerRecordSchema.strip()
+
 export type PeerRecord = z.infer<typeof PeerRecordSchema>
 
 const PEER_REF_HEX_LENGTH = 6
