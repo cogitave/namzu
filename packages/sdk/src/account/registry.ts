@@ -48,6 +48,8 @@ const AccountSchema = z
 		source: SourceSchema,
 		createdAt: z.string(),
 		display: z.string().optional(),
+		baseUrl: z.string().optional(),
+		defaultModel: z.string().optional(),
 	})
 	.passthrough()
 const FileSchema = z
@@ -186,6 +188,26 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 		}
 	}
 
+	function checkEndpointAndModel(input: { baseUrl?: string; defaultModel?: string }): void {
+		if (input.baseUrl !== undefined) {
+			let url: URL
+			try {
+				url = new URL(input.baseUrl)
+			} catch {
+				throw new AccountRegistryError('The base URL is not a valid address.')
+			}
+			if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+				throw new AccountRegistryError('The base URL must start with https:// or http://.')
+			}
+			if (url.username !== '' || url.password !== '') {
+				throw new AccountRegistryError('The base URL must not contain a user name or password.')
+			}
+		}
+		if (input.defaultModel !== undefined && !/^\S{1,200}$/.test(input.defaultModel)) {
+			throw new AccountRegistryError('The default model is one name of up to 200 characters.')
+		}
+	}
+
 	function realOrSelf(target: string): string {
 		// Resolve symlinks through the deepest existing ancestor, so a symlinked
 		// parent cannot lead outside the accounts folder.
@@ -251,6 +273,7 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 				let source: AccountSource
 				if (input.kind === 'api-key') {
 					if (input.apiKey.length === 0) throw new AccountRegistryError('The API key is empty.')
+					checkEndpointAndModel(input)
 					const keyRef = `key-${randomBytes(9).toString('hex')}`
 					file.keys[keyRef] = input.apiKey
 					source = { kind: 'api-key', keyRef }
@@ -287,6 +310,12 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 					source,
 					createdAt: now().toISOString(),
 					...(input.display !== undefined ? { display: input.display } : {}),
+					...(input.kind === 'api-key' && input.baseUrl !== undefined
+						? { baseUrl: input.baseUrl }
+						: {}),
+					...(input.kind === 'api-key' && input.defaultModel !== undefined
+						? { defaultModel: input.defaultModel }
+						: {}),
 				}
 				file.accounts.push(account as unknown as StoreFile['accounts'][number])
 				return account
@@ -368,7 +397,12 @@ export function createAccountRegistry(options: AccountRegistryOptions = {}): Acc
 			if (secret === undefined) {
 				throw new CredentialWithdrawnError(id, 'The saved key for this account is missing.')
 			}
-			return { kind: 'api-key', accessToken: secret }
+			return {
+				kind: 'api-key',
+				accessToken: secret,
+				...(account.baseUrl !== undefined ? { baseUrl: account.baseUrl } : {}),
+				...(account.defaultModel !== undefined ? { defaultModel: account.defaultModel } : {}),
+			}
 		},
 
 		next(provider, excluding) {

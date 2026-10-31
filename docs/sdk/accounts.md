@@ -30,7 +30,13 @@ added, renamed to or removed.
 |---|---|---|
 | `existing-default` | the provider's existing sign-in | synthesised |
 | `codex-home` (codex provider only) | a private directory under `<NAMZU_HOME>/accounts/` whose `auth.json` a `codex login` wrote with `CODEX_HOME` pointing at it | `add({ kind: 'codex-home' })` |
-| `api-key` | a labelled API key in the store's secret map | `add({ kind: 'api-key', apiKey })` |
+| `api-key` | a labelled API key in the store's secret map, with an optional `baseUrl` and `defaultModel` | `add({ kind: 'api-key', apiKey, baseUrl?, defaultModel? })` |
+
+An API-key account may name its own endpoint (`baseUrl`, http or https, no embedded
+credentials) and the model a session on it starts with (`defaultModel`). Both are
+stored beside the account, never in the secret map, and `resolve` returns them with
+the key. An OpenAI-compatible endpoint is its own account, never a setting on
+another one.
 
 A Codex directory has one owner, Namzu, so its tokens may be refreshed in place.
 `add` refuses a directory outside `<NAMZU_HOME>/accounts/` and a directory another
@@ -99,5 +105,13 @@ by older builds.
 reset, as opposed to a burst limit (`rate_limit`). It is not retried inside the
 turn. A fallback chain still advances past it, and the error catalogue explains
 it as `provider.usage_limit`. The classifier maps the structural codes
-`insufficient_quota`, `usage_limit_reached` and `usage_limit_exceeded` onto it, so a
-spent allowance stops instead of being retried; burst limits stay `rate_limit`.
+`insufficient_quota`, `usage_limit_reached`, `usage_limit_exceeded` and
+`billing_error` onto it, so a spent allowance stops instead of being retried; burst
+limits stay `rate_limit`. A driver reports a throttle or a rejected request as a
+`ProviderRequestError`; when its provider code, or its own sentence ("credit
+balance is too low", "exceeded your current quota", "usage limit reached"), says
+the allowance is spent, the classifier files it as `usage_limit` and not retryable.
+`providerVendorError` lifts those identifiers out of a vendor error's `type` as
+well as its `code`, because the plan-limit identifier of the ChatGPT-backed Codex
+wire arrives in `error.type`. That body shape is mapped from the documented
+identifier; it has not been observed from a live account.

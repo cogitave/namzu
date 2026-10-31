@@ -177,6 +177,48 @@ describe('AccountRegistry', () => {
 		expect(codexHome).not.toHaveBeenCalled()
 	})
 
+	it('carries an API-key account endpoint and starting model, and hands them back on resolve', async () => {
+		const dir = home()
+		const registry = createAccountRegistry({ home: dir })
+		const added = registry.add({
+			provider: 'openai',
+			label: 'lab',
+			kind: 'api-key',
+			apiKey: 'sk-lab',
+			baseUrl: 'https://llm.example.test/v1',
+			defaultModel: 'small-fast',
+		})
+		expect(added).toMatchObject({
+			baseUrl: 'https://llm.example.test/v1',
+			defaultModel: 'small-fast',
+		})
+		expect(registry.get('openai:lab')).toMatchObject({ baseUrl: 'https://llm.example.test/v1' })
+		expect(await registry.resolve('openai:lab', signal)).toEqual({
+			kind: 'api-key',
+			accessToken: 'sk-lab',
+			baseUrl: 'https://llm.example.test/v1',
+			defaultModel: 'small-fast',
+		})
+		// A plain key account is unchanged: no endpoint, no model.
+		registry.add({ provider: 'openai', label: 'plain', kind: 'api-key', apiKey: 'sk-plain' })
+		expect(await registry.resolve('openai:plain', signal)).toEqual({
+			kind: 'api-key',
+			accessToken: 'sk-plain',
+		})
+		expect(readFileSync(join(dir, 'accounts.json'), 'utf8')).not.toContain('"baseUrl": undefined')
+	})
+
+	it('refuses an endpoint that is not http(s), carries a password, or a model name with spaces', () => {
+		const registry = createAccountRegistry({ home: home() })
+		const add = (extra: { baseUrl?: string; defaultModel?: string }) => () =>
+			registry.add({ provider: 'openai', label: 'bad', kind: 'api-key', apiKey: 'k', ...extra })
+		expect(add({ baseUrl: 'not a url' })).toThrow(AccountRegistryError)
+		expect(add({ baseUrl: 'file:///etc/passwd' })).toThrow(AccountRegistryError)
+		expect(add({ baseUrl: 'https://user:pw@host.test/v1' })).toThrow(AccountRegistryError)
+		expect(add({ defaultModel: 'two words' })).toThrow(AccountRegistryError)
+		expect(registry.list('openai').map((a) => a.id)).toEqual(['openai:default'])
+	})
+
 	it('orders next(): default first, then creation order, skipping the excluded', () => {
 		const registry = createAccountRegistry({ home: home() })
 		registry.add({ provider: 'openai', label: 'a', kind: 'api-key', apiKey: '1' })

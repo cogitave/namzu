@@ -32,6 +32,10 @@ export interface Account {
 	readonly createdAt: string
 	/** A short human tag such as the tail of a ChatGPT account id. Never a token. */
 	readonly display?: string
+	/** API-key accounts only: the endpoint this key belongs to. An OpenAI-compatible endpoint is its own account. */
+	readonly baseUrl?: string
+	/** API-key accounts only: the model a session on this account starts with. */
+	readonly defaultModel?: string
 }
 
 /** What `add` accepts. The id, the creation time and the key slot are assigned by the registry. */
@@ -42,6 +46,9 @@ export type NewAccount =
 			readonly kind: 'api-key'
 			readonly apiKey: string
 			readonly display?: string
+			/** An http(s) endpoint without embedded credentials. */
+			readonly baseUrl?: string
+			readonly defaultModel?: string
 	  }
 	| {
 			readonly provider: 'codex'
@@ -56,6 +63,10 @@ export type NewAccount =
 export interface ResolvedAccountCredential {
 	readonly kind: 'api-key' | 'oauth'
 	readonly accessToken: string
+	/** Set for an API-key account that names its own endpoint. */
+	readonly baseUrl?: string
+	/** Set for an API-key account that names a starting model. */
+	readonly defaultModel?: string
 	/** The provider-side account identity some drivers send as a header. */
 	readonly accountId?: string
 	/** Epoch milliseconds, when the credential expires. */

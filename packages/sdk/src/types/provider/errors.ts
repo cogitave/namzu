@@ -496,6 +496,7 @@ const STRUCTURAL_CODES: Readonly<Record<string, ProviderErrorCode>> = {
 	insufficient_quota: 'usage_limit',
 	usage_limit_reached: 'usage_limit',
 	usage_limit_exceeded: 'usage_limit',
+	billing_error: 'usage_limit',
 	overloaded_error: 'overloaded',
 	content_filter: 'content_filter',
 	content_policy_violation: 'content_filter',
@@ -503,6 +504,24 @@ const STRUCTURAL_CODES: Readonly<Record<string, ProviderErrorCode>> = {
 	authentication_error: 'auth',
 	permission_error: 'auth',
 	model_not_found: 'not_found',
+}
+
+/**
+ * Is this exact provider code, or the provider's own complaint, a spent
+ * allowance? The codes are the vendors' identifiers (`insufficient_quota`,
+ * `usage_limit_reached`, `usage_limit_exceeded`, `billing_error`); the
+ * sentences are the two vendors that word it only in prose: an exhausted
+ * prepaid balance and an exhausted plan allowance.
+ */
+const USAGE_LIMIT_DETAIL: readonly RegExp[] = [
+	/credit balance is too low/i,
+	/exceeded your current quota/i,
+	/usage limit (?:has been )?(?:reached|exceeded)/i,
+]
+
+export function isUsageLimitSignal(code: string | undefined, detail: string | undefined): boolean {
+	if (code !== undefined && STRUCTURAL_CODES[code.toLowerCase()] === 'usage_limit') return true
+	return detail !== undefined && USAGE_LIMIT_DETAIL.some((re) => re.test(detail))
 }
 
 function codeFromStructure(err: unknown): ProviderErrorCode | undefined {
@@ -564,6 +583,8 @@ function classifyFromProviderRequestError(
 	const candidate = err as Error & {
 		kind?: unknown
 		providerId?: unknown
+		providerCode?: unknown
+		detail?: unknown
 		status?: unknown
 		retryAfterMs?: unknown
 		shouldRetry?: unknown
@@ -571,15 +592,23 @@ function classifyFromProviderRequestError(
 	if (typeof candidate.kind !== 'string') return undefined
 	const mapped = KIND_TO_CODE[candidate.kind]
 	if (!mapped) return undefined
+	// A throttle or an invalid request that says the allowance is spent is not
+	// a burst limit: resending the same request cannot succeed.
+	const spent =
+		(candidate.kind === 'throttle' || candidate.kind === 'bad_request') &&
+		isUsageLimitSignal(
+			typeof candidate.providerCode === 'string' ? candidate.providerCode : undefined,
+			typeof candidate.detail === 'string' ? candidate.detail : undefined,
+		)
 
 	const retryAfterMs =
 		typeof candidate.retryAfterMs === 'number' ? candidate.retryAfterMs : readRetryAfterMs(err, now)
 
 	return new ProviderError({
-		code: mapped.code,
+		code: spent ? 'usage_limit' : mapped.code,
 		message: err.message,
 		// The provider saying "do not resend" beats the kind's own verdict.
-		retryable: candidate.shouldRetry === false ? false : mapped.retryable,
+		retryable: spent || candidate.shouldRetry === false ? false : mapped.retryable,
 		cause: err,
 		...(typeof candidate.providerId === 'string'
 			? { providerId: candidate.providerId }
