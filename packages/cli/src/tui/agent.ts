@@ -1,4 +1,6 @@
 import { debugRequested } from '../debug-requested.js'
+import { isDefaultAccountId } from '../integrations/accounts/binding.js'
+import { openCliAccounts } from '../integrations/accounts/open.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
@@ -211,6 +213,11 @@ import {
 	windowsShellNotice,
 	wrapUntrusted,
 } from '@namzu/sdk'
+import {
+	type Account,
+	CredentialWithdrawnError as AccountCredentialWithdrawnError,
+	type ResolvedAccountCredential,
+} from '@namzu/sdk'
 
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
@@ -371,7 +378,11 @@ import {
 	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
-import { type ConversationContext, ensureSessionStarted } from '../integrations/sessions/store.js'
+import {
+	type ConversationContext,
+	ensureSessionStarted,
+	recordAccountBound,
+} from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { parseSmallModel } from '../integrations/small-model/route.js'
 import { type SideModel, createSideModel } from '../integrations/small-model/side-model.js'
@@ -1268,6 +1279,15 @@ export interface AgentSession {
 	readonly pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
+	/**
+	 * The account this session runs under, when it is not the provider's usual
+	 * sign-in, or when the provider has other accounts to tell it apart from.
+	 */
+	readonly account?: {
+		readonly id: string
+		readonly label: string
+		readonly provider: string
+	}
 	/**
 	 * Whether the auto mode can be entered in this session: its classifier has a
 	 * model this machine can reach and the settings have not switched it off.
@@ -2240,6 +2260,13 @@ function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseTo
 
 export interface AgentSessionOptions {
 	/**
+	 * Where accounts are looked up when the head of the chain names one
+	 * (`ProviderChoice.account`). Defaults to the registry under the Namzu home.
+	 */
+	readonly accounts?: import('../integrations/accounts/open.js').CliAccounts
+	/** Why the session is bound to its account, recorded with the binding. */
+	readonly accountReason?: 'start' | 'user_switch' | 'limit_switch'
+	/**
 	 * Open the session without waiting for the provider's model listing. A
 	 * provider that cannot name a model's reasoning-effort levels from what it
 	 * already knows is asked for its listing; by default the session waits for
@@ -2545,14 +2572,18 @@ function clipRequestContext(
 
 export async function createAgentSession(
 	prefs: Preferences,
-	detected: readonly DetectedProvider[],
+	detectedProviders: readonly DetectedProvider[],
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
 	const modelEnvironment = readModelLaunchEnvironment()
 	if (options.palEnvironment) {
 		const { createPalAgentSession } = await import('../pals/agent-session.js')
-		return createPalAgentSession(prefs, detected, options)
+		return createPalAgentSession(prefs, detectedProviders, options)
 	}
+	// What this session can see of the machine's providers. Differs from the
+	// argument only when the session is bound to an account other than the
+	// usual sign-in: that provider then carries the account's credential.
+	let detected = detectedProviders
 	const { palAtWorkspace } = await import('../pals/store.js')
 	if (palAtWorkspace(options.cwd ?? process.cwd()))
 		throw new Error('This Pal requires its owned virtual computer. Open it with namzu pal chat.')
@@ -2704,6 +2735,53 @@ export async function createAgentSession(
 		// Every other refusal below is about the machine.
 		return emptySession(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
 	}
+	// An account other than the usual sign-in: its credential is read now, so a
+	// withdrawn or unreadable one is refused before the session exists and the
+	// caller keeps whatever session it already had.
+	let boundAccount: Account | undefined
+	let accountsHandle: import('../integrations/accounts/open.js').CliAccounts | undefined
+	if (primary.account !== undefined && !isDefaultAccountId(primary.account)) {
+		accountsHandle = options.accounts ?? openCliAccounts()
+		const found = accountsHandle.registry.get(primary.account)
+		if (!found || found.provider !== primary.id) {
+			return emptySession(
+				'That account is no longer set up. Choose another with /auth.',
+				'invocation',
+			)
+		}
+		let resolved: ResolvedAccountCredential
+		try {
+			resolved = await accountsHandle.registry.resolve(found.id, AbortSignal.timeout(30_000))
+		} catch (err) {
+			return emptySession(
+				err instanceof AccountCredentialWithdrawnError
+					? `${found.label} needs to be signed in again. Choose it in /auth to add it once more, or pick another account.`
+					: explainFailure(err, `Namzu could not use the account ${found.label}.`),
+				'environment',
+				describeError(err),
+			)
+		}
+		boundAccount = found
+		detected = [
+			...detected.filter((item) => item.entry.id !== primary.id),
+			{
+				entry,
+				source: { kind: 'session' },
+				apiKey: resolved.accessToken,
+				...(resolved.baseUrl !== undefined ? { baseUrl: resolved.baseUrl } : {}),
+				...(primary.id === 'codex' && resolved.accountId !== undefined
+					? {
+							codex: {
+								accountId: resolved.accountId,
+								...(resolved.expiresAt !== undefined ? { expiresAt: resolved.expiresAt } : {}),
+								origin: 'stored' as const,
+							},
+						}
+					: {}),
+				alternatives: [],
+			},
+		]
+	}
 	const det = findDetected(detected, primary.id)
 	if (
 		requiresCredentialForModel(entry, primary.model ?? entry.defaultModel) &&
@@ -2802,7 +2880,8 @@ export async function createAgentSession(
 	const borrowedAnthropic = primary.id === 'anthropic' && det?.oauth?.origin === 'keychain'
 	const borrowedCodexPath =
 		primary.id === 'codex' && det?.source.kind === 'codex-file' ? det.source.path : undefined
-	const storedCodex = primary.id === 'codex' && det?.codex?.origin === 'stored'
+	const storedCodex =
+		primary.id === 'codex' && det?.codex?.origin === 'stored' && boundAccount === undefined
 	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
 	const credentialPath = det?.oauth?.sourcePath
 	let currentToken = det?.apiKey
@@ -2963,14 +3042,62 @@ export async function createAgentSession(
 		currentToken = credential.accessToken
 		currentCodexAccount = credential.accountId
 	}
+	// A Codex account that owns a private home is read, and refreshed when due,
+	// before every turn: the registry holds the refresh lock across it, so two
+	// Namzu processes never spend one refresh token twice.
+	const accountCodexHome = boundAccount?.source.kind === 'codex-home' ? boundAccount : undefined
+	const refreshAccountCodex = async (signal?: AbortSignal): Promise<void> => {
+		if (!accountCodexHome || !accountsHandle) return
+		let credential: ResolvedAccountCredential
+		try {
+			credential = await accountsHandle.registry.resolve(
+				accountCodexHome.id,
+				signal ?? AbortSignal.timeout(30_000),
+			)
+		} catch (error) {
+			if (error instanceof AccountCredentialWithdrawnError) {
+				throw new CredentialWithdrawnError(
+					`${accountCodexHome.label} needs to be signed in again. Choose another account with /auth.`,
+				)
+			}
+			throw error
+		}
+		if (credential.accessToken === currentToken && credential.accountId === currentCodexAccount) {
+			return
+		}
+		if (credential.accountId === undefined) return
+		provider = constructProvider(
+			'codex',
+			{
+				...(det as DetectedProvider),
+				apiKey: credential.accessToken,
+				codex: {
+					accountId: credential.accountId,
+					...(credential.expiresAt !== undefined ? { expiresAt: credential.expiresAt } : {}),
+					origin: 'stored',
+				},
+			},
+			model,
+			{ sessionId: scope.sessionId },
+		)
+		currentToken = credential.accessToken
+		currentCodexAccount = credential.accountId
+	}
 	const prepareProviderCredential = (signal?: AbortSignal): Promise<void> => {
-		if (!subscriptionRefresh && !borrowedAnthropic && !borrowedCodexPath && !storedCodex) {
+		if (
+			!subscriptionRefresh &&
+			!borrowedAnthropic &&
+			!borrowedCodexPath &&
+			!storedCodex &&
+			!accountCodexHome
+		) {
 			signal?.throwIfAborted()
 			return Promise.resolve()
 		}
 		signal?.throwIfAborted()
 		const queued = credentialTail.then(async () => {
-			if (subscriptionRefresh) await performRefresh(signal)
+			if (accountCodexHome) await refreshAccountCodex(signal)
+			else if (subscriptionRefresh) await performRefresh(signal)
 			else if (borrowedAnthropic) rereadBorrowedAnthropic(signal)
 			else if (storedCodex) await refreshStoredCodex(signal)
 			else rereadBorrowedCodex(signal)
@@ -5259,8 +5386,25 @@ export async function createAgentSession(
 			if (failure) yield { kind: 'error', message: failure.message }
 		})()
 	}
+	const recordedAccountFor = new Map<SessionId, string>()
+	const accountBadge: AgentSession['account'] = (() => {
+		if (boundAccount) {
+			return { id: boundAccount.id, label: boundAccount.label, provider: boundAccount.provider }
+		}
+		// A provider that has other accounts names the usual one too, so a switch
+		// back to it is visible.
+		try {
+			const handle = options.accounts ?? openCliAccounts()
+			return handle.registry.list(primary.id).some((item) => item.label !== 'default')
+				? { id: `${primary.id}:default`, label: 'default', provider: primary.id }
+				: undefined
+		} catch {
+			return undefined
+		}
+	})()
 	const agentSession: AgentSession = {
 		hasProvider: true,
+		...(accountBadge ? { account: accountBadge } : {}),
 		autoMode: {
 			available: sessionClassifier !== undefined,
 			...(autoModeReason !== undefined ? { reason: autoModeReason } : {}),
@@ -6343,6 +6487,29 @@ export async function createAgentSession(
 									...(options.origin ? { origin: options.origin } : {}),
 								},
 							)
+						}
+						// The account this turn runs under: remembered for the picker's
+						// ordering, and written into the conversation so a resume continues on
+						// it. Between turns by construction, so no turn's work is interrupted.
+						if (boundAccount && accountsHandle) {
+							accountsHandle.activity.markUsed(boundAccount.id, Date.now())
+							if (
+								!options.ephemeral &&
+								options.conversationSessions &&
+								options.accountReason !== undefined &&
+								recordedAccountFor.get(turnScope.sessionId) !== boundAccount.id
+							) {
+								try {
+									await recordAccountBound(options.conversationSessions, turnScope.sessionId, {
+										accountId: boundAccount.id,
+										provider: boundAccount.provider,
+										reason: options.accountReason,
+									})
+									recordedAccountFor.set(turnScope.sessionId, boundAccount.id)
+								} catch (error) {
+									cliLogger().warn('account binding was not recorded', exceptionAttributes(error))
+								}
+							}
 						}
 						try {
 							for await (const event of runTurn({

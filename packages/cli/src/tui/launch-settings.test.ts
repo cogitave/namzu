@@ -71,3 +71,35 @@ describe('choosesModel', () => {
 		expect(choosesModel({ fallbackModels: [] })).toBe(false)
 	})
 })
+
+describe('launchPreferences with an account', () => {
+	const accounts = {
+		registry: {
+			get: (id: string) =>
+				id === 'openai:free-a'
+					? {
+							id,
+							provider: 'openai',
+							label: 'free-a',
+							source: { kind: 'api-key', keyRef: 'k' },
+							createdAt: '',
+							defaultModel: 'glm',
+						}
+					: undefined,
+		},
+	} as never
+
+	it('--account starts on that account and its starting model, for this launch only', () => {
+		const next = launchPreferences(saved, { account: 'openai:free-a' }, accounts)
+		expect(next?.providers[0]).toEqual({ id: 'openai', model: 'glm', account: 'openai:free-a' })
+		expect(saved.providers[0]).toEqual({ id: 'anthropic', model: 'a-1' })
+	})
+
+	it('--model wins over the account starting model, and an unknown account gives no chain', () => {
+		expect(
+			launchPreferences(saved, { account: 'openai:free-a', model: 'm2' }, accounts)?.providers[0],
+		).toEqual({ id: 'openai', model: 'm2', account: 'openai:free-a' })
+		expect(launchPreferences(saved, { account: 'openai:gone' }, accounts)).toBeNull()
+		expect(choosesModel({ account: 'openai:free-a' })).toBe(true)
+	})
+})

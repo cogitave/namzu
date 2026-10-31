@@ -31,6 +31,7 @@ export type InterruptionKind =
 	| 'auth'
 	| 'permission'
 	| 'rate_limit'
+	| 'usage_limit'
 	| 'server'
 	| 'network'
 	| 'model_not_found'
@@ -43,6 +44,7 @@ export type InterruptionKind =
 /** Which of the plain-language cases an interruption is, from facts the event carries. */
 export function classifyInterruption(event: Interruption): InterruptionKind {
 	const id = event.explanation?.id ?? ''
+	if (isSpentAllowance(event)) return 'usage_limit'
 	if (event.failure?.code === 'stale_cached_history') return 'stale_history'
 	if (id === 'provider.permission') return 'permission'
 	if (id === 'provider.auth') return 'auth'
@@ -68,6 +70,20 @@ export function classifyInterruption(event: Interruption): InterruptionKind {
 		default:
 			return 'unknown'
 	}
+}
+
+/** The provider says this account has used up its allowance, not that it is busy for a moment. */
+export function isSpentAllowance(event: Interruption): boolean {
+	if (event.explanation?.id === 'provider.usage_limit') return true
+	if (event.failure?.code === 'usage_limit') return true
+	const code = event.providerError?.providerCode?.toLowerCase()
+	return (
+		code === 'usage_limit' ||
+		code === 'insufficient_quota' ||
+		code === 'usage_limit_reached' ||
+		code === 'usage_limit_exceeded' ||
+		code === 'billing_error'
+	)
 }
 
 const ID_LIKE =
@@ -195,6 +211,11 @@ function copyFor(
 						: `Try again in about ${formatSpan(wait)}.`,
 			}
 		}
+		case 'usage_limit':
+			return {
+				what: `${name} has used up this account's allowance.`,
+				next: 'Switch to another account with /auth, or pick another model with /model.',
+			}
 		case 'server':
 			return {
 				what: `${name} is having problems on its side.`,

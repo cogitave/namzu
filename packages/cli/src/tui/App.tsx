@@ -14,9 +14,10 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import {
+	type Account,
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	type CostInfo,
@@ -47,6 +48,8 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	parseAccountId,
+	resolveBoundAccount,
 	resolveTriggerThreshold,
 	resolveWorkflowLimits,
 } from '@namzu/sdk'
@@ -87,6 +90,14 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import {
+	bindAccount,
+	findAccountByName,
+	isDefaultAccountId,
+} from '../integrations/accounts/binding.js'
+import { loginAddressIn, runCodexLogin } from '../integrations/accounts/codex-login.js'
+import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
+import { accountProductName } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
@@ -108,6 +119,8 @@ import {
 	terminalNotificationEnabled,
 	writeTerminalNotification,
 } from '../integrations/notifications/terminal.js'
+import { hasApiCredential } from '../integrations/providers/access.js'
+import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
 	type CodexDeviceLogin,
 	type DetectedProvider,
@@ -158,6 +171,7 @@ import {
 	loadConversation,
 	loadResumableConversation,
 	openSessions,
+	readConversationFacts,
 	recordGeneratedTitle,
 	requireWritableConversation,
 	setTitle,
@@ -298,6 +312,22 @@ import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
 import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
+import {
+	ACCOUNT_PICKER_HINTS,
+	ADD_ACCOUNT_VALUE,
+	type AccountWizard,
+	type AddKind,
+	CONTINUE_WITH_ANOTHER_ACCOUNT,
+	DEFAULT_LIMIT_HOLD_MS,
+	accountProblem,
+	addKindPicker,
+	advanceWizard,
+	apiKeyProviderPicker,
+	buildAccountPicker,
+	promptFor,
+	startApiKeyWizard,
+	wizardProvider,
+} from './account-flow.js'
 import { stopAllStep, stoppableBackgroundAgents } from './agent-stop-all.js'
 import {
 	childMessageNotice,
@@ -422,6 +452,7 @@ import {
 	describePlainInterruption,
 	describeProviderWait,
 	isSelfMending,
+	isSpentAllowance,
 } from './plain-interruption.js'
 import {
 	emptyPluginReport,
@@ -623,6 +654,7 @@ import {
 	PAUSED_TURN_LINES,
 	describeTurnStop,
 	handoffContinuationNote,
+	retryAfterMs,
 } from './turn-interruption.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { updaterEventAmbient } from './update-notice.js'
@@ -754,7 +786,12 @@ type TextPromptState = {
 		| 'goal-create'
 		| 'goal-edit'
 		| 'turn-limit'
+		| 'account-step'
 	readonly limitKey?: TurnGuardKey
+	/** Show the typed value as dots (an API key). */
+	readonly mask?: boolean
+	/** An empty answer is an answer (an optional step). */
+	readonly allowEmpty?: boolean
 	readonly title: string
 	readonly placeholder: string
 	readonly emptyNotice: string
@@ -946,6 +983,38 @@ type ChoicePickerState = {
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly ReviewCommit[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** `/auth`: the accounts this conversation can run on. */
+			readonly kind: 'account'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+			/** Opened by a spent allowance: the reply it stopped, run again on the account chosen. */
+			readonly limit?: { readonly resubmit: QueuedPrompt | null }
+	  }
+	| {
+			readonly kind: 'account-add'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly AddKind[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'account-provider'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'account-remove'
+			readonly title: string
+			readonly notice?: string
+			readonly accountId: string
+			readonly values: readonly ('cancel' | 'remove')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 )
@@ -1326,7 +1395,28 @@ type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 interface HandoffPark {
 	readonly turnId: string
 	readonly reason?: string
+	/**
+	 * The reply stopped because the account used up its allowance. Enter opens
+	 * the account list and runs the same reply again on the one chosen.
+	 */
+	readonly spentAllowance?: {
+		readonly resubmit: QueuedPrompt | null
+		readonly label: string
+	}
 	readonly autoResume?: { readonly attempt: number; readonly at: number }
+}
+
+interface AccountActions {
+	readonly open: (limit?: {
+		readonly resubmit: QueuedPrompt | null
+		readonly label: string
+	}) => void
+	readonly choose: (picker: ChoicePickerState, value: string) => void
+	readonly manage: (action: 'rename' | 'remove' | 'auto', id: string) => void
+	readonly submitStep: (value: string) => void
+	readonly noteSpentAllowance: (event: Extract<AgentEvent, { kind: 'error' }>) => void
+	readonly startAdd: () => void
+	readonly switchByName: (name: string) => void
 }
 
 interface QueuePause {
@@ -2078,6 +2168,24 @@ function AppBody({
 	const [textPrompt, setTextPromptState] = useState<TextPromptState | null>(null)
 	const textPromptRef = useRef<TextPromptState | null>(null)
 	const textPromptTokenRef = useRef(0)
+	const accountLoginRef = useRef<AbortController | null>(null)
+	const accountWizardRef = useRef<AccountWizard | null>(null)
+	const pendingAccountSwitchRef = useRef<{
+		readonly account: Account
+		readonly reason: 'user_switch' | 'limit_switch'
+		readonly resubmit: QueuedPrompt | null
+	} | null>(null)
+	/** The account this conversation runs under, when not the provider's usual sign-in. */
+	const sessionAccountRef = useRef<{
+		readonly id: string
+		readonly reason: 'start' | 'user_switch' | 'limit_switch'
+	} | null>(null)
+	/** Why the next session build binds an account; read once by `hydrateSession`. */
+	const accountReasonRef = useRef<'start' | 'user_switch' | 'limit_switch' | null>(null)
+	/** A resumed conversation's recorded account, applied by the first session build. */
+	const resumeAccountRef = useRef<string | null>(null)
+	const accountFellBackNoticeRef = useRef<string | null>(null)
+	const lastHumanTurnRef = useRef<QueuedPrompt | null>(null)
 	const setTextPrompt = useCallback((next: TextPromptState | null) => {
 		textPromptRef.current = next
 		setTextPromptState(next)
@@ -5144,6 +5252,15 @@ function AppBody({
 				removeStoredCredential(value as SubscriptionProviderId | 'google')
 				return
 			}
+			if (
+				picker.kind === 'account' ||
+				picker.kind === 'account-add' ||
+				picker.kind === 'account-provider' ||
+				picker.kind === 'account-remove'
+			) {
+				accountActionsRef.current?.choose(picker, value as string)
+				return
+			}
 			if (picker.kind === 'reasoning-effort' && value === HYPERMODE_VALUE) {
 				applyHypermode(!hypermodeRef.current, picker.selectedSession)
 				return
@@ -5388,6 +5505,28 @@ function AppBody({
 			const restored = await loadResumableConversation(sessions, requestedConversationId)
 			sessionId = asSessionId(requestedConversationId)
 			modelHistoryRef.current = restored
+			// The account this conversation last ran under. One that has since been
+			// removed falls back to the usual sign-in, and the person is told.
+			try {
+				const facts = await readConversationFacts(sessions, sessionId, 'tolerant')
+				const lastBinding = facts?.records
+					.filter((record) => record.type === 'account_bound')
+					.at(-1)
+				if (facts && lastBinding?.type === 'account_bound') {
+					const bound = resolveBoundAccount(
+						facts.records,
+						lastBinding.provider,
+						openCliAccounts({ defaultProviders: [] }).registry,
+					)
+					if (!isDefaultAccountId(bound.accountId)) resumeAccountRef.current = bound.accountId
+					else if (bound.fellBack) {
+						accountFellBackNoticeRef.current =
+							'The account this conversation used was removed. It continues on your usual sign-in.'
+					}
+				}
+			} catch {
+				// A log that cannot be read for its account resumes on the usual sign-in.
+			}
 			// The same closing row every resume path draws: the title a person gave
 			// it, else the first thing they typed.
 			let named: string | undefined
@@ -5524,6 +5663,46 @@ function AppBody({
 					? (tuiPalPreferences(definition, palDefaultPreferencesRef.current ?? requestedPrefs) ??
 						requestedPrefs)
 					: requestedPrefs
+			// The account this conversation runs under. Only a session built from a
+			// chain that names it, or one whose provider is still the account's,
+			// keeps it; choosing another provider by hand leaves it behind. Committed
+			// below, once the session exists, so a refused build changes nothing.
+			let sessionPrefs = prefs
+			let nextAccount: { id: string; reason: 'start' | 'user_switch' | 'limit_switch' } | null =
+				null
+			{
+				const head = prefs.providers[0]
+				const recorded = resumeAccountRef.current
+				if (head?.account && !isDefaultAccountId(head.account)) {
+					nextAccount = {
+						id: head.account,
+						reason: accountReasonRef.current ?? sessionAccountRef.current?.reason ?? 'start',
+					}
+				} else if (head && recorded && !definition) {
+					try {
+						const found = openCliAccounts({ defaultProviders: [] }).registry.get(recorded)
+						if (found) {
+							sessionPrefs = bindAccount(prefs, found)
+							nextAccount = { id: found.id, reason: 'start' }
+						}
+					} catch {
+						// The recorded account cannot be read; the session starts on the usual sign-in.
+					}
+				} else if (
+					head &&
+					sessionAccountRef.current &&
+					parseAccountId(sessionAccountRef.current.id)?.provider === head.id
+				) {
+					nextAccount = sessionAccountRef.current
+					sessionPrefs = {
+						...prefs,
+						providers: [
+							{ ...head, account: nextAccount.id },
+							...prefs.providers.slice(1).filter((member) => member.id !== head.id),
+						],
+					}
+				}
+			}
 			const primary = prefs.providers[0]
 			if (primary && scheduleLiveRef.current) {
 				scheduleLiveRef.current.model = {
@@ -5543,9 +5722,10 @@ function AppBody({
 						...(sessionsRef.current ? { home: sessionsRef.current.root } : {}),
 					}
 				: undefined
-			const s = await createAgentSession(prefs, detectedNow, {
+			const s = await createAgentSession(sessionPrefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(nextAccount ? { accountReason: nextAccount.reason } : {}),
 				...(activeCtx.reloadPermissionRules
 					? { reloadPermissionRules: activeCtx.reloadPermissionRules }
 					: {}),
@@ -5680,6 +5860,8 @@ function AppBody({
 			autoActiveRef.current = autoOn
 			setAutoActive(autoOn)
 			savedPrefsRef.current = prefs
+			sessionAccountRef.current = nextAccount
+			resumeAccountRef.current = null
 			palDefinitionRef.current = definition
 			palRouteSessionRef.current = definition ? scope.sessionId : null
 			// The claimed Pal owns its guest. Only a default follows this route;
@@ -5761,6 +5943,10 @@ function AppBody({
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
 				setPhase('ready')
+				if (accountFellBackNoticeRef.current) {
+					pushMessage('system', accountFellBackNoticeRef.current)
+					accountFellBackNoticeRef.current = null
+				}
 				if (
 					definition &&
 					(!previousInstructionFiles ||
@@ -6072,7 +6258,11 @@ function AppBody({
 				const launch = ctxRef.current.launchSettings
 				if (launch && launchModelPendingRef.current) {
 					launchModelPendingRef.current = false
-					const requested = launchPreferences(probe.preferences, launch)
+					const requested = launchPreferences(
+						probe.preferences,
+						launch,
+						launch.account ? openCliAccounts({ defaultProviders: [] }) : undefined,
+					)
 					const admissionSignal = signal ?? appLifetime.signal
 					const toPicker = (notice: string) => {
 						setPickerDetected(null)
@@ -6084,9 +6274,11 @@ function AppBody({
 					}
 					if (!requested) {
 						toPicker(
-							launch.model || !launch.fallbackModels?.length
-								? '--model needs --provider here: no provider is saved to apply it to.'
-								: '--fallback-model needs a provider to fall over from: none is saved, so choose one first.',
+							launch.account
+								? 'That account is no longer set up. Choose another with /auth.'
+								: launch.model || !launch.fallbackModels?.length
+									? '--model needs --provider here: no provider is saved to apply it to.'
+									: '--fallback-model needs a provider to fall over from: none is saved, so choose one first.',
 						)
 						return
 					}
@@ -7815,6 +8007,11 @@ function AppBody({
 				return
 			}
 
+			if (prompt.kind === 'account-step') {
+				accountActionsRef.current?.submitStep(value)
+				return
+			}
+
 			const scope = scopeRef.current
 			if (!scope || scope.sessionId !== prompt.sessionId) {
 				pushMessage(
@@ -7866,6 +8063,7 @@ function AppBody({
 			if (textPromptRef.current === prompt) setTextPrompt(null)
 			// A cancelled free-text answer is a skipped question, not a hung tool.
 			if (prompt?.kind === 'user-question') resolveQuestion({ kind: 'skip' })
+			if (prompt?.kind === 'account-step') accountWizardRef.current = null
 		})
 	}, [resolveQuestion, setTextPrompt])
 
@@ -9358,6 +9556,7 @@ function AppBody({
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
 						pushSystem('error', describePlainInterruption(event, plainOptions()))
+						if (isSpentAllowance(event)) accountActionsRef.current?.noteSpentAllowance(event)
 					} else st.notification = null
 					break
 			}
@@ -9397,6 +9596,7 @@ function AppBody({
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
 			setContextHidden(false)
 			const { text: promptText } = prompt
+			if (prompt.kind === 'human') lastHumanTurnRef.current = prompt
 			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
@@ -10557,6 +10757,572 @@ function AppBody({
 		],
 	)
 
+	// ── /auth: the accounts this conversation can run on ──────────────────────
+	// Binding is per conversation: it rebuilds this session's provider and
+	// records the choice in the conversation; saved preferences and every other
+	// running conversation are untouched.
+	const accountActionsRef = useRef<AccountActions | null>(null)
+	const openAccounts = useCallback(
+		() =>
+			openCliAccounts({
+				defaultProviders: detected
+					.filter((item) => hasApiCredential(item.entry, item.apiKey))
+					.map((item) => item.entry.id),
+			}),
+		[detected],
+	)
+	const accountSwitchBlocked = useCallback(
+		() =>
+			!session ||
+			!currentProvider ||
+			state !== 'idle' ||
+			phase !== 'ready' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			pendingModelSwitchRef.current !== null ||
+			permissionResolveRef.current !== null ||
+			compactingRef.current ||
+			conversationMutationRef.current !== null ||
+			exportingRef.current ||
+			goalDriveInFlightRef.current,
+		[session, currentProvider, state, phase, hasUnsettledTurn],
+	)
+	const performAccountSwitch = useCallback(
+		async (
+			account: Account,
+			reason: 'user_switch' | 'limit_switch',
+			resubmit: QueuedPrompt | null,
+		): Promise<void> => {
+			const owner = session
+			const base = savedPrefsRef.current
+			if (!owner || !base) {
+				pushMessage('system', 'No model is connected yet, so there is nothing to switch.')
+				return
+			}
+			const controller = new AbortController()
+			const pending: PendingModelSwitch = {
+				turnToken: {},
+				generation: conversationGenRef.current,
+				sessionId: scopeRef.current?.sessionId,
+				ownerSession: owner,
+				controller,
+				signal: AbortSignal.any([appLifetime.signal, controller.signal]),
+			}
+			pendingModelSwitchRef.current = pending
+			setModelSwitchVersion((version) => version + 1)
+			const owns = () =>
+				pendingModelSwitchRef.current === pending &&
+				!pending.signal.aborted &&
+				conversationGenRef.current === pending.generation &&
+				scopeRef.current?.sessionId === pending.sessionId &&
+				previousSessionRef.current === owner
+			const label = `${accountProductName(account.provider)} · ${account.label}`
+			const previousBound = sessionAccountRef.current
+			try {
+				await persistenceTailRef.current
+				if (!owns()) return
+				accountReasonRef.current = reason
+				// Cleared for the build: a switch back to the usual sign-in names no
+				// account, and must not be read as "keep the old one". Restored below if
+				// the build is refused.
+				sessionAccountRef.current = null
+				await hydrateSession(bindAccount(base, account), detected, {
+					signal: pending.signal,
+					persistSelection: false,
+					beforePublish: () => {
+						if (!owns() || abortRef.current || hasUnsettledTurn()) {
+							throw new Error('The conversation changed before the account could be switched.')
+						}
+					},
+				})
+				if (previousSessionRef.current !== owner) {
+					pushMessage('system', `Now using ${label}.`)
+					if (resubmit) enqueueQueued(resubmit)
+				}
+			} catch (error) {
+				if (previousSessionRef.current === owner) sessionAccountRef.current = previousBound
+				if (owns()) {
+					pushMessage(
+						'system',
+						`${explainFailure(error, `Could not switch to ${label}.`)} This conversation stays on its current account.`,
+					)
+				}
+			} finally {
+				accountReasonRef.current = null
+				if (pendingModelSwitchRef.current === pending) {
+					pendingModelSwitchRef.current = null
+					setModelSwitchVersion((version) => version + 1)
+					wakeGoalDriver()
+				}
+			}
+		},
+		[
+			session,
+			detected,
+			hasUnsettledTurn,
+			hydrateSession,
+			pushMessage,
+			enqueueQueued,
+			wakeGoalDriver,
+			appLifetime.signal,
+		],
+	)
+	const requestAccountSwitch = useCallback(
+		(
+			account: Account,
+			reason: 'user_switch' | 'limit_switch',
+			resubmit: QueuedPrompt | null,
+		): void => {
+			if (accountSwitchBlocked()) {
+				pendingAccountSwitchRef.current = { account, reason, resubmit }
+				pushMessage(
+					'system',
+					`Will use ${accountProductName(account.provider)} · ${account.label} from the next reply.`,
+				)
+				return
+			}
+			void performAccountSwitch(account, reason, resubmit)
+		},
+		[accountSwitchBlocked, performAccountSwitch, pushMessage],
+	)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-evaluated on the same boundaries the queue is.
+	useEffect(() => {
+		const pending = pendingAccountSwitchRef.current
+		if (!pending || accountSwitchBlocked()) return
+		pendingAccountSwitchRef.current = null
+		void performAccountSwitch(pending.account, pending.reason, pending.resubmit)
+	}, [state, phase, queued, modelSwitchVersion, accountSwitchBlocked, performAccountSwitch])
+
+	const currentAccountId = useCallback(
+		(): string | undefined =>
+			sessionAccountRef.current?.id ?? (currentProvider ? `${currentProvider}:default` : undefined),
+		[currentProvider],
+	)
+	const openAccountPicker = useCallback(
+		(limit?: { readonly resubmit: QueuedPrompt | null; readonly label: string }) => {
+			const accounts = openAccounts()
+			let list: Account[]
+			try {
+				list = accounts.registry.list()
+			} catch (error) {
+				pushMessage('system', explainFailure(error, 'Could not read your accounts.'))
+				return
+			}
+			const activity = accounts.activity.read()
+			const currentId = currentAccountId()
+			const usual = new Set(
+				detected
+					.filter((item) => hasApiCredential(item.entry, item.apiKey))
+					.map((item) => item.entry.id as string),
+			)
+			const model = buildAccountPicker({
+				accounts: list,
+				activity,
+				currentId,
+				now: Date.now(),
+				signedIn: storedAccountSignedIn,
+				hasUsualSignIn: (provider) => usual.has(provider),
+				...(limit ? { limitedLabel: limit.label } : {}),
+			})
+			const at = limit
+				? model.values.findIndex((id) => id !== currentId && id !== ADD_ACCOUNT_VALUE)
+				: model.values.indexOf(currentId ?? '')
+			setSelectedChoice(Math.max(0, at))
+			setChoicePicker({
+				kind: 'account',
+				title: model.title,
+				...(model.notice ? { notice: model.notice } : {}),
+				values: model.values,
+				options: model.options,
+				...(limit ? { limit: { resubmit: limit.resubmit } } : {}),
+			})
+		},
+		[openAccounts, currentAccountId, detected, pushMessage, setChoicePicker, setSelectedChoice],
+	)
+	const takenLabels = useCallback(
+		(provider: string): string[] => {
+			try {
+				return openAccounts()
+					.registry.list(provider)
+					.map((account) => account.label)
+			} catch {
+				return []
+			}
+		},
+		[openAccounts],
+	)
+	const openWizardPrompt = useCallback(
+		(wizard: AccountWizard) => {
+			const scope = scopeRef.current
+			if (!scope) return
+			accountWizardRef.current = wizard
+			const prompt = promptFor(wizard, takenLabels(wizardProvider(wizard)))
+			textPromptTokenRef.current += 1
+			setChoicePicker(null)
+			setTextPrompt({
+				token: textPromptTokenRef.current,
+				kind: 'account-step',
+				title: prompt.title,
+				placeholder: prompt.placeholder,
+				emptyNotice: prompt.emptyNotice,
+				initialValue: prompt.initialValue,
+				sessionId: scope.sessionId,
+				...(prompt.mask ? { mask: true } : {}),
+				...(prompt.allowEmpty ? { allowEmpty: true } : {}),
+			})
+		},
+		[takenLabels, setChoicePicker, setTextPrompt],
+	)
+	const signInCodexAccount = useCallback(
+		async (label: string): Promise<void> => {
+			const accounts = openAccounts()
+			const controller = new AbortController()
+			accountLoginRef.current = controller
+			accountWizardRef.current = null
+			pushMessage(
+				'system',
+				`Signing in ${label} with Codex. Finish in the browser window · Esc cancels.`,
+			)
+			const dir = accounts.codexHomeFor(label)
+			let result: Awaited<ReturnType<typeof runCodexLogin>>
+			try {
+				result = await runCodexLogin({
+					dir,
+					signal: controller.signal,
+					onOutput: (line) => {
+						const address = loginAddressIn(line)
+						if (address) pushMessage('system', `If no window opened, go to ${address}`)
+					},
+				})
+			} finally {
+				if (accountLoginRef.current === controller) accountLoginRef.current = null
+			}
+			if (result.kind === 'cancelled') {
+				pushMessage('system', 'Sign-in cancelled. Nothing was added.')
+				return
+			}
+			if (result.kind === 'failed') {
+				pushMessage('system', result.message)
+				return
+			}
+			try {
+				const sameSignIn = accounts.registry
+					.list('codex')
+					.find(
+						(other) =>
+							other.source.kind === 'codex-home' &&
+							readCodexCredentialFile(join(other.source.dir, 'auth.json'))?.accountId ===
+								result.accountId,
+					)
+				if (sameSignIn) {
+					rmSync(dir, { recursive: true, force: true })
+					pushMessage('system', `That ChatGPT account is already added as ${sameSignIn.label}.`)
+					return
+				}
+				accounts.registry.add({
+					provider: 'codex',
+					label,
+					kind: 'codex-home',
+					display: result.accountId.slice(-4),
+				})
+				pushMessage('system', `Added Codex · ${label}.`)
+				openAccountPicker()
+			} catch (error) {
+				rmSync(dir, { recursive: true, force: true })
+				pushMessage('system', accountProblem(error, 'Could not add the account.'))
+			}
+		},
+		[openAccounts, pushMessage, openAccountPicker],
+	)
+	const submitAccountStep = useCallback(
+		(value: string) => {
+			const wizard = accountWizardRef.current
+			if (!wizard) return
+			const step = advanceWizard(wizard, value, takenLabels(wizardProvider(wizard)))
+			switch (step.kind) {
+				case 'retry':
+					pushMessage('system', step.notice)
+					openWizardPrompt(wizard)
+					return
+				case 'next':
+					openWizardPrompt(step.wizard)
+					return
+				case 'sign-in-codex':
+					void signInCodexAccount(step.label)
+					return
+				case 'rename': {
+					accountWizardRef.current = null
+					try {
+						const accounts = openAccounts()
+						const renamed = accounts.registry.rename(step.id, step.label)
+						accounts.activity.forget(step.id)
+						pushMessage('system', `Renamed to ${renamed.label}.`)
+					} catch (error) {
+						pushMessage('system', accountProblem(error, 'Could not rename the account.'))
+					}
+					openAccountPicker()
+					return
+				}
+				case 'add-key': {
+					accountWizardRef.current = null
+					try {
+						openAccounts().registry.add({
+							provider: step.provider,
+							label: step.label,
+							kind: 'api-key',
+							apiKey: step.key,
+							...(step.baseUrl !== undefined ? { baseUrl: step.baseUrl } : {}),
+							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
+						})
+						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
+					} catch (error) {
+						pushMessage('system', accountProblem(error, 'Could not add the account.'))
+					}
+					openAccountPicker()
+					return
+				}
+			}
+		},
+		[
+			takenLabels,
+			openWizardPrompt,
+			signInCodexAccount,
+			openAccounts,
+			openAccountPicker,
+			pushMessage,
+		],
+	)
+	const chooseAccountItem = useCallback(
+		(picker: ChoicePickerState, value: string) => {
+			if (picker.kind === 'account') {
+				if (value === ADD_ACCOUNT_VALUE) {
+					const add = addKindPicker()
+					setSelectedChoice(0)
+					setChoicePicker({ kind: 'account-add', ...add, back: picker })
+					return
+				}
+				let account: Account | undefined
+				try {
+					account = openAccounts().registry.get(value)
+				} catch {
+					account = undefined
+				}
+				if (!account) {
+					pushMessage('system', 'That account is no longer set up.')
+					setChoicePicker(null)
+					return
+				}
+				if (!storedAccountSignedIn(account)) {
+					pushMessage(
+						'system',
+						`${account.label} needs to be signed in again. Remove it with Ctrl+X, then add it once more.`,
+					)
+					setChoicePicker(null)
+					return
+				}
+				setChoicePicker(null)
+				if (value === currentAccountId()) {
+					pushMessage('system', `Already using ${account.label}.`)
+					if (picker.limit?.resubmit) enqueueQueued(picker.limit.resubmit)
+					return
+				}
+				requestAccountSwitch(
+					account,
+					picker.limit ? 'limit_switch' : 'user_switch',
+					picker.limit?.resubmit ?? null,
+				)
+				return
+			}
+			if (picker.kind === 'account-add') {
+				if (value === 'codex') openWizardPrompt({ kind: 'codex' })
+				else {
+					const providers = apiKeyProviderPicker()
+					setSelectedChoice(0)
+					setChoicePicker({ kind: 'account-provider', ...providers, back: picker })
+				}
+				return
+			}
+			if (picker.kind === 'account-provider') {
+				openWizardPrompt(startApiKeyWizard(value))
+				return
+			}
+			if (picker.kind === 'account-remove') {
+				if (value === 'remove') {
+					try {
+						const accounts = openAccounts()
+						accounts.registry.remove(picker.accountId)
+						accounts.activity.forget(picker.accountId)
+						pushMessage('system', 'Account removed.')
+					} catch (error) {
+						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
+					}
+				}
+				openAccountPicker()
+			}
+		},
+		[
+			openAccounts,
+			currentAccountId,
+			enqueueQueued,
+			openWizardPrompt,
+			openAccountPicker,
+			requestAccountSwitch,
+			pushMessage,
+			setChoicePicker,
+			setSelectedChoice,
+		],
+	)
+	const manageAccount = useCallback(
+		(action: 'rename' | 'remove' | 'auto', id: string) => {
+			if (parseAccountId(id)?.label === 'default') {
+				pushMessage('system', 'Your usual sign-in is managed with /login and /logout.')
+				return
+			}
+			let account: Account | undefined
+			try {
+				account = openAccounts().registry.get(id)
+			} catch {
+				account = undefined
+			}
+			if (!account) return
+			if (action === 'auto') {
+				if (account.source.kind !== 'api-key') {
+					pushMessage('system', 'Only API-key accounts can switch automatically.')
+					return
+				}
+				const accounts = openAccounts()
+				const on = accounts.activity.read().autoSwitch[id] !== true
+				accounts.activity.setAutoSwitch(id, on)
+				pushMessage(
+					'system',
+					on
+						? `${account.label} will switch to another API-key account by itself when its allowance runs out.`
+						: `${account.label} will stop and ask when its allowance runs out.`,
+				)
+				openAccountPicker()
+				return
+			}
+			if (id === sessionAccountRef.current?.id) {
+				pushMessage(
+					'system',
+					`This conversation is using ${account.label}. Switch to another account first.`,
+				)
+				return
+			}
+			if (action === 'rename') {
+				openWizardPrompt({ kind: 'rename', id })
+				return
+			}
+			const picker = choicePickerRef.current ?? undefined
+			setSelectedChoice(0)
+			setChoicePicker({
+				kind: 'account-remove',
+				title: `Remove ${account.label}?`,
+				notice:
+					account.source.kind === 'api-key'
+						? 'The saved key is deleted from this computer.'
+						: 'Its Codex sign-in is deleted from this computer.',
+				accountId: id,
+				values: ['cancel', 'remove'],
+				options: [
+					{ label: 'Keep it', description: '' },
+					{ label: 'Remove', description: 'Conversations using it will need another account.' },
+				],
+				...(picker ? { back: picker } : {}),
+			})
+		},
+		[
+			openAccounts,
+			openAccountPicker,
+			openWizardPrompt,
+			pushMessage,
+			setChoicePicker,
+			setSelectedChoice,
+		],
+	)
+	const noteSpentAllowance = useCallback(
+		(event: Extract<AgentEvent, { kind: 'error' }>) => {
+			const currentId = currentAccountId()
+			if (!currentId) return
+			const accounts = openAccounts()
+			const now = Date.now()
+			accounts.activity.markLimited(currentId, now + (retryAfterMs(event) ?? DEFAULT_LIMIT_HOLD_MS))
+			let list: Account[] = []
+			try {
+				list = accounts.registry.list()
+			} catch {
+				return
+			}
+			const activity = accounts.activity.read()
+			const usual = new Set(
+				detected
+					.filter((item) => hasApiCredential(item.entry, item.apiKey))
+					.map((item) => item.entry.id as string),
+			)
+			const others = list.filter(
+				(account) =>
+					account.id !== currentId &&
+					!(account.label === 'default' && !usual.has(account.provider)) &&
+					storedAccountSignedIn(account) &&
+					(activity.limitedUntil[account.id] ?? 0) <= now,
+			)
+			if (others.length === 0) return
+			const current = list.find((account) => account.id === currentId)
+			const label = current
+				? `${accountProductName(current.provider)} · ${current.label}`
+				: 'This account'
+			if (current?.source.kind === 'api-key' && activity.autoSwitch[current.id] === true) {
+				const target = others.find(
+					(account) => account.provider === current.provider && account.source.kind === 'api-key',
+				)
+				if (target) {
+					pushMessage('system', `${label} used up its allowance. Continuing on ${target.label}.`)
+					requestAccountSwitch(target, 'limit_switch', lastHumanTurnRef.current)
+					return
+				}
+			}
+			setHandoffPark({
+				turnId: 'allowance',
+				spentAllowance: { resubmit: lastHumanTurnRef.current, label },
+			})
+		},
+		[currentAccountId, openAccounts, detected, pushMessage, requestAccountSwitch, setHandoffPark],
+	)
+	accountActionsRef.current = {
+		open: openAccountPicker,
+		choose: chooseAccountItem,
+		manage: manageAccount,
+		submitStep: submitAccountStep,
+		noteSpentAllowance,
+		startAdd: () => {
+			const add = addKindPicker()
+			setSelectedChoice(0)
+			setChoicePicker({ kind: 'account-add', ...add })
+		},
+		switchByName: (name: string) => {
+			let found: ReturnType<typeof findAccountByName>
+			try {
+				found = findAccountByName(openAccounts().registry, name)
+			} catch (error) {
+				pushMessage('system', explainFailure(error, 'Could not read your accounts.'))
+				return
+			}
+			if ('error' in found) {
+				pushMessage('system', found.error)
+				return
+			}
+			if (found.account.id === currentAccountId()) {
+				pushMessage('system', `Already using ${found.account.label}.`)
+				return
+			}
+			if (!storedAccountSignedIn(found.account)) {
+				pushMessage('system', `${found.account.label} needs to be signed in again.`)
+				return
+			}
+			requestAccountSwitch(found.account, 'user_switch', null)
+		},
+	}
+
 	// `#note` and `/memory add`: a typed memory file in the session's stored
 	// memory, default type `project`. A session without a store — no provider
 	// yet — appends to the curated project file the way every note used to.
@@ -11476,6 +12242,16 @@ function AppBody({
 						)
 						if (effortChooser) chooserDraftRef.current = keybindingDraftRef.current
 						setChoicePicker(effortChooser ?? null)
+						return
+					}
+					case 'auth': {
+						if (palDefinitionRef.current) {
+							pushMessage('system', 'A Pal keeps its own sign-in, so /auth does not apply here.')
+							return
+						}
+						if (slash.add) accountActionsRef.current?.startAdd()
+						else if (slash.name) accountActionsRef.current?.switchByName(slash.name)
+						else accountActionsRef.current?.open()
 						return
 					}
 					case 'login':
@@ -14316,6 +15092,21 @@ function AppBody({
 					}
 					return
 				}
+				if (
+					picker.kind === 'account' &&
+					key.ctrl &&
+					(input === 'r' || input === 'x' || input === 'a')
+				) {
+					const chosen = options[selectedChoiceRef.current]
+					const id = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					if (id && id !== ADD_ACCOUNT_VALUE) {
+						accountActionsRef.current?.manage(
+							input === 'r' ? 'rename' : input === 'x' ? 'remove' : 'auto',
+							id,
+						)
+					}
+					return
+				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
 					const pageSize = choicePickerWindowSize({
 						rows: terminal.rows,
@@ -14442,6 +15233,12 @@ function AppBody({
 				resetTranscript()
 				return
 			}
+			// A Codex sign-in is waiting on the browser: Esc cancels it and removes
+			// the half-made account folder.
+			if (key.escape && accountLoginRef.current) {
+				accountLoginRef.current.abort()
+				return
+			}
 			// A turn a tool paused for a person: Enter on an empty composer
 			// continues it, Esc stops it (the turn is abandoned, like /abandon).
 			if (
@@ -14453,6 +15250,12 @@ function AppBody({
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)
+				if (parked.spentAllowance) {
+					// The reply stopped on a spent allowance: Enter opens the account list
+					// and runs the same reply again on the one chosen; Esc leaves it.
+					if (key.return) accountActionsRef.current?.open(parked.spentAllowance)
+					return
+				}
 				if (key.return) {
 					autoResumeAttemptRef.current = 0
 					selfMendingPauseRowRef.current.forget()
@@ -14675,9 +15478,11 @@ function AppBody({
 								: boxOwnsKeys
 									? undefined
 									: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
-										? handoffPark.autoResume
-											? `trying again in ${formatSpan(Math.max(0, handoffPark.autoResume.at - Date.now()))} · enter try now · esc stop`
-											: 'enter continue · esc stop'
+										? handoffPark.spentAllowance
+											? CONTINUE_WITH_ANOTHER_ACCOUNT
+											: handoffPark.autoResume
+												? `trying again in ${formatSpan(Math.max(0, handoffPark.autoResume.at - Date.now()))} · enter try now · esc stop`
+												: 'enter continue · esc stop'
 										: goalStatus && phase === 'ready' && state === 'idle'
 											? undefined
 											: hintForPhase(phase, state, composerHasDraft)
@@ -15053,6 +15858,8 @@ function AppBody({
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
 								emptyNotice={textPrompt.emptyNotice}
+								mask={textPrompt.mask === true}
+								allowEmpty={textPrompt.allowEmpty === true}
 								hidden={permission !== null || scheduleReviewPrompt !== null || childSurfaceOpen}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
@@ -15085,6 +15892,7 @@ function AppBody({
 											hints: workflowRunsHints(workflowPickerCanStop),
 										}
 									: {})}
+								{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
 								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 								selected={selectedChoice}
@@ -15273,11 +16081,13 @@ function AppBody({
 				(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
 					<StatusBar
 						provider={session?.providerSummary ?? null}
-						model={
+						model={withAccountLabel(
 							autoActive && ctx.routing && !palDefinitionRef.current
 								? autoModelLabel(session?.autoRoute)
-								: (session?.modelSummary ?? null)
-						}
+								: (session?.modelSummary ?? null),
+							session?.providerSummary ?? null,
+							session?.account?.label,
+						)}
 						effort={reasoningEffort}
 						hypermode={hypermode}
 						goal={statusGoal}
@@ -15585,8 +16395,20 @@ function relativeStart(startedAt: number): string {
 	return `${Math.round(hours / 24)}d ago`
 }
 
+/** The model identity, with the account after it when the conversation has one worth naming. */
+function withAccountLabel(
+	model: string | null,
+	provider: string | null,
+	account: string | undefined,
+): string | null {
+	const base = model ?? provider
+	return account === undefined || base === null ? model : `${base} · ${account}`
+}
+
 function choicePickerSearchable(picker: ChoicePickerState): boolean {
-	return ['command', 'skill', 'plugin', 'review-branch', 'review-commit'].includes(picker.kind)
+	return ['command', 'skill', 'plugin', 'review-branch', 'review-commit', 'account'].includes(
+		picker.kind,
+	)
 }
 
 function loadedPluginPicker(owner: AgentSession): ChoicePickerState {
