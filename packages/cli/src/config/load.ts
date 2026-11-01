@@ -27,6 +27,7 @@
 import { readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
+import { parsePrefix } from '../spaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
 
@@ -1989,6 +1990,7 @@ const CONFIG_READERS: ConfigReaders = {
 			reducedMotion?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			spacesPrefix?: unknown
 		}
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
@@ -2042,8 +2044,18 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
 		}
 
+		if (raw.spacesPrefix !== undefined) {
+			if (typeof raw.spacesPrefix !== 'string' || parsePrefix(raw.spacesPrefix) === undefined)
+				return invalidConfigValue(
+					context,
+					['spacesPrefix'],
+					'must be ctrl+ and a letter, or ctrl+space (not ctrl+c, ctrl+d, ctrl+z, or the keys of Tab, Enter, Backspace and Escape)',
+				)
+		}
+
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
+			...(raw.spacesPrefix !== undefined ? { spacesPrefix: raw.spacesPrefix as string } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),

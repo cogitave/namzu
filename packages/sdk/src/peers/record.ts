@@ -43,6 +43,16 @@ export const PeerRecordSchema = z
 		token: z.string().min(1),
 		protocol: z.literal(PEER_PROTOCOL_VERSION),
 		cliVersion: z.string(),
+		/** The slot a spaces host gave this terminal at launch; how the host finds its own sessions. */
+		hostSlot: z.string().min(1).max(128).optional(),
+		/** The conversation this terminal is on, once it has one. */
+		conversationId: z.string().min(1).optional(),
+		/** The label of the non-default account the conversation is bound to; absent for the default. */
+		account: z.string().min(1).optional(),
+		/** True while the bound account is out of allowance and the terminal is waiting for a choice. */
+		limited: z.boolean().optional(),
+		/** When the allowance is expected back (epoch ms); absent when the provider did not say. */
+		limitedUntil: z.number().int().positive().optional(),
 	})
 	.strict()
 

@@ -96,6 +96,7 @@ import {
 	isDefaultAccountId,
 } from '../integrations/accounts/binding.js'
 import { loginAddressIn, runCodexLogin } from '../integrations/accounts/codex-login.js'
+import { hostAccountFacts } from '../integrations/accounts/host-facts.js'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { accountProductName, accountState } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
@@ -687,6 +688,30 @@ export interface AppProps {
 	 * as `/exit` does". The conversation's lease is already given back by then.
 	 */
 	readonly terminationExit?: { current: (() => void) | null }
+	/**
+	 * Where the launcher finds how to have the screen cleared and the whole
+	 * transcript printed again. The spaces screen needs it on every switch of
+	 * the terminal between a mirror and the real screen, including when the
+	 * width does not change and the App's own resize reset would not run.
+	 */
+	readonly repaint?: { current: (() => void) | null }
+	/**
+	 * Opens the spaces screen: `←` on an empty composer. Absent where there is
+	 * no spaces screen to open (Windows, no terminal), which keeps `←` opening the
+	 * agents cockpit. Resolves false when it could not be opened, and the cockpit opens instead.
+	 */
+	readonly onOpenSpaces?: () => Promise<boolean>
+	/**
+	 * Asked before a typed exit (`/exit`, ctrl+c or ctrl+d twice) ends the conversation; false keeps
+	 * it, because the spaces screen asked whether to hang up sessions that are mid-turn.
+	 * A termination signal does not ask.
+	 */
+	readonly onConfirmExit?: () => Promise<boolean>
+	/**
+	 * Runs once the session is closed and just before Ink unmounts: gives the terminal back from
+	 * the spaces screen, so the last frame is drawn on the screen the shell will show.
+	 */
+	readonly beforeExit?: () => Promise<void>
 	/**
 	 * The launcher turns this on: an empty first prompt suggests an example
 	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
@@ -1490,6 +1515,10 @@ function AppBody({
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
+	repaint,
+	onOpenSpaces,
+	onConfirmExit,
+	beforeExit,
 	examplePrompts = false,
 	queuedHintCount,
 	tipHistory,
@@ -2212,6 +2241,7 @@ function AppBody({
 	const setHandoffPark = useCallback((value: HandoffPark | null) => {
 		handoffParkRef.current = value
 		setHandoffParkState(value)
+		peersRef.current?.publish()
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
@@ -3094,9 +3124,13 @@ function AppBody({
 			closing,
 			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
 		])
-		void bounded.catch(() => undefined).finally(() => exit())
-	}, [cancelPendingModelSwitch, exit, session])
-	const exitWithSummary = useCallback(() => {
+		void bounded
+			.catch(() => undefined)
+			.then(() => beforeExit?.())
+			.catch(() => undefined)
+			.finally(() => exit())
+	}, [beforeExit, cancelPendingModelSwitch, exit, session])
+	const exitNow = useCallback(() => {
 		onExitSummary?.({
 			...(palDefinitionRef.current ? { palId: palDefinitionRef.current.id } : {}),
 			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
@@ -3105,6 +3139,21 @@ function AppBody({
 		})
 		closeAndExit()
 	}, [closeAndExit, onExitSummary])
+	const exitAsking = useRef(false)
+	const exitWithSummary = useCallback(() => {
+		if (!onConfirmExit) {
+			exitNow()
+			return
+		}
+		if (exitAsking.current) return
+		exitAsking.current = true
+		void onConfirmExit()
+			.catch(() => true)
+			.then((leave) => {
+				exitAsking.current = false
+				if (leave) exitNow()
+			})
+	}, [exitNow, onConfirmExit])
 	/**
 	 * The first Ctrl+C (with nothing to interrupt) or Ctrl+D (on an empty
 	 * composer) arms exit and says so in the footer for 800 ms; the same key
@@ -3275,6 +3324,15 @@ function AppBody({
 		},
 		[stdout.isTTY, writeStdout],
 	)
+	// The spaces screen switches the terminal between a mirror and the real screen; whichever
+	// way, the screen is rebuilt from the messages, whether or not the width changed.
+	useEffect(() => {
+		if (!repaint) return
+		repaint.current = () => resetTranscript({ preserveTranscriptScreen: true })
+		return () => {
+			repaint.current = null
+		}
+	}, [repaint, resetTranscript])
 
 	// The scroll view grows the live frame to nearly the screen height, and
 	// closing it shrinks the frame back. Either way Ink repaints the frame in
@@ -5875,6 +5933,7 @@ function AppBody({
 			setAutoActive(autoOn)
 			savedPrefsRef.current = prefs
 			sessionAccountRef.current = nextAccount
+			peersRef.current?.publish()
 			resumeAccountRef.current = null
 			palDefinitionRef.current = definition
 			palRouteSessionRef.current = definition ? scope.sessionId : null
@@ -7424,12 +7483,12 @@ function AppBody({
 		if (!terminationExit) return
 		terminationExit.current = () => {
 			interruptTurn()
-			exitWithSummary()
+			exitNow()
 		}
 		return () => {
 			terminationExit.current = null
 		}
-	}, [terminationExit, interruptTurn, exitWithSummary])
+	}, [terminationExit, interruptTurn, exitNow])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.
@@ -11270,6 +11329,7 @@ function AppBody({
 			const returnsIn = retryAfterMs(event)
 			if (returnsIn === undefined) accounts.activity.markMayBeLimited(currentId, now)
 			else accounts.activity.markLimited(currentId, now + returnsIn)
+			peersRef.current?.publish()
 			let list: Account[] = []
 			try {
 				list = accounts.registry.list()
@@ -13933,6 +13993,22 @@ function AppBody({
 		peersStartingRef.current = true
 		let disposed = false
 		let opened: LivePeers | null = null
+		// What the account chip and the limit marker of a spaces host show. Read at
+		// each publish, so a switch or a spent allowance reaches the sidebar at once.
+		const hostFacts = () => {
+			let activity: ReturnType<ReturnType<typeof openCliAccounts>['activity']['read']> | undefined
+			try {
+				activity = openCliAccounts({ defaultProviders: [] }).activity.read()
+			} catch {
+				activity = undefined
+			}
+			return hostAccountFacts({
+				accountId: sessionAccountRef.current?.id,
+				stopped: handoffParkRef.current?.spentAllowance !== undefined,
+				activity,
+				now: Date.now(),
+			})
+		}
 		const onClose = () => {
 			disposed = true
 			if (peersRef.current === opened) peersRef.current = null
@@ -13961,6 +14037,18 @@ function AppBody({
 				wakePeers((version) => version + 1)
 			},
 			report: (text) => pushMessage('system', text),
+			...(process.env.NAMZU_SPACE_SLOT ? { hostSlot: process.env.NAMZU_SPACE_SLOT } : {}),
+			// Only a session inside a spaces host writes the new record fields, so a plain
+			// session stays readable by builds that predate them.
+			...(process.env.NAMZU_SPACE_SLOT
+				? {
+						conversation: () =>
+							conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+						account: () => hostFacts().account,
+						limited: () => hostFacts().limited,
+						limitedUntil: () => hostFacts().limitedUntil,
+					}
+				: {}),
 		})
 			.then((peers) => {
 				peersStartingRef.current = false
@@ -16055,6 +16143,14 @@ function AppBody({
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={focusAgentRail}
 								onOpenAgents={() => void openAgentCockpit()}
+								onOpenSpaces={
+									onOpenSpaces
+										? () =>
+												void onOpenSpaces().then((opened) => {
+													if (!opened) void openAgentCockpit()
+												})
+										: undefined
+								}
 								onScrollTranscript={() => setScrollOpen(true)}
 								onRecallQueued={recallQueuedPrompt}
 								queuedHintCount={queuedHintCount}
@@ -16139,8 +16235,9 @@ function AppBody({
 						monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
-						agentCount={footerKeysLive ? runningAgentCount : 0}
-						workflowCount={footerKeysLive ? runningWorkflowCount : 0}
+						// With a spaces screen to open, `←` no longer opens the agents; `↓` still does.
+						agentCount={footerKeysLive && !onOpenSpaces ? runningAgentCount : 0}
+						workflowCount={footerKeysLive && !onOpenSpaces ? runningWorkflowCount : 0}
 						canManage={
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}

@@ -58,21 +58,36 @@ export interface LivePeersOptions {
 	readonly ready: () => boolean
 	readonly available: () => void
 	readonly report: (text: string) => void
+	/** The slot a spaces host launched this terminal under. */
+	readonly hostSlot?: string
+	/** The conversation this terminal is on, once it has one. */
+	readonly conversation?: () => string | undefined
+	/** The non-default account label the conversation is bound to. */
+	readonly account?: () => string | undefined
+	/** True while the bound account is out of allowance. */
+	readonly limited?: () => boolean
+	/** When the spent allowance is expected back (epoch ms), if known. */
+	readonly limitedUntil?: () => number | undefined
 }
 
-/** Live-instance mailbox. Durable conversation history begins only on drain. */
-export async function openLivePeers(options: LivePeersOptions) {
-	const uid = process.getuid?.()
-	const runtime = resolvePeerRuntimeDir({
-		env: options.env ?? process.env,
-		namzuHome: options.home,
-		uid,
+/** The directory live-session records and sockets are kept in, hardened for the current user. */
+export function resolvePeerRuntime(home: string, env: NodeJS.ProcessEnv = process.env) {
+	return resolvePeerRuntimeDir({
+		env,
+		namzuHome: home,
+		uid: process.getuid?.(),
 		hardenDirectory: (path, owner) => {
 			// Includes Windows current-user ACL validation; POSIX ownership is
 			// checked by the SDK before the directory can be used.
 			resolvePeerRuntimeDirHardening(path, owner)
 		},
 	})
+}
+
+/** Live-instance mailbox. Durable conversation history begins only on drain. */
+export async function openLivePeers(options: LivePeersOptions) {
+	const uid = process.getuid?.()
+	const runtime = resolvePeerRuntime(options.home, options.env ?? process.env)
 	const sessionId = generateSessionId()
 	const ref = derivePeerRef(sessionId)
 	const cwd = realpathSync(options.cwd)
@@ -107,6 +122,13 @@ export async function openLivePeers(options: LivePeersOptions) {
 		token,
 		protocol: PEER_PROTOCOL_VERSION,
 		cliVersion: options.version,
+		...(options.hostSlot ? { hostSlot: options.hostSlot } : {}),
+		...(options.conversation?.() ? { conversationId: options.conversation() as string } : {}),
+		...(options.account?.() ? { account: options.account() as string } : {}),
+		...(options.limited?.() ? { limited: true } : {}),
+		...(options.limited?.() && options.limitedUntil?.()
+			? { limitedUntil: options.limitedUntil() as number }
+			: {}),
 	})
 	const from = (): PeerFrom => {
 		const current = record()

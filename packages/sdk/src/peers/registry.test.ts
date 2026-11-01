@@ -64,6 +64,21 @@ describe('writePeerRecord / readPeerRecord', () => {
 		expect(lstatSync(path).mode & 0o777).toBe(0o600)
 	})
 
+	it('round-trips the optional host fields and rejects an empty one', () => {
+		const dir = makeSessionsDir()
+		const record = makeRecord({
+			hostSlot: 'slot-1',
+			conversationId: 'conv-1',
+			account: 'work',
+			limited: true,
+		})
+		writePeerRecord(dir, record)
+		expect(readPeerRecord(dir, record.sessionId)).toEqual(record)
+		expect(() =>
+			writePeerRecord(dir, { ...makeRecord(), hostSlot: '' } as unknown as PeerRecord),
+		).toThrow(PeerRegistryError)
+	})
+
 	it('overwrites an existing record for the same session id', () => {
 		const dir = makeSessionsDir()
 		writePeerRecord(dir, makeRecord({ state: 'idle' }))
@@ -245,13 +260,22 @@ describe('symlink safety', () => {
 	})
 })
 
+describe('the host fields of a record', () => {
+	it('round-trips the account, the limit and when it ends', () => {
+		const dir = makeSessionsDir()
+		const record = makeRecord({ account: 'free-a', limited: true, limitedUntil: 1_900_000_000_000 })
+		writePeerRecord(dir, record)
+		expect(readPeerRecord(dir, record.sessionId)).toEqual(record)
+	})
+})
+
 describe('reader tolerance', () => {
 	it('keeps a record carrying a field this build does not know', () => {
 		const dir = makeSessionsDir()
 		const record = makeRecord()
 		writeFileSync(
 			join(dir, `${record.sessionId}.json`),
-			JSON.stringify({ ...record, hostSlot: 3, account: 'codex:work' }),
+			JSON.stringify({ ...record, futureSlot: 3, futureLabel: 'codex:work' }),
 		)
 		expect(readPeerRecord(dir, record.sessionId)).toEqual(record)
 		expect(readPeerRecords(dir)).toEqual([record])

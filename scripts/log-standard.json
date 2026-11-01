@@ -128,8 +128,8 @@
 		{
 			"file": "packages/cli/src/tui/index.tsx",
 			"symbol": "process.stdout.write",
-			"count": 2,
-			"reason": "the TUI's two user-facing terminal writes: the clear/home control before Ink takes ownership, and the terminal-escaped conversation/resume handoff after Ink and the buffered log sink have both settled. Neither is a diagnostic record."
+			"count": 3,
+			"reason": "the TUI's three user-facing terminal writes: the clear/home control before Ink takes ownership, the terminal-escaped conversation/resume handoff after Ink and the buffered log sink have both settled, and the private terminal message a session started by the spaces host sends the host when its left-arrow gesture fires. None is a diagnostic record."
 		},
 		{
 			"file": "packages/cli/src/tui/log-pane.tsx",
