@@ -108,7 +108,9 @@ describe('a newer log read by the current reader', () => {
 		const newer = await read(newerLog(5, { ...FUTURE, turnId, ignorable: true }))
 		expect(newer.summary.intact).toBe(true)
 		expect(newer.records[5]?.type).toBe('future_annotation')
-		expect(await foldSessionMessages(newer.records)).toEqual(await foldSessionMessages(plain.records))
+		expect(await foldSessionMessages(newer.records)).toEqual(
+			await foldSessionMessages(plain.records),
+		)
 	})
 
 	it('passes a flagged record after a turn has completed, and at the end of the log', async () => {
