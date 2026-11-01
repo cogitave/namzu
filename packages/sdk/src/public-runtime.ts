@@ -24,11 +24,17 @@ export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
 // interpreter above, with `agent()` as its only host call.
 export {
 	FileWorkflowJournal,
+	formatWorkflowJournalLine,
+	loadWorkflowResume,
 	parseWorkflowMeta,
+	readWorkflowJournalChecked,
 	resolveWorkflowLimits,
 	summarizeWorkflowPhases,
 	WorkflowRuntime,
 	WorkflowScriptError,
+	workflowCallKey,
+	workflowJournalLineHash,
+	workflowJournalSeed,
 } from './execution/workflow/index.js'
 
 export {
