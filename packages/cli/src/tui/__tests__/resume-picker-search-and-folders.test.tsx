@@ -15,6 +15,46 @@ const base = (over: Partial<RecentConversation>): RecentConversation => ({
 })
 
 describe('the resume picker', () => {
+	it('tells two conversations with the same title apart by how they ended', () => {
+		const picker = render(
+			<ResumePicker
+				conversations={[
+					base({ title: 'Change the file', preview: 'then run the tests' }),
+					base({ title: 'Change the file', preview: 'now deploy it' }),
+					base({ title: 'Something else', preview: 'unrelated' }),
+				]}
+				selected={0}
+			/>,
+		)
+		try {
+			const frame = picker.lastFrame() ?? ''
+			expect(frame).toContain('Change the file · last: then run the tests')
+			expect(frame).toContain('Change the file · last: now deploy it')
+			expect(frame).not.toContain('Something else ·')
+		} finally {
+			picker.unmount()
+		}
+	})
+
+	it('falls back to the length when the same-titled conversations ended alike', () => {
+		const picker = render(
+			<ResumePicker
+				conversations={[
+					base({ title: 'Change the file', preview: 'same', count: 2 }),
+					base({ title: 'Change the file', preview: 'same', count: 6 }),
+				]}
+				selected={0}
+			/>,
+		)
+		try {
+			const frame = picker.lastFrame() ?? ''
+			expect(frame).toContain('Change the file · 2 messages')
+			expect(frame).toContain('Change the file · 6 messages')
+		} finally {
+			picker.unmount()
+		}
+	})
+
 	it('invites a search, names the list and offers the folder switch and rename', () => {
 		const picker = render(<ResumePicker conversations={[base({})]} selected={0} />)
 		try {
