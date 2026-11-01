@@ -486,6 +486,17 @@ export class SpacesHost {
 		local.session.detach()
 	}
 
+	/**
+	 * The conversation is about to unmount: gives the main screen back and has the conversation print
+	 * its whole history there, so Ink's last frame lands on a screen that is already right. True when
+	 * the spaces screen was up and has been left.
+	 */
+	releaseTerminal(): boolean {
+		if (this.closed || this.hidden || !this.localEntry || !this.options.local) return false
+		this.openNative()
+		return true
+	}
+
 	/** Moves the keyboard from a pane to the sidebar of the spaces screen. */
 	focusSidebar(): void {
 		if (this.closed || this.hidden || this.view === 'full') return

@@ -705,6 +705,11 @@ export interface AppProps {
 	 */
 	readonly onConfirmExit?: () => Promise<boolean>
 	/**
+	 * Runs once the session is closed and just before Ink unmounts: gives the terminal back from
+	 * the spaces screen, so the last frame is drawn on the screen the shell will show.
+	 */
+	readonly beforeExit?: () => Promise<void>
+	/**
 	 * The launcher turns this on: an empty first prompt suggests an example
 	 * (`Try "fix lint errors"`). Off by default so the many fixtures that wait
 	 * for the plain placeholder keep waiting for it.
@@ -1510,6 +1515,7 @@ function AppBody({
 	repaint,
 	onOpenSpaces,
 	onConfirmExit,
+	beforeExit,
 	examplePrompts = false,
 	queuedHintCount,
 	tipHistory,
@@ -3111,8 +3117,12 @@ function AppBody({
 			closing,
 			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
 		])
-		void bounded.catch(() => undefined).finally(() => exit())
-	}, [cancelPendingModelSwitch, exit, session])
+		void bounded
+			.catch(() => undefined)
+			.then(() => beforeExit?.())
+			.catch(() => undefined)
+			.finally(() => exit())
+	}, [beforeExit, cancelPendingModelSwitch, exit, session])
 	const exitNow = useCallback(() => {
 		onExitSummary?.({
 			...(palDefinitionRef.current ? { palId: palDefinitionRef.current.id } : {}),

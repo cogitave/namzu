@@ -187,6 +187,30 @@ describe('the host inside a conversation', () => {
 		expect(t.host.visible).toBe(true)
 	})
 
+	it('gives the main screen back before the conversation unmounts, once, and quits without touching it again', () => {
+		const { t, local } = rig({
+			conversationId: 'conv-a',
+			restored: saved({ label: 'session 1', conversationId: 'conv-a' }),
+		})
+		t.host.start()
+		// Not shown yet: nothing to give back.
+		expect(t.host.releaseTerminal()).toBe(false)
+		t.host.openSpaces()
+		const before = t.written.length
+		expect(t.host.releaseTerminal()).toBe(true)
+		const out = t.written.slice(before).join('')
+		expect(out).toContain('\x1b[?1049l')
+		// The conversation is told to print its history only after the alternate screen is gone.
+		expect(local.events).toEqual(['attach', 'detach'])
+		expect(t.host.visible).toBe(false)
+		expect(t.host.releaseTerminal()).toBe(false)
+		// The conversation ends; the host closes without leaving the alternate screen a second time.
+		local.exit()
+		const mark = t.written.length
+		t.host.quit()
+		expect(t.written.slice(mark).join('')).not.toContain('\x1b[?1049l')
+	})
+
 	it('moves through the sessions with up and down, starting the one it lands on, and names what is live', async () => {
 		const { t } = rig({
 			conversationId: 'conv-a',

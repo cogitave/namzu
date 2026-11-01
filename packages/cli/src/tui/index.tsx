@@ -28,6 +28,9 @@ import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
 import { type TerminalProxy, createTerminalProxy } from './zoom/proxy.js'
 
+/** How long leaving may wait for the spaces screen to hand the terminal back. */
+const LEAVE_SPACES_MS = 2000
+
 export async function launchTui(
 	ctx: TuiContext,
 	options: { readonly resumeCommand?: readonly [string, ...string[]] } = {},
@@ -141,6 +144,26 @@ export async function launchTui(
 					}
 				}
 			: undefined
+	// Leaving while the spaces screen is up: the main screen comes back and the conversation
+	// prints its whole history there before Ink unmounts, so the last frame follows it exactly as
+	// it does in a plain session. Bounded: a stuck step never holds the exit.
+	const beforeExit: (() => Promise<void>) | undefined =
+		!hosted && proxy !== null
+			? async () => {
+					if (spaces.current === null) return
+					const hand = async (): Promise<void> => {
+						if (await (await (spaces.current as NonNullable<typeof spaces.current>)).release())
+							await instance.waitUntilRenderFlush()
+					}
+					let timer: ReturnType<typeof setTimeout> | undefined
+					await Promise.race([
+						hand(),
+						new Promise<void>((resolve) => {
+							timer = setTimeout(resolve, LEAVE_SPACES_MS)
+						}),
+					]).finally(() => clearTimeout(timer))
+				}
+			: undefined
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
 		React.createElement(App, {
@@ -152,6 +175,7 @@ export async function launchTui(
 			repaint,
 			...(onOpenSpaces ? { onOpenSpaces } : {}),
 			...(onConfirmExit ? { onConfirmExit } : {}),
+			...(beforeExit ? { beforeExit } : {}),
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
 			tipHistory,
