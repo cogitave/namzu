@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { MAX_CLIPBOARD_TEXT_BYTES, buildClipboardSequence, writeClipboardText } from './text.js'
 
+const ESC = String.fromCharCode(27)
+const BEL = String.fromCharCode(7)
+const FRAME = new RegExp(`${ESC}P${ESC}\\]52;c;([^${BEL}]*)${BEL}${ESC}\\\\`, 'gu')
 const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
 
 describe('buildClipboardSequence', () => {
@@ -21,7 +24,7 @@ describe('buildClipboardSequence', () => {
 		const text = 'ç'.repeat(200)
 		for (const env of [{ STY: '123.pts-0.host' }, { TERM: 'screen-256color' }]) {
 			const out = buildClipboardSequence(text, env)
-			const frames = [...out.matchAll(/\x1bP\x1b\]52;c;([^\x07]*)\x07\x1b\\/gu)].map((m) => m[1])
+			const frames = [...out.matchAll(FRAME)].map((m) => m[1])
 			expect(frames.length).toBeGreaterThan(1)
 			for (const frame of frames) expect((frame as string).length).toBeLessThanOrEqual(76)
 			expect(Buffer.from(frames.join(''), 'base64').toString('utf8')).toBe(text)

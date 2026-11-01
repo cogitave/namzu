@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Update** [namzu spaces (preview)](cli/spaces.md#selecting-and-copying-text): the spaces screen selects and copies text itself (drag, double-click a word, triple-click a line; copied on release, or with `ctrl+c` when `tui.copyOnSelect` is `false`), forwards a pane's clipboard requests to the terminal, wraps copies for tmux and screen (this also fixes `/copy` under them), takes `tui.mouse` and `NAMZU_DISABLE_MOUSE[_CLICKS]` to capture less of the mouse, and switches the mouse off on `SIGTERM`, `SIGHUP` and `SIGINT` and at every interactive launch. `.changeset/spaces-select-copy.md` (`@namzu/cli` minor).
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
