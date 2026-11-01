@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [Plugins in the CLI](cli/plugins.md#declare-where-a-plugin-runs): a plugin manifest may declare `platforms` and `engines.namzu`; a plugin that does not fit this machine or this Namzu version is refused with a plain reason. `.changeset/plugin-platform-version-admission.md` (`@namzu/sdk` minor).
 - **Update** [Workflows](sdk/workflows.md): a misused hook in a workflow script (wrong `agent()` arguments, an unknown option, a non-object schema, a non-function item) now fails the run, re-thrown out of `parallel()` and `pipeline()`; only a thrown thunk or a failed child still becomes `null`. The Workflow tool text says so. `.changeset/fail-workflow-hook-misuse.md` (`@namzu/sdk` minor, `@namzu/cli` patch).
 - **Update** [bash tool](sdk/bash-tool.md#in-a-sandbox): a sandboxed command whose error text looks like a sandbox denial says so, and a launcher setup failure is reported as a runner failure, not as the command failing (`SandboxExecResult.attribution`). `.changeset/name-sandbox-denials.md` (`@namzu/sdk` minor).
 - **Update** [Background jobs](cli/background-jobs.md#a-process-that-left-the-jobs-group): on Linux, stopping a job also signals descendants that started a session of their own, found by a `NAMZU_SHELL_TAG` value every command inherits. `.changeset/stop-escaped-descendants.md` (`@namzu/sdk` patch).
