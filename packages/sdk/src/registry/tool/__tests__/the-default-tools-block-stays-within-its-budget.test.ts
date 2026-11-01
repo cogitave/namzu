@@ -18,6 +18,9 @@ import { ToolManager } from '../../../toolsets/manager.js'
  * saying what the new bytes buy the model. A change that only moves wording
  * around should not need to; trim the text instead.
  *
+ * SCOPE: this sizes the `tools` block only. The system prompt a host assembles
+ * (the CLI adds its own sections) is not measured here.
+ *
  * Deterministic: the schemas are rendered from the source, nothing here reads
  * a clock, a network or the host.
  */
