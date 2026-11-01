@@ -199,6 +199,7 @@ import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
+import { resumeCallText } from '../integrations/workflows/resume.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -1949,6 +1950,16 @@ function AppBody({
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
 	const workflowNoticesRef = useRef(new Map<string, string>())
+	/** Tell the store that notices for unfinished runs reached the model, so they are not repeated. */
+	const markOrphanNoticesDelivered = useCallback(
+		(ids: readonly string[]) => {
+			const runIds = ids
+				.filter((id) => id.startsWith(ORPHAN_NOTICE_PREFIX))
+				.flatMap((id) => id.slice(ORPHAN_NOTICE_PREFIX.length).split(','))
+			if (runIds.length > 0) void session?.workflows?.noticesDelivered(runIds)
+		},
+		[session],
+	)
 	/** What running agents sent to the conversation, for the model: told once, like a workflow's end. */
 	const childMessagesRef = useRef(new Map<number, string>())
 	const childMessageIdRef = useRef(0)
@@ -1980,6 +1991,25 @@ function AppBody({
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
 		})
+	}, [session])
+	// Runs a previous process left unfinished: told to the model once with its next
+	// turn (never waking an idle model), and named to the operator in one line.
+	useEffect(() => {
+		const source = session?.workflows
+		if (!source) return
+		void source
+			.recoverUnfinished()
+			.then((notices) => {
+				if (previousSessionRef.current !== session || appLifetime.signal.aborted) return
+				for (const notice of notices) {
+					workflowNoticesRef.current.set(
+						`${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`,
+						notice.text,
+					)
+					pushMessage('system', notice.line)
+				}
+			})
+			.catch(() => undefined)
 	}, [session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
@@ -8608,6 +8638,9 @@ function AppBody({
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
+				readWorkflowScript: (path) => reviewSessionRef.current?.workflows?.readScript(path),
+				describeWorkflowResume: (runId, script) =>
+					reviewSessionRef.current?.workflows?.describeResume(runId, script),
 				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
@@ -9751,6 +9784,7 @@ function AppBody({
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
 				const ended = [...workflowNoticesRef.current.values(), ...childMessagesRef.current.values()]
+				markOrphanNoticesDelivered([...workflowNoticesRef.current.keys()])
 				workflowNoticesRef.current.clear()
 				childMessagesRef.current.clear()
 				const jobs = idleJobNoticesRef.current
@@ -10344,6 +10378,7 @@ function AppBody({
 								const workflowEnds = [...workflowNoticesRef.current].filter(
 									([id]) => !workflowNoticeSnapshot.has(id),
 								)
+								markOrphanNoticesDelivered(workflowEnds.map(([id]) => id))
 								for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
 								// What a running agent said to the conversation: told to the model once.
 								const childMessages = [...childMessagesRef.current].filter(
@@ -10462,6 +10497,7 @@ function AppBody({
 				readSearchGroup.close()
 				if (st.completed && stillHere()) {
 					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
+					markOrphanNoticesDelivered([...workflowNoticeSnapshot.keys()])
 					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
 					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
 				}
@@ -14141,7 +14177,7 @@ function AppBody({
 			return
 		const jobs = idleJobNoticesRef.current
 		const waiting =
-			workflowNoticesRef.current.size > 0 ||
+			[...workflowNoticesRef.current.keys()].some((id) => !id.startsWith(ORPHAN_NOTICE_PREFIX)) ||
 			childMessagesRef.current.size > 0 ||
 			(jobs.ownerSession === session &&
 				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||
@@ -15276,6 +15312,27 @@ function AppBody({
 					)
 					return
 				}
+				if (picker.kind === 'workflow-runs' && input === 'r' && !key.ctrl && !key.meta) {
+					// Does not start anything itself: it asks the model to make the `workflow`
+					// call, so the operator approves the resume in the usual review.
+					const chosen = options[selectedChoiceRef.current]
+					const runId = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					const run = workflowRunsRef.current.find((item) => item.runId === runId)
+					if (run && canResumeRun(run)) {
+						setChoicePicker(null)
+						workflowNoticesRef.current.set(
+							`resume:${run.runId}`,
+							`The person asked to resume workflow ${JSON.stringify(run.name)} (run ${run.runId}) from /workflows. Call ${resumeCallText(run.scriptPath, run.runId)} now. Agents whose prompt and options are unchanged return their saved results. They will review and approve the resume before it starts.`,
+						)
+						pushMessage('system', `Asking to resume ${run.name}.`)
+						enqueueQueued({
+							kind: 'notice',
+							text: `Resume workflow ${run.name}.`,
+							generation: conversationGenRef.current,
+						})
+					}
+					return
+				}
 				if (picker.kind === 'workflow-runs' && input === 'x' && !key.ctrl && !key.meta) {
 					// Stops the highlighted run when it is still going; a finished one has nothing to stop.
 					const chosen = options[selectedChoiceRef.current]
@@ -15666,6 +15723,13 @@ function AppBody({
 		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
 		return workflowRunsRef.current.find((run) => run.runId === runId)?.status === 'running'
 	})()
+	const workflowPickerCanResume = (() => {
+		if (choicePicker?.kind !== 'workflow-runs') return false
+		const chosen = filterChoiceOptions(choicePicker.options, choiceQuery)[selectedChoice]
+		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
+		const run = workflowRunsRef.current.find((item) => item.runId === runId)
+		return run !== undefined && canResumeRun(run)
+	})()
 	// A run is one workflow, not an agent: the footer says so.
 	const runningWorkflowCount = liveWorkflows.filter((flow) => flow.status === 'running').length
 	// While the rail has the keyboard its key line replaces the footer's mode line.
@@ -16003,7 +16067,7 @@ function AppBody({
 								{...(choicePicker.kind === 'workflow-runs'
 									? {
 											subtitle: choicePicker.subtitle,
-											hints: workflowRunsHints(workflowPickerCanStop),
+											hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
 										}
 									: {})}
 								{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
@@ -16477,6 +16541,14 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	return { label: batch.name, description: columns.join(' · ') }
 }
 
+/** The prefix of a notice about runs a previous process left unfinished. */
+const ORPHAN_NOTICE_PREFIX = 'orphan:'
+
+/** A run that is not going and was not saved before resuming was possible can be picked up again. */
+function canResumeRun(run: WorkflowRunView): boolean {
+	return run.status !== 'running' && run.resumable !== 'legacy'
+}
+
 /** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
 function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]): string {
 	const running = runs.filter((run) => run.status === 'running').length
@@ -16484,10 +16556,11 @@ function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]):
 }
 
 /** The `/workflows` list's own key hints: Enter opens a run, `x` stops one that is going. */
-function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
+function workflowRunsHints(canStop: boolean, canResume: boolean): { text: string; rank: number }[] {
 	return [
 		{ text: 'enter to view', rank: 5 },
 		...(canStop ? [{ text: 'x to stop', rank: 3 }] : []),
+		...(canResume ? [{ text: 'r to resume', rank: 3 }] : []),
 		{ text: 'esc to close', rank: 4 },
 	]
 }
@@ -16502,6 +16575,9 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 		workflowAgentProgress(counts),
+		...(run.pass !== undefined && run.pass > 1
+			? [`pass ${run.pass}, ${run.agents.filter((agent) => agent.cached).length} saved`]
+			: []),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]
