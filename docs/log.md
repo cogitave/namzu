@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Update** [Bounded file discovery](sdk/file-discovery.md#ignore-files-and-the-entry-bound) and [File tool limits](sdk/file-tool-limits.md#grep): `grep` and `glob` skip files excluded by `.gitignore`, `.ignore` and `.git/info/exclude` (new `include_ignored` input to search them), a limit (full page, 500-path cap, entry bound at 500,000, time budget, unreadable files) is a successful result with a note instead of an error, paths are shown relative to the working directory without `./`, and `SandboxWalkFilesOptions` gains `respectIgnore`, `failOnLimit` and `onSummary`. The stale "100 matching lines by default" is corrected to 250. `.changeset/search-ignore-rules.md` (`@namzu/sdk` major, `@namzu/sandbox` patch).
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
