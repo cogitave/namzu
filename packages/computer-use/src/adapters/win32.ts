@@ -1,5 +1,6 @@
 import { guardForeground } from '../foreground/guard.js'
 import type { ForegroundLadder } from '../foreground/ladder.js'
+import type { Presence } from '../presence/presence.js'
 import { CuaDriverAdapter } from './cua-driver/adapter.js'
 import {
 	CUA_DRIVER_RELEASE,
@@ -37,6 +38,8 @@ export interface Win32AdapterOptions {
 	 * `focusWindow` act at once, as before.
 	 */
 	readonly foreground?: ForegroundLadder
+	/** The agent cursor and window border shown while a window is operated. Absent, none. */
+	readonly presence?: Presence
 	/** For tests. */
 	readonly wslProbes?: WslProbes
 	/** For tests. */
@@ -125,6 +128,7 @@ export class Win32Adapter {
 				env: cuaDriverEnvironment(env, wsl, probes),
 				...(resolved.source === 'configured' ? {} : { version: CUA_DRIVER_RELEASE.version }),
 				...(ladder ? { foreground: ladder } : {}),
+				...(options.presence ? { presence: options.presence } : {}),
 			}
 			adapter = options.createCuaDriverAdapter
 				? options.createCuaDriverAdapter(adapterOptions)

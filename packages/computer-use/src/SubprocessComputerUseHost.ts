@@ -26,6 +26,7 @@ import {
 	type LadderTiming,
 	createWindowsForegroundLadder,
 } from './foreground/index.js'
+import { type Presence, createWindowsPresence } from './presence/index.js'
 import { SpawnError } from './util/spawn.js'
 
 const UNINITIALISED_CAPABILITIES: ComputerUseCapabilities = {
@@ -64,6 +65,13 @@ export interface SubprocessComputerUseHostOptions {
 	 * foreground uses the user's screen. On Windows it is on by default.
 	 */
 	readonly foreground?: SubprocessComputerUseHostForegroundOptions
+	/**
+	 * The agent cursor and the border around the window being operated. On by
+	 * default on Windows; `false` turns them off, as does the environment
+	 * variable `NAMZU_COMPUTER_USE_PRESENCE=off`. A ready overlay replaces the
+	 * one built for this machine (for tests).
+	 */
+	readonly presence?: boolean | Presence
 }
 
 export interface SubprocessComputerUseHostForegroundOptions {
@@ -104,6 +112,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private _capabilities: ComputerUseCapabilities
 	private adapter: Adapter | null = null
 	private ladder: ForegroundLadder | undefined
+	private presence: Presence | undefined
 
 	constructor(private readonly options: SubprocessComputerUseHostOptions = {}) {
 		const displayServer = detectDisplayServer(options.env, options.platform)
@@ -148,7 +157,18 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 				...(this.options.foreground?.timing ? { timing: this.options.foreground.timing } : {}),
 			})
 		}
-		const adapter = await loadAdapter(displayServer, this.options, this.ladder)
+		if (!this.presence && displayServer === 'win32') {
+			const option = this.options.presence
+			this.presence =
+				typeof option === 'object'
+					? option
+					: createWindowsPresence({
+							...(this.options.env !== undefined ? { env: this.options.env } : {}),
+							...(this.options.platform !== undefined ? { platform: this.options.platform } : {}),
+							...(option === false ? { enabled: false } : {}),
+						})
+		}
+		const adapter = await loadAdapter(displayServer, this.options, this.ladder, this.presence)
 		// Loading an adapter proves its tools exist on PATH, not that a desktop
 		// answers. A WSL process finds PowerShell and still may have no
 		// interactive Windows session to capture; an ssh session finds xdotool
@@ -280,6 +300,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		this.adapter = null
 		await adapter?.dispose?.()
 		await this.ladder?.dispose()
+		await this.presence?.dispose()
 	}
 
 	/**
@@ -292,6 +313,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	/** The turn ended or was interrupted: the input monitor and any lease are released. */
 	async endTurn(): Promise<void> {
 		await this.ladder?.endTurn()
+		this.presence?.hide()
 	}
 
 	private requireAdapter(): Adapter {
@@ -315,6 +337,7 @@ async function loadAdapter(
 	displayServer: ComputerUseCapabilities['displayServer'],
 	options: SubprocessComputerUseHostOptions,
 	ladder: ForegroundLadder | undefined,
+	presence: Presence | undefined,
 ): Promise<Adapter> {
 	switch (displayServer) {
 		case 'darwin': {
@@ -336,6 +359,7 @@ async function loadAdapter(
 				...(options.env !== undefined ? { env: options.env } : {}),
 				...(options.platform !== undefined ? { platform: options.platform } : {}),
 				...(ladder ? { foreground: ladder } : {}),
+				...(presence ? { presence } : {}),
 			})
 		}
 		case 'unknown':

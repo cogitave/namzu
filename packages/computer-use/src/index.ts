@@ -36,3 +36,5 @@ export {
 } from './adapters/types.js'
 export { SpawnError } from './util/spawn.js'
 export type { SpawnOptions, SpawnResult } from './util/spawn.js'
+export { PRESENCE_ENV } from './presence/index.js'
+export type { Presence, PresenceKind, PresenceMark } from './presence/index.js'

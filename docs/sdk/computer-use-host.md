@@ -164,6 +164,46 @@ detail }`.
 `@namzu/computer-use` implements this on Windows; see
 [the foreground ladder](foreground-ladder.md).
 
+## Showing that an agent is at work: the presence overlay
+
+While the Windows adapter operates a window, a person must be able to see that
+an agent is using the computer. Two things are drawn, both by the package and
+neither by the desktop driver (the driver's own cursor can only switch between
+themes it has installed, and its glide cost 0.9 to 3.8 s per action):
+
+- an **agent cursor**: a pixel-art arrow in Namzu green with a dark outline,
+  separate from the real pointer, which it never moves. It glides to each
+  action point in 120 ms and pulses on a click and on typing. For a control
+  action it goes to the centre of the control; for typing it stays where it is.
+- a **presence border**: a frame inside the window being operated, drawn as an
+  ordered (Bayer) dither that thins towards the middle. It follows the window
+  when it moves or is resized, holds for 2.5 s after the last action, fades out
+  over 0.6 s, and disappears at once when the turn ends (`endTurn`) or the host
+  is disposed. It also shows while the foreground ladder is in use.
+
+Both are drawn by one long-lived PowerShell helper that starts the first time
+the model lists windows (about 0.35 s, compiling a small library) and is
+reused: an update is one line written to it, about 0.02 ms on the host side, and
+a drawing tick takes about 0.5 ms every 16 ms while something is shown. Its
+script is handed over as the first line of its input, since the encoded script
+is longer than a Windows command line.
+
+The two windows never take input (`WS_EX_TRANSPARENT`), are never activated
+(`WS_EX_NOACTIVATE`), are not in the taskbar or alt-tab (`WS_EX_TOOLWINDOW`)
+and are excluded from every screen capture (`WDA_EXCLUDEFROMCAPTURE`, Windows
+10 version 2004 and later), so the model's own screenshots never contain them.
+Windows refuses the exclusion on a window that is already layered, so it is set
+first. If it cannot be set, the helper reports it and nothing is shown: an
+overlay that could reach a screenshot is worse than none. They are owned by the
+operated window, which keeps them directly above it in the z-order, in front of
+or behind other windows, without raising it. A window the overlay cannot be
+tied to (for instance one running with higher rights) gets no overlay.
+
+On by default on Windows and WSL. Turn it off with the host option
+`presence: false` (`SubprocessComputerUseHostOptions`) or the environment
+variable `NAMZU_COMPUTER_USE_PRESENCE=off` (`0`, `false`, `no` and `none` also
+work). A failure of the overlay never fails or delays an action.
+
 ## Windows driver session recovery
 
 The cua-driver backend uses an implicit session on its long-lived MCP

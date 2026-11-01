@@ -23,6 +23,7 @@ import type {
 import { foregroundNote, interferenceNote } from '../../foreground/guard.js'
 import type { ForegroundLadder } from '../../foreground/ladder.js'
 import { BurstInterrupted } from '../../foreground/types.js'
+import type { Presence } from '../../presence/presence.js'
 import type { Adapter } from '../types.js'
 import {
 	type McpProcessCallOptions,
@@ -81,6 +82,11 @@ export interface CuaDriverAdapterOptions {
 	 * restore. Absent, such an action is reported as not delivered.
 	 */
 	readonly foreground?: ForegroundLadder
+	/**
+	 * The agent cursor and window border shown while a window is operated.
+	 * Absent, nothing is drawn.
+	 */
+	readonly presence?: Presence
 	/** For tests: the clock the freshness of a read is judged by. */
 	readonly now?: () => number
 	/** For tests. */
@@ -142,6 +148,13 @@ interface UiRefEntry extends UiRefFacts {
 	readonly readAt: number
 	/** A container the model can open with a root snapshot; it has no driver handle. */
 	readonly region: boolean
+	/** Where the control was when it was read, in virtual-desktop pixels; shows where the agent cursor goes. */
+	readonly bounds?: {
+		readonly x: number
+		readonly y: number
+		readonly width: number
+		readonly height: number
+	}
 }
 
 interface WindowCaptureFrame {
@@ -308,6 +321,7 @@ export class CuaDriverAdapter implements Adapter {
 	/** Window id → application name, for naming the program a foreground burst is for. */
 	private readonly windowApps = new Map<string, string>()
 	private readonly foreground: ForegroundLadder | undefined
+	private readonly presence: Presence | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
 	private windowFrame: WindowCaptureFrame | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
@@ -328,6 +342,7 @@ export class CuaDriverAdapter implements Adapter {
 	constructor(options: CuaDriverAdapterOptions) {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
 		this.foreground = options.foreground
+		this.presence = options.presence
 		this.now = options.now ?? Date.now
 		this.client = new McpStdioClient({
 			command: options.executable,
@@ -466,6 +481,8 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	async listWindows(): Promise<readonly WindowInfo[]> {
+		// The model is about to work in a window: have the overlay ready for its first action.
+		this.tryPresence((presence) => presence.warm())
 		const listed = structured(
 			await this.callTool('list_windows', {}, LIST_TIMEOUT_MS),
 			'list_windows',
@@ -656,6 +673,7 @@ export class CuaDriverAdapter implements Adapter {
 				throw new Error(
 					'computer-use: the captured window changed or its driver restarted; take a new window screenshot.',
 				)
+			this.showPresence(frame, current.bounds, name, args)
 			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
 		}
 		// One window input: in the background first. A refusal that foreground
@@ -948,6 +966,7 @@ export class CuaDriverAdapter implements Adapter {
 				pid: target.pid,
 				hwnd: target.hwnd,
 				region: entry.region,
+				...(node.element.bounds ? { bounds: node.element.bounds } : {}),
 				generation: read.generation,
 				processStarts: read.processStarts,
 				readSeq: seq,
@@ -1093,6 +1112,20 @@ export class CuaDriverAdapter implements Adapter {
 		const facts = resolved.entry
 		const { pid, token } = facts
 		const uiRef = { ref, facts }
+		this.tryPresence((presence) =>
+			presence.mark({
+				hwnd: facts.hwnd,
+				kind: action === 'set_value' ? 'type' : 'click',
+				...(facts.bounds
+					? {
+							at: {
+								x: facts.bounds.x + facts.bounds.width / 2,
+								y: facts.bounds.y + facts.bounds.height / 2,
+							},
+						}
+					: {}),
+			}),
+		)
 		try {
 			switch (action) {
 				case 'invoke':
@@ -1256,6 +1289,43 @@ export class CuaDriverAdapter implements Adapter {
 
 	async dispose(): Promise<void> {
 		await this.client.dispose()
+	}
+
+	/** Tells the overlay where the agent is about to act in a window; never waits and never fails the action. */
+	private showPresence(
+		frame: WindowCaptureFrame,
+		bounds: WindowInfo['bounds'],
+		tool: string,
+		args: Record<string, unknown>,
+	): void {
+		const presence = this.presence
+		if (!presence) return
+		const hwnd = parseWindowId(frame.window.id)
+		if (hwnd === undefined) return
+		const scale = frame.width > 0 ? bounds.width / frame.width : 1
+		const screen = (x: unknown, y: unknown): { x: number; y: number } | undefined =>
+			typeof x === 'number' && typeof y === 'number'
+				? { x: bounds.x + x * scale, y: bounds.y + y * scale }
+				: undefined
+		const at = screen(args.x ?? args.to_x, args.y ?? args.to_y)
+		const typing = tool === 'type_text' || tool === 'press_key' || tool === 'hotkey'
+		this.tryPresence((overlay) =>
+			overlay.mark({
+				hwnd,
+				kind: typing ? 'type' : 'click',
+				...(at && !typing ? { at } : {}),
+			}),
+		)
+	}
+
+	/** The overlay is decoration: whatever it does, the action goes on. */
+	private tryPresence(use: (presence: Presence) => void): void {
+		if (!this.presence) return
+		try {
+			use(this.presence)
+		} catch {
+			// Nothing is shown; nothing else changes.
+		}
 	}
 
 	private async serializeWindowOperation<T>(operation: () => Promise<T>): Promise<T> {
