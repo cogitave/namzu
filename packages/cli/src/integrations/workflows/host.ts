@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -19,6 +20,7 @@ import {
 	type WorkflowMeta,
 	WorkflowScriptError,
 	defineTool,
+	loadWorkflowResume,
 	mcpJsonSchemaToZod,
 	parseWorkflowMeta,
 } from '@namzu/sdk'
@@ -27,6 +29,15 @@ import type { SubagentRuntime } from '../subagents/runtime.js'
 import { completionNotice, launchedText } from './notice.js'
 import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
+import {
+	MAX_SCRIPT_BYTES,
+	RUN_ID_PATTERN,
+	controlCharacterProblem,
+	editableCopyPath,
+	readSavedScript,
+	scriptsDirectory,
+	writeEditableCopy,
+} from './resume.js'
 
 /** Longest script the tool takes, in characters. The review shows all of it. */
 export const MAX_WORKFLOW_SCRIPT_CHARS = 262_144
@@ -78,6 +89,8 @@ export interface WorkflowHostOptions {
 	readonly limitsFor?: (turnId: TurnId) => WorkflowLimits | undefined
 	/** Called once when a run ends (the conversation line and the model's message). */
 	readonly onEnd?: (end: WorkflowRunEnd) => void
+	/** The secret that signs journal lines, when the session has one. */
+	readonly journalKey?: () => string | undefined
 	readonly registry?: WorkflowRunRegistry
 }
 
@@ -87,7 +100,9 @@ export interface WorkflowHost {
 }
 
 interface WorkflowToolInput {
-	script: string
+	script?: string
+	scriptPath?: string
+	resumeFromRunId?: string
 	args?: unknown
 	description?: string
 }
@@ -164,6 +179,7 @@ export function describeWorkflowCall(input: Partial<WorkflowToolInput>): string 
 			if (first) return first.trim().slice(0, 80)
 		}
 	}
+	if (typeof input.resumeFromRunId === 'string') return `resume workflow ${input.resumeFromRunId}`
 	return 'workflow'
 }
 
@@ -191,8 +207,17 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 					description:
 						'Optional one-line summary shown to the operator instead of meta.description.',
 				},
+				scriptPath: {
+					type: 'string',
+					description:
+						'Path of a script file saved by an earlier workflow call (the receipt names it). Read fresh on every call, so edit the file and call again instead of sending the script again. When script is also given, script is used.',
+				},
+				resumeFromRunId: {
+					type: 'string',
+					description:
+						'Continue the earlier run with this id (w plus eight characters) instead of starting a new one. Agents whose prompt and options are unchanged return their saved results; the first call that differs, failed or never ran starts running again. The run must not be running.',
+				},
 			},
-			required: ['script'],
 			additionalProperties: false,
 		}),
 		largeStringArguments: { script: 20_000 },
@@ -212,7 +237,8 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 		destructive: false,
 		concurrencySafe: false,
 		async execute(input: unknown, context: ToolContext) {
-			const { script, args } = input as WorkflowToolInput
+			const given = input as WorkflowToolInput
+			const { args } = given
 			const refused = options.refusal(context.turnId)
 			if (refused !== undefined) return { success: false, output: '', error: refused }
 			if (args !== undefined && JSON.stringify(args).length > MAX_WORKFLOW_ARGS_CHARS) {
@@ -222,6 +248,41 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 					error: `args is larger than ${MAX_WORKFLOW_ARGS_CHARS} characters. Pass less, or have the agents read a file.`,
 				}
 			}
+			const runs = options.runsDirectory(context.turnId)
+			let script: string
+			let scriptFile: string | undefined
+			if (typeof given.script === 'string') {
+				script = given.script
+				scriptFile = given.scriptPath
+			} else if (given.scriptPath !== undefined) {
+				if (runs === undefined) {
+					return {
+						success: false,
+						output: '',
+						error:
+							'This conversation keeps no files, so there is no saved script to read. Send the script in `script`.',
+					}
+				}
+				const saved = readSavedScript(given.scriptPath, scriptsDirectory(runs))
+				if (!saved.ok) return { success: false, output: '', error: saved.error }
+				script = saved.text
+				scriptFile = saved.path
+			} else {
+				return {
+					success: false,
+					output: '',
+					error: 'Give the script text in `script`, or the path of a saved script in `scriptPath`.',
+				}
+			}
+			if (Buffer.byteLength(script) > MAX_SCRIPT_BYTES) {
+				return {
+					success: false,
+					output: '',
+					error: `The script is larger than ${MAX_SCRIPT_BYTES} bytes.`,
+				}
+			}
+			const control = controlCharacterProblem(script)
+			if (control !== undefined) return { success: false, output: '', error: control }
 			let meta: WorkflowMeta
 			try {
 				meta = parseWorkflowMeta(script)
@@ -231,12 +292,93 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				}
 				throw error
 			}
-			const runId = createWorkflowRunId((id) => registry.get(id) !== undefined)
+			const key = options.journalKey?.()
+			let resumeState: ReturnType<typeof loadWorkflowResume> | undefined
+			let runId: string
+			if (given.resumeFromRunId !== undefined) {
+				runId = given.resumeFromRunId
+				if (!RUN_ID_PATTERN.test(runId)) {
+					return {
+						success: false,
+						output: '',
+						error: `${runId} is not a workflow run id (a w followed by eight letters or digits).`,
+					}
+				}
+				if (runs === undefined) {
+					return {
+						success: false,
+						output: '',
+						error: 'This conversation keeps no files, so there is nothing to resume.',
+					}
+				}
+				const state = registry.stateOf(runId)
+				if (state === 'running') {
+					return {
+						success: false,
+						output: '',
+						error: `Workflow ${runId} is still running. Stop it first (/workflows, then stop) before resuming.`,
+					}
+				}
+				if (state === 'stopping') {
+					return {
+						success: false,
+						output: '',
+						error: `Workflow ${runId} is stopping and its agents have not exited yet. Resuming now would run two copies of them against the same journal. Wait for it to stop.`,
+					}
+				}
+				let checked: Awaited<ReturnType<FileWorkflowJournal['read']>>
+				try {
+					checked = await new FileWorkflowJournal(join(runs, runId, 'workflow'), {
+						runId,
+						...(key !== undefined ? { key } : {}),
+					}).read()
+				} catch (error) {
+					return {
+						success: false,
+						output: '',
+						error: `The journal for workflow ${runId} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+					}
+				}
+				if (checked.legacy) {
+					return {
+						success: false,
+						output: '',
+						error: `Workflow ${runId} was saved before resuming was possible, so its finished agents cannot be reused. Run it again from the start (without resumeFromRunId); the agents run again.`,
+					}
+				}
+				resumeState = loadWorkflowResume(checked)
+				if (!resumeState.resumable) {
+					return {
+						success: false,
+						output: '',
+						error: `There is no saved journal for workflow ${runId} in this conversation, so there is nothing to resume. To run it from the start, call workflow again without resumeFromRunId.`,
+					}
+				}
+				// An ended run of this process is replaced by its next pass.
+				if (state === 'ended') registry.discard(runId)
+			} else {
+				runId = createWorkflowRunId(
+					(id) =>
+						registry.get(id) !== undefined || (runs !== undefined && existsSync(join(runs, id))),
+				)
+			}
 			const turn = options.openRunTurn(context.turnId, runId)
-			const runs = options.runsDirectory(context.turnId)
 			const limits = options.limitsFor?.(context.turnId)
+			const journalDirectory = runs === undefined ? undefined : join(runs, runId, 'workflow')
 			const journal =
-				runs === undefined ? undefined : new FileWorkflowJournal(join(runs, runId, 'workflow'))
+				journalDirectory === undefined
+					? undefined
+					: new FileWorkflowJournal(journalDirectory, {
+							runId,
+							...(key !== undefined ? { key } : {}),
+						})
+			// The model edits this copy and passes its path back; it is written
+			// before the run starts so the receipt can name it.
+			let editable = scriptFile
+			if (runs !== undefined && (typeof given.script === 'string' || editable === undefined)) {
+				const path = editableCopyPath(runs, meta.name, runId)
+				editable = (await writeEditableCopy(path, script)) ? path : scriptFile
+			}
 			const phaseDetail = (title: string | undefined): string | undefined =>
 				title === undefined
 					? undefined
@@ -265,6 +407,11 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 					...(args !== undefined ? { args } : {}),
 					...(limits ? { limits } : {}),
 					...(journal ? { journal } : {}),
+					...(resumeState ? { resume: resumeState } : {}),
+					...(editable !== undefined ? { scriptPath: editable } : {}),
+					...(journalDirectory !== undefined
+						? { journalPath: join(journalDirectory, 'journal.jsonl') }
+						: {}),
 					spawn: async (request, signal, viewed) => {
 						const detail = phaseDetail(request.phaseTitle)
 						const outcome = await options.subagents.launchWorkflowAgent({
@@ -308,6 +455,7 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 							tokens: outcome.tokens,
 							toolCalls: outcome.toolCalls,
 							...(outcome.error !== undefined ? { error: outcome.error } : {}),
+							...(outcome.sessionId !== undefined ? { sessionId: outcome.sessionId } : {}),
 						}
 					},
 					onFirstAgent: detach,

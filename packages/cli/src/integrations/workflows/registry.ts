@@ -17,6 +17,7 @@ import type {
 	WorkflowJournal,
 	WorkflowLimits,
 	WorkflowMeta,
+	WorkflowResumeState,
 	WorkflowRunResult,
 	WorkflowSpawnAgent,
 } from '@namzu/sdk'
@@ -43,6 +44,12 @@ export interface StartWorkflowRun {
 	readonly args?: unknown
 	readonly limits?: WorkflowLimits
 	readonly journal?: WorkflowJournal
+	/** Continue an earlier run under the same id: unchanged agent calls return their saved results. */
+	readonly resume?: WorkflowResumeState
+	/** The script file the run was started from, when the script was read from one. */
+	readonly scriptPath?: string
+	/** The journal file the run's saved results are in. */
+	readonly journalPath?: string
 	/**
 	 * Start one agent. `viewed` reports the agent's row in the monitor as soon
 	 * as it exists; the registry records it on the run so the detail can open
@@ -93,6 +100,17 @@ export class WorkflowRunRegistry {
 		return [...this.runs.values()].map((run) => run.view)
 	}
 
+	/**
+	 * Whether a run of this id is still using its journal: `stopping` is a stop
+	 * that has been asked for while the run's agents are still exiting.
+	 */
+	stateOf(runId: string): 'absent' | 'running' | 'stopping' | 'ended' {
+		const run = this.runs.get(runId)
+		if (!run) return 'absent'
+		if (run.finalized) return 'ended'
+		return run.abort.signal.aborted ? 'stopping' : 'running'
+	}
+
 	get(runId: string): WorkflowRunView | undefined {
 		return this.runs.get(runId)?.view
 	}
@@ -117,6 +135,9 @@ export class WorkflowRunRegistry {
 				description: input.meta.description,
 				phases: input.meta.phases,
 				at: this.now(),
+				...(input.resume ? { pass: input.resume.pass } : {}),
+				...(input.scriptPath !== undefined ? { scriptPath: input.scriptPath } : {}),
+				...(input.journalPath !== undefined ? { journalPath: input.journalPath } : {}),
 			}),
 			abort: new AbortController(),
 			finalized: false,
@@ -151,6 +172,11 @@ export class WorkflowRunRegistry {
 				...(input.limits ? { limits: input.limits } : {}),
 				...(input.journal ? { journal: input.journal } : {}),
 				runId: input.runId,
+				// A script a resume can replay must give the same calls twice.
+				deterministic: true,
+				canResume: input.journal !== undefined,
+				...(input.resume ? { resume: input.resume } : {}),
+				...(input.scriptPath !== undefined ? { scriptPath: input.scriptPath } : {}),
 				signal: run.abort.signal,
 				onControl: (control) => {
 					run.control = control

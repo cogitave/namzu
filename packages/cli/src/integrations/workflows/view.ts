@@ -38,6 +38,8 @@ export interface WorkflowAgentView {
 	readonly error?: string
 	/** The agent's own row in the subagent monitor, once it exists. */
 	readonly viewId?: string
+	/** The agent did not run in this pass: it returned the result a pass before saved. */
+	readonly cached?: boolean
 }
 
 export interface WorkflowPhaseView {
@@ -66,6 +68,14 @@ export interface WorkflowRunView {
 	readonly error?: string
 	readonly result?: unknown
 	readonly usage?: WorkflowUsage
+	/** 1 for a run that was never resumed; the number of the latest pass otherwise. */
+	readonly pass?: number
+	/** Whether the run can be picked up again; only known for a run read from its journal. */
+	readonly resumable?: 'yes' | 'legacy'
+	/** The script file the latest pass was started from, when it was read from one. */
+	readonly scriptPath?: string
+	/** The journal file holding every agent's saved result. */
+	readonly journalPath?: string
 }
 
 const MAX_LOG_LINES = 5
@@ -93,6 +103,9 @@ export function initialRunView(input: {
 	readonly description: string
 	readonly phases: readonly WorkflowPhaseMeta[]
 	readonly at: number
+	readonly pass?: number
+	readonly scriptPath?: string
+	readonly journalPath?: string
 }): WorkflowRunView {
 	return {
 		runId: input.runId,
@@ -110,6 +123,9 @@ export function initialRunView(input: {
 		})),
 		agents: [],
 		logs: [],
+		...(input.pass !== undefined ? { pass: input.pass } : {}),
+		...(input.scriptPath !== undefined ? { scriptPath: input.scriptPath } : {}),
+		...(input.journalPath !== undefined ? { journalPath: input.journalPath } : {}),
 	}
 }
 
@@ -142,10 +158,13 @@ function toolSummary(name: string | undefined, summary: string | undefined): str
  * not get to run, not one that failed: the operator's Stop must not read as
  * errors. The runtime words these two cases the same way every time.
  */
-function stoppedWithTheRun(error: string | undefined): boolean {
+function stoppedWithTheRun(error: string | undefined, interrupted?: boolean): boolean {
 	return (
-		error !== undefined &&
-		/^The workflow was stopped before this agent (started|finished)\./.test(error)
+		interrupted === true ||
+		(error !== undefined &&
+			/^(The workflow was stopped before this agent (started|finished)\.|Not started: )/.test(
+				error,
+			))
 	)
 }
 
@@ -196,6 +215,7 @@ export function reduceRunView(view: WorkflowRunView, event: WorkflowEvent): Work
 				promptPreview: event.promptPreview,
 				...(event.resultPreview !== undefined ? { resultPreview: event.resultPreview } : {}),
 				...(event.error !== undefined ? { error: event.error } : {}),
+				...(event.cached ? { cached: true } : {}),
 				...(previous?.viewId !== undefined ? { viewId: previous.viewId } : {}),
 			})
 		}
@@ -284,15 +304,38 @@ export function viewFromJournal(
 ): WorkflowRunView | undefined {
 	const started = records.find((record) => record.type === 'run_started')
 	if (!started || started.type !== 'run_started') return undefined
-	let view = initialRunView({
+	const legacy = !records.some((record) => 'seq' in record)
+	const first = {
 		runId: started.runId,
 		name: started.meta.name,
 		description: started.meta.description,
 		phases: started.meta.phases,
 		at: started.at,
-	})
+		...(started.scriptPath !== undefined ? { scriptPath: started.scriptPath } : {}),
+	}
+	let view = initialRunView(first)
+	// Agent indexes restart with every pass, so the view shows the latest pass only.
+	let pass = 1
 	for (const record of records) {
+		if (
+			(record.type === 'agent_request' || record.type === 'agent_outcome') &&
+			(record.pass ?? 1) < pass
+		) {
+			continue
+		}
 		switch (record.type) {
+			case 'run_started': {
+				if (record.resume === undefined) break
+				pass = record.resume.pass
+				view = initialRunView({
+					...first,
+					phases: record.meta.phases,
+					at: record.at,
+					pass,
+					...(record.scriptPath !== undefined ? { scriptPath: record.scriptPath } : {}),
+				})
+				break
+			}
 			case 'phase':
 				view = withPhase(view, {
 					index: record.index,
@@ -324,7 +367,7 @@ export function viewFromJournal(
 					...agent,
 					status:
 						record.state === 'error'
-							? stoppedWithTheRun(record.error)
+							? stoppedWithTheRun(record.error, record.interrupted)
 								? 'skipped'
 								: 'failed'
 							: record.state === 'skipped'
@@ -336,6 +379,7 @@ export function viewFromJournal(
 					toolCalls: record.toolCalls,
 					...(record.resultPreview !== undefined ? { resultPreview: record.resultPreview } : {}),
 					...(record.error !== undefined ? { error: record.error } : {}),
+					...(record.cached ? { cached: true } : {}),
 				})
 				break
 			}
@@ -372,5 +416,5 @@ export function viewFromJournal(
 			last?.at ?? started.at,
 		)
 	}
-	return view
+	return { ...view, resumable: legacy ? 'legacy' : 'yes' }
 }

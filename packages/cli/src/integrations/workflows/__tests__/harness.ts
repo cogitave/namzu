@@ -49,6 +49,8 @@ export async function workflowHarness(
 		readonly refusal?: string
 		readonly tokenBudget?: number
 		readonly limits?: { maxConcurrency?: number; maxAgents?: number }
+		/** Sign the journal lines with this secret. */
+		readonly journalKey?: string
 	} = {},
 ) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-workflow-'))
@@ -126,6 +128,7 @@ export async function workflowHarness(
 	const host = createWorkflowHost({
 		subagents: runtime,
 		runsDirectory: () => runs,
+		...(options.journalKey !== undefined ? { journalKey: () => options.journalKey } : {}),
 		refusal: () => options.refusal,
 		// The default concurrency follows this machine's CPU count; a test that
 		// holds several agents at once would hang on a small CI runner.
@@ -163,7 +166,12 @@ export async function workflowHarness(
 		ended,
 		released,
 		context,
-		start: (input: { script: string; args?: unknown }) => host.tool.execute(input, context),
+		start: (input: {
+			script?: string
+			args?: unknown
+			scriptPath?: string
+			resumeFromRunId?: string
+		}) => host.tool.execute(input, context),
 		/** Resolves when `ready()` holds, re-checked on every run update and every change at the model gate. */
 		async until(ready: () => boolean): Promise<void> {
 			if (ready()) return

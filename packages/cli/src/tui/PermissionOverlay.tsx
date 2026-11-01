@@ -201,7 +201,7 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[]): strin
 			case 'Agent':
 				return 'Start an agent'
 			case 'workflow':
-				return 'Start a workflow'
+				return resumesWorkflow(first) ? 'Resume a workflow' : 'Start a workflow'
 			default:
 				return connectorToolLabel(first.name)
 		}
@@ -210,6 +210,16 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[]): strin
 		return `Start ${toolCalls.length} agents`
 	}
 	return `${toolCalls.length} tool calls`
+}
+
+/** Whether a `workflow` call continues an earlier run instead of starting a new one. */
+function resumesWorkflow(call: PermissionToolCall | undefined): boolean {
+	const input = call?.input
+	return (
+		typeof input === 'object' &&
+		input !== null &&
+		typeof (input as { resumeFromRunId?: unknown }).resumeFromRunId === 'string'
+	)
 }
 
 /** The one question under the operation. */
@@ -232,7 +242,9 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 			case 'Agent':
 				return 'Do you want to start this agent?'
 			case 'workflow':
-				return 'Do you want to start this workflow?'
+				return resumesWorkflow(first)
+					? 'Do you want to resume this workflow?'
+					: 'Do you want to start this workflow?'
 			default:
 				return `Do you want to run ${connectorToolLabel(first.name)}?`
 		}
@@ -331,7 +343,9 @@ export function permissionAnswers(
 	const agents =
 		workflow || (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent'))
 	const approve = workflow
-		? 'Start this workflow'
+		? resumesWorkflow(toolCalls[0])
+			? 'Resume this workflow'
+			: 'Start this workflow'
 		: agents
 			? toolCalls.length === 1
 				? 'Start this agent'
