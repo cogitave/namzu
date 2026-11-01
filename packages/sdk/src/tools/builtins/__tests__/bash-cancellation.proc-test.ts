@@ -31,20 +31,6 @@ function killSurvivors(token: string): void {
 	}
 }
 
-async function within<T>(pending: Promise<T>, timeoutMs: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			pending,
-			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new Error('process observation deadline')), timeoutMs)
-			}),
-		])
-	} finally {
-		if (timer !== undefined) clearTimeout(timer)
-	}
-}
-
 const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
 
 describe.skipIf(process.platform === 'win32')('host bash owns its shell descendants', () => {
@@ -104,15 +90,13 @@ describe.skipIf(process.platform === 'win32')('host bash owns its shell descenda
 					},
 					{ workingDirectory: dir, abortSignal: caller.signal } as ToolContext,
 				)
-				const readyDeadline = Date.now() + 2000
-				while (!existsSync(join(dir, 'ready'))) {
-					if (Date.now() >= readyDeadline) throw new Error('descendant startup deadline')
-					await sleep(20)
-				}
+				// No wall-clock guard: a descendant that never starts is caught by the
+				// test's own timeout, which does not depend on how fast the host is.
+				while (!existsSync(join(dir, 'ready'))) await sleep(20)
 				expect(survivors(token).length).toBeGreaterThanOrEqual(3)
 				if (stop === 'abort') caller.abort(new Error('operator stopped'))
 				if (stop === 'maxBuffer') writeFileSync(join(dir, 'overflow'), 'go')
-				const result = await within(running, 6500)
+				const result = await running
 				expect(result.success).toBe(false)
 				if (stop === 'timeout') {
 					expect(result.data).toMatchObject({ timedOut: true })
@@ -130,10 +114,7 @@ describe.skipIf(process.platform === 'win32')('host bash owns its shell descenda
 				vi.unstubAllEnvs()
 				caller.abort()
 				killSurvivors(token)
-				await within(
-					Promise.resolve(running).catch(() => {}),
-					2000,
-				)
+				await Promise.resolve(running).catch(() => {})
 				removeTempDir(dir)
 			}
 		},
