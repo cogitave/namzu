@@ -1,4 +1,4 @@
-import { killTree } from '../../process/kill-tree.js'
+import { killTrees } from '../../process/kill-tree.js'
 
 /**
  * What the host's exit has to stop: a job's process, and how to signal it.
@@ -23,15 +23,22 @@ let installed = false
  * It does not cover a SIGKILL of the host itself, which no listener can see.
  */
 function finalizeAtHostExit(): void {
+	const unowned: HostExitTarget['child'][] = []
 	for (const target of live) {
 		try {
 			if (target.kill) target.kill('SIGKILL')
-			else killTree(target.child, 'SIGKILL')
+			else unowned.push(target.child)
 		} catch {
 			// The process is already gone; the host is exiting either way.
 		}
 	}
 	live.clear()
+	try {
+		// One pass over the machine's processes for all the jobs, not one each.
+		killTrees(unowned, 'SIGKILL')
+	} catch {
+		// As above.
+	}
 }
 
 /**

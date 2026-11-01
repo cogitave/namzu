@@ -33,27 +33,39 @@ export function registerProcessTag(child: object, tag: string): void {
 }
 
 /**
- * Signal every process of this user whose environment carries the tag, by
- * reading `/proc/<pid>/environ`. Linux only: other POSIX systems have no
+ * Signal every process of this user whose environment carries one of the tags,
+ * by reading `/proc/<pid>/environ`. Linux only: other POSIX systems have no
  * `/proc`, and there the process group is all a kill can reach. A process whose
  * environment cannot be read (another user's, or one that has just ended) is
- * skipped.
+ * skipped without further work.
+ *
+ * Several tags are looked for in one pass, so stopping many jobs at once reads
+ * each environment once, not once per job. The scan is synchronous and its cost
+ * grows with the number of processes on the machine. There is also a window
+ * between reading an environment and signalling its pid in which the pid could
+ * be reused by an unrelated process of the same user; the window is the length
+ * of one read, and the signal goes only to a pid whose environment carried the
+ * tag a moment before.
  */
-export function signalTagged(tag: string, signal: NodeJS.Signals): number {
+export function signalTagged(tags: string | readonly string[], signal: NodeJS.Signals): number {
+	const needles = (typeof tags === 'string' ? [tags] : tags).map(
+		(tag) => `${MSYS_TAG_VARIABLE}=${tag}\0`,
+	)
+	if (needles.length === 0) return 0
 	let entries: string[]
 	try {
 		entries = readdirSync('/proc')
 	} catch {
 		return 0
 	}
-	const needle = `${MSYS_TAG_VARIABLE}=${tag}\0`
 	let signalled = 0
 	for (const entry of entries) {
 		if (!/^\d+$/.test(entry)) continue
 		const pid = Number(entry)
 		if (pid === process.pid) continue
 		try {
-			if (!readFileSync(`/proc/${entry}/environ`, 'latin1').includes(needle)) continue
+			const environ = readFileSync(`/proc/${entry}/environ`, 'latin1')
+			if (!needles.some((needle) => environ.includes(needle))) continue
 			process.kill(pid, signal)
 			signalled++
 		} catch {
@@ -131,6 +143,31 @@ export function killTree(
 	child: { readonly pid?: number | undefined },
 	signal: NodeJS.Signals,
 ): void {
+	killTrees([child], signal)
+}
+
+/**
+ * `killTree` for several children at once: each child's group is signalled, then
+ * the environment scan runs once for all their tags. Used where the number of
+ * kills is unbounded and cannot wait, such as the host's exit.
+ */
+export function killTrees(
+	children: readonly { readonly pid?: number | undefined }[],
+	signal: NodeJS.Signals,
+): void {
+	const tags: string[] = []
+	for (const child of children) {
+		if (!child.pid) continue
+		killOne(child, signal, tags)
+	}
+	if (tags.length > 0 && process.platform === 'linux') signalTagged(tags, signal)
+}
+
+function killOne(
+	child: { readonly pid?: number | undefined },
+	signal: NodeJS.Signals,
+	tags: string[],
+): void {
 	if (!child.pid) return
 	try {
 		if (process.platform === 'win32') {
@@ -147,7 +184,7 @@ export function killTree(
 				// After the group, which is cheap and exact: what is left is only
 				// what started its own session. Also when the group is already gone.
 				const tagged = MSYS_SHELLS.get(child)
-				if (tagged !== undefined && process.platform === 'linux') signalTagged(tagged.tag, signal)
+				if (tagged !== undefined) tags.push(tagged.tag)
 			}
 		}
 	} catch {
