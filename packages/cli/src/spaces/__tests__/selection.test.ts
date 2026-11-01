@@ -134,6 +134,31 @@ describe('selecting text in a pane', () => {
 		expect(since(third)).not.toContain(`${ESC}]52`)
 	})
 
+	it('picks a whole word and a whole line of wide characters', async () => {
+		const { t, print, since, drive, clock } = rig()
+		await print('ab \u4f60\u597d\u4e16\u754c cd')
+		const mark = t.written.length
+		clock.now = 1000
+		// The second half of the third wide character.
+		await drive(press(X + 8, Y), release(X + 8, Y))
+		clock.now = 1100
+		await drive(press(X + 8, Y), release(X + 8, Y))
+		expect(since(mark)).toContain(osc('\u4f60\u597d\u4e16\u754c'))
+		const second = t.written.length
+		clock.now = 1200
+		await drive(press(X + 8, Y), release(X + 8, Y))
+		expect(since(second)).toContain(osc('ab \u4f60\u597d\u4e16\u754c cd'))
+	})
+
+	it('copies a wide character dragged from its second half', async () => {
+		const { t, print, since, drive } = rig()
+		await print('ab \u4f60\u597d\u4e16')
+		const mark = t.written.length
+		// Column 4 is the second half of the first wide character, column 5 the start of the next.
+		await drive(press(X + 4, Y), drag(X + 5, Y), release(X + 5, Y))
+		expect(since(mark)).toContain(osc('\u4f60\u597d'))
+	})
+
 	it('lets go of the selection on a key typed into the pane or on a resize', async () => {
 		const { t, pty, print, since, drive } = rig({ copyOnSelect: false })
 		await print(CONTENT)

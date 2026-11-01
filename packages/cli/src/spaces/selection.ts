@@ -12,6 +12,8 @@ export interface TextSource {
 	bufferLength(): number
 	lineText(line: number, from: number, to: number, trim?: boolean): string
 	lineWrapped(line: number): boolean
+	/** Columns the cell at `col` takes: 2 for a wide character, 0 for the second half of one, 1 otherwise. */
+	cellWidth(line: number, col: number): number
 }
 
 export interface Point {
@@ -46,7 +48,8 @@ export function colsOnLine(
  * The text of a range. Each line loses its trailing blanks; a line the program wrapped joins the
  * next without a line break. Attributes and escape sequences are never part of it.
  */
-export function extractText(source: TextSource, range: Range): string {
+export function extractText(source: TextSource, raw: Range): string {
+	const range = snapRange(source, raw)
 	let out = ''
 	for (let line = range.start.line; line <= range.end.line; line++) {
 		const cols = colsOnLine(range, line, source.cols)
@@ -63,31 +66,68 @@ export function extractText(source: TextSource, range: Range): string {
 	return out
 }
 
+/** The first column of the cell that holds `col`: the second half of a wide character belongs to the first. */
+export function cellStart(source: TextSource, line: number, col: number): number {
+	let c = Math.max(0, Math.min(col, source.cols - 1))
+	while (c > 0 && source.cellWidth(line, c) === 0) c--
+	return c
+}
+
+/** The last column of the cell that holds `col`. */
+export function cellEnd(source: TextSource, line: number, col: number): number {
+	const start = cellStart(source, line, col)
+	return Math.min(source.cols - 1, start + Math.max(1, source.cellWidth(line, start)) - 1)
+}
+
+/** The range grown to whole cells: a wide character is never cut in half. */
+export function snapRange(source: TextSource, range: Range): Range {
+	const { start, end } = range
+	return {
+		start: { line: start.line, col: cellStart(source, start.line, start.col) },
+		end: { line: end.line, col: cellEnd(source, end.line, end.col) },
+	}
+}
+
 /** Characters that end a word on a double click. */
 const WORD_BREAK = /[\s"'`()[\]{}<>,;|]/u
 
 /** The run of non-blank, non-bracket characters around a cell; the cell alone when it is blank. */
 export function wordAt(source: TextSource, line: number, col: number): Range {
-	// One entry per column: the second half of a wide character is empty and belongs to the first.
-	const cells: string[] = []
-	for (let c = 0; c < source.cols; c++) cells.push(source.lineText(line, c, c + 1, false))
+	// One entry per column, naming the cell that owns it: the second half of a wide character
+	// is part of the first, never a break.
 	const breaks = (c: number): boolean => {
-		const ch = cells[c] ?? ' '
-		return ch !== '' && WORD_BREAK.test(ch)
+		const s = cellStart(source, line, c)
+		const ch = source.lineText(line, s, s + 1, false)
+		return ch === '' || WORD_BREAK.test(ch)
 	}
-	const at = Math.max(0, Math.min(col, cells.length - 1))
-	if (cells.length === 0 || breaks(at)) return { start: { line, col }, end: { line, col } }
+	const last = source.cols - 1
+	const at = cellStart(source, line, col)
+	if (last < 0 || breaks(at)) {
+		return { start: { line, col: at }, end: { line, col: cellEnd(source, line, at) } }
+	}
 	let start = at
-	let end = at
-	while (start > 0 && !breaks(start - 1)) start--
-	while (end < cells.length - 1 && !breaks(end + 1)) end++
+	let end = cellEnd(source, line, at)
+	while (start > 0 && !breaks(start - 1)) start = cellStart(source, line, start - 1)
+	while (end < last && !breaks(end + 1)) end = cellEnd(source, line, end + 1)
 	return { start: { line, col: start }, end: { line, col: end } }
 }
 
-/** The whole line, without its trailing blanks. */
+/** The whole line the program printed, wrapped rows included, without its trailing blanks. */
 export function lineAt(source: TextSource, line: number): Range {
-	const used = source.lineText(line, 0, source.cols, true).replace(/[ \t]+$/u, '')
-	return { start: { line, col: 0 }, end: { line, col: Math.max(0, [...used].length - 1) } }
+	let first = line
+	while (first > 0 && source.lineWrapped(first)) first--
+	let last = line
+	while (last + 1 < source.bufferLength() && source.lineWrapped(last + 1)) last++
+	// The last column that shows something, scanning from the right.
+	let end = -1
+	for (let c = source.cols - 1; c >= 0; c--) {
+		if (source.cellWidth(last, c) === 0) continue
+		if (source.lineText(last, c, c + 1, false).trim() !== '') {
+			end = cellEnd(source, last, c)
+			break
+		}
+	}
+	return { start: { line: first, col: 0 }, end: { line: last, col: Math.max(0, end) } }
 }
 
 /** Counts presses made in the same place within `windowMs` of each other: 1, 2, 3, then 1 again. */

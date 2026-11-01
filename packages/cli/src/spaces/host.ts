@@ -60,6 +60,7 @@ import {
 	extractText,
 	lineAt,
 	orderRange,
+	snapRange,
 	wordAt,
 } from './selection.js'
 import {
@@ -387,6 +388,7 @@ export class SpacesHost {
 	private cancelNote: (() => void) | undefined
 	private readonly watched = new WeakSet<HeadlessScreen>()
 	private readonly lastForward = new WeakMap<HeadlessScreen, number>()
+	private readonly pendingForward = new Map<HeadlessScreen, string>()
 	private pasteOn = false
 	private pending: (() => void) | undefined
 	private rendering: Promise<void> = Promise.resolve()
@@ -440,6 +442,8 @@ export class SpacesHost {
 		}
 		this.releaseSignals()
 		if (hooks.count(signal) === 0) hooks.raise(signal)
+		// Someone else handles the signal and may ignore it: the host still finishes closing.
+		else this.quit()
 	}
 	private armSignals(): void {
 		const hooks = this.options.signals ?? realSignalHooks
@@ -2267,18 +2271,41 @@ export class SpacesHost {
 		const split = data.indexOf(';')
 		if (split < 0) return
 		const targets = data.slice(0, split)
-		const payload = data.slice(split + 1)
+		let payload = data.slice(split + 1)
 		// Only a write to the clipboard: a query would hand the user's clipboard to the program.
 		if (!/^[cp]*$/u.test(targets) || !/^[A-Za-z0-9+/]+={0,2}$/u.test(payload)) return
-		if (
-			payload.length % 4 !== 0 ||
-			payload.length > Math.ceil((MAX_CLIPBOARD_TEXT_BYTES * 4) / 3) + 4
-		)
+		// Some programs leave the padding off.
+		if (payload.length % 4 === 1) return
+		if (payload.length % 4 !== 0) payload = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')
+		if (payload.length > Math.ceil((MAX_CLIPBOARD_TEXT_BYTES * 4) / 3) + 4) return
+		// A session the user cannot see never writes to their clipboard.
+		if (!(this.placement()?.panes ?? []).some((p) => p.entry.child?.screen === screen)) {
+			this.note(
+				'A session that is not on screen asked to copy something. Open it and try again.',
+				undefined,
+				4000,
+			)
 			return
-		const at = (this.options.now ?? Date.now)()
+		}
+		const now = this.options.now ?? Date.now
 		const last = this.lastForward.get(screen)
-		if (last !== undefined && at - last < FORWARD_MS) return
-		this.lastForward.set(screen, at)
+		if (last !== undefined && now() - last < FORWARD_MS) {
+			// Too soon after the last one: send this one, the latest, when the pause is over.
+			const first = !this.pendingForward.has(screen)
+			this.pendingForward.set(screen, data)
+			if (first)
+				this.schedule(
+					() => {
+						const held = this.pendingForward.get(screen)
+						this.pendingForward.delete(screen)
+						this.lastForward.delete(screen)
+						if (held !== undefined) this.forwardClipboard(screen, held)
+					},
+					FORWARD_MS - (now() - last),
+				)
+			return
+		}
+		this.lastForward.set(screen, now())
 		const text = Buffer.from(payload, 'base64').toString('utf8')
 		writeClipboardText(
 			text,
@@ -2680,7 +2707,7 @@ export class SpacesHost {
 
 	/** Shows the selected cells in reverse video. */
 	private paintSelection(frame: Frame, sel: PaneSelection, inner: Rect): void {
-		const range = orderRange(sel.anchor, sel.focus)
+		const range = snapRange(sel.screen, orderRange(sel.anchor, sel.focus))
 		const top = sel.screen.viewTop(sel.entry.scrollBack)
 		for (let row = 0; row < inner.height; row++) {
 			const cols = colsOnLine(range, top + row, sel.screen.cols)

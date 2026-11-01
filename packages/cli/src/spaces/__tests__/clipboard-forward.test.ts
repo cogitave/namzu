@@ -46,7 +46,7 @@ describe('a pane asking for the clipboard', () => {
 	it('drops what is not valid base64, an unknown target, or nothing to set', async () => {
 		const { request } = rig()
 		expect(await request('c;not*base64!')).toBe('')
-		expect(await request('c;abc')).toBe('')
+		expect(await request('c;a')).toBe('')
 		expect(await request('c;')).toBe('')
 		expect(await request(`s;${b64('x')}`)).toBe('')
 		expect(await request(b64('x'))).toBe('')
@@ -66,6 +66,37 @@ describe('a pane asking for the clipboard', () => {
 		expect(await request(`c;${b64('b')}`)).toBe('')
 		clock.now += 1
 		expect(await request(`c;${b64('c')}`)).toContain(b64('c'))
+	})
+
+	it('accepts base64 with the padding left off', async () => {
+		const { request } = rig()
+		expect(await request(`c;${b64('ab').replace(/=+$/u, '')}`)).toContain(b64('ab'))
+	})
+
+	it('holds a request that comes too soon and sends it when the pause is over', async () => {
+		const { t, request, clock } = rig()
+		expect(await request(`c;${b64('a')}`)).toContain(b64('a'))
+		clock.now += 100
+		expect(await request(`c;${b64('b')}`)).toBe('')
+		const mark = t.written.length
+		clock.now += 150
+		t.tick(150)
+		expect(t.written.slice(mark).join('')).toContain(b64('b'))
+	})
+
+	it('never writes the clipboard for a session that is not on screen', async () => {
+		const { t, pty } = rig()
+		// A second session takes the screen; the first is still running behind it.
+		t.type('\x02')
+		t.type('c')
+		t.type('\r')
+		expect(t.spawned).toHaveLength(2)
+		const hidden = (t.host.roster.entries[0]?.child as { screen: { settled(): Promise<void> } })
+			.screen
+		const mark = t.written.length
+		pty.print(`${ESC}]52;c;${b64('x')}${BEL}`)
+		await hidden.settled()
+		expect(t.written.slice(mark).join('')).not.toContain(`${ESC}]52`)
 	})
 
 	it('is wrapped for tmux like any other copy', async () => {

@@ -79,6 +79,11 @@ export class HeadlessScreen {
 		return this.term.buffer.active.getLine(line)?.isWrapped ?? false
 	}
 
+	/** Columns the cell takes: 2 for a wide character, 0 for the second half of one, 1 otherwise. */
+	cellWidth(line: number, col: number): number {
+		return this.term.buffer.active.getLine(line)?.getCell(col)?.getWidth() ?? 1
+	}
+
 	write(data: string): void {
 		this.fed += data.length
 		const upTo = this.fed

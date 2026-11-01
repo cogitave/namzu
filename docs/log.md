@@ -2,6 +2,7 @@
 
 ## 2026-11-02
 
+- **Update** [namzu spaces (preview)](cli/spaces.md#selecting-and-copying-text): double and triple click and drags now respect wide characters and wrapped lines, and a pane's clipboard request is forwarded only from a session on screen, held (not dropped) when it comes too soon, and accepted without base64 padding.
 - **Update** [namzu spaces (preview)](cli/spaces.md#selecting-and-copying-text): the spaces screen selects and copies text itself (drag, double-click a word, triple-click a line; copied on release, or with `ctrl+c` when `tui.copyOnSelect` is `false`), forwards a pane's clipboard requests to the terminal, wraps copies for tmux and screen (this also fixes `/copy` under them), takes `tui.mouse` and `NAMZU_DISABLE_MOUSE[_CLICKS]` to capture less of the mouse, and switches the mouse off on `SIGTERM`, `SIGHUP` and `SIGINT` and at every interactive launch. `.changeset/spaces-select-copy.md` (`@namzu/cli` minor).
 
 ## 2026-11-01

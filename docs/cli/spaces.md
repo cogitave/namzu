@@ -146,11 +146,11 @@ While the spaces screen is up the host asks the terminal to report the mouse, be
 Inside a pane you can select without any override:
 
 - Drag across the text. The cells are highlighted, and when you let go they are copied. The selection follows the pane's own lines, so scrolling the pane's history with the wheel while you drag, or output arriving, does not move it. Clicking a pane keeps the place it was scrolled to, so text from its history can be selected.
-- Double-click a word, or triple-click a line.
+- Double-click a word, or triple-click a line (a line the program wrapped is taken whole). Wide characters (Chinese, Japanese, Korean, full-width forms) count as one character: a selection never cuts one in half.
 - Trailing blanks on each line are left out, wrapped lines are joined, and no colours or control characters reach the clipboard. A selection of more than 100,000 bytes is refused rather than cut short.
 - The status line says how many characters were sent. Terminals give no confirmation that a copy arrived, so it says "sent". If pasting gives nothing, your terminal does not take the request; hold `shift` (`option` in iTerm2, `fn` in Terminal.app) while selecting to use the terminal's own selection and copy.
 - Copying uses the terminal's clipboard request (OSC 52). Inside tmux it is wrapped for passthrough, which needs `set -g allow-passthrough on` (or `set -g set-clipboard on`); with tmux's own `mouse on`, tmux takes the mouse first and only `shift`-drag reaches the terminal. Inside screen it is sent in screen's passthrough frames. On WSL, Windows Terminal takes the request.
-- A program in a pane that asks for the clipboard (for example `/copy` in a Namzu session) now reaches your terminal too. Only writes are passed on, at most four a second per pane; a program can never read your clipboard through it.
+- A program in a pane that asks for the clipboard (for example `/copy` in a Namzu session) now reaches your terminal too. Only writes are passed on, only from a session that is on screen (a hidden one gets a short note instead), at most four a second per pane (a request that comes too soon is held and sent when the pause is over, so the last one wins), and the base64 may leave its padding off; a program can never read your clipboard through it.
 
 The sidebar, the tab bar and the borders are not selectable this way; use the terminal's override for them.
 
