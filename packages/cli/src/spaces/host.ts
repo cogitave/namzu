@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE } from '../terminal/host/cell.js'
@@ -25,6 +25,7 @@ import {
 	clampSidebarWidth,
 	computeLayout,
 } from './layout.js'
+import { LEAVE_SCREEN, LEAVE_TO_NATIVE, type MouseMode, enterScreen, mouseOn } from './mouse.js'
 import {
 	type Hit,
 	type ListSpec,
@@ -102,6 +103,29 @@ export interface HostOutput {
 	readonly rows: number
 	on(event: 'resize', listener: () => void): unknown
 	off(event: 'resize', listener: () => void): unknown
+}
+
+/** The signals that end the process without going through its exit handlers. */
+export type EndingSignal = 'SIGINT' | 'SIGTERM' | 'SIGHUP'
+const ENDING_SIGNALS: readonly EndingSignal[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
+
+/** What the host needs of the process to hand the terminal back when a signal ends it. Injected so tests own them. */
+export interface SignalHooks {
+	on(signal: EndingSignal, listener: () => void): void
+	off(signal: EndingSignal, listener: () => void): void
+	count(signal: EndingSignal): number
+	/** Sends the signal to this process again, now that nothing of the host listens. */
+	raise(signal: EndingSignal): void
+	/** Writes to the terminal at once, bypassing any buffer a dying process would lose. */
+	writeNow(text: string): void
+}
+
+export const realSignalHooks: SignalHooks = {
+	on: (signal, listener) => void process.on(signal, listener),
+	off: (signal, listener) => void process.off(signal, listener),
+	count: (signal) => process.listenerCount(signal),
+	raise: (signal) => void process.kill(process.pid, signal),
+	writeNow: (text) => void writeSync(1, text),
 }
 
 /** Runs `run` after `ms`; the returned function cancels it. Injected so tests own the clock. */
@@ -186,6 +210,12 @@ export interface SpacesHostOptions {
 	readonly peers?: PeerSource
 	/** The session the host runs inside of; the host then starts hidden, until `openSpaces`. */
 	readonly local?: LocalPane
+	/** How much of the pointer is asked of the terminal; `full` when absent. */
+	readonly mouse?: MouseMode
+	/** Whether a selection is copied when the button is released; true when absent. */
+	readonly copyOnSelect?: boolean
+	/** The process's signals, for handing the terminal back when one ends it. */
+	readonly signals?: SignalHooks
 	readonly newSlot?: () => string
 	readonly isDirectory?: (path: string) => boolean
 	readonly homeDirectory?: string
@@ -210,12 +240,8 @@ const DOUBLE_CLICK_MS = 400
 /** Rows one wheel notch moves. */
 const WHEEL_ROWS = 3
 
-const ENTER_SCREEN = '\x1b[?1049h\x1b[2J\x1b[?1000h\x1b[?1002h\x1b[?1006h'
 /** Drawing errors in a row before the host closes instead of retrying. */
 const MAX_PAINT_FAILURES = 3
-/** Leaves the alternate screen for a session that has the real terminal: pointer modes off, main screen back. */
-const LEAVE_TO_NATIVE = '\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1049l'
-const LEAVE_SCREEN = '\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?25h\x1b[?1049l'
 
 type Prompt = {
 	kind: 'folder' | 'new-space' | 'rename-session' | 'rename-space' | 'rename-tab'
@@ -344,7 +370,43 @@ export class SpacesHost {
 
 	private readonly onData = (chunk: string | Buffer): void =>
 		this.handleInput(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
-	private readonly onResize = (): void => this.relayout()
+	private readonly onResize = (): void => {
+		// Some terminals forget the pointer modes when they are resized.
+		if (!this.hidden && !this.closed) this.options.output.write(mouseOn(this.mouseMode))
+		this.relayout()
+	}
+	private readonly signalListeners = new Map<EndingSignal, () => void>()
+	/** A signal is ending the process: give the terminal back now, before the default action kills us. */
+	private signalled(signal: EndingSignal): void {
+		const hooks = this.options.signals ?? realSignalHooks
+		if (!this.hidden && !this.closed) {
+			try {
+				hooks.writeNow(LEAVE_SCREEN)
+			} catch {
+				// The terminal may already be gone.
+			}
+			// Nothing of the host is drawn after this, whoever ends up closing it.
+			this.hidden = true
+		}
+		this.releaseSignals()
+		if (hooks.count(signal) === 0) hooks.raise(signal)
+	}
+	private armSignals(): void {
+		const hooks = this.options.signals ?? realSignalHooks
+		for (const signal of ENDING_SIGNALS) {
+			const listener = (): void => this.signalled(signal)
+			this.signalListeners.set(signal, listener)
+			hooks.on(signal, listener)
+		}
+	}
+	private releaseSignals(): void {
+		const hooks = this.options.signals ?? realSignalHooks
+		for (const [signal, listener] of this.signalListeners) hooks.off(signal, listener)
+		this.signalListeners.clear()
+	}
+	private get mouseMode(): MouseMode {
+		return this.options.mouse ?? 'full'
+	}
 	/** If the process ends without a clean close, still hand the terminal back and stop the sessions. */
 	private readonly onProcessExit = (): void => {
 		if (this.closed) return
@@ -393,13 +455,14 @@ export class SpacesHost {
 	start(): void {
 		const { input, output, local } = this.options
 		// Inside a conversation the terminal is already raw and belongs to it; nothing is drawn until `openSpaces`.
-		if (!local) output.write(ENTER_SCREEN)
+		if (!local) output.write(enterScreen(this.mouseMode))
 		input.setEncoding?.('utf8')
 		input.setRawMode?.(true)
 		input.resume?.()
 		input.on('data', this.onData)
 		output.on('resize', this.onResize)
 		process.once('exit', this.onProcessExit)
+		this.armSignals()
 		if (local) this.seedLocal(local)
 		else this.open(this.options.restored ? this.restore(this.options.restored) : this.fresh())
 		this.armPoll()
@@ -453,7 +516,7 @@ export class SpacesHost {
 		if (this.closed || !entry) return
 		if (this.hidden) {
 			this.hidden = false
-			this.options.output.write(ENTER_SCREEN)
+			this.options.output.write(enterScreen(this.mouseMode))
 			this.pasteOn = false
 			this.writer.invalidate()
 		}
@@ -495,6 +558,26 @@ export class SpacesHost {
 		if (this.closed || this.hidden || !this.localEntry || !this.options.local) return false
 		this.openNative()
 		return true
+	}
+
+	/**
+	 * Runs `run` with the terminal handed back to the real shell (an editor, a pager): the pointer is
+	 * switched off and the main screen returns first, and the spaces screen is entered again afterwards
+	 * even if `run` throws. Nothing happens around `run` when the spaces screen is not on the terminal.
+	 */
+	async withTerminalHandoff<T>(run: () => Promise<T> | T): Promise<T> {
+		if (this.closed || this.hidden) return await run()
+		this.options.output.write(LEAVE_TO_NATIVE)
+		this.pasteOn = false
+		try {
+			return await run()
+		} finally {
+			if (!this.closed && !this.hidden) {
+				this.options.output.write(enterScreen(this.mouseMode))
+				this.writer.invalidate()
+				this.requestRender()
+			}
+		}
 	}
 
 	/** Moves the keyboard from a pane to the sidebar of the spaces screen. */
@@ -1652,6 +1735,9 @@ export class SpacesHost {
 	// --- mouse -----------------------------------------------------------------
 
 	private mouse(event: MouseEvent): void {
+		// With only the wheel asked for, a terminal that reports more is not acted on.
+		if (this.mouseMode === 'scroll' && event.kind !== 'wheel-up' && event.kind !== 'wheel-down')
+			return
 		if (event.kind === 'release') this.endDrags()
 		if (this.captured()) {
 			this.overlayMouse(event)
@@ -2486,6 +2572,7 @@ export class SpacesHost {
 		input.off('data', this.onData)
 		output.off('resize', this.onResize)
 		process.off('exit', this.onProcessExit)
+		this.releaseSignals()
 		input.setRawMode?.(false)
 		input.pause?.()
 		if (!this.hidden) output.write(LEAVE_SCREEN)
