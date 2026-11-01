@@ -110,6 +110,7 @@ the action still reports success and the text says to take one.
 | `list_windows` | — | no |
 | `focus_window` | `window_id` | yes |
 | `ui_snapshot` | `window_id` (optional; the window in front without it) | no — the window's controls as text |
+| `wait_for` | `until`, `match`, `role`, `window_id`, `timeout_ms` | no — the window's controls as text, as `ui_snapshot` |
 | `ui_act` | `ref`, `action`, `value` (for `set_value`) | yes |
 | `batch` | `actions` | one, at the end |
 
@@ -177,10 +178,15 @@ by automatic capture returns pixels for that window on a host with window captur
 ## A window's controls
 
 When the host declares `uiTree` and implements `uiSnapshot` and `uiAct`,
-the tool offers `ui_snapshot` and `ui_act`, and tells the model to prefer
-them to pixel clicks when a control is in the tree: they do not depend on
-coordinates or on which window is in front, and several `ui_act` steps fit
-in one batch.
+the tool offers `ui_snapshot`, `ui_act` and `wait_for`, and tells the model to
+work tree-first: `list_windows`, then `ui_snapshot`, then `ui_act` by ref,
+confirming by the action's own read-back, by `wait_for`, or by a window
+screenshot. This reaches a window behind others, does not move the user's
+pointer or take their screen, and does not depend on coordinates; several
+`ui_act` steps fit in one batch. Coordinates are for a window whose tree has
+no usable controls. The first `mouse_click` in a captured window gets a
+reminder appended to its result (once per window, never a refusal): that the
+window has controls with refs, or that it has not been read yet.
 
 `ui_snapshot { window_id }` reads one window's accessibility tree and shows
 it as indented text, one control per line:
@@ -222,6 +228,39 @@ action the control does not list, or `set_value` without `value`, is refused
 before anything runs; in a batch that refuses the whole batch. The host's
 refusal comes back in its own words (`that control is from an older UI
 snapshot; take a new one`). It normally returns a screenshot afterwards.
+
+### What an action reports about itself
+
+A call that returned is not proof that its effect happened, so a step says
+which of three things is known, and `data.steps[]` carries the same as
+`delivery` and `retrySafety` (plus `readBack` when the host read one):
+
+| Result text | `delivery` | `retrySafety` | Meaning |
+| --- | --- | --- | --- |
+| `done, verified (reads "Ada")` | `delivered_verified` | `safe` for an idempotent `set_value`, else `unsafe` | The host read the state back and it matches. |
+| `sent, not confirmed` | `delivered_unverified` | `unsafe` | The input went out (or may have) and nothing checked it. The model looks before repeating, because repeating can act twice. A failed read-back lands here, never in `not_delivered`. |
+| failure, `Not delivered: …` | `not_delivered` | `safe` | The action was refused before any input, or a read-back proved nothing changed. Trying again, or another way, is safe. |
+
+A timeout or a lost reply after input went out is `delivered_unverified` /
+`unsafe`, never `not_delivered`. A host that does not classify keeps the
+plain `done`. `UiActResult` carries `delivery`, `retrySafety` and `readBack`;
+`executeWindow` may return a `WindowInputResult`; a display action may
+return `{ type: 'ok', delivery, retrySafety, detail }`. All are optional.
+
+### wait_for
+
+`wait_for { until, match, role?, window_id?, timeout_ms? }` replaces a fixed
+`wait` when the model knows what it is waiting for. `until` is
+`element_appears` / `element_gone` (a control whose name contains `match`,
+optionally of `role`), `text_appears` / `text_gone` (a name or value contains
+`match`) or `window_appears` / `window_closed` (a window title contains
+`match`; needs `list_windows`). Matching is case-insensitive. The tool reads
+the window every 500 ms until the condition holds and then returns the
+window's controls as a fresh `ui_snapshot`, so the refs are usable at once.
+`timeout_ms` defaults to 10 000 and never exceeds `maxWaitMs`. Running out of
+time is a failure that says nothing was changed and shows the last read; a read
+that itself fails is tried again, not taken as an answer. It is its own call
+(not allowed in a batch) and is read-only.
 On a window-only host, refs work even before the first image: the tool
 captures the window named by `ui_snapshot` after acting when it has a window
 id. If the host reports no window id, it returns the action result without
@@ -433,12 +472,25 @@ A control's ref is cua-driver's element token, which names its snapshot; the
 adapter keeps only the latest snapshot's. `invoke`, `toggle`, `select`,
 `expand` and `collapse` go through cua-driver's `click` on the token — UI
 Automation's Invoke in the background, with no pointer move and no change of
-foreground; `set_value` through `set_value`, and, for a field that reports no
-settable value (classic Notepad's editor), by typing into it when it is empty.
-Such a field that already holds text is refused, since typing would add to
-it. `focus` and `scroll_into_view` are not offered. A background Invoke
-reports its effect as unverifiable by design; the screenshot the tool takes
-afterwards is where the model sees it.
+foreground; `set_value` through `set_value`. A field that reports no settable
+value (classic Notepad's editor) is `not_delivered`: the adapter no longer
+types into it as a fallback, since the driver's report of that typing is not
+trustworthy. `focus` and `scroll_into_view` are not offered.
+
+The driver reports its effect as unverifiable for nearly every background
+action, including ones that did nothing, so the adapter reads the control
+back instead. After `set_value`, `toggle` or `select` it reads the window
+again, finds the control by its evidence (automation id when unique, else
+role, name and position among equals) and compares: a field that now holds
+the value is verified; a field that still holds its old value after the driver
+said ok is `not_delivered` (a Chromium drop-down list is the known case); a
+toggle whose state flipped is verified, and one that did not is
+`delivered_unverified`; a `select` on a list or tree row that is also
+invokable carries a warning, because the click invokes it and may open the
+item. The read-back gives every other ref of that window the new token of its
+control, so refs stay valid until the next `ui_snapshot`; a ref whose control is
+gone fails as `not_delivered`. `invoke`, `expand` and `collapse` are
+`delivered_unverified`: the model looks.
 
 Every cua-driver input goes to its desktop scope — real input at screen
 coordinates. A click there first brings the window under the point to the
@@ -446,7 +498,11 @@ front; when Windows refuses, nothing is clicked and the call fails. After a
 click cua-driver also checks that the clicked window's process is still in
 front, and a click that closed its own window (a dialog's "Don't Save")
 fails that check although it happened; the adapter reports such a click as
-done rather than invite a second one.
+`delivered_unverified` / `unsafe` (sent, another window in front), neither done
+nor failed, so the model looks before it clicks again. Window-scoped type and
+key calls whose answer carries a `delivery_failed` escalation are reported the
+same way, and a `background_unavailable`, occluded or blocked-by-higher-rights
+refusal is `not_delivered` with what to do next.
 
 ### Verifying a new cua-driver build
 

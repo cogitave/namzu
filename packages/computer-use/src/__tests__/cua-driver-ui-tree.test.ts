@@ -206,7 +206,11 @@ describe('cua-driver UI trees', () => {
 			's00000002:25',
 			's00000002:30',
 		])
-		expect(tree.refs.get('s00000002:0')).toEqual({ value: 'Hesap Makinesi' })
+		expect(tree.refs.get('s00000002:0')).toMatchObject({
+			value: 'Hesap Makinesi',
+			role: 'Window',
+			automationId: 'TitleBar',
+		})
 	})
 
 	it('nests the records by parent_index when there is no markdown', () => {
@@ -316,10 +320,12 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const system = refFor(snapshot, 'System', 'expand')
 		expect(five).not.toBe('s00000002:30')
 		await expect(adapter.uiAct('s00000002:30', 'invoke')).resolves.toMatchObject({ ok: false })
-		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({ ok: true })
-		await expect(adapter.uiAct(system, 'expand')).resolves.toEqual({
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toMatchObject({
 			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
 		})
+		await expect(adapter.uiAct(system, 'expand')).resolves.toMatchObject({ ok: true })
 		expect(calls().slice(-2)).toEqual([
 			{
 				name: 'click',
@@ -340,15 +346,17 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const second = await adapter.uiSnapshot('0x261206')
 		expect(refFor(second, 'Beş', 'invoke')).not.toBe(oldRef)
 		const before = calls().length
-		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toEqual({
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
 			detail: expect.stringContaining('not a control of the latest UI snapshot'),
 		})
 		expect(calls()).toHaveLength(before)
 		await adapter.dispose()
 	})
 
-	it('types into an empty field that has no settable value, and says so', async () => {
+	it('never falls back to typing when a field has no settable value', async () => {
 		const { adapter, calls } = driver({
 			set_value: () => ({
 				result: {
@@ -363,64 +371,13 @@ describe('the cua-driver adapter’s UI tree', () => {
 			}),
 		})
 		const snapshot = await adapter.uiSnapshot('0xec097c')
-		await expect(
-			adapter.uiAct(
-				refFor(snapshot, 'Text Editor', 'set_value'),
-				'set_value',
-				'Merhaba dünya ığüşöç',
-			),
-		).resolves.toEqual({
-			ok: true,
-			detail: 'typed into the empty field, which has no settable value',
-		})
-		expect(calls().slice(-2)).toEqual([
-			{
-				name: 'set_value',
-				arguments: {
-					pid: 58056,
-					element_token: 's00000003:0',
-					value: 'Merhaba dünya ığüşöç',
-				},
-			},
-			{
-				name: 'type_text',
-				arguments: {
-					pid: 58056,
-					element_token: 's00000003:0',
-					text: 'Merhaba dünya ığüşöç',
-				},
-			},
-		])
-		await adapter.dispose()
-	})
-
-	it('does not type into a field that already holds text, since that would not replace it', async () => {
-		const { adapter, calls } = driver({
-			get_window_state: () =>
-				toolResult({
-					...NOTEPAD_STATE,
-					elements: [{ ...NOTEPAD_STATE.elements[0], value: 'already here' }],
-				}),
-			set_value: () => ({
-				result: {
-					isError: true,
-					content: [
-						{
-							type: 'text',
-							text: 'element [0] does not implement ValuePattern',
-						},
-					],
-				},
-			}),
-		})
-		const snapshot = await adapter.uiSnapshot('0xec097c')
 		const result = await adapter.uiAct(
 			refFor(snapshot, 'Text Editor', 'set_value'),
 			'set_value',
-			'new',
+			'Merhaba',
 		)
-		expect(result.ok).toBe(false)
-		expect(result.detail).toMatch(/already holds text/)
+		expect(result).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(result.detail).toMatch(/nothing was typed/)
 		expect(calls().some((c) => c.name === 'type_text')).toBe(false)
 		await adapter.dispose()
 	})
@@ -453,16 +410,22 @@ describe('the cua-driver adapter’s UI tree', () => {
 		})
 		const snapshot = await adapter.uiSnapshot('0x261206')
 		const five = refFor(snapshot, 'Beş', 'invoke')
-		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toMatchObject({
 			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
 			detail: 'that control is from an older UI snapshot; take a new one',
-		})
-		await expect(adapter.uiAct(five, 'invoke')).resolves.toEqual({
-			ok: false,
-			detail: 'the control is disabled',
 		})
 		await expect(adapter.uiAct(five, 'invoke')).resolves.toMatchObject({
 			ok: false,
+			delivery: 'not_delivered',
+			detail: 'the control is disabled',
+		})
+		// A suspected no-op is not done, but the input was sent: not safe to repeat.
+		await expect(adapter.uiAct(five, 'invoke')).resolves.toMatchObject({
+			ok: false,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
 		})
 		await adapter.dispose()
 	})
@@ -494,8 +457,9 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const beforeExpiry = await adapter.uiSnapshot('0x261206')
 		const oldRef = refFor(beforeExpiry, 'Beş', 'invoke')
 		expired = true
-		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toEqual({
+		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: false,
+			delivery: 'not_delivered',
 			detail: 'that control is from an older UI snapshot; take a new one',
 		})
 		expect(calls().map((call) => call.name)).toEqual([
@@ -515,9 +479,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 			ok: false,
 		})
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
-		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toEqual({
-			ok: true,
-		})
+		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toMatchObject({ ok: true })
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(2)
 		await adapter.dispose()
 	})
@@ -559,9 +521,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: false,
 		})
-		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toEqual({
-			ok: true,
-		})
+		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toMatchObject({ ok: true })
 		expect(calls().filter((call) => call.name === 'click')).toEqual([
 			{
 				name: 'click',
@@ -589,6 +549,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const result = await host.uiAct(refFor(snapshot, 'Beş', 'invoke'), 'invoke')
 		expect(result.ok).toBe(false)
 		expect(result.detail).toMatch(/may or may not have happened/)
+		expect(result).toMatchObject({ delivery: 'delivered_unverified', retrySafety: 'unsafe' })
 		await host.dispose()
 	})
 })

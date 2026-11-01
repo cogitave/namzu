@@ -110,10 +110,22 @@ which is in the tree for what it says), a platform `role`, `name`, optional
 `value`, `automationId`, virtual-desktop `bounds`, `states` (`disabled`,
 `selected`, …) and the `actions` it accepts: `invoke`, `set_value`, `toggle`,
 `select`, `expand`, `collapse`, `focus`, `scroll_into_view`.
-`uiAct(ref, action, value?)` reports `{ ok, detail? }`; a host says why in
-`detail` when it could not act (a stale ref, a disabled control) rather than
-throwing, and reports an action whose outcome it cannot know (its driver died
-mid-request) as `ok: false` with a detail that says so, never as a retry.
+`uiAct(ref, action, value?)` reports `{ ok, detail?, delivery?, retrySafety?,
+readBack? }`; a host says why in `detail` when it could not act (a stale ref,
+a disabled control) rather than throwing, and reports an action whose outcome
+it cannot know (its driver died mid-request) as `ok: false` with a detail that
+says so, never as a retry.
+
+`delivery` is `delivered_verified` (the host read the state back and it
+matches), `delivered_unverified` (sent, nothing confirmed it; a failed or
+impossible read-back lands here) or `not_delivered` (refused before any input,
+or a read-back proved no change). `retrySafety` is `safe` when nothing reached
+the target and `unsafe` when it may have; a timeout is never `not_delivered`.
+`executeWindow` may return a `WindowInputResult` `{ delivery, retrySafety,
+detail? }` and a display `execute` may return `{ type: 'ok', delivery?,
+retrySafety?, detail? }`; a host that returns nothing keeps the plain `done`.
+The tool turns these into the model's wording (see
+[the computer_use tool](computer-actions.md#what-an-action-reports-about-itself)).
 
 These shapes are `@experimental`: `@namzu/computer-use`'s Windows backend is
 the first host that implements them, and they may still change in a minor

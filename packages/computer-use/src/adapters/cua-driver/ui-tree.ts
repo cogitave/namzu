@@ -30,9 +30,18 @@ export interface CuaUiElement {
 	readonly parent_index?: unknown
 }
 
-/** What `uiAct` needs to know about a ref: the element's current value, for set_value's fallback. */
+/**
+ * What `uiAct` knows about a ref: the element's identity evidence (role, name,
+ * automation id), which finds it again in a later tree, and the state it had
+ * when it was read, which a read-back compares against.
+ */
 export interface UiRefFacts {
+	readonly role: string
+	readonly name: string
+	readonly automationId?: string
 	readonly value?: string
+	readonly selected: boolean
+	readonly actions: readonly UiElementAction[]
 }
 
 export interface ParsedUiTree {
@@ -157,7 +166,14 @@ function freeze(element: MutableElement): UiElement {
 function collectRefs(element: MutableElement, into: Map<string, UiRefFacts>): number {
 	let count = 1
 	if (element.ref)
-		into.set(element.ref, element.value !== undefined ? { value: element.value } : {})
+		into.set(element.ref, {
+			role: element.role,
+			name: element.name,
+			...(element.automationId !== undefined ? { automationId: element.automationId } : {}),
+			...(element.value !== undefined ? { value: element.value } : {}),
+			selected: element.states?.includes('selected') === true,
+			actions: element.actions ?? [],
+		})
 	for (const child of element.children) count += collectRefs(child, into)
 	return count
 }

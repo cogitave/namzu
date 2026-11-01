@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-01
+
+- **Update** [The computer_use tool](sdk/computer-actions.md#what-an-action-reports-about-itself) and [The computer-use host contract](sdk/computer-use-host.md): every action result is typed (`delivery`: `delivered_verified`, `delivered_unverified`, `not_delivered`; `retrySafety`: `safe`, `unsafe`); `set_value`, `toggle` and `select` are read back; a new `wait_for` action replaces fixed sleeps; the model-facing contract is tree-first; the adapter no longer reports a refused or unknown delivery as success. `.changeset/computer-use-typed-delivery.md` (`@namzu/sdk` minor, `@namzu/computer-use` minor).
+
 ## 2026-10-31
 
 - **Update** [Tool result screening](sdk/tool-result-screening.md): a `halt` verdict now ends the turn instead of reaching the model as a failed tool result. `.changeset/halt-verdict-is-terminal.md` (`@namzu/sdk` patch).

@@ -264,7 +264,7 @@ describe('the cua-driver adapter', () => {
 		await adapter.dispose()
 	})
 
-	it('counts a window click already sent as done and never suggests an unsafe foreground pointer retry', async () => {
+	it('reports a window click already sent as unverified and a refused one as not delivered', async () => {
 		let clicks = 0
 		const { adapter, calls } = cuaDriver({
 			list_windows: () =>
@@ -322,10 +322,15 @@ describe('the cua-driver adapter', () => {
 		})
 		const shot = await adapter.captureWindow('0x111')
 		const action = { type: 'mouse_click', at: { x: 220, y: 130 }, button: 'left' } as const
-		await expect(adapter.executeWindow(shot.captureId, action)).resolves.toBeUndefined()
-		await expect(adapter.executeWindow(shot.captureId, action)).rejects.toThrow(
-			/window pointer action could not be delivered safely in background/,
-		)
+		await expect(adapter.executeWindow(shot.captureId, action)).resolves.toMatchObject({
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+		})
+		await expect(adapter.executeWindow(shot.captureId, action)).resolves.toMatchObject({
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+			detail: expect.stringMatching(/needs real focus/),
+		})
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(2)
 		expect(
 			calls()
@@ -428,7 +433,11 @@ describe('the cua-driver adapter', () => {
 				at: { x: 5, y: 5 },
 				button: 'left',
 			}),
-		).rejects.toThrow(/stale window screenshot/)
+		).resolves.toMatchObject({
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+			detail: expect.stringMatching(/stale window screenshot/),
+		})
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
 		expect(calls().filter((call) => call.name === 'start_session')).toHaveLength(1)
 		await adapter.dispose()
@@ -544,7 +553,7 @@ describe('the cua-driver adapter', () => {
 		expired = true
 		await expect(
 			adapter.execute({ type: 'mouse_click', at: { x: 15, y: 20 }, button: 'left' }),
-		).resolves.toEqual({ type: 'ok' })
+		).resolves.toMatchObject({ type: 'ok', delivery: 'delivered_unverified' })
 		expect(calls()).toEqual([
 			{ name: 'set_agent_cursor_enabled', arguments: { enabled: false } },
 			{ name: 'get_screen_size', arguments: {} },
@@ -592,7 +601,10 @@ describe('the cua-driver adapter', () => {
 		await twoRefusals
 		await startCalled
 		releaseStart()
-		await expect(Promise.all([first, second])).resolves.toEqual([{ type: 'ok' }, { type: 'ok' }])
+		await expect(Promise.all([first, second])).resolves.toMatchObject([
+			{ type: 'ok' },
+			{ type: 'ok' },
+		])
 		expect(calls().filter((call) => call.name === 'start_session')).toHaveLength(1)
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(4)
 		await adapter.dispose()
@@ -656,7 +668,7 @@ describe('the cua-driver adapter', () => {
 		await adapter.dispose()
 	})
 
-	it('counts a click that closed its own window as done, and a refused one as failed', async () => {
+	it('reports a click that closed its own window as sent but unverified, and a refused one as failed', async () => {
 		const { adapter } = cuaDriver({
 			click: (call) =>
 				call.arguments.x === 1752
@@ -685,7 +697,11 @@ describe('the cua-driver adapter', () => {
 		})
 		await expect(
 			adapter.execute({ type: 'mouse_click', at: { x: 1752, y: 709 }, button: 'left' }),
-		).resolves.toEqual({ type: 'ok' })
+		).resolves.toMatchObject({
+			type: 'ok',
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+		})
 		await expect(
 			adapter.execute({ type: 'mouse_click', at: { x: 5, y: 5 }, button: 'left' }),
 		).rejects.toThrow(/no mouse input was sent/)

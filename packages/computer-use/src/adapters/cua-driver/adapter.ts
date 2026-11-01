@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
+	ActionDelivery,
+	ActionRetrySafety,
 	ComputerUseAction,
 	ComputerUseCapabilities,
 	ComputerUseResult,
@@ -13,6 +15,7 @@ import type {
 	UiSnapshot,
 	WindowInfo,
 	WindowInputAction,
+	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
 import type { Adapter } from '../types.js'
@@ -25,7 +28,7 @@ import {
 	type McpToolResult,
 } from './client.js'
 import { translateKeyForCuaDriver } from './keys.js'
-import { type UiRefFacts, toUiTree } from './ui-tree.js'
+import { type ParsedUiTree, type UiRefFacts, toUiTree } from './ui-tree.js'
 
 /**
  * The Windows desktop through cua-driver (github.com/trycua/cua, MIT): one
@@ -85,6 +88,9 @@ async function disableAgentCursor(call: McpToolCaller): Promise<void> {
 interface UiRefEntry extends UiRefFacts {
 	readonly token: string
 	readonly pid: number
+	readonly hwnd: number
+	/** Position among the window's refs that share role and name, in tree order. */
+	readonly ordinal: number
 	readonly generation: number
 	readonly processStarts: number
 }
@@ -209,15 +215,14 @@ export class CuaDriverAdapter implements Adapter {
 				})
 				return { type: 'ok' }
 			case 'mouse_click':
-				await this.pointer('click', {
+				return this.pointer('click', {
 					scope: 'desktop',
 					x: action.at.x,
 					y: action.at.y,
 					button: action.button,
 				})
-				return { type: 'ok' }
 			case 'mouse_drag':
-				await this.pointer('drag', {
+				return this.pointer('drag', {
 					scope: 'desktop',
 					from_x: action.from.x,
 					from_y: action.from.y,
@@ -227,12 +232,12 @@ export class CuaDriverAdapter implements Adapter {
 					duration_ms: DRAG.durationMs,
 					steps: DRAG.steps,
 				})
-				return { type: 'ok' }
 			case 'scroll': {
 				let remaining = Math.max(1, Math.trunc(action.amount))
+				let last: ComputerUseResult = { type: 'ok' }
 				while (remaining > 0) {
 					const ticks = Math.min(remaining, MAX_SCROLL_TICKS)
-					await this.pointer('scroll', {
+					last = await this.pointer('scroll', {
 						scope: 'desktop',
 						x: action.at.x,
 						y: action.at.y,
@@ -241,32 +246,18 @@ export class CuaDriverAdapter implements Adapter {
 					})
 					remaining -= ticks
 				}
-				return { type: 'ok' }
+				return last
 			}
 			case 'type_text':
-				if (action.text.length > 0) {
-					await this.callTool('type_text', {
-						scope: 'desktop',
-						text: action.text,
-					})
-				}
-				return { type: 'ok' }
+				if (action.text.length === 0) return { type: 'ok' }
+				return this.keyboard('type_text', { scope: 'desktop', text: action.text })
 			case 'key': {
 				const plan = translateKeyForCuaDriver(action.keys)
-				if (plan.tool === 'type_text') {
-					await this.callTool('type_text', {
-						scope: 'desktop',
-						text: plan.text,
-					})
-				} else if (plan.tool === 'press_key') {
-					await this.callTool('press_key', { scope: 'desktop', key: plan.key })
-				} else {
-					await this.callTool('hotkey', {
-						scope: 'desktop',
-						keys: [...plan.keys],
-					})
-				}
-				return { type: 'ok' }
+				if (plan.tool === 'type_text')
+					return this.keyboard('type_text', { scope: 'desktop', text: plan.text })
+				if (plan.tool === 'press_key')
+					return this.keyboard('press_key', { scope: 'desktop', key: plan.key })
+				return this.keyboard('hotkey', { scope: 'desktop', keys: [...plan.keys] })
 			}
 		}
 	}
@@ -406,11 +397,17 @@ export class CuaDriverAdapter implements Adapter {
 		}
 	}
 
-	async executeWindow(captureId: string, action: WindowInputAction): Promise<void> {
+	async executeWindow(
+		captureId: string,
+		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
 		return this.serializeWindowOperation(() => this.executeWindowInternal(captureId, action))
 	}
 
-	private async executeWindowInternal(captureId: string, action: WindowInputAction): Promise<void> {
+	private async executeWindowInternal(
+		captureId: string,
+		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
 		const frame = this.windowFrame
 		if (!frame || frame.id !== captureId)
 			throw new Error(
@@ -437,7 +434,7 @@ export class CuaDriverAdapter implements Adapter {
 			pid: frame.window.pid,
 			window_id: parseWindowId(frame.window.id),
 		} as const
-		const call = async (name: string, args: Record<string, unknown>) => {
+		const call = async (name: string, args: Record<string, unknown>): Promise<McpToolResult> => {
 			const windows = await this.listWindows()
 			const current = windows.find((window) => window.id === frame.window.id)
 			if (
@@ -452,50 +449,59 @@ export class CuaDriverAdapter implements Adapter {
 				throw new Error(
 					'computer-use: the captured window changed or its driver restarted; take a new window screenshot.',
 				)
-			await this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
+			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
 		}
-		switch (action.type) {
-			case 'mouse_click':
-				try {
-					await call('click', { x: action.at.x, y: action.at.y, button: action.button })
-				} catch (error) {
-					if (!isDeliveredPointerAction(error)) throw windowPointerRefusal(error)
+		try {
+			switch (action.type) {
+				case 'mouse_click':
+					try {
+						return inputDelivery(
+							await call('click', { x: action.at.x, y: action.at.y, button: action.button }),
+						)
+					} catch (error) {
+						if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
+						throw error
+					}
+				case 'mouse_drag':
+					return inputDelivery(
+						await call('drag', {
+							from_x: action.from.x,
+							from_y: action.from.y,
+							to_x: action.to.x,
+							to_y: action.to.y,
+							button: action.button,
+							duration_ms: DRAG.durationMs,
+							steps: DRAG.steps,
+						}),
+					)
+				case 'scroll':
+					throw new Error(
+						'computer-use: window pixel scrolling is unavailable on this Windows driver; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling.',
+					)
+				case 'type_text': {
+					if (action.text.length === 0) return undefined
+					return inputDelivery(
+						await call('type_text', {
+							text: action.text,
+							...(action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}),
+						}),
+					)
 				}
-				return
-			case 'mouse_drag':
-				try {
-					await call('drag', {
-						from_x: action.from.x,
-						from_y: action.from.y,
-						to_x: action.to.x,
-						to_y: action.to.y,
-						button: action.button,
-						duration_ms: DRAG.durationMs,
-						steps: DRAG.steps,
-					})
-				} catch (error) {
-					throw windowPointerRefusal(error)
+				case 'key': {
+					const plan = translateKeyForCuaDriver(action.keys)
+					const delivery = action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}
+					if (plan.tool === 'type_text')
+						return inputDelivery(await call('type_text', { text: plan.text, ...delivery }))
+					if (plan.tool === 'press_key')
+						return inputDelivery(await call('press_key', { key: plan.key, ...delivery }))
+					return inputDelivery(await call('hotkey', { keys: [...plan.keys], ...delivery }))
 				}
-				return
-			case 'scroll':
-				throw new Error(
-					'computer-use: window pixel scrolling is unavailable on this Windows driver; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling.',
-				)
-			case 'type_text':
-				if (action.text.length > 0)
-					await call('type_text', {
-						text: action.text,
-						...(action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}),
-					})
-				return
-			case 'key': {
-				const plan = translateKeyForCuaDriver(action.keys)
-				const delivery = action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}
-				if (plan.tool === 'type_text') await call('type_text', { text: plan.text, ...delivery })
-				else if (plan.tool === 'press_key') await call('press_key', { key: plan.key, ...delivery })
-				else await call('hotkey', { keys: [...plan.keys], ...delivery })
-				return
 			}
+		} catch (error) {
+			// The driver answered with a refusal or a tool error: it says what it
+			// did not do, and that is a typed result, not a crash.
+			if (error instanceof McpToolError) return failureDelivery(error)
+			throw error
 		}
 	}
 
@@ -505,8 +511,33 @@ export class CuaDriverAdapter implements Adapter {
 	 */
 	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
 		const target = await this.resolveWindow(windowId)
+		const read = await this.readWindowTree(target)
+		const { state, tree } = read
+		this.uiRefs = this.entriesFor(tree, target, read)
+		const title = typeof state.window_title === 'string' ? state.window_title : undefined
+		const app =
+			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
+		const byToken = new Map<string, string>()
+		for (const [ref, entry] of this.uiRefs) byToken.set(entry.token, ref)
+		const root = withOpaqueRefs(tree.root, (token) => byToken.get(token) ?? '')
+		return {
+			windowId: windowIdOf(target.hwnd),
+			...(title !== undefined ? { title } : {}),
+			...(app !== undefined ? { app } : {}),
+			root,
+			...(state.truncated === true ? { truncated: true } : {}),
+		}
+	}
+
+	/** One `get_window_state` walk, with the process and session it was read from. */
+	private async readWindowTree(target: { hwnd: number; pid: number }): Promise<{
+		state: Record<string, unknown>
+		tree: ParsedUiTree
+		processStarts: number
+		generation: number
+	}> {
 		let processStarts = 0
-		let snapshotGeneration = this.sessionGeneration
+		let generation = this.sessionGeneration
 		const state = structured(
 			await this.callTool(
 				'get_window_state',
@@ -520,39 +551,87 @@ export class CuaDriverAdapter implements Adapter {
 				undefined,
 				(starts) => {
 					processStarts = starts
-					snapshotGeneration = this.sessionGeneration
+					generation = this.sessionGeneration
 				},
 			),
 			'get_window_state',
 		)
-		if (snapshotGeneration !== this.sessionGeneration || processStarts === 0)
+		if (generation !== this.sessionGeneration || processStarts === 0)
 			throw new McpToolError('get_window_state', 'stale UI snapshot; take a new one')
-		const tree = toUiTree(state)
+		return { state, tree: toUiTree(state), processStarts, generation }
+	}
+
+	/** Opaque refs for a tree's controls, each carrying the evidence that finds it again. */
+	private entriesFor(
+		tree: ParsedUiTree,
+		target: { hwnd: number; pid: number },
+		read: { processStarts: number; generation: number },
+	): Map<string, UiRefEntry> {
 		const snapshot = ++this.nextSnapshot
 		const refs = new Map<string, UiRefEntry>()
-		let ordinal = 0
-		const root = withOpaqueRefs(tree.root, (token) => {
-			const ref = `cua-ui:${this.uiRefNamespace}:${snapshot}:${++ordinal}`
+		const seen = new Map<string, number>()
+		let counter = 0
+		for (const [token, facts] of tree.refs) {
+			const key = `${facts.role}\u0000${facts.name}`
+			const ordinal = seen.get(key) ?? 0
+			seen.set(key, ordinal + 1)
+			const ref = `cua-ui:${this.uiRefNamespace}:${snapshot}:${++counter}`
 			refs.set(ref, {
-				...tree.refs.get(token),
+				...facts,
 				token,
 				pid: target.pid,
-				generation: snapshotGeneration,
-				processStarts,
+				hwnd: target.hwnd,
+				ordinal,
+				generation: read.generation,
+				processStarts: read.processStarts,
 			})
-			return ref
-		})
-		this.uiRefs = refs
-		const title = typeof state.window_title === 'string' ? state.window_title : undefined
-		const app =
-			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
-		return {
-			windowId: windowIdOf(target.hwnd),
-			...(title !== undefined ? { title } : {}),
-			...(app !== undefined ? { app } : {}),
-			root,
-			...(state.truncated === true ? { truncated: true } : {}),
 		}
+		return refs
+	}
+
+	/**
+	 * The control a ref named, found again in a newer read of its window: by
+	 * automation id when it has one and that id is unique, else by role, name
+	 * and position among controls that share both.
+	 */
+	private findAgain(old: UiRefEntry, tree: ParsedUiTree): [string, UiRefFacts] | undefined {
+		if (old.automationId !== undefined) {
+			const same = [...tree.refs].filter(([, f]) => f.automationId === old.automationId)
+			if (same.length === 1 && same[0]) return same[0]
+		}
+		const alike = [...tree.refs].filter(([, f]) => f.role === old.role && f.name === old.name)
+		return alike[old.ordinal]
+	}
+
+	/**
+	 * After a read-back the window's old driver tokens are dead. Give every
+	 * ref the model holds for that window the token of the control it named,
+	 * and drop the refs whose control is gone.
+	 */
+	private rebindRefs(
+		target: { hwnd: number; pid: number },
+		tree: ParsedUiTree,
+		read: { processStarts: number; generation: number },
+	): void {
+		const next = new Map<string, UiRefEntry>()
+		for (const [ref, entry] of this.uiRefs) {
+			if (entry.hwnd !== target.hwnd) {
+				next.set(ref, entry)
+				continue
+			}
+			const found = this.findAgain(entry, tree)
+			if (!found) continue
+			next.set(ref, {
+				...found[1],
+				token: found[0],
+				pid: target.pid,
+				hwnd: target.hwnd,
+				ordinal: entry.ordinal,
+				generation: read.generation,
+				processStarts: read.processStarts,
+			})
+		}
+		this.uiRefs = next
 	}
 
 	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
@@ -561,14 +640,14 @@ export class CuaDriverAdapter implements Adapter {
 			return {
 				ok: false,
 				detail: `${ref} is not a control of the latest UI snapshot; take a new one.`,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
 			}
 		const { pid, token } = facts
 		const uiRef = { ref, facts }
 		try {
 			switch (action) {
 				case 'invoke':
-				case 'toggle':
-				case 'select':
 				case 'expand':
 				case 'collapse':
 					// cua-driver's click on an element token performs the control's
@@ -577,10 +656,20 @@ export class CuaDriverAdapter implements Adapter {
 					return actResult(
 						await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
 					)
+				case 'toggle':
+				case 'select': {
+					const sent = actResult(
+						await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
+					)
+					if (!sent.ok) return sent
+					const back = await this.readBack(facts)
+					return action === 'toggle' ? judgeToggle(facts, back) : judgeSelect(facts, back)
+				}
 				case 'set_value': {
 					const text = value ?? ''
+					let sent: UiActResult
 					try {
-						return actResult(
+						sent = actResult(
 							await this.callTool(
 								'set_value',
 								{ pid, element_token: token, value: text },
@@ -590,44 +679,52 @@ export class CuaDriverAdapter implements Adapter {
 						)
 					} catch (error) {
 						if (
-							!(error instanceof McpToolError) ||
-							!/does not implement ValuePattern/i.test(error.message)
+							error instanceof McpToolError &&
+							/does not implement ValuePattern/i.test(error.message)
 						)
-							throw error
-						// A classic Win32 edit reports no ValuePattern. Typing into it
-						// equals setting it only while it is empty.
-						if (facts.value !== undefined && facts.value.length > 0)
+							// Typing instead would equal setting only while the field is
+							// empty, and the driver's own report of it is not trustworthy.
 							return {
 								ok: false,
+								delivery: 'not_delivered',
+								retrySafety: 'safe',
 								detail:
-									'this field cannot be set directly and already holds text; click it, select its text (CTRL+A) and type the new text instead',
+									'this field has no settable value, and nothing was typed. A classic edit control takes text through the keyboard: click it in a window screenshot, then type_text (add delivery_mode:"foreground" when background typing is not delivered).',
 							}
-						const typed = actResult(
-							await this.callTool(
-								'type_text',
-								{ pid, element_token: token, text },
-								undefined,
-								uiRef,
-							),
-						)
-						return typed.ok
-							? {
-									ok: true,
-									detail: 'typed into the empty field, which has no settable value',
-								}
-							: typed
+						throw error
 					}
+					if (!sent.ok) return sent
+					return judgeSetValue(facts, text, await this.readBack(facts))
 				}
 				case 'focus':
 				case 'scroll_into_view':
 					return {
 						ok: false,
+						delivery: 'not_delivered',
+						retrySafety: 'safe',
 						detail: `this host cannot ${action === 'focus' ? 'focus' : 'scroll to'} a control by itself; invoke it or click it instead`,
 					}
 			}
 		} catch (error) {
-			if (error instanceof McpToolError) return { ok: false, detail: toolRefusal(error) }
+			if (error instanceof McpToolError) return failureResult(error)
 			throw error
+		}
+	}
+
+	/**
+	 * The control as a fresh read of its window shows it, or undefined when
+	 * that read failed or the control is gone. A failed read says nothing
+	 * about the action, so callers treat undefined as "unverified".
+	 */
+	private async readBack(facts: UiRefEntry): Promise<UiRefFacts | undefined> {
+		try {
+			const target = { hwnd: facts.hwnd, pid: facts.pid }
+			const read = await this.readWindowTree(target)
+			const found = this.findAgain(facts, read.tree)
+			this.rebindRefs(target, read.tree, read)
+			return found?.[1]
+		} catch {
+			return undefined
 		}
 	}
 
@@ -741,13 +838,22 @@ export class CuaDriverAdapter implements Adapter {
 		return { hwnd, pid }
 	}
 
-	private async pointer(tool: string, args: Record<string, unknown>): Promise<void> {
+	/**
+	 * A display pointer action. A click that ends with another window in front
+	 * is reported as sent but unverified: it may have closed its own window,
+	 * or it may have missed. Neither is "done".
+	 */
+	private async pointer(tool: string, args: Record<string, unknown>): Promise<ComputerUseResult> {
 		try {
-			await this.callTool(tool, args)
+			return okResult(inputDelivery(await this.callTool(tool, args)))
 		} catch (error) {
-			if (isDeliveredPointerAction(error)) return
+			if (isDeliveredPointerAction(error)) return okResult(foregroundLostDelivery())
 			throw error
 		}
+	}
+
+	private async keyboard(tool: string, args: Record<string, unknown>): Promise<ComputerUseResult> {
+		return okResult(inputDelivery(await this.callTool(tool, args)))
 	}
 
 	private async capture(): Promise<ScreenshotResult> {
@@ -814,52 +920,236 @@ export function isDeliveredPointerAction(error: unknown): boolean {
 	)
 }
 
-/** The pinned driver suggests foreground pointer input even when it cannot bind the OS hit test to our HWND. */
-function windowPointerRefusal(error: unknown): unknown {
-	const code = error instanceof McpToolError ? error.structuredContent?.code : undefined
+const trimText = (value: string, max = 80): string =>
+	value.length > max ? `${value.slice(0, max - 1)}…` : value
+
+/** A delivery verdict with the retry advice that goes with it. */
+function verdict(
+	delivery: ActionDelivery,
+	retrySafety: ActionRetrySafety,
+	detail?: string,
+): WindowInputResult {
+	return { delivery, retrySafety, ...(detail !== undefined ? { detail } : {}) }
+}
+
+/** `ok` with a delivery verdict: a call that returned is never proof that the effect happened. */
+function okResult(input: WindowInputResult): ComputerUseResult {
+	return { type: 'ok', ...input }
+}
+
+/** The click was sent, but the window it targeted is no longer in front afterwards. */
+function foregroundLostDelivery(): WindowInputResult {
+	return verdict(
+		'delivered_unverified',
+		'unsafe',
+		'the click was sent, but another window was in front afterwards. It may have closed its own window or started another program, or it may have missed. Look at the screen before clicking again.',
+	)
+}
+
+/**
+ * What a driver tool call that returned says about the input it sent.
+ *
+ * The driver reports `effect: "unverifiable"` for nearly every background
+ * action, including ones that did nothing, and its `delivery_failed`
+ * escalation shows up on input that arrived as well as input that did not.
+ * Neither is proof, so only a `confirmed` effect is verified, and anything
+ * else says "sent, not confirmed".
+ */
+export function inputDelivery(result: McpToolResult): WindowInputResult {
+	const facts = result.structuredContent ?? {}
+	switch (facts.effect) {
+		case 'refused': {
+			const refusal = facts.refusal as { message?: unknown } | undefined
+			return verdict(
+				'not_delivered',
+				'safe',
+				typeof refusal?.message === 'string' ? refusal.message : 'cua-driver refused the action',
+			)
+		}
+		case 'confirmed':
+			return verdict('delivered_verified', 'unsafe')
+		case 'suspected_noop':
+			return verdict(
+				'delivered_unverified',
+				'unsafe',
+				'the driver suspects the input changed nothing; it may not have reached the target. Look at the window before repeating it.',
+			)
+		default: {
+			const escalation = facts.escalation as { reason?: unknown } | undefined
+			return verdict(
+				'delivered_unverified',
+				'unsafe',
+				escalation?.reason === 'delivery_failed'
+					? 'the driver could not confirm that the input arrived. It may have; check the window before repeating it, and if nothing changed send it again with delivery_mode:"foreground".'
+					: undefined,
+			)
+		}
+	}
+}
+
+/**
+ * A driver tool error → what it means for delivery. The driver answering
+ * with a refusal or an error means it did not send the input (safe to
+ * repeat once the cause is fixed); only a timeout or a lost reply leaves the
+ * outcome unknown, and those are not McpToolErrors.
+ */
+export function failureDelivery(error: McpToolError): WindowInputResult {
+	const facts = error.structuredContent ?? {}
+	const code = typeof facts.code === 'string' ? facts.code : undefined
 	if (
 		code === 'background_unavailable' ||
 		code === 'background_occluded' ||
 		code === 'background_uipi_blocked'
 	)
-		return new Error(
-			'computer-use: this window pointer action could not be delivered safely in background. No window-scoped foreground pointer retry is available; inspect a fresh window screenshot, use a control ref if available, or deliberately capture the display before display input.',
+		return verdict(
+			'not_delivered',
+			'safe',
+			code === 'background_uipi_blocked'
+				? 'this window belongs to a program running with higher rights, so background input is blocked. Ask the user; do not try to get around it.'
+				: code === 'background_occluded'
+					? 'the target is covered by another window, so background input cannot reach it. Nothing was sent.'
+					: 'this window cannot take background input here (it needs real focus). Nothing was sent. Use a control by ref (ui_act) if the window offers one, or send it again with delivery_mode:"foreground".',
 		)
-	return error
+	if (facts.status === 'refused') {
+		const refusal = facts.refusal as { message?: unknown } | undefined
+		return verdict(
+			'not_delivered',
+			'safe',
+			typeof refusal?.message === 'string' ? refusal.message : error.message,
+		)
+	}
+	if (/stale (window|screenshot)/i.test(error.message))
+		return verdict('not_delivered', 'safe', trimText(error.message, 300))
+	if (/stale/i.test(`${error.message} ${JSON.stringify(facts)}`))
+		return verdict(
+			'not_delivered',
+			'safe',
+			'that control is from an older UI snapshot; take a new one',
+		)
+	return verdict('not_delivered', 'safe', trimText(error.message, 300))
+}
+
+function failureResult(error: McpToolError): UiActResult {
+	const { delivery, retrySafety, detail } = failureDelivery(error)
+	return { ok: false, delivery, retrySafety, ...(detail !== undefined ? { detail } : {}) }
 }
 
 /**
- * cua-driver's action result → the host's. `confirmed`, `partial` and
- * `unverifiable` count as done: a background UIA Invoke is `unverifiable` by
- * design (the control does not report back), and the screenshot the tool
- * takes afterwards is where the model sees the effect.
+ * cua-driver's action result → the host's. `unverifiable` is the driver's
+ * answer to almost everything it does in the background, so a result that
+ * returned is "sent", and the stateful actions are judged by reading the
+ * control back.
  */
 export function actResult(result: McpToolResult): UiActResult {
-	const facts = result.structuredContent ?? {}
-	switch (facts.effect) {
-		case 'suspected_noop':
-			return {
-				ok: false,
-				detail: 'the control did not change; the action may not have reached it',
-			}
-		case 'refused': {
-			const refusal = facts.refusal as { message?: unknown } | undefined
-			return {
-				ok: false,
-				detail:
-					typeof refusal?.message === 'string' ? refusal.message : 'cua-driver refused the action',
-			}
-		}
-		default:
-			return { ok: true }
+	const sent = inputDelivery(result)
+	return {
+		ok: sent.delivery !== 'not_delivered' && result.structuredContent?.effect !== 'suspected_noop',
+		delivery: sent.delivery,
+		retrySafety: sent.retrySafety,
+		...(sent.detail !== undefined ? { detail: sent.detail } : {}),
 	}
 }
 
-/** Why a tool call failed, in words that tell the model what to do next. */
-function toolRefusal(error: McpToolError): string {
-	if (/stale/i.test(error.message))
-		return 'that control is from an older UI snapshot; take a new one'
-	return error.message.length > 300 ? `${error.message.slice(0, 299)}…` : error.message
+const same = (a: string, b: string): boolean => a.trim() === b.trim()
+
+/** set_value, judged by the field as a fresh read shows it. */
+export function judgeSetValue(
+	before: UiRefFacts,
+	expected: string,
+	after: UiRefFacts | undefined,
+): UiActResult {
+	if (!after)
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail:
+				'the value was sent, but the field could not be read back (the window may have changed). Check it before setting it again.',
+		}
+	if (after.value === undefined)
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail:
+				'the value was sent; this control does not report its value, so it could not be checked. Look at the window.',
+		}
+	if (same(after.value, expected))
+		return {
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'safe',
+			readBack: { expected: trimText(expected), observed: trimText(after.value) },
+		}
+	if (before.value !== undefined && same(before.value, after.value))
+		return {
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+			readBack: { expected: trimText(expected), observed: trimText(after.value) },
+			detail: `the driver reported success, but the control still holds ${JSON.stringify(trimText(after.value))}, not the value sent. Nothing changed. This control may need real focus: choose the option with the keyboard or the pointer in the foreground, or use the browser tool for a web page.`,
+		}
+	return {
+		ok: true,
+		delivery: 'delivered_unverified',
+		retrySafety: 'unsafe',
+		readBack: { expected: trimText(expected), observed: trimText(after.value) },
+		detail: `the control changed, but it now holds ${JSON.stringify(trimText(after.value))} instead of the value sent; it may have reformatted it. Check before setting it again.`,
+	}
+}
+
+/** toggle, judged by whether the control's selected state flipped. */
+export function judgeToggle(before: UiRefFacts, after: UiRefFacts | undefined): UiActResult {
+	if (!after)
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail:
+				'the toggle was sent, but the control could not be read back. A second toggle would undo it; check first.',
+		}
+	if (after.selected !== before.selected)
+		return {
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+			readBack: { expected: String(!before.selected), observed: String(after.selected) },
+		}
+	return {
+		ok: true,
+		delivery: 'delivered_unverified',
+		retrySafety: 'unsafe',
+		readBack: { observed: String(after.selected) },
+		detail:
+			'the toggle was sent, but the control still reads the same. It may not report its state, or it may not have changed. A second toggle could undo it; check the window first.',
+	}
+}
+
+const ITEM_ROLES = /^(ListItem|TreeItem|DataItem)$/
+
+/** select, judged by whether the control now reads as selected. */
+export function judgeSelect(before: UiRefFacts, after: UiRefFacts | undefined): UiActResult {
+	// A list or tree row is also invokable, and the driver's click on it
+	// invokes: a file row opens its file. Say so, whatever the read-back shows.
+	const warning =
+		ITEM_ROLES.test(before.role) && before.actions.includes('invoke')
+			? ' This row is also invokable and select clicked it, so it may have opened the item.'
+			: ''
+	if (after?.selected === true)
+		return {
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+			readBack: { expected: 'selected', observed: 'selected' },
+			...(warning ? { detail: warning.trim() } : {}),
+		}
+	return {
+		ok: true,
+		delivery: 'delivered_unverified',
+		retrySafety: 'unsafe',
+		...(after ? { readBack: { expected: 'selected', observed: 'not selected' } } : {}),
+		detail: `the click was sent, but the control does not read as selected${after ? '' : ' (it could not be read back)'}.${warning}`,
+	}
 }
 
 /** `0x…` hex, the form `bring_to_front` reports and `WindowInfo.id` carries. */

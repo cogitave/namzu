@@ -12,6 +12,7 @@ import type {
 	UiSnapshot,
 	WindowInfo,
 	WindowInputAction,
+	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
@@ -177,11 +178,14 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		return adapter.captureWindow(id)
 	}
 
-	async executeWindow(captureId: string, action: WindowInputAction): Promise<void> {
+	async executeWindow(
+		captureId: string,
+		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
 		const adapter = this.requireAdapter()
 		if (!adapter.executeWindow) throw unsupported('executeWindow', this._capabilities.displayServer)
 		try {
-			await adapter.executeWindow(captureId, action)
+			return await adapter.executeWindow(captureId, action)
 		} catch (error) {
 			if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type))
 				throw new ComputerUseOutcomeUnknownError(action.type, error)
@@ -224,6 +228,8 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 			if (error instanceof SpawnError)
 				return {
 					ok: false,
+					delivery: 'delivered_unverified',
+					retrySafety: 'unsafe',
 					detail: `the desktop driver stopped before it answered, so ${action} may or may not have happened; look at the screen (ui_snapshot or screenshot) before trying again. ${error.message}`,
 				}
 			throw error
