@@ -32,12 +32,14 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 		reads: 0,
 		clock: 0,
 		closed: false,
+		pid: 7,
+		queryRoot: undefined as Node | undefined,
 		queries: [] as unknown[],
 	}
 	const calls: ToolCall[] = []
 	const clicks: { token: string }[] = []
 	let latestRead = 0
-	const render = (): Record<string, unknown> => {
+	const render = (root?: Node): Record<string, unknown> => {
 		state.reads += 1
 		latestRead = state.reads
 		const elements: Record<string, unknown>[] = []
@@ -72,11 +74,15 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 			for (const child of node.children ?? []) walk(child, depth + 1, mine ?? parent)
 		}
 		const sparse = options.sparseFirst === true && state.reads === 1
-		walk(sparse ? { role: 'Window', label: 'Page', children: [] } : state.root, 0, undefined)
+		walk(
+			sparse ? { role: 'Window', label: 'Page', children: [] } : (root ?? state.root),
+			0,
+			undefined,
+		)
 		return {
 			window_title: 'Page',
 			app_name: options.app ?? 'page.exe',
-			pid: 7,
+			pid: state.pid,
 			elements,
 			tree_markdown: lines.join('\n'),
 		}
@@ -92,7 +98,7 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 							: [
 									{
 										window_id: 100,
-										pid: 7,
+										pid: state.pid,
 										app_name: options.app ?? 'page.exe',
 										title: 'Page',
 										bounds: { x: 0, y: 0, width: 800, height: 600 },
@@ -109,7 +115,9 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 								content: [{ type: 'text', text: 'no such window' }],
 							},
 						}
-					return toolResult(render())
+					return toolResult(
+						render(call.arguments.query !== undefined ? state.queryRoot : undefined),
+					)
 				}
 				case 'click': {
 					const token = String(call.arguments.element_token)
@@ -454,7 +462,10 @@ describe('large windows', () => {
 		const list = find(outline, 'List', 'Results').ref
 		const first = await w.adapter.uiSnapshot(undefined, { root: list })
 		expect(first.next).toBe(60)
-		const second = await w.adapter.uiSnapshot(undefined, { root: list, offset: 60 })
+		const second = await w.adapter.uiSnapshot(undefined, {
+			root: list,
+			offset: 60,
+		})
 		expect(find(second, 'ListItem', 'Row 60').ref).not.toBe('')
 		expect(() => find(second, 'ListItem', 'Row 59')).toThrow()
 		let offset = 60
@@ -513,6 +524,197 @@ describe('a browser tree that is not built yet', () => {
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		expect(w.state.reads).toBe(2)
 		expect(find(snapshot, 'Button', 'Go').ref).not.toBe('')
+		await w.adapter.dispose()
+	})
+})
+
+describe('identical controls without an id', () => {
+	const row = (name: string): Node => ({
+		role: 'Group',
+		label: name,
+		children: [button('Delete')],
+	})
+	const deleteIn = (snapshot: UiSnapshot, rowName: string): string => {
+		const group = find(snapshot, 'Group', rowName)
+		return group.children?.[0]?.ref ?? ''
+	}
+
+	it('locate: a changed tree never settles identical controls by place or by the one left', () => {
+		const make = (rows: string[]) =>
+			toUiTree({
+				elements: rows.map((_, i) => ({
+					element_index: i,
+					element_token: `t${i}`,
+					role: 'Button',
+					label: 'Delete',
+					actions: ['invoke'],
+				})),
+				tree_markdown: [
+					'- Window "W"',
+					...rows.map((r, i) => `  - Group "${r}"\n    - [${i}] Button "Delete"`),
+				].join('\n'),
+			})
+		const before = make(['A', 'B'])
+		const second = before.nodes.find((n) => n.token === 't1')
+		const evidence = {
+			role: 'Button',
+			name: 'Delete',
+			path: second?.path ?? [],
+			twin: true,
+			treeSig: before.signature,
+		}
+		expect(locate(evidence, before, { actionable: true })).toMatchObject({
+			kind: 'found',
+		})
+		// Rows swapped: the same two buttons, other places.
+		expect(locate(evidence, make(['B', 'A']), { actionable: true })).toMatchObject({
+			kind: 'ambiguous',
+		})
+		// The first row deleted: the one left is not known to be the one meant.
+		expect(locate(evidence, make(['B']), { actionable: true })).toMatchObject({
+			kind: 'ambiguous',
+		})
+	})
+
+	it('locate: a nameless container is found by place only while it holds as many children', () => {
+		const tree = toUiTree({
+			elements: [],
+			tree_markdown: [
+				'- Window "W"',
+				'  - List',
+				'    - Text "a"',
+				'    - Text "b"',
+				'  - List',
+				'    - Text "c"',
+			].join('\n'),
+		})
+		const second = tree.nodes.filter((n) => n.role === 'List')[1]
+		const base = {
+			role: 'List',
+			name: '',
+			path: second?.path ?? [],
+			twin: false,
+			treeSig: 'other',
+		}
+		expect(locate({ ...base, childCount: 1 }, tree, { actionable: false })).toMatchObject({
+			kind: 'found',
+			node: { path: second?.path },
+		})
+		expect(locate({ ...base, childCount: 5 }, tree, { actionable: false })).toMatchObject({
+			kind: 'ambiguous',
+		})
+	})
+
+	it('answers AMBIGUOUS_TARGET after the rows swap, and sends nothing', async () => {
+		const w = window(page(row('A'), row('B')))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const deleteB = deleteIn(snapshot, 'B')
+		w.state.root = page(row('B'), row('A'))
+		w.state.clock = 10_000
+		const result = await w.adapter.uiAct(deleteB, 'invoke')
+		expect(result).toMatchObject({
+			ok: false,
+			code: 'AMBIGUOUS_TARGET',
+			delivery: 'not_delivered',
+		})
+		expect(w.clicks).toHaveLength(0)
+		await w.adapter.dispose()
+	})
+
+	it('answers AMBIGUOUS_TARGET when the other identical control was removed', async () => {
+		const w = window(page(row('A'), row('B')))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const deleteB = deleteIn(snapshot, 'B')
+		w.state.root = page(row('A'))
+		w.state.clock = 10_000
+		const result = await w.adapter.uiAct(deleteB, 'invoke')
+		expect(result).toMatchObject({ ok: false, code: 'AMBIGUOUS_TARGET' })
+		expect(w.clicks).toHaveLength(0)
+		await w.adapter.dispose()
+	})
+
+	it('still acts on the right one when the window kept its shape', async () => {
+		const w = window(page(row('A'), row('B')))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const deleteB = deleteIn(snapshot, 'B')
+		w.state.clock = 10_000
+		await expect(w.adapter.uiAct(deleteB, 'invoke')).resolves.toMatchObject({
+			ok: true,
+		})
+		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:1`)
+		await w.adapter.dispose()
+	})
+
+	it('keeps the places of a full read when a query snapshot comes in between', async () => {
+		const w = window(page(row('A'), row('B')))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const deleteB = deleteIn(snapshot, 'B')
+		w.state.queryRoot = page(button('Delete'))
+		await w.adapter.uiSnapshot('0x64', { query: 'Delete' })
+		w.state.clock = 10_000
+		await expect(w.adapter.uiAct(deleteB, 'invoke')).resolves.toMatchObject({
+			ok: true,
+		})
+		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:1`)
+		await w.adapter.dispose()
+	})
+})
+
+describe('a window handle another program reuses', () => {
+	it('does not turn a ref of the old program into a ref of the new one', async () => {
+		const w = window(page(button('Save', 'save')))
+		const first = await w.adapter.uiSnapshot('0x64')
+		const oldSave = find(first, 'Button', 'Save').ref
+		w.state.pid = 8
+		await w.adapter.listWindows()
+		const second = await w.adapter.uiSnapshot('0x64')
+		expect(find(second, 'Button', 'Save').ref).not.toBe(oldSave)
+		w.state.clock = 10_000
+		const result = await w.adapter.uiAct(oldSave, 'invoke')
+		expect(result).toMatchObject({ ok: false })
+		expect(w.clicks).toHaveLength(0)
+		await w.adapter.dispose()
+	})
+})
+
+describe('refs of a big match set', () => {
+	it('hands out a bounded number of refs and keeps the ones it handed out', async () => {
+		const many = Array.from({ length: 1_500 }, (_, i) => button(`Item ${i}`))
+		const w = window(page(...many))
+		w.state.queryRoot = page(...many)
+		const snapshot = await w.adapter.uiSnapshot('0x64', { query: 'Item' })
+		const refs = (snapshot.root.children ?? []).map((c) => c.ref).filter((r) => r !== '')
+		expect(refs.length).toBeGreaterThan(0)
+		expect(refs.length).toBeLessThanOrEqual(1_000)
+		await expect(w.adapter.uiAct(refs[0] ?? '', 'invoke')).resolves.toMatchObject({ ok: true })
+		await w.adapter.dispose()
+	})
+})
+
+describe('paging an outline', () => {
+	it('does not list a nameless container after the cut, so the next page does not repeat it', async () => {
+		const rows = Array.from({ length: 300 }, (_, i) => ({
+			role: 'ListItem',
+			label: `Row ${i}`,
+			actions: ['select'],
+		}))
+		rows.splice(200, 0, {
+			role: 'Group',
+			label: undefined,
+			children: [button('Hidden')],
+		} as never)
+		const w = window(
+			page(button('Search', 'search'), {
+				role: 'List',
+				label: 'Results',
+				children: rows,
+			}),
+		)
+		const outline = await w.adapter.uiSnapshot('0x64')
+		const list = find(outline, 'List', 'Results').ref
+		const first = await w.adapter.uiSnapshot(undefined, { root: list })
+		expect(first.next).toBe(60)
+		expect(() => find(first, 'Button', 'Hidden')).toThrow()
 		await w.adapter.dispose()
 	})
 })

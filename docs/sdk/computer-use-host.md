@@ -185,7 +185,7 @@ stored place when it is still the same role and name, else a search of the
 tree for that role and name. One fit is the control; several are
 `AMBIGUOUS_TARGET`; none, or a control that lost its patterns, is `STALE_REF`;
 a window that closed is `STALE_REF`. The same id under another name is not the
-control. A driver refusal of a token a newer read replaced is not an error
+control. A control that had identical twins (same role and name, no id) is found by its stored place only while the whole tree kept its shape; after any change it is `AMBIGUOUS_TARGET`, even when only one twin is left, because which one that is cannot be told. A nameless container is found by its place only while it holds as many children. A `query` snapshot adds refs but records no places for the refs it did not create, a read creates at most 1,000 new refs, and a handle that another program now owns never adopts the old program's refs. A control that lost its patterns is `STALE_REF`. A driver refusal of a token a newer read replaced is not an error
 either: the adapter reads again and retries once, since the driver refused
 before acting. After a session expiry or a driver restart the refs are
 resolved the same way. A driver crash, timeout, or any response without the

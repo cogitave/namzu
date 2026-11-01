@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Rect, UiElement, UiElementAction } from '@namzu/sdk'
 
 /**
@@ -44,6 +45,16 @@ export interface UiRefFacts {
 	readonly actions: readonly UiElementAction[]
 	/** Child indexes from the root to the element when it was read: its place in the tree. */
 	readonly path: readonly number[]
+	/**
+	 * Another control with this role and name (and no id of its own to tell them
+	 * apart) was in the window when this one was read. Such a control is found
+	 * again by its place only while the tree has not changed shape.
+	 */
+	readonly twin?: boolean
+	/** How many children the node had; tells a nameless container from another one of its role. */
+	readonly childCount?: number
+	/** The shape of the whole tree this was read from; absent for a partial (query) read. */
+	readonly treeSig?: string
 }
 
 /** One node of a read tree, whether or not it can be acted on. */
@@ -67,6 +78,8 @@ export interface ParsedUiTree {
 	/** Every node, in tree order, with its path. */
 	readonly nodes: readonly UiNode[]
 	readonly count: number
+	/** A digest of every node's place, role, name and id: equal for a tree that kept its shape. */
+	readonly signature: string
 }
 
 /** Controls that hold no other controls. */
@@ -249,6 +262,9 @@ export interface UiEvidence {
 	readonly name: string
 	readonly automationId?: string
 	readonly path: readonly number[]
+	readonly twin?: boolean
+	readonly childCount?: number
+	readonly treeSig?: string
 }
 
 export type Located =
@@ -279,11 +295,28 @@ export function locate(
 	const usable = (node: UiNode): boolean => !options.actionable || node.token !== ''
 	const samePath = (node: UiNode): boolean =>
 		node.path.length === evidence.path.length && node.path.every((i, n) => i === evidence.path[n])
+	// A tree that kept its exact shape puts every control where it was. A
+	// changed one may have shifted identical controls into each other's places,
+	// so the place decides only for a nameless container that holds as many
+	// children as before. Evidence from before this was recorded has no twin
+	// flag and keeps the place as it was.
+	const sameTree = evidence.treeSig !== undefined && evidence.treeSig === tree.signature
+	const placeCounts = (node: UiNode): boolean =>
+		evidence.twin === undefined ||
+		sameTree ||
+		(evidence.name.trim() === '' &&
+			evidence.childCount !== undefined &&
+			(node.element.children?.length ?? 0) === evidence.childCount)
 	const settle = (candidates: readonly UiNode[]): Located | undefined => {
 		const usableOnes = candidates.filter(usable)
-		if (usableOnes.length === 1 && usableOnes[0]) return { kind: 'found', node: usableOnes[0] }
+		if (usableOnes.length === 1 && usableOnes[0]) {
+			// The one left of several identical controls may be another one.
+			if (evidence.twin === true && !sameTree && evidence.name.trim() !== '')
+				return { kind: 'ambiguous', count: 1 }
+			return { kind: 'found', node: usableOnes[0] }
+		}
 		if (usableOnes.length > 1) {
-			const atPath = usableOnes.filter(samePath)
+			const atPath = usableOnes.filter(samePath).filter(placeCounts)
 			if (atPath.length === 1 && atPath[0]) return { kind: 'found', node: atPath[0] }
 			return { kind: 'ambiguous', count: usableOnes.length }
 		}
@@ -303,9 +336,17 @@ export function locate(
 	const same = tree.nodes.filter(
 		(node) => node.role === evidence.role && sameText(node.name, evidence.name),
 	)
-	const atPath = same.filter(samePath).filter(usable)
+	const atPath = same.filter(samePath).filter(usable).filter(placeCounts)
 	if (atPath.length === 1 && atPath[0]) return { kind: 'found', node: atPath[0] }
 	return settle(same) ?? { kind: 'gone' }
+}
+
+/** A digest of the tree's shape: place, role, name and id of every node, never values. */
+function signatureOf(nodes: readonly UiNode[]): string {
+	const hash = createHash('sha1')
+	for (const node of nodes)
+		hash.update(`${node.path.join('.')}|${node.role}|${node.name}|${node.automationId ?? ''}\n`)
+	return hash.digest('hex')
 }
 
 /** The whole tree of one `get_window_state` answer. */
@@ -387,5 +428,11 @@ export function toUiTree(state: Record<string, unknown>): ParsedUiTree {
 	const places = new Map<MutableElement, { path: readonly number[]; facts?: UiRefFacts }>()
 	const count = collectRefs(root, [], refs, places)
 	const frozen = freezeWithNodes(root, places)
-	return { root: frozen.root, refs, nodes: frozen.nodes, count }
+	return {
+		root: frozen.root,
+		refs,
+		nodes: frozen.nodes,
+		count,
+		signature: signatureOf(frozen.nodes),
+	}
 }

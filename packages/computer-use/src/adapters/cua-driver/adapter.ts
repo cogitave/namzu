@@ -119,6 +119,8 @@ const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
 const IDENTITY_FRESH_MS = 3_000
 /** Refs the adapter keeps; the model is shown far fewer. */
 const MAX_REFS = 4_000
+/** The most refs one read creates; a quarter of the budget, so one read cannot evict the rest. */
+const NEW_REFS_PER_READ = 1_000
 /** cua-driver refuses more than 50 ticks in one scroll call. */
 const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
@@ -158,6 +160,13 @@ function describeEvidence(evidence: UiEvidence): string {
 	const name = evidence.name.replace(/["\r\n]+/g, ' ').trim()
 	const role = /^[A-Za-z][\w-]{0,39}$/.test(evidence.role) ? evidence.role : 'Element'
 	return name ? `${role} "${name.length > 60 ? `${name.slice(0, 59)}…` : name}"` : role
+}
+
+/** How many controls fit a ref; one means it was one of several identical controls and the window has changed since. */
+function fitText(count: number): string {
+	return count > 1
+		? `${count} controls fit`
+		: 'the window changed and which of several identical controls it was cannot be told for'
 }
 
 function refFailure(code: UiActFailureCode, detail: string): UiActResult {
@@ -217,11 +226,15 @@ function outlineOf(
 		const first = isRoot && page ? Math.min(page.offset, children.length) : 0
 		const cap = isRoot && page ? OUTLINE_PAGE : OUTLINE_PER_PARENT
 		let listed = 0
+		let cut = false
 		for (let index = first; index < children.length; index++) {
 			const child = children[index] as UiElement
 			const cost = isSilent(child) ? 0 : 1
 			// One long list must not use the budget its siblings' regions need.
-			if (used + cost > budget || listed + cost > cap || keep.size > budget * 4) {
+			// Once the list is cut, nothing after the cut is listed, nameless or
+			// not: the next page begins at the cut and would repeat it.
+			if (cut || used + cost > budget || listed + cost > cap || keep.size > budget * 4) {
+				cut = true
 				if (isRoot && page && next === undefined) next = index
 				continue
 			}
@@ -804,7 +817,7 @@ export class CuaDriverAdapter implements Adapter {
 			const found = locate(rootEntry, tree, { actionable: !rootEntry.region })
 			if (found.kind === 'ambiguous')
 				throw new Error(
-					`AMBIGUOUS_TARGET: ${found.count} controls fit ${options.root} (${describeEvidence(rootEntry)}). Take a ui_snapshot of the whole window and pick the region from it.`,
+					`AMBIGUOUS_TARGET: ${fitText(found.count)} ${options.root} (${describeEvidence(rootEntry)}). Take a ui_snapshot of the whole window and pick the region from it.`,
 				)
 			if (found.kind === 'gone')
 				throw new Error(
@@ -828,6 +841,7 @@ export class CuaDriverAdapter implements Adapter {
 		const refs = this.bindRead(target, read, {
 			shown: shownKeys,
 			regions: view.regions,
+			partial: query !== undefined,
 		})
 		const refAt = (path: readonly number[]): string => refs.get(pathKey(path)) ?? ''
 		const root = withRefs(view.root, basePath, refAt)
@@ -896,19 +910,40 @@ export class CuaDriverAdapter implements Adapter {
 	private bindRead(
 		target: { hwnd: number; pid: number },
 		read: { tree: ParsedUiTree; processStarts: number; generation: number },
-		scope: { shown: ReadonlySet<string>; regions: ReadonlySet<string> },
+		scope: {
+			shown: ReadonlySet<string>
+			regions: ReadonlySet<string>
+			/** A filtered (query) read: its places are not the window's, so it records no places. */
+			partial?: boolean
+		},
 	): Map<string, string> {
 		const seq = ++this.nextRead
 		const at = this.now()
 		this.windowReads.set(target.hwnd, { seq, at })
 		const byPath = new Map<string, string>()
 		const claimed = new Set<string>()
+		const named = new Map<string, number>()
+		for (const node of read.tree.nodes) {
+			const key = `${node.role}\u0000${node.name.trim()}`
+			named.set(key, (named.get(key) ?? 0) + 1)
+		}
 		const bound = (node: UiNode, entry: UiRefEntry, ref: string): void => {
 			const key = pathKey(node.path)
 			claimed.add(key)
 			byPath.set(key, ref)
+			const twin =
+				node.automationId === undefined &&
+				node.name.trim() !== '' &&
+				(named.get(`${node.role}\u0000${node.name.trim()}`) ?? 0) > 1
 			this.uiRefs.set(ref, {
 				...(node.facts ?? factsOfNode(node)),
+				twin,
+				...(scope.partial
+					? {}
+					: {
+							childCount: node.element.children?.length ?? 0,
+							treeSig: read.tree.signature,
+						}),
 				token: node.token,
 				pid: target.pid,
 				hwnd: target.hwnd,
@@ -919,30 +954,41 @@ export class CuaDriverAdapter implements Adapter {
 				readAt: at,
 			})
 		}
-		for (const [ref, entry] of [...this.uiRefs]) {
-			if (entry.hwnd !== target.hwnd) continue
-			const found = locate(entry, read.tree, { actionable: !entry.region })
-			if (found.kind !== 'found' || claimed.has(pathKey(found.node.path))) continue
-			bound(found.node, entry, ref)
+		// A filtered read has other places than the window; it only adds refs.
+		// A handle another program reuses is not the window the ref came from.
+		if (!scope.partial) {
+			for (const [ref, entry] of [...this.uiRefs]) {
+				if (entry.hwnd !== target.hwnd || entry.pid !== target.pid) continue
+				const found = locate(entry, read.tree, { actionable: !entry.region })
+				if (found.kind !== 'found' || claimed.has(pathKey(found.node.path))) continue
+				bound(found.node, entry, ref)
+			}
 		}
+		let created = 0
 		for (const node of read.tree.nodes) {
 			const key = pathKey(node.path)
 			if (claimed.has(key)) continue
 			const region = scope.regions.has(key)
 			const actionable = node.token !== '' && scope.shown.has(key)
 			if (!region && !actionable) continue
+			// A match set larger than the ref budget would evict its own refs.
+			if (created >= NEW_REFS_PER_READ) break
+			created++
 			const ref = `cua-ui:${this.uiRefNamespace}:${++this.nextRef}`
 			const entry = { region: !actionable } as UiRefEntry
 			bound(node, entry, ref)
 		}
-		this.trimRefs()
+		this.trimRefs(seq)
 		return byPath
 	}
 
 	/** The model holds only so many refs; the oldest reads go first. */
-	private trimRefs(): void {
+	private trimRefs(keepSeq: number): void {
 		if (this.uiRefs.size <= MAX_REFS) return
-		const oldest = [...this.uiRefs].sort((a, b) => a[1].readSeq - b[1].readSeq)
+		// The read that just answered keeps every ref it handed out.
+		const oldest = [...this.uiRefs]
+			.filter(([, entry]) => entry.readSeq !== keepSeq)
+			.sort((a, b) => a[1].readSeq - b[1].readSeq)
 		for (const [ref] of oldest.slice(0, this.uiRefs.size - MAX_REFS)) this.uiRefs.delete(ref)
 	}
 
@@ -996,7 +1042,7 @@ export class CuaDriverAdapter implements Adapter {
 			return {
 				fail: refFailure(
 					'AMBIGUOUS_TARGET',
-					`${found.kind === 'ambiguous' ? found.count : 'several'} controls fit ${describeEvidence(entry)}, so nothing was sent. Take a ui_snapshot and use the ref of the one you mean.`,
+					`${found.kind === 'ambiguous' ? fitText(found.count) : 'several controls fit'} ${describeEvidence(entry)}, so nothing was sent. Take a ui_snapshot and use the ref of the one you mean.`,
 				),
 			}
 		return {
