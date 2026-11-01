@@ -13,6 +13,7 @@ import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
+import { ToolResultHalted } from '../../registry/tool/screen.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import {
 	effectiveBashWorkingDirectory,
@@ -3131,11 +3132,16 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * One execution attempt, with a throw materialized as an error result.
+	 * One execution attempt, with a throw materialized as an error result —
+	 * except `ToolResultHalted`, which this deliberately lets through.
 	 *
 	 * an unhandled throw from `tools.execute(...)` used to
 	 * propagate up to `result.ts` as `turn_failed` without emitting a
-	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
+	 * terminal `tool_completed`, leaving UI cards stuck in `executing`. That
+	 * is still right for a tool that merely broke. It is wrong for a screen
+	 * that said `halt`: `screen.ts` throws `ToolResultHalted` instead of
+	 * returning it so a catch this generic cannot flatten it into a failed
+	 * `ToolResult` the model reads and works around.
 	 *
 	 * The return is the full `ToolResult`, not a narrowed literal: the
 	 * narrow version silently DROPPED `content`, so a tool returning an
@@ -3151,6 +3157,8 @@ export class ToolExecutor {
 		try {
 			return await this.executeWithDeadline(toolName, input, toolContext, prepared)
 		} catch (err) {
+			if (err instanceof ToolResultHalted) throw err
+
 			const message = toErrorMessage(err)
 			this.log.warn('Tool execution threw', {
 				[NAMZU.TURN_ID]: this.config.turnId,

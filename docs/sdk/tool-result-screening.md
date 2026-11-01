@@ -54,7 +54,8 @@ The two refusals are deliberately distinct. `refuse` is recoverable: the
 `halt` is terminal and throws. It throws because the registry's failure path
 turns every exception into a result the model reads and works around — which is
 what `refuse` already is — so a `halt` that returned rather than threw would be
-silently demoted to one.
+silently demoted to one. The executor's own per-call catch lets it through for the same
+reason, so a `halt` ends the turn with `stopReason: 'error'` and the model is never asked again.
 
 A screen that throws fails closed as `refuse`, matching the turn-level
 guardrails: one broken screen means this result's safety is unknown, not that
