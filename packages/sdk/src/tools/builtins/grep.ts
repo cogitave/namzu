@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
 import { walkFilesLocally } from '../../sandbox/file-walk.js'
-import type { SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
+import type { SandboxWalkFilesOptions, SandboxWalkSummary } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { defineTool } from '../defineTool.js'
@@ -15,6 +15,16 @@ import {
 } from '../paths.js'
 import { relativePosix, resolveWithinPosix } from '../posix-path.js'
 import { readBoundedChunks, readBoundedFile } from './bounded-file-read.js'
+import {
+	MAX_FILES_SEARCHED,
+	SEARCH_BUDGET_MS,
+	hostDisplayPath,
+	ignoredHint,
+	isEntryLimit,
+	openSearchBudget,
+	plural,
+	stoppedNotice,
+} from './search-support.js'
 
 /** A remote read has no signal parameter; stop consuming it when the turn ends. */
 async function readWithSignal(read: () => Promise<Buffer>, signal?: AbortSignal): Promise<Buffer> {
@@ -166,6 +176,12 @@ const inputSchema = z.object({
 		.describe(
 			'Only search files of this kind, e.g. "js", "ts", "py", "rust", "go", "java", "md". Narrows what include selects.',
 		),
+	include_ignored: z
+		.boolean()
+		.optional()
+		.describe(
+			'Also search files that .gitignore and .ignore rules exclude, such as build output and dependencies. Default: false.',
+		),
 	max_results: z.coerce
 		.number()
 		.int()
@@ -176,7 +192,6 @@ const inputSchema = z.object({
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB — skip binaries/large files
 const BINARY_CHECK_BYTES = 512
-const MAX_VISITED_ENTRIES = 20_000
 
 function isBinaryContent(buffer: Buffer): boolean {
 	const check = buffer.subarray(0, BINARY_CHECK_BYTES)
@@ -189,7 +204,7 @@ function isBinaryContent(buffer: Buffer): boolean {
 export const GrepTool = defineTool({
 	name: 'grep',
 	description:
-		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Set multiline for a pattern that spans lines and type (js, py, rust, ...) to search one kind of file. In content mode, before_context and after_context override symmetric context_lines; only_matching returns matched substrings without context. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Searches with a bounded traversal and identifies incomplete searches. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
+		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Set multiline for a pattern that spans lines and type (js, py, rust, ...) to search one kind of file. In content mode, before_context and after_context override symmetric context_lines; only_matching returns matched substrings without context. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set. Says when a result is limited or a search stopped early. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
 	inputSchema,
 	category: 'analysis',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -256,14 +271,20 @@ export const GrepTool = defineTool({
 					'This sandbox does not support bounded file discovery (Sandbox.walkFiles). Update its adapter before searching file contents.',
 			}
 		}
+		const budget = openSearchBudget(context.abortSignal)
+		const signal = budget.signal
+		let walkEnd: SandboxWalkSummary | undefined
 		const options: SandboxWalkFilesOptions = {
 			pattern: filePattern,
-			signal: context.abortSignal,
-			maxEntries: MAX_VISITED_ENTRIES + 1,
-			maxVisitedEntries: MAX_VISITED_ENTRIES,
+			signal,
+			maxEntries: MAX_FILES_SEARCHED + 1,
 			// Preserve existing source behavior: sandbox grep included dotfiles;
 			// node's host glob excluded wildcard dotfiles.
 			includeHidden: sandbox !== undefined,
+			respectIgnore: input.include_ignored !== true,
+			onSummary: (value) => {
+				walkEnd = value
+			},
 		}
 		const entries = walkSandbox ? walkSandbox(root, options) : walkFilesLocally(root, options)
 
@@ -282,20 +303,25 @@ export const GrepTool = defineTool({
 		let filesSearched = 0
 		let filesMatched = 0
 
-		let truncated = false
 		let pageHasMore = false
 		let failure: string | undefined
 		let unreadableFiles = 0
+		let timedOut = false
+		let legacyEntryLimit = false
+		let fileLimit = false
+		// A file list is ordered newest first, so the walk cannot stop at the
+		// first page: it reads a generous multiple of it, then sorts and pages.
+		const filesToCollect = headLimit > 0 ? Math.max(headLimit * 4, 1000) : Number.POSITIVE_INFINITY
+		let enough = false
 		try {
 			for await (const entry of entries) {
-				context.abortSignal?.throwIfAborted()
+				signal?.throwIfAborted()
 				const filePath = sandbox
 					? resolveWithinPosix(root, entry.path)
 					: resolveWithin(root, entry.path)
-				if (filesSearched >= MAX_VISITED_ENTRIES) {
-					throw new Error(
-						`File search stopped after examining ${MAX_VISITED_ENTRIES} files; narrow its root or include pattern.`,
-					)
+				if (filesSearched >= MAX_FILES_SEARCHED) {
+					fileLimit = true
+					break
 				}
 				filesSearched++
 				if (fileType && !matchesType(entry.path, fileType)) continue
@@ -309,21 +335,21 @@ export const GrepTool = defineTool({
 							sandbox
 								? readBoundedChunks(
 										(offset, length) =>
-											sandbox.readFile(filePath, { offset, length, signal: context.abortSignal }),
+											sandbox.readFile(filePath, { offset, length, signal: signal }),
 										MAX_FILE_SIZE,
-										context.abortSignal,
+										signal,
 									)
 								: resolveWithinReal(root, filePath).then((path) => {
 										contained = path
-										return readBoundedFile(path, MAX_FILE_SIZE, context.abortSignal)
+										return readBoundedFile(path, MAX_FILE_SIZE, signal)
 									}),
-						context.abortSignal,
+						signal,
 					)
-					context.abortSignal?.throwIfAborted()
+					signal?.throwIfAborted()
 					if (buffer.length > MAX_FILE_SIZE || isBinaryContent(buffer)) continue
 					content = buffer.toString('utf-8')
 				} catch (error) {
-					if (context.abortSignal?.aborted) throw error
+					if (signal?.aborted) throw error
 					unreadableFiles++
 					continue
 				}
@@ -331,14 +357,12 @@ export const GrepTool = defineTool({
 				const lines = content.split('\n')
 				let fileMatches = 0
 				const relPath = sandbox
-					? `./${relativePosix(sandbox.rootDir, filePath)}`
-					: `./${relative(context.workingDirectory, join(lexicalRoot, relative(root, filePath)))
-							.split(sep)
-							.join('/')}`
+					? relativePosix(sandbox.rootDir, filePath)
+					: hostDisplayPath(context.workingDirectory, join(lexicalRoot, relative(root, filePath)))
 
 				if (mode === 'content' && input.only_matching) {
 					for (const fragment of matchingFragments(content, regex, multiline)) {
-						context.abortSignal?.throwIfAborted()
+						signal?.throwIfAborted()
 						if (fileMatches++ === 0) filesMatched++
 						totalMatches++
 						results.push(`${relPath}:${fragment.line}:${clipLine(fragment.text, 'matching')}`)
@@ -356,7 +380,7 @@ export const GrepTool = defineTool({
 				// Count mode reports matching lines, so a line covered twice counts once.
 				const countedLines = new Set<number>()
 				for (const [first, last] of hits) {
-					context.abortSignal?.throwIfAborted()
+					signal?.throwIfAborted()
 					if (fileMatches === 0) filesMatched++
 					fileMatches++
 					totalMatches++
@@ -397,16 +421,30 @@ export const GrepTool = defineTool({
 					})
 				}
 				if (pageHasMore) break
+				if (mode === 'files_with_matches' && matchedFiles.length >= filesToCollect) {
+					enough = true
+					break
+				}
 			}
 		} catch (error) {
-			truncated = true
-			failure = (error instanceof Error ? error.message : String(error)) || 'File search failed.'
+			if (budget.expired()) timedOut = true
+			else if (isEntryLimit(error)) legacyEntryLimit = true
+			else
+				failure = (error instanceof Error ? error.message : String(error)) || 'File search failed.'
+		} finally {
+			budget.close()
 		}
-		if (unreadableFiles > 0) {
-			truncated = true
-			failure ??= `${unreadableFiles} file(s) could not be read.`
+		const endState = walkEnd as SandboxWalkSummary | undefined
+		const entryLimit = endState?.stopped === 'entry-limit' || legacyEntryLimit
+		const stoppedEarly = timedOut || entryLimit || fileLimit
+		if (timedOut && totalMatches === 0 && failure === undefined) {
+			return {
+				success: false,
+				output: '',
+				error: `Search timed out after ${SEARCH_BUDGET_MS / 1000} seconds with no matches. Try a more specific path or pattern.`,
+			}
 		}
-		if (pageHasMore) truncated = true
+		const truncated = stoppedEarly || pageHasMore || enough || failure !== undefined
 
 		// Entries as the model will page through them.
 		let entriesOut: string[]
@@ -422,7 +460,7 @@ export const GrepTool = defineTool({
 			headLimit === 0 ? entriesOut.slice(offset) : entriesOut.slice(offset, offset + headLimit)
 		// Reported only when it did something, like a `| head`: a limit that cut
 		// nothing off is not news.
-		const moreRemain = headLimit > 0 && (pageHasMore || total - offset > headLimit)
+		const moreRemain = headLimit > 0 && (pageHasMore || enough || total - offset > headLimit)
 		const paging = [
 			...(moreRemain ? [`limit: ${headLimit}`] : []),
 			...(offset > 0 ? [`offset: ${offset}`] : []),
@@ -435,9 +473,12 @@ export const GrepTool = defineTool({
 			summary =
 				offset > 0 && total > 0
 					? 'No entries at this offset.'
-					: truncated
+					: stoppedEarly || failure !== undefined || unreadableFiles > 0
 						? `No matches found in the files searched for pattern "${input.pattern}"`
 						: `No matches found for pattern "${input.pattern}"`
+			if ((endState?.ignoredDirectories ?? 0) > 0 && offset === 0) {
+				summary = `${summary}\n${ignoredHint(endState?.ignoredDirectories ?? 0)}`
+			}
 		} else if (mode === 'files_with_matches') {
 			body = `Found ${page.length} ${page.length === 1 ? 'file' : 'files'}${paging ? ` (${paging})` : ''}\n${page.join('\n')}`
 		} else if (mode === 'count') {
@@ -447,21 +488,31 @@ export const GrepTool = defineTool({
 			body = page.join('\n')
 			summary = `Found ${totalMatches} match(es) in ${filesMatched} file(s) (${filesSearched} files searched)${offset > 0 ? ` from offset ${offset}` : ''}`
 		}
-		const notice = failure
-			? `[Search incomplete: ${failure}]`
-			: pageHasMore
-				? `[Search incomplete: the page of ${headLimit} is full, so more may follow. Pass offset to continue, or narrow the directory or include pattern.]`
-				: truncated
-					? '[Search incomplete: the search did not reach every file. Narrow the directory or include pattern for a complete search.]'
-					: undefined
+		const notices = [
+			...(moreRemain
+				? [
+						`[More results are available: pass offset: ${offset + headLimit} to continue, or narrow the path or pattern.${enough ? ` Files are ordered newest first among the first ${filesToCollect.toLocaleString('en-US')} that matched.` : ''}]`,
+					]
+				: []),
+			...(stoppedEarly
+				? [stoppedNotice(timedOut ? 'time' : entryLimit ? 'entries' : 'files', endState?.visited)]
+				: []),
+			...(unreadableFiles > 0
+				? [
+						`(${plural(unreadableFiles, 'file')} could not be read and ${unreadableFiles === 1 ? 'was' : 'were'} skipped.)`,
+					]
+				: []),
+			...(failure ? [`[Search incomplete: ${failure}]`] : []),
+		]
 		return {
 			success: failure === undefined,
-			output: [body, summary, notice].filter(Boolean).join('\n\n'),
+			output: [body, summary, ...notices].filter(Boolean).join('\n\n'),
 			data: {
 				totalMatches,
 				filesSearched,
 				filesMatched,
 				truncated,
+				...(stoppedEarly ? { incomplete: true } : {}),
 				mode,
 				...(moreRemain ? { appliedLimit: headLimit } : {}),
 				...(offset > 0 ? { appliedOffset: offset } : {}),
@@ -474,6 +525,8 @@ export const GrepTool = defineTool({
 				filesMatched,
 				filesSearched,
 				truncated,
+				...(moreRemain ? { limited: true } : {}),
+				...(stoppedEarly ? { incomplete: true } : {}),
 			},
 			...(failure ? { error: failure } : {}),
 		}

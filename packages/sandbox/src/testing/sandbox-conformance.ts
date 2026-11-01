@@ -68,6 +68,7 @@ import type {
 	SandboxExecResult,
 	SandboxTcpConnectOptions,
 	SandboxWalkFilesOptions,
+	SandboxWalkSummary,
 	TerminalSession,
 } from '@namzu/sdk'
 
@@ -900,9 +901,10 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 		 * What is asserted here is the contract's own wording: absolute paths,
 		 * regular files only, symlinks not followed, the bounds honoured by
 		 * whoever does the walking, and — the one that is easy to get wrong —
-		 * an exhausted examined-entry budget raising an error carrying
-		 * `ERR_FILE_WALK_LIMIT` rather than handing back a short list a caller
-		 * would read as complete.
+		 * an exhausted examined-entry budget ending the walk with a summary that
+		 * says so, or raising `ERR_FILE_WALK_LIMIT` when the caller asks it to
+		 * fail, rather than handing back a short list that looks complete; and
+		 * ignore files being honoured inside the guest.
 		 */
 		describe('walkFiles', () => {
 			/**
@@ -1025,25 +1027,72 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 			)
 
 			it(
-				'raises ERR_FILE_WALK_LIMIT when the examined-entry budget runs out',
+				'raises ERR_FILE_WALK_LIMIT when the examined-entry budget runs out and failOnLimit is set',
 				withSandbox(async (sandbox) => {
 					if (!sandbox.walkFiles) return
 					for (let index = 0; index < 12; index += 1) {
 						await sandbox.writeFile(`conformance-budget/f${index}.txt`, 'x')
 					}
-					// An incomplete search is an ERROR carrying a code, never a
-					// short list: a caller handed six of twelve files with no
-					// signal reads it as "that is all there is".
+					// Asked to fail, an incomplete search is an ERROR carrying a
+					// code, never a short list a caller would read as complete.
 					let code: unknown
 					try {
 						await walkPaths(sandbox, `${sandbox.rootDir}/conformance-budget`, {
 							maxEntries: 50,
 							maxVisitedEntries: 4,
+							failOnLimit: true,
 						})
 					} catch (error) {
 						code = (error as { code?: unknown }).code
 					}
 					expect(code).toBe('ERR_FILE_WALK_LIMIT')
+				}),
+			)
+
+			it(
+				'ends at the examined-entry bound with the entries found, and says it stopped',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					for (let index = 0; index < 12; index += 1) {
+						await sandbox.writeFile(`conformance-bound/f${index}.txt`, 'x')
+					}
+					let summary: SandboxWalkSummary | undefined
+					const paths = await walkPaths(sandbox, `${sandbox.rootDir}/conformance-bound`, {
+						maxEntries: 50,
+						maxVisitedEntries: 4,
+						onSummary: (value) => {
+							summary = value
+						},
+					})
+					expect(paths.length > 0 && paths.length < 12).toBe(true)
+					expect((summary as SandboxWalkSummary | undefined)?.stopped).toBe('entry-limit')
+				}),
+			)
+
+			it(
+				'skips what .gitignore excludes in a repository and never enters .git, unless told not to',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					await sandbox.writeFile('conformance-ignore/.git/HEAD', 'ref: refs/heads/main')
+					await sandbox.writeFile('conformance-ignore/.gitignore', 'dist/\n*.log\n')
+					await sandbox.writeFile('conformance-ignore/src/a.ts', 'a')
+					await sandbox.writeFile('conformance-ignore/src/debug.log', 'l')
+					await sandbox.writeFile('conformance-ignore/dist/b.js', 'b')
+					const dir = `${sandbox.rootDir}/conformance-ignore`
+					const options = { maxEntries: 50, includeHidden: true }
+
+					expect(await walkPaths(sandbox, dir, options)).toEqual([
+						`${dir}/.gitignore`,
+						`${dir}/src/a.ts`,
+					])
+					// A root named on purpose is never itself ignored.
+					expect(await walkPaths(sandbox, `${dir}/dist`, options)).toEqual([`${dir}/dist/b.js`])
+					expect(await walkPaths(sandbox, dir, { ...options, respectIgnore: false })).toEqual([
+						`${dir}/.gitignore`,
+						`${dir}/dist/b.js`,
+						`${dir}/src/a.ts`,
+						`${dir}/src/debug.log`,
+					])
 				}),
 			)
 

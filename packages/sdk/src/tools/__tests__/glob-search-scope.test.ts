@@ -19,7 +19,7 @@ function context(sandbox?: Sandbox, workingDirectory = '/host/project'): ToolCon
 
 function sandboxWith(files: readonly string[]) {
 	const listFiles = vi.fn(async () => files.map((path) => ({ path, size: 1 })))
-	const walkFiles = vi.fn(async function* () {
+	const walkFiles = vi.fn(async function* (_root?: string, _options?: { signal?: AbortSignal }) {
 		for (const path of files) yield { path, size: 1 }
 	})
 	return {
@@ -38,7 +38,7 @@ describe('glob keeps the requested search scope', () => {
 		await writeFile(join(root, 'nested', 'package.json'), '{}')
 		const result = await GlobTool.execute({ pattern: '*', path: root }, context(undefined, root))
 		expect(result.success).toBe(true)
-		expect(result.data).toMatchObject({ files: ['./README.md'], truncated: false })
+		expect(result.data).toMatchObject({ files: ['README.md'], truncated: false })
 		expect(result.output).not.toContain('nested')
 	})
 
@@ -54,8 +54,8 @@ describe('glob keeps the requested search scope', () => {
 		)
 		expect(result.success).toBe(true)
 		expect((result.data as { files: string[] }).files.sort()).toEqual([
-			'./src/a.ts',
-			'./src/nested/b.ts',
+			'src/a.ts',
+			'src/nested/b.ts',
 		])
 	})
 
@@ -70,9 +70,9 @@ describe('glob keeps the requested search scope', () => {
 			{ pattern: '*', include_hidden: true },
 			context(undefined, root),
 		)
-		expect(ordinary.data).toMatchObject({ files: ['./README.md'] })
-		expect(named.data).toMatchObject({ files: ['./.env'] })
-		expect((all.data as { files: string[] }).files.sort()).toEqual(['./.env', './README.md'])
+		expect(ordinary.data).toMatchObject({ files: ['README.md'] })
+		expect(named.data).toMatchObject({ files: ['.env'] })
+		expect((all.data as { files: string[] }).files.sort()).toEqual(['.env', 'README.md'])
 	})
 
 	it.skipIf(process.platform === 'win32')(
@@ -87,7 +87,7 @@ describe('glob keeps the requested search scope', () => {
 			await symlink(real, alias)
 			const result = await GlobTool.execute({ pattern: `${alias}/*.ts` }, context(undefined, alias))
 			expect(result.success).toBe(true)
-			expect(result.data).toMatchObject({ files: ['./a.ts'] })
+			expect(result.data).toMatchObject({ files: ['a.ts'] })
 		},
 	)
 
@@ -100,7 +100,7 @@ describe('glob keeps the requested search scope', () => {
 			expect.objectContaining({ pattern: '*', maxEntries: 501 }),
 		)
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('./README.md')
+		expect(result.output).toBe('README.md')
 	})
 
 	it.skipIf(process.platform === 'win32')(
@@ -133,7 +133,7 @@ describe('glob keeps the requested search scope', () => {
 			'/sandbox/project/src',
 			expect.objectContaining({ pattern: '*.ts' }),
 		)
-		expect(result.output).toBe('./src/a.ts')
+		expect(result.output).toBe('src/a.ts')
 	})
 
 	it('accepts a contained absolute pattern without duplicating its root', async () => {
@@ -146,7 +146,7 @@ describe('glob keeps the requested search scope', () => {
 			'/sandbox/project',
 			expect.objectContaining({ pattern: 'src/*.ts' }),
 		)
-		expect(result.output).toBe('./src/a.ts')
+		expect(result.output).toBe('src/a.ts')
 	})
 
 	it.each(['../secret/*', '/elsewhere/*', 'src/../../secret/*'])(
@@ -178,7 +178,7 @@ describe('glob keeps the requested search scope', () => {
 		expect(closed).toBe(true)
 	})
 
-	it('marks a traversal budget as incomplete while retaining matches already found', async () => {
+	it('reports a walker that still throws the old entry limit as a partial result, not a failure', async () => {
 		const sandbox = sandboxWith([])
 		sandbox.walkFiles.mockImplementation(async function* () {
 			yield { path: '/sandbox/project/found.ts', size: 1 }
@@ -187,10 +187,11 @@ describe('glob keeps the requested search scope', () => {
 			})
 		})
 		const result = await GlobTool.execute({ pattern: '**/*.ts' }, context(sandbox))
-		expect(result.success).toBe(false)
+		expect(result.success).toBe(true)
+		expect(result.error).toBeUndefined()
 		expect(result.data).toMatchObject({ count: 1, truncated: true })
-		expect(result.output).toContain('./found.ts')
-		expect(result.error).toContain('20000')
+		expect(result.output).toContain('found.ts')
+		expect(result.output).toContain('Search stopped early')
 		expect(result.output).not.toContain('No files found')
 	})
 
@@ -207,11 +208,19 @@ describe('glob keeps the requested search scope', () => {
 		const sandbox = sandboxWith(['/sandbox/project/a.ts'])
 		const caller = new AbortController()
 		const ctx = { ...context(sandbox), abortSignal: caller.signal }
-		await GlobTool.execute({ pattern: '*' }, ctx)
-		expect(sandbox.walkFiles).toHaveBeenCalledWith(
-			'/sandbox/project',
-			expect.objectContaining({ signal: caller.signal }),
-		)
+		let walkerSignal: AbortSignal | undefined
+		sandbox.walkFiles.mockImplementation(async function* (_root, options) {
+			walkerSignal = options?.signal
+			await new Promise<void>((resolve) =>
+				options?.signal?.addEventListener('abort', () => resolve()),
+			)
+			options?.signal?.throwIfAborted()
+		})
+		const running = GlobTool.execute({ pattern: '*' }, ctx)
+		await vi.waitFor(() => expect(walkerSignal).toBeDefined())
+		caller.abort(new Error('stop'))
+		await running
+		expect(walkerSignal?.aborted).toBe(true)
 	})
 
 	it('names both the pattern and directory in the tool call view', () => {
