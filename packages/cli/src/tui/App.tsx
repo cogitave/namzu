@@ -40,7 +40,7 @@ import {
 	StaleGoalError,
 	TurnCancelled,
 	type TurnId,
-	WakeBudget,
+	type WakeBudget,
 	asSessionId,
 	createAssistantMessage,
 	createRuntimeContextMessage,
