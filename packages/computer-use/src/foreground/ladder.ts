@@ -1,3 +1,4 @@
+import { abortable, CallAbortedError } from '../util/call-scope.js'
 import { type LeaseAttempt, ScreenLease } from './lease.js'
 import {
 	type BurstContext,
@@ -233,8 +234,9 @@ export class ForegroundLadder {
 		const monitor = await this.ensureMonitor()
 		if (!monitor.ok || !monitor.monitor.editText) return undefined
 		try {
-			return await monitor.monitor.editText(request)
-		} catch {
+			return await abortable('edit_text', monitor.monitor.editText(request))
+		} catch (error) {
+			if (error instanceof CallAbortedError) throw error
 			return undefined
 		}
 	}
@@ -249,7 +251,7 @@ export class ForegroundLadder {
 		const monitor = await this.ensureMonitor()
 		if (!monitor.ok) return null
 		try {
-			const state = await monitor.monitor.state()
+			const state = await abortable('lock_state', monitor.monitor.state())
 			const desktop = state.desktop.toLowerCase()
 			if (desktop === 'default') {
 				const front = state.foreground?.exe.toLowerCase()
@@ -259,7 +261,8 @@ export class ForegroundLadder {
 			}
 			// A desktop that cannot be read says nothing; a named one that is not the normal one is a lock or sign-in screen.
 			return desktop === '(unreadable)' ? null : 'locked'
-		} catch {
+		} catch (error) {
+			if (error instanceof CallAbortedError) throw error
 			return null
 		}
 	}
@@ -354,7 +357,15 @@ export class ForegroundLadder {
 						if (now.userInputs !== begun.userInputs) throw new BurstInterrupted()
 						// The hooks see nothing typed into a window above this program's rights,
 						// so a person there cannot be told from silence: stop rather than guess.
-						if (!now.selfElevated && now.foreground?.elevated)
+						// Only a window positively read above this program's rights counts; one
+						// that cannot be read (no front window, a closing menu) is not a reason.
+						const above = now.foreground?.integrity
+						if (
+							!now.selfElevated &&
+							above !== undefined &&
+							above >= 0 &&
+							above > (now.selfIntegrity ?? Number.MAX_SAFE_INTEGER)
+						)
 							throw new BurstInterrupted('administrator_window')
 					},
 				})
@@ -397,8 +408,14 @@ export class ForegroundLadder {
 			const ended = await finish()
 			const stopped = (ended?.escapesDuring ?? 0) > 0
 			if (failure) throw failure.error
+			// A tick that did not move proves a drop only when a window above this
+			// program's rights was positively in front: input posted as messages
+			// does not move it, and calling that dropped would invite a duplicate.
 			const dropped =
-				request.sendsInput === true && ended?.inputMoved === false && ended.inputsDuring === 0
+				request.sendsInput === true &&
+				ended?.inputMoved === false &&
+				ended.inputsDuring === 0 &&
+				ended.frontElevated === true
 			return {
 				kind: 'ran',
 				value: value as T,
@@ -409,14 +426,12 @@ export class ForegroundLadder {
 				restoredForeground: ended?.restoredForeground ?? false,
 				restoredCursor: ended?.restoredCursor ?? false,
 				...(ended?.restoreNote ? { restoreNote: ended.restoreNote } : {}),
-				...(request.sendsInput === true && ended?.inputMoved !== undefined
+				...(request.sendsInput === true && (dropped || ended?.inputMoved === true)
 					? { inputLanded: !dropped }
 					: {}),
 				...(dropped
 					? {
-							inputDroppedWhy: ended?.frontElevated
-								? 'An administrator window is in front; Namzu cannot type into it.'
-								: 'Windows dropped the input before it reached any window.',
+							inputDroppedWhy: 'An administrator window is in front; Namzu cannot type into it.',
 						}
 					: {}),
 				heldMs: this.clock.now() - startedAt,

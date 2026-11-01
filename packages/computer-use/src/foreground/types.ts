@@ -79,7 +79,7 @@ export interface MonitorBurstEnd {
 	 * monitor cannot tell.
 	 */
 	readonly inputMoved?: boolean
-	/** The window in front at `end` was above this program's rights (or unreadable). */
+	/** The window in front at `end` was positively read to be above this program's rights (unreadable is not a yes). */
 	readonly frontElevated?: boolean
 }
 

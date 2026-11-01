@@ -44,6 +44,7 @@ public static class NzG {
  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, EP f, IntPtr l);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")] static extern bool IsChild(IntPtr p, IntPtr c);
  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RC r);
  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint t, ref GTI i);
@@ -142,6 +143,11 @@ public static class NzG {
   int r = Integrity(pid); if (r < 0) return true;
   return r > SelfIntegrity();
  }
+ // Whether a process is positively read to run above this program's rights; unreadable is not a yes.
+ public static bool Above(uint pid) {
+  if (pid == 0) return false;
+  int r = Integrity(pid); return r >= 0 && r > SelfIntegrity();
+ }
  public static string Desktop() {
   IntPtr d = OpenInputDesktop(0, false, 1); if (d == IntPtr.Zero) return "(unreadable)";
   try { var sb = new StringBuilder(256); int need; if (!GetUserObjectInformation(d, 2, sb, 512, out need)) return "(unreadable)"; return sb.ToString(); } finally { CloseDesktop(d); }
@@ -169,11 +175,14 @@ public static class NzG {
   IntPtr pickH = IntPtr.Zero;
   if (pick == "focus") {
    var g = new GTI(); g.cb = Marshal.SizeOf(typeof(GTI));
-   if (GetGUIThreadInfo(tid, ref g) && g.foc != IntPtr.Zero && EditClass(ClassOf(g.foc))) pickH = g.foc;
+   // Only a focus inside the chosen window counts: a dialog of the same thread is not it.
+   if (GetGUIThreadInfo(tid, ref g) && g.foc != IntPtr.Zero && (g.foc == t || IsChild(t, g.foc)) && EditClass(ClassOf(g.foc))) pickH = g.foc;
   } else if (hasC) {
    foreach (var h in found) { RC rc; if (GetWindowRect(h, out rc) && cx >= rc.l && cx < rc.r && cy >= rc.t && cy < rc.b) { pickH = h; break; } }
   }
   if (pickH == IntPtr.Zero) {
+   // The lone-edit shortcut is for a chosen place only; a focus that is not an edit is not one.
+   if (pick == "focus") { res.Reason = "no_edit"; return res; }
    if (found.Count == 1) pickH = found[0];
    else { res.Reason = found.Count == 0 ? "no_edit" : "ambiguous"; return res; }
   }
@@ -243,8 +252,9 @@ function State($pidArg) {
   $r = @{
     userIdleMs = $idle; userInputs = [NzG]::Inputs; escapes = [NzG]::Escapes; desktop = [NzG]::Desktop(); selfElevated = $selfElevated; selfIntegrity = $selfIntegrity; inputTick = $gli
     cursor = @{ x = [NzG]::CursorX(); y = [NzG]::CursorY() }
-    foreground = @{ hwnd = (Hx $fgH); pid = $fgPid; exe = [NzG]::Exe($fgPid); elevated = [NzG]::Elevated($fgPid); integrity = [NzG]::Integrity($fgPid) }
+    foreground = $null
   }
+  if ($fgH -ne 0) { $r.foreground = @{ hwnd = (Hx $fgH); pid = $fgPid; exe = [NzG]::Exe($fgPid); elevated = [NzG]::Elevated($fgPid); integrity = [NzG]::Integrity($fgPid) } }
   if ($pidArg) { $r.target = @{ exe = [NzG]::Exe([uint32]$pidArg); elevated = [NzG]::Elevated([uint32]$pidArg); integrity = [NzG]::Integrity([uint32]$pidArg) } }
   $r
 }
@@ -256,7 +266,7 @@ function EndBurst($restore, $keepCursor) {
   $res.inputsDuring = [NzG]::Inputs - $b.inputs; $res.escapesDuring = [NzG]::Escapes - $b.escapes
   # Input that Windows dropped (a window above this program's rights) leaves the tick where it was.
   $res.inputMoved = ([NzG]::GliTick() -ne $b.tick)
-  $fgNow = [NzG]::Fg(); $res.frontElevated = [NzG]::Elevated([NzG]::PidOf($fgNow))
+  $fgNow = [NzG]::Fg(); $res.frontElevated = [NzG]::Above([NzG]::PidOf($fgNow))
   if ($restore) {
     # The window is put back only when this burst moved the front: the window it
     # raised, or, where the raise was refused and the driver took the front itself,

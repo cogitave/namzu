@@ -8,7 +8,7 @@ import { CuaDriverAdapter } from '../adapters/cua-driver/adapter.js'
 import { McpStdioClient } from '../adapters/cua-driver/client.js'
 import { ComputerUseLockedError, LOCKED_TEXT } from '../errors.js'
 import { BurstInterrupted } from '../foreground/types.js'
-import { CallAbortedError } from '../util/call-scope.js'
+import { CallAbortedError, inCallScope } from '../util/call-scope.js'
 import {
 	type FakeServerScript,
 	type ToolCall,
@@ -37,12 +37,32 @@ describe('input the system did not register', () => {
 		})
 	})
 
-	it('gives a plain reason when nothing elevated explains the dropped input', async () => {
+	it('does not call input dropped when no administrator window was positively in front (posted input does not move the tick)', async () => {
 		const monitor = new FakeMonitor()
 		monitor.endExtra = { inputMoved: false, frontElevated: false }
 		const outcome = await run(makeLadder({ monitor }).ladder, true)
-		expect(outcome).toMatchObject({ inputLanded: false })
-		expect((outcome as { inputDroppedWhy: string }).inputDroppedWhy).toMatch(/dropped the input/)
+		expect(outcome).not.toHaveProperty('inputLanded')
+		const unknown = new FakeMonitor()
+		unknown.endExtra = { inputMoved: false }
+		expect(await run(makeLadder({ monitor: unknown }).ladder, true)).not.toHaveProperty('inputLanded')
+	})
+
+	it('does not stop a burst for a front window it cannot read or that is absent', async () => {
+		for (const foreground of [
+			null,
+			{ hwnd: '0x9', pid: 9, exe: '', elevated: true, integrity: -1 },
+		]) {
+			const monitor = new FakeMonitor()
+			const { ladder } = makeLadder({ monitor })
+			let asked = 0
+			monitor.state_ = () => (++asked > 2 ? { ...baseState, foreground } : baseState)
+			await expect(
+				ladder.run({ subject: { app: 'editor' } }, async (burst) => {
+					await burst.checkpoint()
+					return 'sent'
+				}),
+			).resolves.toMatchObject({ kind: 'ran' })
+		}
 	})
 
 	it('does not judge a burst that sent no input, or one the system registered', async () => {
@@ -69,6 +89,7 @@ describe('input the system did not register', () => {
 							pid: 9,
 							exe: 'tool.exe',
 							elevated: true,
+							integrity: 12288,
 						},
 					}
 				: baseState
@@ -432,3 +453,17 @@ function newAdapter(
 		foreground,
 	})
 }
+
+describe('a cancelled call while the helper is hung', () => {
+	it('stops waiting for the lock check and says it was cancelled before anything was sent', async () => {
+		const monitor = new FakeMonitor()
+		monitor.state = () => new Promise(() => undefined)
+		const { ladder } = makeLadder({ monitor })
+		const controller = new AbortController()
+		const pending = inCallScope(controller.signal, () => ladder.lockState()).catch(
+			(error: unknown) => error,
+		)
+		controller.abort()
+		expect(await pending).toBeInstanceOf(CallAbortedError)
+	})
+})

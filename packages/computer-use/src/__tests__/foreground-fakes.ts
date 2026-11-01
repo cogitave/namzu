@@ -49,6 +49,7 @@ export const baseState: MonitorState = {
 	cursor: { x: 5, y: 5 },
 	desktop: 'Default',
 	selfElevated: false,
+	selfIntegrity: 8192,
 }
 
 /** A monitor whose answers a test scripts; it records what the ladder asked of it. */
