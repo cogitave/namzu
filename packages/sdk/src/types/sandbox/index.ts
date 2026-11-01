@@ -89,6 +89,18 @@ export function assertSandboxEnvironment(env: SandboxEnvironment): void {
 // Exec result
 // ---------------------------------------------------------------------------
 
+/**
+ * A backend's reading of why a non-zero result is not simply "the command
+ * failed". Inference from the error text, never proof.
+ *
+ * - `denial`: the sandbox appears to have refused a file access.
+ * - `runner-failure`: the launcher failed before the command ran.
+ */
+export interface SandboxExecAttribution {
+	readonly kind: 'denial' | 'runner-failure'
+	readonly message: string
+}
+
 export interface SandboxExecResult {
 	readonly exitCode: number
 	readonly stdout: string
@@ -107,6 +119,8 @@ export interface SandboxExecResult {
 	 */
 	readonly stdoutTruncated?: boolean
 	readonly stderrTruncated?: boolean
+	/** Set when a non-zero exit looks like a sandbox denial or a launcher failure. */
+	readonly attribution?: SandboxExecAttribution
 }
 
 // ---------------------------------------------------------------------------

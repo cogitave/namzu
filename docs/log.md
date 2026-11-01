@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [bash tool](sdk/bash-tool.md#in-a-sandbox): a sandboxed command whose error text looks like a sandbox denial says so, and a launcher setup failure is reported as a runner failure, not as the command failing (`SandboxExecResult.attribution`). `.changeset/name-sandbox-denials.md` (`@namzu/sdk` minor).
 - **Update** [Background jobs](cli/background-jobs.md#a-process-that-left-the-jobs-group): on Linux, stopping a job also signals descendants that started a session of their own, found by a `NAMZU_SHELL_TAG` value every command inherits. `.changeset/stop-escaped-descendants.md` (`@namzu/sdk` patch).
 - **Update** [Background jobs](cli/background-jobs.md#when-the-host-exits): a running job is stopped when the host exits by `process.exit` or an uncaught exception; orphaned commands used to survive. `.changeset/stop-jobs-at-host-exit.md` (`@namzu/sdk` patch).
 - **Update** [Background jobs](cli/background-jobs.md): a job whose exit a `wait_for_job` or `job` read result already delivered is no longer announced a second time; a job-exit notice carries output of up to 2048 bytes inline; `NAMZU_MAX_CONSECUTIVE_WAKES` opts an unattended session into a cap on automatic job wakes in a row. `.changeset/job-notice-dedupe-wake-budget.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
