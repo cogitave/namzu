@@ -37,7 +37,6 @@ describe('ignore rule matching', () => {
 		['a negated character class', 'f[!ab].ts', 'fc.ts', false],
 		['a negated character class excludes members', 'f[!ab].ts', 'fa.ts', false],
 		['a range', 'f[0-9]', 'f7', false],
-		['an unclosed bracket is a literal', 'a[b', 'a[b', false],
 		['a CRLF file', 'dist\r\nout\r\n', 'out', false],
 		['a BOM before the first rule', '﻿dist', 'dist', false],
 		['regex metacharacters are literal', 'a+b(1).txt', 'a+b(1).txt', false],
@@ -54,6 +53,19 @@ describe('ignore rule matching', () => {
 	it('drops a line it cannot read rather than hiding a visible file', () => {
 		expect(ignored('a\\', 'a')).toBe(false)
 		expect(ignored('[]', 'a')).toBe(false)
+		// Git leaves a file named like an unclosed bracket visible.
+		expect(parseIgnoreRules('a[b')).toHaveLength(0)
+		expect(ignored('a[b', 'a[b')).toBe(false)
+	})
+
+	it('drops a rule with more than three separate stars, whose match could backtrack for seconds', () => {
+		const hostile = '*a*a*a*a*a*a*a*a*a*a*b'
+		expect(parseIgnoreRules(hostile)).toHaveLength(0)
+		// The cap is on the rule, so the work per name is bounded by three nested scans.
+		expect(parseIgnoreRules('*a*a*b')).toHaveLength(1)
+		expect(parseIgnoreRules('**/*a*a*b')).toHaveLength(1)
+		expect(ignored('*a*a*b', `${'a'.repeat(200)}c`)).toBe(false)
+		expect(ignored('*.min.*.js', 'x.min.y.js')).toBe(true)
 	})
 
 	it('bounds the work of a hostile file by rule count and pattern size', () => {
@@ -93,7 +105,6 @@ const EXPECTED = {
 	'a negated character class': true,
 	'a negated character class excludes members': false,
 	'a range': true,
-	'an unclosed bracket is a literal': true,
 	'a CRLF file': true,
 	'a BOM before the first rule': true,
 	'regex metacharacters are literal': true,

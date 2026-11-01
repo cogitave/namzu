@@ -233,3 +233,22 @@ describe('grep asymmetric context and matched substrings', () => {
 		expect(result.data).toMatchObject({ truncated: true })
 	})
 })
+
+describe('grep file list paging reaches every matching file', () => {
+	it('serves each offset the result offered, past the first thousand files', async () => {
+		const files: Record<string, string> = {}
+		for (let i = 0; i < 1_500; i++) files[`f${String(i).padStart(4, '0')}.txt`] = 'needle\n'
+		const { context } = workspace(files)
+		const seen = new Set<string>()
+		let offset = 0
+		for (let guard = 0; guard < 20; guard++) {
+			const result = await run(context, { head_limit: 500, offset })
+			expect(result.output).not.toContain('No entries at this offset')
+			const names = result.output.split('\n').filter((line) => line.endsWith('.txt'))
+			for (const name of names) seen.add(name)
+			if (!result.output.includes('More results are available')) break
+			offset += 500
+		}
+		expect(seen.size).toBe(1_500)
+	}, 120_000) // reads 1,500 real files on each of three pages
+})

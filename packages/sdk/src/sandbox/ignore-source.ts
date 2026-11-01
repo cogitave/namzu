@@ -14,7 +14,9 @@
  * directories only, and `*`, `?`, `[...]`, `**` as git defines them. A deeper
  * file beats a shallower one, `.ignore` beats `.gitignore` in the same
  * directory, and the last matching line of a file wins. A rule this matcher
- * does not understand is dropped, so a visible file is never hidden by one.
+ * does not understand is dropped (an unclosed `[`, or more than three
+ * separate `*` in one rule, which could backtrack for seconds), so a visible
+ * file is never hidden by one.
  *
  * Nothing here is allowed to contain a backtick or a `${`: it lives inside a
  * template literal. Every helper is prefixed `ign` so that, inlined into the
@@ -24,6 +26,7 @@ export const IGNORE_SOURCE = String.raw`
 const IGN_MAX_BYTES = 262144;
 const IGN_MAX_RULES = 10000;
 const IGN_MAX_PATTERN = 1024;
+const IGN_MAX_STARS = 3;
 const IGN_VCS = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'];
 const IGN_POSIX_CLASSES = {
   alpha: 'a-zA-Z', digit: '0-9', alnum: 'a-zA-Z0-9', upper: 'A-Z', lower: 'a-z',
@@ -51,6 +54,7 @@ function ignClass(body) {
 function ignTranslate(p) {
   let out = '';
   let i = 0;
+  let stars = 0;
   while (i < p.length) {
     const c = p[i];
     if (c === '\\') {
@@ -65,6 +69,7 @@ function ignTranslate(p) {
         else { out += '(?:.*/)?'; j++; }
         i = j; continue;
       }
+      stars++;
       out += '[^/]*'; i = j; continue;
     }
     if (c === '?') { out += '[^/]'; i++; continue; }
@@ -73,13 +78,17 @@ function ignTranslate(p) {
       if (p[j] === '!' || p[j] === '^') j++;
       if (p[j] === ']') j++;
       while (j < p.length && p[j] !== ']') { if (p[j] === '\\') j++; j++; }
-      if (j >= p.length) { out += '\\['; i++; continue; }
+      if (j >= p.length) return null;
       const cls = ignClass(p.slice(i + 1, j));
       if (cls === null) return null;
       out += cls; i = j + 1; continue;
     }
     out += ignEscape(c); i++;
   }
+  // Each separate star can backtrack against the others: a rule with many of
+  // them takes time exponential in their number on one long name. Real rules
+  // use one or two; a rule past the cap is dropped, like any rule not understood.
+  if (stars > IGN_MAX_STARS) return null;
   return out;
 }
 /** One line to one rule, or null when the line holds none. */

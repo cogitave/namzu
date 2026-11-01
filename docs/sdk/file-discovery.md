@@ -68,8 +68,10 @@ and unreadable files are normal results (`success: true`) with a note saying wha
 was cut; `data.truncated` is true, `data.incomplete` is true when the search did
 not reach every file, and the facts carry `limited` or `incomplete`. A file list
 is ordered newest first, so the walk cannot stop at the first page: it reads
-until it has `max(head_limit * 4, 1000)` matching files, then sorts and pages,
-and says so. Walk errors and cancellation retain any matches already collected
+until it has `offset + max(head_limit * 4, 1000)` matching files, then sorts and
+pages, and says so; the count includes the offset, so every offset the note offers
+can be served (the newest-first order is among the files read, which can differ
+slightly between pages on a very large result). Walk errors and cancellation retain any matches already collected
 and report an incomplete failure. An empty result says how many ignored
 directories were skipped. The signal reaches enumeration and host reads. A
 sandbox read already in progress may settle later because `Sandbox.readFile` has
@@ -96,7 +98,8 @@ directories (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`) are never entered.
 - A search root named on purpose is never itself ignored: `path: packages/sdk/dist`
   searches `dist`, and a pattern such as `dist/**/*.js` starts its walk at `dist`.
 - A rule the matcher does not understand is dropped, so a visible file is never
-  hidden by one. An ignore file is read up to 256 KiB and 10,000 rules.
+  hidden by one: an unclosed `[`, or more than three separate `*` in one rule,
+  whose match could backtrack for seconds on a long name. An ignore file is read up to 256 KiB and 10,000 rules.
 - The walk examines at most 500,000 entries (about 17 seconds of walking). Reaching
   it ends the walk with the entries found so far and `SandboxWalkSummary.stopped:
   'entry-limit'`; the tools turn that into a normal result with a note. Ignore rules
@@ -105,8 +108,16 @@ directories (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`) are never entered.
 The matcher is the SDK's own, about 150 lines with no dependency, and the same
 source text runs on the host and inside the sandbox guest program, which is
 shipped as a single `node -e` argument and cannot import a package. It is tested
-against `git check-ignore` over a generated corpus of rules and paths. Hidden
-files stay excluded from grep on the host as before.
+against `git check-ignore` over a generated corpus of rules and paths.
+
+`glob` honours ignore files by default on purpose: a pattern that lists build
+output or dependencies is almost never asking for it, and `include_ignored: true`
+restores the old listing. `ls` and `listFiles` are not searches and keep naming
+ignored entries (`respectIgnore: false`). Hidden files stay excluded from grep on
+the host as before: the host has no read filter for secrets such as `.env`, so
+including them by default is held back; name the directory as the search root, or
+pass `include` for a dotfile pattern, to search one. This is a deliberate
+difference from sandbox `grep`, which has always included dotfiles.
 
 ## Sandbox enumeration
 

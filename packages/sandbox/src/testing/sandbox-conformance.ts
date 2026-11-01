@@ -707,6 +707,17 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 			)
 
 			it(
+				'lists files that an ignore file excludes, because a listing names what is there',
+				withSandbox(async (sandbox) => {
+					await sandbox.writeFile('conformance-list-ignored/.gitignore', 'hidden.txt\n')
+					await sandbox.writeFile('conformance-list-ignored/hidden.txt', 'x')
+					const dir = `${sandbox.rootDir}/conformance-list-ignored`
+					const files = await sandbox.listFiles(dir)
+					expect(files.map((f) => f.path)).toContain(`${dir}/hidden.txt`)
+				}),
+			)
+
+			it(
 				'reports a root that does not exist as empty rather than failing',
 				withSandbox(async (sandbox) => {
 					const files = await sandbox.listFiles(`${sandbox.rootDir}/conformance-never-created`)

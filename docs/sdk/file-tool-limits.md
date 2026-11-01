@@ -129,7 +129,7 @@ starts). `count` mode then counts the distinct lines covered. `type` limits the 
 (`js`, `ts`, `py`, `rust`, `go`, `java`, `md`, `json`, `yaml` and others, with long aliases such as
 `typescript`); it narrows `include` and an unknown kind is refused with the list of known ones.
 
-This is the kernel's own walker, not ripgrep, because the same search must run inside sandbox guests where a
+This is the kernel's own walker, not an external search program, because the same search must run inside sandbox guests where a
 host binary does not exist: files over 5 MB, binaries and symlinks are skipped, files that `.gitignore`,
 `.ignore` and `.git/info/exclude` exclude are skipped (`include_ignored: true` searches them), and at most
 500,000 entries are examined or 12 seconds spent, after which the search returns what it found with a note

@@ -2,6 +2,7 @@
 
 ## 2026-11-02
 
+- **Update** [Bounded file discovery](sdk/file-discovery.md#ignore-files-and-the-entry-bound): a `grep` file list collects `offset + max(head_limit * 4, 1000)` files so every offered offset can be served; an ignore rule with an unclosed `[` or more than three separate `*` is dropped; Pal `listFiles` (and so `ls`) keeps naming ignored entries; the host default of skipping hidden files in `grep`, and why `glob` honours ignore files, are stated. `.changeset/search-ignore-rules.md` (`@namzu/sandbox` now minor).
 - **Update** [Bounded file discovery](sdk/file-discovery.md#ignore-files-and-the-entry-bound) and [File tool limits](sdk/file-tool-limits.md#grep): `grep` and `glob` skip files excluded by `.gitignore`, `.ignore` and `.git/info/exclude` (new `include_ignored` input to search them), a limit (full page, 500-path cap, entry bound at 500,000, time budget, unreadable files) is a successful result with a note instead of an error, paths are shown relative to the working directory without `./`, and `SandboxWalkFilesOptions` gains `respectIgnore`, `failOnLimit` and `onSummary`. The stale "100 matching lines by default" is corrected to 250. `.changeset/search-ignore-rules.md` (`@namzu/sdk` major, `@namzu/sandbox` patch).
 
 ## 2026-11-01

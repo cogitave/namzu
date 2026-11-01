@@ -311,7 +311,10 @@ export const GrepTool = defineTool({
 		let fileLimit = false
 		// A file list is ordered newest first, so the walk cannot stop at the
 		// first page: it reads a generous multiple of it, then sorts and pages.
-		const filesToCollect = headLimit > 0 ? Math.max(headLimit * 4, 1000) : Number.POSITIVE_INFINITY
+		// The count includes the offset, so every page the model is told to ask
+		// for can be served.
+		const filesToCollect =
+			headLimit > 0 ? offset + Math.max(headLimit * 4, 1000) : Number.POSITIVE_INFINITY
 		let enough = false
 		try {
 			for await (const entry of entries) {
@@ -427,6 +430,8 @@ export const GrepTool = defineTool({
 				}
 			}
 		} catch (error) {
+			// A caller's cancellation is not a search result.
+			if (context.abortSignal?.aborted) throw error
 			if (budget.expired()) timedOut = true
 			else if (isEntryLimit(error)) legacyEntryLimit = true
 			else
