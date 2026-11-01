@@ -8,6 +8,8 @@
 - **Update** [Accounts](sdk/accounts.md): stale store locks are reclaimed and mutations wait for a live holder, overlapping Codex directories are rejected, and spent-allowance responses classify to `usage_limit`. `.changeset/account-registry.md` updated.
 - **Creation** [Accounts](sdk/accounts.md): the account registry, `accounts.json`, the per-account refresh lock, the `account_bound` record (also in [Session log](sdk/session-log.md)) and the `usage_limit` error code. Peer-record readers now keep a record carrying fields they do not know. `.changeset/account-registry.md` (`@namzu/sdk` minor), `.changeset/peer-record-reader-tolerance.md` (`@namzu/sdk` patch).
 
+- **Update** [Tool result screening](sdk/tool-result-screening.md): a `halt` verdict now ends the turn instead of reaching the model as a failed tool result. `.changeset/halt-verdict-is-terminal.md` (`@namzu/sdk` patch).
+
 ## 2026-10-30
 
 - **Update** [Session writer shutdown](sdk/session-log.md#a-writer-that-stops) and [Memory diagnostics](cli/memory.md): normal and reported-error binary exits release held writer leases before exiting even when TUI cleanup is unfinished; embedded command callers remain reusable. Stored-memory lock notices show the path and safe recovery condition without requiring debug mode. `.changeset/resume-after-normal-exit.md` (`@namzu/cli` patch).
