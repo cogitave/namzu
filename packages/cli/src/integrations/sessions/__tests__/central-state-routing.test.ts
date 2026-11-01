@@ -143,6 +143,27 @@ describe('desktop session keys', () => {
 		])
 	})
 
+	it('opens a real conversation id given as the key instead of starting a new one', async () => {
+		const workspace = await temp('namzu-keyed-id-workspace-')
+		const stateRoot = await temp('namzu-keyed-id-home-')
+		const sessions = await openSessions(workspace, { stateRoot })
+		const id = await startConversation(sessions)
+		await recordTurn(sessions, id, [createUserMessage('earlier turn')])
+
+		expect(await resolveConversation(sessions, id)).toBe(id)
+		expect(await findMappedConversation(sessions, id)).toBeNull()
+	})
+
+	it('refuses a real conversation id that belongs to another folder, naming --resume', async () => {
+		const stateRoot = await temp('namzu-keyed-id-other-home-')
+		const first = await openSessions(await temp('namzu-keyed-id-a-'), { stateRoot })
+		const second = await openSessions(await temp('namzu-keyed-id-b-'), { stateRoot })
+		const id = await startConversation(first)
+		await recordTurn(first, id, [createUserMessage('elsewhere')])
+
+		await expect(resolveConversation(second, id)).rejects.toThrow(/--resume/)
+	})
+
 	it('scopes a desktop key to its project', async () => {
 		const stateRoot = await temp('namzu-desktop-scope-home-')
 		const first = await openSessions(await temp('namzu-desktop-a-'), { stateRoot })

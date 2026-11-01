@@ -266,6 +266,8 @@ it.each(['activation', 'save'] as const)(
 it('offers provider changes explicitly and preserves remaining fallback settings', async () => {
 	const screen = await openModels()
 	expect(screen.viewport().join('\n')).toContain('p change provider')
+	// The names after it are the OTHER providers, not the one in use.
+	expect(screen.viewport().join('\n')).toMatch(/p change provider · others: /)
 	await press(screen, 'p')
 	await until(
 		screen,
