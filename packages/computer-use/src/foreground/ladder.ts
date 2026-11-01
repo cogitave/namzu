@@ -1,4 +1,4 @@
-import { abortable, CallAbortedError } from '../util/call-scope.js'
+import { CallAbortedError, abortable } from '../util/call-scope.js'
 import { type LeaseAttempt, ScreenLease } from './lease.js'
 import {
 	type BurstContext,

@@ -43,7 +43,10 @@ describe('verifying an input by what the window shows', () => {
 		expect(judgeObserved({ typed: 'a' }, { before, after })).toBeUndefined()
 		// the letter shown as a text of its own is evidence
 		expect(
-			judgeObserved({ typed: 'a' }, { before: seen(['Text', 'Ready']), after: seen(['Text', 'Ready'], ['Text', 'a']) }),
+			judgeObserved(
+				{ typed: 'a' },
+				{ before: seen(['Text', 'Ready']), after: seen(['Text', 'Ready'], ['Text', 'a']) },
+			),
 		).toMatchObject({ delivery: 'delivered_verified' })
 	})
 
@@ -143,8 +146,10 @@ describe('verifying text sent to a classic edit control', () => {
 	it('does not verify a control that already held the text and changed elsewhere', () => {
 		const before = { text: 'hello world', len: 11 }
 		expect(judgeEditBetween('hello', before, { text: 'hello world!!', len: 13 })).toBeUndefined()
-		expect(judgeEditBetween('hello', before, { text: 'hello world hello', len: 17 })).toMatchObject({
-			delivery: 'delivered_verified',
-		})
+		expect(judgeEditBetween('hello', before, { text: 'hello world hello', len: 17 })).toMatchObject(
+			{
+				delivery: 'delivered_verified',
+			},
+		)
 	})
 })

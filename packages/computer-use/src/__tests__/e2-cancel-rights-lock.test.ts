@@ -44,7 +44,9 @@ describe('input the system did not register', () => {
 		expect(outcome).not.toHaveProperty('inputLanded')
 		const unknown = new FakeMonitor()
 		unknown.endExtra = { inputMoved: false }
-		expect(await run(makeLadder({ monitor: unknown }).ladder, true)).not.toHaveProperty('inputLanded')
+		expect(await run(makeLadder({ monitor: unknown }).ladder, true)).not.toHaveProperty(
+			'inputLanded',
+		)
 	})
 
 	it('does not stop a burst for a front window it cannot read or that is absent', async () => {
