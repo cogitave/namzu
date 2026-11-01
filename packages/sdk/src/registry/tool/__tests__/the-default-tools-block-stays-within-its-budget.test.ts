@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest'
 
-import { testToolset } from "../../../test-support/toolset.js";
-import { getBuiltinTools } from "../../../tools/builtins/index.js";
-import { ToolManager } from "../../../toolsets/manager.js";
+import { testToolset } from '../../../test-support/toolset.js'
+import { getBuiltinTools } from '../../../tools/builtins/index.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 
 /**
  * The `tools` block of a first request, sized.
@@ -21,50 +21,47 @@ import { ToolManager } from "../../../toolsets/manager.js";
  * Deterministic: the schemas are rendered from the source, nothing here reads
  * a clock, a network or the host.
  */
-const CEILING_BYTES = 17_000;
+const CEILING_BYTES = 17_000
 
 const REASONS: readonly string[] = [
-	"Initial ceiling: 16498 bytes measured when this gate landed (nine tools), plus about 3% headroom for wording fixes.",
-];
+	'Initial ceiling: 16498 bytes measured when this gate landed (nine tools), plus about 3% headroom for wording fixes.',
+]
 
 function defaultToolsBlock() {
 	const manager = new ToolManager({
 		toolsets: [testToolset(...getBuiltinTools())],
 		messages: () => [],
-	});
-	return manager.toLLMTools();
+	})
+	return manager.toLLMTools()
 }
 
-const bytes = (value: unknown): number =>
-	Buffer.byteLength(JSON.stringify(value), "utf8");
+const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8')
 
-describe("the default tools block", () => {
-	it("stays under its committed byte ceiling", () => {
-		const block = defaultToolsBlock();
-		const total = bytes(block);
+describe('the default tools block', () => {
+	it('stays under its committed byte ceiling', () => {
+		const block = defaultToolsBlock()
+		const total = bytes(block)
 		const perTool = block
 			.map((tool) => `${tool.function.name}=${bytes(tool)}`)
 			.sort()
-			.join(", ");
+			.join(', ')
 		expect(
 			total,
 			`The default tools block is ${total} bytes, over the ${CEILING_BYTES} ceiling (${perTool}). Trim the text, or raise CEILING_BYTES and add a reason to REASONS.`,
-		).toBeLessThanOrEqual(CEILING_BYTES);
-	});
+		).toBeLessThanOrEqual(CEILING_BYTES)
+	})
 
-	it("is not a ceiling so loose it checks nothing", () => {
+	it('is not a ceiling so loose it checks nothing', () => {
 		// A ceiling far above the block would let it grow for a long time before
 		// anyone decided anything; keep it within a tenth of the measurement.
-		expect(bytes(defaultToolsBlock())).toBeGreaterThan(CEILING_BYTES * 0.9);
-	});
+		expect(bytes(defaultToolsBlock())).toBeGreaterThan(CEILING_BYTES * 0.9)
+	})
 
-	it("renders the same bytes twice", () => {
-		expect(JSON.stringify(defaultToolsBlock())).toBe(
-			JSON.stringify(defaultToolsBlock()),
-		);
-	});
+	it('renders the same bytes twice', () => {
+		expect(JSON.stringify(defaultToolsBlock())).toBe(JSON.stringify(defaultToolsBlock()))
+	})
 
-	it("records why the ceiling is where it is", () => {
-		expect(REASONS.length).toBeGreaterThan(0);
-	});
-});
+	it('records why the ceiling is where it is', () => {
+		expect(REASONS.length).toBeGreaterThan(0)
+	})
+})
