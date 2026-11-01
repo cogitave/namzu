@@ -101,6 +101,28 @@ describe('a newer log read by the current reader', () => {
 		expect(externalRefChanges(records[3] as SessionRecord)).toEqual([])
 	})
 
+	it('passes a flagged record that carries a turn id, in the middle of an open turn', async () => {
+		const turnId = '2efe5139-799c-4a05-821e-285dbc1eb45f'
+		const plain = await read(VALID)
+		// After seq 5 (tool_executing), before its tool_completed.
+		const newer = await read(newerLog(5, { ...FUTURE, turnId, ignorable: true }))
+		expect(newer.summary.intact).toBe(true)
+		expect(newer.records[5]?.type).toBe('future_annotation')
+		expect(await foldSessionMessages(newer.records)).toEqual(await foldSessionMessages(plain.records))
+	})
+
+	it('passes a flagged record after a turn has completed, and at the end of the log', async () => {
+		const plain = await read(VALID)
+		const baseline = await foldSessionMessages(plain.records)
+		const afterTurn = await read(newerLog(15, { ...FUTURE, ignorable: true }))
+		expect(afterTurn.summary.intact).toBe(true)
+		expect(await foldSessionMessages(afterTurn.records)).toEqual(baseline)
+		const atEnd = await read(newerLog(25, { ...FUTURE, ignorable: true }))
+		expect(atEnd.summary.intact).toBe(true)
+		expect(atEnd.records.at(-1)?.type).toBe('future_annotation')
+		expect(await foldSessionMessages(atEnd.records)).toEqual(baseline)
+	})
+
 	it('refuses the same record when it is not flagged ignorable', async () => {
 		const error = await read(newerLog(3, FUTURE)).catch((e: unknown) => e)
 		expect(error).toBeInstanceOf(SessionLogIntegrityError)
