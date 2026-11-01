@@ -131,6 +131,19 @@ describe('resuming a run', () => {
 		expect(result.result).toEqual(['v1', 'v2'])
 	})
 
+	it('gives calls whose schemas differ only in key order distinct slots', async () => {
+		let n = 0
+		const script = `${META}return [await agent('s', { schema: { type: 'string', maxLength: 9 } }), await agent('s', { schema: { maxLength: 9, type: 'string' } })]`
+		await pass(
+			script,
+			countingHost(() => ({ text: JSON.stringify(`v${++n}`) })),
+		)
+		const host = countingHost()
+		const { result } = await pass(script, host, {}, true)
+		expect(host.prompts).toEqual([])
+		expect(result.result).toEqual(['v1', 'v2'])
+	})
+
 	it('reuses parallel slots ahead of an edit and runs those from the edit on', async () => {
 		const script = (second: string) =>
 			`${META}return await parallel([() => agent('p1'), () => agent('${second}'), () => agent('p3')])`

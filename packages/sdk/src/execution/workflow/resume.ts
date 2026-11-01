@@ -47,14 +47,23 @@ export function workflowCallKey(
 	call: WorkflowCallIdentity,
 	ordinal: number,
 ): string {
+	return `${KEY_VERSION}:${sha256Hex(`${workflowCallContent(prompt, call)}${ordinal}`)}`
+}
+
+/**
+ * What makes two calls the same call: the prompt and the options that change
+ * the agent, in a form where key order and `undefined` do not matter. The
+ * runtime counts repeats of this text to give identical calls distinct slots,
+ * and the key hashes the same text, so the two can never disagree.
+ */
+export function workflowCallContent(prompt: string, call: WorkflowCallIdentity): string {
 	const options = canonicalJson({
 		schema: call.schema,
 		model: call.model,
 		effort: call.effort,
 		agentType: call.agentType,
 	})
-	const preimage = `${prompt.length}:${prompt}${options.length}:${options}${ordinal}`
-	return `${KEY_VERSION}:${sha256Hex(preimage)}`
+	return `${prompt.length}:${prompt}${options.length}:${options}`
 }
 
 /** The hash the first line of a run's journal chains from. It binds the file to its run id. */
@@ -106,8 +115,9 @@ function parseLine(line: string): Record<string, unknown> | undefined {
  * of the line before; the first chains from a seed bound to the run id). A
  * line that does not chain, a line that does not parse, and anything after
  * one is dropped until a `run_started` of a resumed pass picks the chain up
- * again at the last trusted line. A last line without its newline is a torn
- * write and is ignored. The file is never rewritten.
+ * again at the last trusted line. A last line without its newline that is not
+ * whole JSON is a torn write and is ignored; one that is whole JSON is read
+ * like any other line. The file is never rewritten.
  *
  * The chain alone cannot notice an edit to the final line (nothing chains from
  * it yet). With `key`, every line must also carry a `mac` made with that
@@ -122,7 +132,13 @@ export function readWorkflowJournalChecked(
 	const pieces = text.split('\n')
 	const fragment = endsWithNewline ? undefined : pieces.pop()
 	if (endsWithNewline) pieces.pop()
-	const tornTail = fragment !== undefined && fragment !== ''
+	// A last line without its newline that is whole JSON was only missing the newline: it is
+	// judged like any other line (the writer adds the newline before the next record, so the
+	// hash it contributes is the one of the line with its newline). Anything else is a torn write.
+	const wholeFragment =
+		fragment !== undefined && fragment !== '' && parseLine(fragment) !== undefined
+	if (wholeFragment) pieces.push(fragment as string)
+	const tornTail = fragment !== undefined && fragment !== '' && !wholeFragment
 
 	const parsed = pieces.map((line) => parseLine(line))
 	const firstRecord = parsed.find((record) => record !== undefined)

@@ -229,6 +229,31 @@ describe('journal chain', () => {
 		expect(after.tornTail).toBe(false)
 	})
 
+	it('trusts a last line that is whole JSON and only lacks its newline', async () => {
+		await write([started(), request(1, 'k1'), outcome(1, 'k1', { result: 'v' })])
+		const file = join(dir, 'journal.jsonl')
+		const text = await readFile(file, 'utf8')
+		await writeFile(file, text.slice(0, -1))
+		const cut = await new FileWorkflowJournal(dir, { runId: RUN }).read()
+		expect(cut.tornTail).toBe(false)
+		expect(cut.endsWithNewline).toBe(false)
+		expect(cut.records).toHaveLength(3)
+		expect(loadWorkflowResume(cut).results.get('k1')?.value).toBe('v')
+
+		const again = new FileWorkflowJournal(dir, { runId: RUN })
+		await again.append(started({ pass: 2 }))
+		await again.append(request(1, 'k1', 2))
+		const after = await new FileWorkflowJournal(dir, { runId: RUN }).read()
+		expect(after.records.map((r) => r.type)).toEqual([
+			'run_started',
+			'agent_request',
+			'agent_outcome',
+			'run_started',
+			'agent_request',
+		])
+		expect(after.brokenAt).toBeUndefined()
+	})
+
 	it('keeps trust after a real break once a later pass re-anchors, and reports it', async () => {
 		await write([started(), request(1, 'k1'), outcome(1, 'k1', { result: 'v' })])
 		const ls = await lines()

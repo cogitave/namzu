@@ -9,7 +9,7 @@ import { preview, sha256 } from './journal.js'
 import { splitWorkflowScript } from './meta.js'
 import { type PhaseAgentView, PhaseRegistry, summarizeWorkflowPhases } from './phases.js'
 import { buildPrelude, preludeLineCount } from './prelude.js'
-import { workflowCallKey } from './resume.js'
+import { workflowCallContent, workflowCallKey } from './resume.js'
 import { parseJsonText, validateAgainstSchema } from './schema.js'
 import type {
 	WorkflowAgentEvent,
@@ -566,13 +566,7 @@ export class WorkflowRuntime {
 				return { ok: false, error: reason }
 			}
 			const index = ++requested
-			const contentId = JSON.stringify([
-				call.prompt,
-				call.schema,
-				call.model,
-				call.effort,
-				call.agentType,
-			])
+			const contentId = workflowCallContent(call.prompt, call)
 			const ordinal = seenContent.get(contentId) ?? 0
 			seenContent.set(contentId, ordinal + 1)
 			const key = workflowCallKey(call.prompt, call, ordinal)
