@@ -302,12 +302,14 @@ continues and what it can reuse:
 
 ```
 Resumes run w1ab2cd3 (pass 3; the previous pass did not finish)
-  About 6 agents return saved results and are not run again; 3 run.
+  About 6 agents return saved results and are not run again; the rest run live.
   Script: unchanged since the run started
 ```
 
-The figures are exact only when the script is unchanged; for an edited script
-the review says "up to" and that edited and later calls run. A journal that was
+The saved-results figure is "about" when the script is unchanged; for an edited
+script the review says "up to" and that edited and later calls run. The review
+never states how many agents will run live, because the script may make calls the
+earlier pass never reached. A journal that was
 changed or cut short is named by line and its later results run again.
 
 A run that is still going, or is stopping and whose agents have not exited,

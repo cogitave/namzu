@@ -316,12 +316,12 @@ export function resumeReviewLines(review: ResumeReview): string[] {
 	]
 	if (review.scriptChanged === false) {
 		lines.push(
-			`  About ${agents(review.saved)} return saved results and are not run again; ${review.unfinished + review.failed} run.`,
+			`  About ${agents(review.saved)} return saved results and are not run again; the rest run live.`,
 		)
 		lines.push('  Script: unchanged since the run started')
 	} else {
 		lines.push(
-			`  Up to ${agents(review.saved)} can return saved results. Unfinished: ${review.unfinished}. Failed or skipped: ${review.failed}.`,
+			`  Up to ${agents(review.saved)} can return saved results; the rest run live. Unfinished: ${review.unfinished}. Failed or skipped: ${review.failed}.`,
 		)
 		lines.push(
 			review.scriptChanged === true

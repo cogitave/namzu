@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Update** [Workflows in the CLI](cli/workflows.md#resuming-a-run): the resume review no longer states how many agents will run; it says the rest run live, because the script may make calls the earlier pass never reached.
+
 ## 2026-11-01
 
 - **Update** [Workflows in the CLI](cli/workflows.md#resuming-a-run) and [Workflows in the SDK](sdk/workflows.md#resuming-a-run): an unfinished run is announced once per pass (a resumed pass cut off again is announced again), the aggregate notice names the runs it hands over, a saved script that changed after its review is refused, a journal signed with another key is named as such, a last journal line missing only its newline is trusted, and the docs state that the signature does not stop a shell the model runs. `.changeset/workflow-resume-sdk.md` and `.changeset/workflow-resume-cli.md`.

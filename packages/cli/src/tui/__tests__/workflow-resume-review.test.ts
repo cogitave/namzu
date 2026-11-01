@@ -44,7 +44,7 @@ describe('the review of a workflow resume', () => {
 			'Resumes run wabcdefgh (pass 3; the previous pass did not finish)',
 		)
 		expect(summary.text).toContain(
-			'Up to 6 agents can return saved results. Unfinished: 2. Failed or skipped: 1.',
+			'Up to 6 agents can return saved results; the rest run live. Unfinished: 2. Failed or skipped: 1.',
 		)
 		expect(summary.text).toContain('edited since the run started')
 		expect(summary.text).toContain('Workflow: audit')
@@ -56,7 +56,7 @@ describe('the review of a workflow resume', () => {
 			{ describeWorkflowResume: () => review({ scriptChanged: false, brokenAt: 41 }) },
 		)
 		expect(summary.text).toContain(
-			'About 6 agents return saved results and are not run again; 3 run.',
+			'About 6 agents return saved results and are not run again; the rest run live.',
 		)
 		expect(summary.text).toContain('Script: unchanged since the run started')
 		expect(summary.text).toContain('Journal: changed or cut short at line 41')
