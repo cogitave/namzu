@@ -50,7 +50,7 @@ describe('the default tools block', () => {
 			.join(', ')
 		expect(
 			total,
-			`The default tools block is ${total} bytes, over the ${CEILING_BYTES} ceiling (${perTool}). Trim the text, or raise CEILING_BYTES and add a reason to REASONS.`,
+			`The default tools block is ${total} bytes, over the ${CEILING_BYTES} ceiling (${perTool}). Trim the text, or raise CEILING_BYTES and add a reason to REASONS. Reasons so far: ${REASONS.join(' | ')}`,
 		).toBeLessThanOrEqual(CEILING_BYTES)
 	})
 
