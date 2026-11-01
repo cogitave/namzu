@@ -188,6 +188,125 @@ describe('finding workflows a previous session left unfinished', () => {
 		expect(found[0]?.text).toContain('changed or cut short at line 3')
 	})
 
+	it('announces a resumed pass that ends unfinished again, and not the one before', async () => {
+		const runs = runsDir()
+		const run = 'wabcdefgh'
+		const journal = await unfinishedRun(runs, run)
+		const first = await recoverUnfinishedWorkflows({
+			runsDirectory: runs,
+			liveRunIds: new Set(),
+		})
+		expect(first).toHaveLength(1)
+		await markOrphanNoticesDelivered(runs, [run])
+		// Resumed (pass 2) and the process dies again.
+		await journal.append({
+			type: 'run_started',
+			at: 5,
+			runId: run,
+			scriptSha256: 's',
+			scriptBytes: 1,
+			meta,
+			args: {},
+			limits: {} as never,
+			resume: {
+				pass: 2,
+				previousFinish: 'stopped',
+				scriptSha256Changed: false,
+			},
+		})
+		const second = await recoverUnfinishedWorkflows({
+			runsDirectory: runs,
+			liveRunIds: new Set(),
+		})
+		expect(second).toHaveLength(1)
+		expect(second[0]?.runIds).toEqual([run])
+		const read = await new FileWorkflowJournal(join(runs, run, 'workflow'), {
+			runId: run,
+		}).read()
+		expect(read.records.at(-1)).toMatchObject({
+			type: 'run_finished',
+			recovered: true,
+		})
+		// Told once for that pass too.
+		await markOrphanNoticesDelivered(runs, [run])
+		expect(
+			await recoverUnfinishedWorkflows({
+				runsDirectory: runs,
+				liveRunIds: new Set(),
+			}),
+		).toEqual([])
+	})
+
+	it('drops a stored notice whose run was resumed and finished before the model heard of it', async () => {
+		const runs = runsDir()
+		const run = 'wabcdefgh'
+		const journal = await unfinishedRun(runs, run)
+		await recoverUnfinishedWorkflows({
+			runsDirectory: runs,
+			liveRunIds: new Set(),
+		})
+		await journal.append({
+			type: 'run_started',
+			at: 5,
+			runId: run,
+			scriptSha256: 's',
+			scriptBytes: 1,
+			meta,
+			args: {},
+			limits: {} as never,
+			resume: {
+				pass: 2,
+				previousFinish: 'stopped',
+				scriptSha256Changed: false,
+			},
+		})
+		await journal.append({
+			type: 'run_finished',
+			at: 6,
+			status: 'completed',
+			usage,
+		})
+		expect(
+			await recoverUnfinishedWorkflows({
+				runsDirectory: runs,
+				liveRunIds: new Set(),
+			}),
+		).toEqual([])
+	})
+
+	it('says when a journal cannot be used because its signing key changed', async () => {
+		const runs = runsDir()
+		const run = 'wabcdefgh'
+		const journal = new FileWorkflowJournal(join(runs, run, 'workflow'), {
+			runId: run,
+			key: 'a'.repeat(40),
+		})
+		await journal.append({
+			type: 'run_started',
+			at: 1,
+			runId: run,
+			scriptSha256: 's',
+			scriptBytes: 1,
+			meta,
+			args: {},
+			limits: {} as never,
+		})
+		const found = await recoverUnfinishedWorkflows({
+			runsDirectory: runs,
+			liveRunIds: new Set(),
+			key: 'b'.repeat(40),
+		})
+		expect(found[0]?.text).toContain('signed with a different key')
+		await markOrphanNoticesDelivered(runs, [run])
+		expect(
+			await recoverUnfinishedWorkflows({
+				runsDirectory: runs,
+				liveRunIds: new Set(),
+				key: 'b'.repeat(40),
+			}),
+		).toEqual([])
+	})
+
 	it('announces many unfinished runs as one message', async () => {
 		const runs = runsDir()
 		const total = MAX_ORPHAN_NOTICES + 2
@@ -195,6 +314,14 @@ describe('finding workflows a previous session left unfinished', () => {
 		const found = await recoverUnfinishedWorkflows({ runsDirectory: runs, liveRunIds: new Set() })
 		expect(found).toHaveLength(1)
 		expect(found[0]?.text).toContain(`${total} background workflows didn't finish`)
-		expect(found[0]?.runIds).toHaveLength(total)
+		// Only the runs the message names are handed over; the rest wait for the next turn.
+		expect(found[0]?.runIds).toHaveLength(MAX_ORPHAN_NOTICES)
+		for (const id of found[0]?.runIds ?? []) expect(found[0]?.text).toContain(id)
+		await markOrphanNoticesDelivered(runs, found[0]?.runIds ?? [])
+		const next = await recoverUnfinishedWorkflows({
+			runsDirectory: runs,
+			liveRunIds: new Set(),
+		})
+		expect(next.flatMap((n) => n.runIds)).toHaveLength(total - MAX_ORPHAN_NOTICES)
 	})
 })

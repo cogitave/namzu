@@ -2010,6 +2010,18 @@ function AppBody({
 				}
 			})
 			.catch(() => undefined)
+		// A run resumed before the model was told about it no longer needs the notice.
+		return source.subscribe(() => {
+			const live = new Set(source.runs().map((view) => view.runId))
+			for (const id of [...workflowNoticesRef.current.keys()]) {
+				if (!id.startsWith(ORPHAN_NOTICE_PREFIX)) continue
+				const runIds = id.slice(ORPHAN_NOTICE_PREFIX.length).split(',')
+				if (runIds.length === 1 && live.has(runIds[0] as string)) {
+					workflowNoticesRef.current.delete(id)
+					void source.noticesDelivered(runIds)
+				}
+			}
+		})
 	}, [session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
