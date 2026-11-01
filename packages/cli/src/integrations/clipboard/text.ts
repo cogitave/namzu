@@ -34,9 +34,42 @@ export type ClipboardWriteResult =
 	| { readonly kind: 'too-large'; readonly bytes: number; readonly limit: number }
 	| { readonly kind: 'write-failed'; readonly detail: string }
 
+/** The slice of the environment that decides how the request must be wrapped to reach the terminal. */
+export interface ClipboardEnv {
+	readonly TMUX?: string | undefined
+	readonly STY?: string | undefined
+	readonly TERM?: string | undefined
+}
+
+/** Longest base64 piece one screen passthrough frame carries. */
+const SCREEN_CHUNK = 76
+
+/**
+ * The bytes that ask the terminal to put `text` on its clipboard.
+ *
+ * Inside tmux the request is wrapped in a passthrough frame (every ESC doubled),
+ * which tmux forwards only when its `allow-passthrough` option is on. Inside
+ * screen it is cut into passthrough frames of at most 76 base64 characters. The
+ * plain form is used everywhere else.
+ */
+export function buildClipboardSequence(text: string, env: ClipboardEnv = process.env): string {
+	const encoded = Buffer.from(text, 'utf8').toString('base64')
+	// `c` selects the clipboard; BEL terminates the OSC control sequence.
+	const plain = `\x1b]52;c;${encoded}\x07`
+	if (env.TMUX) return `\x1bPtmux;${plain.replaceAll('\x1b', '\x1b\x1b')}\x1b\\`
+	if (env.STY || env.TERM?.startsWith('screen')) {
+		let frames = ''
+		for (let at = 0; at < encoded.length || at === 0; at += SCREEN_CHUNK)
+			frames += `\x1bP\x1b]52;c;${encoded.slice(at, at + SCREEN_CHUNK)}\x07\x1b\\`
+		return frames
+	}
+	return plain
+}
+
 export function writeClipboardText(
 	text: string,
 	output: TerminalClipboardOutput,
+	env: ClipboardEnv = process.env,
 ): ClipboardWriteResult {
 	if (!output.isTTY) {
 		return { kind: 'unavailable', detail: 'stdout is not an interactive terminal' }
@@ -48,9 +81,7 @@ export function writeClipboardText(
 	}
 
 	try {
-		const encoded = Buffer.from(text, 'utf8').toString('base64')
-		// `c` selects the clipboard; BEL terminates the OSC control sequence.
-		output.write(`\x1b]52;c;${encoded}\x07`)
+		output.write(buildClipboardSequence(text, env))
 		return { kind: 'request-sent', bytes }
 	} catch (err) {
 		return {
