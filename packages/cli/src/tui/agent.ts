@@ -428,6 +428,7 @@ import {
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
 	type ResumeReview,
+	ReviewedScripts,
 	describeResume,
 	readSavedScript,
 	scriptsDirectory,
@@ -3543,6 +3544,8 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
+	/** What the review showed of each saved script, so the run can refuse a file that changed after approval. */
+	const reviewedScripts = new ReviewedScripts()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
@@ -4164,6 +4167,7 @@ export async function createAgentSession(
 		// mounts it only when the operator asked for orchestration (see `send`).
 		workflowHost = createWorkflowHost({
 			subagents: sub,
+			reviewedScripts,
 			journalKey: () => (options.ephemeral ? undefined : workflowJournalKey(paths.home)),
 			runsDirectory: (turnId) => {
 				// An ephemeral session keeps nothing on disk, a journal included.
@@ -5694,7 +5698,9 @@ export async function createAgentSession(
 								path,
 								scriptsDirectory(join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs')),
 							)
-							return saved.ok ? saved.text : undefined
+							if (!saved.ok) return undefined
+							reviewedScripts.record(saved.path, saved.text)
+							return saved.text
 						},
 						describeResume: (runId, script) =>
 							describeResume(

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
-import { editableCopyPath } from '../resume.js'
+import { ReviewedScripts, editableCopyPath } from '../resume.js'
 import { workflowHarness } from './harness.js'
 
 const META = "export const meta = { name: 'Audit run', description: 'Three steps' }\n"
@@ -99,6 +99,37 @@ describe('resuming a workflow through the tool', () => {
 		await h.untilEnded(2)
 		expect(h.prompts.slice(3)).toEqual(['three'])
 		expect(h.ended[1]?.view.result).toEqual(['ok:one', 'ok:two', 'ok:three'])
+	})
+
+	it('refuses a saved script that changed after the review showed it, then runs after a fresh review', async () => {
+		const reviewed = new ReviewedScripts()
+		const h = await make({ reviewedScripts: reviewed })
+		const runId = idOf(await h.start({ script: THREE }))
+		await h.untilEnded()
+		const path = editableCopyPath(h.runs, 'Audit run', runId)
+		reviewed.record(path, readFileSync(path, 'utf8'))
+		writeFileSync(path, THREE.replace("'two'", "'something else'"))
+		const refused = await h.start({ scriptPath: path, resumeFromRunId: runId })
+		expect(refused.success).toBe(false)
+		expect(refused.error).toContain('changed after the operator reviewed it')
+		expect(h.prompts).toHaveLength(3)
+
+		reviewed.record(path, readFileSync(path, 'utf8'))
+		const ok = await h.start({ scriptPath: path, resumeFromRunId: runId })
+		expect(ok.success).toBe(true)
+		await h.untilEnded(2)
+		expect(h.prompts.slice(3)).toEqual(['something else', 'three'])
+	})
+
+	it('says why a journal signed with another key cannot be resumed', async () => {
+		const h = await make({ journalKey: 'a'.repeat(40) })
+		const runId = idOf(await h.start({ script: THREE }))
+		await h.untilEnded()
+		h.setJournalKey('b'.repeat(40))
+		const again = await h.start({ script: THREE, resumeFromRunId: runId })
+		expect(again.success).toBe(false)
+		expect(again.error).toContain('signed with a different key')
+		expect(h.prompts).toHaveLength(3)
 	})
 
 	it('refuses to resume a run that is still going, and says what to do', async () => {

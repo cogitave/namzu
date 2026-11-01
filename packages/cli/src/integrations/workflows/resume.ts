@@ -130,10 +130,44 @@ export function readSavedScript(path: string, directory: string): SavedScript {
 }
 
 /**
+ * The scripts the operator was shown for approval, by file, as a hash of the
+ * text. The review records what it showed; the run takes the record and
+ * refuses to start if the file now reads differently, so what runs is what
+ * was reviewed even when something else wrote the file in between.
+ */
+export class ReviewedScripts {
+	private readonly hashes = new Map<string, string>()
+
+	record(path: string, text: string): void {
+		this.hashes.delete(path)
+		this.hashes.set(path, createHash('sha256').update(text).digest('hex'))
+		// A review nobody answered must not pile up.
+		for (const oldest of this.hashes.keys()) {
+			if (this.hashes.size <= 64) break
+			this.hashes.delete(oldest)
+		}
+	}
+
+	/**
+	 * Consume the record for `path`. `unreviewed` when no review showed it (an allow
+	 * rule or a mode that does not ask), `changed` when the text is not the one shown.
+	 * The record is spent either way, so a refusal is followed by a fresh review.
+	 */
+	take(path: string, text: string): 'same' | 'changed' | 'unreviewed' {
+		const shown = this.hashes.get(path)
+		this.hashes.delete(path)
+		if (shown === undefined) return 'unreviewed'
+		return shown === createHash('sha256').update(text).digest('hex') ? 'same' : 'changed'
+	}
+}
+
+/**
  * The secret that signs every line of a run's journal. It lives beside the
- * conversation store, outside every folder a tool call writes in, and is made
- * on first use. `undefined` when it cannot be read or made: journals are then
- * chained but not signed.
+ * conversation store, outside the folders the file-editing tools write in, and
+ * is made on first use. `undefined` when it cannot be read or made: journals
+ * are then chained but not signed. The signature finds accidental damage and
+ * edits made with the file tools; it does not stop a shell the model runs on
+ * the same machine, which can read this file like any other of the user's.
  */
 export function workflowJournalKey(home: string): string | undefined {
 	const file = join(home, 'workflow-journal.key')
@@ -156,6 +190,22 @@ export function workflowJournalKey(home: string): string | undefined {
 		}
 	}
 }
+
+/**
+ * Whether a journal that yields no trusted record is only unverifiable because
+ * its lines were signed with another key than `key`: it chains without the key
+ * and does not with it.
+ */
+export function journalKeyMismatch(text: string, runId: string, key: string): boolean {
+	if (text === '') return false
+	const withKey = readWorkflowJournalChecked(text, runId, { key })
+	if (withKey.legacy || withKey.records.length > 0) return false
+	return readWorkflowJournalChecked(text, runId).records.length > 0
+}
+
+/** What the person is told when a journal's signature does not match this machine's key. */
+export const KEY_MISMATCH_MESSAGE =
+	'The journal was signed with a different key than the one this machine has now (the key file was replaced, moved or cannot be read), so none of its saved results can be trusted.'
 
 /** What the operator reads before a resume starts. */
 export interface ResumeReview {
@@ -212,6 +262,14 @@ export function describeResume(
 	}
 	const checked = readWorkflowJournalChecked(text, runId, key !== undefined ? { key } : {})
 	const state = loadWorkflowResume(checked)
+	if (key !== undefined && journalKeyMismatch(text, runId, key)) {
+		return {
+			...base,
+			resumable: false,
+			legacy: false,
+			problems: [KEY_MISMATCH_MESSAGE],
+		}
+	}
 	const unfinished = [...state.seen].filter(
 		(k) => !state.results.has(k) && !state.failed.has(k),
 	).length

@@ -9,6 +9,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -30,10 +31,13 @@ import { completionNotice, launchedText } from './notice.js'
 import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
 import {
+	KEY_MISMATCH_MESSAGE,
 	MAX_SCRIPT_BYTES,
 	RUN_ID_PATTERN,
+	type ReviewedScripts,
 	controlCharacterProblem,
 	editableCopyPath,
+	journalKeyMismatch,
 	readSavedScript,
 	scriptsDirectory,
 	writeEditableCopy,
@@ -91,6 +95,8 @@ export interface WorkflowHostOptions {
 	readonly onEnd?: (end: WorkflowRunEnd) => void
 	/** The secret that signs journal lines, when the session has one. */
 	readonly journalKey?: () => string | undefined
+	/** What the operator was shown of each saved script; a run refuses a file that reads differently now. */
+	readonly reviewedScripts?: ReviewedScripts
 	readonly registry?: WorkflowRunRegistry
 }
 
@@ -265,6 +271,13 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				}
 				const saved = readSavedScript(given.scriptPath, scriptsDirectory(runs))
 				if (!saved.ok) return { success: false, output: '', error: saved.error }
+				if (options.reviewedScripts?.take(saved.path, saved.text) === 'changed') {
+					return {
+						success: false,
+						output: '',
+						error: `${given.scriptPath} changed after the operator reviewed it, so it was not run. Call workflow again to have the current text reviewed.`,
+					}
+				}
 				script = saved.text
 				scriptFile = saved.path
 			} else {
@@ -348,6 +361,19 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				}
 				resumeState = loadWorkflowResume(checked)
 				if (!resumeState.resumable) {
+					const mismatch =
+						key !== undefined &&
+						(await readFile(join(runs, runId, 'workflow', 'journal.jsonl'), 'utf8').then(
+							(text) => journalKeyMismatch(text, runId, key),
+							() => false,
+						))
+					if (mismatch) {
+						return {
+							success: false,
+							output: '',
+							error: `Workflow ${runId} cannot be resumed. ${KEY_MISMATCH_MESSAGE} To run it from the start, call workflow again without resumeFromRunId.`,
+						}
+					}
 					return {
 						success: false,
 						output: '',
